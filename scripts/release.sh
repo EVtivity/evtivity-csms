@@ -183,9 +183,9 @@ fi
 
 git add package.json packages/*/package.json
 if git diff --cached --quiet; then
-  git commit --allow-empty -m "Releasing version $next_version"
+  git commit --allow-empty -m "release: version $next_version"
 else
-  git commit -m "Releasing version $next_version"
+  git commit -m "release: version $next_version"
 fi
 git tag "$next"
 git push origin HEAD "$next"
