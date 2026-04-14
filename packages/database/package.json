@@ -1,0 +1,38 @@
+{
+  "name": "@evtivity/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./src/index.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "generate": "node --import tsx ../../node_modules/drizzle-kit/bin.cjs generate",
+    "migrate": "node --import tsx ../../node_modules/drizzle-kit/bin.cjs migrate",
+    "seed": "node --env-file=../../.env --import=tsx/esm src/seed.ts",
+    "studio": "node --import tsx ../../node_modules/drizzle-kit/bin.cjs studio",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "argon2": "^0.44.0",
+    "drizzle-orm": "^0.45.2",
+    "nanoid": "^3.3.11",
+    "postgres": "^3.4.5",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

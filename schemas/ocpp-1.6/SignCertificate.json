@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "id": "urn:OCPP:1.6:2019:12:SignCertificateRequest",
+  "title": "SignCertificateRequest",
+  "type": "object",
+  "properties": {
+    "csr": {
+      "type": "string",
+      "maxLength": 5500
+    }
+  },
+  "additionalProperties": false,
+  "required": ["csr"]
+}

@@ -1,0 +1,40 @@
+import type { ValidateFunction } from 'ajv';
+import { ajv } from './_ajv.js';
+
+const schema = {
+  "$id": "urn:OCPP:Cp:2:2025:1:ClearDisplayMessageRequest",
+  "comment": "OCPP 2.1 Edition 1 (c) OCA, Creative Commons Attribution-NoDerivatives 4.0 International Public License",
+  "definitions": {
+    "CustomDataType": {
+      "description": "This class does not get 'AdditionalProperties = false' in the schema generation, so it can be extended with arbitrary JSON properties to allow adding custom data.",
+      "javaType": "CustomData",
+      "type": "object",
+      "properties": {
+        "vendorId": {
+          "type": "string",
+          "maxLength": 255
+        }
+      },
+      "required": [
+        "vendorId"
+      ]
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "description": "Id of the message that SHALL be removed from the Charging Station.\r\n",
+      "type": "integer",
+      "minimum": 0
+    },
+    "customData": {
+      "$ref": "#/definitions/CustomDataType"
+    }
+  },
+  "required": [
+    "id"
+  ]
+} as const;
+
+export const validateClearDisplayMessageRequest: ValidateFunction = ajv.compile(schema);

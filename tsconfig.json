@@ -1,0 +1,16 @@
+{
+  "references": [
+    { "path": "packages/codegen" },
+    { "path": "packages/ocpp" },
+    { "path": "packages/database" },
+    { "path": "packages/lib" },
+    { "path": "packages/api" },
+    { "path": "packages/csms" },
+    { "path": "packages/css" },
+    { "path": "packages/ocpi" },
+    { "path": "packages/portal" },
+    { "path": "packages/worker" },
+    { "path": "packages/octt" }
+  ],
+  "files": []
+}

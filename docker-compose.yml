@@ -1,0 +1,423 @@
+name: evtivity
+
+services:
+  postgres:
+    image: postgres:17
+    ports:
+      - '5433:5432'
+    environment:
+      POSTGRES_USER: evtivity
+      POSTGRES_PASSWORD: evtivity
+      POSTGRES_DB: evtivity
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    mem_limit: 1g
+    cpus: 1.0
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U evtivity']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - '6379:6379'
+    volumes:
+      - redisdata:/data
+    mem_limit: 1g
+    cpus: 0.5
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build:
+      context: .
+      dockerfile: packages/database/Dockerfile.dev
+    mem_limit: 1g
+    cpus: 0.5
+    environment:
+      DATABASE_URL: postgres://evtivity:evtivity@postgres:5432/evtivity
+      SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-dev-encryption-key-32chars-long!}
+      SEED_DEMO: ${SEED_DEMO:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: packages/api/Dockerfile.dev
+    ports:
+      - '${BIND_IP:-0.0.0.0}:${API_PORT:-7102}:${API_PORT:-7102}'
+    mem_limit: 1g
+    cpus: 1.0
+    environment:
+      DATABASE_URL: postgres://evtivity:evtivity@postgres:5432/evtivity
+      REDIS_URL: redis://redis:6379
+      API_PORT: ${API_PORT:-7102}
+      OCPP_PORT: ${OCPP_PORT:-7103}
+      JWT_SECRET: dev-secret-change-in-production!
+      SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-dev-encryption-key-32chars-long!}
+      CORS_ORIGIN: local
+      LOG_LEVEL: info
+      NODE_ENV: development
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-3000}
+      RATE_LIMIT_WINDOW: ${RATE_LIMIT_WINDOW:-1 minute}
+      AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-30}
+      AUTH_RATE_LIMIT_WINDOW: ${AUTH_RATE_LIMIT_WINDOW:-1 minute}
+      METRICS_PORT: 9091
+      SMTP_HOST: mailpit
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:' + (process.env.API_PORT || 7102) + '/health').then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  ocpp:
+    build:
+      context: .
+      dockerfile: packages/ocpp/Dockerfile.dev
+    ports:
+      - '${BIND_IP:-0.0.0.0}:${OCPP_PORT:-7103}:${OCPP_PORT:-7103}'
+      - '${BIND_IP:-0.0.0.0}:8443:8443'
+      - '${BIND_IP:-0.0.0.0}:9229:9229'
+    mem_limit: 4g
+    cpus: 2.0
+    environment:
+      DATABASE_URL: postgres://evtivity:evtivity@postgres:5432/evtivity
+      REDIS_URL: redis://redis:6379
+      SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-dev-encryption-key-32chars-long!}
+      NODE_INSPECT: ${NODE_INSPECT:---inspect=0.0.0.0:9229}
+      OCPP_PORT: ${OCPP_PORT:-7103}
+      OCPP_HEALTH_PORT: 8081
+      OCPP_MAX_CONNECTIONS_PER_IP: ${OCPP_MAX_CONNECTIONS_PER_IP:-2500}
+      OCPP_MAX_MESSAGES_PER_IP_PER_SECOND: ${OCPP_MAX_MESSAGES_PER_IP_PER_SECOND:-5000}
+      OCPP_TLS_CERT: /app/packages/css/test-certs/server.pem
+      OCPP_TLS_KEY: /app/packages/css/test-certs/server-key.pem
+      OCPP_TLS_CA: /app/packages/css/test-certs/ca.pem
+      OCPP_TLS_PORT: 8443
+      LOG_LEVEL: info
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:8081/').then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  csms:
+    build:
+      context: .
+      dockerfile: packages/csms/Dockerfile.dev
+      args:
+        VITE_CSMS_AUTO_LOGIN: ${CSMS_LOGIN:-}
+    ports:
+      - '${BIND_IP:-0.0.0.0}:${CSMS_PORT:-7100}:${CSMS_PORT:-7100}'
+    mem_limit: 1g
+    cpus: 0.5
+    healthcheck:
+      test:
+        ['CMD', 'wget', '--quiet', '--tries=1', '--spider', 'http://127.0.0.1:${CSMS_PORT:-7100}/']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    depends_on:
+      api:
+        condition: service_healthy
+      ocpp:
+        condition: service_healthy
+
+  portal:
+    build:
+      context: .
+      dockerfile: packages/portal/Dockerfile.dev
+      args:
+        VITE_PORTAL_AUTO_LOGIN: ${PORTAL_LOGIN:-}
+    ports:
+      - '${BIND_IP:-0.0.0.0}:${PORTAL_PORT:-7101}:${PORTAL_PORT:-7101}'
+    mem_limit: 1g
+    cpus: 0.5
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '--quiet',
+          '--tries=1',
+          '--spider',
+          'http://127.0.0.1:${PORTAL_PORT:-7101}/',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    depends_on:
+      api:
+        condition: service_healthy
+
+  simulator:
+    build:
+      context: .
+      dockerfile: packages/css/Dockerfile.dev
+    mem_limit: 1g
+    cpus: 0.5
+    environment:
+      DATABASE_URL: postgres://evtivity:evtivity@postgres:5432/evtivity
+      REDIS_URL: redis://redis:6379
+      OCPP_SERVER_URL: ws://ocpp:${OCPP_PORT:-7103}
+      OCPP_TLS_SERVER_URL: wss://ocpp:8443
+      CSS_MODE: ${CSS_MODE:-chaos}
+      CSS_ACTION_INTERVAL_MS: ${CSS_ACTION_INTERVAL_MS:-1000}
+      CSS_STATION_LIMIT: ${CSS_STATION_LIMIT:-0}
+    depends_on:
+      ocpp:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  ocpi:
+    build:
+      context: .
+      dockerfile: packages/ocpi/Dockerfile.dev
+    ports:
+      - '${BIND_IP:-0.0.0.0}:${OCPI_PORT:-7104}:${OCPI_PORT:-7104}'
+    mem_limit: 1g
+    cpus: 0.5
+    environment:
+      DATABASE_URL: postgres://evtivity:evtivity@postgres:5432/evtivity
+      REDIS_URL: redis://redis:6379
+      SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-dev-encryption-key-32chars-long!}
+      OCPI_PORT: ${OCPI_PORT:-7104}
+      OCPI_BASE_URL: http://localhost:${OCPI_PORT:-7104}
+      OCPI_COUNTRY_CODE: US
+      OCPI_PARTY_ID: EVT
+      OCPI_BUSINESS_NAME: EVtivity
+      LOG_LEVEL: info
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "const net = require('net'); const c = net.connect(process.env.OCPI_PORT || 7104, 'localhost', () => { c.destroy(); process.exit(0); }); c.on('error', () => process.exit(1));",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    profiles:
+      - ocpi
+
+  ocpi-simulator:
+    build:
+      context: .
+      dockerfile: packages/ocpi-simulator/Dockerfile.dev
+    mem_limit: 1g
+    cpus: 0.5
+    environment:
+      OCPI_SIM_PORT: ${OCPI_SIM_PORT:-7105}
+      OCPI_SIM_ROLE: emsp
+      OCPI_SIM_BASE_URL: http://ocpi-simulator:${OCPI_SIM_PORT:-7105}
+      OCPI_SIM_COUNTRY_CODE: NL
+      OCPI_SIM_PARTY_ID: SIM
+      OCPI_SIM_NAME: OCPI Simulator
+    depends_on:
+      ocpi:
+        condition: service_healthy
+    profiles:
+      - ocpi
+
+  ocpi-cpo-sim:
+    build:
+      context: .
+      dockerfile: packages/ocpi-simulator/Dockerfile.dev
+    mem_limit: 1g
+    cpus: 0.5
+    environment:
+      OCPI_SIM_PORT: ${OCPI_SIM_CPO_PORT:-7106}
+      OCPI_SIM_ROLE: cpo
+      OCPI_SIM_BASE_URL: http://ocpi-cpo-sim:${OCPI_SIM_CPO_PORT:-7106}
+      OCPI_SIM_COUNTRY_CODE: DE
+      OCPI_SIM_PARTY_ID: CPO
+      OCPI_SIM_NAME: OCPI CPO Simulator
+      OCPI_SIM_AUTO_SESSION: 'true'
+      OCPI_SIM_SESSION_INTERVAL: 60
+      OCPI_SIM_SESSION_DURATION: 30
+    depends_on:
+      ocpi:
+        condition: service_healthy
+    profiles:
+      - ocpi
+
+  worker:
+    build:
+      context: .
+      dockerfile: packages/worker/Dockerfile.dev
+    mem_limit: 1g
+    cpus: 0.5
+    environment:
+      DATABASE_URL: postgres://evtivity:evtivity@postgres:5432/evtivity
+      REDIS_URL: redis://redis:6379
+      SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-dev-encryption-key-32chars-long!}
+      API_PORT: ${API_PORT:-7102}
+      OCPP_PORT: ${OCPP_PORT:-7103}
+      OCPP_SERVER_URL: ws://ocpp:${OCPP_PORT:-7103}
+      API_BASE_URL: http://api:${API_PORT:-7102}
+      LOG_LEVEL: info
+      NODE_ENV: development
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    ports:
+      - '${BIND_IP:-0.0.0.0}:${PGADMIN_PORT:-7109}:80'
+    mem_limit: 1g
+    cpus: 0.5
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@evtivity.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    volumes:
+      - pgadmindata:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - tools
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - '${BIND_IP:-0.0.0.0}:${MAILPIT_PORT:-7108}:8025'
+      - '1025:1025'
+    mem_limit: 1g
+    cpus: 0.25
+    profiles:
+      - tools
+
+  ftp:
+    image: stilliard/pure-ftpd:latest
+    platform: linux/amd64
+    mem_limit: 1g
+    cpus: 0.25
+    ports:
+      - '21:21'
+      - '30000-30009:30000-30009'
+    environment:
+      PUBLICHOST: localhost
+      FTP_USER_NAME: evtivity
+      FTP_USER_PASS: evtivity
+      FTP_USER_HOME: /home/evtivity
+      FTP_PASSIVE_PORTS: 30000:30009
+    volumes:
+      - ftpdata:/home/evtivity
+    profiles:
+      - tools
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    ports:
+      - '${BIND_IP:-0.0.0.0}:9090:9090'
+    mem_limit: 1g
+    cpus: 0.5
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheusdata:/prometheus
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    ports:
+      - '${BIND_IP:-0.0.0.0}:${GRAFANA_PORT:-7107}:3000'
+    mem_limit: 1g
+    cpus: 0.5
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_SMTP_ENABLED: 'true'
+      GF_SMTP_HOST: mailpit:1025
+      GF_SMTP_SKIP_VERIFY: 'true'
+      GF_SMTP_FROM_ADDRESS: grafana@evtivity.local
+      GF_SMTP_FROM_NAME: EVtivity Alerts
+    volumes:
+      - ./prometheus/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./prometheus/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      - prometheus
+    profiles:
+      - monitoring
+
+  loki:
+    image: grafana/loki:3.4.2
+    ports:
+      - '${BIND_IP:-0.0.0.0}:3100:3100'
+    mem_limit: 1g
+    cpus: 0.5
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./prometheus/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - lokidata:/loki
+    profiles:
+      - monitoring
+
+  alloy:
+    image: grafana/alloy:v1.8.1
+    mem_limit: 1g
+    cpus: 0.5
+    volumes:
+      - ./prometheus/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: run /etc/alloy/config.alloy
+    depends_on:
+      - loki
+    profiles:
+      - monitoring
+
+volumes:
+  pgdata:
+  redisdata:
+  ftpdata:
+  pgadmindata:
+  prometheusdata:
+  grafanadata:
+  lokidata:

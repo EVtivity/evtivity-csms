@@ -1,0 +1,24 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.DS_Store
+*.swp
+*.swo
+coverage/
+*.log
+packages/database/seed.config.json
+
+# Source materials (not part of project)
+OCPP-2.1_Edition2_all_files.zip
+OCPP-2.1_Edition2_all_files/
+OCPP-2.1_part3_JSON_schemas/
+evtivity-legacy.git/
+__pycache__/
+docs/qa/playwright-report/
+test-results/
+packages/csms/e2e/.auth/
+packages/portal/e2e/.auth/
+packages/css/test-certs/

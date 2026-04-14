@@ -1,0 +1,81 @@
+{
+  "name": "evtivity",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "codegen:2.1": "npm run build --workspace=@evtivity/codegen && node packages/codegen/dist/index.js --version 2.1",
+    "codegen:1.6": "npm run build --workspace=@evtivity/codegen && node packages/codegen/dist/index.js --version 1.6",
+    "dev:ocpp": "node --env-file=.env --import tsx --watch packages/ocpp/src/start.ts",
+    "dev:api": "node --env-file=.env --import tsx --watch packages/api/src/index.ts",
+    "dev:csms": "npm run dev --workspace=@evtivity/csms",
+    "dev:portal": "npm run dev --workspace=@evtivity/portal",
+    "dev:ocpi": "node --env-file=.env --import tsx --watch packages/ocpi/src/index.ts",
+    "dev:worker": "node --env-file=.env --import tsx --watch packages/worker/src/index.ts",
+    "dev:css": "node --env-file=.env --import tsx packages/css/src/index.ts",
+    "dev:ocpi-sim": "node --env-file=.env --import tsx packages/ocpi-simulator/src/index.ts",
+    "dev:ocpi-sim-cpo": "node --env-file=.env --env-file=.env.sim-cpo --import tsx packages/ocpi-simulator/src/index.ts",
+    "dev:infra": "docker compose --profile tools --profile monitoring up -d postgres redis migrate mailpit prometheus grafana loki alloy",
+    "dev:infra:down": "docker compose down",
+    "db:generate": "npm run generate --workspace=@evtivity/database",
+    "db:migrate": "npm run migrate --workspace=@evtivity/database",
+    "db:seed": "npm run seed --workspace=@evtivity/database",
+    "generate:openapi": "npm run generate:openapi --workspace=@evtivity/api",
+    "octt": "node --env-file=.env --import tsx packages/octt/src/cli.ts --server ws://localhost:7103",
+    "octt:1.6": "node --env-file=.env --import tsx packages/octt/src/cli.ts --server ws://localhost:7103 --version ocpp1.6",
+    "octt:2.1": "node --env-file=.env --import tsx packages/octt/src/cli.ts --server ws://localhost:7103 --version ocpp2.1",
+    "octt:cs": "node --env-file=.env --import tsx packages/octt/src/cs-cli.ts",
+    "octt:cs:2.1": "node --env-file=.env --import tsx packages/octt/src/cs-cli.ts --version ocpp2.1",
+    "octt:cs:1.6": "node --env-file=.env --import tsx packages/octt/src/cs-cli.ts --version ocpp1.6",
+    "test": "vitest run --config vitest.workspace.ts",
+    "test:integration": "vitest run --config vitest.integration.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc -b",
+    "build:prod": "node scripts/build.mjs all",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "license:fix": "node internal-scripts/add-license-headers.mjs",
+    "license:check": "node internal-scripts/add-license-headers.mjs --check",
+    "test:e2e": "npx playwright test",
+    "prepare": "husky"
+  },
+  "license": "BUSL-1.1",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml,css}": [
+      "prettier --write"
+    ]
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.1",
+    "@commitlint/cli": "^20.4.2",
+    "@commitlint/config-conventional": "^20.4.2",
+    "@eslint/js": "^9.39.2",
+    "@playwright/test": "^1.58.2",
+    "@vitest/coverage-v8": "^4.0.18",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-headers": "^1.3.4",
+    "globals": "^17.3.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
+    "prettier": "^3.8.1",
+    "tsx": "^4.21.0",
+    "typescript-eslint": "^8.55.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
+    "@fastify/jwt": "^10.0.0",
+    "drizzle-orm": "^0.45.2",
+    "nodemailer": "^8.0.5"
+  }
+}

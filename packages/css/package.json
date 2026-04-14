@@ -1,0 +1,44 @@
+{
+  "name": "@evtivity/css",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./src/index.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./ocpp-client": {
+      "import": {
+        "types": "./src/ocpp-client.ts",
+        "default": "./dist/ocpp-client.js"
+      }
+    },
+    "./station-simulator": {
+      "import": {
+        "types": "./src/station-simulator.ts",
+        "default": "./dist/station-simulator.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@evtivity/lib": "*",
+    "@evtivity/ocpp": "*",
+    "postgres": "^3.4.5",
+    "ws": "^8.19.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.18"
+  }
+}

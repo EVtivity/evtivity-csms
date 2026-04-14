@@ -1,0 +1,31 @@
+FROM node:24-slim
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+COPY packages/lib/package.json packages/lib/
+COPY packages/database/package.json packages/database/
+COPY packages/api/package.json packages/api/
+COPY packages/ocpp/package.json packages/ocpp/
+COPY packages/ocpi/package.json packages/ocpi/
+COPY packages/csms/package.json packages/csms/
+COPY packages/portal/package.json packages/portal/
+COPY packages/codegen/package.json packages/codegen/
+COPY packages/css/package.json packages/css/
+COPY packages/ocpi-simulator/package.json packages/ocpi-simulator/
+COPY packages/octt/package.json packages/octt/
+COPY packages/worker/package.json packages/worker/
+
+RUN npm ci --ignore-scripts
+
+COPY tsconfig.base.json tsconfig.json ./
+COPY packages/lib/ packages/lib/
+COPY packages/database/ packages/database/
+COPY packages/css/ packages/css/
+RUN npx tsc -b --force packages/lib packages/database
+
+COPY scripts/generate-test-certs.sh scripts/generate-test-certs.sh
+RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/* \
+    && bash scripts/generate-test-certs.sh packages/css/test-certs
+
+CMD ["node", "--import", "tsx", "packages/css/src/index.ts"]

@@ -1,0 +1,33 @@
+import type { ValidateFunction } from 'ajv';
+import { ajv } from './_ajv.js';
+
+const schema = {
+  "$id": "urn:OCPP:Cp:2:2025:1:ReportDERControlResponse",
+  "description": "This message has no parameters.\r\n\r\n",
+  "comment": "OCPP 2.1 Edition 1 (c) OCA, Creative Commons Attribution-NoDerivatives 4.0 International Public License",
+  "definitions": {
+    "CustomDataType": {
+      "description": "This class does not get 'AdditionalProperties = false' in the schema generation, so it can be extended with arbitrary JSON properties to allow adding custom data.",
+      "javaType": "CustomData",
+      "type": "object",
+      "properties": {
+        "vendorId": {
+          "type": "string",
+          "maxLength": 255
+        }
+      },
+      "required": [
+        "vendorId"
+      ]
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "customData": {
+      "$ref": "#/definitions/CustomDataType"
+    }
+  }
+} as const;
+
+export const validateReportDERControlResponse: ValidateFunction = ajv.compile(schema);

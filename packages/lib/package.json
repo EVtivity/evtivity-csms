@@ -1,0 +1,38 @@
+{
+  "name": "@evtivity/lib",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./src/index.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@sentry/node": "^10.42.0",
+    "bullmq": "^5.0.0",
+    "handlebars": "^4.7.8",
+    "ioredis": "^5.9.3",
+    "nanoid": "^3.3.11",
+    "nodemailer": "^8.0.1",
+    "otpauth": "^9.5.0",
+    "pino": "^9.6.0",
+    "postgres": "^3.4.8",
+    "reflect-metadata": "^0.2.2",
+    "tsyringe": "^4.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/nodemailer": "^7.0.9",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

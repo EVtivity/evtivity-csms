@@ -1,0 +1,26 @@
+export const DERControlEnum = {
+  EnterService: 'EnterService',
+  FreqDroop: 'FreqDroop',
+  FreqWatt: 'FreqWatt',
+  FixedPFAbsorb: 'FixedPFAbsorb',
+  FixedPFInject: 'FixedPFInject',
+  FixedVar: 'FixedVar',
+  Gradients: 'Gradients',
+  HFMustTrip: 'HFMustTrip',
+  HFMayTrip: 'HFMayTrip',
+  HVMustTrip: 'HVMustTrip',
+  HVMomCess: 'HVMomCess',
+  HVMayTrip: 'HVMayTrip',
+  LimitMaxDischarge: 'LimitMaxDischarge',
+  LFMustTrip: 'LFMustTrip',
+  LVMustTrip: 'LVMustTrip',
+  LVMomCess: 'LVMomCess',
+  LVMayTrip: 'LVMayTrip',
+  PowerMonitoringMustTrip: 'PowerMonitoringMustTrip',
+  VoltVar: 'VoltVar',
+  VoltWatt: 'VoltWatt',
+  WattPF: 'WattPF',
+  WattVar: 'WattVar',
+} as const;
+
+export type DERControlEnum = (typeof DERControlEnum)[keyof typeof DERControlEnum];

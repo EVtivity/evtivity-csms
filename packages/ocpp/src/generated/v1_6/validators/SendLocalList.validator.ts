@@ -1,0 +1,71 @@
+import type { ValidateFunction } from 'ajv';
+import { ajv } from './_ajv.js';
+
+const schema = {
+  "title": "SendLocalListRequest",
+  "type": "object",
+  "properties": {
+    "listVersion": {
+      "type": "integer"
+    },
+    "localAuthorizationList": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "idTag": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "idTagInfo": {
+            "type": "object",
+            "properties": {
+              "expiryDate": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "parentIdTag": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "status": {
+                "type": "string",
+                "additionalProperties": false,
+                "enum": [
+                  "Accepted",
+                  "Blocked",
+                  "Expired",
+                  "Invalid",
+                  "ConcurrentTx"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "status"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "idTag"
+        ]
+      }
+    },
+    "updateType": {
+      "type": "string",
+      "additionalProperties": false,
+      "enum": [
+        "Differential",
+        "Full"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "listVersion",
+    "updateType"
+  ]
+} as const;
+
+export const validateSendLocalList: ValidateFunction = ajv.compile(schema);

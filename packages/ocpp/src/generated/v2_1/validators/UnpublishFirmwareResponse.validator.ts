@@ -1,0 +1,49 @@
+import type { ValidateFunction } from 'ajv';
+import { ajv } from './_ajv.js';
+
+const schema = {
+  "$id": "urn:OCPP:Cp:2:2025:1:UnpublishFirmwareResponse",
+  "comment": "OCPP 2.1 Edition 1 (c) OCA, Creative Commons Attribution-NoDerivatives 4.0 International Public License",
+  "definitions": {
+    "UnpublishFirmwareStatusEnumType": {
+      "description": "Indicates whether the Local Controller succeeded in unpublishing the firmware.\r\n",
+      "javaType": "UnpublishFirmwareStatusEnum",
+      "type": "string",
+      "additionalProperties": false,
+      "enum": [
+        "DownloadOngoing",
+        "NoFirmware",
+        "Unpublished"
+      ]
+    },
+    "CustomDataType": {
+      "description": "This class does not get 'AdditionalProperties = false' in the schema generation, so it can be extended with arbitrary JSON properties to allow adding custom data.",
+      "javaType": "CustomData",
+      "type": "object",
+      "properties": {
+        "vendorId": {
+          "type": "string",
+          "maxLength": 255
+        }
+      },
+      "required": [
+        "vendorId"
+      ]
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "$ref": "#/definitions/UnpublishFirmwareStatusEnumType"
+    },
+    "customData": {
+      "$ref": "#/definitions/CustomDataType"
+    }
+  },
+  "required": [
+    "status"
+  ]
+} as const;
+
+export const validateUnpublishFirmwareResponse: ValidateFunction = ajv.compile(schema);

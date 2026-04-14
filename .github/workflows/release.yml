@@ -1,0 +1,165 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/evtivity/evtivity-csms
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - image: api
+            dockerfile: packages/api/Dockerfile
+            description: EVtivity CSMS REST API
+          - image: ocpp
+            dockerfile: packages/ocpp/Dockerfile
+            description: EVtivity CSMS OCPP WebSocket server
+          - image: ocpi
+            dockerfile: packages/ocpi/Dockerfile
+            description: EVtivity CSMS OCPI roaming server
+          - image: csms
+            dockerfile: packages/csms/Dockerfile
+            description: EVtivity CSMS operator dashboard
+          - image: portal
+            dockerfile: packages/portal/Dockerfile
+            description: EVtivity CSMS driver portal
+          - image: migrate
+            dockerfile: packages/database/Dockerfile
+            description: EVtivity CSMS database migrations
+          - image: css
+            dockerfile: packages/css/Dockerfile
+            description: EVtivity CSMS charging station simulator
+          - image: worker
+            dockerfile: packages/worker/Dockerfile
+            description: EVtivity CSMS background job worker
+          - image: ocpi-simulator
+            dockerfile: packages/ocpi-simulator/Dockerfile
+            description: EVtivity CSMS OCPI roaming simulator
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=ref,event=branch
+          labels: |
+            org.opencontainers.image.title=evtivity-${{ matrix.image }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.source=https://github.com/EVtivity/evtivity-csms-helm
+            org.opencontainers.image.licenses=LicenseRef-EVtivity-EULA
+            org.opencontainers.image.vendor=EVtivity
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: startsWith(github.ref, 'refs/tags/v')
+    outputs:
+      changelog: ${{ steps.changelog.outputs.body }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Find previous tag
+        id: prev_tag
+        run: |
+          PREV=$(git tag -l 'v*' --sort=-v:refname | grep -v "^${{ github.ref_name }}$" | head -n1)
+          echo "tag=${PREV}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          BODY=$(./scripts/generate-changelog.sh "${{ steps.prev_tag.outputs.tag }}" "${{ github.ref_name }}")
+          {
+            echo "body<<CHANGELOG_EOF"
+            echo "$BODY"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+          RELEASE_NOTES: ${{ steps.changelog.outputs.body }}
+        run: gh release create "$REF_NAME" --notes "$RELEASE_NOTES"
+
+  update-helm-chart:
+    name: Update Helm chart appVersion
+    runs-on: ubuntu-latest
+    needs: [build-and-push, github-release]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout helm chart repo
+        uses: actions/checkout@v5
+        with:
+          repository: EVtivity/evtivity-csms-helm
+          token: ${{ secrets.HELM_REPO_PAT }}
+
+      - name: Update Chart.yaml
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          VERSION="${REF_NAME#v}"
+          sed -i "s/^version:.*/version: $VERSION/" Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"$VERSION\"/" Chart.yaml
+
+      - name: Commit and push
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          VERSION="${REF_NAME#v}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Chart.yaml
+          if git diff --cached --quiet; then
+            echo "Chart.yaml already up to date"
+          else
+            git commit -m "Releasing version $VERSION"
+            git push
+          fi

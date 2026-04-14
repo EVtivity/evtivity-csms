@@ -1,0 +1,327 @@
+[
+  {
+    "path": "/docs/configuration/authentication",
+    "title": "Authentication",
+    "description": "Operator and driver authentication, API keys, RBAC, MFA, and security features."
+  },
+  {
+    "path": "/docs/configuration/database-setup",
+    "title": "Database Setup",
+    "description": "PostgreSQL, Redis, Drizzle ORM configuration, and migration workflow."
+  },
+  {
+    "path": "/docs/configuration/environment-variables",
+    "title": "Environment Variables",
+    "description": "All environment variables for EVtivity CSMS, organized by service."
+  },
+  {
+    "path": "/docs/configuration/ocpp-settings",
+    "title": "OCPP Settings",
+    "description": "OCPP protocol configuration, security profiles, TLS, and horizontal scaling."
+  },
+  {
+    "path": "/docs/csms/access-logs",
+    "title": "Access Logs",
+    "description": "View the audit trail of operator and driver actions across the CSMS."
+  },
+  {
+    "path": "/docs/csms/ai-assistant",
+    "title": "AI Assistant",
+    "description": "Query your charging network data using natural language with the built-in AI assistant."
+  },
+  {
+    "path": "/docs/csms/certificates",
+    "title": "Certificates",
+    "description": "Manage ISO 15118 Plug and Charge certificates, SP3/mTLS station certificates, and PKI provider integration."
+  },
+  {
+    "path": "/docs/csms/conformance-testing",
+    "title": "Conformance Testing",
+    "description": "Run OCPP conformance tests against your CSMS to validate protocol compliance."
+  },
+  {
+    "path": "/docs/csms/dashboard",
+    "title": "Dashboard",
+    "description": "Monitor your charging network with real-time stats, historical snapshots, and trend analysis."
+  },
+  {
+    "path": "/docs/csms/display-messages",
+    "title": "Display Messages",
+    "description": "Push pricing info and custom text to station screens via OCPP 2.1."
+  },
+  {
+    "path": "/docs/csms/drivers",
+    "title": "Drivers",
+    "description": "Manage driver accounts, tokens, vehicles, and notification preferences."
+  },
+  {
+    "path": "/docs/csms/firmware-updates",
+    "title": "Firmware Updates",
+    "description": "Create firmware update campaigns to roll out new firmware versions to groups of charging stations."
+  },
+  {
+    "path": "/docs/csms/fleets",
+    "title": "Fleets",
+    "description": "Organize drivers and stations into fleets for group management and pricing."
+  },
+  {
+    "path": "/docs/csms/free-vend",
+    "title": "Free Vend",
+    "description": "Enable free charging at a site without driver identification or payment."
+  },
+  {
+    "path": "/docs/csms/load-management",
+    "title": "Load Management",
+    "description": "Distribute available power across charging stations using hierarchical panel and circuit modeling with automatic 10-second control loops."
+  },
+  {
+    "path": "/docs/csms/local-auth-list",
+    "title": "Local Auth List",
+    "description": "Manage offline authorization tokens stored on each charging station."
+  },
+  {
+    "path": "/docs/csms/nevi-compliance",
+    "title": "NEVI Compliance",
+    "description": "Track station uptime against federal NEVI requirements for compliance reporting."
+  },
+  {
+    "path": "/docs/csms/notifications",
+    "title": "Notifications",
+    "description": "Configure notification templates, channels, and delivery settings for OCPP, driver, and system events."
+  },
+  {
+    "path": "/docs/csms/pricing",
+    "title": "Pricing",
+    "description": "Configure tariffs with time-of-day restrictions, split billing, holidays, and multi-level assignment."
+  },
+  {
+    "path": "/docs/csms/reports",
+    "title": "Reports",
+    "description": "Generate sustainability reports with carbon footprint tracking, CO2 avoided calculations, and CSV export."
+  },
+  {
+    "path": "/docs/csms/reservations",
+    "title": "Reservations",
+    "description": "Reserve connectors for drivers and manage reservation lifecycle."
+  },
+  {
+    "path": "/docs/csms/roaming",
+    "title": "Roaming",
+    "description": "Connect your charging network to roaming partners using OCPI 2.2.1 and 2.3.0 for cross-network EV charging."
+  },
+  {
+    "path": "/docs/csms/sessions",
+    "title": "Sessions",
+    "description": "Monitor charging sessions, review transaction details, and track energy delivery and costs."
+  },
+  {
+    "path": "/docs/csms/settings",
+    "title": "Settings",
+    "description": "Configure company info, marketing, content, notifications, sustainability, payments, integrations, security, API keys, firmware, station configurations, smart charging, AI, and conformance testing."
+  },
+  {
+    "path": "/docs/csms/sites",
+    "title": "Sites",
+    "description": "Create and manage physical locations where charging stations are deployed."
+  },
+  {
+    "path": "/docs/csms/smart-charging",
+    "title": "Smart Charging",
+    "description": "Create charging profile templates with time-of-day power schedules and push them to multiple stations."
+  },
+  {
+    "path": "/docs/csms/station-configurations",
+    "title": "Station Configurations",
+    "description": "Create configuration templates and push OCPP variable settings to groups of charging stations."
+  },
+  {
+    "path": "/docs/csms/station-images",
+    "title": "Station Images",
+    "description": "Upload, tag, and manage photos for each charging station."
+  },
+  {
+    "path": "/docs/csms/stations",
+    "title": "Stations",
+    "description": "Register charging stations, manage connectors, and configure OCPP settings."
+  },
+  {
+    "path": "/docs/csms/support-cases",
+    "title": "Support Cases",
+    "description": "Handle driver support requests with threaded messages, attachments, linked sessions, and refunds."
+  },
+  {
+    "path": "/docs/csms/tokens",
+    "title": "Tokens",
+    "description": "Manage driver authentication tokens including RFID cards and app-based tokens."
+  },
+  {
+    "path": "/docs/csms/users",
+    "title": "Users",
+    "description": "Manage operator users with role-based access control, granular permissions, and site-level access restrictions."
+  },
+  {
+    "path": "/docs/deployment/aws",
+    "title": "AWS Deployment",
+    "description": "Deploy EVtivity to AWS using CDK (ECS Fargate) or Kubernetes (Helm chart)."
+  },
+  {
+    "path": "/docs/deployment/docker",
+    "title": "Docker",
+    "description": "Docker images for each EVtivity service, registry details, and resource recommendations."
+  },
+  {
+    "path": "/docs/deployment/docker-compose",
+    "title": "Docker Compose",
+    "description": "Run all EVtivity services locally with Docker Compose, including optional tools and monitoring."
+  },
+  {
+    "path": "/docs/deployment/helm-chart",
+    "title": "Helm Chart",
+    "description": "Deploy EVtivity CSMS on Kubernetes using the evtivity-csms Helm chart with Gateway API routing, OCPP TLS, and optional monitoring."
+  },
+  {
+    "path": "/docs/deployment/minikube",
+    "title": "Minikube",
+    "description": "Run EVtivity CSMS on a local Kubernetes cluster using minikube for development and testing."
+  },
+  {
+    "path": "/docs/deployment/production-checklist",
+    "title": "Production Checklist",
+    "description": "Required steps to secure and prepare EVtivity for production deployment."
+  },
+  {
+    "path": "/docs/getting-started/installation",
+    "title": "Installation",
+    "description": "Set up EVtivity CSMS for local development."
+  },
+  {
+    "path": "/docs/getting-started/introduction",
+    "title": "Introduction",
+    "description": "What EVtivity CSMS is, what it does, and how it is built."
+  },
+  {
+    "path": "/docs/getting-started/project-structure",
+    "title": "Project Structure",
+    "description": "How the EVtivity monorepo is organized."
+  },
+  {
+    "path": "/docs/getting-started/quick-start",
+    "title": "Quick Start",
+    "description": "Run EVtivity CSMS locally with Docker in under 5 minutes."
+  },
+  {
+    "path": "/docs/guides/notifications",
+    "title": "Notifications",
+    "description": "Event categories, delivery channels, templates, and configuration for EVtivity notifications."
+  },
+  {
+    "path": "/docs/guides/portal-setup",
+    "title": "Portal Setup",
+    "description": "Driver-facing portal features, QR code charging, guest flow, and account management."
+  },
+  {
+    "path": "/docs/guides/session-monitoring",
+    "title": "Session Monitoring",
+    "description": "Session lifecycle, idle detection, cost calculation, and real-time dashboard in EVtivity CSMS."
+  },
+  {
+    "path": "/docs/guides/station-management",
+    "title": "Station Management",
+    "description": "How stations connect, report status, and are configured in EVtivity CSMS."
+  },
+  {
+    "path": "/docs/guides/user-management",
+    "title": "User Management",
+    "description": "Roles, permissions, site access control, and API keys in EVtivity CSMS."
+  },
+  {
+    "path": "/docs/integrations/energy-management",
+    "title": "Energy Management",
+    "description": "Load management, smart charging profiles, and carbon footprint tracking."
+  },
+  {
+    "path": "/docs/integrations/payment-providers",
+    "title": "Payment Providers",
+    "description": "Stripe integration for billing, pre-authorization, guest payments, and reconciliation."
+  },
+  {
+    "path": "/docs/integrations/webhooks",
+    "title": "Webhooks and Events",
+    "description": "Outgoing webhooks, incoming Stripe webhooks, SSE real-time streams, and internal pub/sub channels."
+  },
+  {
+    "path": "/docs/portal/account",
+    "title": "Account Settings",
+    "description": "Manage your personal info, security, notification preferences, RFID cards, vehicles, and favorites."
+  },
+  {
+    "path": "/docs/portal/activity",
+    "title": "Activity",
+    "description": "View charging history with cost, energy, and distance metrics by month."
+  },
+  {
+    "path": "/docs/portal/charging",
+    "title": "Start a Charging Session",
+    "description": "Find a station, select a connector, choose a payment method, and start charging as an authenticated driver."
+  },
+  {
+    "path": "/docs/portal/favorites",
+    "title": "Favorites",
+    "description": "Save and manage favorite charging stations for quick access."
+  },
+  {
+    "path": "/docs/portal/guest-charging",
+    "title": "Guest Charging",
+    "description": "Charge without an account using a QR code, pay with a credit card via Stripe, and track your session."
+  },
+  {
+    "path": "/docs/portal/location-detail",
+    "title": "Location Detail",
+    "description": "View site information, hours, images, directions, and popular times for a charging location."
+  },
+  {
+    "path": "/docs/portal/payment-methods",
+    "title": "Payment Methods",
+    "description": "Add, manage, and remove credit or debit cards for EV charging payments."
+  },
+  {
+    "path": "/docs/portal/registration",
+    "title": "Registration and Authentication",
+    "description": "Create a driver account, verify your email, log in, reset your password, and set up multi-factor authentication."
+  },
+  {
+    "path": "/docs/portal/rfid-cards",
+    "title": "RFID Cards",
+    "description": "Add and manage RFID cards for tap-to-charge at charging stations."
+  },
+  {
+    "path": "/docs/portal/sessions",
+    "title": "Activity and Sessions",
+    "description": "View your monthly charging dashboard, session history, monthly statements, and session detail receipts."
+  },
+  {
+    "path": "/docs/portal/support-cases",
+    "title": "Support Cases",
+    "description": "Report charging issues, communicate with the operator, and track case resolution."
+  },
+  {
+    "path": "/docs/portal/vehicles",
+    "title": "Vehicles",
+    "description": "Add vehicles to your account for estimated miles driven from energy consumed."
+  },
+  {
+    "path": "/docs/simulator/actions",
+    "title": "Simulator Actions",
+    "description": "Trigger physical actions on simulated stations including plug in, authorize, start and stop charging, inject faults, and power cycle."
+  },
+  {
+    "path": "/docs/simulator/overview",
+    "title": "Simulator Overview",
+    "description": "How the EVtivity charging station simulator works, its architecture, and configuration options."
+  },
+  {
+    "path": "/docs/simulator/stations",
+    "title": "Managing Simulated Stations",
+    "description": "Create, enable, and disable simulated charging stations through the CSMS dashboard."
+  }
+]
