@@ -2750,10 +2750,10 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      if (station.onboardingStatus !== 'pending') {
+      if (station.onboardingStatus !== 'pending' && station.onboardingStatus !== 'blocked') {
         await reply
           .status(409)
-          .send({ error: 'Station is not pending approval', code: 'NOT_PENDING' });
+          .send({ error: 'Station is not pending approval or blocked', code: 'NOT_PENDING' });
         return;
       }
 
