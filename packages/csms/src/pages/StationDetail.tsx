@@ -127,6 +127,13 @@ export function StationDetail(): React.JSX.Element {
     },
   });
 
+  const unblockMutation = useMutation({
+    mutationFn: () => api.post(`/v1/stations/${id ?? ''}/unblock`, {}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['stations', id] });
+    },
+  });
+
   if (isLoading) {
     return <p className="text-muted-foreground">{t('common.loading')}</p>;
   }
@@ -195,9 +202,9 @@ export function StationDetail(): React.JSX.Element {
             <Button
               size="sm"
               onClick={() => {
-                approveMutation.mutate();
+                unblockMutation.mutate();
               }}
-              disabled={approveMutation.isPending}
+              disabled={unblockMutation.isPending}
             >
               {t('stations.unblock')}
             </Button>

@@ -1572,4 +1572,93 @@ describe('Station routes - handler logic', () => {
       expect(response.json().success).toBe(true);
     });
   });
+
+  describe('POST /stations/:id/approve', () => {
+    it('approves a pending station', async () => {
+      setupDbResults(
+        [{ onboardingStatus: 'pending' }], // select station
+        [{ id: VALID_STATION_ID }], // update
+      );
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/approve`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode).toBe(200);
+    });
+
+    it('returns 409 when station is not pending', async () => {
+      setupDbResults([{ onboardingStatus: 'accepted' }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/approve`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode).toBe(409);
+    });
+
+    it('returns 404 when station not found', async () => {
+      setupDbResults([]);
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/approve`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode).toBe(404);
+    });
+  });
+
+  describe('POST /stations/:id/reject', () => {
+    it('blocks a pending station', async () => {
+      setupDbResults([{ onboardingStatus: 'pending' }], [{ id: VALID_STATION_ID }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/reject`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode).toBe(200);
+    });
+
+    it('returns 409 when station is not pending', async () => {
+      setupDbResults([{ onboardingStatus: 'blocked' }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/reject`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode).toBe(409);
+    });
+  });
+
+  describe('POST /stations/:id/unblock', () => {
+    it('unblocks a blocked station back to pending', async () => {
+      setupDbResults([{ onboardingStatus: 'blocked' }], [{ id: VALID_STATION_ID }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/unblock`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode).toBe(200);
+    });
+
+    it('returns 409 when station is not blocked', async () => {
+      setupDbResults([{ onboardingStatus: 'pending' }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/unblock`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode).toBe(409);
+    });
+
+    it('returns 404 when station not found', async () => {
+      setupDbResults([]);
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/unblock`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode).toBe(404);
+    });
+  });
 });

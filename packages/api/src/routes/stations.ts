@@ -2750,16 +2750,62 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      if (station.onboardingStatus !== 'pending' && station.onboardingStatus !== 'blocked') {
+      if (station.onboardingStatus !== 'pending') {
         await reply
           .status(409)
-          .send({ error: 'Station is not pending approval or blocked', code: 'NOT_PENDING' });
+          .send({ error: 'Station is not pending approval', code: 'NOT_PENDING' });
         return;
       }
 
       await db
         .update(chargingStations)
         .set({ onboardingStatus: 'accepted', updatedAt: new Date() })
+        .where(eq(chargingStations.id, id));
+
+      const pubsub = getPubSub();
+      await pubsub.publish(
+        'csms_events',
+        JSON.stringify({ eventType: 'station.status', stationId: id }),
+      );
+
+      return { success: true };
+    },
+  );
+
+  app.post(
+    '/stations/:id/unblock',
+    {
+      onRequest: [authorize('stations:write')],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Unblock a station (sets status to pending)',
+        operationId: 'unblockStation',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(stationParams),
+        response: { 200: successResponse, 404: errorResponse, 409: errorResponse },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof stationParams>;
+
+      const [station] = await db
+        .select({ onboardingStatus: chargingStations.onboardingStatus })
+        .from(chargingStations)
+        .where(eq(chargingStations.id, id));
+
+      if (station == null) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
+
+      if (station.onboardingStatus !== 'blocked') {
+        await reply.status(409).send({ error: 'Station is not blocked', code: 'NOT_BLOCKED' });
+        return;
+      }
+
+      await db
+        .update(chargingStations)
+        .set({ onboardingStatus: 'pending', updatedAt: new Date() })
         .where(eq(chargingStations.id, id));
 
       const pubsub = getPubSub();
