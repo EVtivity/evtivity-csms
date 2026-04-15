@@ -194,7 +194,7 @@ services:
       OCPP_SERVER_URL: ws://ocpp:${OCPP_PORT:-7103}
       OCPP_TLS_SERVER_URL: wss://ocpp:8443
       CSS_MODE: ${CSS_MODE:-chaos}
-      CSS_ACTION_INTERVAL_MS: ${CSS_ACTION_INTERVAL_MS:-1000}
+      CSS_ACTION_INTERVAL_MS: ${CSS_ACTION_INTERVAL_MS:-3000}
       CSS_STATION_LIMIT: ${CSS_STATION_LIMIT:-0}
     depends_on:
       ocpp:
