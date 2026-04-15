@@ -165,9 +165,14 @@ function logAction(method: string, path: string, body?: unknown): void {
   }
   // Use raw fetch instead of request() to avoid 401 redirect logic.
   // Access logging is fire-and-forget and should never trigger navigation.
+  const logHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+  const csrf = getCsrfToken();
+  if (csrf != null) {
+    logHeaders['X-CSRF-Token'] = csrf;
+  }
   fetch(`${BASE_URL}/v1/access-logs`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: logHeaders,
     body: JSON.stringify({ action, metadata }),
     credentials: 'include',
   }).catch(() => {});
