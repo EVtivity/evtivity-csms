@@ -635,6 +635,8 @@
     "reject": "Rechazar",
     "blockedInfo": "Esta estacion esta bloqueada. Apruebe para permitir que acepte sesiones de carga.",
     "unblock": "Desbloquear",
+    "blockStation": "Bloquear estacion",
+    "blockStationDescription": "Esto bloqueara la conexion de la estacion. No se eliminara permanentemente. Puede desbloquearla mas tarde para restaurarla al estado pendiente.",
     "onboardingStatus": "Estado de Incorporacion",
     "onboardingStatusFilter": "Incorporacion",
     "securityEvents": "Eventos de Seguridad",

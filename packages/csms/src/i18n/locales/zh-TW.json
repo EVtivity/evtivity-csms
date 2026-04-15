@@ -635,6 +635,8 @@
     "reject": "拒絕",
     "blockedInfo": "此充電站已封鎖。批准以允許其接受充電會話。",
     "unblock": "解除封鎖",
+    "blockStation": "封鎖充電站",
+    "blockStationDescription": "這將封鎖充電站的連線。充電站不會被永久刪除。您可以稍後解除封鎖將其恢復為待審核狀態。",
     "onboardingStatus": "入網狀態",
     "onboardingStatusFilter": "入網",
     "securityEvents": "安全事件",

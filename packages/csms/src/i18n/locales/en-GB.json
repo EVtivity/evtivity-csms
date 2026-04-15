@@ -635,6 +635,8 @@
     "reject": "Reject",
     "blockedInfo": "This station is blocked. Approve to allow it to accept charging sessions.",
     "unblock": "Unblock",
+    "blockStation": "Block Station",
+    "blockStationDescription": "This will block the station from connecting. The station will not be permanently deleted. You can unblock it later to restore it to pending status.",
     "onboardingStatus": "Onboarding Status",
     "onboardingStatusFilter": "Onboarding",
     "securityEvents": "Security Events",

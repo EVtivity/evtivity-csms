@@ -635,6 +635,8 @@
     "reject": "거부",
     "blockedInfo": "이 충전기가 차단되었습니다. 충전 세션을 허용하려면 승인하세요.",
     "unblock": "차단 해제",
+    "blockStation": "충전소 차단",
+    "blockStationDescription": "충전소의 연결이 차단됩니다. 영구적으로 삭제되지 않습니다. 나중에 차단을 해제하여 대기 상태로 복원할 수 있습니다.",
     "onboardingStatus": "온보딩 상태",
     "onboardingStatusFilter": "온보딩",
     "securityEvents": "보안 이벤트",

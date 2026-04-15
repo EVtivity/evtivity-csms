@@ -635,6 +635,8 @@
     "reject": "拒绝",
     "blockedInfo": "此充电站已封锁。批准以允许其接受充电会话。",
     "unblock": "解除封锁",
+    "blockStation": "屏蔽充电站",
+    "blockStationDescription": "这将阻止充电站连接。充电站不会被永久删除。您可以稍后解除屏蔽将其恢复为待审核状态。",
     "onboardingStatus": "入网状态",
     "onboardingStatusFilter": "入网",
     "securityEvents": "安全事件",

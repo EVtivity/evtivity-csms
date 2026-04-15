@@ -13,6 +13,7 @@ import { SaveButton } from '@/components/save-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select } from '@/components/ui/select';
@@ -142,6 +143,8 @@ export function StationInfoTab({
     },
   });
 
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
   const deleteMutation = useMutation({
     mutationFn: () => api.delete<Station>(`/v1/stations/${stationId}`),
     onSuccess: () => {
@@ -182,7 +185,7 @@ export function StationInfoTab({
             <RemoveButton
               label={t('common.remove')}
               onClick={() => {
-                deleteMutation.mutate();
+                setDeleteConfirmOpen(true);
               }}
               disabled={deleteMutation.isPending}
             />
@@ -403,6 +406,16 @@ export function StationInfoTab({
           }}
         />
       )}
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title={t('stations.blockStation')}
+        description={t('stations.blockStationDescription')}
+        confirmLabel={t('stations.blockStation')}
+        onConfirm={() => {
+          deleteMutation.mutate();
+        }}
+      />
     </>
   );
 }
