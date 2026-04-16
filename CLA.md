@@ -41,4 +41,4 @@ This Agreement is governed by the laws of the United States.
 
 ## Contact
 
-Questions about this Agreement: licensing@evtivity.com
+Questions about this Agreement: evtivity@gmail.com

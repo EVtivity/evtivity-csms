@@ -165,6 +165,7 @@ function sanitizeBody(body: unknown): Record<string, unknown> | undefined {
 }
 
 function logAction(method: string, path: string, body?: unknown): void {
+  if (path.startsWith('/v1/portal/guest/')) return;
   const action = deriveAction(method, path);
   if (action == null) return;
   const metadata: Record<string, unknown> = { path };

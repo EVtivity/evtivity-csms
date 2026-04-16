@@ -236,4 +236,4 @@ Copyright (c) 2025-2026 EVtivity. All rights reserved.
 
 You may download and run the software for your own operations. You may not copy, redistribute, reverse engineer, or offer the software as a hosted or SaaS product. You may not sell or charge others for access to the software.
 
-See [LICENSE.md](LICENSE.md) for full terms. For licensing inquiries, contact licensing@evtivity.com.
+See [LICENSE.md](LICENSE.md) for full terms. For licensing inquiries, contact evtivity@gmail.com.

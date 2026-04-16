@@ -37,7 +37,7 @@ You may use the Licensed Work in production without a commercial license under t
 - **Multiple sites** are permitted under a single-tenant deployment. A single operator managing 1 or 1,000 charging sites is permitted.
 - **Integrations** with third-party services (payment processors, roaming networks, energy management systems) are permitted regardless of deployment type.
 - **Modifications and forks** are permitted. You may modify the source code for your deployment. Modified versions remain subject to this license.
-- **If uncertain** whether your use case qualifies, contact licensing@evtivity.com before deploying to production.
+- **If uncertain** whether your use case qualifies, contact evtivity@gmail.com before deploying to production.
 
 **Change Date:** Four years from the date each version of the Licensed Work is first made available.
 
@@ -67,4 +67,4 @@ IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, S
 
 ## Contact
 
-For commercial licensing inquiries, contact licensing@evtivity.com.
+For commercial licensing inquiries, contact evtivity@gmail.com.
