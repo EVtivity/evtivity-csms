@@ -18,6 +18,32 @@ import {
 } from '@evtivity/database';
 import Handlebars from 'handlebars';
 import { decryptString, wrapEmailHtml } from '@evtivity/lib';
+
+/**
+ * Compile a user-provided Handlebars template safely.
+ * Rejects templates containing block helpers, partials, or subexpressions
+ * that could be used for code injection. Only simple variable interpolation
+ * ({{var}} and {{{var}}}) is allowed.
+ */
+function safeCompile(template: string): HandlebarsTemplateDelegate {
+  // Block helpers: {{#each}}, {{#if}}, {{#with}}, {{#unless}}, {{#lookup}}, etc.
+  if (/\{\{#/.test(template)) {
+    throw new Error('Block helpers are not allowed in templates');
+  }
+  // Partials: {{> partialName}}
+  if (/\{\{>/.test(template)) {
+    throw new Error('Partials are not allowed in templates');
+  }
+  // Subexpressions: {{helper (subexpr)}}
+  if (/\{\{[^}]*\(/.test(template)) {
+    throw new Error('Subexpressions are not allowed in templates');
+  }
+  // Lookup/log helpers: {{lookup}}, {{log}}
+  if (/\{\{\s*(lookup|log|helperMissing|blockHelperMissing)\b/.test(template)) {
+    throw new Error('Dangerous helpers are not allowed in templates');
+  }
+  return Handlebars.compile(template);
+}
 import { zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
 import nodemailer from 'nodemailer';
@@ -1047,12 +1073,8 @@ export function notificationRoutes(app: FastifyInstance): void {
         email: 'john.doe@example.com',
       };
 
-      const renderedSubject = body.subject
-        ? Handlebars.compile(body.subject)(sampleVariables)
-        : null;
-      let renderedBodyHtml = body.bodyHtml
-        ? Handlebars.compile(body.bodyHtml)(sampleVariables)
-        : null;
+      const renderedSubject = body.subject ? safeCompile(body.subject)(sampleVariables) : null;
+      let renderedBodyHtml = body.bodyHtml ? safeCompile(body.bodyHtml)(sampleVariables) : null;
 
       if (body.channel === 'email' && renderedBodyHtml != null) {
         renderedBodyHtml = wrapEmailHtml(
