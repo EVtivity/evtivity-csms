@@ -236,7 +236,12 @@ export class SimulatorManager {
       const port = Number(parsed.port) || 443;
       return await new Promise<boolean>((resolve) => {
         const socket: TLSSocket = tlsConnect(
-          { host, port, rejectUnauthorized: false, timeout: 3000 },
+          {
+            host,
+            port,
+            rejectUnauthorized: process.env['TLS_REJECT_UNAUTHORIZED'] === 'true',
+            timeout: 3000,
+          },
           () => {
             socket.destroy();
             resolve(true);

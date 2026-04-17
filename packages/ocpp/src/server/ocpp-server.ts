@@ -146,6 +146,8 @@ export class OcppServer {
         key: readFileSync(options.tls.key),
         ...(options.tls.ca != null ? { ca: readFileSync(options.tls.ca) } : {}),
         requestCert: true,
+        // Must be false: SP2 stations connect without client certs on the same port.
+        // SP3 client cert validation is handled by the auth middleware.
         rejectUnauthorized: false,
       });
 

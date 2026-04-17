@@ -101,7 +101,7 @@ export class OcppClient {
     // WebSocket options: TLS for SP2/SP3, client cert for SP3
     const wsOptions: Record<string, unknown> = {
       headers,
-      rejectUnauthorized: false, // Allow self-signed certs in dev
+      rejectUnauthorized: process.env['TLS_REJECT_UNAUTHORIZED'] === 'true',
     };
     if (this.caCert != null) wsOptions['ca'] = this.caCert;
     if (this.securityProfile === 3) {

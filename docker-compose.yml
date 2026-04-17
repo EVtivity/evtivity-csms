@@ -196,6 +196,7 @@ services:
       CSS_MODE: ${CSS_MODE:-chaos}
       CSS_ACTION_INTERVAL_MS: ${CSS_ACTION_INTERVAL_MS:-3000}
       CSS_STATION_LIMIT: ${CSS_STATION_LIMIT:-0}
+      TLS_REJECT_UNAUTHORIZED: ${TLS_REJECT_UNAUTHORIZED:-false}
     depends_on:
       ocpp:
         condition: service_healthy
