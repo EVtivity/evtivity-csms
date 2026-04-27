@@ -79,7 +79,7 @@ jobs:
           labels: |
             org.opencontainers.image.title=evtivity-${{ matrix.image }}
             org.opencontainers.image.description=${{ matrix.description }}
-            org.opencontainers.image.source=https://github.com/EVtivity/evtivity-csms-helm
+            org.opencontainers.image.source=https://github.com/EVtivity/evtivity-csms
             org.opencontainers.image.licenses=LicenseRef-EVtivity-EULA
             org.opencontainers.image.vendor=EVtivity
 
