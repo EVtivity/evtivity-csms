@@ -13,6 +13,7 @@ function getInitialLanguage(): string {
   if (browserFull === 'en-GB') return 'en-GB';
   if (browserFull === 'zh-TW' || browserFull === 'zh-Hant') return 'zh-TW';
   const browser = browserFull.split('-')[0];
+  if (browser === 'de') return 'de';
   if (browser === 'es') return 'es';
   if (browser === 'ko') return 'ko';
   if (browser === 'zh') return 'zh';

@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-export type SupportedLang = 'en' | 'es' | 'zh';
+export type SupportedLang = 'en' | 'de' | 'es' | 'zh';
 
 export const DEFAULT_CONTENT: Record<
   SupportedLang,
@@ -69,6 +69,70 @@ export const DEFAULT_CONTENT: Record<
 
 <h2>Contact Us</h2>
 <p>For questions about these Terms of Service, please contact us at [Contact Email].</p>`,
+  },
+
+  de: {
+    'privacy-policy': `<h1>Datenschutzerklärung</h1>
+<p>Zuletzt aktualisiert: 1. Januar 2025</p>
+
+<h2>Einleitung</h2>
+<p>[Company Name] ("wir," "unser" oder "uns") betreibt ein Ladenetzwerk für Elektrofahrzeuge (EV). Diese Datenschutzerklärung erläutert, wie wir Ihre personenbezogenen Daten erheben, verwenden und schützen, wenn Sie unsere Ladedienste, mobile Anwendung und Website nutzen.</p>
+
+<h2>Welche Informationen wir erheben</h2>
+<h3>Kontodaten</h3>
+<p>Wenn Sie ein Konto erstellen, erheben wir Ihren Namen, Ihre E-Mail-Adresse, Telefonnummer und Rechnungsinformationen, die zur Bereitstellung der Ladedienste erforderlich sind.</p>
+<h3>Daten zu Ladevorgängen</h3>
+<p>Wir erheben Daten zu Ihren Ladevorgängen, einschließlich Start- und Endzeiten, gelieferter Energie (kWh), Standort der Ladestation, Anschlusstyp des Fahrzeugs und Transaktionsbeträgen.</p>
+<h3>Zahlungsinformationen</h3>
+<p>Zahlungskartendaten werden von unserem Zahlungsdienstleister verarbeitet und nicht auf unseren Servern gespeichert. Wir bewahren Transaktionsdatensätze auf, einschließlich Beträgen, Daten und der letzten vier Ziffern Ihrer Zahlungsmethode.</p>
+
+<h2>Wie wir Ihre Informationen verwenden</h2>
+<p>Wir verwenden Ihre Informationen, um Zahlungen abzuwickeln und Ladedienste bereitzustellen, Transaktionsbelege und Kontobenachrichtigungen zu versenden, unser Ladenetzwerk und unsere Dienste zu verbessern, gesetzliche Pflichten zu erfüllen sowie Streitigkeiten und Probleme zu lösen.</p>
+
+<h2>Datenweitergabe</h2>
+<p>Wir verkaufen Ihre personenbezogenen Daten nicht. Wir können Daten an Zahlungsdienstleister zur Abwicklung von Transaktionen, an Roaming-Netzwerkpartner zur Ermöglichung des Ladens an Partnerstationen sowie an Dienstleister, die uns beim Betrieb unserer Plattform unterstützen, weitergeben, vorbehaltlich Vertraulichkeitsverpflichtungen.</p>
+
+<h2>Datenaufbewahrung</h2>
+<p>Wir bewahren Kontoinformationen für die Dauer Ihres Kontos und bis zu sieben Jahre nach dessen Schließung auf, um die Finanzvorschriften einzuhalten. Daten zu Ladevorgängen werden drei Jahre lang aufbewahrt.</p>
+
+<h2>Sicherheit</h2>
+<p>Wir setzen branchenübliche Sicherheitsmaßnahmen ein, einschließlich Verschlüsselung bei der Übertragung und im Ruhezustand, Zugriffskontrollen und regelmäßiger Sicherheitsbewertungen, um Ihre personenbezogenen Daten zu schützen.</p>
+
+<h2>Ihre Rechte</h2>
+<p>Abhängig von Ihrer Rechtsordnung haben Sie möglicherweise das Recht, auf Ihre personenbezogenen Daten zuzugreifen, sie zu berichtigen oder zu löschen. Um diese Rechte auszuüben, kontaktieren Sie uns unter [Contact Email].</p>
+
+<h2>Kontakt</h2>
+<p>Wenn Sie Fragen zu dieser Datenschutzerklärung haben, kontaktieren Sie uns bitte unter [Contact Email].</p>`,
+
+    'terms-of-service': `<h1>Nutzungsbedingungen</h1>
+<p>Zuletzt aktualisiert: 1. Januar 2025</p>
+
+<h2>Annahme der Bedingungen</h2>
+<p>Durch den Zugriff auf oder die Nutzung der von [Company Name] ("wir," "unser" oder "uns") bereitgestellten EV-Ladedienste erklären Sie sich mit diesen Nutzungsbedingungen einverstanden. Wenn Sie nicht einverstanden sind, nutzen Sie unsere Dienste nicht.</p>
+
+<h2>Servicebeschreibung</h2>
+<p>Wir betreiben ein Netzwerk von Ladestationen für Elektrofahrzeuge. Unsere Dienste umfassen den Zugang zur Ladehardware, die Verwaltung von Ladevorgängen, die Abrechnung sowie die Kontoverwaltung über unsere Anwendung und Website.</p>
+
+<h2>Kontoregistrierung</h2>
+<p>Sie müssen ein Konto erstellen, um auf die meisten unserer Dienste zugreifen zu können. Sie sind dafür verantwortlich, die Vertraulichkeit Ihrer Kontozugangsdaten zu wahren und für alle Aktivitäten, die unter Ihrem Konto stattfinden. Sie müssen während der Registrierung genaue und vollständige Informationen angeben.</p>
+
+<h2>Ladedienste und Zahlung</h2>
+<p>Ladevorgänge werden auf Basis der gelieferten Energie (kWh), der Zeit oder einer pauschalen Sitzungsgebühr abgerechnet, wie an der Ladestation oder in der Anwendung angezeigt. Sie ermächtigen uns, Ihre hinterlegte Zahlungsmethode für alle unter Ihrem Konto initiierten Vorgänge zu belasten. Alle Gebühren sind nicht erstattungsfähig, sofern dies nicht gesetzlich vorgeschrieben oder nach unserem alleinigen Ermessen festgelegt ist.</p>
+
+<h2>Verbotene Nutzung</h2>
+<p>Sie verpflichten sich, unsere Dienste nicht für rechtswidrige Zwecke zu nutzen, Ladegeräte zu beeinträchtigen oder zu beschädigen, Ihre Kontozugangsdaten nicht an unbefugte Nutzer weiterzugeben und nicht zu versuchen, Abrechnungs- oder Authentifizierungssysteme zu umgehen.</p>
+
+<h2>Haftungsbeschränkung</h2>
+<p>Soweit gesetzlich zulässig, haftet [Company Name] nicht für indirekte, zufällige, besondere oder Folgeschäden, die sich aus Ihrer Nutzung unserer Dienste ergeben, einschließlich Fahrzeugschäden, Datenverlust oder Dienstunterbrechungen.</p>
+
+<h2>Anwendbares Recht</h2>
+<p>Diese Bedingungen unterliegen den Gesetzen der Rechtsordnung, in der [Company Name] eingetragen ist, ohne Berücksichtigung kollisionsrechtlicher Grundsätze.</p>
+
+<h2>Änderungen der Bedingungen</h2>
+<p>Wir können diese Bedingungen von Zeit zu Zeit aktualisieren. Wir benachrichtigen Sie über wesentliche Änderungen per E-Mail oder In-App-Benachrichtigung. Die fortgesetzte Nutzung unserer Dienste nach Inkrafttreten der Änderungen gilt als Annahme der aktualisierten Bedingungen.</p>
+
+<h2>Kontakt</h2>
+<p>Bei Fragen zu diesen Nutzungsbedingungen kontaktieren Sie uns bitte unter [Contact Email].</p>`,
   },
 
   es: {

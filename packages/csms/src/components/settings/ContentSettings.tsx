@@ -16,7 +16,7 @@ export function ContentSettings(): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
 
-  const [contentLang, setContentLang] = useState<'en' | 'es' | 'zh'>('en');
+  const [contentLang, setContentLang] = useState<'en' | 'de' | 'es' | 'zh'>('en');
   const [privacyContent, setPrivacyContent] = useState('');
   const [termsContent, setTermsContent] = useState('');
   const [contentSubTab, setContentSubTab] = useTab('privacy', 'sub');
@@ -69,7 +69,7 @@ export function ContentSettings(): React.JSX.Element {
             <Label className="mb-2 block text-xs text-muted-foreground">
               {t('settings.language')}
             </Label>
-            {(['en', 'es', 'zh'] as const).map((lang) => (
+            {(['en', 'de', 'es', 'zh'] as const).map((lang) => (
               <button
                 key={lang}
                 type="button"

@@ -8,8 +8,9 @@ import { ChevronLeft } from 'lucide-react';
 import { api } from '@/lib/api';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 
-function detectLang(): 'en' | 'es' | 'zh' {
+function detectLang(): 'en' | 'de' | 'es' | 'zh' {
   const lang = navigator.language.toLowerCase();
+  if (lang.startsWith('de')) return 'de';
   if (lang.startsWith('es')) return 'es';
   if (lang.startsWith('zh')) return 'zh';
   return 'en';
