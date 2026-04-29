@@ -45,7 +45,9 @@ interface ToastData {
   description?: string;
   variant?: ToastVariant;
   duration?: number;
+  persistent?: boolean;
   action?: ToastAction;
+  onDismiss?: () => void;
 }
 
 interface ToastContextValue {
@@ -75,11 +77,16 @@ function ToastProvider({ children }: { children: React.ReactNode }): React.JSX.E
       timersRef.current.delete(id);
     }
     hoveredRef.current.delete(id);
-    setToasts((prev) => prev.filter((t) => t.id !== id));
+    setToasts((prev) => {
+      const target = prev.find((t) => t.id === id);
+      target?.onDismiss?.();
+      return prev.filter((t) => t.id !== id);
+    });
   }, []);
 
   const startTimer = React.useCallback(
-    (id: string, variant?: ToastVariant, duration?: number) => {
+    (id: string, variant?: ToastVariant, duration?: number, persistent?: boolean) => {
+      if (persistent === true) return;
       if (variant === 'destructive' && duration == null) return;
       const timer = setTimeout(() => {
         dismiss(id);
@@ -109,7 +116,7 @@ function ToastProvider({ children }: { children: React.ReactNode }): React.JSX.E
         }
         return next;
       });
-      startTimer(id, opts.variant, opts.duration);
+      startTimer(id, opts.variant, opts.duration, opts.persistent);
     },
     [startTimer],
   );
@@ -134,7 +141,7 @@ function ToastProvider({ children }: { children: React.ReactNode }): React.JSX.E
           hoveredRef.current.delete(id);
           const t = toasts.find((toast) => toast.id === id);
           if (t != null) {
-            startTimer(id, t.variant, t.duration);
+            startTimer(id, t.variant, t.duration, t.persistent);
           }
         }}
       />

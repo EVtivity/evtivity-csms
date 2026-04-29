@@ -11,7 +11,10 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ['packages/csms/src/lib/__tests__/*.ts'],
+          allowDefaultProject: [
+            'packages/csms/src/lib/__tests__/*.ts',
+            'packages/csms/src/hooks/__tests__/*.ts',
+          ],
           defaultProject: './tsconfig.base.json',
         },
         tsconfigRootDir: import.meta.dirname,
