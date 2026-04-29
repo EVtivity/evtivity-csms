@@ -23,6 +23,7 @@ import { RevenueChart } from '@/components/charts/RevenueChart';
 import { PaymentBreakdownChart } from '@/components/charts/PaymentBreakdownChart';
 import { DateRangeControl } from '@/components/DateRangeControl';
 import { useDateRange } from '@/hooks/useDateRange';
+import { useUpdateCheck } from '@/hooks/use-update-check';
 
 interface DashboardStats {
   totalStations: number;
@@ -1241,6 +1242,7 @@ function OperatorDashboard({
 export function Dashboard(): React.JSX.Element {
   const { t } = useTranslation();
   const role = useAuth((s) => s.role);
+  useUpdateCheck();
   const [mode, setMode] = useState<DashboardMode>('live');
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);

@@ -33,11 +33,19 @@ const VARIANT_ICONS: Record<string, React.ReactNode> = {
   info: <Info className="h-5 w-5 text-info shrink-0 mt-0.5" />,
 };
 
+interface ToastAction {
+  label: string;
+  href?: string;
+  onClick?: () => void;
+}
+
 interface ToastData {
   id: string;
   title?: string;
   description?: string;
   variant?: ToastVariant;
+  duration?: number;
+  action?: ToastAction;
 }
 
 interface ToastContextValue {
@@ -71,11 +79,11 @@ function ToastProvider({ children }: { children: React.ReactNode }): React.JSX.E
   }, []);
 
   const startTimer = React.useCallback(
-    (id: string, variant?: ToastVariant) => {
-      if (variant === 'destructive') return;
+    (id: string, variant?: ToastVariant, duration?: number) => {
+      if (variant === 'destructive' && duration == null) return;
       const timer = setTimeout(() => {
         dismiss(id);
-      }, AUTO_DISMISS_MS);
+      }, duration ?? AUTO_DISMISS_MS);
       timersRef.current.set(id, timer);
     },
     [dismiss],
@@ -101,7 +109,7 @@ function ToastProvider({ children }: { children: React.ReactNode }): React.JSX.E
         }
         return next;
       });
-      startTimer(id, opts.variant);
+      startTimer(id, opts.variant, opts.duration);
     },
     [startTimer],
   );
@@ -126,7 +134,7 @@ function ToastProvider({ children }: { children: React.ReactNode }): React.JSX.E
           hoveredRef.current.delete(id);
           const t = toasts.find((toast) => toast.id === id);
           if (t != null) {
-            startTimer(id, t.variant);
+            startTimer(id, t.variant, t.duration);
           }
         }}
       />
@@ -182,6 +190,7 @@ function Toast({
   title,
   description,
   variant = 'default',
+  action,
   onDismiss,
   onMouseEnter,
   onMouseLeave,
@@ -198,6 +207,25 @@ function Toast({
       <div className="flex-1 grid gap-1">
         {title != null && <p className="text-sm font-semibold">{title}</p>}
         {description != null && <p className="text-sm text-muted-foreground">{description}</p>}
+        {action != null &&
+          (action.href != null ? (
+            <a
+              href={action.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-block text-sm font-medium text-primary hover:underline"
+            >
+              {action.label}
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={action.onClick}
+              className="mt-1 inline-block text-left text-sm font-medium text-primary hover:underline"
+            >
+              {action.label}
+            </button>
+          ))}
       </div>
       <button
         type="button"

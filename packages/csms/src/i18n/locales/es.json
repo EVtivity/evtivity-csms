@@ -2386,5 +2386,10 @@
     "of": "de",
     "prev": "Anterior",
     "next": "Siguiente"
+  },
+  "updateCheck": {
+    "title": "Actualizacion disponible",
+    "description": "EVtivity CSMS {{version}} ya esta disponible.",
+    "viewRelease": "Ver notas de la version"
   }
 }

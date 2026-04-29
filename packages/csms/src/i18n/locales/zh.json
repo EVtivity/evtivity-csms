@@ -2382,5 +2382,10 @@
     "of": "共",
     "prev": "上一页",
     "next": "下一页"
+  },
+  "updateCheck": {
+    "title": "有可用更新",
+    "description": "EVtivity CSMS {{version}} 现已发布。",
+    "viewRelease": "查看发布说明"
   }
 }

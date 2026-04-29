@@ -2371,5 +2371,10 @@
     "of": "/",
     "prev": "이전",
     "next": "다음"
+  },
+  "updateCheck": {
+    "title": "업데이트 사용 가능",
+    "description": "EVtivity CSMS {{version}} 사용 가능합니다.",
+    "viewRelease": "릴리스 노트 보기"
   }
 }
