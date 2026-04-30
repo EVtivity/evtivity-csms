@@ -3,6 +3,7 @@
 
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
+import { readFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { Redis } from 'ioredis';
 import { OcppServer } from './server/ocpp-server.js';
@@ -18,11 +19,42 @@ const OCPP_HEALTH_PORT = config.OCPP_HEALTH_PORT;
 const DATABASE_URL = config.DATABASE_URL;
 const REDIS_URL = config.REDIS_URL;
 
-const OCPP_TLS_CERT = config.OCPP_TLS_CERT;
-const OCPP_TLS_KEY = config.OCPP_TLS_KEY;
-const OCPP_TLS_CA = config.OCPP_TLS_CA;
 const OCPP_TLS_PORT = config.OCPP_TLS_PORT ?? 8443;
-const OCPP_INSTANCE_ID = config.OCPP_INSTANCE_ID ?? hostname();
+
+// Resolve the instance ID that RedisConnectionRegistry uses to route station
+// commands to the pod that owns each WebSocket. Helm sets OCPP_INSTANCE_ID
+// from the pod name via the Downward API; ECS Fargate has no such API, so
+// we read the task ID from the metadata endpoint at startup. Local dev
+// falls back to hostname().
+async function deriveInstanceId(): Promise<string> {
+  if (config.OCPP_INSTANCE_ID != null && config.OCPP_INSTANCE_ID !== '') {
+    return config.OCPP_INSTANCE_ID;
+  }
+  const metadataUri = process.env['ECS_CONTAINER_METADATA_URI_V4'];
+  if (metadataUri != null && metadataUri !== '') {
+    try {
+      const res = await fetch(`${metadataUri}/task`);
+      const data = (await res.json()) as { TaskARN?: string };
+      const taskId = (data.TaskARN ?? '').split('/').pop();
+      if (taskId != null && taskId !== '') return `ocpp-${taskId}`;
+    } catch {
+      // fall through to hostname
+    }
+  }
+  return hostname();
+}
+
+// Resolve TLS material from either env var (ECS / Secrets Manager) or file
+// path (Helm / Kubernetes Secret volume). The *_PEM forms take precedence
+// because the CDK injects them directly; the path forms are read from disk.
+function resolvePem(pem: string | undefined, path: string | undefined): string | undefined {
+  if (pem != null && pem !== '') return pem;
+  if (path != null && path !== '') return readFileSync(path, 'utf-8');
+  return undefined;
+}
+const OCPP_TLS_CERT = resolvePem(config.OCPP_TLS_CERT_PEM, config.OCPP_TLS_CERT);
+const OCPP_TLS_KEY = resolvePem(config.OCPP_TLS_KEY_PEM, config.OCPP_TLS_KEY);
+const OCPP_TLS_CA = resolvePem(config.OCPP_TLS_CA_PEM, config.OCPP_TLS_CA);
 
 const eventPersistence = new PgEventPersistence();
 const server = new OcppServer({ eventPersistence, databaseUrl: DATABASE_URL });
@@ -35,6 +67,8 @@ let shuttingDown = false;
 async function start(): Promise<void> {
   const sentryConfig = await getSentryConfig();
   initSentry('evtivity-ocpp', sentryConfig);
+
+  const instanceId = await deriveInstanceId();
 
   const tls =
     OCPP_TLS_CERT != null && OCPP_TLS_KEY != null
@@ -49,11 +83,11 @@ async function start(): Promise<void> {
   const registry = new RedisConnectionRegistry(registryRedis);
 
   // Pass registry to connection manager for station ownership tracking
-  server.getConnectionManager().setRegistry(registry, OCPP_INSTANCE_ID);
+  server.getConnectionManager().setRegistry(registry, instanceId);
 
   registerProjections(server.getEventBus(), DATABASE_URL, pubsub, {
     registry,
-    instanceId: OCPP_INSTANCE_ID,
+    instanceId,
   });
 
   commandListener = new CommandListener(
@@ -61,7 +95,7 @@ async function start(): Promise<void> {
     server.getDispatcher(),
     server.getLogger(),
     server.getEventBus(),
-    { registry, instanceId: OCPP_INSTANCE_ID },
+    { registry, instanceId },
   );
   await commandListener.start();
 

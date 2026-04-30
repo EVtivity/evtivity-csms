@@ -58,7 +58,9 @@ async function main(): Promise<void> {
   await manager.start();
   console.log(`[css] SimulatorManager started. Mode: ${mode}`);
 
-  // Load SP3 test certificates for TLS stations
+  // Resolve SP3 client certs from either env vars (CDK / ECS, PEM content
+  // injected from Secrets Manager) or files on disk (Helm volume mount, or
+  // local test certs).
   const testCertsDir = resolve(dirname(fileURLToPath(import.meta.url)), '../test-certs');
   const clientCertPath = config.CSS_CLIENT_CERT ?? resolve(testCertsDir, 'client.pem');
   const clientKeyPath = config.CSS_CLIENT_KEY ?? resolve(testCertsDir, 'client-key.pem');
@@ -66,7 +68,11 @@ async function main(): Promise<void> {
   let sp3ClientCert: string | undefined;
   let sp3ClientKey: string | undefined;
   let sp3CaCert: string | undefined;
-  if (existsSync(clientCertPath)) {
+  if (config.CSS_CLIENT_CERT_PEM != null && config.CSS_CLIENT_CERT_PEM !== '') {
+    sp3ClientCert = config.CSS_CLIENT_CERT_PEM;
+    sp3ClientKey = config.CSS_CLIENT_KEY_PEM;
+    sp3CaCert = config.CSS_CA_PEM;
+  } else if (existsSync(clientCertPath)) {
     sp3ClientCert = readFileSync(clientCertPath, 'utf-8');
     sp3ClientKey = readFileSync(clientKeyPath, 'utf-8');
     sp3CaCert = readFileSync(caCertPath, 'utf-8');

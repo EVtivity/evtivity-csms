@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { createServer as createHttpsServer } from 'node:https';
-import { readFileSync } from 'node:fs';
 import { WebSocketServer } from 'ws';
 import type WebSocket from 'ws';
 import type { IncomingMessage } from 'node:http';
@@ -50,6 +49,8 @@ const ipConnectionCounts = new Map<string, number>();
 const ipMessageCounters = new Map<string, { count: number; windowStart: number }>();
 
 export interface TlsOptions {
+  // PEM content (not file paths). The caller is responsible for reading the
+  // material from disk or env var before passing it in.
   cert: string;
   key: string;
   ca?: string | undefined;
@@ -142,9 +143,9 @@ export class OcppServer {
     if (options.tls != null) {
       const tlsPort = options.tls.port ?? 8443;
       const httpsServer = createHttpsServer({
-        cert: readFileSync(options.tls.cert),
-        key: readFileSync(options.tls.key),
-        ...(options.tls.ca != null ? { ca: readFileSync(options.tls.ca) } : {}),
+        cert: options.tls.cert,
+        key: options.tls.key,
+        ...(options.tls.ca != null ? { ca: options.tls.ca } : {}),
         requestCert: true,
         // Must be false: SP2 stations connect without client certs on the same port.
         // SP3 client cert validation is handled by the auth middleware.

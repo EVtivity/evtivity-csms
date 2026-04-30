@@ -13,9 +13,17 @@ const schema = z.object({
   CSS_ACTION_INTERVAL_MS: z.coerce.number().int().positive().default(1000),
   CSS_STATION_LIMIT: z.coerce.number().int().nonnegative().default(0),
   CSS_STATION_PASSWORD: z.string().default('password'),
+  // File paths to PEMs on disk. Used by the Helm chart, which mounts a
+  // Kubernetes Secret as a volume.
   CSS_CLIENT_CERT: z.string().optional(),
   CSS_CLIENT_KEY: z.string().optional(),
   CSS_CA_CERT: z.string().optional(),
+  // Inlined PEM strings. Used by the CDK / ECS Fargate path, which pulls
+  // PEMs from a Secrets Manager JSON secret and injects each value as an env
+  // variable. ECS has no equivalent of a Secret-as-file mount.
+  CSS_CLIENT_CERT_PEM: z.string().optional(),
+  CSS_CLIENT_KEY_PEM: z.string().optional(),
+  CSS_CA_PEM: z.string().optional(),
 });
 
 export type SimulatorConfig = z.infer<typeof schema>;
