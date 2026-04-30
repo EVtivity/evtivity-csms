@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
+import { useToast } from '@/components/ui/toast';
 import {
   Dialog,
   DialogContent,
@@ -125,11 +126,31 @@ export function SchedulesTab(): React.JSX.Element {
     },
   });
 
+  const { toast } = useToast();
+  const [runningId, setRunningId] = useState<number | null>(null);
+
   const runNowMutation = useMutation({
-    mutationFn: (id: number) =>
-      api.post<{ id: string; status: string }>(`/v1/report-schedules/${String(id)}/run-now`, {}),
+    mutationFn: async (id: number) => {
+      // Hold the spinner for at least 1s so the click registers visually,
+      // even when the API responds in <100ms.
+      const [response] = await Promise.all([
+        api.post<{ id: string; status: string }>(`/v1/report-schedules/${String(id)}/run-now`, {}),
+        new Promise<void>((resolve) => setTimeout(resolve, 1000)),
+      ]);
+      return response;
+    },
+    onMutate: (id) => {
+      setRunningId(id);
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['reports'] });
+      toast({ title: t('reports.runNowQueued'), variant: 'success' });
+    },
+    onError: () => {
+      toast({ title: t('reports.runNowFailed'), variant: 'destructive' });
+    },
+    onSettled: () => {
+      setRunningId(null);
     },
   });
 
@@ -270,8 +291,17 @@ export function SchedulesTab(): React.JSX.Element {
                         onClick={() => {
                           runNowMutation.mutate(schedule.id);
                         }}
+                        disabled={runningId === schedule.id}
+                        className="relative min-w-[6rem]"
                       >
-                        {t('reports.runNow')}
+                        {runningId === schedule.id && (
+                          <span className="absolute inset-0 flex items-center justify-center">
+                            <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                          </span>
+                        )}
+                        <span className={runningId === schedule.id ? 'invisible' : ''}>
+                          {t('reports.runNow')}
+                        </span>
                       </Button>
                       <Button
                         variant="outline"
@@ -506,7 +536,7 @@ export function SchedulesTab(): React.JSX.Element {
             if (!open) setDeleteId(null);
           }}
           title={t('reports.deleteSchedule')}
-          description={t('reports.scheduleDeleted')}
+          description={t('reports.confirmDeleteSchedule')}
           confirmLabel={t('common.delete')}
           confirmIcon={<Trash2 className="h-4 w-4" />}
           onConfirm={() => {
