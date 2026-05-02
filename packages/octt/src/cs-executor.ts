@@ -134,10 +134,30 @@ export async function executeCsTest(
       });
     }
 
+    // Provision charging_stations row first to satisfy the css_stations FK.
+    // Station identity (vendor, model, serial, firmware, ocppProtocol, securityProfile)
+    // lives on charging_stations after the css_stations decouple.
+    await sql`
+      INSERT INTO charging_stations (
+        station_id, model, serial_number, firmware_version,
+        ocpp_protocol, security_profile, is_simulator, onboarding_status
+      ) VALUES (
+        ${stationId},
+        ${simulatorConfig.model},
+        ${simulatorConfig.serialNumber},
+        ${simulatorConfig.firmwareVersion},
+        ${simulatorConfig.ocppProtocol},
+        ${simulatorConfig.securityProfile},
+        ${true},
+        ${'accepted'}
+      )
+      ON CONFLICT (station_id) DO NOTHING
+    `;
+
     // Provision css_stations row so StationSimulator can persist state
     await sql`
-      INSERT INTO css_stations (id, station_id, target_url, ocpp_protocol, security_profile, vendor_name, model, serial_number, firmware_version, status, source_type)
-      VALUES (${dbId}, ${stationId}, ${url}, ${simulatorConfig.ocppProtocol}, ${simulatorConfig.securityProfile}, ${simulatorConfig.vendorName}, ${simulatorConfig.model}, ${simulatorConfig.serialNumber}, ${simulatorConfig.firmwareVersion}, 'disconnected', 'api')
+      INSERT INTO css_stations (id, station_id, target_url, status, source_type)
+      VALUES (${dbId}, ${stationId}, ${url}, 'disconnected', 'api')
       ON CONFLICT (id) DO NOTHING
     `;
 
@@ -236,5 +256,8 @@ export async function executeCsTest(
     await sql`DELETE FROM css_reservations WHERE css_station_id = ${dbId}`.catch(() => {});
     await sql`DELETE FROM css_evses WHERE css_station_id = ${dbId}`.catch(() => {});
     await sql`DELETE FROM css_stations WHERE id = ${dbId}`.catch(() => {});
+    // Delete the paired charging_stations row last. The FK cascade would also remove
+    // css_stations, but we already deleted it above for explicitness.
+    await sql`DELETE FROM charging_stations WHERE station_id = ${stationId}`.catch(() => {});
   }
 }

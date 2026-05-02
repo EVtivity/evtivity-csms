@@ -33,6 +33,7 @@
     "never": "없음",
     "default": "기본값",
     "noSite": "사이트 없음",
+    "selectSite": "사이트 선택",
     "prev": "이전",
     "next": "다음",
     "pageOf": "{{totalPages}} 중 {{page}} 페이지",

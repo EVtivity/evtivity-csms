@@ -33,6 +33,7 @@
     "never": "Never",
     "default": "Default",
     "noSite": "No site",
+    "selectSite": "Select a site",
     "prev": "Prev",
     "next": "Next",
     "pageOf": "Page {{page}} of {{totalPages}}",

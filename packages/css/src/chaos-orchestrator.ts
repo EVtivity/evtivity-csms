@@ -471,25 +471,17 @@ export class ChaosOrchestrator {
 
     try {
       // Insert directly into css_stations (ON CONFLICT skip for idempotency)
-      const serialNumber = `SN-${station.stationId}`;
       const isSp3 = station.securityProfile === 3;
       await this.sql`
         INSERT INTO css_stations (
-          id, station_id, ocpp_protocol, security_profile, target_url,
-          password, vendor_name, model, serial_number, firmware_version,
-          client_cert, client_key, ca_cert,
+          id, station_id, target_url,
+          password, client_cert, client_key, ca_cert,
           source_type, enabled
         ) VALUES (
           ${'css_' + randomUUID().replace(/-/g, '').slice(0, 12)},
           ${station.stationId},
-          ${station.ocppProtocol},
-          ${station.securityProfile},
           ${targetUrl},
           ${isSp3 ? null : this.password},
-          ${'EVtivity'},
-          ${'CSS-1000'},
-          ${serialNumber},
-          ${'1.0.0'},
           ${isSp3 ? this.clientCert : null},
           ${isSp3 ? this.clientKey : null},
           ${requiresTls ? this.caCert : null},
@@ -533,7 +525,7 @@ export class ChaosOrchestrator {
     if (this.stationIds.length === 0) return;
 
     const stationId = pick(this.stationIds);
-    const protocol = this.stationProtocols.get(stationId) ?? 'ocpp2.1';
+    const protocol = this.stationProtocols.get(stationId) ?? 'ocpp1.6';
 
     // If station is offline, bring it back online
     if (this.offlineStations.has(stationId)) {

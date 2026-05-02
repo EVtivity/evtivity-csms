@@ -46,6 +46,7 @@ import {
 } from '../lib/response-schemas.js';
 import { getUserSiteIds, checkStationSiteAccess } from '../lib/site-access.js';
 import { sendOcppCommandAndWait } from '../lib/ocpp-command.js';
+import { enableCssPair, disableCssPair } from '../lib/css-pairing.js';
 import { authorize } from '../middleware/rbac.js';
 import type { JwtPayload } from '../plugins/auth.js';
 
@@ -123,6 +124,11 @@ const createStationBody = z.object({
   serialNumber: z.string().max(255).optional(),
   vendorId: ID_PARAMS.vendorId.optional().describe('Vendor ID'),
   siteId: ID_PARAMS.siteId.optional().describe('Site ID to assign the station to'),
+  ocppProtocol: z
+    .enum(['ocpp1.6', 'ocpp2.1'])
+    .optional()
+    .default('ocpp1.6')
+    .describe('OCPP protocol version (defaults to ocpp1.6)'),
   securityProfile: z
     .number()
     .int()
@@ -785,6 +791,18 @@ export function stationRoutes(app: FastifyInstance): void {
         updates.basicAuthPasswordHash = null;
       }
 
+      // When enabling simulator, ensure ocpp_protocol is set so the simulator can negotiate
+      // a WebSocket subprotocol. Stations created without an explicit protocol default to 1.6.
+      if (body.isSimulator === true) {
+        const [current] = await db
+          .select({ ocppProtocol: chargingStations.ocppProtocol })
+          .from(chargingStations)
+          .where(eq(chargingStations.id, id));
+        if (current?.ocppProtocol == null) {
+          updates.ocppProtocol = 'ocpp1.6';
+        }
+      }
+
       const [station] = await db
         .update(chargingStations)
         .set(updates)
@@ -803,6 +821,7 @@ export function stationRoutes(app: FastifyInstance): void {
           isSimulator: chargingStations.isSimulator,
           loadPriority: chargingStations.loadPriority,
           securityProfile: chargingStations.securityProfile,
+          ocppProtocol: chargingStations.ocppProtocol,
           hasPassword: sql<boolean>`${chargingStations.basicAuthPasswordHash} IS NOT NULL`,
           createdAt: chargingStations.createdAt,
           updatedAt: chargingStations.updatedAt,
@@ -810,6 +829,23 @@ export function stationRoutes(app: FastifyInstance): void {
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
+      }
+
+      // Sync css_stations when isSimulator changes
+      if (body.isSimulator !== undefined) {
+        if (body.isSimulator) {
+          await enableCssPair({
+            stationId: station.stationId,
+            ocppProtocol: station.ocppProtocol === 'ocpp2.1' ? 'ocpp2.1' : 'ocpp1.6',
+            securityProfile: station.securityProfile,
+            serverUrl: process.env['OCPP_SERVER_URL'] ?? 'ws://ocpp:8080',
+            tlsServerUrl: process.env['OCPP_TLS_SERVER_URL'] ?? 'wss://ocpp:8443',
+            password: password ?? null,
+            // SP3 cert population is out of scope for this task
+          });
+        } else {
+          await disableCssPair(station.stationId);
+        }
       }
 
       // Push security profile change to station via OCPP SetVariables (if online and profile changed)

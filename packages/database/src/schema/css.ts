@@ -15,6 +15,7 @@ import {
   unique,
 } from 'drizzle-orm/pg-core';
 import { createId } from '../lib/id.js';
+import { chargingStations } from './assets.js';
 
 export const cssStationStatusEnum = pgEnum('css_station_status', [
   'disconnected',
@@ -48,15 +49,12 @@ export const cssStations = pgTable(
     id: text('id')
       .primaryKey()
       .$defaultFn(() => createId('cssStation')),
-    stationId: varchar('station_id', { length: 255 }).notNull().unique(),
-    ocppProtocol: varchar('ocpp_protocol', { length: 10 }).notNull().default('ocpp2.1'),
-    securityProfile: integer('security_profile').notNull().default(1),
+    stationId: varchar('station_id', { length: 255 })
+      .notNull()
+      .unique()
+      .references(() => chargingStations.stationId, { onDelete: 'cascade' }),
     targetUrl: text('target_url').notNull(),
     password: varchar('password', { length: 255 }),
-    vendorName: varchar('vendor_name', { length: 255 }).notNull().default('EVtivity'),
-    model: varchar('model', { length: 255 }).notNull().default('CSS-1000'),
-    serialNumber: varchar('serial_number', { length: 255 }),
-    firmwareVersion: varchar('firmware_version', { length: 50 }).notNull().default('1.0.0'),
     clientCert: text('client_cert'),
     clientKey: text('client_key'),
     caCert: text('ca_cert'),

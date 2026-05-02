@@ -6,7 +6,13 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, count, sql } from 'drizzle-orm';
 import { db } from '@evtivity/database';
-import { cssStations, cssEvses, cssConfigVariables, cssTransactions } from '@evtivity/database';
+import {
+  cssStations,
+  cssEvses,
+  cssConfigVariables,
+  cssTransactions,
+  chargingStations,
+} from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { errorResponse, itemResponse, paginatedResponse } from '../lib/response-schemas.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -39,6 +45,7 @@ import {
   uploadLogStatusEnum,
 } from '../lib/ocpp-zod-types-v21.js';
 import { meterValueType as meterValueType16 } from '../lib/ocpp-zod-types-v16.js';
+import { OCPP21_CONFIG_DEFAULTS, OCPP16_CONFIG_DEFAULTS } from '../lib/css-config-defaults.js';
 import { authorize } from '../middleware/rbac.js';
 
 // ---------------------------------------------------------------------------
@@ -125,34 +132,7 @@ export const ACTION_VERSIONS: Record<string, 'all' | 'ocpp1.6' | 'ocpp2.1'> = {
 // Default config variables seeded per protocol
 // ---------------------------------------------------------------------------
 
-const SHARED_CONFIG_DEFAULTS: Record<string, string> = {
-  HeartbeatInterval: '60',
-  MeterValueSampleInterval: '30',
-  AuthorizeRemoteTxRequests: 'true',
-};
-
-const OCPP21_CONFIG_DEFAULTS: Record<string, string> = {
-  ...SHARED_CONFIG_DEFAULTS,
-  'AlignedDataCtrlr.Interval': '0',
-  'SampledDataCtrlr.TxEndedInterval': '30',
-  'SampledDataCtrlr.TxEndedMeasurands': 'Energy.Active.Import.Register',
-  'SampledDataCtrlr.TxUpdatedInterval': '30',
-  'SampledDataCtrlr.TxUpdatedMeasurands': 'Energy.Active.Import.Register,Power.Active.Import',
-  'TxCtrlr.EVConnectionTimeOut': '60',
-  'TxCtrlr.StopTxOnInvalidId': 'false',
-  'TxCtrlr.TxBeforeAcceptedEnabled': 'true',
-  'OCPPCommCtrlr.NetworkConfigurationPriority': 'Wired0',
-  'SecurityCtrlr.SecurityProfile': '1',
-};
-
-const OCPP16_CONFIG_DEFAULTS: Record<string, string> = {
-  ...SHARED_CONFIG_DEFAULTS,
-  ClockAlignedDataInterval: '0',
-  ConnectionTimeOut: '60',
-  StopTransactionOnInvalidId: 'false',
-  MeterValuesAlignedData: 'Energy.Active.Import.Register',
-  MeterValuesSampledData: 'Energy.Active.Import.Register,Power.Active.Import',
-};
+export { OCPP21_CONFIG_DEFAULTS, OCPP16_CONFIG_DEFAULTS } from '../lib/css-config-defaults.js';
 
 // ---------------------------------------------------------------------------
 // Request / response schemas
@@ -176,7 +156,6 @@ const createStationBody = z.object({
   securityProfile: z.number().int().min(0).max(3).optional().describe('Security profile (0-3)'),
   targetUrl: z.string().url().describe('Target OCPP WebSocket URL'),
   password: z.string().optional().describe('Basic auth password'),
-  vendorName: z.string().optional().describe('Vendor name'),
   model: z.string().optional().describe('Station model'),
   serialNumber: z.string().optional().describe('Serial number'),
   firmwareVersion: z.string().optional().describe('Firmware version'),
@@ -192,7 +171,6 @@ const updateStationBody = z.object({
   securityProfile: z.number().int().min(0).max(3).optional(),
   targetUrl: z.string().url().optional(),
   password: z.string().optional(),
-  vendorName: z.string().optional(),
   model: z.string().optional(),
   serialNumber: z.string().nullable().optional(),
   firmwareVersion: z.string().optional(),
@@ -783,9 +761,10 @@ function actionRoute(
         .select({
           id: cssStations.id,
           stationId: cssStations.stationId,
-          ocppProtocol: cssStations.ocppProtocol,
+          ocppProtocol: chargingStations.ocppProtocol,
         })
         .from(cssStations)
+        .innerJoin(chargingStations, eq(chargingStations.stationId, cssStations.stationId))
         .where(eq(cssStations.stationId, stationId))
         .limit(1);
 
@@ -795,7 +774,7 @@ function actionRoute(
 
       if (version !== 'all' && version !== station.ocppProtocol) {
         return reply.status(400).send({
-          error: `Action ${actionName} requires ${version}, station ${station.stationId} is ${station.ocppProtocol}`,
+          error: `Action ${actionName} requires ${version}, station ${station.stationId} is ${station.ocppProtocol ?? 'unknown'}`,
           code: 'OCPP_VERSION_MISMATCH',
         });
       }
@@ -844,7 +823,7 @@ export function cssRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const body = request.body as z.infer<typeof createStationBody>;
 
-      // Check for duplicate stationId
+      // Check for duplicate stationId (read-only, safe outside the transaction).
       const [existing] = await db
         .select({ id: cssStations.id })
         .from(cssStations)
@@ -858,59 +837,86 @@ export function cssRoutes(app: FastifyInstance): void {
         });
       }
 
-      // Insert station
-      const [station] = await db
-        .insert(cssStations)
-        .values({
-          stationId: body.stationId,
-          ocppProtocol: body.ocppProtocol ?? 'ocpp2.1',
-          securityProfile: body.securityProfile ?? 1,
-          targetUrl: body.targetUrl,
-          password: body.password ?? null,
-          vendorName: body.vendorName ?? 'EVtivity',
-          model: body.model ?? 'CSS-1000',
-          serialNumber: body.serialNumber ?? null,
-          firmwareVersion: body.firmwareVersion ?? '1.0.0',
-          clientCert: body.clientCert ?? null,
-          clientKey: body.clientKey ?? null,
-          caCert: body.caCert ?? null,
-          sourceType: body.sourceType ?? 'api',
-        })
-        .returning();
+      // Wrap all writes (chargingStations, cssStations, cssEvses, cssConfigVariables) in a
+      // transaction so a partial failure cannot leave a chargingStations row with isSimulator=true
+      // and an incomplete cssStations setup.
+      const result = await db.transaction(async (tx) => {
+        // Ensure a charging_stations row exists, marked as simulator.
+        const [existingCs] = await tx
+          .select({ id: chargingStations.id, isSimulator: chargingStations.isSimulator })
+          .from(chargingStations)
+          .where(eq(chargingStations.stationId, body.stationId))
+          .limit(1);
 
-      if (station == null) {
-        return reply.status(500).send({ error: 'Failed to create station', code: 'CREATE_FAILED' });
-      }
+        if (existingCs == null) {
+          await tx.insert(chargingStations).values({
+            stationId: body.stationId,
+            model: body.model ?? 'CSS-1000',
+            serialNumber: body.serialNumber ?? `SN-${body.stationId}`,
+            firmwareVersion: body.firmwareVersion ?? '1.0.0',
+            securityProfile: body.securityProfile ?? 1,
+            ocppProtocol: body.ocppProtocol ?? 'ocpp1.6',
+            isSimulator: true,
+            onboardingStatus: 'accepted',
+          });
+        } else if (!existingCs.isSimulator) {
+          await tx
+            .update(chargingStations)
+            .set({ isSimulator: true, updatedAt: new Date() })
+            .where(eq(chargingStations.id, existingCs.id));
+        }
 
-      // Insert EVSEs
-      for (const evse of body.evses) {
-        await db.insert(cssEvses).values({
-          cssStationId: station.id,
-          evseId: evse.evseId,
-          connectorId: evse.connectorId ?? 1,
-          connectorType: evse.connectorType ?? 'ac_type2',
-          maxPowerW: evse.maxPowerW ?? 22000,
-          phases: evse.phases ?? 3,
-          voltage: evse.voltage ?? 230,
-        });
-      }
+        // Insert station
+        const [station] = await tx
+          .insert(cssStations)
+          .values({
+            stationId: body.stationId,
+            targetUrl: body.targetUrl,
+            password: body.password ?? null,
+            clientCert: body.clientCert ?? null,
+            clientKey: body.clientKey ?? null,
+            caCert: body.caCert ?? null,
+            sourceType: body.sourceType ?? 'api',
+          })
+          .returning();
 
-      // Seed default config variables
-      const protocol = body.ocppProtocol ?? 'ocpp2.1';
-      const defaults = protocol === 'ocpp1.6' ? OCPP16_CONFIG_DEFAULTS : OCPP21_CONFIG_DEFAULTS;
+        if (station == null) {
+          throw new Error('Failed to create station');
+        }
 
-      for (const [key, value] of Object.entries(defaults)) {
-        await db.insert(cssConfigVariables).values({
-          cssStationId: station.id,
-          key,
-          value,
-        });
-      }
+        // Insert EVSEs
+        for (const evse of body.evses) {
+          await tx.insert(cssEvses).values({
+            cssStationId: station.id,
+            evseId: evse.evseId,
+            connectorId: evse.connectorId ?? 1,
+            connectorType: evse.connectorType ?? 'ac_type2',
+            maxPowerW: evse.maxPowerW ?? 22000,
+            phases: evse.phases ?? 3,
+            voltage: evse.voltage ?? 230,
+          });
+        }
 
-      // Re-fetch station with EVSEs
-      const evses = await db.select().from(cssEvses).where(eq(cssEvses.cssStationId, station.id));
+        // Seed default config variables
+        const protocol = body.ocppProtocol ?? 'ocpp1.6';
+        const defaults = protocol === 'ocpp1.6' ? OCPP16_CONFIG_DEFAULTS : OCPP21_CONFIG_DEFAULTS;
 
-      return reply.status(201).send({ ...station, evses });
+        for (const [key, value] of Object.entries(defaults)) {
+          await tx.insert(cssConfigVariables).values({
+            cssStationId: station.id,
+            key,
+            value,
+          });
+        }
+
+        // Re-fetch station with EVSEs inside the same transaction so the response reflects
+        // the just-inserted rows.
+        const evses = await tx.select().from(cssEvses).where(eq(cssEvses.cssStationId, station.id));
+
+        return { station, evses };
+      });
+
+      return reply.status(201).send({ ...result.station, evses: result.evses });
     },
   );
 
@@ -1019,25 +1025,41 @@ export function cssRoutes(app: FastifyInstance): void {
         return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
       }
 
+      // Route deduplicated fields to charging_stations where they now live.
+      const csUpdates: Record<string, unknown> = {};
+      if (body.ocppProtocol !== undefined) csUpdates['ocppProtocol'] = body.ocppProtocol;
+      if (body.securityProfile !== undefined) csUpdates['securityProfile'] = body.securityProfile;
+      if (body.model !== undefined) csUpdates['model'] = body.model;
+      if (body.serialNumber !== undefined) csUpdates['serialNumber'] = body.serialNumber;
+      if (body.firmwareVersion !== undefined) csUpdates['firmwareVersion'] = body.firmwareVersion;
+
       const updates: Record<string, unknown> = { updatedAt: new Date() };
-      if (body.ocppProtocol !== undefined) updates['ocppProtocol'] = body.ocppProtocol;
-      if (body.securityProfile !== undefined) updates['securityProfile'] = body.securityProfile;
       if (body.targetUrl !== undefined) updates['targetUrl'] = body.targetUrl;
       if (body.password !== undefined) updates['password'] = body.password;
-      if (body.vendorName !== undefined) updates['vendorName'] = body.vendorName;
-      if (body.model !== undefined) updates['model'] = body.model;
-      if (body.serialNumber !== undefined) updates['serialNumber'] = body.serialNumber;
-      if (body.firmwareVersion !== undefined) updates['firmwareVersion'] = body.firmwareVersion;
       if (body.clientCert !== undefined) updates['clientCert'] = body.clientCert;
       if (body.clientKey !== undefined) updates['clientKey'] = body.clientKey;
       if (body.caCert !== undefined) updates['caCert'] = body.caCert;
       if (body.enabled !== undefined) updates['enabled'] = body.enabled;
 
-      const [updated] = await db
-        .update(cssStations)
-        .set(updates)
-        .where(eq(cssStations.id, existing.id))
-        .returning();
+      // When both tables get a write, run them atomically so a chargingStations success
+      // followed by a cssStations failure cannot leave the two rows inconsistent.
+      const updated = await db.transaction(async (tx) => {
+        if (Object.keys(csUpdates).length > 0) {
+          csUpdates['updatedAt'] = new Date();
+          await tx
+            .update(chargingStations)
+            .set(csUpdates)
+            .where(eq(chargingStations.stationId, stationId));
+        }
+
+        const [row] = await tx
+          .update(cssStations)
+          .set(updates)
+          .where(eq(cssStations.id, existing.id))
+          .returning();
+
+        return row;
+      });
 
       return updated;
     },

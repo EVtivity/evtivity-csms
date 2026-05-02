@@ -36,6 +36,7 @@ export function StationCreate(): React.JSX.Element {
   const [stationId, setStationId] = useState('');
   const [model, setModel] = useState('');
   const [siteId, setSiteId] = useState(searchParams.get('siteId') ?? '');
+  const [ocppProtocol, setOcppProtocol] = useState<'ocpp1.6' | 'ocpp2.1'>('ocpp1.6');
   const [securityProfile, setSecurityProfile] = useState('1');
   const [password, setPassword] = useState('');
   const [isSimulator, setIsSimulator] = useState(false);
@@ -55,6 +56,7 @@ export function StationCreate(): React.JSX.Element {
       stationId: string;
       model?: string;
       siteId?: string;
+      ocppProtocol?: 'ocpp1.6' | 'ocpp2.1';
       securityProfile?: number;
       password?: string;
       isSimulator?: boolean;
@@ -67,6 +69,7 @@ export function StationCreate(): React.JSX.Element {
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
     if (!stationId.trim()) errors.stationId = t('validation.required');
+    if (siteId === '') errors.siteId = t('validation.selectRequired');
     if (securityProfile !== '0' && !password.trim()) errors.password = t('validation.required');
     return errors;
   }
@@ -81,6 +84,7 @@ export function StationCreate(): React.JSX.Element {
       stationId,
       ...(model.trim() !== '' ? { model } : {}),
       ...(siteId !== '' ? { siteId } : {}),
+      ocppProtocol,
       securityProfile: Number(securityProfile),
       ...(password.trim() !== '' ? { password } : {}),
       isSimulator,
@@ -131,14 +135,31 @@ export function StationCreate(): React.JSX.Element {
                 onChange={(e) => {
                   setSiteId(e.target.value);
                 }}
-                className="h-9"
+                className={`h-9 ${hasSubmitted && errors.siteId ? 'border-destructive' : ''}`}
               >
-                <option value="">{t('common.noSite')}</option>
+                <option value="">{t('common.selectSite')}</option>
                 {siteList?.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
                   </option>
                 ))}
+              </Select>
+              {hasSubmitted && errors.siteId && (
+                <p className="text-sm text-destructive">{errors.siteId}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ocppProtocol">{t('stations.ocppProtocol')}</Label>
+              <Select
+                id="ocppProtocol"
+                value={ocppProtocol}
+                onChange={(e) => {
+                  setOcppProtocol(e.target.value as 'ocpp1.6' | 'ocpp2.1');
+                }}
+                className="h-9"
+              >
+                <option value="ocpp1.6">OCPP 1.6</option>
+                <option value="ocpp2.1">OCPP 2.1</option>
               </Select>
             </div>
             <div className="space-y-2">

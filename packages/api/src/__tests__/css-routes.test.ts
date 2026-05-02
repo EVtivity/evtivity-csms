@@ -53,19 +53,24 @@ function makeChain() {
   return chain;
 }
 
-vi.mock('@evtivity/database', () => ({
-  db: {
+vi.mock('@evtivity/database', () => {
+  const dbMock: Record<string, unknown> = {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
     update: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
     execute: vi.fn(() => Promise.resolve([])),
-  },
-  cssStations: {},
-  cssEvses: {},
-  cssConfigVariables: {},
-  cssTransactions: {},
-}));
+  };
+  dbMock['transaction'] = vi.fn((cb: (tx: unknown) => Promise<unknown>) => cb(dbMock));
+  return {
+    db: dbMock,
+    cssStations: {},
+    cssEvses: {},
+    cssConfigVariables: {},
+    cssTransactions: {},
+    chargingStations: {},
+  };
+});
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),

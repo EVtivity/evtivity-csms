@@ -19,7 +19,6 @@ export class SimulatorManager {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private syncing = false;
   private readonly sql: postgres.Sql;
-  private readonly skippedTlsUrls = new Set<string>();
 
   constructor(sql: postgres.Sql) {
     this.sql = sql;
@@ -86,18 +85,20 @@ export class SimulatorManager {
       SELECT
         s.id,
         s.station_id,
-        s.ocpp_protocol,
-        s.security_profile,
+        cs.ocpp_protocol,
+        cs.security_profile,
         s.target_url,
         s.password,
-        s.vendor_name,
-        s.model,
-        s.serial_number,
-        s.firmware_version,
+        cs.model,
+        cs.serial_number,
+        cs.firmware_version,
         s.client_cert,
         s.client_key,
-        s.ca_cert
+        s.ca_cert,
+        v.name AS vendor_name
       FROM css_stations s
+      INNER JOIN charging_stations cs ON cs.station_id = s.station_id
+      LEFT JOIN vendors v ON v.id = cs.vendor_id
       WHERE s.enabled = true
     `;
 
@@ -163,14 +164,13 @@ export class SimulatorManager {
 
       const targetUrl = row.target_url as string;
 
-      // Skip TLS stations when the TLS server is not reachable
+      // Verify TLS reachability before attempting connection. Retry every cycle
+      // so a TLS server coming online is picked up without restarting CSS.
       if (targetUrl.startsWith('wss://')) {
-        if (this.skippedTlsUrls.has(targetUrl)) continue;
         const reachable = await this.isTlsReachable(targetUrl);
         if (!reachable) {
-          this.skippedTlsUrls.add(targetUrl);
           console.log(
-            `[simulator-manager] TLS server ${targetUrl} not reachable, skipping ${stationId} and all TLS stations`,
+            `[simulator-manager] TLS server ${targetUrl} not reachable, will retry next cycle (${stationId})`,
           );
           continue;
         }
@@ -181,14 +181,16 @@ export class SimulatorManager {
       const clientCertVal = row.client_cert as string | null;
       const clientKeyVal = row.client_key as string | null;
       const caCertVal = row.ca_cert as string | null;
+      const ocppProtocol: 'ocpp1.6' | 'ocpp2.1' =
+        row.ocpp_protocol === 'ocpp2.1' ? 'ocpp2.1' : 'ocpp1.6';
       const config: StationConfig = {
         id: stationPk,
         stationId,
-        ocppProtocol: row.ocpp_protocol as 'ocpp1.6' | 'ocpp2.1',
+        ocppProtocol,
         securityProfile: row.security_profile as number,
         targetUrl: row.target_url as string,
-        vendorName: row.vendor_name as string,
-        model: row.model as string,
+        vendorName: (row.vendor_name as string | null) ?? 'EVtivity',
+        model: (row.model as string | null) ?? 'CSS-1000',
         serialNumber: (row.serial_number as string | null) ?? `SN-${stationId}`,
         firmwareVersion: (row.firmware_version as string | null) ?? '1.0.0',
         evses: evsesByStation.get(stationPk) ?? [],

@@ -15,6 +15,13 @@
       "when": 1775765510126,
       "tag": "0001_seed_defaults",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777655325079,
+      "tag": "0002_decouple_css_stations",
+      "breakpoints": true
     }
   ]
 }
