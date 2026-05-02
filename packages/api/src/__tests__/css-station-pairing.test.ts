@@ -207,6 +207,8 @@ describe('PATCH /v1/stations/:id isSimulator toggle pairs css_stations', () => {
 
   it('calls enableCssPair when isSimulator flips false -> true', async () => {
     setupDbResults(
+      // ocpp_protocol heal-check: row already has a protocol so no heal write
+      [{ ocppProtocol: 'ocpp2.1' }],
       // update().returning() result
       [
         {

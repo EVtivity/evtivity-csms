@@ -473,6 +473,8 @@ describe('Portal guest routes - handler logic', () => {
             chargingSessionId: 'ses_000000000001',
           },
         ],
+        // parent chargingStations.isSimulator lookup
+        [{ isSimulator: false }],
         [
           {
             energyDeliveredWh: 5000,

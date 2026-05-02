@@ -330,7 +330,8 @@ describe('Station routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      setupDbResults([created]);
+      // First select: duplicate-check (no existing row), then insert returns the created row.
+      setupDbResults([], [created]);
 
       const response = await app.inject({
         method: 'POST',
@@ -363,7 +364,8 @@ describe('Station routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      setupDbResults([created]);
+      // First select: duplicate-check (no existing row), then insert returns the created row.
+      setupDbResults([], [created]);
 
       const response = await app.inject({
         method: 'POST',

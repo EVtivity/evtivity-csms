@@ -23,6 +23,7 @@ const {
   mockSelect.mockReturnValue({ from: mockFrom });
   mockFrom.mockReturnValue({ where: mockWhere });
   mockWhere.mockReturnValue({ limit: mockLimit });
+  mockLimit.mockResolvedValue([]);
 
   return {
     mockSelect,
@@ -39,6 +40,8 @@ vi.mock('@evtivity/database', () => ({
   driverTokens: { idToken: 'idToken', isActive: 'isActive' },
   chargingStations: { id: 'id', availability: 'availability' },
   ocpiExternalTokens: { uid: 'uid', isValid: 'isValid' },
+  guestSessions: { sessionToken: 'sessionToken', status: 'status' },
+  sites: { freeVendEnabled: 'freeVendEnabled' },
   getHeartbeatIntervalSeconds: () => mockGetHeartbeatInterval(),
   isRoamingEnabled: () => mockIsRoamingEnabled(),
 }));
@@ -90,6 +93,8 @@ describe('Authorize 1.6 - hardened', () => {
     mockSelect.mockReturnValue({ from: mockFrom });
     mockFrom.mockReturnValue({ where: mockWhere });
     mockWhere.mockReturnValue({ limit: mockLimit });
+    mockLimit.mockResolvedValue([]);
+    mockIsRoamingEnabled.mockResolvedValue(false);
   });
 
   it('returns Invalid when token is not found', async () => {

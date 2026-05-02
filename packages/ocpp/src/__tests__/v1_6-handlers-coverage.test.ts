@@ -29,6 +29,12 @@ vi.mock('@evtivity/database', () => {
       isValid: 'is_valid',
       uid: 'uid',
     },
+    guestSessions: {
+      sessionToken: 'session_token',
+      status: 'status',
+    },
+    chargingStations: { id: 'id', stationId: 'station_id', siteId: 'site_id' },
+    sites: { id: 'id', freeVendEnabled: 'free_vend_enabled' },
     isRoamingEnabled: vi.fn().mockResolvedValue(false),
   };
 });
@@ -128,7 +134,8 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
   });
 
   it('returns Invalid when token not found and roaming is disabled', async () => {
-    whereFn.mockResolvedValue([]);
+    // driver_tokens select: empty. guest_sessions select also empty (default limitFn).
+    whereFn.mockResolvedValueOnce([]);
 
     const { handleAuthorize } = await import('../handlers/v1_6/authorize.handler.js');
     const { ctx } = makeCtx('Authorize', { idTag: 'UNKNOWN-TAG' });
@@ -138,22 +145,30 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
   });
 
   it('returns Accepted for valid OCPI external token when roaming is enabled', async () => {
-    // First query returns no driver_tokens
+    // driver_tokens query returns no rows
     whereFn.mockResolvedValueOnce([]);
-    // Enable roaming
     const { isRoamingEnabled } = await import('@evtivity/database');
     vi.mocked(isRoamingEnabled).mockResolvedValueOnce(true);
 
-    // Set up the OCPI external token query chain
-    // After the first whereFn resolves to [], the handler does a second select/from/where/limit
-    // We need to re-chain for the second query
-    const secondLimitFn = vi.fn().mockResolvedValue([{ isValid: true }]);
-    const secondWhereFn = vi.fn().mockReturnValue({ limit: secondLimitFn });
-    const secondFromFn = vi.fn().mockReturnValue({ where: secondWhereFn });
+    // After driver_tokens, the handler runs:
+    //   1. guest_sessions select (must return [] so we fall through to OCPI)
+    //   2. OCPI select (returns the test value)
+    const guestLimitFn = vi.fn().mockResolvedValue([]);
+    const guestWhereFn = vi.fn().mockReturnValue({ limit: guestLimitFn });
+    const guestFromFn = vi.fn().mockReturnValue({ where: guestWhereFn });
 
-    // The first call uses the default chain, but after it resolves we need the second call
-    // Since select/from/where are called sequentially, we mock them in order
-    selectFn.mockReturnValueOnce({ from: fromFn }).mockReturnValueOnce({ from: secondFromFn });
+    const ocpiLimitFn = vi.fn().mockResolvedValue([{ isValid: true }]);
+    const ocpiWhereFn = vi.fn().mockReturnValue({ limit: ocpiLimitFn });
+    const ocpiFromFn = vi.fn().mockReturnValue({ where: ocpiWhereFn });
+
+    // Calls to selectFn in order: free-vend (caught), driver_tokens, guest_sessions, OCPI
+    // The free-vend select uses the default fromFn chain (innerJoin throws there).
+    // Driver_tokens uses the default fromFn (where returns mockResolvedValueOnce above).
+    selectFn
+      .mockReturnValueOnce({ from: fromFn })
+      .mockReturnValueOnce({ from: fromFn })
+      .mockReturnValueOnce({ from: guestFromFn })
+      .mockReturnValueOnce({ from: ocpiFromFn });
 
     const { handleAuthorize } = await import('../handlers/v1_6/authorize.handler.js');
     const { ctx } = makeCtx('Authorize', { idTag: 'ROAMING-TAG' });
@@ -168,11 +183,19 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
     const { isRoamingEnabled } = await import('@evtivity/database');
     vi.mocked(isRoamingEnabled).mockResolvedValueOnce(true);
 
-    const secondLimitFn = vi.fn().mockResolvedValue([{ isValid: false }]);
-    const secondWhereFn = vi.fn().mockReturnValue({ limit: secondLimitFn });
-    const secondFromFn = vi.fn().mockReturnValue({ where: secondWhereFn });
+    const guestLimitFn = vi.fn().mockResolvedValue([]);
+    const guestWhereFn = vi.fn().mockReturnValue({ limit: guestLimitFn });
+    const guestFromFn = vi.fn().mockReturnValue({ where: guestWhereFn });
 
-    selectFn.mockReturnValueOnce({ from: fromFn }).mockReturnValueOnce({ from: secondFromFn });
+    const ocpiLimitFn = vi.fn().mockResolvedValue([{ isValid: false }]);
+    const ocpiWhereFn = vi.fn().mockReturnValue({ limit: ocpiLimitFn });
+    const ocpiFromFn = vi.fn().mockReturnValue({ where: ocpiWhereFn });
+
+    selectFn
+      .mockReturnValueOnce({ from: fromFn })
+      .mockReturnValueOnce({ from: fromFn })
+      .mockReturnValueOnce({ from: guestFromFn })
+      .mockReturnValueOnce({ from: ocpiFromFn });
 
     const { handleAuthorize } = await import('../handlers/v1_6/authorize.handler.js');
     const { ctx } = makeCtx('Authorize', { idTag: 'BAD-ROAMING-TAG' });
@@ -187,14 +210,21 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
     const { isRoamingEnabled } = await import('@evtivity/database');
     vi.mocked(isRoamingEnabled).mockResolvedValueOnce(true);
 
-    // The second select chain throws (OCPI tables missing)
+    const guestLimitFn = vi.fn().mockResolvedValue([]);
+    const guestWhereFn = vi.fn().mockReturnValue({ limit: guestLimitFn });
+    const guestFromFn = vi.fn().mockReturnValue({ where: guestWhereFn });
+
     const throwingFromFn = vi.fn().mockReturnValue({
       where: vi.fn().mockReturnValue({
         limit: vi.fn().mockRejectedValue(new Error('relation does not exist')),
       }),
     });
 
-    selectFn.mockReturnValueOnce({ from: fromFn }).mockReturnValueOnce({ from: throwingFromFn });
+    selectFn
+      .mockReturnValueOnce({ from: fromFn })
+      .mockReturnValueOnce({ from: fromFn })
+      .mockReturnValueOnce({ from: guestFromFn })
+      .mockReturnValueOnce({ from: throwingFromFn });
 
     const { handleAuthorize } = await import('../handlers/v1_6/authorize.handler.js');
     const { ctx } = makeCtx('Authorize', { idTag: 'OCPI-ERR-TAG' });
@@ -218,7 +248,7 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
   });
 
   it('returns Blocked when some tokens are inactive with mixed types including non-accept types', async () => {
-    whereFn.mockResolvedValue([
+    whereFn.mockResolvedValueOnce([
       { isActive: false, tokenType: 'Central' },
       { isActive: false, tokenType: 'ISO14443' },
     ]);
