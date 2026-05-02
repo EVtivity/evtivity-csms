@@ -29,6 +29,7 @@
     "yes": "예",
     "no": "아니오",
     "close": "닫기",
+    "clear": "지우기",
     "send": "전송",
     "never": "없음",
     "default": "기본값",
@@ -550,6 +551,7 @@
     "addEvse": "EVSE 생성",
     "addConnector": "커넥터 생성",
     "editEvse": "EVSE 편집",
+    "openGuestCharger": "게스트 충전 페이지 열기",
     "deleteEvse": "EVSE 삭제",
     "deleteConnector": "커넥터 삭제",
     "confirmDeleteEvse": "EVSE {{id}}과(와) 모든 커넥터가 제거됩니다. 이 작업은 되돌릴 수 없습니다.",
@@ -1829,6 +1831,7 @@
     "SITE_NOT_FOUND": "사이트를 찾을 수 없습니다",
     "SITE_HAS_STATIONS": "충전기가 있는 사이트는 삭제할 수 없습니다. 먼저 충전기를 제거하거나 재할당하세요.",
     "STATION_NOT_FOUND": "충전기를 찾을 수 없습니다",
+    "STATION_ID_EXISTS": "이 ID의 충전소가 이미 존재합니다. 다른 ID를 선택하세요.",
     "SESSION_NOT_FOUND": "세션을 찾을 수 없습니다",
     "DRIVER_NOT_FOUND": "드라이버를 찾을 수 없습니다",
     "FLEET_NOT_FOUND": "차량대를 찾을 수 없습니다",
@@ -2273,7 +2276,10 @@
     "goOffline": "오프라인 전환",
     "comeOnline": "온라인 전환",
     "actionSent": "{{action}} 전송됨",
-    "actionFailed": "작업 실패"
+    "actionFailed": "작업 실패",
+    "tokenUsedBy": "인증 및 충전 시작에만 사용됩니다.",
+    "tokenRequired": "이 작업에는 토큰이 필요합니다.",
+    "tokenNotFound": "드라이버 토큰에서 토큰을 찾을 수 없습니다. 인증 및 충전 시작이 거부됩니다."
   },
   "loadManagement": {
     "configuration": "부하 관리 구성",

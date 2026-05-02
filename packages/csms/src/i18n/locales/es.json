@@ -29,6 +29,7 @@
     "yes": "Si",
     "no": "No",
     "close": "Cerrar",
+    "clear": "Limpiar",
     "send": "Enviar",
     "never": "Nunca",
     "default": "Predeterminado",
@@ -550,6 +551,7 @@
     "addEvse": "Crear EVSE",
     "addConnector": "Crear conector",
     "editEvse": "Editar EVSE",
+    "openGuestCharger": "Abrir pagina de carga para invitados",
     "deleteEvse": "Eliminar EVSE",
     "deleteConnector": "Eliminar conector",
     "confirmDeleteEvse": "Esto eliminara el EVSE {{id}} y todos sus conectores. Esta accion no se puede deshacer.",
@@ -1846,6 +1848,7 @@
     "SITE_NOT_FOUND": "Sitio no encontrado",
     "SITE_HAS_STATIONS": "No se puede eliminar un sitio con estaciones. Quite o reasigne las estaciones primero.",
     "STATION_NOT_FOUND": "Estacion no encontrada",
+    "STATION_ID_EXISTS": "Ya existe una estacion con este ID. Elige un ID diferente.",
     "SESSION_NOT_FOUND": "Sesion no encontrada",
     "DRIVER_NOT_FOUND": "Conductor no encontrado",
     "FLEET_NOT_FOUND": "Flota no encontrada",
@@ -2288,7 +2291,10 @@
     "goOffline": "Desconectar",
     "comeOnline": "Reconectar",
     "actionSent": "{{action}} enviado",
-    "actionFailed": "La accion fallo"
+    "actionFailed": "La accion fallo",
+    "tokenUsedBy": "Usado solo por Autorizar e Iniciar Carga.",
+    "tokenRequired": "El token es requerido para esta accion.",
+    "tokenNotFound": "Token no encontrado en tokens de conductor. Autorizar e Iniciar Carga seran rechazados."
   },
   "loadManagement": {
     "configuration": "Configuracion de gestion de carga",

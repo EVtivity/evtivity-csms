@@ -29,6 +29,7 @@
     "yes": "是",
     "no": "否",
     "close": "關閉",
+    "clear": "清除",
     "send": "傳送",
     "never": "從未",
     "default": "預設",
@@ -550,6 +551,7 @@
     "addEvse": "建立 EVSE",
     "addConnector": "建立聯結器",
     "editEvse": "編輯 EVSE",
+    "openGuestCharger": "打開訪客充電頁面",
     "deleteEvse": "刪除 EVSE",
     "deleteConnector": "刪除聯結器",
     "confirmDeleteEvse": "這將刪除 EVSE {{id}} 及其所有聯結器。此操作無法撤銷。",
@@ -1831,6 +1833,7 @@
     "SITE_NOT_FOUND": "站點不存在",
     "SITE_HAS_STATIONS": "無法刪除包含充電站的站點。請先移除或重新分配充電站。",
     "STATION_NOT_FOUND": "充電站不存在",
+    "STATION_ID_EXISTS": "此 ID 的充電站已存在，請選擇其他 ID。",
     "SESSION_NOT_FOUND": "會話不存在",
     "DRIVER_NOT_FOUND": "駕駛員不存在",
     "FLEET_NOT_FOUND": "車隊不存在",
@@ -2273,7 +2276,10 @@
     "goOffline": "離線",
     "comeOnline": "上線",
     "actionSent": "{{action}} 已傳送",
-    "actionFailed": "操作失敗"
+    "actionFailed": "操作失敗",
+    "tokenUsedBy": "僅用於授權和開始充電。",
+    "tokenRequired": "此操作需要令牌。",
+    "tokenNotFound": "在司機令牌中未找到令牌。授權和開始充電將被拒絕。"
   },
   "loadManagement": {
     "configuration": "負載管理配置",

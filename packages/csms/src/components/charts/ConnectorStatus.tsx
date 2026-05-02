@@ -22,7 +22,9 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useTranslation } from 'react-i18next';
 import { AddIconButton } from '@/components/add-icon-button';
 import { EditIconButton } from '@/components/edit-icon-button';
+import { LinkIconButton } from '@/components/link-icon-button';
 import { RemoveIconButton } from '@/components/remove-icon-button';
+import { PORTAL_BASE_URL } from '@/lib/config';
 import { api } from '@/lib/api';
 import { Select } from '@/components/ui/select';
 import { connectorStatusVariant } from '@/lib/status-variants';
@@ -49,6 +51,7 @@ interface Evse {
 interface ConnectorStatusProps {
   data: Evse[];
   stationId: string;
+  stationOcppId: string;
 }
 
 function statusClassName(status: string, isIdling?: boolean): string | undefined {
@@ -85,7 +88,11 @@ interface ConnectorFormRow {
   maxCurrentAmps: string;
 }
 
-export function ConnectorStatus({ data, stationId }: ConnectorStatusProps): React.JSX.Element {
+export function ConnectorStatus({
+  data,
+  stationId,
+  stationOcppId,
+}: ConnectorStatusProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
 
@@ -334,6 +341,10 @@ export function ConnectorStatus({ data, stationId }: ConnectorStatusProps): Reac
                         openEditEvse(evse);
                       }}
                       title={t('stations.editEvse')}
+                    />
+                    <LinkIconButton
+                      href={`${PORTAL_BASE_URL}/charge/${stationOcppId}/${String(evse.evseId)}`}
+                      title={t('stations.openGuestCharger')}
                     />
                     <RemoveIconButton
                       disabled={hasInUseConnector(evse)}

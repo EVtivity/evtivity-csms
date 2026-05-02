@@ -5,12 +5,13 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { MapPin, Plug } from 'lucide-react';
+import { MapPin, Plug, Info } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { PricingDisplay } from '@/components/PricingDisplay';
 import type { PricingInfo } from '@/components/PricingDisplay';
@@ -351,9 +352,17 @@ export function ChargerLanding(): React.JSX.Element {
               </Button>
             </div>
           ) : (
-            <p className="pt-2 text-center text-sm text-muted-foreground">
-              {t('charger.notAvailable')}
-            </p>
+            <>
+              <p className="pt-2 text-center text-sm text-muted-foreground">
+                {t('charger.notAvailable')}
+              </p>
+              {charger.isSimulator && connectorStatus === 'finishing' && (
+                <Alert variant="info">
+                  <Info className="h-4 w-4" />
+                  <AlertDescription>{t('charger.simulatorUnplugHint')}</AlertDescription>
+                </Alert>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
@@ -373,6 +382,12 @@ export function ChargerLanding(): React.JSX.Element {
         }}
       >
         <EvPlugAnimation />
+        {charger.isSimulator && (
+          <Alert variant="info" className="mt-4">
+            <Info className="h-4 w-4" />
+            <AlertDescription>{t('charger.simulatorPlugInHint')}</AlertDescription>
+          </Alert>
+        )}
       </ConfirmDialog>
     </div>
   );

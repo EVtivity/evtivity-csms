@@ -29,6 +29,7 @@
     "yes": "是",
     "no": "否",
     "close": "关闭",
+    "clear": "清除",
     "send": "发送",
     "never": "从未",
     "default": "默认",
@@ -550,6 +551,7 @@
     "addEvse": "创建 EVSE",
     "addConnector": "创建连接器",
     "editEvse": "编辑 EVSE",
+    "openGuestCharger": "打开访客充电页面",
     "deleteEvse": "删除 EVSE",
     "deleteConnector": "删除连接器",
     "confirmDeleteEvse": "这将删除 EVSE {{id}} 及其所有连接器。此操作无法撤销。",
@@ -1842,6 +1844,7 @@
     "SITE_NOT_FOUND": "站点不存在",
     "SITE_HAS_STATIONS": "无法删除包含充电站的站点。请先移除或重新分配充电站。",
     "STATION_NOT_FOUND": "充电站不存在",
+    "STATION_ID_EXISTS": "此 ID 的充电站已存在，请选择其他 ID。",
     "SESSION_NOT_FOUND": "会话不存在",
     "DRIVER_NOT_FOUND": "驾驶员不存在",
     "FLEET_NOT_FOUND": "车队不存在",
@@ -2284,7 +2287,10 @@
     "goOffline": "离线",
     "comeOnline": "上线",
     "actionSent": "{{action}} 已发送",
-    "actionFailed": "操作失败"
+    "actionFailed": "操作失败",
+    "tokenUsedBy": "仅用于授权和开始充电。",
+    "tokenRequired": "此操作需要令牌。",
+    "tokenNotFound": "在司机令牌中未找到令牌。授权和开始充电将被拒绝。"
   },
   "loadManagement": {
     "configuration": "负载管理配置",

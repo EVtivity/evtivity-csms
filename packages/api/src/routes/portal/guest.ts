@@ -54,6 +54,7 @@ const guestStatusResponse = z
     status: z.string(),
     stationOcppId: z.string(),
     evseId: z.number(),
+    isSimulator: z.boolean().optional(),
     energyDeliveredWh: z.coerce.number().nullable().optional(),
     currentCostCents: z.number().nullable().optional(),
     finalCostCents: z.number().nullable().optional(),
@@ -340,8 +341,10 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       const tariff = await resolveTariff(station.id, null);
       const chargingIsFree = isTariffFree(tariff);
 
-      // Generate session token
-      const sessionToken = crypto.randomBytes(32).toString('hex');
+      // Generate session token. Capped at 20 chars to fit OCPP 1.6 idTag
+      // maxLength constraint. 10 bytes = 20 hex chars = 80 bits of entropy,
+      // plenty for a 15-minute single-use token.
+      const sessionToken = crypto.randomBytes(10).toString('hex');
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
       if (chargingIsFree) {
@@ -481,10 +484,18 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Look up isSimulator on the parent station so the portal can show
+      // simulator-specific instructions in confirmation dialogs.
+      const [parentStation] = await db
+        .select({ isSimulator: chargingStations.isSimulator })
+        .from(chargingStations)
+        .where(eq(chargingStations.stationId, guest.stationOcppId));
+
       const result: Record<string, unknown> = {
         status: guest.status,
         stationOcppId: guest.stationOcppId,
         evseId: guest.evseId,
+        isSimulator: parentStation?.isSimulator ?? false,
       };
 
       // If we have a linked charging session, include live data

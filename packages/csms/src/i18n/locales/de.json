@@ -29,6 +29,7 @@
     "yes": "Ja",
     "no": "Nein",
     "close": "Schließen",
+    "clear": "Löschen",
     "send": "Senden",
     "never": "Nie",
     "default": "Standard",
@@ -550,6 +551,7 @@
     "addEvse": "EVSE erstellen",
     "addConnector": "Anschluss erstellen",
     "editEvse": "EVSE bearbeiten",
+    "openGuestCharger": "Gastlade-Seite öffnen",
     "deleteEvse": "EVSE löschen",
     "deleteConnector": "Anschluss löschen",
     "confirmDeleteEvse": "Dadurch werden EVSE {{id}} und alle zugehörigen Anschlüsse entfernt. Diese Aktion kann nicht rückgängig gemacht werden.",
@@ -1848,6 +1850,7 @@
     "SITE_NOT_FOUND": "Standort nicht gefunden",
     "SITE_HAS_STATIONS": "Standort mit Stationen kann nicht gelöscht werden. Entfernen oder verschieben Sie zuerst die Stationen.",
     "STATION_NOT_FOUND": "Station nicht gefunden",
+    "STATION_ID_EXISTS": "Eine Station mit dieser ID existiert bereits. Bitte wählen Sie eine andere ID.",
     "SESSION_NOT_FOUND": "Ladevorgang nicht gefunden",
     "DRIVER_NOT_FOUND": "Fahrer nicht gefunden",
     "FLEET_NOT_FOUND": "Flotte nicht gefunden",
@@ -2292,7 +2295,10 @@
     "goOffline": "Offline gehen",
     "comeOnline": "Online gehen",
     "actionSent": "{{action}} gesendet",
-    "actionFailed": "Aktion fehlgeschlagen"
+    "actionFailed": "Aktion fehlgeschlagen",
+    "tokenUsedBy": "Nur von Autorisieren und Laden starten verwendet.",
+    "tokenRequired": "Token ist für diese Aktion erforderlich.",
+    "tokenNotFound": "Token in Fahrer-Tokens nicht gefunden. Autorisieren und Laden starten werden abgelehnt."
   },
   "loadManagement": {
     "configuration": "Lastmanagement-Konfiguration",

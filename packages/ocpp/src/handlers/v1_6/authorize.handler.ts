@@ -8,6 +8,7 @@ import {
   ocpiExternalTokens,
   chargingStations,
   sites,
+  guestSessions,
   isRoamingEnabled,
 } from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
@@ -57,6 +58,30 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
       .where(eq(driverTokens.idToken, request.idTag));
 
     if (tokens.length === 0) {
+      // Guest sessions: idTag is a CSMS-issued sessionToken. Accept when a
+      // guest session row exists in the payment_authorized state. The 2.1
+      // path accepts unknown Central tokens by design; 1.6 has no tokenType
+      // so we look up guest_sessions explicitly.
+      const [guest] = await db
+        .select({ status: guestSessions.status })
+        .from(guestSessions)
+        .where(eq(guestSessions.sessionToken, request.idTag))
+        .limit(1);
+      if (guest != null) {
+        if (guest.status === 'payment_authorized') {
+          ctx.logger.info(
+            { stationId: ctx.stationId, idTag: request.idTag },
+            'Guest session token accepted (1.6)',
+          );
+          return { idTagInfo: { status: 'Accepted' as const } };
+        }
+        ctx.logger.info(
+          { stationId: ctx.stationId, idTag: request.idTag, guestStatus: guest.status },
+          'Guest session token in non-authorized state, rejecting (1.6)',
+        );
+        return { idTagInfo: { status: 'Blocked' as const } };
+      }
+
       // No token found in driver_tokens. Check OCPI external tokens from roaming partners (only when roaming is enabled).
       let externalToken: { isValid: boolean } | undefined;
       if (await isRoamingEnabled()) {

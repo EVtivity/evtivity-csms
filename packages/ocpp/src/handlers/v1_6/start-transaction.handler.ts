@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql as dsql, eq } from 'drizzle-orm';
-import { db, driverTokens } from '@evtivity/database';
+import { db, driverTokens, guestSessions } from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { StartTransaction } from '../../generated/v1_6/types/messages/StartTransaction.js';
 
@@ -82,7 +82,8 @@ export async function handleStartTransaction(
     },
   });
 
-  // Validate the idTag against driver_tokens. Return Invalid if unknown, Blocked if inactive.
+  // Validate the idTag against driver_tokens, then guest_sessions.
+  // Return Invalid if unknown, Blocked if inactive.
   let idTagStatus: 'Accepted' | 'Blocked' | 'Invalid' = 'Accepted';
   try {
     const tokens = await db
@@ -90,7 +91,17 @@ export async function handleStartTransaction(
       .from(driverTokens)
       .where(eq(driverTokens.idToken, request.idTag));
     if (tokens.length === 0) {
-      idTagStatus = 'Invalid';
+      // Fall back to guest_sessions: idTag may be a CSMS-issued sessionToken.
+      const [guest] = await db
+        .select({ status: guestSessions.status })
+        .from(guestSessions)
+        .where(eq(guestSessions.sessionToken, request.idTag))
+        .limit(1);
+      if (guest == null) {
+        idTagStatus = 'Invalid';
+      } else if (guest.status !== 'payment_authorized' && guest.status !== 'charging') {
+        idTagStatus = 'Blocked';
+      }
     } else if (!tokens.some((t) => t.isActive)) {
       idTagStatus = 'Blocked';
     }

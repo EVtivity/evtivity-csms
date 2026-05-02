@@ -6,12 +6,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { loadStripe } from '@stripe/stripe-js/pure';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { ErrorCard } from '@/components/ui/error-card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { EvPlugAnimation } from '@/components/EvPlugAnimation';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { api } from '@/lib/api';
@@ -112,6 +113,12 @@ function FreeStartForm({
         }}
       >
         <EvPlugAnimation />
+        {isSimulator && (
+          <Alert variant="info" className="mt-4">
+            <Info className="h-4 w-4" />
+            <AlertDescription>{t('charger.simulatorPlugInHint')}</AlertDescription>
+          </Alert>
+        )}
       </ConfirmDialog>
     </form>
   );
@@ -303,6 +310,12 @@ function CheckoutForm({
         }}
       >
         <EvPlugAnimation />
+        {isSimulator && (
+          <Alert variant="info" className="mt-4">
+            <Info className="h-4 w-4" />
+            <AlertDescription>{t('charger.simulatorPlugInHint')}</AlertDescription>
+          </Alert>
+        )}
       </ConfirmDialog>
     </form>
   );

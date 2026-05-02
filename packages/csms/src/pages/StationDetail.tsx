@@ -261,7 +261,11 @@ export function StationDetail(): React.JSX.Element {
 
         <TabsContent value="connectors" className="space-y-6">
           {connectorsData != null && (
-            <ConnectorStatus data={connectorsData} stationId={station.id} />
+            <ConnectorStatus
+              data={connectorsData}
+              stationId={station.id}
+              stationOcppId={station.stationId}
+            />
           )}
         </TabsContent>
 

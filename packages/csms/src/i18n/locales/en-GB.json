@@ -29,6 +29,7 @@
     "yes": "Yes",
     "no": "No",
     "close": "Close",
+    "clear": "Clear",
     "send": "Send",
     "never": "Never",
     "default": "Default",
@@ -550,6 +551,7 @@
     "addEvse": "Create EVSE",
     "addConnector": "Create Connector",
     "editEvse": "Edit EVSE",
+    "openGuestCharger": "Open guest charger page",
     "deleteEvse": "Delete EVSE",
     "deleteConnector": "Delete Connector",
     "confirmDeleteEvse": "This will remove EVSE {{id}} and all its connectors. This action cannot be undone.",
@@ -1829,6 +1831,7 @@
     "SITE_NOT_FOUND": "Site not found",
     "SITE_HAS_STATIONS": "Cannot delete site with stations. Remove or reassign stations first.",
     "STATION_NOT_FOUND": "Station not found",
+    "STATION_ID_EXISTS": "A station with this ID already exists. Please choose a different ID.",
     "SESSION_NOT_FOUND": "Session not found",
     "DRIVER_NOT_FOUND": "Driver not found",
     "FLEET_NOT_FOUND": "Fleet not found",
@@ -2273,7 +2276,10 @@
     "goOffline": "Go Offline",
     "comeOnline": "Come Online",
     "actionSent": "{{action}} sent",
-    "actionFailed": "Action failed"
+    "actionFailed": "Action failed",
+    "tokenUsedBy": "Used by Authorise and Start Charging only.",
+    "tokenRequired": "Token is required for this action.",
+    "tokenNotFound": "Token not found in driver tokens. Authorise and Start Charging will be rejected."
   },
   "loadManagement": {
     "configuration": "Load Management Configuration",

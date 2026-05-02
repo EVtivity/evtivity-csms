@@ -4,11 +4,12 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Zap, Clock, DollarSign, StopCircle, AlertCircle, Check, Pause } from 'lucide-react';
+import { Zap, Clock, DollarSign, StopCircle, AlertCircle, Check, Pause, Info } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ErrorCard } from '@/components/ui/error-card';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { SessionCharts } from '@/components/SessionCharts';
@@ -19,6 +20,7 @@ interface GuestSessionStatus {
   status: string;
   stationOcppId: string;
   evseId: number;
+  isSimulator?: boolean;
   energyDeliveredWh?: string | null;
   currentCostCents?: number | null;
   finalCostCents?: number | null;
@@ -230,6 +232,13 @@ export function GuestSession(): React.JSX.Element {
           </p>
         </div>
 
+        {session.isSimulator === true && session.status === 'payment_authorized' && (
+          <Alert variant="info">
+            <Info className="h-4 w-4" />
+            <AlertDescription>{t('charger.simulatorPlugInHint')}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Stats grid */}
         <div className="grid grid-cols-3 gap-3">
           <Card>
@@ -331,7 +340,14 @@ export function GuestSession(): React.JSX.Element {
           onConfirm={() => void handleStop()}
           variant="destructive"
           isPending={stopping}
-        />
+        >
+          {session.isSimulator === true && (
+            <Alert variant="info" className="mt-4">
+              <Info className="h-4 w-4" />
+              <AlertDescription>{t('guestSession.simulatorUnplugHint')}</AlertDescription>
+            </Alert>
+          )}
+        </ConfirmDialog>
 
         {isDone && (
           <ConfirmDialog

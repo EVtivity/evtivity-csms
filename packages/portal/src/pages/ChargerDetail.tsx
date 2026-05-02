@@ -5,11 +5,23 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { AlertCircle, ArrowLeft, Mail, MapPin, Phone, Plug, Star, User, Zap } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowLeft,
+  Info,
+  Mail,
+  MapPin,
+  Phone,
+  Plug,
+  Star,
+  User,
+  Zap,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ReportIssue } from '@/components/ReportIssue';
 import { useToast } from '@/components/ui/toast';
 import { PricingDisplay, isPricingFree } from '@/components/PricingDisplay';
@@ -602,6 +614,12 @@ export function ChargerDetail(): React.JSX.Element {
         }}
       >
         <EvPlugAnimation />
+        {station.isSimulator && (
+          <Alert variant="info" className="mt-4">
+            <Info className="h-4 w-4" />
+            <AlertDescription>{t('charger.simulatorPlugInHint')}</AlertDescription>
+          </Alert>
+        )}
       </ConfirmDialog>
       <ConfirmDialog
         open={showRemoveFavorite}

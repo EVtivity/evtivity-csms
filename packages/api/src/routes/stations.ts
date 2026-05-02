@@ -681,7 +681,11 @@ export function stationRoutes(app: FastifyInstance): void {
         operationId: 'createStation',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createStationBody),
-        response: { 201: itemResponse(stationCreated), 404: errorResponse },
+        response: {
+          201: itemResponse(stationCreated),
+          404: errorResponse,
+          409: errorResponse,
+        },
       },
     },
     async (request, reply) => {
@@ -694,6 +698,21 @@ export function stationRoutes(app: FastifyInstance): void {
           return;
         }
       }
+
+      // Pre-check station_id uniqueness so the client gets a friendly 409
+      // instead of a 500 from a Postgres unique violation.
+      const [existing] = await db
+        .select({ id: chargingStations.id })
+        .from(chargingStations)
+        .where(eq(chargingStations.stationId, body.stationId));
+      if (existing != null) {
+        await reply.status(409).send({
+          error: 'A station with this ID already exists',
+          code: 'STATION_ID_EXISTS',
+        });
+        return;
+      }
+
       const { password, ...insertFields } = body;
       const basicAuthPasswordHash = password != null ? await hash(password) : undefined;
       const [station] = await db
@@ -716,9 +735,24 @@ export function stationRoutes(app: FastifyInstance): void {
           isSimulator: chargingStations.isSimulator,
           loadPriority: chargingStations.loadPriority,
           securityProfile: chargingStations.securityProfile,
+          ocppProtocol: chargingStations.ocppProtocol,
           createdAt: chargingStations.createdAt,
           updatedAt: chargingStations.updatedAt,
         });
+
+      // If created as a simulator, pair the css_stations row so SimulatorManager
+      // picks it up on its next 5s sync. Same logic as the PATCH toggle path.
+      if (station != null && station.isSimulator) {
+        await enableCssPair({
+          stationId: station.stationId,
+          ocppProtocol: station.ocppProtocol === 'ocpp2.1' ? 'ocpp2.1' : 'ocpp1.6',
+          securityProfile: station.securityProfile,
+          serverUrl: process.env['OCPP_SERVER_URL'] ?? 'ws://ocpp:8080',
+          tlsServerUrl: process.env['OCPP_TLS_SERVER_URL'] ?? 'wss://ocpp:8443',
+          password: password ?? null,
+        });
+      }
+
       await reply.status(201).send({ ...station, hasPassword: basicAuthPasswordHash != null });
     },
   );
