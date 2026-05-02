@@ -347,6 +347,15 @@ export class StationSimulator {
 
   async plugIn(evseId: number): Promise<void> {
     const ctx = this.evseContexts.get(evseId) as EvseContext;
+
+    // No-op if cable is already plugged AND a transaction is active. Without
+    // this guard, clicking Plug In during Charging regresses the connector
+    // status to Preparing on the wire, which the portal then renders as a
+    // status flash before the next genuine transition.
+    if (ctx.cablePlugged && ctx.transactionId != null) {
+      return;
+    }
+
     ctx.cablePlugged = true;
     this.cancelConnectionTimeoutTimer(evseId);
     this.cancelEvConnectTimeoutTimer(evseId);

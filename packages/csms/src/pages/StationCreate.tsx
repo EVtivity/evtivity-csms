@@ -78,7 +78,15 @@ export function StationCreate(): React.JSX.Element {
     const errors: Record<string, string> = {};
     if (!stationId.trim()) errors.stationId = t('validation.required');
     if (siteId === '') errors.siteId = t('validation.selectRequired');
-    if (securityProfile !== '0' && !password.trim()) errors.password = t('validation.required');
+    if (securityProfile !== '0') {
+      if (!password.trim()) {
+        errors.password = t('validation.required');
+      } else if (password.length < 8) {
+        errors.password = t('validation.minLength', { min: 8 });
+      } else if (password.length > 128) {
+        errors.password = t('validation.maxLength', { max: 128 });
+      }
+    }
     return errors;
   }
 

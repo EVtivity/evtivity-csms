@@ -179,6 +179,8 @@ export function StationSecurity({
       errs.password = t('validation.required');
     } else if (password.length < 8) {
       errs.password = t('validation.minLength', { min: 8 });
+    } else if (password.length > 128) {
+      errs.password = t('validation.maxLength', { max: 128 });
     }
     if (confirmPassword.trim() === '') {
       errs.confirmPassword = t('validation.required');

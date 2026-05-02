@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Copy, Key, Trash2, AlertTriangle, Check, Pencil } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -407,10 +408,10 @@ print(data)`;
               <DialogTitle>{t('settings.apiKeyCreated')}</DialogTitle>
             </DialogHeader>
             <div className="grid gap-4">
-              <div className="flex items-center gap-2 rounded-md border border-warning bg-warning/10 p-3 text-sm">
-                <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
-                <span>{t('settings.apiKeyCreatedDescription')}</span>
-              </div>
+              <Alert variant="warning">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>{t('settings.apiKeyCreatedDescription')}</AlertDescription>
+              </Alert>
               <div className="flex gap-2">
                 <Input value={createdToken} readOnly className="flex-1" />
                 <Button variant="outline" size="icon" aria-label="Copy" onClick={handleCopy}>

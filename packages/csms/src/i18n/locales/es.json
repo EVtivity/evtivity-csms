@@ -2275,6 +2275,7 @@
     "required": "Este campo es obligatorio",
     "email": "Ingrese una direccion de correo valida",
     "minLength": "Debe tener al menos {{min}} caracteres",
+    "maxLength": "Debe tener como maximo {{max}} caracteres",
     "passwordMismatch": "Las contrasenas no coinciden",
     "selectRequired": "Seleccione una opcion",
     "invalidUrl": "Ingrese una URL valida"

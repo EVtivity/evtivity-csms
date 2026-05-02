@@ -2260,6 +2260,7 @@
     "required": "필수 항목입니다",
     "email": "유효한 이메일 주소를 입력하세요",
     "minLength": "최소 {{min}}자 이상이어야 합니다",
+    "maxLength": "최대 {{max}}자 이하여야 합니다",
     "passwordMismatch": "비밀번호가 일치하지 않습니다",
     "selectRequired": "옵션을 선택하세요",
     "invalidUrl": "유효한 URL을 입력하세요"

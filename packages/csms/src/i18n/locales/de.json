@@ -2279,6 +2279,7 @@
     "required": "Dieses Feld ist erforderlich",
     "email": "Geben Sie eine gültige E-Mail-Adresse ein",
     "minLength": "Muss mindestens {{min}} Zeichen lang sein",
+    "maxLength": "Darf höchstens {{max}} Zeichen lang sein",
     "passwordMismatch": "Passwörter stimmen nicht überein",
     "selectRequired": "Wählen Sie eine Option aus",
     "invalidUrl": "Geben Sie eine gültige URL ein"

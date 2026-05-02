@@ -2271,6 +2271,7 @@
     "required": "此字段为必填项",
     "email": "请输入有效的电子邮件地址",
     "minLength": "至少需要 {{min}} 个字符",
+    "maxLength": "最多 {{max}} 个字符",
     "passwordMismatch": "密码不匹配",
     "selectRequired": "请选择一个选项",
     "invalidUrl": "请输入有效的URL"

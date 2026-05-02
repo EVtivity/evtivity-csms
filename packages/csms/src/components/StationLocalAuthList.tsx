@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, Search, AlertTriangle } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -217,12 +218,10 @@ export function StationLocalAuthList({
 
         {/* Unpushed changes banner */}
         {hasUnpushedChanges && (
-          <div className="flex items-center rounded-md border border-warning/50 bg-warning/10 px-4 py-2 mb-4">
-            <div className="flex items-center gap-2 text-sm">
-              <AlertTriangle className="h-4 w-4 text-warning" />
-              <span>{t('stations.unpushedChanges')}</span>
-            </div>
-          </div>
+          <Alert variant="warning" className="mb-4">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{t('stations.unpushedChanges')}</AlertDescription>
+          </Alert>
         )}
 
         {/* Entries table */}
@@ -297,10 +296,10 @@ export function StationLocalAuthList({
         }}
       >
         {localVersion === 0 && (
-          <div className="flex items-center gap-2 rounded-md border border-warning/50 bg-warning/10 px-4 py-2 text-sm">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
-            <span>{t('stations.pushVersionZeroWarning')}</span>
-          </div>
+          <Alert variant="warning">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{t('stations.pushVersionZeroWarning')}</AlertDescription>
+          </Alert>
         )}
       </ConfirmDialog>
 

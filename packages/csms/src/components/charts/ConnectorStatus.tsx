@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { Pause, Trash2, Info } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
@@ -314,16 +315,16 @@ export function ConnectorStatus({
         />
       </CardHeader>
       <CardContent>
-        <div className="mb-4 flex items-start gap-2 rounded-md border border-info/50 bg-info/10 p-3 text-xs text-info">
-          <Info className="h-4 w-4 shrink-0 mt-0.5" />
-          <p>
+        <Alert variant="info" className="mb-4">
+          <Info className="h-4 w-4" />
+          <AlertDescription>
             {ocppProtocol === 'ocpp1.6'
               ? t('charts.ocpp16EvseNote')
               : ocppProtocol === 'ocpp2.1'
                 ? t('charts.ocpp21EvseNote')
                 : t('charts.evseProtocolNote')}
-          </p>
-        </div>
+          </AlertDescription>
+        </Alert>
         {data.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('charts.noEvsesConfigured')}</p>
         ) : (

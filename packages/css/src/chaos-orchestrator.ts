@@ -565,9 +565,39 @@ export class ChaosOrchestrator {
       actions = [...actions, ...OCPP16_ACTIONS];
     }
 
-    // Filter out startCharging if station already has an active transaction
-    if (this.chargingStations.has(stationId)) {
-      actions = actions.filter((a) => a.name !== 'startCharging');
+    // Filter out actions that would corrupt the connector/transaction state
+    // when the station already has an active charging session. Chaos exists
+    // to exercise the system, not to break in-flight transactions tested
+    // manually via the dashboard or guest portal.
+    //
+    // The local `chargingStations` set only tracks chaos-initiated charges.
+    // Sessions started by the dashboard or guest portal are not in the set,
+    // so we also check the DB for any active css_transaction on this station.
+    let stationIsCharging = this.chargingStations.has(stationId);
+    if (!stationIsCharging) {
+      try {
+        const rows = await this.sql<Array<{ exists: boolean }>>`
+          SELECT EXISTS (
+            SELECT 1 FROM css_transactions t
+            JOIN css_stations s ON s.id = t.css_station_id
+            WHERE s.station_id = ${stationId} AND t.status = 'active'
+          ) AS exists
+        `;
+        stationIsCharging = rows[0]?.exists === true;
+      } catch {
+        // Best-effort: if DB unavailable, assume not charging.
+      }
+    }
+    if (stationIsCharging) {
+      const STATEFUL = new Set([
+        'startCharging',
+        'plugIn',
+        'authorize',
+        'sendStatusNotification',
+        'sendBootNotification',
+        'injectFault',
+      ]);
+      actions = actions.filter((a) => !STATEFUL.has(a.name));
     }
 
     const action = pick(actions);
