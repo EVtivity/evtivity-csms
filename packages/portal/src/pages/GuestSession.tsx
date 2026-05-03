@@ -4,7 +4,16 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Zap, Clock, DollarSign, StopCircle, AlertCircle, Check, Pause } from 'lucide-react';
+import {
+  Zap,
+  Clock,
+  DollarSign,
+  StopCircle,
+  AlertCircle,
+  Check,
+  Pause,
+  ArrowLeft,
+} from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -341,6 +350,21 @@ export function GuestSession(): React.JSX.Element {
           >
             <StopCircle className="mr-2 h-5 w-5" />
             {stopping ? t('guestSession.stopping') : t('guestSession.stopCharging')}
+          </Button>
+        )}
+
+        {/* Back button (terminal states only) */}
+        {(isDone || isFailed) && (
+          <Button
+            variant="outline"
+            className="w-full"
+            size="lg"
+            onClick={() => {
+              void navigate(`/charge/${session.stationOcppId}/${String(session.evseId)}`);
+            }}
+          >
+            <ArrowLeft className="mr-2 h-5 w-5" />
+            {t('common.back')}
           </Button>
         )}
 
