@@ -3,8 +3,11 @@
 
 import { connect as tlsConnect, type TLSSocket } from 'node:tls';
 import type postgres from 'postgres';
+import type { PubSubClient } from '@evtivity/lib';
 import { StationSimulator, type StationConfig } from './station-simulator.js';
 import { ClockAlignedScheduler } from './clock-aligned-scheduler.js';
+
+const RESULTS_CHANNEL = 'css_command_results';
 
 interface CssCommand {
   commandId?: string;
@@ -19,9 +22,14 @@ export class SimulatorManager {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private syncing = false;
   private readonly sql: postgres.Sql;
+  // Optional: when set, dispatchAction publishes a {commandId, success,
+  // error?} message to css_command_results so the API can surface
+  // simulator-side rejects (e.g. "Cable not plugged in") to the operator.
+  private readonly pubsub: PubSubClient | null;
 
-  constructor(sql: postgres.Sql) {
+  constructor(sql: postgres.Sql, pubsub?: PubSubClient) {
     this.sql = sql;
+    this.pubsub = pubsub ?? null;
     this.clockAlignedScheduler = new ClockAlignedScheduler();
   }
 
@@ -64,10 +72,33 @@ export class SimulatorManager {
     const sim = this.simulators.get(cmd.stationId);
     if (!sim) {
       console.log(`[simulator-manager] No simulator found for station: ${cmd.stationId}`);
+      await this.publishResult(cmd.commandId, false, 'Simulator not found for station');
       return;
     }
 
-    await this.dispatchAction(sim, cmd.action, cmd.params);
+    await this.dispatchAction(sim, cmd.action, cmd.params, cmd.commandId);
+  }
+
+  private async publishResult(
+    commandId: string | undefined,
+    success: boolean,
+    error?: string,
+    data?: Record<string, unknown>,
+  ): Promise<void> {
+    if (this.pubsub == null || commandId == null) return;
+    try {
+      await this.pubsub.publish(
+        RESULTS_CHANNEL,
+        JSON.stringify({
+          commandId,
+          success,
+          ...(error != null ? { error } : {}),
+          ...(data != null ? { data } : {}),
+        }),
+      );
+    } catch {
+      // Best-effort: a missed result message just falls back to the API timeout.
+    }
   }
 
   private async syncStations(): Promise<void> {
@@ -267,7 +298,9 @@ export class SimulatorManager {
     sim: StationSimulator,
     action: string,
     params: Record<string, unknown>,
+    commandId?: string,
   ): Promise<void> {
+    let resultData: Record<string, unknown> | undefined;
     try {
       switch (action) {
         case 'plugIn':
@@ -280,13 +313,15 @@ export class SimulatorManager {
             params.tokenType as string,
           );
           break;
-        case 'startCharging':
-          await sim.startCharging(
+        case 'startCharging': {
+          const txId = await sim.startCharging(
             params.evseId as number,
             params.idToken as string,
             params.tokenType as string,
           );
+          resultData = { transactionId: txId };
           break;
+        }
         case 'stopCharging':
           await sim.stopCharging(params.evseId as number, params.reason as string);
           break;
@@ -533,10 +568,14 @@ export class SimulatorManager {
           break;
         default:
           console.log(`[simulator-manager] Unknown action: ${action}`);
+          await this.publishResult(commandId, false, `Unknown action: ${action}`);
+          return;
       }
+      await this.publishResult(commandId, true, undefined, resultData);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.log(`[simulator-manager] Error dispatching ${action} to ${sim.stationId}: ${msg}`);
+      await this.publishResult(commandId, false, msg);
     }
   }
 }

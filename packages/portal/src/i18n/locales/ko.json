@@ -226,8 +226,7 @@
     "evNotDetectedDescription": "충전소에서 이 포트에 연결된 EV를 감지하지 못했습니다. 차량을 연결하고 다시 시도해 주세요.",
     "startAnyway": "그래도 시작",
     "proceedAnyway": "그래도 진행",
-    "startForSimulation": "시뮬레이션용 시작",
-    "simulatorPlugInHint": "시뮬레이터: 시작 후 CSMS 대시보드를 열고 이 충전소의 Simulate 탭으로 이동하여 Plug In을 클릭하여 케이블 연결 단계를 완료하세요.",
+    "simulatorPlugInHint": "시뮬레이터: 충전을 시작하기 전에 CSMS 대시보드를 열고 이 충전소의 Simulate 탭으로 이동하여 Plug In을 클릭하세요.",
     "simulatorUnplugHint": "시뮬레이터: CSMS 대시보드를 열고 충전소의 Simulate 탭에서 Unplug를 클릭하여 Finishing 상태를 해제하세요.",
     "checkingStatus": "확인 중...",
     "statusCheckFailed": "커넥터 상태를 확인할 수 없습니다. 다시 시도해 주세요.",
@@ -290,8 +289,7 @@
     "stopping": "중지 중...",
     "receiptMessage": "카드가 청구되었습니다. 영수증이 이메일로 전송됩니다.",
     "waitingForCharger": "충전기 응답 대기 중...",
-    "sessionError": "세션을 불러오지 못했습니다. 다시 시도해 주세요.",
-    "simulatorUnplugHint": "시뮬레이터: 중지 후 CSMS 대시보드를 열고 충전소의 Simulate 탭에서 Unplug를 클릭하세요. 그렇지 않으면 커넥터가 Finishing 상태에 머물러 있게 됩니다."
+    "sessionError": "세션을 불러오지 못했습니다. 다시 시도해 주세요."
   },
   "status": {
     "online": "온라인",

@@ -550,7 +550,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT charging_sessions
         [{ id: 'session-1' }], // SELECT id
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [], // INSERT transaction_events
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: 'existing-driver' }], // SELECT driver_id (already set)
@@ -605,7 +604,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT charging_sessions
         [{ id: 'session-roaming' }], // SELECT id
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [], // INSERT transaction_events
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: null }], // SELECT driver_id (no driver)
@@ -660,7 +658,6 @@ describe('Event projections - coverage expansion', () => {
           [], // INSERT charging_sessions
           [{ id: 'session-1' }], // SELECT id
           [], // UPDATE stale sessions
-          [], // SELECT evse_id for connector status
           [], // INSERT transaction_events
           [], // SELECT free_vend_enabled (not free vend)
           [{ driver_id: null }], // SELECT driver_id
@@ -704,7 +701,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT charging_sessions
         [{ id: 'session-1' }], // SELECT id
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [], // INSERT transaction_events
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: null }], // SELECT driver_id (no driver)
@@ -743,7 +739,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT charging_sessions
         [{ id: 'session-1' }], // SELECT id
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [], // INSERT transaction_events
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: null }], // SELECT driver_id
@@ -797,7 +792,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT charging_sessions
         [{ id: 'session-1' }], // SELECT id
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [], // INSERT transaction_events
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: null }], // SELECT driver_id
@@ -850,7 +844,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT charging_sessions
         [{ id: 'session-1' }], // SELECT id
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [], // INSERT transaction_events
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: null }], // SELECT driver_id
@@ -2184,7 +2177,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT charging_sessions
         [{ id: 'session-preauth' }], // SELECT id
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [], // INSERT transaction_events
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: 'driver-pay' }], // SELECT driver_id
@@ -2253,7 +2245,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT charging_sessions
         [{ id: 'session-1' }], // SELECT id
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [], // INSERT transaction_events
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: null }], // SELECT driver_id
@@ -2288,7 +2279,6 @@ describe('Event projections - coverage expansion', () => {
         [],
         [{ id: 'session-1' }],
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [],
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: 'driver-nopay' }],
@@ -2339,7 +2329,6 @@ describe('Event projections - coverage expansion', () => {
         [],
         [{ id: 'session-1' }],
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [],
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: 'driver-1' }],
@@ -2390,7 +2379,6 @@ describe('Event projections - coverage expansion', () => {
         [],
         [{ id: 'session-1' }],
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [],
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: 'driver-1' }],
@@ -2444,7 +2432,6 @@ describe('Event projections - coverage expansion', () => {
         [],
         [{ id: 'session-1' }],
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [],
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: 'driver-1' }],
@@ -2526,7 +2513,6 @@ describe('Event projections - coverage expansion', () => {
         [],
         [{ id: 'session-sim' }],
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [],
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: 'driver-sim' }],
@@ -2595,7 +2581,6 @@ describe('Event projections - coverage expansion', () => {
         [],
         [{ id: 'session-site' }],
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [],
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: 'driver-site' }],
@@ -2667,7 +2652,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT charging_sessions
         [{ id: 'session-roaming' }], // SELECT id
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [], // INSERT transaction_events
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: null }], // SELECT driver_id (null)
@@ -2729,7 +2713,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT charging_sessions
         [{ id: 'session-nopay-nofree' }], // SELECT id
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [], // INSERT transaction_events
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: 'drv_nopay' }], // SELECT driver_id
@@ -2807,7 +2790,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT charging_sessions
         [{ id: 'session-free' }], // SELECT id
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [], // INSERT transaction_events
         [{ driver_id: 'drv_free' }], // SELECT driver_id
         // resolvePricingGroupId: driver group
@@ -2884,7 +2866,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT charging_sessions
         [{ id: 'session-anon' }], // SELECT id
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [], // INSERT transaction_events
         [{ driver_id: null }], // SELECT driver_id (null)
         // Token resolution chain: driver_tokens -> ocpi_external_tokens -> guest_sessions
@@ -2936,7 +2917,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT charging_sessions
         [{ id: 'session-guest' }], // SELECT id
         [], // UPDATE stale sessions
-        [], // SELECT evse_id for connector status
         [], // INSERT transaction_events
         [{ driver_id: null }], // SELECT driver_id (null)
         // Token resolution chain: driver_tokens -> ocpi_external_tokens -> guest_sessions

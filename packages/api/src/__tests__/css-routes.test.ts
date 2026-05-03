@@ -83,13 +83,40 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 // -- PubSub mock --
+//
+// The css action route subscribes to css_command_results and waits for a
+// matching commandId. Mock simulates a successful round-trip: capture the
+// result channel handler when subscribe is called, then invoke it inline
+// when publish is called for css_commands.
 
-const mockPublish = vi.fn().mockResolvedValue(undefined);
+const { mockPublish, mockSubscribe, mockState } = vi.hoisted(() => {
+  const state: { handler: ((raw: string) => void) | null; publishCalls: Array<[string, string]> } =
+    { handler: null, publishCalls: [] };
+  const publish = async (channel: string, raw: string): Promise<void> => {
+    state.publishCalls.push([channel, raw]);
+    if (channel !== 'css_commands') return;
+    const cmd = JSON.parse(raw) as { commandId?: string };
+    if (cmd.commandId != null && state.handler != null) {
+      state.handler(JSON.stringify({ commandId: cmd.commandId, success: true }));
+    }
+  };
+  const subscribe = async (channel: string, handler: (raw: string) => void) => {
+    if (channel === 'css_command_results') {
+      state.handler = handler;
+    }
+    return {
+      unsubscribe: async (): Promise<void> => {
+        if (channel === 'css_command_results') state.handler = null;
+      },
+    };
+  };
+  return { mockPublish: publish, mockSubscribe: subscribe, mockState: state };
+});
 
 vi.mock('../lib/pubsub.js', () => ({
   getPubSub: vi.fn(() => ({
     publish: mockPublish,
-    subscribe: vi.fn(),
+    subscribe: mockSubscribe,
   })),
   setPubSub: vi.fn(),
 }));
@@ -189,7 +216,8 @@ describe('CSS routes', () => {
     dbResults = [];
     dbCallIndex = 0;
     vi.clearAllMocks();
-    mockPublish.mockResolvedValue(undefined);
+    mockState.publishCalls = [];
+    mockState.handler = null;
   });
 
   // ===================================================================
@@ -276,7 +304,7 @@ describe('CSS routes', () => {
       expect(body.code).toBe('OCPP_VERSION_MISMATCH');
     });
 
-    it('returns 202 for valid global action', async () => {
+    it('returns 200 for valid global action', async () => {
       const station = { id: 'id-1', stationId: 'TEST-001', ocppProtocol: 'ocpp2.1' };
       setupDbResults([station]);
 
@@ -286,17 +314,17 @@ describe('CSS routes', () => {
         headers: { authorization: `Bearer ${token}` },
         payload: plugInPayload,
       });
-      expect(response.statusCode).toBe(202);
+      expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.payload);
       expect(body.commandId).toBeDefined();
       expect(typeof body.commandId).toBe('string');
-      expect(mockPublish).toHaveBeenCalledWith(
-        'css_commands',
-        expect.stringContaining('"action":"plugIn"'),
+      const publishCall = mockState.publishCalls.find(
+        ([ch, raw]) => ch === 'css_commands' && raw.includes('"action":"plugIn"'),
       );
+      expect(publishCall).toBeDefined();
     });
 
-    it('returns 202 for version-specific action matching station protocol', async () => {
+    it('returns 200 for version-specific action matching station protocol', async () => {
       const station = { id: 'id-1', stationId: 'TEST-21', ocppProtocol: 'ocpp2.1' };
       setupDbResults([station]);
 
@@ -306,7 +334,7 @@ describe('CSS routes', () => {
         headers: { authorization: `Bearer ${token}` },
         payload: { ...sendTransactionEventPayload, stationId: 'TEST-21' },
       });
-      expect(response.statusCode).toBe(202);
+      expect(response.statusCode).toBe(200);
     });
   });
 

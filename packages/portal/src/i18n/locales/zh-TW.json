@@ -226,8 +226,7 @@
     "evNotDetectedDescription": "充電站未偵測到此端口連接的電動車。請插入您的車輛並重試。",
     "startAnyway": "仍然開始",
     "proceedAnyway": "仍然繼續",
-    "startForSimulation": "開始模擬充電",
-    "simulatorPlugInHint": "模擬器：開始後，打開 CSMS 控制台，進入此充電站的 Simulate 分頁，點擊 Plug In 完成插槍步驟。",
+    "simulatorPlugInHint": "模擬器：開始充電前，請先打開 CSMS 控制台，進入此充電站的 Simulate 分頁，點擊 Plug In。",
     "simulatorUnplugHint": "模擬器：打開 CSMS 控制台，在該充電站的 Simulate 分頁點擊 Unplug 以清除 Finishing 狀態。",
     "checkingStatus": "檢查中...",
     "statusCheckFailed": "無法檢查連接器狀態。請重試。",
@@ -290,8 +289,7 @@
     "stopping": "停止中...",
     "receiptMessage": "您的信用卡已扣款。收據將傳送到您的電子郵箱。",
     "waitingForCharger": "等待充電樁回應...",
-    "sessionError": "載入會話失敗，請重試。",
-    "simulatorUnplugHint": "模擬器：停止後，打開 CSMS 控制台，在該充電站的 Simulate 分頁點擊 Unplug，否則連接器將停留在 Finishing 狀態。"
+    "sessionError": "載入會話失敗，請重試。"
   },
   "status": {
     "online": "線上",

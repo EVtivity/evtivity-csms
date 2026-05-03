@@ -73,8 +73,8 @@ function makeChain() {
   return chain;
 }
 
-vi.mock('@evtivity/database', () => ({
-  db: {
+vi.mock('@evtivity/database', () => {
+  const dbMock: Record<string, unknown> = {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
     update: vi.fn(() => makeChain()),
@@ -93,21 +93,28 @@ vi.mock('@evtivity/database', () => ({
       ]),
     ),
     $client: {},
-  },
-  chargingStations: {},
-  evses: {},
-  connectors: {},
-  chargingSessions: {},
-  drivers: {},
-  meterValues: {},
-  sites: {},
-  vendors: { id: 'id', name: 'name' },
-  ocppMessageLogs: {},
-  connectionLogs: {},
-  stationCertificates: {},
-  pricingGroupStations: {},
-  pricingGroups: {},
-}));
+  };
+  // POST /v1/stations and PATCH /v1/stations/:id wrap their work in a
+  // db.transaction. Reuse the same mocked db inside the callback so the
+  // chained query helpers above continue to drive the test.
+  dbMock['transaction'] = vi.fn((cb: (tx: unknown) => Promise<unknown>) => cb(dbMock));
+  return {
+    db: dbMock,
+    chargingStations: {},
+    evses: {},
+    connectors: {},
+    chargingSessions: {},
+    drivers: {},
+    meterValues: {},
+    sites: {},
+    vendors: { id: 'id', name: 'name' },
+    ocppMessageLogs: {},
+    connectionLogs: {},
+    stationCertificates: {},
+    pricingGroupStations: {},
+    pricingGroups: {},
+  };
+});
 
 vi.mock('drizzle-orm', () => {
   const sqlFn = () => ({ as: vi.fn() });

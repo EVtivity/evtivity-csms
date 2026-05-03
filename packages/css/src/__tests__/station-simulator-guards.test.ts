@@ -85,16 +85,34 @@ function setClientConnected(sim: StationSimulator, connected: boolean): void {
 
 describe('StationSimulator action guards', () => {
   describe('unplug', () => {
-    it('no-ops when no cable is plugged and no active transaction', async () => {
+    it('no-ops when no cable is plugged, no active transaction, and connector is already Available', async () => {
       const sim = makeSimulator();
       const ctx = getEvseContext(sim, 1);
       ctx.cablePlugged = false;
       ctx.transactionId = null;
+      setConnectorStatus(sim, 1, 'Available');
       const sendCall = getSendCallSpy(sim);
 
       await sim.unplug(1);
 
       expect(sendCall).not.toHaveBeenCalled();
+    });
+
+    it('proceeds when connector reports Finishing even if in-memory cable state is unset', async () => {
+      // Reproduces the post-restart drift case: simulator restarts and resets
+      // its in-memory map to cable=false / tx=null, but the CSMS still holds
+      // the connector at Finishing from the previous session. Unplug must
+      // proceed so a StatusNotification(Available) clears it.
+      const sim = makeSimulator();
+      const ctx = getEvseContext(sim, 1);
+      ctx.cablePlugged = false;
+      ctx.transactionId = null;
+      setConnectorStatus(sim, 1, 'Finishing');
+      const sendCall = getSendCallSpy(sim);
+
+      await sim.unplug(1);
+
+      expect(sendCall).toHaveBeenCalled();
     });
 
     it('proceeds when cable is plugged (Finishing -> Available transition)', async () => {

@@ -59,7 +59,18 @@ function getValidActions(connectorStatus: string): Set<string> {
     case 'idle':
       return new Set(['stopCharging', 'unplug', 'injectFault', 'goOffline']);
     case 'finishing':
-      return new Set(['unplug', 'injectFault', 'goOffline']);
+      // OCPP 1.6 Finishing: cable still connected, session ended, ready
+      // for the next driver. Real 1.6 stations accept a fresh RemoteStart
+      // here without an Unplug/Plug-in cycle. Mirror the 2.1 'occupied'
+      // post-stop set so dashboard parity holds across versions.
+      return new Set([
+        'plugIn',
+        'unplug',
+        'authorize',
+        'startCharging',
+        'goOffline',
+        'injectFault',
+      ]);
     case 'reserved':
       return new Set(['plugIn', 'authorize', 'goOffline', 'injectFault']);
     case 'faulted':

@@ -93,6 +93,7 @@ export function ChargerStationLanding(): React.JSX.Element {
     queryKey: ['station-landing', stationId],
     queryFn: () => api.get<StationInfo>(`/v1/portal/chargers/${stationId ?? ''}`),
     enabled: stationId != null,
+    refetchInterval: 5000,
   });
 
   if (isLoading) {

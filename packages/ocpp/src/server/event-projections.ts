@@ -1199,9 +1199,16 @@ export function registerProjections(
             AND evse_id = (SELECT evse_id FROM charging_sessions WHERE id = ${sessionId})
         `;
 
-        // Set connector to 'ev_connected' on transaction start (cable connected)
-        // Skip when EVConnectTimeout: the EV was never actually connected
-        if (triggerReason !== 'EVConnectTimeout') {
+        // Set connector to 'ev_connected' on transaction start (cable connected).
+        // Only applies to OCPP 2.1 where the Started event carries
+        // `chargingState: 'EVConnected'`. For OCPP 1.6 the StatusNotification
+        // projection already wrote the correct fine-grained status (e.g.
+        // 'charging') and this block must not overwrite it.
+        // Skip when EVConnectTimeout: the EV was never actually connected.
+        if (
+          triggerReason !== 'EVConnectTimeout' &&
+          (payload.chargingState as string | undefined) === 'EVConnected'
+        ) {
           const startEvseRows = await sql`
             SELECT evse_id FROM charging_sessions WHERE id = ${sessionId}
           `;

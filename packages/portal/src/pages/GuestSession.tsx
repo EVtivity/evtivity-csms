@@ -148,17 +148,38 @@ export function GuestSession(): React.JSX.Element {
   const isActive = isCharging || session?.status === 'payment_authorized';
   const elapsed = useElapsedTime(session?.startedAt ?? null, isActive);
 
-  async function handleStop(): Promise<void> {
-    if (sessionToken == null) return;
+  async function handleStop(): Promise<boolean> {
+    if (sessionToken == null) return false;
     setStopping(true);
     try {
       await api.post(`/v1/portal/guest/stop/${sessionToken}`, {});
     } catch {
-      // ignore, polling will update status
-    } finally {
+      // Stop request failed (network etc.). Drop the spinner so the user can
+      // try again. If the OCPP RequestStopTransaction was actually dispatched
+      // the polling effect below will still flip the status when it completes.
       setStopping(false);
+      return true;
     }
+    // Keep the confirm dialog open with the spinner until the session
+    // actually transitions to a terminal status. The polling effect resets
+    // both `stopping` and `showStopConfirm` when that happens, which lets
+    // the completed receipt dialog take over.
+    return false;
   }
+
+  // When the stop request was sent and the session reaches a terminal status,
+  // close the confirm dialog so the receipt dialog can render.
+  useEffect(() => {
+    if (!stopping) return;
+    const terminal =
+      session?.status === 'completed' ||
+      session?.status === 'failed' ||
+      session?.status === 'expired';
+    if (terminal) {
+      setStopping(false);
+      setShowStopConfirm(false);
+    }
+  }, [session?.status, stopping]);
 
   if (isLoading) {
     return (
@@ -231,13 +252,6 @@ export function GuestSession(): React.JSX.Element {
             {t('guest.stationPort', { stationId: session.stationOcppId, evseId: session.evseId })}
           </p>
         </div>
-
-        {session.isSimulator === true && session.status === 'payment_authorized' && (
-          <Alert variant="info">
-            <Info className="h-4 w-4" />
-            <AlertDescription>{t('charger.simulatorPlugInHint')}</AlertDescription>
-          </Alert>
-        )}
 
         {/* Stats grid */}
         <div className="grid grid-cols-3 gap-3">
@@ -333,18 +347,24 @@ export function GuestSession(): React.JSX.Element {
 
         <ConfirmDialog
           open={showStopConfirm}
-          onOpenChange={setShowStopConfirm}
+          onOpenChange={(open) => {
+            // Block dismissing while we wait for the stop to complete --
+            // the spinner is the only feedback the user has that the
+            // RequestStopTransaction is in flight.
+            if (stopping && !open) return;
+            setShowStopConfirm(open);
+          }}
           title={t('guestSession.stopCharging')}
           description={t('sessionDetail.stopConfirmation')}
-          confirmLabel={t('guestSession.stopCharging')}
-          onConfirm={() => void handleStop()}
+          confirmLabel={stopping ? t('guestSession.stopping') : t('guestSession.stopCharging')}
+          onConfirm={async () => handleStop()}
           variant="destructive"
           isPending={stopping}
         >
           {session.isSimulator === true && (
             <Alert variant="info" className="mt-4">
               <Info className="h-4 w-4" />
-              <AlertDescription>{t('guestSession.simulatorUnplugHint')}</AlertDescription>
+              <AlertDescription>{t('charger.simulatorUnplugHint')}</AlertDescription>
             </Alert>
           )}
         </ConfirmDialog>

@@ -105,12 +105,9 @@ function FreeStartForm({
         onOpenChange={setShowEvWarning}
         title={t('charger.evNotDetectedTitle')}
         description={t('charger.evNotDetectedDescription')}
-        confirmLabel={isSimulator ? t('charger.startForSimulation') : t('common.ok')}
-        hideCancel={!isSimulator}
-        onConfirm={() => {
-          if (!isSimulator) return;
-          void doStart();
-        }}
+        confirmLabel={t('common.ok')}
+        hideCancel
+        onConfirm={() => undefined}
       >
         <EvPlugAnimation />
         {isSimulator && (
@@ -302,12 +299,9 @@ function CheckoutForm({
         onOpenChange={setShowEvWarning}
         title={t('charger.evNotDetectedTitle')}
         description={t('charger.evNotDetectedDescription')}
-        confirmLabel={isSimulator ? t('charger.startForSimulation') : t('common.ok')}
-        hideCancel={!isSimulator}
-        onConfirm={() => {
-          if (!isSimulator) return;
-          void doCheckoutAndStart();
-        }}
+        confirmLabel={t('common.ok')}
+        hideCancel
+        onConfirm={() => undefined}
       >
         <EvPlugAnimation />
         {isSimulator && (

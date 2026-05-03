@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
+import { Loader2 } from 'lucide-react';
 import { Button } from './button';
 
 interface ConfirmDialogProps {
@@ -10,7 +11,11 @@ interface ConfirmDialogProps {
   title: string;
   description: string;
   confirmLabel: string;
-  onConfirm: () => void;
+  // Returning false (or a Promise resolving to false) prevents the dialog
+  // from auto-closing -- useful when the caller wants to keep the dialog
+  // open with `isPending` until an async side effect completes. Returning
+  // void or true (or any truthy value) auto-closes the dialog.
+  onConfirm: () => boolean | undefined | Promise<boolean | undefined>;
   variant?: 'destructive' | 'default';
   isPending?: boolean;
   hideCancel?: boolean;
@@ -38,6 +43,7 @@ export function ConfirmDialog({
       <div
         className="fixed inset-0 bg-background/80 backdrop-blur-sm"
         onClick={() => {
+          if (isPending) return;
           onOpenChange(false);
         }}
       />
@@ -49,6 +55,7 @@ export function ConfirmDialog({
           {!hideCancel && (
             <Button
               variant="outline"
+              disabled={isPending}
               onClick={() => {
                 onOpenChange(false);
               }}
@@ -60,10 +67,14 @@ export function ConfirmDialog({
             variant={variant}
             disabled={isPending}
             onClick={() => {
-              onConfirm();
-              onOpenChange(false);
+              void (async () => {
+                const result = await onConfirm();
+                if (result === false) return;
+                onOpenChange(false);
+              })();
             }}
           >
+            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {confirmLabel}
           </Button>
         </div>

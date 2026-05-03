@@ -399,30 +399,19 @@ export class StationSimulator {
       this.startMeterLoop(evseId);
     } else if (ctx.state === 'Authorized' && ctx.authorizedToken != null) {
       // Auto-start transaction when cable is plugged in after authorization.
-      // 1.6: always auto-start (authorize first, then plug in flow)
-      // 2.1: only auto-start for remote starts (remoteStartId set)
-      //       Local authorize-first flow: test calls startCharging explicitly
-      if (this.is16 || ctx.remoteStartId != null) {
-        try {
-          if (this.is16) {
-            await this.beginTransaction(
-              evseId,
-              ctx.authorizedToken,
-              ctx.authorizedTokenType ?? 'ISO14443',
-            );
-          } else {
-            await this.startCharging(
-              evseId,
-              ctx.authorizedToken,
-              ctx.authorizedTokenType ?? 'ISO14443',
-              ctx.remoteStartId ?? undefined,
-            );
-          }
-        } catch {
-          // May fail if transaction already active
-        }
-      } else {
-        ctx.state = 'Preparing';
+      // Same flow for 1.6 and 2.1: clicking Start Charging or RemoteStart
+      // before Plug In sets up the authorization (state='Authorized'); the
+      // actual transaction begins on Plug In via beginTransaction. Cable is
+      // already marked plugged above, so beginTransaction proceeds directly.
+      try {
+        await this.beginTransaction(
+          evseId,
+          ctx.authorizedToken,
+          ctx.authorizedTokenType ?? 'ISO14443',
+          ctx.remoteStartId ?? undefined,
+        );
+      } catch {
+        // May fail if transaction already active
       }
     } else {
       ctx.state = 'Preparing';
@@ -646,6 +635,31 @@ export class StationSimulator {
     }
 
     if (remoteStartId != null) ctx.remoteStartId = remoteStartId;
+
+    // Sync in-memory cablePlugged from the reported connector status. After
+    // a simulator restart the in-memory flag resets even when the connector
+    // is physically plugged in per the CSMS view. Trusting the reported
+    // status (across both OCPP versions and pre-charge / active-session
+    // states) lets a previously-plugged station resume without reconnecting
+    // the cable. Cable-not-plugged enforcement lives in the API
+    // (POST /v1/css/actions/startCharging connector status pre-check) and
+    // in the OCPP RequestStart/RemoteStart handlers via the
+    // EVConnectionTimeOut / ConnectionTimeOut timer flow -- not here.
+    const reportedStatus = this.evseConnectorStatus.get(evseId);
+    const PLUGGED_REPORTED = new Set([
+      // OCPP 1.6
+      'Preparing',
+      'Charging',
+      'SuspendedEV',
+      'SuspendedEVSE',
+      'Finishing',
+      // OCPP 2.1
+      'Occupied',
+      'EVConnected',
+    ]);
+    if (!ctx.cablePlugged && reportedStatus != null && PLUGGED_REPORTED.has(reportedStatus)) {
+      ctx.cablePlugged = true;
+    }
 
     return this.beginTransaction(evseId, idToken, tokenType, remoteStartId);
   }
@@ -913,14 +927,21 @@ export class StationSimulator {
         }
         await this.updateEvseStatus(evseId, 'Unavailable').catch(() => {});
       } else {
-        ctx.state = 'Available';
-        this.evseConnectorStatus.set(evseId, 'Available');
+        // OCPP 2.1: cable is still physically connected after stop, so keep
+        // the connector at Occupied with chargingState=EVConnected (mirrors
+        // the OCPP 1.6 Finishing behavior: Available only comes on unplug).
+        // The unplug() method handles the eventual transition to Available.
+        ctx.state = 'EVConnected';
+        this.evseConnectorStatus.set(evseId, 'Occupied');
+        const seqNo = (this.evseSeqNo.get(evseId) ?? 0) + 1;
+        this.evseSeqNo.set(evseId, seqNo);
+        this.evseChargingState.set(evseId, 'EVConnected');
         try {
-          await this.sendStatusNotification(evseId, connectorId, 'Available');
+          await this.sendStatusNotification(evseId, connectorId, 'Occupied');
         } catch {
           // Offline
         }
-        await this.updateEvseStatus(evseId, 'Available').catch(() => {});
+        await this.updateEvseStatus(evseId, 'Occupied').catch(() => {});
       }
     }
 
@@ -935,10 +956,17 @@ export class StationSimulator {
   async unplug(evseId: number): Promise<void> {
     const ctx = this.evseContexts.get(evseId) as EvseContext;
 
-    // No-op if no cable is plugged. Without this guard, repeated unplug calls
-    // resend StatusNotification(Available) which clutters logs and racing the
-    // real connector status during chaos.
-    if (!ctx.cablePlugged && ctx.transactionId == null) {
+    // No-op only when there is genuinely nothing to do: no cable, no active
+    // transaction, AND the connector is already reporting Available. After a
+    // simulator restart the in-memory state resets but the CSMS may still
+    // hold the connector in Finishing from a previous stop -- in that case
+    // we must let unplug proceed so a StatusNotification(Available) is sent
+    // to clear the state.
+    if (
+      !ctx.cablePlugged &&
+      ctx.transactionId == null &&
+      this.evseConnectorStatus.get(evseId) === 'Available'
+    ) {
       return;
     }
 
@@ -2359,7 +2387,6 @@ export class StationSimulator {
 
         try {
           const evseCtx = this.evseContexts.get(evseId) as EvseContext;
-          const cableIn = evseCtx.cablePlugged;
 
           // Store charging profile if provided (stamp _evseId for GetChargingProfiles filtering)
           const chargingProfile = payload['chargingProfile'] as Record<string, unknown> | undefined;
@@ -2370,38 +2397,30 @@ export class StationSimulator {
             }
           }
 
-          if (cableIn) {
-            // Cable already plugged: start charging immediately
-            const txId = await this.startCharging(
-              evseId,
-              idToken['idToken'] as string,
-              (idToken['type'] as string | undefined) ?? 'ISO14443',
-              remoteStartId,
-            );
+          // Spec-compliant accept-and-wait flow (OCTT TC_F_04_CS):
+          // - Cable already plugged -> start the transaction immediately and
+          //   include the transactionId in the response.
+          // - Cable not yet plugged -> accept, arm the EVConnectionTimeOut
+          //   pre-tx timer, and wait for plugIn() to drive beginTransaction
+          //   via its existing auto-start path. If the timer fires first the
+          //   simulator emits Started+Ended with triggerReason=EVConnectTimeout.
+          const reportedStatus21 = this.evseConnectorStatus.get(evseId);
+          const PLUGGED_21 = new Set(['Occupied', 'EVConnected']);
+          const cableEffective =
+            evseCtx.cablePlugged || (reportedStatus21 != null && PLUGGED_21.has(reportedStatus21));
+          const tokenStr = idToken['idToken'] as string;
+          const tokenTypeStr = (idToken['type'] as string | undefined) ?? 'ISO14443';
+
+          if (cableEffective) {
+            const txId = await this.startCharging(evseId, tokenStr, tokenTypeStr, remoteStartId);
             return { status: 'Accepted', transactionId: txId };
           }
 
-          // OCPP 2.1: Cable not plugged. Authorize and wait for cable plug-in.
-          // Do not start transaction yet. Set authorized state so plugIn()
-          // auto-starts the transaction when cable connects.
-          evseCtx.authorizedToken = idToken['idToken'] as string;
-          evseCtx.authorizedTokenType = (idToken['type'] as string | undefined) ?? 'ISO14443';
           evseCtx.state = 'Authorized';
+          evseCtx.authorizedToken = tokenStr;
+          evseCtx.authorizedTokenType = tokenTypeStr;
           evseCtx.remoteStartId = remoteStartId;
-
-          // Send StatusNotification Occupied (EVSE reserved for remote start)
-          const connectorId = this.getConnectorId(evseId);
-          this.evseConnectorStatus.set(evseId, 'Occupied');
-          try {
-            await this.sendStatusNotification(evseId, connectorId, 'Occupied');
-          } catch {
-            // Offline
-          }
-
-          // Start EVConnectionTimeout timer. When it fires, the station
-          // ends the (not-yet-started) authorization with EVConnectTimeout.
           this.startEvConnectTimeoutTimerPreTx(evseId);
-
           return { status: 'Accepted' };
         } catch (err: unknown) {
           const reason = err instanceof Error ? err.message : 'InternalError';
@@ -2451,40 +2470,44 @@ export class StationSimulator {
           return { status: 'Rejected' };
         }
 
-        // Accept the command - handle auth/start asynchronously
-        // If cable is already plugged in, try to start immediately
-        if (ctx16.cablePlugged) {
-          // Fire-and-forget: attempt start, don't block the response
+        // Spec-compliant accept-and-wait flow:
+        // - Cable already plugged -> fire-and-forget startCharging so the
+        //   StartTransaction follows the Accepted response. Log post-Accepted
+        //   errors so guest sessions don't hang in payment_authorized.
+        // - Cable not yet plugged -> accept, set state=Authorized, transition
+        //   the connector to Preparing, and arm the ConnectionTimeOut timer.
+        //   plugIn() auto-starts the transaction via its existing flow; if
+        //   the timer fires first the simulator deauths and reverts to
+        //   Available.
+        const reportedStatus16 = this.evseConnectorStatus.get(connId);
+        const PLUGGED_16 = new Set(['Preparing', 'Charging', 'SuspendedEV', 'SuspendedEVSE']);
+        const cableEffective16 =
+          ctx16.cablePlugged || (reportedStatus16 != null && PLUGGED_16.has(reportedStatus16));
+
+        if (cableEffective16) {
           void (async () => {
             try {
               await this.startCharging(connId, idTag16);
-            } catch {
-              // Auth failed or start failed - station stays in current state
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.log(
+                `[${this.config.stationId}] RemoteStartTransaction post-Accepted start failed: ${msg}`,
+              );
             }
           })();
           return { status: 'Accepted' };
         }
 
-        // Cable not plugged: authorize and wait for plug-in.
-        // Set Authorized state so plugIn() will auto-start the transaction.
-        void (async () => {
-          try {
-            const authResult = await this.sendAuthorize(idTag16, 'ISO14443');
-            const authInfo = authResult['idTagInfo'] as Record<string, unknown> | undefined;
-            if (authInfo?.['status'] === 'Accepted') {
-              ctx16.authorizedToken = idTag16;
-              ctx16.authorizedTokenType = 'ISO14443';
-              ctx16.state = 'Authorized';
-              ctx16.remoteStartId = 1;
-              this.evseConnectorStatus.set(connId, 'Preparing');
-              const connId16 = this.getConnectorId(connId);
-              await this.sendStatusNotification(connId, connId16, 'Preparing');
-              this.startConnectionTimeoutTimer(connId);
-            }
-          } catch {
-            // Auth failed
-          }
-        })();
+        ctx16.state = 'Authorized';
+        ctx16.authorizedToken = idTag16;
+        ctx16.authorizedTokenType = 'ISO14443';
+        const evse16 = this.config.evses.find((e) => e.evseId === connId);
+        if (evse16 != null) {
+          this.evseConnectorStatus.set(connId, 'Preparing');
+          void this.sendStatusNotification(connId, evse16.connectorId, 'Preparing').catch(() => {});
+          void this.updateEvseStatus(connId, 'Preparing').catch(() => {});
+        }
+        this.startConnectionTimeoutTimer(connId);
         return { status: 'Accepted' };
       }
 

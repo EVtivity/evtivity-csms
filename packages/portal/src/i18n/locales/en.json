@@ -226,8 +226,7 @@
     "evNotDetectedDescription": "The charging station does not detect an EV connected to this port. Please plug in your vehicle and try again.",
     "startAnyway": "Start Anyway",
     "proceedAnyway": "Proceed Anyway",
-    "startForSimulation": "Start for Simulation",
-    "simulatorPlugInHint": "Simulator: after starting, open the CSMS dashboard, go to this station's Simulate tab, and click Plug In to complete the cable-plug step.",
+    "simulatorPlugInHint": "Simulator: open the CSMS dashboard, go to this station's Simulate tab, and click Plug In before starting the charge.",
     "simulatorUnplugHint": "Simulator: open the CSMS dashboard and click Unplug on the station's Simulate tab to clear the Finishing state.",
     "checkingStatus": "Checking...",
     "statusCheckFailed": "Could not check connector status. Try again.",
@@ -290,8 +289,7 @@
     "stopping": "Stopping...",
     "receiptMessage": "Your card has been charged. A receipt will be sent to your email.",
     "waitingForCharger": "Waiting for the charger to respond...",
-    "sessionError": "Failed to load session. Please try again.",
-    "simulatorUnplugHint": "Simulator: after stopping, open the CSMS dashboard and click Unplug on the station's Simulate tab, otherwise the connector will stay in Finishing status."
+    "sessionError": "Failed to load session. Please try again."
   },
   "status": {
     "online": "Online",

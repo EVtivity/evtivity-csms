@@ -23,7 +23,7 @@ const password = config.CSS_STATION_PASSWORD;
 
 const sql = postgres(databaseUrl);
 const pubsub = new RedisPubSubClient(redisUrl);
-const manager = new SimulatorManager(sql);
+const manager = new SimulatorManager(sql, pubsub);
 
 async function waitForSchema(): Promise<void> {
   const MAX_ATTEMPTS = 20;

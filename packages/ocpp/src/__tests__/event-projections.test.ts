@@ -1099,7 +1099,6 @@ describe('Event projections', () => {
         [], // INSERT charging_sessions
         [{ id: 'session-1' }], // SELECT id FROM charging_sessions
         [], // UPDATE charging_sessions SET status='faulted' (close stale sessions)
-        [], // SELECT evse_id FROM charging_sessions (returns empty → skip connector update)
         [], // INSERT transaction_events
         [], // SELECT free_vend_enabled (not free vend)
         [{ driver_id: null }], // SELECT driver_id FROM charging_sessions (no driver)

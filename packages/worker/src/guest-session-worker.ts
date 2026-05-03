@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { Worker, type Queue, type ConnectionOptions } from 'bullmq';
+import { eq } from 'drizzle-orm';
 import type { PubSubClient } from '@evtivity/lib';
 import { createLogger } from '@evtivity/lib';
+import { db, guestSessions } from '@evtivity/database';
 import { QUEUE_NAMES } from './queues.js';
 import { logJobStarted, logJobCompleted, logJobFailed } from './job-logger.js';
 import { handleGuestSessionEvent } from '@evtivity/api/src/services/guest-session.service.js';
@@ -98,7 +100,33 @@ export function createGuestSessionWorker(connection: ConnectionOptions): Worker 
 
   worker.on('failed', (job, err) => {
     if (job == null) return;
-    log.error({ jobName: job.name, error: err }, 'Guest session job failed');
+    log.error(
+      { jobName: job.name, attemptsMade: job.attemptsMade, error: err },
+      'Guest session job failed',
+    );
+
+    // After the final retry, flip the guest session to `failed` so the
+    // portal's GuestSession page exits its waiting-for-terminal-status
+    // loop. Only applies to capture-on-end failures; the start-link path
+    // is idempotent and a partial start is recovered by the next event.
+    const maxAttempts = job.opts.attempts ?? 1;
+    if (job.attemptsMade < maxAttempts) return;
+    if (job.name !== 'guest-session-ended') return;
+
+    const data = job.data as Record<string, unknown>;
+    const sessionId = data.sessionId as string | undefined;
+    if (sessionId == null) return;
+
+    void db
+      .update(guestSessions)
+      .set({ status: 'failed', updatedAt: new Date() })
+      .where(eq(guestSessions.chargingSessionId, sessionId))
+      .catch((dbErr: unknown) => {
+        log.error(
+          { sessionId, err: dbErr },
+          'Failed to mark guest session failed after exhausted retries',
+        );
+      });
   });
 
   return worker;

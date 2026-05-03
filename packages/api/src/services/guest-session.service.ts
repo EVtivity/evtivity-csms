@@ -231,13 +231,14 @@ async function finalizeGuestPayment(sessionId: string, logger: FastifyBaseLogger
       .set({ status: 'failed', failureReason: reason, updatedAt: new Date() })
       .where(eq(paymentRecords.id, pr.id));
 
-    // Keep guest session in charging status so the retry queue can reattempt capture.
-    // The guest-session-events BullMQ queue handles retries with exponential backoff
-    // (3 attempts, 5s base delay). If all retries fail, the dead-letter queue catches it.
-    logger.warn(
-      { guestSessionId: guest.id, paymentRecordId: pr.id },
-      'Guest payment capture failed, pending retry via BullMQ',
-    );
+    // Re-throw so BullMQ records the job as failed and retries per its
+    // attempts policy (3 attempts with exponential backoff). On the final
+    // attempt the worker's failed-job hook (see createGuestSessionWorker)
+    // flips the guest session to `failed` so the portal's GuestSession
+    // page exits its waiting-for-terminal-status loop. The Stripe pre-auth
+    // hold expires on its own after 7 days; we don't need to keep the
+    // guest_sessions row in `charging` to recover.
+    throw err;
   }
 }
 

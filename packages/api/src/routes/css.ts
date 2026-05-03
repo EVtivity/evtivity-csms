@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, count, sql } from 'drizzle-orm';
+import { eq, and, count, sql } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import {
   cssStations,
@@ -12,6 +12,8 @@ import {
   cssConfigVariables,
   cssTransactions,
   chargingStations,
+  evses,
+  connectors,
 } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { errorResponse, itemResponse, paginatedResponse } from '../lib/response-schemas.js';
@@ -189,6 +191,7 @@ const stationItem = z.object({}).passthrough();
 const actionResponse = z
   .object({
     commandId: z.string(),
+    data: z.record(z.unknown()).optional(),
   })
   .passthrough();
 
@@ -745,9 +748,10 @@ function actionRoute(
         security: [{ bearerAuth: [] }],
         body: zodSchema(mergedBody),
         response: {
-          202: itemResponse(actionResponse),
+          200: itemResponse(actionResponse),
           400: errorResponse,
           404: errorResponse,
+          504: errorResponse,
         },
       },
     },
@@ -762,6 +766,7 @@ function actionRoute(
           id: cssStations.id,
           stationId: cssStations.stationId,
           ocppProtocol: chargingStations.ocppProtocol,
+          chargingStationId: chargingStations.id,
         })
         .from(cssStations)
         .innerJoin(chargingStations, eq(chargingStations.stationId, cssStations.stationId))
@@ -779,20 +784,150 @@ function actionRoute(
         });
       }
 
+      // Pre-check connector status for startCharging so the dashboard Simulate
+      // tab returns a fast, explicit 400 when the cable isn't plugged in. The
+      // simulator no longer hard-rejects this case; without the API guard the
+      // simulator would emit a Charging StatusNotification with no cable
+      // connected, which is non-conforming on the wire.
+      //
+      // This path (POST /v1/css/actions/startCharging) drives sim.startCharging
+      // directly, which calls beginTransaction immediately and has no
+      // accept-and-wait flow. Only states that mean "cable physically
+      // connected" are valid here. The portal flow goes through OCPP
+      // RequestStartTransaction instead, which DOES accept-and-wait via
+      // EVConnectionTimeOut and so legitimately allows status=available.
+      // Mirror StationSimulate.tsx getValidActions() so the dashboard UI
+      // gating and the API enforcement agree.
+      if (actionName === 'startCharging') {
+        const evseId = (params as { evseId?: number }).evseId;
+        if (typeof evseId === 'number') {
+          const [evse] = await db
+            .select({ id: evses.id })
+            .from(evses)
+            .where(and(eq(evses.stationId, station.chargingStationId), eq(evses.evseId, evseId)))
+            .limit(1);
+          if (evse == null) {
+            return reply.status(404).send({ error: 'EVSE not found', code: 'EVSE_NOT_FOUND' });
+          }
+          const [connector] = await db
+            .select({ status: connectors.status })
+            .from(connectors)
+            .where(eq(connectors.evseId, evse.id))
+            .limit(1);
+          const startableStatuses = ['preparing', 'occupied', 'ev_connected', 'finishing'];
+          if (connector != null && !startableStatuses.includes(connector.status)) {
+            return reply.status(400).send({
+              error: 'Connector is not available for charging',
+              code: 'CONNECTOR_NOT_AVAILABLE',
+            });
+          }
+        }
+      }
+
       const commandId = randomUUID();
       const pubsub = getPubSub();
-      await pubsub.publish(
-        'css_commands',
-        JSON.stringify({
-          commandId,
-          stationId: station.stationId,
-          action: actionName,
-          params,
-        }),
-      );
-      return reply.status(202).send({ commandId });
+
+      // Subscribe BEFORE publishing so we don't miss a fast result. The
+      // SimulatorManager publishes {commandId, success, error?} on
+      // css_command_results once dispatchAction completes (success or throw).
+      const result = await waitForCssCommandResult(commandId, async () => {
+        await pubsub.publish(
+          'css_commands',
+          JSON.stringify({
+            commandId,
+            stationId: station.stationId,
+            action: actionName,
+            params,
+          }),
+        );
+      });
+
+      if (result.timedOut) {
+        return reply.status(504).send({
+          error: 'Simulator did not respond within 5s',
+          code: 'CSS_ACTION_TIMEOUT',
+        });
+      }
+      if (!result.success) {
+        return reply.status(400).send({
+          error: result.error ?? 'Simulator rejected the action',
+          code: 'CSS_ACTION_REJECTED',
+        });
+      }
+      return reply.status(200).send({
+        commandId,
+        ...(result.data != null ? { data: result.data } : {}),
+      });
     },
   );
+}
+
+interface CssCommandResultMessage {
+  commandId: string;
+  success: boolean;
+  error?: string;
+  data?: Record<string, unknown>;
+}
+
+interface CssCommandResult {
+  timedOut: boolean;
+  success: boolean;
+  error?: string;
+  data?: Record<string, unknown>;
+}
+
+const CSS_RESULT_TIMEOUT_MS = 5_000;
+const CSS_RESULTS_CHANNEL = 'css_command_results';
+
+async function waitForCssCommandResult(
+  commandId: string,
+  publish: () => Promise<void>,
+): Promise<CssCommandResult> {
+  const pubsub = getPubSub();
+
+  // Set up the awaited promise with explicit resolver, then subscribe and
+  // publish synchronously in this scope so the .then microtask chain stays
+  // simple and testable.
+  let resolveResult!: (r: CssCommandResult) => void;
+  const resultPromise = new Promise<CssCommandResult>((resolve) => {
+    resolveResult = resolve;
+  });
+
+  const timeout = setTimeout(() => {
+    resolveResult({ timedOut: true, success: false });
+  }, CSS_RESULT_TIMEOUT_MS);
+
+  let subscription: import('@evtivity/lib').Subscription | null = null;
+  try {
+    subscription = await pubsub.subscribe(CSS_RESULTS_CHANNEL, (raw: string) => {
+      let parsed: CssCommandResultMessage;
+      try {
+        parsed = JSON.parse(raw) as CssCommandResultMessage;
+      } catch {
+        return;
+      }
+      if (parsed.commandId !== commandId) return;
+      clearTimeout(timeout);
+      resolveResult({
+        timedOut: false,
+        success: parsed.success,
+        ...(parsed.error != null ? { error: parsed.error } : {}),
+        ...(parsed.data != null ? { data: parsed.data } : {}),
+      });
+    });
+
+    await publish();
+    const result = await resultPromise;
+    return result;
+  } catch (err: unknown) {
+    clearTimeout(timeout);
+    const message = err instanceof Error ? err.message : String(err);
+    return { timedOut: false, success: false, error: message };
+  } finally {
+    if (subscription != null) {
+      void subscription.unsubscribe().catch(() => {});
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

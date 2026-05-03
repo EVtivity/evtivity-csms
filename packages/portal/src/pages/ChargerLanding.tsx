@@ -102,6 +102,10 @@ export function ChargerLanding(): React.JSX.Element {
     queryFn: () =>
       api.get<ChargerInfo>(`/v1/portal/chargers/${stationId ?? ''}/evse/${evseId ?? ''}`),
     enabled: stationId != null && evseId != null,
+    // Portal has no SSE -- poll every 5s so connector status transitions
+    // (e.g. charging -> finishing after stop) reach the page without a
+    // manual refresh.
+    refetchInterval: 5000,
   });
 
   const { data: guestConfig } = useQuery({
@@ -123,7 +127,6 @@ export function ChargerLanding(): React.JSX.Element {
   const [freeStartError, setFreeStartError] = useState('');
   const [showEvWarning, setShowEvWarning] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
-  const [pendingAction, setPendingAction] = useState<'free' | 'paid' | null>(null);
 
   async function handleFreeStart(): Promise<void> {
     if (stationId == null || evseId == null) return;
@@ -156,7 +159,6 @@ export function ChargerLanding(): React.JSX.Element {
       }
 
       if (!isCableDetected(result.connectorStatus)) {
-        setPendingAction('free');
         setShowEvWarning(true);
         return;
       }
@@ -182,7 +184,6 @@ export function ChargerLanding(): React.JSX.Element {
       }
 
       if (!isCableDetected(result.connectorStatus)) {
-        setPendingAction('paid');
         setShowEvWarning(true);
         return;
       }
@@ -308,6 +309,18 @@ export function ChargerLanding(): React.JSX.Element {
           {/* Pricing */}
           {displayPricing != null && <PricingDisplay pricing={displayPricing} />}
 
+          {/* Simulator hint for stuck plugged-in states (1.6 finishing,
+              2.1 occupied with no chargingState enrichment after a stop).
+              Always visible when isSimulator + plugged-but-not-charging,
+              regardless of whether Start Charging is enabled. */}
+          {charger.isSimulator &&
+            (connectorStatus === 'finishing' || connectorStatus === 'occupied') && (
+              <Alert variant="info">
+                <Info className="h-4 w-4" />
+                <AlertDescription>{t('charger.simulatorUnplugHint')}</AlertDescription>
+              </Alert>
+            )}
+
           {/* Actions */}
           {isAvailable && charger.isOnline ? (
             <div className="space-y-2 pt-2">
@@ -352,17 +365,9 @@ export function ChargerLanding(): React.JSX.Element {
               </Button>
             </div>
           ) : (
-            <>
-              <p className="pt-2 text-center text-sm text-muted-foreground">
-                {t('charger.notAvailable')}
-              </p>
-              {charger.isSimulator && connectorStatus === 'finishing' && (
-                <Alert variant="info">
-                  <Info className="h-4 w-4" />
-                  <AlertDescription>{t('charger.simulatorUnplugHint')}</AlertDescription>
-                </Alert>
-              )}
-            </>
+            <p className="pt-2 text-center text-sm text-muted-foreground">
+              {t('charger.notAvailable')}
+            </p>
           )}
         </CardContent>
       </Card>
@@ -372,14 +377,9 @@ export function ChargerLanding(): React.JSX.Element {
         onOpenChange={setShowEvWarning}
         title={t('charger.evNotDetectedTitle')}
         description={t('charger.evNotDetectedDescription')}
-        confirmLabel={charger.isSimulator ? t('charger.startForSimulation') : t('common.ok')}
-        hideCancel={!charger.isSimulator}
-        onConfirm={() => {
-          if (!charger.isSimulator) return;
-          if (pendingAction === 'free') void handleFreeStart();
-          if (pendingAction === 'paid')
-            void navigate(`/charge/${stationId ?? ''}/${evseId ?? ''}/checkout`);
-        }}
+        confirmLabel={t('common.ok')}
+        hideCancel
+        onConfirm={() => undefined}
       >
         <EvPlugAnimation />
         {charger.isSimulator && (

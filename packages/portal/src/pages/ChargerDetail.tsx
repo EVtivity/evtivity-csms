@@ -128,6 +128,9 @@ export function ChargerDetail(): React.JSX.Element {
     queryKey: ['station-detail', stationId],
     queryFn: () => api.get<StationDetail>(`/v1/portal/chargers/${stationId ?? ''}`),
     enabled: stationId != null,
+    // Portal has no SSE -- poll every 5s so connector status transitions
+    // (charging -> finishing after stop) reach the page without a refresh.
+    refetchInterval: 5000,
   });
 
   // Clear stale errors when station data refreshes (e.g., via SSE)
@@ -600,18 +603,17 @@ export function ChargerDetail(): React.JSX.Element {
       {/* Report Issue */}
       <ReportIssue stationName={station.stationId} />
 
-      {/* EV not detected warning */}
+      {/* EV not detected warning -- informational only. Cable must be in
+          before charging can start; the simulator hard-rejects RemoteStart
+          on no-cable, so a bypass button would just create a stuck session. */}
       <ConfirmDialog
         open={showEvWarning}
         onOpenChange={setShowEvWarning}
         title={t('charger.evNotDetectedTitle')}
         description={t('charger.evNotDetectedDescription')}
-        confirmLabel={station.isSimulator ? t('charger.startForSimulation') : t('common.ok')}
-        hideCancel={!station.isSimulator}
-        onConfirm={() => {
-          if (!station.isSimulator) return;
-          void doStart();
-        }}
+        confirmLabel={t('common.ok')}
+        hideCancel
+        onConfirm={() => undefined}
       >
         <EvPlugAnimation />
         {station.isSimulator && (

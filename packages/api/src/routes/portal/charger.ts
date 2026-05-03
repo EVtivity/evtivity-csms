@@ -236,6 +236,12 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         params: zodSchema(chargerParams),
         response: { 200: itemResponse(portalChargerDetail), 404: errorResponse },
       },
+      config: {
+        rateLimit: {
+          max: 60,
+          timeWindow: '1 minute',
+        },
+      },
     },
     async (request, reply) => {
       const params = request.params as z.infer<typeof chargerParams>;
@@ -879,6 +885,12 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         security: [],
         params: zodSchema(stationIdParams),
         response: { 200: itemResponse(portalStationDetail), 404: errorResponse },
+      },
+      config: {
+        rateLimit: {
+          max: 60,
+          timeWindow: '1 minute',
+        },
       },
     },
     async (request, reply) => {
