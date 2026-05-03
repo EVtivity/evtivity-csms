@@ -26,6 +26,7 @@
     "db:generate": "npm run generate --workspace=@evtivity/database",
     "db:migrate": "npm run migrate --workspace=@evtivity/database",
     "db:seed": "npm run seed --workspace=@evtivity/database",
+    "db:seed:dev": "npm run seed:dev --workspace=@evtivity/database",
     "generate:openapi": "npm run generate:openapi --workspace=@evtivity/api",
     "octt": "node --env-file=.env --import tsx packages/octt/src/cli.ts --server ws://localhost:7103",
     "octt:1.6": "node --env-file=.env --import tsx packages/octt/src/cli.ts --server ws://localhost:7103 --version ocpp1.6",

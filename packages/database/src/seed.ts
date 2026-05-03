@@ -1,6 +1,11 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+// Local dev seed (npm run db:seed). Always inserts settings, roles, admin user,
+// and permissions. When SEED_DEMO=true also generates the full demo dataset
+// (sites, 2000 stations, sessions, drivers, etc.). For production initial setup
+// see seed-admin.ts; for the docker-build dev station fixture see seed-dev-stations.ts.
+
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -390,6 +395,15 @@ async function seed(): Promise<void> {
     );
   }
 
+  // Allow first-install env override for the registration policy. After seed
+  // runs, the value lives in the settings table and is edited via dashboard,
+  // API, or Helm appSettings -- not via this env var.
+  const envRegistrationPolicy = process.env['REGISTRATION_POLICY'];
+  const registrationPolicy =
+    envRegistrationPolicy === 'open' || envRegistrationPolicy === 'approval-required'
+      ? envRegistrationPolicy
+      : 'approval-required';
+
   const defaultSettings: Record<string, unknown> = {
     'system.name': 'EVtivity CSMS',
     'system.timezone': 'America/New_York',
@@ -404,7 +418,7 @@ async function seed(): Promise<void> {
     'ocpp.connectionTimeout': 120,
     'ocpp.resetRetries': 3,
     'ocpp.offlineCommandTtlHours': 24,
-    'ocpp.registrationPolicy': 'approval-required',
+    'ocpp.registrationPolicy': registrationPolicy,
     'security.autoDisableOnCritical': true,
     'pricing.currency': 'USD',
     'pricing.splitBillingEnabled': true,

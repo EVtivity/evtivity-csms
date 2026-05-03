@@ -43,6 +43,7 @@ services:
       DATABASE_URL: postgres://evtivity:evtivity@postgres:5432/evtivity
       SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-dev-encryption-key-32chars-long!}
       SEED_DEMO: ${SEED_DEMO:-true}
+      REGISTRATION_POLICY: ${REGISTRATION_POLICY:-approval-required}
     depends_on:
       postgres:
         condition: service_healthy

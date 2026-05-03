@@ -1176,7 +1176,11 @@ export function registerProjections(
               ? parseInt(payload.evseId, 10)
               : 0;
         const txEvseUuid = await resolveEvseUuid(stationUuid, ocppEvseId);
-        const meterStartVal = payload.meterStart != null ? Number(payload.meterStart) : 0;
+        // OCPP 1.6 StartTransaction carries meterStart; OCPP 2.1 TransactionEvent Started does
+        // not. Insert NULL when absent so the MeterValues handler captures the first energy
+        // reading as meter_start. Inserting 0 here would defeat that guard and cause
+        // energy_delivered_wh to be computed against the station's lifetime register.
+        const meterStartVal = payload.meterStart != null ? Number(payload.meterStart) : null;
         await sql`
           INSERT INTO charging_sessions (id, station_id, evse_id, transaction_id, status, started_at, meter_start)
           VALUES (${newSessionId}, ${stationUuid}, ${txEvseUuid}, ${transactionId}, 'active', ${timestamp}, ${meterStartVal})

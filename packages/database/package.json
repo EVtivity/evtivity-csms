@@ -19,6 +19,7 @@
     "migrate": "node --import tsx ../../node_modules/drizzle-kit/bin.cjs migrate",
     "seed": "node --env-file=../../.env --import=tsx/esm src/seed.ts",
     "seed:admin": "node --import=tsx/esm src/seed-admin.ts",
+    "seed:dev": "node --env-file=../../.env --import=tsx/esm src/seed-dev-stations.ts",
     "studio": "node --import tsx ../../node_modules/drizzle-kit/bin.cjs studio",
     "test": "vitest run"
   },

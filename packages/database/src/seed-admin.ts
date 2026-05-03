@@ -1,6 +1,11 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+// Helm post-install hook (templates/seed-admin-job.yaml). Creates the admin
+// role and a single admin user from INITIAL_ADMIN_EMAIL/INITIAL_ADMIN_PASSWORD
+// with mustResetPassword=true so the operator changes it on first login.
+// Idempotent (ON CONFLICT DO NOTHING). Not used for local dev.
+
 import argon2 from 'argon2';
 import postgres from 'postgres';
 

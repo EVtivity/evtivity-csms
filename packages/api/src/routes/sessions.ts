@@ -3,7 +3,7 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { eq, and, or, ilike, desc, sql, asc, isNotNull, inArray } from 'drizzle-orm';
+import { eq, and, or, ilike, desc, sql, isNotNull, inArray } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import {
   chargingSessions,
@@ -387,7 +387,7 @@ export function sessionRoutes(app: FastifyInstance): void {
           })
           .from(transactionEvents)
           .where(eq(transactionEvents.sessionId, id))
-          .orderBy(asc(transactionEvents.seqNo))
+          .orderBy(desc(transactionEvents.timestamp))
           .limit(limit)
           .offset(offset),
         db
