@@ -113,6 +113,14 @@ vi.mock('../lib/pubsub.js', () => ({
   setPubSub: vi.fn(),
 }));
 
+vi.mock('../lib/ocpp-command.js', () => ({
+  sendOcppCommandAndWait: vi.fn().mockResolvedValue({
+    commandId: 'mock-command-id',
+    response: { status: 'Accepted' },
+  }),
+  triggerAndWaitForStatus: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock('../lib/reservation-buffer.js', () => ({
   isEvseInReservationBuffer: vi.fn().mockResolvedValue(false),
 }));
@@ -122,6 +130,7 @@ import { portalGuestRoutes } from '../routes/portal/guest.js';
 import { getStripeConfig } from '../services/stripe.service.js';
 import { isTariffFree } from '../services/tariff.service.js';
 import { isEvseInReservationBuffer } from '../lib/reservation-buffer.js';
+import { sendOcppCommandAndWait } from '../lib/ocpp-command.js';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -429,6 +438,88 @@ describe('Portal guest routes - handler logic', () => {
         payload: { paymentMethodId: 'pm_test', guestEmail: 'not-an-email' },
       });
       expect(response.statusCode).toBe(400);
+    });
+
+    it('returns 504 STATION_TIMEOUT when station does not ack (free path)', async () => {
+      vi.mocked(isTariffFree).mockReturnValue(true);
+      vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+        commandId: 'mock-cmd',
+        error: 'No response within 35s',
+      });
+      setupDbResults(
+        [
+          {
+            id: 'sta_000000000001',
+            stationId: 'CS-001',
+            siteId: null,
+            isOnline: true,
+            onboardingStatus: 'accepted',
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
+        [{ id: 'evs_000000000001' }],
+        [{ status: 'available' }],
+        [], // INSERT guest_sessions
+        [], // DELETE guest_sessions (rollback)
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(504);
+      expect(response.json().code).toBe('STATION_TIMEOUT');
+    });
+
+    it('returns 502 STATION_REJECTED and cancels Stripe pre-auth (paid path)', async () => {
+      vi.mocked(isTariffFree).mockReturnValue(false);
+      vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+        commandId: 'mock-cmd',
+        response: { status: 'Rejected' },
+      });
+      const cancel = vi.fn().mockResolvedValue({ id: 'pi_guest_123', status: 'canceled' });
+      vi.mocked(getStripeConfig).mockResolvedValue({
+        stripe: {
+          paymentIntents: {
+            create: mockStripePaymentIntentsCreate,
+            cancel,
+          },
+        } as never,
+        publishableKey: 'pk_test',
+        currency: 'USD',
+        preAuthAmountCents: 5000,
+        configId: 1,
+        connectedAccountId: null,
+        platformFeePercent: 0,
+      });
+      setupDbResults(
+        [
+          {
+            id: 'sta_000000000001',
+            stationId: 'CS-001',
+            siteId: 'site-1',
+            isOnline: true,
+            onboardingStatus: 'accepted',
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
+        [{ id: 'evs_000000000001' }],
+        [{ status: 'available' }],
+        [], // INSERT guest_sessions (paid)
+        [], // DELETE guest_sessions (rollback)
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: { paymentMethodId: 'pm_test', guestEmail: 'guest@example.com' },
+      });
+
+      expect(response.statusCode).toBe(502);
+      expect(response.json().code).toBe('STATION_REJECTED');
+      expect(cancel).toHaveBeenCalledWith('pi_guest_123');
     });
   });
 

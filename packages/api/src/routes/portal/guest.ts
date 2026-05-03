@@ -19,7 +19,7 @@ import {
 import { zodSchema } from '../../lib/zod-schema.js';
 import { getPubSub } from '../../lib/pubsub.js';
 import { errorResponse, successResponse, itemResponse } from '../../lib/response-schemas.js';
-import { triggerAndWaitForStatus } from '../../lib/ocpp-command.js';
+import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../../lib/ocpp-command.js';
 import { isStationCheckRateLimited, isGuestSessionRateLimited } from '../../lib/rate-limiters.js';
 import { getStripeConfig } from '../../services/stripe.service.js';
 import { resolveTariff, isTariffFree } from '../../services/tariff.service.js';
@@ -259,6 +259,8 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           403: errorResponse,
           404: errorResponse,
           409: errorResponse,
+          502: errorResponse,
+          504: errorResponse,
         },
       },
       config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
@@ -350,6 +352,11 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       const sessionToken = crypto.randomBytes(10).toString('hex');
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
+      // Hoisted so the rollback block at the end can cancel the pre-auth if
+      // the station never acks RequestStartTransaction.
+      let paymentIntentId: string | null = null;
+      let stripeForRollback: Stripe | null = null;
+
       if (chargingIsFree) {
         // Free charging: skip payment, insert guest session directly
         await db.insert(guestSessions).values({
@@ -420,6 +427,9 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           return;
         }
 
+        paymentIntentId = paymentIntent.id;
+        stripeForRollback = config.stripe;
+
         // Insert guest session with payment
         await db.insert(guestSessions).values({
           stationOcppId: station.stationId,
@@ -433,20 +443,51 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         });
       }
 
-      // Send RequestStartTransaction via pg_notify
-      const commandId = crypto.randomUUID();
-      const notification = JSON.stringify({
-        commandId,
-        stationId: station.stationId,
-        action: 'RequestStartTransaction',
-        payload: {
+      // Send RequestStartTransaction and wait for the station to ack so we can
+      // surface failures (offline station, dropped command) before navigating
+      // the guest into the session-monitoring page.
+      const cmdResult = await sendOcppCommandAndWait(
+        station.stationId,
+        'RequestStartTransaction',
+        {
           evseId: params.evseId,
           remoteStartId: Math.floor(Math.random() * 2_147_483_647),
           idToken: { idToken: sessionToken, type: 'Central' },
         },
-      });
+        station.ocppProtocol ?? undefined,
+      );
 
-      await getPubSub().publish('ocpp_commands', notification);
+      const cmdStatus = cmdResult.response?.['status'] as string | undefined;
+      const stationRejected = cmdResult.error == null && cmdStatus !== 'Accepted';
+
+      if (cmdResult.error != null || stationRejected) {
+        // Roll back the guest_sessions row and cancel the Stripe pre-auth so
+        // the guest's card isn't held against a session that never started.
+        await db.delete(guestSessions).where(eq(guestSessions.sessionToken, sessionToken));
+
+        if (paymentIntentId != null && stripeForRollback != null) {
+          try {
+            await stripeForRollback.paymentIntents.cancel(paymentIntentId);
+          } catch (err: unknown) {
+            request.log.warn(
+              { err, paymentIntentId },
+              'Failed to cancel guest PaymentIntent after start failure',
+            );
+          }
+        }
+
+        if (cmdResult.error != null) {
+          await reply
+            .status(504)
+            .send({ error: 'Station did not respond', code: 'STATION_TIMEOUT' });
+          return;
+        }
+        await reply.status(502).send({
+          error: `Station rejected start: ${cmdStatus ?? 'Unknown'}`,
+          code: 'STATION_REJECTED',
+        });
+        return;
+      }
 
       return { sessionToken };
     },

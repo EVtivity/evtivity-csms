@@ -660,6 +660,80 @@ describe('Event projections', () => {
       expect(sqlCalls.length).toBeGreaterThanOrEqual(5);
     });
 
+    it('inserts NULL meter_start when payload omits meterStart (OCPP 2.1)', async () => {
+      // OCPP 2.1 TransactionEvent Started has no meterStart field. The session
+      // row must be inserted with NULL so the MeterValues handler can capture
+      // the first reading; using 0 would defeat that guard and produce inflated
+      // energy values against the station's lifetime register.
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }],
+        [],
+        [{ id: 'session-1' }],
+        [],
+        [{ driver_id: null }],
+        [],
+        [],
+        [{ site_id: null }],
+        [],
+        [],
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Started',
+          stationId: 'CS-001',
+          transactionId: 'tx-meter-null',
+          seqNo: 0,
+          triggerReason: 'Authorized',
+          timestamp: '2024-01-01T00:00:00Z',
+        }),
+      );
+
+      const insertCall = sqlCalls.find((c) =>
+        c.strings.join('').includes('INSERT INTO charging_sessions'),
+      );
+      expect(insertCall).toBeDefined();
+      expect(insertCall?.values).toContain(null);
+      expect(insertCall?.values).not.toContain(0);
+    });
+
+    it('inserts numeric meter_start from payload.meterStart (OCPP 1.6)', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }],
+        [],
+        [{ id: 'session-1' }],
+        [],
+        [{ driver_id: null }],
+        [],
+        [],
+        [{ site_id: null }],
+        [],
+        [],
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Started',
+          stationId: 'CS-001',
+          transactionId: 'tx-meter-1234',
+          seqNo: 0,
+          triggerReason: 'Authorized',
+          timestamp: '2024-01-01T00:00:00Z',
+          meterStart: 1234,
+        }),
+      );
+
+      const insertCall = sqlCalls.find((c) =>
+        c.strings.join('').includes('INSERT INTO charging_sessions'),
+      );
+      expect(insertCall).toBeDefined();
+      expect(insertCall?.values).toContain(1234);
+    });
+
     it('resolves driver from idToken on Started', async () => {
       await setup();
 
