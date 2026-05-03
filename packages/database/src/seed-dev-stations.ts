@@ -61,6 +61,15 @@ const stationDefs = [
     connector: { type: 'Type1', power: '7.68', amps: 32 },
   },
   {
+    stationId: 'IOCHARGER-002',
+    vendorId: ioVendorId,
+    model: 'IOCAH10-50',
+    serialNumber: 'A10E231922831',
+    ocppProtocol: 'ocpp2.1',
+    isSimulator: false,
+    connector: { type: 'Type1', power: '7.68', amps: 32 },
+  },
+  {
     stationId: 'CS-0001',
     vendorId: ioVendorId,
     model: 'DCFC-150',
