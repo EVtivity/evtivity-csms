@@ -332,6 +332,24 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Defense-in-depth: refuse start if an active session already exists on this EVSE,
+      // even when the connector status reads 'occupied' or 'available'. Connector status
+      // can be momentarily out of sync with the chargingState (e.g. after a manual
+      // StatusNotification refresh during a transaction), and we must never allow two
+      // concurrent sessions on the same EVSE.
+      const [evseActiveSession] = await db
+        .select({ id: chargingSessions.id })
+        .from(chargingSessions)
+        .where(and(eq(chargingSessions.evseId, evse.id), eq(chargingSessions.status, 'active')))
+        .limit(1);
+      if (evseActiveSession != null) {
+        await reply.status(409).send({
+          error: 'Another session is already active on this connector',
+          code: 'EVSE_IN_USE',
+        });
+        return;
+      }
+
       // Block start if the EVSE has an upcoming reservation within the buffer window
       const inBuffer = await isEvseInReservationBuffer(station.id, evse.id);
       if (inBuffer) {

@@ -7,6 +7,7 @@
 // 2000-station demo dataset. Idempotent; no-op when those station IDs already
 // exist (e.g. when SEED_DEMO=true already created them).
 
+import argon2 from 'argon2';
 import { eq } from 'drizzle-orm';
 import { db, client } from './config.js';
 import {
@@ -17,6 +18,7 @@ import {
   connectors,
   cssStations,
   cssEvses,
+  drivers,
 } from './schema/index.js';
 
 console.log('Seeding dev stations...');
@@ -159,5 +161,32 @@ for (const def of stationDefs) {
 }
 
 console.log(`  ${String(createdCount)} dev stations created (skipped any that already existed).`);
+
+// Dev driver: matches the credentials baked into docker-build.sh's PORTAL_LOGIN
+// auto-login (driver@evtivity.local / driver123). Required because the
+// SEED_DEMO=false path of seed.ts only creates the admin user; without this
+// row the portal login page returns INVALID_CREDENTIALS on auto-submit.
+// drivers.email has no DB-level unique constraint, so check-then-insert.
+const existingDriver = await db
+  .select({ id: drivers.id })
+  .from(drivers)
+  .where(eq(drivers.email, 'driver@evtivity.local'))
+  .limit(1);
+if (existingDriver.length === 0) {
+  const driverPasswordHash = await argon2.hash('driver123');
+  await db.insert(drivers).values({
+    firstName: 'Dev',
+    lastName: 'Driver',
+    email: 'driver@evtivity.local',
+    passwordHash: driverPasswordHash,
+    registrationSource: 'portal',
+    emailVerified: true,
+    isActive: true,
+  });
+  console.log('  Dev driver created (driver@evtivity.local / driver123).');
+} else {
+  console.log('  Dev driver already exists.');
+}
+
 console.log('Dev station seed complete.');
 await client.end();

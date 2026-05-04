@@ -581,7 +581,8 @@ describe('Portal charger routes - handler logic', () => {
         ],
         [{ id: 'evs_000000000001' }],
         [{ status: 'available' }],
-        [],
+        [], // EVSE active-session check (defense-in-depth)
+        [], // driver active-session check
         [{ id: VALID_SESSION_ID }],
       );
       vi.mocked(getStripeConfig).mockResolvedValue(null);
@@ -828,9 +829,14 @@ describe('Portal charger routes - handler logic', () => {
     });
 
     it('allows session start when reservation starts outside the buffer window', async () => {
-      setupDbResults([stationRow], [evseRow], [connectorRow], existingSessionsEmpty, [
-        { id: VALID_SESSION_ID },
-      ]);
+      setupDbResults(
+        [stationRow],
+        [evseRow],
+        [connectorRow],
+        existingSessionsEmpty, // EVSE active-session check
+        existingSessionsEmpty, // driver active-session check
+        [{ id: VALID_SESSION_ID }],
+      );
       vi.mocked(isEvseInReservationBuffer).mockResolvedValue(false);
 
       const response = await app.inject({
@@ -845,9 +851,14 @@ describe('Portal charger routes - handler logic', () => {
     });
 
     it('allows session start when buffer is disabled (bufferMinutes=0)', async () => {
-      setupDbResults([stationRow], [evseRow], [connectorRow], existingSessionsEmpty, [
-        { id: VALID_SESSION_ID },
-      ]);
+      setupDbResults(
+        [stationRow],
+        [evseRow],
+        [connectorRow],
+        existingSessionsEmpty, // EVSE active-session check
+        existingSessionsEmpty, // driver active-session check
+        [{ id: VALID_SESSION_ID }],
+      );
       // bufferMinutes=0 means isEvseInReservationBuffer returns false immediately
       vi.mocked(isEvseInReservationBuffer).mockResolvedValue(false);
 
@@ -859,6 +870,29 @@ describe('Portal charger routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(200);
+    });
+
+    it('returns 409 EVSE_IN_USE when an active session already exists on the EVSE', async () => {
+      // Defense-in-depth: even if the connector status reads 'available' (e.g. because
+      // a manual StatusNotification refresh momentarily clobbered it), we must not
+      // start a second session on top of an active one.
+      setupDbResults(
+        [stationRow],
+        [evseRow],
+        [connectorRow],
+        [{ id: 'ses_existing_evse' }], // EVSE active-session check returns an active session
+      );
+      vi.mocked(isEvseInReservationBuffer).mockResolvedValue(false);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/chargers/CS-001/evse/1/start',
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().code).toBe('EVSE_IN_USE');
     });
   });
 });

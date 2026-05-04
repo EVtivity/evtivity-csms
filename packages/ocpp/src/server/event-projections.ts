@@ -1066,13 +1066,38 @@ export function registerProjections(
         VALUES (${stationUuid}, ${evseIdNum}, ${connectorIdNum}, ${previousStatus ?? null}, ${dbStatus}, now())
       `;
 
+      // OCPP 2.1 splits state across two channels: connector status (coarse:
+      // Available/Occupied/Reserved/Unavailable/Faulted) on StatusNotification,
+      // and chargingState (fine: Charging/EVConnected/SuspendedEV/SuspendedEVSE/
+      // Idle/Discharging) on TransactionEvent. The CSMS writes both into the
+      // same connectors.status field, with chargingState taking precedence
+      // because it carries more information. When a station sends a
+      // StatusNotification with Occupied while the row already holds a
+      // chargingState-derived value, treating Occupied as authoritative would
+      // overwrite the finer state -- e.g. flipping `charging` -> `occupied`,
+      // which is in the startable-status list and lets a second driver start
+      // a session on top of an active one. Skip the overwrite in that case;
+      // chargingState transitions handle the post-session reset on Ended.
+      const CHARGING_STATE_VALUES = new Set([
+        'charging',
+        'discharging',
+        'ev_connected',
+        'suspended_ev',
+        'suspended_evse',
+        'idle',
+      ]);
+      const skipDowngrade =
+        dbStatus === 'occupied' &&
+        previousStatus != null &&
+        CHARGING_STATE_VALUES.has(previousStatus);
+
       // Check if connector exists; create if missing
       if (prevRows.length === 0) {
         await sql`
           INSERT INTO connectors (id, evse_id, connector_id, status, auto_created)
           VALUES (${generateId('connector')}, ${evseUuid}, ${connectorIdNum}, ${dbStatus}, true)
         `;
-      } else {
+      } else if (!skipDowngrade) {
         await sql`
           UPDATE connectors SET status = ${dbStatus}, updated_at = now()
           WHERE evse_id = ${evseUuid} AND connector_id = ${connectorIdNum}

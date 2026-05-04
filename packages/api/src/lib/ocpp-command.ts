@@ -104,11 +104,38 @@ export async function triggerAndWaitForStatus(
   }
   const beforeUpdatedAt = new Date(beforeRow.updated_at).getTime();
 
-  // Send TriggerMessage to station
-  const triggerPayload =
-    version === 'ocpp1.6'
-      ? { requestedMessage: 'StatusNotification', connectorId }
-      : { requestedMessage: 'StatusNotification', evse: { id: evseId, connectorId } };
+  // Pick the right TriggerMessage payload:
+  //   - OCPP 1.6: StatusNotification (its statuses are already fine-grained:
+  //     Charging / Preparing / Finishing / SuspendedEV / SuspendedEVSE).
+  //   - OCPP 2.1 with active session: TransactionEvent — its `chargingState`
+  //     carries the actual charging activity (StatusNotification on 2.1 only
+  //     reports coarse Occupied which is less specific than chargingState).
+  //   - OCPP 2.1 without active session: StatusNotification — there's no
+  //     transaction to refresh; connector-level state is all the station has.
+  let triggerPayload: Record<string, unknown>;
+  if (version === 'ocpp1.6') {
+    triggerPayload = { requestedMessage: 'StatusNotification', connectorId };
+  } else {
+    const activeSessionRows = await db.execute<{ id: string }>(
+      sql`SELECT cs.id
+          FROM charging_sessions cs
+          JOIN evses e ON cs.evse_id = e.id
+          WHERE e.station_id = ${stationDbId} AND e.evse_id = ${evseId}
+            AND cs.status = 'active'
+          LIMIT 1`,
+    );
+    if (activeSessionRows.length > 0) {
+      triggerPayload = {
+        requestedMessage: 'TransactionEvent',
+        evse: { id: evseId, connectorId },
+      };
+    } else {
+      triggerPayload = {
+        requestedMessage: 'StatusNotification',
+        evse: { id: evseId, connectorId },
+      };
+    }
+  }
 
   const cmdResult = await sendOcppCommandAndWait(
     stationOcppId,
