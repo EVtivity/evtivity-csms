@@ -733,6 +733,80 @@ describe('Station routes - handler logic', () => {
     });
   });
 
+  describe('POST /v1/stations/:id/evses/:evseId/stop-active-session', () => {
+    it('publishes RequestStopTransaction and returns the stopped session', async () => {
+      setupDbResults(
+        [{ stationId: 'CS-001' }],
+        [{ id: 'evs_000000000001' }],
+        [{ id: 'ses_000000000001', transactionId: 'tx-abc' }],
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/evses/1/stop-active-session`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.sessionId).toBe('ses_000000000001');
+      expect(body.transactionId).toBe('tx-abc');
+      expect(mockPublish).toHaveBeenCalledTimes(1);
+      const [channel, raw] = mockPublish.mock.calls[0] as [string, string];
+      expect(channel).toBe('ocpp_commands');
+      const cmd = JSON.parse(raw) as Record<string, unknown>;
+      expect(cmd['stationId']).toBe('CS-001');
+      expect(cmd['action']).toBe('RequestStopTransaction');
+      expect(cmd['payload']).toEqual({ transactionId: 'tx-abc' });
+    });
+
+    it('returns 404 when station not found', async () => {
+      setupDbResults([]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/evses/1/stop-active-session`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe('STATION_NOT_FOUND');
+      expect(mockPublish).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 when EVSE not found', async () => {
+      setupDbResults([{ stationId: 'CS-001' }], []);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/evses/9/stop-active-session`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe('EVSE_NOT_FOUND');
+      expect(mockPublish).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 when no active session on the EVSE', async () => {
+      setupDbResults([{ stationId: 'CS-001' }], [{ id: 'evs_000000000001' }], []);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/evses/1/stop-active-session`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe('NO_ACTIVE_SESSION');
+      expect(mockPublish).not.toHaveBeenCalled();
+    });
+  });
+
   // --- GET /v1/stations/:id/meter-values ---
 
   describe('GET /v1/stations/:id/meter-values', () => {

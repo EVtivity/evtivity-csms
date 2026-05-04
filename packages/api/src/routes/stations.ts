@@ -1362,6 +1362,88 @@ export function stationRoutes(app: FastifyInstance): void {
     },
   );
 
+  // POST /stations/:id/evses/:evseId/stop-active-session -- forcibly stop whatever
+  // session is currently active on this EVSE. Used to recover from stuck sessions
+  // (e.g. simulator never sends StopTransaction, station firmware glitches).
+  app.post(
+    '/stations/:id/evses/:evseId/stop-active-session',
+    {
+      onRequest: [authorize('stations:write')],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Force-stop the active charging session on this EVSE',
+        operationId: 'stopActiveEvseSession',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(evseParams),
+        response: {
+          200: itemResponse(
+            z
+              .object({
+                sessionId: z.string(),
+                transactionId: z.string(),
+              })
+              .passthrough(),
+          ),
+          404: errorResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id, evseId: ocppEvseId } = request.params as z.infer<typeof evseParams>;
+      const { userId } = request.user as JwtPayload;
+      if (!(await checkStationSiteAccess(id, userId))) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
+
+      const [station] = await db
+        .select({ stationId: chargingStations.stationId })
+        .from(chargingStations)
+        .where(eq(chargingStations.id, id));
+      if (station == null) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
+
+      const [evse] = await db
+        .select({ id: evses.id })
+        .from(evses)
+        .where(and(eq(evses.stationId, id), eq(evses.evseId, ocppEvseId)));
+      if (evse == null) {
+        await reply.status(404).send({ error: 'EVSE not found', code: 'EVSE_NOT_FOUND' });
+        return;
+      }
+
+      const [activeSession] = await db
+        .select({ id: chargingSessions.id, transactionId: chargingSessions.transactionId })
+        .from(chargingSessions)
+        .where(and(eq(chargingSessions.evseId, evse.id), eq(chargingSessions.status, 'active')))
+        .limit(1);
+      if (activeSession == null) {
+        await reply
+          .status(404)
+          .send({ error: 'No active session on this EVSE', code: 'NO_ACTIVE_SESSION' });
+        return;
+      }
+
+      const commandId = randomUUID();
+      await getPubSub().publish(
+        'ocpp_commands',
+        JSON.stringify({
+          commandId,
+          stationId: station.stationId,
+          action: 'RequestStopTransaction',
+          payload: { transactionId: activeSession.transactionId },
+        }),
+      );
+
+      return {
+        sessionId: activeSession.id,
+        transactionId: activeSession.transactionId,
+      };
+    },
+  );
+
   const addConnectorBody = z.object({
     connectorId: z.number().int().min(1).describe('OCPP connector ID (integer)'),
     connectorType: z.enum(connectorTypes).describe('Connector plug type'),

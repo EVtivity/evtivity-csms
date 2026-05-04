@@ -26,6 +26,8 @@ import { EditIconButton } from '@/components/edit-icon-button';
 import { LinkIconButton } from '@/components/link-icon-button';
 import { RefreshIconButton } from '@/components/refresh-icon-button';
 import { RemoveIconButton } from '@/components/remove-icon-button';
+import { StopIconButton } from '@/components/stop-icon-button';
+import { useToast } from '@/components/ui/toast';
 import { PORTAL_BASE_URL } from '@/lib/config';
 import { api } from '@/lib/api';
 import { Select } from '@/components/ui/select';
@@ -101,7 +103,10 @@ export function ConnectorStatus({
 }: ConnectorStatusProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [refreshingEvseId, setRefreshingEvseId] = useState<number | null>(null);
+  const [stopSessionEvseId, setStopSessionEvseId] = useState<number | null>(null);
+  const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
 
   const refreshStatusMutation = useMutation({
     mutationFn: (evseId: number) =>
@@ -113,6 +118,32 @@ export function ConnectorStatus({
       setRefreshingEvseId(null);
       void queryClient.invalidateQueries({ queryKey: ['station', stationId, 'connectors'] });
       void queryClient.invalidateQueries({ queryKey: ['station', stationId] });
+    },
+  });
+
+  const stopSessionMutation = useMutation({
+    mutationFn: (evseId: number) =>
+      api.post<{ sessionId: string; transactionId: string }>(
+        `/v1/stations/${stationId}/evses/${String(evseId)}/stop-active-session`,
+        {},
+      ),
+    onSuccess: () => {
+      toast({ variant: 'success', title: t('stations.stopSessionDispatched') });
+      void queryClient.invalidateQueries({ queryKey: ['station', stationId, 'connectors'] });
+      void queryClient.invalidateQueries({ queryKey: ['station', stationId, 'sessions'] });
+      void queryClient.invalidateQueries({ queryKey: ['station', stationId] });
+    },
+    onError: (err: unknown) => {
+      const code = (err as { body?: { code?: string } }).body?.code;
+      if (code === 'NO_ACTIVE_SESSION') {
+        toast({ variant: 'warning', title: t('stations.noActiveSession') });
+      } else {
+        toast({ variant: 'destructive', title: t('stations.stopSessionFailed') });
+      }
+    },
+    onSettled: () => {
+      setStopSessionEvseId(null);
+      setStopConfirmOpen(false);
     },
   });
 
@@ -371,6 +402,19 @@ export function ConnectorStatus({
                         isOnline
                           ? t('stations.refreshConnectorStatus')
                           : t('stations.stationOfflineCannotRefresh')
+                      }
+                    />
+                    <StopIconButton
+                      onClick={() => {
+                        setStopSessionEvseId(evse.evseId);
+                        setStopConfirmOpen(true);
+                      }}
+                      disabled={!isOnline}
+                      isPending={stopSessionMutation.isPending && stopSessionEvseId === evse.evseId}
+                      title={
+                        isOnline
+                          ? t('stations.stopActiveSession')
+                          : t('stations.stationOfflineCannotStop')
                       }
                     />
                     <AddIconButton
@@ -750,6 +794,28 @@ export function ConnectorStatus({
         confirmIcon={<Trash2 className="h-4 w-4" />}
         onConfirm={() => {
           deleteConnectorMutation.mutate(deleteConnectorTarget);
+        }}
+      />
+
+      {/* Stop active session confirmation */}
+      <ConfirmDialog
+        open={stopConfirmOpen}
+        onOpenChange={(open) => {
+          if (stopSessionMutation.isPending && !open) return;
+          setStopConfirmOpen(open);
+        }}
+        title={t('stations.stopActiveSession')}
+        description={t('stations.confirmStopActiveSession', {
+          evseId: stopSessionEvseId ?? '',
+        })}
+        confirmLabel={t('stations.stopActiveSession')}
+        variant="destructive"
+        isPending={stopSessionMutation.isPending}
+        onConfirm={() => {
+          if (stopSessionEvseId != null) {
+            stopSessionMutation.mutate(stopSessionEvseId);
+          }
+          return false;
         }}
       />
     </Card>
