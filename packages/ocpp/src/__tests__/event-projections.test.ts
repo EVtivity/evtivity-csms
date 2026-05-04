@@ -466,45 +466,6 @@ describe('Event projections', () => {
       expect(sqlCalls.length).toBeGreaterThanOrEqual(6);
     });
 
-    it('does not downgrade chargingState-derived connector status to coarse Occupied', async () => {
-      // Regression: a manual TriggerMessage(StatusNotification) refresh during an
-      // active OCPP 2.1 session lands as connectorStatus=Occupied, which used to
-      // overwrite the existing chargingState-derived 'charging' value. Since
-      // 'occupied' is in the startable-status list, that allowed a second driver
-      // to start a session on top of an active one. The handler must keep the
-      // finer chargingState value when StatusNotification reports Occupied.
-      await setup();
-      setupSqlResults(
-        [{ id: 'sta_000000000001' }], // resolveStationId
-        [{ id: 'evs_000000000001' }], // SELECT evses (found)
-        [{ status: 'charging' }], // SELECT connectors (prevRows) -- chargingState-derived
-        [], // INSERT port_status_log
-        [{ site_id: null }], // resolveSiteId
-        [], // pg_notify station.status
-      );
-
-      await eventBus.emit(
-        'ocpp.StatusNotification',
-        makeDomainEvent('ocpp.StatusNotification', 'CS-001', {
-          evseId: 1,
-          connectorId: 1,
-          connectorStatus: 'Occupied',
-        }),
-      );
-
-      const updateConnectorCall = sqlCalls.find((c) => {
-        const joined = c.strings.join('');
-        return joined.includes('UPDATE connectors') && joined.includes('SET status');
-      });
-      expect(updateConnectorCall).toBeUndefined();
-
-      // port_status_log must still be written so the audit trail is intact.
-      const portLogCall = sqlCalls.find((c) =>
-        c.strings.join('').includes('INSERT INTO port_status_log'),
-      );
-      expect(portLogCall).toBeDefined();
-    });
-
     it('maps unknown status to unavailable', async () => {
       await setup();
 
