@@ -365,24 +365,17 @@ const seedDemo = process.env['SEED_DEMO'] === 'true';
 async function seed(): Promise<void> {
   console.log(`Seeding database...${seedDemo ? '' : ' (demo data disabled)'}`);
 
-  // Only wipe the database when reseeding demo data. The non-demo block
-  // (settings, roles, admin user, permissions) is idempotent via
-  // onConflictDoUpdate / onConflictDoNothing, so it can run safely on top of
-  // existing data. Truncating regardless of SEED_DEMO destroys live state --
-  // including css_stations rows, which leaves any running simulator container
-  // with a stale cached config.id and silent css_transactions FK failures.
-  if (seedDemo) {
-    console.log('  Clearing existing data...');
-    const tables = await db.execute<{ tablename: string }>(sql`
-      SELECT tablename FROM pg_tables
-      WHERE schemaname = 'public' AND tablename != 'drizzle_migrations'
-    `);
-    if (tables.length > 0) {
-      const tableNames = tables.map((t) => t.tablename).join(', ');
-      await db.execute(sql.raw(`TRUNCATE TABLE ${tableNames} CASCADE`));
-    }
-    console.log('  Tables cleared.');
+  // Clear existing data (truncate all tables with cascade)
+  console.log('  Clearing existing data...');
+  const tables = await db.execute<{ tablename: string }>(sql`
+    SELECT tablename FROM pg_tables
+    WHERE schemaname = 'public' AND tablename != 'drizzle_migrations'
+  `);
+  if (tables.length > 0) {
+    const tableNames = tables.map((t) => t.tablename).join(', ');
+    await db.execute(sql.raw(`TRUNCATE TABLE ${tableNames} CASCADE`));
   }
+  console.log('  Tables cleared.');
 
   // ------ Settings ------
   // EVtivity logo - green circle with white lightning bolt

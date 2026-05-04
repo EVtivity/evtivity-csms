@@ -24,9 +24,11 @@ import { useTranslation } from 'react-i18next';
 import { AddIconButton } from '@/components/add-icon-button';
 import { EditIconButton } from '@/components/edit-icon-button';
 import { LinkIconButton } from '@/components/link-icon-button';
+import { PlugInIconButton } from '@/components/plug-in-icon-button';
 import { RefreshIconButton } from '@/components/refresh-icon-button';
 import { RemoveIconButton } from '@/components/remove-icon-button';
 import { StopIconButton } from '@/components/stop-icon-button';
+import { UnplugIconButton } from '@/components/unplug-icon-button';
 import { useToast } from '@/components/ui/toast';
 import { PORTAL_BASE_URL } from '@/lib/config';
 import { api } from '@/lib/api';
@@ -58,6 +60,7 @@ interface ConnectorStatusProps {
   stationOcppId: string;
   ocppProtocol: string | null;
   isOnline: boolean;
+  isSimulator: boolean;
 }
 
 function statusClassName(status: string, isIdling?: boolean): string | undefined {
@@ -100,6 +103,7 @@ export function ConnectorStatus({
   stationOcppId,
   ocppProtocol,
   isOnline,
+  isSimulator,
 }: ConnectorStatusProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -107,6 +111,33 @@ export function ConnectorStatus({
   const [refreshingEvseId, setRefreshingEvseId] = useState<number | null>(null);
   const [stopSessionEvseId, setStopSessionEvseId] = useState<number | null>(null);
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
+  const [simActionEvseId, setSimActionEvseId] = useState<number | null>(null);
+  const [simAction, setSimAction] = useState<'plugIn' | 'unplug' | null>(null);
+
+  const simActionMutation = useMutation({
+    mutationFn: ({ action, evseId }: { action: 'plugIn' | 'unplug'; evseId: number }) =>
+      api.post<{ commandId: string }>(`/v1/css/actions/${action}`, {
+        stationId: stationOcppId,
+        evseId,
+      }),
+    onSuccess: (_data, variables) => {
+      toast({
+        variant: 'success',
+        title: t(
+          variables.action === 'plugIn' ? 'stations.simPlugInSent' : 'stations.simUnplugSent',
+        ),
+      });
+      void queryClient.invalidateQueries({ queryKey: ['station', stationId, 'connectors'] });
+      void queryClient.invalidateQueries({ queryKey: ['station', stationId] });
+    },
+    onError: () => {
+      toast({ variant: 'destructive', title: t('stations.simActionFailed') });
+    },
+    onSettled: () => {
+      setSimActionEvseId(null);
+      setSimAction(null);
+    },
+  });
 
   const refreshStatusMutation = useMutation({
     mutationFn: (evseId: number) =>
@@ -404,6 +435,46 @@ export function ConnectorStatus({
                           : t('stations.stationOfflineCannotRefresh')
                       }
                     />
+                    {isSimulator && (
+                      <>
+                        <PlugInIconButton
+                          onClick={() => {
+                            setSimActionEvseId(evse.evseId);
+                            setSimAction('plugIn');
+                            simActionMutation.mutate({ action: 'plugIn', evseId: evse.evseId });
+                          }}
+                          disabled={!isOnline}
+                          isPending={
+                            simActionMutation.isPending &&
+                            simActionEvseId === evse.evseId &&
+                            simAction === 'plugIn'
+                          }
+                          title={
+                            isOnline
+                              ? t('stations.simPlugIn')
+                              : t('stations.stationOfflineCannotSim')
+                          }
+                        />
+                        <UnplugIconButton
+                          onClick={() => {
+                            setSimActionEvseId(evse.evseId);
+                            setSimAction('unplug');
+                            simActionMutation.mutate({ action: 'unplug', evseId: evse.evseId });
+                          }}
+                          disabled={!isOnline}
+                          isPending={
+                            simActionMutation.isPending &&
+                            simActionEvseId === evse.evseId &&
+                            simAction === 'unplug'
+                          }
+                          title={
+                            isOnline
+                              ? t('stations.simUnplug')
+                              : t('stations.stationOfflineCannotSim')
+                          }
+                        />
+                      </>
+                    )}
                     <StopIconButton
                       onClick={() => {
                         setStopSessionEvseId(evse.evseId);
@@ -417,6 +488,10 @@ export function ConnectorStatus({
                           : t('stations.stationOfflineCannotStop')
                       }
                     />
+                    <LinkIconButton
+                      href={`${PORTAL_BASE_URL}/charge/${stationOcppId}/${String(evse.evseId)}`}
+                      title={t('stations.openGuestCharger')}
+                    />
                     <AddIconButton
                       onClick={() => {
                         openAddConnector(evse.evseId);
@@ -428,10 +503,6 @@ export function ConnectorStatus({
                         openEditEvse(evse);
                       }}
                       title={t('stations.editEvse')}
-                    />
-                    <LinkIconButton
-                      href={`${PORTAL_BASE_URL}/charge/${stationOcppId}/${String(evse.evseId)}`}
-                      title={t('stations.openGuestCharger')}
                     />
                     <RemoveIconButton
                       disabled={hasInUseConnector(evse)}
@@ -487,19 +558,22 @@ export function ConnectorStatus({
                               ? t('status.idle')
                               : t(`status.${conn.status}`, conn.status)}
                           </Badge>
-                          {!IN_USE_STATUSES.includes(conn.status) && (
-                            <RemoveIconButton
-                              size="sm"
-                              onClick={() => {
-                                setDeleteConnectorTarget({
-                                  evseId: evse.evseId,
-                                  connectorId: conn.connectorId,
-                                });
-                                setDeleteConnectorOpen(true);
-                              }}
-                              title={t('stations.deleteConnector')}
-                            />
-                          )}
+                          <RemoveIconButton
+                            size="sm"
+                            disabled={IN_USE_STATUSES.includes(conn.status)}
+                            onClick={() => {
+                              setDeleteConnectorTarget({
+                                evseId: evse.evseId,
+                                connectorId: conn.connectorId,
+                              });
+                              setDeleteConnectorOpen(true);
+                            }}
+                            title={
+                              IN_USE_STATUSES.includes(conn.status)
+                                ? t('stations.cannotDeleteOccupied')
+                                : t('stations.deleteConnector')
+                            }
+                          />
                         </div>
                       </div>
                     ))}

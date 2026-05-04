@@ -324,18 +324,6 @@ export function ChargerLanding(): React.JSX.Element {
           {/* Pricing */}
           {displayPricing != null && <PricingDisplay pricing={displayPricing} />}
 
-          {/* Simulator hint for stuck plugged-in states (1.6 finishing,
-              2.1 occupied with no chargingState enrichment after a stop).
-              Always visible when isSimulator + plugged-but-not-charging,
-              regardless of whether Start Charging is enabled. */}
-          {charger.isSimulator &&
-            (connectorStatus === 'finishing' || connectorStatus === 'occupied') && (
-              <Alert variant="info">
-                <Info className="h-4 w-4" />
-                <AlertDescription>{t('charger.simulatorUnplugHint')}</AlertDescription>
-              </Alert>
-            )}
-
           {/* Actions */}
           {isAvailable && charger.isOnline ? (
             <div className="space-y-2 pt-2">

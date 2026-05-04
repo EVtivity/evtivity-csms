@@ -367,8 +367,14 @@ export class StationSimulator {
     const status = this.is16 ? 'Preparing' : 'Occupied';
     const currentStatus = this.evseConnectorStatus.get(evseId);
     this.evseConnectorStatus.set(evseId, status);
-    // Skip duplicate StatusNotification if already in Preparing (from authorize)
-    if (currentStatus !== status) {
+    // Send StatusNotification when the status actually changes, OR when there
+    // is no active transaction (post-stop "re-plug" refresh). The post-stop
+    // case matters because the CSMS-side connectors.status is overlaid with
+    // chargingState=EVConnected from the Ended event, and the user expects
+    // clicking Plug In on the Simulate tab to reset that visible state. The
+    // duplicate-skip is still needed for the 1.6 authorize-then-plugIn path
+    // where Preparing has already been announced.
+    if (currentStatus !== status || ctx.transactionId == null) {
       try {
         await this.sendStatusNotification(evseId, connectorId, status);
       } catch {
@@ -931,20 +937,16 @@ export class StationSimulator {
         }
         await this.updateEvseStatus(evseId, 'Unavailable').catch(() => {});
       } else {
-        // OCPP 2.1: cable is still physically connected after stop, so keep
-        // the connector at Occupied with chargingState=EVConnected (mirrors
-        // the OCPP 1.6 Finishing behavior: Available only comes on unplug).
+        // OCPP 2.1: connectorStatus has been Occupied since plug-in and stays
+        // Occupied until unplug -- no StatusNotification is due here, the
+        // status hasn't changed. The post-stop chargingState (EVConnected)
+        // was already reported on the TransactionEvent Ended emitted above.
         // The unplug() method handles the eventual transition to Available.
         ctx.state = 'EVConnected';
         this.evseConnectorStatus.set(evseId, 'Occupied');
         const seqNo = (this.evseSeqNo.get(evseId) ?? 0) + 1;
         this.evseSeqNo.set(evseId, seqNo);
         this.evseChargingState.set(evseId, 'EVConnected');
-        try {
-          await this.sendStatusNotification(evseId, connectorId, 'Occupied');
-        } catch {
-          // Offline
-        }
         await this.updateEvseStatus(evseId, 'Occupied').catch(() => {});
       }
     }

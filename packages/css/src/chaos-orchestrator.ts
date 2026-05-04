@@ -688,6 +688,15 @@ export class ChaosOrchestrator {
 
     actions = filterChaosActions(actions, effectiveState, connectorStatus);
 
+    // Drop token-requiring actions when no driver tokens are loaded. With
+    // SEED_DEMO=false there are no driver tokens in the dev fixture, so
+    // authorize/startCharging would crash on `pick(this.tokens)` returning
+    // undefined. startCharging has its own empty-tokens guard below; this
+    // filter keeps authorize from getting selected at all.
+    if (this.tokens.length === 0) {
+      actions = actions.filter((a) => a.name !== 'authorize' && a.name !== 'startCharging');
+    }
+
     if (actions.length === 0) {
       // No valid action for this state this tick.
       return;
