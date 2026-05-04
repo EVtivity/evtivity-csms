@@ -552,6 +552,8 @@
     "addConnector": "Create Connector",
     "editEvse": "Edit EVSE",
     "openGuestCharger": "Open guest charger page",
+    "refreshConnectorStatus": "Refresh connector status",
+    "stationOfflineCannotRefresh": "Station offline - cannot refresh status",
     "deleteEvse": "Delete EVSE",
     "deleteConnector": "Delete Connector",
     "confirmDeleteEvse": "This will remove EVSE {{id}} and all its connectors. This action cannot be undone.",
@@ -1272,6 +1274,16 @@
       "refunded": "Refunded",
       "partially_refunded": "Partially Refunded"
     }
+  },
+  "systemInfo": {
+    "button": "System Information",
+    "title": "System Information",
+    "runtime": "Runtime",
+    "network": "Network",
+    "rateLimits": "Rate Limits",
+    "simulator": "Simulator",
+    "integrations": "Integrations",
+    "secretsNote": "Secret values (passwords, tokens, encryption keys) are never exposed. \"Configured\" only indicates whether the variable is set."
   },
   "settings": {
     "title": "Settings",

@@ -74,6 +74,7 @@ import { pncSettingsRoutes } from './routes/pnc-settings.js';
 import { pncCertificateRoutes } from './routes/pnc-certificates.js';
 import { securitySettingsRoutes } from './routes/security-settings.js';
 import { securityPublicRoutes } from './routes/security-public.js';
+import { systemRoutes } from './routes/system.js';
 import { ssoSettingsRoutes } from './routes/sso-settings.js';
 import { ssoAuthRoutes } from './routes/sso-auth.js';
 import { carbonRoutes } from './routes/carbon.js';
@@ -189,6 +190,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(pncCertificateRoutes);
       await v1.register(securitySettingsRoutes);
       await v1.register(securityPublicRoutes);
+      await v1.register(systemRoutes);
       await v1.register(ssoSettingsRoutes);
       await v1.register(ssoAuthRoutes);
       await v1.register(carbonRoutes);

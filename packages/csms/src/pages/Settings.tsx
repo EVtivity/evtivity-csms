@@ -1,11 +1,14 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Info } from 'lucide-react';
 import { useTab } from '@/hooks/use-tab';
 import { useQuery } from '@tanstack/react-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import { SystemInfoDialog } from '@/components/SystemInfoDialog';
 import { api } from '@/lib/api';
 import { useQrIcon } from '@/hooks/use-qr-icon';
 import { useAuth } from '@/lib/auth';
@@ -56,6 +59,7 @@ function hasPerm(userPermissions: string[], required: string): boolean {
 export function Settings(): React.JSX.Element {
   const { t } = useTranslation();
   const permissions = useAuth((s) => s.permissions);
+  const [showSystemInfo, setShowSystemInfo] = useState(false);
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
@@ -86,7 +90,20 @@ export function Settings(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl md:text-3xl font-bold">{t('settings.title')}</h1>
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-2xl md:text-3xl font-bold">{t('settings.title')}</h1>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setShowSystemInfo(true);
+          }}
+        >
+          <Info className="mr-2 h-4 w-4" />
+          {t('systemInfo.button')}
+        </Button>
+      </div>
+      <SystemInfoDialog open={showSystemInfo} onOpenChange={setShowSystemInfo} />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

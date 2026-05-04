@@ -266,6 +266,7 @@ export function StationDetail(): React.JSX.Element {
               stationId={station.id}
               stationOcppId={station.stationId}
               ocppProtocol={station.ocppProtocol}
+              isOnline={station.isOnline}
             />
           )}
         </TabsContent>

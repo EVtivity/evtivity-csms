@@ -552,6 +552,8 @@
     "addConnector": "建立聯結器",
     "editEvse": "編輯 EVSE",
     "openGuestCharger": "打開訪客充電頁面",
+    "refreshConnectorStatus": "重新整理連接器狀態",
+    "stationOfflineCannotRefresh": "充電站離線 - 無法重新整理狀態",
     "deleteEvse": "刪除 EVSE",
     "deleteConnector": "刪除聯結器",
     "confirmDeleteEvse": "這將刪除 EVSE {{id}} 及其所有聯結器。此操作無法撤銷。",
@@ -1272,6 +1274,16 @@
       "refunded": "已退款",
       "partially_refunded": "部分退款"
     }
+  },
+  "systemInfo": {
+    "button": "系統資訊",
+    "title": "系統資訊",
+    "runtime": "執行階段",
+    "network": "網路",
+    "rateLimits": "速率限制",
+    "simulator": "模擬器",
+    "integrations": "整合",
+    "secretsNote": "永遠不會公開密鑰值（密碼、權杖、加密金鑰）。\"Configured\" 僅表示變數是否已設定。"
   },
   "settings": {
     "title": "設定",

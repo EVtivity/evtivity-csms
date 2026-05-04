@@ -552,6 +552,8 @@
     "addConnector": "커넥터 생성",
     "editEvse": "EVSE 편집",
     "openGuestCharger": "게스트 충전 페이지 열기",
+    "refreshConnectorStatus": "커넥터 상태 새로 고침",
+    "stationOfflineCannotRefresh": "충전소 오프라인 - 상태를 새로 고칠 수 없음",
     "deleteEvse": "EVSE 삭제",
     "deleteConnector": "커넥터 삭제",
     "confirmDeleteEvse": "EVSE {{id}}과(와) 모든 커넥터가 제거됩니다. 이 작업은 되돌릴 수 없습니다.",
@@ -1272,6 +1274,16 @@
       "refunded": "환불됨",
       "partially_refunded": "부분 환불됨"
     }
+  },
+  "systemInfo": {
+    "button": "시스템 정보",
+    "title": "시스템 정보",
+    "runtime": "런타임",
+    "network": "네트워크",
+    "rateLimits": "속도 제한",
+    "simulator": "시뮬레이터",
+    "integrations": "통합",
+    "secretsNote": "비밀 값(비밀번호, 토큰, 암호화 키)은 절대 노출되지 않습니다. \"Configured\"는 변수가 설정되어 있는지만 표시합니다."
   },
   "settings": {
     "title": "설정",

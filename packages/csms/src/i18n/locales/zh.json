@@ -552,6 +552,8 @@
     "addConnector": "创建连接器",
     "editEvse": "编辑 EVSE",
     "openGuestCharger": "打开访客充电页面",
+    "refreshConnectorStatus": "刷新连接器状态",
+    "stationOfflineCannotRefresh": "充电站离线 - 无法刷新状态",
     "deleteEvse": "删除 EVSE",
     "deleteConnector": "删除连接器",
     "confirmDeleteEvse": "这将删除 EVSE {{id}} 及其所有连接器。此操作无法撤销。",
@@ -1272,6 +1274,16 @@
       "refunded": "已退款",
       "partially_refunded": "部分退款"
     }
+  },
+  "systemInfo": {
+    "button": "系统信息",
+    "title": "系统信息",
+    "runtime": "运行时",
+    "network": "网络",
+    "rateLimits": "速率限制",
+    "simulator": "模拟器",
+    "integrations": "集成",
+    "secretsNote": "永远不会暴露密钥值（密码、令牌、加密密钥）。\"Configured\" 仅表示变量是否已设置。"
   },
   "settings": {
     "title": "设置",

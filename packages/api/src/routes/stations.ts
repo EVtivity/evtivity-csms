@@ -45,7 +45,7 @@ import {
   arrayResponse,
 } from '../lib/response-schemas.js';
 import { getUserSiteIds, checkStationSiteAccess } from '../lib/site-access.js';
-import { sendOcppCommandAndWait } from '../lib/ocpp-command.js';
+import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../lib/ocpp-command.js';
 import { enableCssPair, disableCssPair } from '../lib/css-pairing.js';
 import { authorize } from '../middleware/rbac.js';
 import type { JwtPayload } from '../plugins/auth.js';
@@ -1283,6 +1283,82 @@ export function stationRoutes(app: FastifyInstance): void {
         evseId: evse.evseId,
         connectors: updatedConnectors,
       };
+    },
+  );
+
+  // POST /stations/:id/evses/:evseId/refresh-status -- TriggerMessage(StatusNotification)
+  // and wait for the station to report back. Works for both OCPP 1.6 and 2.1; the helper
+  // builds the version-specific payload internally.
+  app.post(
+    '/stations/:id/evses/:evseId/refresh-status',
+    {
+      onRequest: [authorize('stations:read')],
+      schema: {
+        tags: ['Stations'],
+        summary: "Force the station to re-report this EVSE's connector status",
+        operationId: 'refreshEvseConnectorStatus',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(evseParams),
+        response: {
+          200: itemResponse(
+            z
+              .object({
+                status: z.string().nullable(),
+                error: z.string().optional(),
+              })
+              .passthrough(),
+          ),
+          404: errorResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id, evseId: ocppEvseId } = request.params as z.infer<typeof evseParams>;
+      const { userId } = request.user as JwtPayload;
+      if (!(await checkStationSiteAccess(id, userId))) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
+
+      const [station] = await db
+        .select({
+          stationId: chargingStations.stationId,
+          isOnline: chargingStations.isOnline,
+          ocppProtocol: chargingStations.ocppProtocol,
+        })
+        .from(chargingStations)
+        .where(eq(chargingStations.id, id));
+      if (station == null) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
+      if (!station.isOnline) {
+        return { status: null, error: 'Station is offline' };
+      }
+
+      // First connector on the EVSE -- TriggerMessage takes a single connector_id.
+      // For multi-connector EVSEs we cycle through; for the typical 1-connector case
+      // this just fetches that one.
+      const connectorRows = await db.execute<{ connector_id: number }>(
+        sql`SELECT c.connector_id FROM connectors c
+            JOIN evses e ON c.evse_id = e.id
+            WHERE e.station_id = ${id} AND e.evse_id = ${ocppEvseId}
+            ORDER BY c.connector_id ASC LIMIT 1`,
+      );
+      const connectorRow = connectorRows[0];
+      if (connectorRow == null) {
+        await reply.status(404).send({ error: 'Connector not found', code: 'CONNECTOR_NOT_FOUND' });
+        return;
+      }
+
+      const result = await triggerAndWaitForStatus(
+        station.stationId,
+        ocppEvseId,
+        connectorRow.connector_id,
+        id,
+        station.ocppProtocol ?? undefined,
+      );
+      return { status: result.status, error: result.error };
     },
   );
 

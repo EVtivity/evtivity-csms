@@ -552,6 +552,8 @@
     "addConnector": "Crear conector",
     "editEvse": "Editar EVSE",
     "openGuestCharger": "Abrir pagina de carga para invitados",
+    "refreshConnectorStatus": "Actualizar estado del conector",
+    "stationOfflineCannotRefresh": "Estacion desconectada - no se puede actualizar el estado",
     "deleteEvse": "Eliminar EVSE",
     "deleteConnector": "Eliminar conector",
     "confirmDeleteEvse": "Esto eliminara el EVSE {{id}} y todos sus conectores. Esta accion no se puede deshacer.",
@@ -1276,6 +1278,16 @@
       "refunded": "Reembolsado",
       "partially_refunded": "Parcialmente Reembolsado"
     }
+  },
+  "systemInfo": {
+    "button": "Informacion del sistema",
+    "title": "Informacion del sistema",
+    "runtime": "Tiempo de ejecucion",
+    "network": "Red",
+    "rateLimits": "Limites de tasa",
+    "simulator": "Simulador",
+    "integrations": "Integraciones",
+    "secretsNote": "Los valores secretos (contrasenas, tokens, claves de cifrado) nunca se exponen. \"Configurado\" solo indica si la variable esta establecida."
   },
   "settings": {
     "title": "Configuracion",

@@ -24,6 +24,7 @@ import { useTranslation } from 'react-i18next';
 import { AddIconButton } from '@/components/add-icon-button';
 import { EditIconButton } from '@/components/edit-icon-button';
 import { LinkIconButton } from '@/components/link-icon-button';
+import { RefreshIconButton } from '@/components/refresh-icon-button';
 import { RemoveIconButton } from '@/components/remove-icon-button';
 import { PORTAL_BASE_URL } from '@/lib/config';
 import { api } from '@/lib/api';
@@ -54,6 +55,7 @@ interface ConnectorStatusProps {
   stationId: string;
   stationOcppId: string;
   ocppProtocol: string | null;
+  isOnline: boolean;
 }
 
 function statusClassName(status: string, isIdling?: boolean): string | undefined {
@@ -95,9 +97,24 @@ export function ConnectorStatus({
   stationId,
   stationOcppId,
   ocppProtocol,
+  isOnline,
 }: ConnectorStatusProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const [refreshingEvseId, setRefreshingEvseId] = useState<number | null>(null);
+
+  const refreshStatusMutation = useMutation({
+    mutationFn: (evseId: number) =>
+      api.post<{ status: string | null; error?: string }>(
+        `/v1/stations/${stationId}/evses/${String(evseId)}/refresh-status`,
+        {},
+      ),
+    onSettled: () => {
+      setRefreshingEvseId(null);
+      void queryClient.invalidateQueries({ queryKey: ['station', stationId, 'connectors'] });
+      void queryClient.invalidateQueries({ queryKey: ['station', stationId] });
+    },
+  });
 
   // Add EVSE dialog
   const [addEvseOpen, setAddEvseOpen] = useState(false);
@@ -343,6 +360,19 @@ export function ConnectorStatus({
                     )}
                   </div>
                   <div className="flex items-center gap-1">
+                    <RefreshIconButton
+                      onClick={() => {
+                        setRefreshingEvseId(evse.evseId);
+                        refreshStatusMutation.mutate(evse.evseId);
+                      }}
+                      disabled={!isOnline}
+                      isPending={refreshingEvseId === evse.evseId}
+                      title={
+                        isOnline
+                          ? t('stations.refreshConnectorStatus')
+                          : t('stations.stationOfflineCannotRefresh')
+                      }
+                    />
                     <AddIconButton
                       onClick={() => {
                         openAddConnector(evse.evseId);

@@ -1596,6 +1596,29 @@ export function registerProjections(
       if (sessionRow != null) {
         const sessionId = sessionRow.id as string;
 
+        // OCPP 2.1: chargingState is on transactionInfo of the Ended event (e.g. EVConnected
+        // when the cable is still plugged after a remote stop). Mirror the Updated-handler
+        // behaviour so the connector badge transitions out of 'charging' even when the
+        // station does not send a follow-up StatusNotification.
+        const endedChargingState = getString(payload, 'chargingState');
+        if (endedChargingState != null) {
+          const endedConnectorStatus = CHARGING_STATE_TO_STATUS[endedChargingState];
+          if (endedConnectorStatus != null) {
+            const sessionEvse = await sql`
+              SELECT evse_id FROM charging_sessions WHERE id = ${sessionId}
+            `;
+            const endedEvseUuid = sessionEvse[0]?.evse_id as string | null;
+            if (endedEvseUuid != null) {
+              await sql`
+                UPDATE connectors SET status = ${endedConnectorStatus}, updated_at = now()
+                WHERE evse_id = ${endedEvseUuid}
+              `;
+              const endedSiteId = await resolveSiteId(stationUuid);
+              await notifyChange('station.status', stationUuid, endedSiteId);
+            }
+          }
+        }
+
         // After session query, check for timeout with zero energy
         const energyWh = Number(sessionRow.energy_delivered_wh ?? 0);
         const isTimeoutEnd =
