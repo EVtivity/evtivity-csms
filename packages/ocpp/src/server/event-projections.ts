@@ -524,7 +524,12 @@ export function registerProjections(
       LIMIT 1
     `;
     const row = rows[0];
-    if (row == null) return false; // No tariff found -- not free
+    // No tariff resolved (no driver/fleet/station/site/default group configured, or
+    // the resolved group has no active default tariff): treat as free so the session
+    // proceeds without requiring a payment method. Matches `isTariffFree(null)` in the
+    // API tariff service so guest and authenticated flows behave identically when no
+    // tariff is configured.
+    if (row == null) return true;
     return row.is_free as boolean;
   }
 
