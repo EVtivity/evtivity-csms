@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import {
   db,
   driverTokens,
+  drivers,
   ocpiExternalTokens,
   chargingStations,
   sites,
@@ -58,6 +59,29 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
       .where(eq(driverTokens.idToken, request.idTag));
 
     if (tokens.length === 0) {
+      // Driver-id fallback: portal authenticated start sends the driver's
+      // UUID (drv_*) as the idToken because OCPP 1.6 has no equivalent of
+      // 2.1's `Central` token type. The 2.1 authorize handler auto-accepts
+      // Central tokens; 1.6 must look the driver up explicitly. Accept when
+      // an active driver row exists.
+      if (request.idTag.startsWith('drv_')) {
+        const [driver] = await db
+          .select({ isActive: drivers.isActive })
+          .from(drivers)
+          .where(eq(drivers.id, request.idTag))
+          .limit(1);
+        if (driver != null) {
+          if (driver.isActive) {
+            ctx.logger.info(
+              { stationId: ctx.stationId, idTag: request.idTag },
+              'Driver-id token accepted (1.6 portal remote-start)',
+            );
+            return { idTagInfo: { status: 'Accepted' as const } };
+          }
+          return { idTagInfo: { status: 'Blocked' as const } };
+        }
+      }
+
       // Guest sessions: idTag is a CSMS-issued sessionToken. Accept when a
       // guest session row exists in the payment_authorized state. The 2.1
       // path accepts unknown Central tokens by design; 1.6 has no tokenType
