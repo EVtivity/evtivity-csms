@@ -1,0 +1,2 @@
+CREATE TYPE "public"."charging_profile_push_operation" AS ENUM('set', 'clear');--> statement-breakpoint
+ALTER TABLE "charging_profile_pushes" ADD COLUMN "operation" charging_profile_push_operation DEFAULT 'set' NOT NULL;

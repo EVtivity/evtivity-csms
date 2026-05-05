@@ -8,7 +8,9 @@
     "saved": "Guardado",
     "reset": "Restablecer",
     "success": "Exitoso",
+    "copy": "Copiar",
     "copied": "Copiado!",
+    "view": "Ver",
     "cancel": "Cancelar",
     "create": "Crear",
     "creating": "Creando...",
@@ -672,6 +674,10 @@
     "firmwareHistory": "Historial de Firmware",
     "noFirmwareUpdates": "No hay actualizaciones de firmware registradas",
     "chargingProfiles": "Perfiles de Carga",
+    "chargingProfileDetails": "Detalles del Perfil de Carga",
+    "compositeTime": "Hora",
+    "viewRaw": "Ver respuesta sin procesar",
+    "noScheduleAnchor": "La estacion no devolvio una referencia de programacion; se muestran solo los desplazamientos.",
     "noChargingProfiles": "No hay perfiles de carga",
     "refreshProfiles": "Actualizar desde Estacion",
     "pushChargingProfile": "Enviar Perfil de Carga",
@@ -2207,6 +2213,7 @@
   "smartCharging": {
     "title": "Carga Inteligente",
     "subtitle": "Plantilla de perfil de carga",
+    "template": "Plantilla",
     "templates": "Plantillas de perfil de carga",
     "createTemplate": "Crear",
     "noTemplates": "Sin plantillas de perfil de carga",
@@ -2228,7 +2235,14 @@
     "targetFilter": "Filtro de destino",
     "push": "Enviar a estaciones",
     "pushing": "Enviando...",
+    "clearFromStations": "Borrar de estaciones",
+    "confirmClearFromStations": "Borrar el perfil de todas las estaciones coincidentes?",
+    "confirmClearFromStationsDescription": "Envia ClearChargingProfile a cada estacion en linea que coincida con el filtro de la plantilla. Los perfiles con el mismo proposito, nivel de pila y EVSE seran eliminados.",
+    "operation": "Operacion",
+    "opSet": "Aplicar",
+    "opClear": "Borrar",
     "pushHistory": "Historial de envios",
+    "rawProfile": "Perfil de carga sin procesar (OCPP)",
     "noPushes": "No hay envios registrados",
     "matchingStations": "Estaciones coincidentes",
     "noMatchingStations": "Sin estaciones en linea coincidentes",
@@ -2262,6 +2276,17 @@
     "recurrence": {
       "Daily": "Diario",
       "Weekly": "Semanal"
+    },
+    "tooltips": {
+      "profileId": "Identificador unico OCPP del perfil por estacion. Reutilizar el mismo id reemplaza el perfil existente. Debe ser unico entre plantillas.",
+      "stackLevel": "Cuando varios perfiles coinciden, gana el nivel de pila mas alto. Por defecto deja 0.",
+      "evseId": "0 aplica a toda la estacion. Un valor distinto apunta a un EVSE especifico.",
+      "profilePurpose": "ChargingStationMaxProfile limita la potencia total. TxDefaultProfile aplica a todas las sesiones. PriorityCharging y LocalGeneration son solo OCPP 2.1.",
+      "profileKind": "Absolute es una vez segun Start Schedule. Recurring se repite con la cadencia elegida.",
+      "recurrencyKind": "Daily se repite cada 24 horas. Weekly cada 7 dias."
+    },
+    "errors": {
+      "profileIdInUse": "Ese ID de perfil ya esta en uso por otra plantilla. Elija uno distinto."
     }
   },
   "configTemplates": {

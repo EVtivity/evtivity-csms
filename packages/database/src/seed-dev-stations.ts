@@ -19,6 +19,7 @@ import {
   cssStations,
   cssEvses,
   drivers,
+  chargingProfileTemplates,
 } from './schema/index.js';
 
 console.log('Seeding dev stations...');
@@ -42,15 +43,23 @@ const siteId =
   (await db.select({ id: sites.id }).from(sites).where(eq(sites.name, 'Dev Site')))[0]?.id;
 if (siteId == null) throw new Error('Failed to upsert dev site');
 
-const [ioVendor] = await db
-  .insert(vendors)
-  .values({ name: 'IoCharger' })
-  .onConflictDoNothing()
-  .returning({ id: vendors.id });
+// Look up first to avoid creating duplicate vendor rows on repeat runs.
+// vendors.name has no unique constraint, so onConflictDoNothing() cannot
+// catch the conflict and a plain insert would always succeed.
+const existingIoVendor = await db
+  .select({ id: vendors.id })
+  .from(vendors)
+  .where(eq(vendors.name, 'IoCharger'))
+  .limit(1);
 
-const ioVendorId =
-  ioVendor?.id ??
-  (await db.select({ id: vendors.id }).from(vendors).where(eq(vendors.name, 'IoCharger')))[0]?.id;
+let ioVendorId: string | undefined = existingIoVendor[0]?.id;
+if (ioVendorId == null) {
+  const [ioVendor] = await db
+    .insert(vendors)
+    .values({ name: 'IoCharger' })
+    .returning({ id: vendors.id });
+  ioVendorId = ioVendor?.id;
+}
 
 const stationDefs = [
   {
@@ -73,7 +82,7 @@ const stationDefs = [
   },
   {
     stationId: 'CS-0001',
-    vendorId: ioVendorId,
+    vendorId: null,
     model: 'DCFC-150',
     serialNumber: 'SN-2026-0001',
     ocppProtocol: 'ocpp2.1',
@@ -186,6 +195,44 @@ if (existingDriver.length === 0) {
   console.log('  Dev driver created (driver@evtivity.local / driver123).');
 } else {
   console.log('  Dev driver already exists.');
+}
+
+// Smart charging template: restrict IoCharger stations to off-peak window
+// (23:00-03:00 EST). TxDefaultProfile applies to all sessions on matching
+// stations; the operator pushes from the Smart Charging UI once stations
+// are online. Anchor at midnight EST (05:00 UTC) so offsets line up with
+// wall-clock time-of-day (canonical form for Daily Recurring).
+if (ioVendorId != null) {
+  const templateName = 'IoCharger Off-Peak (11pm-3am EST)';
+  const existingTemplate = await db
+    .select({ id: chargingProfileTemplates.id })
+    .from(chargingProfileTemplates)
+    .where(eq(chargingProfileTemplates.name, templateName))
+    .limit(1);
+  if (existingTemplate.length === 0) {
+    await db.insert(chargingProfileTemplates).values({
+      name: templateName,
+      description: 'Allow charging only between 23:00 and 03:00 EST. Targets IoCharger vendor.',
+      ocppVersion: '2.1',
+      profileId: 200,
+      profilePurpose: 'TxDefaultProfile',
+      profileKind: 'Recurring',
+      recurrencyKind: 'Daily',
+      stackLevel: 0,
+      evseId: 0,
+      chargingRateUnit: 'A',
+      schedulePeriods: [
+        { startPeriod: 0, limit: 32, numberPhases: 1 },
+        { startPeriod: 10800, limit: 0, numberPhases: 1 },
+        { startPeriod: 82800, limit: 32, numberPhases: 1 },
+      ],
+      startSchedule: new Date('2026-01-05T05:00:00Z'),
+      targetFilter: { vendorId: ioVendorId },
+    });
+    console.log(`  Created smart charging template: ${templateName}`);
+  } else {
+    console.log(`  Smart charging template already exists: ${templateName}`);
+  }
 }
 
 console.log('Dev station seed complete.');

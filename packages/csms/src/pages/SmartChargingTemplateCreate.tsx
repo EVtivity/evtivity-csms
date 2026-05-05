@@ -13,8 +13,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { TimeSlotEditor, type SchedulePeriod } from '@/components/smart-charging/TimeSlotEditor';
-import { api } from '@/lib/api';
+import { api, getApiErrorCode, getApiErrorMessage } from '@/lib/api';
+import { useUserTimezone } from '@/lib/timezone';
+import { midnightInTimezone, toDatetimeLocalInTimezone } from '@/lib/schedule-anchor';
 
 type OcppVersion = '2.1' | '1.6';
 
@@ -40,6 +43,7 @@ interface CreatedTemplate {
 export function SmartChargingTemplateCreate(): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const timezone = useUserTimezone();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -51,7 +55,9 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
   const [stackLevel, setStackLevel] = useState(0);
   const [evseId, setEvseId] = useState(0);
   const [chargingRateUnit, setChargingRateUnit] = useState<'W' | 'A'>('W');
-  const [startSchedule, setStartSchedule] = useState('');
+  const [startSchedule, setStartSchedule] = useState(() =>
+    toDatetimeLocalInTimezone(midnightInTimezone(timezone), timezone),
+  );
   const [duration, setDuration] = useState('');
   const [validFrom, setValidFrom] = useState('');
   const [validTo, setValidTo] = useState('');
@@ -190,9 +196,14 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div
+              className={`grid grid-cols-1 gap-4 ${profileKind === 'Recurring' ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}
+            >
               <div className="space-y-2">
-                <Label htmlFor="sc-purpose">{t('smartCharging.profilePurpose')}</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="sc-purpose">{t('smartCharging.profilePurpose')}</Label>
+                  <InfoTooltip content={t('smartCharging.tooltips.profilePurpose')} />
+                </div>
                 <Select
                   id="sc-purpose"
                   value={profilePurpose}
@@ -212,7 +223,10 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="sc-kind">{t('smartCharging.profileKind')}</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="sc-kind">{t('smartCharging.profileKind')}</Label>
+                  <InfoTooltip content={t('smartCharging.tooltips.profileKind')} />
+                </div>
                 <Select
                   id="sc-kind"
                   value={profileKind}
@@ -224,27 +238,33 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
                   <option value="Recurring">{t('smartCharging.kinds.Recurring')}</option>
                 </Select>
               </div>
-            </div>
 
-            {profileKind === 'Recurring' && (
-              <div className="space-y-2">
-                <Label htmlFor="sc-recurrency">{t('smartCharging.recurrencyKind')}</Label>
-                <Select
-                  id="sc-recurrency"
-                  value={recurrencyKind}
-                  onChange={(e) => {
-                    setRecurrencyKind(e.target.value);
-                  }}
-                >
-                  <option value="Daily">{t('smartCharging.recurrence.Daily')}</option>
-                  <option value="Weekly">{t('smartCharging.recurrence.Weekly')}</option>
-                </Select>
-              </div>
-            )}
+              {profileKind === 'Recurring' && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="sc-recurrency">{t('smartCharging.recurrencyKind')}</Label>
+                    <InfoTooltip content={t('smartCharging.tooltips.recurrencyKind')} />
+                  </div>
+                  <Select
+                    id="sc-recurrency"
+                    value={recurrencyKind}
+                    onChange={(e) => {
+                      setRecurrencyKind(e.target.value);
+                    }}
+                  >
+                    <option value="Daily">{t('smartCharging.recurrence.Daily')}</option>
+                    <option value="Weekly">{t('smartCharging.recurrence.Weekly')}</option>
+                  </Select>
+                </div>
+              )}
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="sc-profile-id">{t('smartCharging.profileId')}</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="sc-profile-id">{t('smartCharging.profileId')}</Label>
+                  <InfoTooltip content={t('smartCharging.tooltips.profileId')} />
+                </div>
                 <Input
                   id="sc-profile-id"
                   type="number"
@@ -256,7 +276,10 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="sc-stack-level">{t('smartCharging.stackLevel')}</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="sc-stack-level">{t('smartCharging.stackLevel')}</Label>
+                  <InfoTooltip content={t('smartCharging.tooltips.stackLevel')} />
+                </div>
                 <Input
                   id="sc-stack-level"
                   type="number"
@@ -268,7 +291,10 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="sc-evse-id">{t('smartCharging.evseId')}</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="sc-evse-id">{t('smartCharging.evseId')}</Label>
+                  <InfoTooltip content={t('smartCharging.tooltips.evseId')} />
+                </div>
                 <Input
                   id="sc-evse-id"
                   type="number"
@@ -294,7 +320,7 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="sc-start-schedule">{t('smartCharging.startSchedule')}</Label>
                 <Input
@@ -332,27 +358,27 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
                   }}
                 />
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="sc-duration">{t('smartCharging.durationSeconds')}</Label>
-              <Input
-                id="sc-duration"
-                type="number"
-                min={0}
-                value={duration}
-                placeholder="86400"
-                onChange={(e) => {
-                  setDuration(e.target.value);
-                }}
-                className="w-48"
-              />
+              <div className="space-y-2">
+                <Label htmlFor="sc-duration">{t('smartCharging.durationSeconds')}</Label>
+                <Input
+                  id="sc-duration"
+                  type="number"
+                  min={0}
+                  value={duration}
+                  placeholder="86400"
+                  onChange={(e) => {
+                    setDuration(e.target.value);
+                  }}
+                />
+              </div>
             </div>
 
             <TimeSlotEditor
               periods={schedulePeriods}
               onChange={setSchedulePeriods}
               rateUnit={chargingRateUnit}
+              startSchedule={startSchedule ? new Date(startSchedule).toISOString() : null}
+              timezone={timezone}
             />
 
             <div className="space-y-2 pt-2">
@@ -415,7 +441,14 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
               </div>
             </div>
 
-            <div className="flex justify-end gap-2">
+            <div className="flex items-center justify-end gap-3">
+              {createMutation.isError && (
+                <p className="text-sm text-destructive">
+                  {getApiErrorCode(createMutation.error) === 'PROFILE_ID_IN_USE'
+                    ? t('smartCharging.errors.profileIdInUse')
+                    : (getApiErrorMessage(createMutation.error) ?? t('common.error'))}
+                </p>
+              )}
               <CancelButton
                 onClick={() => {
                   void navigate('/smart-charging');

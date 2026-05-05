@@ -8,7 +8,9 @@
     "saved": "已保存",
     "reset": "重置",
     "success": "成功",
+    "copy": "复制",
     "copied": "已复制!",
+    "view": "查看",
     "cancel": "取消",
     "create": "创建",
     "creating": "创建中...",
@@ -672,6 +674,10 @@
     "firmwareHistory": "固件历史",
     "noFirmwareUpdates": "没有记录的固件更新",
     "chargingProfiles": "充电配置",
+    "chargingProfileDetails": "充电配置详情",
+    "compositeTime": "时间",
+    "viewRaw": "查看原始响应",
+    "noScheduleAnchor": "站点未返回计划锚点，仅显示偏移量。",
     "noChargingProfiles": "没有充电配置",
     "refreshProfiles": "从站点刷新",
     "pushChargingProfile": "推送充电配置",
@@ -2203,6 +2209,7 @@
   "smartCharging": {
     "title": "智能充电",
     "subtitle": "充电配置模板",
+    "template": "模板",
     "templates": "充电配置模板",
     "createTemplate": "创建",
     "noTemplates": "无充电配置模板",
@@ -2224,7 +2231,14 @@
     "targetFilter": "目标过滤器",
     "push": "推送到站点",
     "pushing": "推送中...",
+    "clearFromStations": "从站点清除",
+    "confirmClearFromStations": "从所有匹配站点清除该配置？",
+    "confirmClearFromStationsDescription": "将向匹配该模板筛选条件的所有在线站点发送 ClearChargingProfile。具有相同用途、堆叠级别和 EVSE 的现有配置将被移除。",
+    "operation": "操作",
+    "opSet": "应用",
+    "opClear": "清除",
     "pushHistory": "推送历史",
+    "rawProfile": "原始充电配置文件 (OCPP)",
     "noPushes": "暂无推送记录",
     "matchingStations": "匹配的站点",
     "noMatchingStations": "无匹配的在线站点",
@@ -2258,6 +2272,17 @@
     "recurrence": {
       "Daily": "每日",
       "Weekly": "每周"
+    },
+    "tooltips": {
+      "profileId": "每个站点上的 OCPP 配置文件唯一标识。使用相同 id 推送将替换该站点上的现有配置。模板间必须唯一。",
+      "stackLevel": "多个配置同时生效时，堆叠级别高的优先。一般保持为 0。",
+      "evseId": "0 表示整个站点。非零值指向特定 EVSE 端口。",
+      "profilePurpose": "ChargingStationMaxProfile 限制站点总功率。TxDefaultProfile 应用于所有会话。PriorityCharging 与 LocalGeneration 仅限 OCPP 2.1。",
+      "profileKind": "Absolute 为基于起始时间的一次性计划。Recurring 按所选频率重复。",
+      "recurrencyKind": "Daily 每 24 小时重复。Weekly 每 7 天重复。"
+    },
+    "errors": {
+      "profileIdInUse": "配置文件 ID 已被其他模板使用，请选择不同的值。"
     }
   },
   "configTemplates": {

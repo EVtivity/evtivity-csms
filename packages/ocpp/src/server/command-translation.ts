@@ -60,8 +60,19 @@ function mapSetChargingProfile16(payload: Record<string, unknown>): Record<strin
 }
 
 function mapClearChargingProfile16(payload: Record<string, unknown>): Record<string, unknown> {
-  const { evseId, ...rest } = payload;
-  return { ...rest, connectorId: evseId };
+  // OCPP 2.1 nests filter fields under `chargingProfileCriteria` and uses
+  // `chargingProfileId` for the per-profile id. OCPP 1.6 has all fields at the
+  // top level, calls the id field `id`, and uses `connectorId` instead of
+  // `evseId`. The 1.6 schema is `additionalProperties: false`, so any 2.1
+  // field name leaking through becomes a FormationViolation.
+  const { chargingProfileId, chargingProfileCriteria, ...rest } = payload;
+  const criteria = (chargingProfileCriteria as Record<string, unknown> | undefined) ?? rest;
+  const { evseId, customData: _customData, ...flat } = criteria;
+  void _customData;
+  const result: Record<string, unknown> = { ...flat };
+  if (chargingProfileId != null) result.id = chargingProfileId;
+  if (evseId != null) result.connectorId = evseId;
+  return result;
 }
 
 function mapGetCompositeSchedule16(payload: Record<string, unknown>): Record<string, unknown> {

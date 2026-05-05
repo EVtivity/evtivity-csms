@@ -104,7 +104,7 @@ export async function reportSchedulerHandler(log: Logger): Promise<void> {
             const storedBody = wrappedHtml ?? rendered.body;
             await client`
               INSERT INTO notifications (channel, recipient, subject, body, status, event_type, sent_at, metadata)
-              VALUES ('email', ${recipientEmail}, ${rendered.subject}, ${storedBody}, ${ok ? 'sent' : 'failed'}, 'report.Scheduled', NOW(), ${JSON.stringify({ scheduleId: schedule.id })})
+              VALUES ('email', ${recipientEmail}, ${rendered.subject}, ${storedBody}, ${ok ? 'sent' : 'failed'}, 'report.Scheduled', NOW(), ${client.json({ scheduleId: schedule.id })})
             `;
           }
         }

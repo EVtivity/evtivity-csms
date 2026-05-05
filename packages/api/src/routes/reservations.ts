@@ -368,8 +368,8 @@ export function reservationRoutes(app: FastifyInstance): void {
               sql`${ocppMessageLogs.action} = 'CancelReservation'`,
             ),
             or(
-              sql`(${ocppMessageLogs.payload} #>> '{}')::jsonb @> ${JSON.stringify({ id: reservation.reservationId })}::jsonb`,
-              sql`(${ocppMessageLogs.payload} #>> '{}')::jsonb @> ${JSON.stringify({ reservationId: reservation.reservationId })}::jsonb`,
+              sql`(${ocppMessageLogs.payload} #>> '{}')::jsonb @> jsonb_build_object('id', ${reservation.reservationId}::int)`,
+              sql`(${ocppMessageLogs.payload} #>> '{}')::jsonb @> jsonb_build_object('reservationId', ${reservation.reservationId}::int)`,
             ),
           ),
         );

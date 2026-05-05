@@ -3194,7 +3194,7 @@ export class StationSimulator {
           const id = 'ccp_' + randomUUID().replace(/-/g, '').slice(0, 12);
           void this.sql`
             INSERT INTO css_charging_profiles (id, css_station_id, profile_id, evse_id, profile_data)
-            VALUES (${id}, ${this.config.id}, ${profileId}, ${evseIdForProfile}, ${JSON.stringify(profile)})
+            VALUES (${id}, ${this.config.id}, ${profileId}, ${evseIdForProfile}, ${this.sql.json(profile as Parameters<postgres.Sql['json']>[0])})
             ON CONFLICT (css_station_id, profile_id) DO UPDATE
             SET evse_id = EXCLUDED.evse_id, profile_data = EXCLUDED.profile_data
           `.catch(() => {});
@@ -4278,7 +4278,7 @@ export class StationSimulator {
         const displayMsgRowId = 'cdm_' + randomUUID().replace(/-/g, '').slice(0, 12);
         void this.sql`
           INSERT INTO css_display_messages (id, css_station_id, message_id, message_data)
-          VALUES (${displayMsgRowId}, ${this.config.id}, ${msgId}, ${JSON.stringify(msgInfo)})
+          VALUES (${displayMsgRowId}, ${this.config.id}, ${msgId}, ${this.sql.json(msgInfo as Parameters<postgres.Sql['json']>[0])})
           ON CONFLICT (css_station_id, message_id) DO UPDATE
           SET message_data = EXCLUDED.message_data
         `.catch(() => {});

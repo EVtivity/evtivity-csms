@@ -178,6 +178,6 @@ export async function computeAndSendChargingProfile(
   // 6. Record computed schedule
   await sql`
     INSERT INTO ev_charging_schedules (station_id, evse_id, charging_schedule)
-    VALUES (${stationUuid}, ${evseId}, ${JSON.stringify(profile.chargingSchedule)}::jsonb)
+    VALUES (${stationUuid}, ${evseId}, ${sql.json(profile.chargingSchedule as unknown as Parameters<typeof sql.json>[0])})
   `;
 }

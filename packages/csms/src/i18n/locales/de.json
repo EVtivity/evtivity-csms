@@ -8,7 +8,9 @@
     "saved": "Gespeichert",
     "reset": "Zurücksetzen",
     "success": "Erfolg",
+    "copy": "Kopieren",
     "copied": "Kopiert!",
+    "view": "Anzeigen",
     "cancel": "Abbrechen",
     "create": "Erstellen",
     "creating": "Wird erstellt...",
@@ -658,6 +660,10 @@
     "firmwareHistory": "Firmware-Historie",
     "noFirmwareUpdates": "Keine Firmware-Updates aufgezeichnet",
     "chargingProfiles": "Ladeprofile",
+    "chargingProfileDetails": "Ladeprofil-Details",
+    "compositeTime": "Zeit",
+    "viewRaw": "Rohantwort anzeigen",
+    "noScheduleAnchor": "Station hat keinen Zeitplan-Anker gemeldet; nur Offsets werden angezeigt.",
     "noChargingProfiles": "Keine Ladeprofile",
     "refreshProfiles": "Von Station aktualisieren",
     "pushChargingProfile": "Ladeprofil übertragen",
@@ -2178,6 +2184,7 @@
   "smartCharging": {
     "title": "Smart Charging",
     "subtitle": "Ladeprofilvorlage",
+    "template": "Vorlage",
     "templates": "Ladeprofilvorlagen",
     "createTemplate": "Erstellen",
     "noTemplates": "Keine Ladeprofilvorlagen",
@@ -2199,7 +2206,14 @@
     "targetFilter": "Zielfilter",
     "push": "An Stationen übertragen",
     "pushing": "Wird übertragen...",
+    "clearFromStations": "Von Stationen entfernen",
+    "confirmClearFromStations": "Profil von allen passenden Stationen entfernen?",
+    "confirmClearFromStationsDescription": "Sendet ClearChargingProfile an jede Online-Station, die zum Filter dieser Vorlage passt. Vorhandene Profile mit demselben Zweck, Stack-Level und EVSE werden entfernt.",
+    "operation": "Vorgang",
+    "opSet": "Anwenden",
+    "opClear": "Entfernen",
     "pushHistory": "Übertragungsverlauf",
+    "rawProfile": "Rohes Ladeprofil (OCPP)",
     "noPushes": "Keine Übertragungen aufgezeichnet",
     "matchingStations": "Passende Stationen",
     "noMatchingStations": "Keine passenden Online-Stationen",
@@ -2233,6 +2247,17 @@
     "recurrence": {
       "Daily": "Täglich",
       "Weekly": "Wöchentlich"
+    },
+    "tooltips": {
+      "profileId": "Eindeutige OCPP-Profilkennung pro Station. Eine erneute Übertragung mit derselben ID ersetzt das vorhandene Profil. Muss über alle Vorlagen hinweg eindeutig sein.",
+      "stackLevel": "Bei zeitgleich aktiven Profilen gewinnt das höhere Stack-Level. Standardmäßig 0 lassen.",
+      "evseId": "0 gilt für die gesamte Station. Ein anderer Wert adressiert einen bestimmten EVSE-Port.",
+      "profilePurpose": "ChargingStationMaxProfile begrenzt die Gesamtleistung. TxDefaultProfile gilt für alle Sitzungen. PriorityCharging und LocalGeneration sind nur in OCPP 2.1 verfügbar.",
+      "profileKind": "Absolute ist ein einmaliger Zeitplan ab Start Schedule. Recurring wiederholt sich im gewählten Rhythmus.",
+      "recurrencyKind": "Daily wiederholt sich alle 24 Stunden. Weekly alle 7 Tage."
+    },
+    "errors": {
+      "profileIdInUse": "Diese Profil-ID wird bereits von einer anderen Vorlage verwendet. Bitte einen anderen Wert wählen."
     }
   },
   "configTemplates": {

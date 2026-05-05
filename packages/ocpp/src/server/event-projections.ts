@@ -3,6 +3,12 @@
 
 import postgres from 'postgres';
 import type { EventBus, DomainEvent, PubSubClient, ConnectionRegistry } from '@evtivity/lib';
+
+// postgres-js `sql.json` takes a strict JSONValue (objects whose values are JSONValue,
+// not `unknown`). We hand it OCPP payloads typed loosely as Record<string, unknown>;
+// the values are always JSON-serializable at runtime, so we widen via this helper.
+type JSONValue = Parameters<postgres.Sql['json']>[0];
+const asJson = (v: unknown): JSONValue => v as JSONValue;
 import { config } from '../lib/config.js';
 import {
   isRoamingEnabled,
@@ -1955,7 +1961,7 @@ export function registerProjections(
             ${phase},
             ${location},
             ${context},
-            ${signedMeterValue != null ? JSON.stringify(signedMeterValue) : null}::jsonb,
+            ${signedMeterValue != null ? sql.json(asJson(signedMeterValue)) : null},
             ${source}
           WHERE EXISTS (SELECT 1 FROM charging_stations WHERE id = ${stationUuid})
         `;
@@ -1979,7 +1985,7 @@ export function registerProjections(
               ${phase},
               ${location},
               ${context},
-              ${signedMeterValue != null ? JSON.stringify(signedMeterValue) : null}::jsonb,
+              ${signedMeterValue != null ? sql.json(asJson(signedMeterValue)) : null},
               ${source}
             )
           `;
@@ -2299,27 +2305,27 @@ export function registerProjections(
 
     // Persist to firmware_updates table
     const fwRequestId = (payload.requestId as number | undefined) ?? null;
-    const fwStatusInfo = payload.statusInfo != null ? JSON.stringify(payload.statusInfo) : null;
+    const fwStatusInfo = payload.statusInfo != null ? sql.json(asJson(payload.statusInfo)) : null;
 
     if (fwRequestId != null) {
       // 2.1 path: update by station + requestId
       const updated = await sql`
         UPDATE firmware_updates
-        SET status = ${status}, status_info = ${fwStatusInfo}::jsonb, last_status_at = now(), updated_at = now()
+        SET status = ${status}, status_info = ${fwStatusInfo}, last_status_at = now(), updated_at = now()
         WHERE station_id = ${stationUuid} AND request_id = ${fwRequestId}
       `;
       if (updated.count === 0) {
         // No existing row (firmware started outside CSMS)
         await sql`
           INSERT INTO firmware_updates (station_id, request_id, firmware_url, status, status_info, initiated_at, last_status_at)
-          VALUES (${stationUuid}, ${fwRequestId}, 'unknown', ${status}, ${fwStatusInfo}::jsonb, now(), now())
+          VALUES (${stationUuid}, ${fwRequestId}, 'unknown', ${status}, ${fwStatusInfo}, now(), now())
         `;
       }
     } else {
       // 1.6 path: no requestId, update most recent non-terminal row for this station
       const updated = await sql`
         UPDATE firmware_updates
-        SET status = ${status}, status_info = ${fwStatusInfo}::jsonb, last_status_at = now(), updated_at = now()
+        SET status = ${status}, status_info = ${fwStatusInfo}, last_status_at = now(), updated_at = now()
         WHERE id = (
           SELECT id FROM firmware_updates
           WHERE station_id = ${stationUuid}
@@ -2330,7 +2336,7 @@ export function registerProjections(
       if (updated.count === 0) {
         await sql`
           INSERT INTO firmware_updates (station_id, firmware_url, status, status_info, initiated_at, last_status_at)
-          VALUES (${stationUuid}, 'unknown', ${status}, ${fwStatusInfo}::jsonb, now(), now())
+          VALUES (${stationUuid}, 'unknown', ${status}, ${fwStatusInfo}, now(), now())
         `;
       }
     }
@@ -2383,7 +2389,7 @@ export function registerProjections(
     const eventName = 'security:' + String(payload.type);
     await sql`
       INSERT INTO connection_logs (station_id, event, metadata)
-      VALUES (${stationUuid}, ${eventName}, ${JSON.stringify(payload)})
+      VALUES (${stationUuid}, ${eventName}, ${sql.json(asJson(payload))})
     `;
 
     // Compute severity and persist to security_events table
@@ -3161,7 +3167,7 @@ export function registerProjections(
 
     const inserted = await sql`
       INSERT INTO ocpp_message_logs (station_id, direction, message_type, message_id, action, payload, error_code, error_description)
-      SELECT ${stationUuid}, ${direction}, ${messageType}, ${messageId}, ${action}, ${JSON.stringify(messagePayload ?? {})}, ${errorCode}, ${errorDescription}
+      SELECT ${stationUuid}, ${direction}, ${messageType}, ${messageId}, ${action}, ${sql.json(asJson(messagePayload ?? {}))}, ${errorCode}, ${errorDescription}
       WHERE EXISTS (SELECT 1 FROM charging_stations WHERE id = ${stationUuid})
     `;
     if (inserted.count === 0) {
@@ -3371,7 +3377,7 @@ export function registerProjections(
 
     const inserted = await sql`
       INSERT INTO station_events (station_id, generated_at, seq_no, tbc, event_data)
-      VALUES (${stationUuid}, ${generatedAt}, ${seqNo}, ${tbc}, ${JSON.stringify(eventData)}::jsonb)
+      VALUES (${stationUuid}, ${generatedAt}, ${seqNo}, ${tbc}, ${sql.json(asJson(eventData))})
       RETURNING id
     `;
     const stationEventId = inserted[0]?.id as number | undefined;
@@ -3431,7 +3437,7 @@ export function registerProjections(
 
     await sql`
       INSERT INTO monitoring_reports (station_id, request_id, seq_no, generated_at, tbc, monitor)
-      VALUES (${stationUuid}, ${requestId}, ${seqNo}, ${generatedAt}, ${tbc}, ${monitor != null ? JSON.stringify(monitor) : null}::jsonb)
+      VALUES (${stationUuid}, ${requestId}, ${seqNo}, ${generatedAt}, ${tbc}, ${monitor != null ? sql.json(asJson(monitor)) : null})
     `;
   });
 
@@ -3454,7 +3460,7 @@ export function registerProjections(
     `;
     await sql`
       INSERT INTO charging_profiles (station_id, source, evse_id, request_id, charging_limit_source, tbc, profile_data, reported_at)
-      VALUES (${stationUuid}, 'station_reported', ${evseId}, ${requestId}, ${chargingLimitSource}, ${tbc}, ${JSON.stringify(chargingProfile)}::jsonb, now())
+      VALUES (${stationUuid}, 'station_reported', ${evseId}, ${requestId}, ${chargingLimitSource}, ${tbc}, ${sql.json(asJson(chargingProfile))}, now())
     `;
   });
 
@@ -3528,25 +3534,25 @@ export function registerProjections(
     const payload = event.payload;
     const status = (payload.status as string | undefined) ?? '';
     const requestId = (payload.requestId as number | undefined) ?? null;
-    const statusInfo = payload.statusInfo != null ? JSON.stringify(payload.statusInfo) : null;
+    const statusInfo = payload.statusInfo != null ? sql.json(asJson(payload.statusInfo)) : null;
 
     if (requestId != null) {
       const updated = await sql`
         UPDATE log_uploads
-        SET status = ${status}, status_info = ${statusInfo}::jsonb, last_status_at = now(), updated_at = now()
+        SET status = ${status}, status_info = ${statusInfo}, last_status_at = now(), updated_at = now()
         WHERE station_id = ${stationUuid} AND request_id = ${requestId}
       `;
       if (updated.count === 0) {
         await sql`
           INSERT INTO log_uploads (station_id, request_id, status, status_info, last_status_at)
-          VALUES (${stationUuid}, ${requestId}, ${status}, ${statusInfo}::jsonb, now())
+          VALUES (${stationUuid}, ${requestId}, ${status}, ${statusInfo}, now())
         `;
       }
     } else {
       // No requestId: insert new row
       await sql`
         INSERT INTO log_uploads (station_id, status, status_info, last_status_at)
-        VALUES (${stationUuid}, ${status}, ${statusInfo}::jsonb, now())
+        VALUES (${stationUuid}, ${status}, ${statusInfo}, now())
       `;
     }
   });
@@ -3594,13 +3600,36 @@ export function registerProjections(
     const stationUuid = await resolveStationUuid(event.aggregateId);
     if (stationUuid == null) return;
 
+    // The command listener publishes this event with the station's response
+    // included. Only persist (and dedupe) when the station Accepted the profile;
+    // otherwise the on-station state is unchanged and we'd be lying about it.
+    const response = event.payload.response as { status?: string } | undefined;
+    if (response?.status !== 'Accepted') return;
+
     const request = event.payload.request as Record<string, unknown>;
     const evseId = (request.evseId as number | undefined) ?? null;
-    const csProfile = request.csChargingProfiles ?? request.chargingProfile ?? null;
+    const csProfile = (request.csChargingProfiles ?? request.chargingProfile ?? null) as Record<
+      string,
+      unknown
+    > | null;
+
+    // OCPP profile.id is the per-station unique key. Re-pushing a profile with
+    // the same id replaces the on-station profile, so mirror that semantics in
+    // the DB by deleting any prior csms_set row with the same id first.
+    const profileIdValue = csProfile != null ? (csProfile['id'] as number | undefined) : undefined;
+    if (profileIdValue != null) {
+      await sql`
+        DELETE FROM charging_profiles
+        WHERE station_id = ${stationUuid}
+          AND source = 'csms_set'
+          AND profile_data ->> 'id' ~ '^-?[0-9]+$'
+          AND (profile_data->>'id')::int = ${profileIdValue}
+      `;
+    }
 
     await sql`
       INSERT INTO charging_profiles (station_id, source, evse_id, profile_data, sent_at)
-      VALUES (${stationUuid}, 'csms_set', ${evseId}, ${JSON.stringify(csProfile)}::jsonb, now())
+      VALUES (${stationUuid}, 'csms_set', ${evseId}, ${sql.json(asJson(csProfile))}, now())
     `;
   });
 
@@ -3742,7 +3771,7 @@ export function registerProjections(
 
     await sql`
       INSERT INTO ev_charging_needs (station_id, evse_id, charging_needs, departure_time, requested_energy_transfer, control_mode, max_schedule_tuples)
-      VALUES (${stationUuid}, ${evseId}, ${JSON.stringify(chargingNeeds)}::jsonb, ${departureTime}, ${requestedEnergyTransfer}, ${controlMode}, ${maxScheduleTuples})
+      VALUES (${stationUuid}, ${evseId}, ${sql.json(asJson(chargingNeeds))}, ${departureTime}, ${requestedEnergyTransfer}, ${controlMode}, ${maxScheduleTuples})
       ON CONFLICT (station_id, evse_id)
       DO UPDATE SET charging_needs = EXCLUDED.charging_needs, departure_time = EXCLUDED.departure_time,
         requested_energy_transfer = EXCLUDED.requested_energy_transfer, control_mode = EXCLUDED.control_mode,
@@ -3779,7 +3808,7 @@ export function registerProjections(
 
     await sql`
       INSERT INTO ev_charging_schedules (station_id, evse_id, time_base, charging_schedule)
-      VALUES (${stationUuid}, ${evseId}, ${timeBase}, ${JSON.stringify(chargingSchedule)}::jsonb)
+      VALUES (${stationUuid}, ${evseId}, ${timeBase}, ${sql.json(asJson(chargingSchedule))})
     `;
   });
 
@@ -3799,7 +3828,7 @@ export function registerProjections(
       INSERT INTO offline_command_queue (station_id, command_id, action, payload, version, expires_at)
       VALUES (
         ${stationId}, ${commandId}, ${action},
-        ${JSON.stringify(cmdPayload)}::jsonb, ${version},
+        ${sql.json(asJson(cmdPayload))}, ${version},
         now() + ${String(ttlHours) + ' hours'}::interval
       )
       ON CONFLICT (command_id) DO NOTHING
@@ -3834,7 +3863,7 @@ export function registerProjections(
 
     await sql`
       INSERT INTO battery_swap_events (station_id, event_type, transaction_id, id_token)
-      VALUES (${stationUuid}, ${eventType}, ${transactionId}, ${idToken != null ? JSON.stringify(idToken) : null}::jsonb)
+      VALUES (${stationUuid}, ${eventType}, ${transactionId}, ${idToken != null ? sql.json(asJson(idToken)) : null})
     `;
   });
 
@@ -3848,7 +3877,7 @@ export function registerProjections(
 
     await sql`
       INSERT INTO periodic_event_streams (station_id, stream_id, data)
-      VALUES (${stationUuid}, ${streamId}, ${JSON.stringify(data)}::jsonb)
+      VALUES (${stationUuid}, ${streamId}, ${sql.json(asJson(data))})
     `;
   });
 
@@ -3904,7 +3933,7 @@ export function registerProjections(
 
     await sql`
       INSERT INTO allowed_energy_transfer_events (station_id, transaction_id, allowed_energy_transfer)
-      VALUES (${stationUuid}, ${transactionId}, ${allowedEnergyTransfer != null ? JSON.stringify(allowedEnergyTransfer) : null}::jsonb)
+      VALUES (${stationUuid}, ${transactionId}, ${allowedEnergyTransfer != null ? sql.json(asJson(allowedEnergyTransfer)) : null})
     `;
   });
 
@@ -3919,7 +3948,7 @@ export function registerProjections(
 
     await sql`
       INSERT INTO der_alarm_events (station_id, control_type, timestamp, grid_event_fault)
-      VALUES (${stationUuid}, ${controlType}, ${ts}, ${gridEventFault != null ? JSON.stringify(gridEventFault) : null}::jsonb)
+      VALUES (${stationUuid}, ${controlType}, ${ts}, ${gridEventFault != null ? sql.json(asJson(gridEventFault)) : null})
     `;
   });
 
@@ -3950,7 +3979,7 @@ export function registerProjections(
 
     await sql`
       INSERT INTO der_control_reports (station_id, request_id, seq_no, tbc, der_control)
-      VALUES (${stationUuid}, ${requestId}, ${seqNo}, ${tbc}, ${derControl != null ? JSON.stringify(derControl) : null}::jsonb)
+      VALUES (${stationUuid}, ${requestId}, ${seqNo}, ${tbc}, ${derControl != null ? sql.json(asJson(derControl)) : null})
     `;
   });
 

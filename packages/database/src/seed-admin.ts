@@ -99,7 +99,7 @@ try {
   } else {
     const created = await sql<{ id: string }[]>`
       INSERT INTO roles (id, name, description, permissions)
-      VALUES (${rid('rol')}, 'admin', 'Full system access', ${JSON.stringify(['*'])}::jsonb)
+      VALUES (${rid('rol')}, 'admin', 'Full system access', ${sql.json(['*'])})
       ON CONFLICT (name) DO NOTHING
       RETURNING id
     `;

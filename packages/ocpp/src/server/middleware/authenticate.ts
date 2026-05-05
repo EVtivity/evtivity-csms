@@ -235,7 +235,7 @@ async function logAuthEvent(
   try {
     await sql`
       INSERT INTO connection_logs (station_id, event, remote_address, metadata)
-      VALUES (${stationDbId}, ${event}, ${remoteAddress}, ${JSON.stringify(metadata)})
+      VALUES (${stationDbId}, ${event}, ${remoteAddress}, ${sql.json(metadata as Parameters<postgres.Sql['json']>[0])})
     `;
   } catch {
     // Best-effort logging; do not fail the auth flow

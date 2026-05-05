@@ -14,6 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { offsetToWallClockHHMM, wallClockHHMMToOffset } from '@/lib/schedule-anchor';
 
 export interface SchedulePeriod {
   startPeriod: number;
@@ -25,19 +26,11 @@ interface TimeSlotEditorProps {
   periods: SchedulePeriod[];
   onChange: (periods: SchedulePeriod[]) => void;
   rateUnit: 'W' | 'A';
-}
-
-function secondsToTimeString(seconds: number): string {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-}
-
-function timeStringToSeconds(time: string): number {
-  const parts = time.split(':');
-  const hours = parseInt(parts[0] ?? '0', 10);
-  const minutes = parseInt(parts[1] ?? '0', 10);
-  return hours * 3600 + minutes * 60;
+  // When provided, time pickers show wall-clock time in this timezone using
+  // startSchedule + offset. Otherwise the offset is interpreted as a raw
+  // time-of-day. Targets Daily Recurring schedules.
+  startSchedule?: string | null;
+  timezone?: string;
 }
 
 function sortPeriods(periods: SchedulePeriod[]): SchedulePeriod[] {
@@ -48,8 +41,12 @@ export function TimeSlotEditor({
   periods,
   onChange,
   rateUnit,
+  startSchedule = null,
+  timezone,
 }: TimeSlotEditorProps): React.JSX.Element {
   const { t } = useTranslation();
+  const anchor = timezone != null ? startSchedule : null;
+  const tz = timezone ?? 'UTC';
 
   function addPeriod(): void {
     const lastPeriod = periods[periods.length - 1];
@@ -68,7 +65,7 @@ export function TimeSlotEditor({
     if (existing == null) return;
 
     if (field === 'startPeriod') {
-      existing.startPeriod = timeStringToSeconds(value);
+      existing.startPeriod = wallClockHHMMToOffset(anchor, value, tz);
     } else if (field === 'limit') {
       existing.limit = parseFloat(value) || 0;
     } else {
@@ -121,7 +118,7 @@ export function TimeSlotEditor({
                     <TableCell>
                       <Input
                         type="time"
-                        value={secondsToTimeString(period.startPeriod)}
+                        value={offsetToWallClockHHMM(anchor, period.startPeriod, tz)}
                         onChange={(e) => {
                           updatePeriod(i, 'startPeriod', e.target.value);
                         }}

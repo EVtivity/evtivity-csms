@@ -3463,10 +3463,23 @@ export function stationRoutes(app: FastifyInstance): void {
       const limit = query.limit;
       const offset = (page - 1) * limit;
 
-      const [data, countResult] = await Promise.all([
+      // Soft-link CSMS-pushed profiles back to their template by matching the
+      // OCPP profile.id stored in profile_data against chargingProfileTemplates.profileId.
+      // Station-reported profiles can carry a non-numeric `id` (or omit it entirely),
+      // so guard the ::int cast with a regex predicate to avoid a 500 on malformed
+      // rows. Only attempt the join for csms_set rows where the projection writes
+      // a numeric id; null out template fields for everything else in JS.
+      const profileIdExpr = sql<number>`CASE WHEN ${chargingProfiles.profileData} ->> 'id' ~ '^-?[0-9]+$' THEN (${chargingProfiles.profileData} ->> 'id')::int ELSE NULL END`;
+
+      const [rows, countResult] = await Promise.all([
         db
-          .select()
+          .select({
+            profile: chargingProfiles,
+            templateId: chargingProfileTemplates.id,
+            templateName: chargingProfileTemplates.name,
+          })
           .from(chargingProfiles)
+          .leftJoin(chargingProfileTemplates, eq(chargingProfileTemplates.profileId, profileIdExpr))
           .where(where)
           .orderBy(desc(chargingProfiles.createdAt))
           .limit(limit)
@@ -3474,8 +3487,14 @@ export function stationRoutes(app: FastifyInstance): void {
         db.select({ total: count() }).from(chargingProfiles).where(where),
       ]);
 
+      const data = rows.map((row) => ({
+        ...row.profile,
+        templateId: row.profile.source === 'csms_set' ? row.templateId : null,
+        templateName: row.profile.source === 'csms_set' ? row.templateName : null,
+      }));
+
       return { data, total: countResult[0]?.total ?? 0 } satisfies PaginatedResponse<
-        typeof data extends (infer U)[] ? U : never
+        (typeof data)[number]
       >;
     },
   );
@@ -3692,16 +3711,57 @@ export function stationRoutes(app: FastifyInstance): void {
       }
 
       const version = station.ocppProtocol === 'ocpp1.6' ? '1.6' : '2.1';
+
+      // Reshape API body into OCPP 2.1 ClearChargingProfileRequest. Criteria
+      // (purpose/stackLevel/evseId) live under `chargingProfileCriteria`;
+      // `chargingProfileId` stays at the top level. Empty criteria object is
+      // omitted so "clear all" sends `{}` rather than an empty filter.
+      const criteria: Record<string, unknown> = {};
+      if (body.chargingProfilePurpose != null)
+        criteria.chargingProfilePurpose = body.chargingProfilePurpose;
+      if (body.stackLevel != null) criteria.stackLevel = body.stackLevel;
+      if (body.evseId != null) criteria.evseId = body.evseId;
+      const ocppPayload: Record<string, unknown> = {};
+      if (body.chargingProfileId != null) ocppPayload.chargingProfileId = body.chargingProfileId;
+      if (Object.keys(criteria).length > 0) ocppPayload.chargingProfileCriteria = criteria;
+
       const result = await sendOcppCommandAndWait(
         station.stationId,
         'ClearChargingProfile',
-        body,
+        ocppPayload,
         version,
       );
 
       if (result.error != null) {
         await reply.status(502).send({ error: result.error, code: 'OCPP_COMMAND_FAILED' });
         return;
+      }
+
+      // Mirror the on-station deletion in the CSMS DB. The station's
+      // ClearChargingProfile is idempotent — Accepted means the matching
+      // profiles are gone (or no match found), so the prior rows in
+      // `charging_profiles` no longer reflect on-station state. Match the
+      // same criteria the station used.
+      const response = result.response as { status?: string } | undefined;
+      if (response?.status === 'Accepted') {
+        const conditions = [eq(chargingProfiles.stationId, id)];
+        if (body.chargingProfileId != null) {
+          conditions.push(
+            sql`profile_data ->> 'id' ~ '^-?[0-9]+$' AND (profile_data->>'id')::int = ${body.chargingProfileId}`,
+          );
+        }
+        if (body.chargingProfilePurpose != null) {
+          conditions.push(
+            sql`profile_data->>'chargingProfilePurpose' = ${body.chargingProfilePurpose}`,
+          );
+        }
+        if (body.stackLevel != null) {
+          conditions.push(sql`(profile_data->>'stackLevel')::int = ${body.stackLevel}`);
+        }
+        if (body.evseId != null) {
+          conditions.push(eq(chargingProfiles.evseId, body.evseId));
+        }
+        await db.delete(chargingProfiles).where(and(...conditions));
       }
 
       return result.response ?? { success: true };
@@ -3781,15 +3841,18 @@ export function stationRoutes(app: FastifyInstance): void {
 
       const version = station.ocppProtocol === 'ocpp1.6' ? '1.6' : '2.1';
 
-      // Best-effort clear existing profile with same purpose/stackLevel/evseId
+      // Best-effort clear existing profile with same purpose/stackLevel/evseId.
+      // OCPP 2.1 wants the criteria nested under `chargingProfileCriteria`.
       try {
         await sendOcppCommandAndWait(
           station.stationId,
           'ClearChargingProfile',
           {
-            chargingProfilePurpose: template.profilePurpose,
-            stackLevel: template.stackLevel,
-            evseId: template.evseId,
+            chargingProfileCriteria: {
+              chargingProfilePurpose: template.profilePurpose,
+              stackLevel: template.stackLevel,
+              evseId: template.evseId,
+            },
           },
           version,
         );

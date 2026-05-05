@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, count, isNotNull, asc, inArray } from 'drizzle-orm';
+import { eq, and, desc, count, isNotNull, asc, inArray, ne, max } from 'drizzle-orm';
 import {
   db,
   chargingProfileTemplates,
@@ -17,12 +17,25 @@ import { zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { errorResponse, paginatedResponse, itemResponse } from '../lib/response-schemas.js';
-import { processChargingProfilePush } from '../lib/charging-profile-push.js';
+import {
+  processChargingProfilePush,
+  processChargingProfileClear,
+} from '../lib/charging-profile-push.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 
 const templateItem = z.object({}).passthrough();
 const templateParams = z.object({ id: z.string().describe('Template ID') });
+
+// Postgres unique-violation (23505) on the profile_id constraint. Used as a
+// race-safe backstop for the JS-side pre-check on concurrent inserts.
+function isProfileIdUniqueViolation(err: unknown): boolean {
+  if (err == null || typeof err !== 'object') return false;
+  const e = err as { code?: string; constraint_name?: string; constraint?: string };
+  if (e.code !== '23505') return false;
+  const constraint = e.constraint_name ?? e.constraint ?? '';
+  return constraint === 'charging_profile_templates_profile_id_unique';
+}
 
 const targetFilterSchema = z
   .object({
@@ -206,7 +219,11 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         operationId: 'createChargingProfileTemplate',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createTemplateBody),
-        response: { 201: itemResponse(templateItem), 400: errorResponse },
+        response: {
+          201: itemResponse(templateItem),
+          400: errorResponse,
+          409: errorResponse,
+        },
       },
     },
     async (request, reply) => {
@@ -233,29 +250,58 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const [template] = await db
-        .insert(chargingProfileTemplates)
-        .values({
-          name: body.name,
-          description: body.description ?? null,
-          ocppVersion: body.ocppVersion,
-          profileId: body.profileId,
-          profilePurpose: body.profilePurpose,
-          profileKind: body.profileKind,
-          recurrencyKind: body.recurrencyKind ?? null,
-          stackLevel: body.stackLevel,
-          evseId: body.evseId,
-          chargingRateUnit: body.chargingRateUnit,
-          schedulePeriods: body.schedulePeriods,
-          startSchedule: body.startSchedule ? new Date(body.startSchedule) : null,
-          duration: body.duration ?? null,
-          validFrom: body.validFrom ? new Date(body.validFrom) : null,
-          validTo: body.validTo ? new Date(body.validTo) : null,
-          targetFilter: body.targetFilter ?? null,
-        })
-        .returning();
+      // OCPP profile id is the per-station unique identifier; reusing it across
+      // templates would have the second push silently overwrite the first on
+      // any shared station. The DB has a UNIQUE constraint on profile_id which
+      // is the source of truth under concurrency; we still pre-check for a fast
+      // 409 response and rely on the constraint to backstop races.
+      const existingByProfileId = await db
+        .select({ id: chargingProfileTemplates.id })
+        .from(chargingProfileTemplates)
+        .where(eq(chargingProfileTemplates.profileId, body.profileId))
+        .limit(1);
+      if (existingByProfileId[0] != null) {
+        await reply.status(409).send({
+          error: `profileId ${String(body.profileId)} is already used by another template`,
+          code: 'PROFILE_ID_IN_USE',
+        });
+        return;
+      }
 
-      return reply.status(201).send(template);
+      try {
+        const [template] = await db
+          .insert(chargingProfileTemplates)
+          .values({
+            name: body.name,
+            description: body.description ?? null,
+            ocppVersion: body.ocppVersion,
+            profileId: body.profileId,
+            profilePurpose: body.profilePurpose,
+            profileKind: body.profileKind,
+            recurrencyKind: body.recurrencyKind ?? null,
+            stackLevel: body.stackLevel,
+            evseId: body.evseId,
+            chargingRateUnit: body.chargingRateUnit,
+            schedulePeriods: body.schedulePeriods,
+            startSchedule: body.startSchedule ? new Date(body.startSchedule) : null,
+            duration: body.duration ?? null,
+            validFrom: body.validFrom ? new Date(body.validFrom) : null,
+            validTo: body.validTo ? new Date(body.validTo) : null,
+            targetFilter: body.targetFilter ?? null,
+          })
+          .returning();
+
+        return await reply.status(201).send(template);
+      } catch (err) {
+        if (isProfileIdUniqueViolation(err)) {
+          await reply.status(409).send({
+            error: `profileId ${String(body.profileId)} is already used by another template`,
+            code: 'PROFILE_ID_IN_USE',
+          });
+          return;
+        }
+        throw err;
+      }
     },
   );
 
@@ -271,7 +317,12 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(templateParams),
         body: zodSchema(updateTemplateBody),
-        response: { 200: itemResponse(templateItem), 400: errorResponse, 404: errorResponse },
+        response: {
+          200: itemResponse(templateItem),
+          400: errorResponse,
+          404: errorResponse,
+          409: errorResponse,
+        },
       },
     },
     async (request, reply) => {
@@ -299,6 +350,27 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Reject profileId collisions with other templates.
+      if (body.profileId !== undefined && body.profileId !== existing.profileId) {
+        const collision = await db
+          .select({ id: chargingProfileTemplates.id })
+          .from(chargingProfileTemplates)
+          .where(
+            and(
+              eq(chargingProfileTemplates.profileId, body.profileId),
+              ne(chargingProfileTemplates.id, id),
+            ),
+          )
+          .limit(1);
+        if (collision[0] != null) {
+          await reply.status(409).send({
+            error: `profileId ${String(body.profileId)} is already used by another template`,
+            code: 'PROFILE_ID_IN_USE',
+          });
+          return;
+        }
+      }
+
       // Build update object, converting datetime strings to Date objects
       const updateData: Record<string, unknown> = { updatedAt: new Date() };
       if (body.name !== undefined) updateData.name = body.name;
@@ -321,13 +393,24 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         updateData.validTo = body.validTo ? new Date(body.validTo) : null;
       if (body.targetFilter !== undefined) updateData.targetFilter = body.targetFilter;
 
-      const [updated] = await db
-        .update(chargingProfileTemplates)
-        .set(updateData)
-        .where(eq(chargingProfileTemplates.id, id))
-        .returning();
+      try {
+        const [updated] = await db
+          .update(chargingProfileTemplates)
+          .set(updateData)
+          .where(eq(chargingProfileTemplates.id, id))
+          .returning();
 
-      return updated;
+        return updated;
+      } catch (err) {
+        if (isProfileIdUniqueViolation(err)) {
+          await reply.status(409).send({
+            error: `profileId ${String(body.profileId)} is already used by another template`,
+            code: 'PROFILE_ID_IN_USE',
+          });
+          return;
+        }
+        throw err;
+      }
     },
   );
 
@@ -342,7 +425,11 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         operationId: 'duplicateChargingProfileTemplate',
         security: [{ bearerAuth: [] }],
         params: zodSchema(templateParams),
-        response: { 201: itemResponse(templateItem), 404: errorResponse },
+        response: {
+          201: itemResponse(templateItem),
+          404: errorResponse,
+          409: errorResponse,
+        },
       },
     },
     async (request, reply) => {
@@ -357,27 +444,54 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const [duplicate] = await db
-        .insert(chargingProfileTemplates)
-        .values({
-          name: `${original.name} (Copy)`,
-          description: original.description,
-          ocppVersion: original.ocppVersion,
-          profileId: original.profileId,
-          profilePurpose: original.profilePurpose,
-          profileKind: original.profileKind,
-          recurrencyKind: original.recurrencyKind,
-          stackLevel: original.stackLevel,
-          evseId: original.evseId,
-          chargingRateUnit: original.chargingRateUnit,
-          schedulePeriods: original.schedulePeriods,
-          startSchedule: original.startSchedule,
-          duration: original.duration,
-          validFrom: original.validFrom,
-          validTo: original.validTo,
-          targetFilter: original.targetFilter,
-        })
-        .returning();
+      // Allocate a fresh profileId so each duplicate is uniquely addressable
+      // when pushed to a station (OCPP profile.id is the per-station unique
+      // key). Concurrent duplicates can compute the same max+1, so retry on
+      // unique-violation, bumping until the insert succeeds. Bounded so a
+      // pathological state can't loop forever.
+      let nextProfileId: number;
+      let duplicate: typeof chargingProfileTemplates.$inferSelect | undefined;
+      const MAX_ALLOC_RETRIES = 10;
+      for (let attempt = 0; attempt < MAX_ALLOC_RETRIES; attempt++) {
+        const [maxRow] = await db
+          .select({ maxId: max(chargingProfileTemplates.profileId) })
+          .from(chargingProfileTemplates);
+        nextProfileId = (maxRow?.maxId ?? 0) + 1 + attempt;
+        try {
+          const [row] = await db
+            .insert(chargingProfileTemplates)
+            .values({
+              name: `${original.name} (Copy)`,
+              description: original.description,
+              ocppVersion: original.ocppVersion,
+              profileId: nextProfileId,
+              profilePurpose: original.profilePurpose,
+              profileKind: original.profileKind,
+              recurrencyKind: original.recurrencyKind,
+              stackLevel: original.stackLevel,
+              evseId: original.evseId,
+              chargingRateUnit: original.chargingRateUnit,
+              schedulePeriods: original.schedulePeriods,
+              startSchedule: original.startSchedule,
+              duration: original.duration,
+              validFrom: original.validFrom,
+              validTo: original.validTo,
+              targetFilter: original.targetFilter,
+            })
+            .returning();
+          duplicate = row;
+          break;
+        } catch (err) {
+          if (!isProfileIdUniqueViolation(err)) throw err;
+          // Lost the race; loop to recompute max and retry.
+        }
+      }
+      if (duplicate == null) {
+        await reply
+          .status(409)
+          .send({ error: 'Could not allocate a free profileId', code: 'PROFILE_ID_ALLOC_FAILED' });
+        return;
+      }
 
       return reply.status(201).send(duplicate);
     },
@@ -578,6 +692,100 @@ export function smartChargingRoutes(app: FastifyInstance): void {
 
       // Process in background
       void processChargingProfilePush(pushId, targetStations, template, ocppVersion);
+
+      return { success: true, pushId };
+    },
+  );
+
+  // Batch clear: send ClearChargingProfile to every station matching the
+  // template's targetFilter. Mirrors push: same target resolution, same
+  // tracking tables (rows tagged operation='clear').
+  app.post(
+    '/smart-charging/templates/:id/clear',
+    {
+      onRequest: [authorize('smartCharging:write')],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Clear charging profile from all matching stations',
+        operationId: 'clearChargingProfileTemplate',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(templateParams),
+        response: {
+          200: itemResponse(z.object({ success: z.boolean(), pushId: z.string() }).passthrough()),
+          404: errorResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof templateParams>;
+
+      const [template] = await db
+        .select()
+        .from(chargingProfileTemplates)
+        .where(eq(chargingProfileTemplates.id, id));
+      if (template == null) {
+        await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
+        return;
+      }
+
+      const ocppVersion = template.ocppVersion;
+      const expectedProtocol = `ocpp${ocppVersion}`;
+
+      const filter = template.targetFilter as Record<string, string> | null;
+      const conditions = [
+        eq(chargingStations.isOnline, true),
+        eq(chargingStations.ocppProtocol, expectedProtocol),
+      ];
+      if (filter?.siteId) conditions.push(eq(chargingStations.siteId, filter.siteId));
+      if (filter?.vendorId) conditions.push(eq(chargingStations.vendorId, filter.vendorId));
+      if (filter?.model) conditions.push(eq(chargingStations.model, filter.model));
+
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      if (accessibleSiteIds != null && accessibleSiteIds.length === 0) {
+        return { success: true, pushId: '' };
+      }
+      if (accessibleSiteIds != null)
+        conditions.push(inArray(chargingStations.siteId, accessibleSiteIds));
+
+      const targetStations = await db
+        .select({ id: chargingStations.id, stationId: chargingStations.stationId })
+        .from(chargingStations)
+        .where(and(...conditions));
+
+      if (targetStations.length === 0) {
+        return { success: true, pushId: '' };
+      }
+
+      const [push] = await db
+        .insert(chargingProfilePushes)
+        .values({
+          templateId: id,
+          operation: 'clear',
+          status: 'active',
+          stationCount: targetStations.length,
+        })
+        .returning();
+      const pushId = push?.id ?? '';
+
+      await db.insert(chargingProfilePushStations).values(
+        targetStations.map((s) => ({
+          pushId,
+          stationId: s.id,
+          status: 'pending' as const,
+        })),
+      );
+
+      void processChargingProfileClear(
+        pushId,
+        targetStations,
+        {
+          profilePurpose: template.profilePurpose,
+          stackLevel: template.stackLevel,
+          evseId: template.evseId,
+        },
+        ocppVersion,
+      );
 
       return { success: true, pushId };
     },

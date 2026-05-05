@@ -8,7 +8,9 @@
     "saved": "저장됨",
     "reset": "초기화",
     "success": "성공",
+    "copy": "복사",
     "copied": "복사됨!",
+    "view": "보기",
     "cancel": "취소",
     "create": "생성",
     "creating": "생성 중...",
@@ -672,6 +674,10 @@
     "firmwareHistory": "펌웨어 이력",
     "noFirmwareUpdates": "기록된 펌웨어 업데이트가 없습니다",
     "chargingProfiles": "충전 프로필",
+    "chargingProfileDetails": "충전 프로필 상세",
+    "compositeTime": "시간",
+    "viewRaw": "원시 응답 보기",
+    "noScheduleAnchor": "충전기가 일정 기준 시각을 반환하지 않았습니다. 오프셋만 표시됩니다.",
     "noChargingProfiles": "충전 프로필 없음",
     "refreshProfiles": "충전기에서 새로 고침",
     "pushChargingProfile": "충전 프로필 전달",
@@ -2192,6 +2198,7 @@
   "smartCharging": {
     "title": "스마트 충전",
     "subtitle": "충전 프로필 템플릿",
+    "template": "템플릿",
     "templates": "충전 프로필 템플릿",
     "createTemplate": "생성",
     "noTemplates": "충전 프로필 템플릿이 없습니다",
@@ -2213,7 +2220,14 @@
     "targetFilter": "대상 필터",
     "push": "충전기에 전달",
     "pushing": "전달 중...",
+    "clearFromStations": "충전기에서 삭제",
+    "confirmClearFromStations": "일치하는 모든 충전기에서 프로필을 삭제하시겠습니까?",
+    "confirmClearFromStationsDescription": "템플릿 필터와 일치하는 온라인 충전기에 ClearChargingProfile을 전송합니다. 동일한 용도, 스택 레벨, EVSE 의 기존 프로필이 제거됩니다.",
+    "operation": "작업",
+    "opSet": "적용",
+    "opClear": "삭제",
     "pushHistory": "전달 기록",
+    "rawProfile": "원시 충전 프로필 (OCPP)",
     "noPushes": "기록된 전달이 없습니다",
     "matchingStations": "일치하는 충전기",
     "noMatchingStations": "일치하는 온라인 충전기가 없습니다",
@@ -2247,6 +2261,17 @@
     "recurrence": {
       "Daily": "매일",
       "Weekly": "매주"
+    },
+    "tooltips": {
+      "profileId": "충전기마다 고유한 OCPP 프로필 식별자. 동일 id로 다시 보내면 기존 프로필을 덮어씁니다. 템플릿 간에 고유해야 합니다.",
+      "stackLevel": "동일 시간에 여러 프로필이 활성화될 때 더 높은 스택 레벨이 우선합니다. 일반적으로 0으로 둡니다.",
+      "evseId": "0은 전체 충전기. 다른 값은 특정 EVSE 포트를 대상으로 합니다.",
+      "profilePurpose": "ChargingStationMaxProfile은 전체 전력을 제한합니다. TxDefaultProfile은 모든 세션에 기본값을 적용합니다. PriorityCharging과 LocalGeneration은 OCPP 2.1 전용입니다.",
+      "profileKind": "Absolute는 Start Schedule을 기준으로 한 번 실행. Recurring은 선택한 주기로 반복합니다.",
+      "recurrencyKind": "Daily는 24시간마다 반복. Weekly는 7일마다 반복합니다."
+    },
+    "errors": {
+      "profileIdInUse": "프로필 ID가 이미 다른 템플릿에서 사용 중입니다. 다른 값을 선택하세요."
     }
   },
   "configTemplates": {

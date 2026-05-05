@@ -8,7 +8,9 @@
     "saved": "Saved",
     "reset": "Reset",
     "success": "Success",
+    "copy": "Copy",
     "copied": "Copied!",
+    "view": "View",
     "cancel": "Cancel",
     "create": "Create",
     "creating": "Creating...",
@@ -672,6 +674,10 @@
     "firmwareHistory": "Firmware History",
     "noFirmwareUpdates": "No firmware updates recorded",
     "chargingProfiles": "Charging Profiles",
+    "chargingProfileDetails": "Charging Profile Details",
+    "compositeTime": "Time",
+    "viewRaw": "View raw response",
+    "noScheduleAnchor": "Station did not return a schedule anchor; showing offsets only.",
     "noChargingProfiles": "No charging profiles",
     "refreshProfiles": "Refresh from Station",
     "pushChargingProfile": "Push Charging Profile",
@@ -2211,6 +2217,7 @@
   "smartCharging": {
     "title": "Smart Charging",
     "subtitle": "Charging Profile Template",
+    "template": "Template",
     "templates": "Charging Profile Templates",
     "createTemplate": "Create",
     "noTemplates": "No charging profile templates",
@@ -2232,7 +2239,14 @@
     "targetFilter": "Target Filter",
     "push": "Push to Stations",
     "pushing": "Pushing...",
+    "clearFromStations": "Clear from Stations",
+    "confirmClearFromStations": "Clear profile from all matching stations?",
+    "confirmClearFromStationsDescription": "This sends ClearChargingProfile to every online station that matches this template's target filter. Existing profiles with the same purpose, stack level, and EVSE will be removed.",
+    "operation": "Operation",
+    "opSet": "Set",
+    "opClear": "Clear",
     "pushHistory": "Push History",
+    "rawProfile": "Raw Charging Profile (OCPP)",
     "noPushes": "No pushes recorded",
     "matchingStations": "Matching Stations",
     "noMatchingStations": "No matching online stations",
@@ -2266,6 +2280,17 @@
     "recurrence": {
       "Daily": "Daily",
       "Weekly": "Weekly"
+    },
+    "tooltips": {
+      "profileId": "Unique OCPP profile identifier on each station. Pushing the same id replaces the existing profile. Must be unique across templates.",
+      "stackLevel": "When multiple profiles are active at the same time, the higher stack level wins. Most operators leave this at 0.",
+      "evseId": "0 applies to the entire station. A non-zero value targets a specific EVSE port.",
+      "profilePurpose": "ChargingStationMaxProfile caps the station's total power. TxDefaultProfile applies a default to every session. PriorityCharging and LocalGeneration are OCPP 2.1 only.",
+      "profileKind": "Absolute is a one-time schedule anchored to Start Schedule. Recurring repeats on the chosen cadence.",
+      "recurrencyKind": "Daily repeats every 24 hours. Weekly repeats every 7 days."
+    },
+    "errors": {
+      "profileIdInUse": "Profile ID is already used by another template. Pick a different one."
     }
   },
   "configTemplates": {

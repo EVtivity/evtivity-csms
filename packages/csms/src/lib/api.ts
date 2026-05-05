@@ -30,6 +30,26 @@ export class ApiError extends Error {
   }
 }
 
+// Safely extract `code` from an ApiError body. Returns null when the error is
+// not an ApiError or the body shape doesn't carry a string code field. Use this
+// to drive UI error mapping (e.g. PROFILE_ID_IN_USE -> friendly message).
+export function getApiErrorCode(err: unknown): string | null {
+  if (!(err instanceof ApiError)) return null;
+  const body = err.body;
+  if (body == null || typeof body !== 'object' || Array.isArray(body)) return null;
+  const code = (body as Record<string, unknown>).code;
+  return typeof code === 'string' ? code : null;
+}
+
+// Safely extract `error` (human-readable message) from an ApiError body.
+export function getApiErrorMessage(err: unknown): string | null {
+  if (!(err instanceof ApiError)) return null;
+  const body = err.body;
+  if (body == null || typeof body !== 'object' || Array.isArray(body)) return null;
+  const message = (body as Record<string, unknown>).error;
+  return typeof message === 'string' ? message : null;
+}
+
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 let refreshPromise: Promise<boolean> | null = null;

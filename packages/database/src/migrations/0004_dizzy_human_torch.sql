@@ -1,0 +1,1 @@
+ALTER TABLE "charging_profile_templates" ADD CONSTRAINT "charging_profile_templates_profile_id_unique" UNIQUE("profile_id");

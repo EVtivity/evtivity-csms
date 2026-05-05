@@ -6,7 +6,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
-import { Copy, Upload } from 'lucide-react';
+import { Copy, Upload, Eraser } from 'lucide-react';
 import { EditButton } from '@/components/edit-button';
 import { RemoveButton } from '@/components/remove-button';
 import { SaveButton } from '@/components/save-button';
@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Pagination } from '@/components/ui/pagination';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { MatchingStationsCard } from '@/components/MatchingStationsCard';
 import { CopyableId } from '@/components/copyable-id';
 import {
@@ -30,7 +31,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { TimeSlotEditor, type SchedulePeriod } from '@/components/smart-charging/TimeSlotEditor';
-import { api } from '@/lib/api';
+import { api, getApiErrorCode, getApiErrorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 import { useUserTimezone } from '@/lib/timezone';
 
@@ -75,6 +76,7 @@ interface FilterOptions {
 
 interface PushRecord {
   id: string;
+  operation: 'set' | 'clear';
   status: string;
   stationCount: number;
   acceptedCount: number;
@@ -93,6 +95,46 @@ function secondsToTimeString(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function formatPeriodStart(
+  startSchedule: string | null,
+  startPeriodSec: number,
+  timezone: string,
+): string {
+  if (startSchedule == null) return secondsToTimeString(startPeriodSec);
+  const ms = new Date(startSchedule).getTime() + startPeriodSec * 1000;
+  return new Date(ms).toLocaleString('en-US', {
+    timeZone: timezone,
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+// Mirror of payload built in packages/api/src/lib/charging-profile-push.ts so the
+// detail page can preview the exact OCPP 2.1 SetChargingProfile body.
+function buildSetChargingProfilePayload(template: TemplateDetail): Record<string, unknown> {
+  return {
+    evseId: template.evseId,
+    chargingProfile: {
+      id: template.profileId,
+      stackLevel: template.stackLevel,
+      chargingProfilePurpose: template.profilePurpose,
+      chargingProfileKind: template.profileKind,
+      ...(template.recurrencyKind != null ? { recurrencyKind: template.recurrencyKind } : {}),
+      ...(template.validFrom != null ? { validFrom: template.validFrom } : {}),
+      ...(template.validTo != null ? { validTo: template.validTo } : {}),
+      chargingSchedule: [
+        {
+          id: 1,
+          chargingRateUnit: template.chargingRateUnit,
+          ...(template.startSchedule != null ? { startSchedule: template.startSchedule } : {}),
+          ...(template.duration != null ? { duration: template.duration } : {}),
+          chargingSchedulePeriod: template.schedulePeriods,
+        },
+      ],
+    },
+  };
 }
 
 export function SmartChargingTemplateDetail(): React.JSX.Element {
@@ -126,6 +168,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [pushOpen, setPushOpen] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
   const [pushHistoryPage, setPushHistoryPage] = useState(1);
   const pushHistoryLimit = 10;
 
@@ -187,6 +230,23 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
       ),
     onSuccess: (data) => {
       setPushOpen(false);
+      void queryClient.invalidateQueries({
+        queryKey: ['smart-charging-templates', id, 'pushes'],
+      });
+      if (data.pushId) {
+        void navigate(`/smart-charging/pushes/${data.pushId}`);
+      }
+    },
+  });
+
+  const clearMutation = useMutation({
+    mutationFn: () =>
+      api.post<{ success: boolean; pushId: string }>(
+        `/v1/smart-charging/templates/${id ?? ''}/clear`,
+        {},
+      ),
+    onSuccess: (data) => {
+      setClearOpen(false);
       void queryClient.invalidateQueries({
         queryKey: ['smart-charging-templates', id, 'pushes'],
       });
@@ -297,6 +357,16 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
               <Upload className="h-4 w-4" />
               {t('smartCharging.push')}
             </Button>
+            <Button
+              variant="outline"
+              className="gap-1.5 text-destructive hover:text-destructive"
+              onClick={() => {
+                setClearOpen(true);
+              }}
+            >
+              <Eraser className="h-4 w-4" />
+              {t('smartCharging.clearFromStations')}
+            </Button>
             <RemoveButton
               label={t('common.delete')}
               onClick={() => {
@@ -403,9 +473,14 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div
+                className={`grid grid-cols-1 gap-4 ${editKind === 'Recurring' ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}
+              >
                 <div className="grid gap-2">
-                  <Label htmlFor="edit-purpose-select">{t('smartCharging.profilePurpose')}</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="edit-purpose-select">{t('smartCharging.profilePurpose')}</Label>
+                    <InfoTooltip content={t('smartCharging.tooltips.profilePurpose')} />
+                  </div>
                   <Select
                     id="edit-purpose-select"
                     value={editPurpose}
@@ -424,7 +499,10 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                   </Select>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="edit-kind-select">{t('smartCharging.profileKind')}</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="edit-kind-select">{t('smartCharging.profileKind')}</Label>
+                    <InfoTooltip content={t('smartCharging.tooltips.profileKind')} />
+                  </div>
                   <Select
                     id="edit-kind-select"
                     value={editKind}
@@ -436,29 +514,34 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                     <option value="Recurring">{t('smartCharging.kinds.Recurring')}</option>
                   </Select>
                 </div>
+                {editKind === 'Recurring' && (
+                  <div className="grid gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="edit-recurrency-select">
+                        {t('smartCharging.recurrencyKind')}
+                      </Label>
+                      <InfoTooltip content={t('smartCharging.tooltips.recurrencyKind')} />
+                    </div>
+                    <Select
+                      id="edit-recurrency-select"
+                      value={editRecurrency}
+                      onChange={(e) => {
+                        setEditRecurrency(e.target.value);
+                      }}
+                    >
+                      <option value="Daily">{t('smartCharging.recurrence.Daily')}</option>
+                      <option value="Weekly">{t('smartCharging.recurrence.Weekly')}</option>
+                    </Select>
+                  </div>
+                )}
               </div>
-
-              {editKind === 'Recurring' && (
-                <div className="grid gap-2">
-                  <Label htmlFor="edit-recurrency-select">
-                    {t('smartCharging.recurrencyKind')}
-                  </Label>
-                  <Select
-                    id="edit-recurrency-select"
-                    value={editRecurrency}
-                    onChange={(e) => {
-                      setEditRecurrency(e.target.value);
-                    }}
-                  >
-                    <option value="Daily">{t('smartCharging.recurrence.Daily')}</option>
-                    <option value="Weekly">{t('smartCharging.recurrence.Weekly')}</option>
-                  </Select>
-                </div>
-              )}
 
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="scd-edit-profile-id">{t('smartCharging.profileId')}</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="scd-edit-profile-id">{t('smartCharging.profileId')}</Label>
+                    <InfoTooltip content={t('smartCharging.tooltips.profileId')} />
+                  </div>
                   <Input
                     id="scd-edit-profile-id"
                     type="number"
@@ -470,7 +553,10 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="scd-edit-stack-level">{t('smartCharging.stackLevel')}</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="scd-edit-stack-level">{t('smartCharging.stackLevel')}</Label>
+                    <InfoTooltip content={t('smartCharging.tooltips.stackLevel')} />
+                  </div>
                   <Input
                     id="scd-edit-stack-level"
                     type="number"
@@ -482,7 +568,10 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="scd-edit-evse-id">{t('smartCharging.evseId')}</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="scd-edit-evse-id">{t('smartCharging.evseId')}</Label>
+                    <InfoTooltip content={t('smartCharging.tooltips.evseId')} />
+                  </div>
                   <Input
                     id="scd-edit-evse-id"
                     type="number"
@@ -510,7 +599,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="grid gap-2">
                   <Label htmlFor="scd-edit-start-schedule">
                     {t('smartCharging.startSchedule')}
@@ -546,27 +635,27 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                     }}
                   />
                 </div>
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="scd-edit-duration">{t('smartCharging.durationSeconds')}</Label>
-                <Input
-                  id="scd-edit-duration"
-                  type="number"
-                  min={0}
-                  value={editDuration}
-                  placeholder="86400"
-                  onChange={(e) => {
-                    setEditDuration(e.target.value);
-                  }}
-                  className="w-48"
-                />
+                <div className="grid gap-2">
+                  <Label htmlFor="scd-edit-duration">{t('smartCharging.durationSeconds')}</Label>
+                  <Input
+                    id="scd-edit-duration"
+                    type="number"
+                    min={0}
+                    value={editDuration}
+                    placeholder="86400"
+                    onChange={(e) => {
+                      setEditDuration(e.target.value);
+                    }}
+                  />
+                </div>
               </div>
 
               <TimeSlotEditor
                 periods={editPeriods}
                 onChange={setEditPeriods}
                 rateUnit={editRateUnit}
+                startSchedule={editStartSchedule ? new Date(editStartSchedule).toISOString() : null}
+                timezone={timezone}
               />
 
               <div className="space-y-2 pt-2">
@@ -629,7 +718,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                 </div>
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex items-center gap-3">
                 <SaveButton isPending={updateMutation.isPending} />
                 <CancelButton
                   onClick={() => {
@@ -637,6 +726,13 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                     setHasSubmitted(false);
                   }}
                 />
+                {updateMutation.isError && (
+                  <p className="text-sm text-destructive">
+                    {getApiErrorCode(updateMutation.error) === 'PROFILE_ID_IN_USE'
+                      ? t('smartCharging.errors.profileIdInUse')
+                      : (getApiErrorMessage(updateMutation.error) ?? t('common.error'))}
+                  </p>
+                )}
               </div>
             </form>
           ) : (
@@ -775,7 +871,11 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                         {template.schedulePeriods.map((period, i) => (
                           <TableRow key={i}>
                             <TableCell className="text-xs">
-                              {secondsToTimeString(period.startPeriod)}
+                              {formatPeriodStart(
+                                template.startSchedule,
+                                period.startPeriod,
+                                timezone,
+                              )}
                             </TableCell>
                             <TableCell className="text-xs">{period.limit}</TableCell>
                             <TableCell className="text-xs">{period.numberPhases ?? '--'}</TableCell>
@@ -791,6 +891,31 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
         </CardContent>
       </Card>
 
+      {!editing && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>{t('smartCharging.rawProfile')}</CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void navigator.clipboard.writeText(
+                  JSON.stringify(buildSetChargingProfilePayload(template), null, 2),
+                );
+              }}
+            >
+              <Copy className="h-4 w-4" />
+              {t('common.copy')}
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <pre className="overflow-x-auto rounded-md bg-muted p-4 text-xs font-mono">
+              {JSON.stringify(buildSetChargingProfilePayload(template), null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>{t('smartCharging.pushHistory')}</CardTitle>
@@ -805,6 +930,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                   <TableHeader>
                     <TableRow>
                       <TableHead>{t('common.timestamp')}</TableHead>
+                      <TableHead>{t('smartCharging.operation')}</TableHead>
                       <TableHead>{t('common.status')}</TableHead>
                       <TableHead>{t('nav.stations')}</TableHead>
                       <TableHead>{t('smartCharging.accepted')}</TableHead>
@@ -824,6 +950,13 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                       >
                         <TableCell className="text-xs" data-testid="row-click-target">
                           {formatDateTime(push.createdAt, timezone)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={push.operation === 'clear' ? 'destructive' : 'default'}>
+                            {push.operation === 'clear'
+                              ? t('smartCharging.opClear')
+                              : t('smartCharging.opSet')}
+                          </Badge>
                         </TableCell>
                         <TableCell>
                           <Badge variant={PUSH_STATUS_VARIANT[push.status] ?? 'outline'}>
@@ -877,6 +1010,19 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
         isPending={deleteMutation.isPending}
         onConfirm={() => {
           deleteMutation.mutate();
+        }}
+      />
+
+      <ConfirmDialog
+        open={clearOpen}
+        onOpenChange={setClearOpen}
+        title={t('smartCharging.confirmClearFromStations')}
+        description={t('smartCharging.confirmClearFromStationsDescription')}
+        confirmLabel={t('smartCharging.clearFromStations')}
+        variant="destructive"
+        isPending={clearMutation.isPending}
+        onConfirm={() => {
+          clearMutation.mutate();
         }}
       />
 

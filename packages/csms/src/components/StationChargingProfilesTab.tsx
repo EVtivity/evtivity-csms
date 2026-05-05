@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Upload, Eye, Trash2 } from 'lucide-react';
+import { RefreshCw, Upload, Eye, Trash2, Copy } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,6 +40,18 @@ interface ChargingProfile {
   sentAt: string | null;
   reportedAt: string | null;
   createdAt: string;
+  templateId: string | null;
+  templateName: string | null;
+}
+
+// `profile.id` is the CSMS database row PK. The OCPP profile id (which a station
+// uses to identify a profile when clearing) lives inside `profile_data.id`.
+// Returns null when the station-reported profile has no numeric id.
+function ocppProfileId(profile: ChargingProfile): number | null {
+  const raw = profile.profileData['id'];
+  if (typeof raw === 'number' && Number.isInteger(raw)) return raw;
+  if (typeof raw === 'string' && /^-?\d+$/.test(raw)) return Number(raw);
+  return null;
 }
 
 interface ChargingProfileTemplate {
@@ -60,7 +73,10 @@ interface CompositeResponse {
     chargingSchedulePeriod?: CompositeSchedulePeriod[];
     chargingRateUnit?: string;
     duration?: number;
+    startSchedule?: string;
   };
+  scheduleStart?: string;
+  evseId?: number;
 }
 
 interface Props {
@@ -96,6 +112,7 @@ export function StationChargingProfilesTab({
     status: string;
     errorInfo?: string;
   } | null>(null);
+  const [viewProfile, setViewProfile] = useState<ChargingProfile | null>(null);
 
   const isOcpp16 = ocppProtocol === 'ocpp1.6';
 
@@ -250,6 +267,7 @@ export function StationChargingProfilesTab({
                     <TableHead>{t('common.source')}</TableHead>
                     <TableHead>EVSE</TableHead>
                     <TableHead>{t('stations.limitSource')}</TableHead>
+                    <TableHead>{t('smartCharging.template')}</TableHead>
                     <TableHead>{t('common.created')}</TableHead>
                     <TableHead className="text-right">{t('common.actions')}</TableHead>
                   </TableRow>
@@ -269,15 +287,38 @@ export function StationChargingProfilesTab({
                         {profile.chargingLimitSource ?? '--'}
                       </TableCell>
                       <TableCell className="text-xs">
+                        {profile.templateId != null ? (
+                          <Link
+                            to={`/smart-charging/${profile.templateId}`}
+                            className="text-primary hover:underline"
+                          >
+                            {profile.templateName ?? profile.templateId}
+                          </Link>
+                        ) : (
+                          '--'
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs">
                         {formatDateTime(profile.createdAt, timezone)}
                       </TableCell>
                       <TableCell className="text-right">
                         <Button
                           variant="ghost"
                           size="icon"
-                          disabled={!isOnline}
                           onClick={() => {
-                            setClearProfileId(profile.id);
+                            setViewProfile(profile);
+                          }}
+                          aria-label={t('common.view')}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={!isOnline || ocppProfileId(profile) == null}
+                          onClick={() => {
+                            const ocppId = ocppProfileId(profile);
+                            if (ocppId != null) setClearProfileId(ocppId);
                           }}
                           aria-label={t('stations.clearProfile')}
                         >
@@ -388,9 +429,84 @@ export function StationChargingProfilesTab({
         </DialogContent>
       </Dialog>
 
+      {/* View raw profile JSON dialog */}
+      <Dialog
+        open={viewProfile != null}
+        onOpenChange={(open) => {
+          if (!open) setViewProfile(null);
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{t('stations.chargingProfileDetails')}</DialogTitle>
+          </DialogHeader>
+          {viewProfile != null && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <span className="text-muted-foreground">{t('common.source')}: </span>
+                  <Badge
+                    variant={viewProfile.source === 'csms_set' ? 'default' : 'secondary'}
+                    className="ml-1"
+                  >
+                    {viewProfile.source === 'csms_set' ? 'CSMS' : 'Station'}
+                  </Badge>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">EVSE: </span>
+                  {viewProfile.evseId != null ? String(viewProfile.evseId) : '--'}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">{t('stations.limitSource')}: </span>
+                  {viewProfile.chargingLimitSource ?? '--'}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">{t('smartCharging.template')}: </span>
+                  {viewProfile.templateId != null ? (
+                    <Link
+                      to={`/smart-charging/${viewProfile.templateId}`}
+                      className="text-primary hover:underline"
+                    >
+                      {viewProfile.templateName ?? viewProfile.templateId}
+                    </Link>
+                  ) : (
+                    '--'
+                  )}
+                </div>
+              </div>
+              <pre className="overflow-x-auto rounded-md bg-muted p-4 text-xs font-mono max-h-[60vh]">
+                {JSON.stringify(viewProfile.profileData, null, 2)}
+              </pre>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (viewProfile != null) {
+                  void navigator.clipboard.writeText(
+                    JSON.stringify(viewProfile.profileData, null, 2),
+                  );
+                }
+              }}
+            >
+              <Copy className="h-4 w-4" />
+              {t('common.copy')}
+            </Button>
+            <Button
+              onClick={() => {
+                setViewProfile(null);
+              }}
+            >
+              {t('common.close')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Composite Schedule dialog */}
       <Dialog open={compositeDialogOpen} onOpenChange={setCompositeDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t('stations.viewComposite')}</DialogTitle>
           </DialogHeader>
@@ -399,46 +515,92 @@ export function StationChargingProfilesTab({
           ) : compositeMutation.isError ? (
             <p className="text-sm text-destructive">{t('common.error')}</p>
           ) : compositeSchedule != null ? (
-            <>
-              {compositeSchedule.status != null && (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{t('common.status')}:</span>
-                  <Badge
-                    variant={compositeSchedule.status === 'Accepted' ? 'success' : 'secondary'}
-                  >
-                    {compositeSchedule.status}
-                  </Badge>
+            (() => {
+              // Composite schedules can carry the anchor on `schedule.startSchedule`
+              // or `scheduleStart`. If neither is present, do NOT fabricate one
+              // from `Date.now()` — render offsets directly so the display stays
+              // truthful.
+              const anchorIso =
+                compositeSchedule.schedule?.startSchedule ??
+                compositeSchedule.scheduleStart ??
+                null;
+              const rateUnit = compositeSchedule.schedule?.chargingRateUnit ?? 'W';
+              const status = compositeSchedule.status;
+              return (
+                <div className="space-y-3">
+                  {status != null && status !== 'Accepted' && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{t('common.status')}:</span>
+                      <Badge variant="destructive">{status}</Badge>
+                    </div>
+                  )}
+                  {anchorIso == null && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('stations.noScheduleAnchor')}
+                    </p>
+                  )}
+                  {periods.length > 0 ? (
+                    <>
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>{t('stations.compositeTime')}</TableHead>
+                              <TableHead>
+                                {t('smartCharging.powerLimit')} ({rateUnit})
+                              </TableHead>
+                              <TableHead>{t('smartCharging.phases')}</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {periods.map((period, idx) => {
+                              let label: string;
+                              if (anchorIso != null) {
+                                const ms =
+                                  new Date(anchorIso).getTime() + period.startPeriod * 1000;
+                                const wallClock = new Date(ms).toLocaleString('en-US', {
+                                  timeZone: timezone,
+                                  hour: 'numeric',
+                                  minute: '2-digit',
+                                  month: 'short',
+                                  day: 'numeric',
+                                });
+                                label = `${wallClock}  (+${String(period.startPeriod)}s)`;
+                              } else {
+                                label = `+${String(period.startPeriod)}s`;
+                              }
+                              return (
+                                <TableRow key={idx}>
+                                  <TableCell className="text-xs">{label}</TableCell>
+                                  <TableCell className="text-xs">{String(period.limit)}</TableCell>
+                                  <TableCell className="text-xs">
+                                    {period.numberPhases != null
+                                      ? String(period.numberPhases)
+                                      : '--'}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                      <details className="rounded-md border bg-muted/30">
+                        <summary className="cursor-pointer px-3 py-2 text-xs font-medium select-none">
+                          {t('stations.viewRaw')}
+                        </summary>
+                        <pre className="overflow-x-auto p-3 text-xs font-mono max-h-[40vh]">
+                          {JSON.stringify(compositeSchedule, null, 2)}
+                        </pre>
+                      </details>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {t('stations.noChargingProfiles')}
+                    </p>
+                  )}
                 </div>
-              )}
-              {periods.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Start (s)</TableHead>
-                        <TableHead>
-                          Limit ({compositeSchedule.schedule?.chargingRateUnit ?? 'W'})
-                        </TableHead>
-                        <TableHead>Phases</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {periods.map((period, idx) => (
-                        <TableRow key={idx}>
-                          <TableCell className="text-xs">{String(period.startPeriod)}</TableCell>
-                          <TableCell className="text-xs">{String(period.limit)}</TableCell>
-                          <TableCell className="text-xs">
-                            {period.numberPhases != null ? String(period.numberPhases) : '--'}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">{t('stations.noChargingProfiles')}</p>
-              )}
-            </>
+              );
+            })()
           ) : null}
           <DialogFooter>
             <Button
