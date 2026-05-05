@@ -37,6 +37,10 @@ function createSqlMock() {
     return Promise.resolve(resultWithCount);
   };
 
+  // Mirror postgres-js's `sql.json(value)` helper so production code that
+  // wraps JSONB values can run unchanged in tests.
+  (sqlFn as unknown as { json: (v: unknown) => unknown }).json = (v) => v;
+
   return sqlFn as unknown;
 }
 
@@ -2538,6 +2542,10 @@ describe('Event projections - coverage expansion', () => {
             stripe_payment_method_id: 'pm_sim_000001',
           },
         ],
+        // isTariffFreeForStation -- a paid tariff so the payment gate proceeds.
+        // Empty rows would resolve as free (no tariff configured), short-circuiting
+        // runPaymentGate before the INSERT.
+        [{ is_free: false }],
         [], // SELECT platform settings (currency + preAuthAmountCents) - defaults used
         // No site override (site_id is null)
         [], // SELECT payment_records guard (no existing record)

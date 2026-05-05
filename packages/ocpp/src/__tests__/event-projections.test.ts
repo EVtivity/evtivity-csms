@@ -21,6 +21,11 @@ function createSqlMock() {
     return Promise.resolve(result);
   };
 
+  // Mirror postgres-js's `sql.json(value)` helper so production code that
+  // wraps JSONB values can run unchanged in tests. Returning the raw value
+  // is sufficient because the mock just records template strings + values.
+  (sqlFn as unknown as { json: (v: unknown) => unknown }).json = (v) => v;
+
   return sqlFn as unknown;
 }
 
@@ -1965,7 +1970,9 @@ describe('Event projections', () => {
         c.strings.join('').includes('INSERT INTO meter_values'),
       );
       expect(insertCall).toBeDefined();
-      expect(insertCall!.values).toContain(JSON.stringify(signedData));
+      // Production passes signedMeterValue through sql.json(); the mock
+      // unwraps to the raw object rather than a stringified JSON blob.
+      expect(insertCall!.values).toContain(signedData);
     });
   });
 

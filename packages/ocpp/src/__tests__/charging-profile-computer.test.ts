@@ -21,6 +21,10 @@ function createSqlMock() {
     return Promise.resolve(Object.assign([...result], { count: result.length || 1 }));
   };
 
+  // Mirror postgres-js's `sql.json(value)` helper so production code that
+  // wraps JSONB values can run unchanged in tests.
+  (sqlFn as unknown as { json: (v: unknown) => unknown }).json = (v) => v;
+
   return sqlFn as unknown;
 }
 
