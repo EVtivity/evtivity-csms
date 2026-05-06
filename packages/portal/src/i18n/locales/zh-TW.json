@@ -368,7 +368,9 @@
     "createFailed": "建立預約失敗。",
     "confirmCancelTitle": "取消此預約？",
     "confirmCancelDescription": "取消您在 {{station}} 的預約（到期時間 {{time}}）？此操作無法撤銷。",
-    "confirmCancelScheduledDescription": "取消您在 {{station}} 的預約（開始時間 {{startsTime}}，到期時間 {{expiresTime}}）？此操作無法撤銷。"
+    "confirmCancelScheduledDescription": "取消您在 {{station}} 的預約（開始時間 {{startsTime}}，到期時間 {{expiresTime}}）？此操作無法撤銷。",
+    "noShowFeeNote": "即使您未到場，仍可能收取預約保留費。預約將在結束時間自動過期。",
+    "paymentMethodRequired": "建立預約需要支付方式。"
   },
   "reservationDetail": {
     "title": "預約",

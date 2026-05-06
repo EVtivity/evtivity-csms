@@ -122,6 +122,23 @@ export function ReservationCreate(): React.JSX.Element {
     setSelectedConnectorKey('');
   }, [selectedStation?.id]);
 
+  // Driver payment-method probe. Reservation may incur a no-show holding fee
+  // or cancellation fee, so the API requires a default payment method when a
+  // driver is attached. Block submit upfront for a clearer UX.
+  const driverPaymentMethodsQuery = useQuery({
+    queryKey: ['driver-payment-methods', selectedDriver?.id],
+    queryFn: () =>
+      api.get<{ id: number; isDefault: boolean }[]>(
+        `/v1/drivers/${selectedDriver?.id ?? ''}/payment-methods`,
+      ),
+    enabled: selectedDriver != null,
+  });
+  const driverHasDefaultPm =
+    driverPaymentMethodsQuery.data != null &&
+    driverPaymentMethodsQuery.data.some((pm) => pm.isDefault);
+  const driverPaymentMissing =
+    selectedDriver != null && driverPaymentMethodsQuery.isSuccess && !driverHasDefaultPm;
+
   const createMutation = useMutation({
     mutationFn: (body: {
       stationId: string;
@@ -140,6 +157,7 @@ export function ReservationCreate(): React.JSX.Element {
     if (selectedStation == null) errors.stationId = t('validation.required');
     if (startsAt.trim() === '') errors.startsAt = t('validation.required');
     if (expiresAt.trim() === '') errors.expiresAt = t('validation.required');
+    if (driverPaymentMissing) errors.driverId = t('reservations.paymentMethodRequired');
     return errors;
   }
 
@@ -283,7 +301,16 @@ export function ReservationCreate(): React.JSX.Element {
             <div className="space-y-2">
               <Label>{t('reservations.driver')}</Label>
               <DriverCombobox value={selectedDriver} onSelect={setSelectedDriver} />
+              {selectedDriver != null && driverPaymentMissing && (
+                <p className="text-sm text-destructive">
+                  {t('reservations.paymentMethodRequired')}
+                </p>
+              )}
             </div>
+            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Info className="h-3 w-3" />
+              {t('reservations.noShowFeeNote')}
+            </p>
             {createMutation.isError && (
               <p className="text-sm text-destructive">{getErrorMessage(createMutation.error, t)}</p>
             )}

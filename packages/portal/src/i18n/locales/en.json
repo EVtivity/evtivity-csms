@@ -368,7 +368,9 @@
     "createFailed": "Failed to create reservation.",
     "confirmCancelTitle": "Cancel this reservation?",
     "confirmCancelDescription": "Cancel your reservation at {{station}} expiring {{time}}? This cannot be undone.",
-    "confirmCancelScheduledDescription": "Cancel your reservation at {{station}} starting {{startsTime}} (expires {{expiresTime}})? This cannot be undone."
+    "confirmCancelScheduledDescription": "Cancel your reservation at {{station}} starting {{startsTime}} (expires {{expiresTime}})? This cannot be undone.",
+    "noShowFeeNote": "A holding fee may apply even if you don't show up. The reservation expires automatically at the end time.",
+    "paymentMethodRequired": "A payment method is required to create a reservation."
   },
   "reservationDetail": {
     "title": "Reservation",

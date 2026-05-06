@@ -194,11 +194,17 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
     retry: false,
   });
 
+  // Fetch in reserve mode too: the reservation may incur a no-show holding
+  // fee or a cancellation fee, so we always need a card on file regardless
+  // of whether the site has paid charging enabled. Charge mode continues to
+  // gate on paymentEnabled to avoid an unnecessary fetch on free sites.
   const { data: paymentMethods } = useQuery({
     queryKey: ['portal-payment-methods'],
     queryFn: () => api.get<PaymentMethod[]>('/v1/portal/payment-methods'),
-    enabled: station?.paymentEnabled === true,
+    enabled: mode === 'reserve' || station?.paymentEnabled === true,
   });
+  const hasDefaultPaymentMethod =
+    paymentMethods != null && paymentMethods.some((pm) => pm.isDefault);
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -692,11 +698,31 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
                 }}
               />
             </div>
+            <p className="flex items-start gap-1 text-xs text-muted-foreground">
+              <Info className="h-3 w-3 mt-0.5 shrink-0" />
+              {t('reservations.noShowFeeNote')}
+            </p>
+            {!hasDefaultPaymentMethod && paymentMethods != null && (
+              <Alert variant="warning">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  {t('reservations.paymentMethodRequired')}{' '}
+                  <Link to="/payment-methods" className="underline font-medium">
+                    {t('payments.addPaymentMethod')}
+                  </Link>
+                </AlertDescription>
+              </Alert>
+            )}
             {error !== '' && <p className="text-sm text-destructive">{error}</p>}
             <Button
               className="w-full gap-2"
               size="lg"
-              disabled={isReserving || reserveStartsAt === '' || reserveExpiresAt === ''}
+              disabled={
+                isReserving ||
+                reserveStartsAt === '' ||
+                reserveExpiresAt === '' ||
+                !hasDefaultPaymentMethod
+              }
               onClick={() => void handleReserve()}
             >
               <CalendarClock className="h-5 w-5" />

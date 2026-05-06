@@ -1843,6 +1843,8 @@
     "newEvseId": "EVSE-ID (optional)",
     "startsAt": "Startet am",
     "scheduledNote": "Reservierung wird geplant und zur Startzeit aktiviert",
+    "noShowFeeNote": "Eine Reservierungsgebühr kann anfallen, wenn der Fahrer nicht erscheint. Die Reservierung läuft zur Endzeit automatisch ab.",
+    "paymentMethodRequired": "Der ausgewählte Fahrer hat keine Standard-Zahlungsmethode. Fügen Sie eine hinzu, bevor Sie eine Reservierung erstellen.",
     "commands": "OCPP-Protokolle",
     "commandLog": "OCPP-Befehlsprotokoll",
     "direction": "Richtung",

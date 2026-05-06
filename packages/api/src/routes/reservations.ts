@@ -10,6 +10,7 @@ import {
   chargingStations,
   chargingSessions,
   drivers,
+  driverPaymentMethods,
   evses,
   connectors,
   sites,
@@ -592,6 +593,28 @@ export function reservationRoutes(app: FastifyInstance): void {
           .where(eq(drivers.id, body.driverId));
         if (driverRow == null) {
           await reply.status(400).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+          return;
+        }
+
+        // Require a default payment method for driver-attached reservations.
+        // The reservation may incur a no-show holding fee or a cancellation
+        // fee, both of which need a card on file. Operator-comp reservations
+        // (no driver) skip this check.
+        const [pm] = await db
+          .select({ id: driverPaymentMethods.id })
+          .from(driverPaymentMethods)
+          .where(
+            and(
+              eq(driverPaymentMethods.driverId, body.driverId),
+              eq(driverPaymentMethods.isDefault, true),
+            ),
+          )
+          .limit(1);
+        if (pm == null) {
+          await reply.status(400).send({
+            error: 'Driver has no default payment method',
+            code: 'PAYMENT_METHOD_REQUIRED',
+          });
           return;
         }
       }

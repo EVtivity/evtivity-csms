@@ -187,7 +187,6 @@ function makeDomainEvent(
 
 describe('Event projections - coverage expansion', () => {
   let eventBus: ReturnType<typeof createMockEventBus>;
-  let timerCallback: (() => void) | null = null;
   const timerCallbacks: Array<{ fn: () => void; interval: number }> = [];
   let mockPubSub: PubSubClient;
 
@@ -197,10 +196,6 @@ describe('Event projections - coverage expansion', () => {
     let timerId = 0;
     const origSetInterval = vi.fn((fn: () => void, interval: number) => {
       timerCallbacks.push({ fn, interval });
-      // Keep backward compat: the reservation expiry (60s) sets timerCallback
-      if (interval === 60_000) {
-        timerCallback = fn;
-      }
       const id = ++timerId;
       return { id, unref: vi.fn(), ref: vi.fn() };
     });
@@ -3633,89 +3628,9 @@ describe('Event projections - coverage expansion', () => {
 
   // ---- Reservation expiry check ----
 
-  describe('Reservation expiry - timer execution', () => {
-    it('expires active reservations and sends driver notifications', async () => {
-      await setup();
-
-      setupSqlResults(
-        [
-          { id: 'res-1', driver_id: 'driver-exp' },
-          { id: 'res-2', driver_id: null },
-        ], // expired reservations
-        [], // expiring soon (empty)
-      );
-
-      // Execute the timer callback
-      expect(timerCallback).not.toBeNull();
-      timerCallback!();
-
-      // Wait for the async function to complete
-      await vi.advanceTimersByTimeAsync(0);
-
-      expect(mockDispatchDriver).toHaveBeenCalledWith(
-        expect.anything(),
-        'reservation.Expired',
-        'driver-exp',
-        expect.objectContaining({ reservationId: 'res-1' }),
-        ['/mock/templates'],
-        expect.anything(),
-      );
-
-      // res-2 has no driver, so no notification
-      const expiredCalls = mockDispatchDriver.mock.calls.filter(
-        (c: unknown[]) => c[1] === 'reservation.Expired',
-      );
-      expect(expiredCalls.length).toBe(1);
-    });
-
-    it('warns about reservations expiring soon', async () => {
-      await setup();
-
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes from now
-
-      setupSqlResults(
-        [], // no expired reservations
-        [
-          { id: 'res-soon', driver_id: 'driver-warning', expires_at: expiresAt },
-          { id: 'res-soon-2', driver_id: null, expires_at: expiresAt },
-        ], // expiring soon
-      );
-
-      timerCallback!();
-      await vi.advanceTimersByTimeAsync(0);
-
-      expect(mockDispatchDriver).toHaveBeenCalledWith(
-        expect.anything(),
-        'reservation.Expiring',
-        'driver-warning',
-        expect.objectContaining({ reservationId: 'res-soon' }),
-        ['/mock/templates'],
-        expect.anything(),
-      );
-
-      const expiringCalls = mockDispatchDriver.mock.calls.filter(
-        (c: unknown[]) => c[1] === 'reservation.Expiring',
-      );
-      expect(expiringCalls.length).toBe(1);
-    });
-
-    it('handles reservation check errors gracefully', async () => {
-      await setup();
-
-      mockLoggerError.mockClear();
-
-      // Make SQL throw
-      setupSqlResultsWithErrors([[]], [{ index: 0, error: new Error('db unreachable') }]);
-
-      timerCallback!();
-      await vi.advanceTimersByTimeAsync(0);
-
-      expect(mockLoggerError).toHaveBeenCalledWith(
-        { err: expect.any(Error) },
-        'Reservation expiry check failed',
-      );
-    });
-  });
+  // Reservation expiry timer was moved to the worker cron `reservation-expiry-check`
+  // (packages/worker/src/handlers/reservation-expiry-check.ts). It no longer
+  // runs in event-projections, so the prior describe block was removed.
 
   // ---- resolveSiteId caching ----
 

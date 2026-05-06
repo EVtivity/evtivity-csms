@@ -729,6 +729,22 @@ describe('Portal charger routes - handler logic', () => {
       expect(response.json().code).toBe('STATION_OFFLINE');
     });
 
+    it('returns 400 PAYMENT_METHOD_REQUIRED when driver has no default card', async () => {
+      // Station -> PM lookup (empty) -> 400
+      setupDbResults([{ id: VALID_STATION_ID, isOnline: true, onboardingStatus: 'accepted' }], []);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/reservations',
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: {
+          stationId: 'CS-001',
+          expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('PAYMENT_METHOD_REQUIRED');
+    });
+
     it('creates a reservation', async () => {
       const reservationData = {
         id: VALID_RESERVATION_ID,
@@ -740,11 +756,13 @@ describe('Portal charger routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
       };
       // DB call 1: station lookup
-      // DB call 2: conflict check (no conflicts)
-      // DB call 3: insert returning reservation
+      // DB call 2: default payment method check (always required for portal)
+      // DB call 3: conflict check (no conflicts)
+      // DB call 4: insert returning reservation
       // getNextReservationId uses db.execute (sequence)
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, onboardingStatus: 'accepted' }],
+        [{ id: 1, isDefault: true }],
         [],
         [reservationData],
       );

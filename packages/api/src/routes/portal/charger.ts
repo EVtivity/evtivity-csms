@@ -1823,6 +1823,27 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Require a default payment method. The reservation may incur a no-show
+      // holding fee (charged at expiry by the worker reaper) or a cancellation
+      // fee, both of which need a card on file. Block creation upfront.
+      const [pm] = await db
+        .select({ id: driverPaymentMethods.id })
+        .from(driverPaymentMethods)
+        .where(
+          and(
+            eq(driverPaymentMethods.driverId, driverId),
+            eq(driverPaymentMethods.isDefault, true),
+          ),
+        )
+        .limit(1);
+      if (pm == null) {
+        await reply.status(400).send({
+          error: 'A default payment method is required to create a reservation',
+          code: 'PAYMENT_METHOD_REQUIRED',
+        });
+        return;
+      }
+
       // Resolve evseId from OCPP integer to DB UUID
       let resolvedEvseId: string | null = null;
       if (body.evseId != null) {

@@ -419,6 +419,75 @@ describe('Reservation routes', () => {
       expect(res.json().code).toBe('STATION_OFFLINE');
     });
 
+    it('returns 400 RESERVATION_WINDOW_TOO_SHORT when expiresAt < startsAt + 60s', async () => {
+      setupDbResults([
+        { id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null },
+      ]);
+      const startsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000 + 30_000).toISOString();
+      const res = await app.inject({
+        method: 'POST',
+        url: '/reservations',
+        payload: { stationId: 'CS-001', startsAt, expiresAt },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('RESERVATION_WINDOW_TOO_SHORT');
+    });
+
+    it('returns 400 RESERVATION_EXPIRES_TOO_SOON when expiresAt is within 60s of now', async () => {
+      setupDbResults([
+        { id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null },
+      ]);
+      // startsAt in the past so the window check passes (long span), but
+      // expiresAt is within 60s of NOW so the absolute-time check fails.
+      const startsAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const expiresAt = new Date(Date.now() + 30_000).toISOString();
+      const res = await app.inject({
+        method: 'POST',
+        url: '/reservations',
+        payload: { stationId: 'CS-001', startsAt, expiresAt },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('RESERVATION_EXPIRES_TOO_SOON');
+    });
+
+    it('returns 400 DRIVER_NOT_FOUND when provided driverId does not exist', async () => {
+      // Station -> conflict (no conflicts) -> driver lookup (empty)
+      setupDbResults(
+        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+        [],
+        [],
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/reservations',
+        payload: { ...validBody, driverId: VALID_DRIVER_ID },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('DRIVER_NOT_FOUND');
+    });
+
+    it('returns 400 PAYMENT_METHOD_REQUIRED when driver has no default payment method', async () => {
+      // Station -> conflict -> driver exists -> PM lookup (empty)
+      setupDbResults(
+        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+        [],
+        [{ id: VALID_DRIVER_ID }],
+        [],
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/reservations',
+        payload: { ...validBody, driverId: VALID_DRIVER_ID },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('PAYMENT_METHOD_REQUIRED');
+    });
+
     it('returns 500 when reservation insert returns null', async () => {
       // DB call 1: station lookup (online)
       // DB call 2: conflict check (no conflicts)
@@ -512,12 +581,15 @@ describe('Reservation routes', () => {
       const reservation = makeReservation({ reservationId: 6, driverId: VALID_DRIVER_ID });
       // DB call 1: station lookup
       // DB call 2: conflict check (no conflicts)
-      // DB call 3: getNextReservationId
-      // DB call 4: insert returning reservation
+      // DB call 3: driver existence check (driverId provided)
+      // DB call 4: default payment method check (driverId provided)
+      // (db.execute for getNextReservationId is mocked separately, not in this chain)
+      // DB call 5: insert returning reservation
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
         [],
-
+        [{ id: VALID_DRIVER_ID }],
+        [{ id: 1, isDefault: true }],
         [reservation],
       );
 

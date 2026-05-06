@@ -1868,6 +1868,8 @@
     "newEvseId": "EVSE ID（可选）",
     "startsAt": "开始时间",
     "scheduledNote": "预约将在开始时间安排并激活",
+    "noShowFeeNote": "如果司机未到场，可能会收取预约保留费。预约将在结束时间自动过期。",
+    "paymentMethodRequired": "所选司机没有默认支付方式。请先添加再创建预约。",
     "commands": "OCPP日志",
     "commandLog": "OCPP命令日志",
     "direction": "方向",

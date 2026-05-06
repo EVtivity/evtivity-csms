@@ -368,7 +368,9 @@
     "createFailed": "Error al crear reserva.",
     "confirmCancelTitle": "Cancelar esta reserva?",
     "confirmCancelDescription": "Cancelar tu reserva en {{station}} que expira el {{time}}? Esta accion no se puede deshacer.",
-    "confirmCancelScheduledDescription": "Cancelar tu reserva en {{station}} que empieza el {{startsTime}} (expira {{expiresTime}})? Esta accion no se puede deshacer."
+    "confirmCancelScheduledDescription": "Cancelar tu reserva en {{station}} que empieza el {{startsTime}} (expira {{expiresTime}})? Esta accion no se puede deshacer.",
+    "noShowFeeNote": "Se puede aplicar una tarifa de retencion incluso si no te presentas. La reserva expira automaticamente a la hora de finalizacion.",
+    "paymentMethodRequired": "Se requiere un metodo de pago para crear una reserva."
   },
   "reservationDetail": {
     "title": "Reserva",

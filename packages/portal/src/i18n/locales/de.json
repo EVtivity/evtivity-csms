@@ -365,7 +365,9 @@
     "createFailed": "Reservierung konnte nicht erstellt werden.",
     "confirmCancelTitle": "Diese Reservierung stornieren?",
     "confirmCancelDescription": "Reservierung an {{station}}, die am {{time}} ablauft, stornieren? Dies kann nicht ruckgangig gemacht werden.",
-    "confirmCancelScheduledDescription": "Reservierung an {{station}} mit Beginn am {{startsTime}} (Ablauf {{expiresTime}}) stornieren? Dies kann nicht ruckgangig gemacht werden."
+    "confirmCancelScheduledDescription": "Reservierung an {{station}} mit Beginn am {{startsTime}} (Ablauf {{expiresTime}}) stornieren? Dies kann nicht ruckgangig gemacht werden.",
+    "noShowFeeNote": "Eine Reservierungsgebühr kann auch dann anfallen, wenn Sie nicht erscheinen. Die Reservierung läuft zur Endzeit automatisch ab.",
+    "paymentMethodRequired": "Eine Zahlungsmethode ist erforderlich, um eine Reservierung zu erstellen."
   },
   "reservationDetail": {
     "title": "Reservierung",

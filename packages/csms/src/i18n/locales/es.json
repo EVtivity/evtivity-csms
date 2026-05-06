@@ -1872,6 +1872,8 @@
     "newEvseId": "ID de EVSE (opcional)",
     "startsAt": "Inicia En",
     "scheduledNote": "La reserva se programara y activara a la hora de inicio",
+    "noShowFeeNote": "Se puede aplicar una tarifa de retencion si el conductor no se presenta. La reserva expira automaticamente a la hora de finalizacion.",
+    "paymentMethodRequired": "El conductor seleccionado no tiene un metodo de pago predeterminado. Agrega uno antes de crear la reserva.",
     "commands": "Registros OCPP",
     "commandLog": "Registro de comandos OCPP",
     "direction": "Direccion",

@@ -158,6 +158,7 @@ describe('Portal sessions routes - handler logic', () => {
             siteCity: 'Austin',
             siteState: 'TX',
             co2AvoidedKg: null,
+            reservationId: null,
           },
         ],
         [{ count: 1 }],
@@ -291,6 +292,7 @@ describe('Portal sessions routes - handler logic', () => {
             updatedAt: '2024-01-01T01:00:00Z',
             idleStartedAt: null,
             co2AvoidedKg: null,
+            reservationId: null,
           },
         ],
         [
@@ -348,6 +350,7 @@ describe('Portal sessions routes - handler logic', () => {
             updatedAt: '2024-01-01T01:00:00Z',
             idleStartedAt: null,
             co2AvoidedKg: null,
+            reservationId: null,
           },
         ],
         [],

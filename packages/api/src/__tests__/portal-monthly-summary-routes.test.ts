@@ -208,6 +208,7 @@ describe('Portal monthly summary routes', () => {
             siteAddress: null,
             siteState: null,
             co2AvoidedKg: null,
+            reservationId: null,
           },
         ],
         [{ count: 1 }],

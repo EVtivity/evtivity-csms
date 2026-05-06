@@ -8,6 +8,8 @@ import { client } from '@evtivity/database';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import type { Logger } from 'pino';
 import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
+import { resolveTariff } from '@evtivity/api/src/services/tariff.service.js';
+import { chargeReservationNoShowFee } from '@evtivity/api/src/lib/reservation-fees.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const API_TEMPLATES_DIR =
@@ -25,6 +27,11 @@ interface ExpiredRow {
   driver_id: string | null;
   reservation_ocpp_id: number;
   station_ocpp_id: string;
+  station_uuid: string;
+  site_id: string | null;
+  starts_at: Date | null;
+  expires_at: Date;
+  has_session: boolean;
 }
 
 interface ExpiringRow {
@@ -37,21 +44,29 @@ export async function reservationExpiryCheckHandler(log: Logger): Promise<void> 
   const pubsub = getPubSub();
 
   // Atomic UPDATE+RETURNING joined with charging_stations so we can also tell
-  // the station to release the connector. The status='active' guard makes
-  // concurrent runs safe -- only one row is returned per expired reservation
-  // even if the job somehow fans out.
+  // the station to release the connector AND determine whether to charge a
+  // no-show fee (active reservation that expired without a linked session).
+  // The status='active' guard makes concurrent runs safe -- only one row is
+  // returned per expired reservation even if the job somehow fans out.
   const expired = await client<ExpiredRow[]>`
     WITH updated AS (
       UPDATE reservations
       SET status = 'expired', updated_at = now()
       WHERE status = 'active' AND expires_at < now()
-      RETURNING id, driver_id, reservation_id, station_id
+      RETURNING id, driver_id, reservation_id, station_id, starts_at, expires_at, created_at
     )
     SELECT
       updated.id,
       updated.driver_id,
       updated.reservation_id AS reservation_ocpp_id,
-      charging_stations.station_id AS station_ocpp_id
+      charging_stations.station_id AS station_ocpp_id,
+      charging_stations.id AS station_uuid,
+      charging_stations.site_id,
+      updated.starts_at,
+      updated.expires_at,
+      EXISTS (
+        SELECT 1 FROM charging_sessions WHERE charging_sessions.reservation_id = updated.id
+      ) AS has_session
     FROM updated
     INNER JOIN charging_stations ON charging_stations.id = updated.station_id
   `;
@@ -86,6 +101,38 @@ export async function reservationExpiryCheckHandler(log: Logger): Promise<void> 
         { err, reservationId: row.id, stationOcppId: row.station_ocpp_id },
         'Failed to publish CancelReservation for expired reservation',
       );
+    }
+
+    // No-show fee. Charge the holding rate * minutes the connector was held
+    // when the reservation expired without a linked session. Skip when:
+    //   - No driver attached (open / operator-comp reservation)
+    //   - The driver actually charged (has_session)
+    //   - The resolved tariff has no holding rate
+    //   - The driver has no default payment method (charge helper no-ops)
+    if (row.driver_id != null && !row.has_session) {
+      try {
+        const tariff = await resolveTariff(row.station_uuid, row.driver_id);
+        const ratePerMinute =
+          tariff?.reservationFeePerMinute != null ? Number(tariff.reservationFeePerMinute) : 0;
+        if (ratePerMinute > 0) {
+          const referenceStart = row.starts_at ?? row.expires_at;
+          const holdingMs = row.expires_at.getTime() - new Date(referenceStart).getTime();
+          const holdingMinutes = Math.max(0, Math.ceil(holdingMs / 60_000));
+          const amountCents = Math.round(holdingMinutes * ratePerMinute * 100);
+          if (amountCents > 0) {
+            await chargeReservationNoShowFee(row.driver_id, row.site_id, amountCents, row.id);
+            log.info(
+              { reservationId: row.id, driverId: row.driver_id, amountCents, holdingMinutes },
+              'Charged no-show reservation fee',
+            );
+          }
+        }
+      } catch (err) {
+        log.warn(
+          { err, reservationId: row.id, driverId: row.driver_id },
+          'Failed to charge no-show reservation fee',
+        );
+      }
     }
   }
 

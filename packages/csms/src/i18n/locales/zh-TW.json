@@ -1857,6 +1857,8 @@
     "newEvseId": "EVSE ID（可選）",
     "startsAt": "開始時間",
     "scheduledNote": "預約將在開始時間安排並啟用",
+    "noShowFeeNote": "如果司機未到場，可能會收取預約保留費。預約將在結束時間自動過期。",
+    "paymentMethodRequired": "所選司機沒有預設支付方式。請先新增再建立預約。",
     "commands": "OCPP日誌",
     "commandLog": "OCPP命令日誌",
     "direction": "方向",
