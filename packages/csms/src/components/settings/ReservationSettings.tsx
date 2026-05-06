@@ -21,6 +21,7 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
   const [bufferMinutes, setBufferMinutes] = useState('15');
   const [cancellationWindowMinutes, setCancellationWindowMinutes] = useState('5');
   const [cancellationFeeCents, setCancellationFeeCents] = useState('0');
+  const [maxHours, setMaxHours] = useState('3');
 
   useEffect(() => {
     if (settings == null) return;
@@ -30,6 +31,8 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
     if (win != null) setCancellationWindowMinutes(Number(win).toString());
     const fee = settings['reservation.cancellationFeeCents'];
     if (fee != null) setCancellationFeeCents(Number(fee).toString());
+    const max = settings['reservation.maxHours'];
+    if (max != null) setMaxHours(Number(max).toString());
   }, [settings]);
 
   const bufferMutation = useMutation({
@@ -55,19 +58,40 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
     },
   });
 
-  const isPending = bufferMutation.isPending || windowMutation.isPending || feeMutation.isPending;
-  const isSuccess = bufferMutation.isSuccess || windowMutation.isSuccess || feeMutation.isSuccess;
-  const isError = bufferMutation.isError || windowMutation.isError || feeMutation.isError;
+  const maxHoursMutation = useMutation({
+    mutationFn: (value: number) => api.put('/v1/settings/reservation.maxHours', { value }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+    },
+  });
+
+  const isPending =
+    bufferMutation.isPending ||
+    windowMutation.isPending ||
+    feeMutation.isPending ||
+    maxHoursMutation.isPending;
+  const isSuccess =
+    bufferMutation.isSuccess ||
+    windowMutation.isSuccess ||
+    feeMutation.isSuccess ||
+    maxHoursMutation.isSuccess;
+  const isError =
+    bufferMutation.isError ||
+    windowMutation.isError ||
+    feeMutation.isError ||
+    maxHoursMutation.isError;
 
   function handleSave(): void {
     const buf = parseInt(bufferMinutes, 10);
     const win = parseInt(cancellationWindowMinutes, 10);
     const fee = parseInt(cancellationFeeCents, 10);
+    const max = parseInt(maxHours, 10);
 
     void Promise.all([
       bufferMutation.mutateAsync(Number.isNaN(buf) ? 15 : Math.max(0, buf)),
       windowMutation.mutateAsync(Number.isNaN(win) ? 5 : Math.max(0, win)),
       feeMutation.mutateAsync(Number.isNaN(fee) ? 0 : Math.max(0, fee)),
+      maxHoursMutation.mutateAsync(Number.isNaN(max) ? 3 : Math.max(0, max)),
     ]);
   }
 
@@ -137,6 +161,22 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
               />
               <p className="text-xs text-muted-foreground">
                 {t('settings.reservationCancellationFeeCentsHelp')}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="reservation-max-hours">{t('settings.reservationMaxHours')}</Label>
+              <Input
+                id="reservation-max-hours"
+                type="number"
+                min={0}
+                value={maxHours}
+                onChange={(e) => {
+                  setMaxHours(e.target.value);
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('settings.reservationMaxHoursHelp')}
               </p>
             </div>
           </div>

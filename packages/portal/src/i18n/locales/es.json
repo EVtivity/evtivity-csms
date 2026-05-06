@@ -369,8 +369,12 @@
     "confirmCancelTitle": "Cancelar esta reserva?",
     "confirmCancelDescription": "Cancelar tu reserva en {{station}} que expira el {{time}}? Esta accion no se puede deshacer.",
     "confirmCancelScheduledDescription": "Cancelar tu reserva en {{station}} que empieza el {{startsTime}} (expira {{expiresTime}})? Esta accion no se puede deshacer.",
-    "noShowFeeNote": "Se puede aplicar una tarifa de retencion incluso si no te presentas. La reserva expira automaticamente a la hora de finalizacion.",
-    "paymentMethodRequired": "Se requiere un metodo de pago para crear una reserva."
+    "noShowFeeNote": "Se puede aplicar una tarifa de retencion incluso si no te presentas.",
+    "maxHoursHint": "La duracion maxima de la reserva es de {{hours}} horas.",
+    "paymentMethodRequired": "Se requiere un metodo de pago para crear una reserva.",
+    "cancellationFeeWarning": "Se cobrara una tarifa de cancelacion de {{fee}} en tu metodo de pago predeterminado.",
+    "cancellationPolicy": "Politica de cancelacion",
+    "cancellationPolicyText": "Si cancelas dentro de los {{minutes}} minutos de la hora de inicio, se cobrara una tarifa de cancelacion de {{fee}}."
   },
   "reservationDetail": {
     "title": "Reserva",

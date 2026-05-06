@@ -369,8 +369,12 @@
     "confirmCancelTitle": "이 예약을 취소하시겠습니까?",
     "confirmCancelDescription": "{{time}}에 만료되는 {{station}} 예약을 취소하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
     "confirmCancelScheduledDescription": "{{startsTime}}에 시작하는 {{station}} 예약(만료: {{expiresTime}})을 취소하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
-    "noShowFeeNote": "방문하지 않아도 보유 요금이 부과될 수 있습니다. 예약은 종료 시간에 자동으로 만료됩니다.",
-    "paymentMethodRequired": "예약을 생성하려면 결제 수단이 필요합니다."
+    "noShowFeeNote": "방문하지 않아도 보유 요금이 부과될 수 있습니다.",
+    "maxHoursHint": "최대 예약 시간은 {{hours}}시간입니다.",
+    "paymentMethodRequired": "예약을 생성하려면 결제 수단이 필요합니다.",
+    "cancellationFeeWarning": "{{fee}} 취소 수수료가 기본 결제 수단으로 청구됩니다.",
+    "cancellationPolicy": "취소 정책",
+    "cancellationPolicyText": "시작 시간 {{minutes}}분 이내에 취소하면 {{fee}} 취소 수수료가 부과됩니다."
   },
   "reservationDetail": {
     "title": "예약",

@@ -75,6 +75,15 @@ vi.mock('@evtivity/database', () => ({
   driverPaymentMethods: {},
   paymentRecords: {},
   reservations: {},
+  stationImages: {},
+  settings: {},
+  getReservationSettings: vi.fn().mockResolvedValue({
+    enabled: true,
+    bufferMinutes: 0,
+    cancellationWindowMinutes: 0,
+    cancellationFeeCents: 0,
+    maxHours: 0,
+  }),
 }));
 
 vi.mock('drizzle-orm', () => ({

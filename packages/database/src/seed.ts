@@ -490,6 +490,7 @@ async function seed(): Promise<void> {
     'reservation.bufferMinutes': 0,
     'reservation.cancellationWindowMinutes': 0,
     'reservation.cancellationFeeCents': 0,
+    'reservation.maxHours': 3,
     'fleet.enabled': true,
     'support.enabled': true,
     'guest.enabled': true,

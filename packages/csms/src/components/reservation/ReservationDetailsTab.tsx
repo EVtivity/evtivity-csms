@@ -162,6 +162,25 @@ export function ReservationDetailsTab({
     },
   });
 
+  // Cancellation policy is system-wide. Reuse the public /portal/features
+  // endpoint (no auth) so the cancel dialog can warn about the configured fee.
+  const policyQuery = useQuery({
+    queryKey: ['reservation-cancellation-policy'],
+    queryFn: () =>
+      api.get<{
+        reservationCancellationFeeCents: number;
+        reservationCancellationWindowMinutes: number;
+      }>('/v1/portal/features'),
+    staleTime: 5 * 60_000,
+  });
+  const policyFeeCents = policyQuery.data?.reservationCancellationFeeCents ?? 0;
+  const policyWindowMinutes = policyQuery.data?.reservationCancellationWindowMinutes ?? 0;
+  const policyActive = policyFeeCents > 0 && policyWindowMinutes > 0;
+  const cancelable = reservation.status === 'active' || reservation.status === 'scheduled';
+  const referenceTime = new Date(reservation.startsAt ?? reservation.createdAt).getTime();
+  const minutesUntilStart = Math.floor((referenceTime - Date.now()) / 60_000);
+  const cancelFeeWillApply = policyActive && cancelable && minutesUntilStart < policyWindowMinutes;
+
   const reassignMutation = useMutation({
     mutationFn: (body: { newStationOcppId: string; newEvseId?: number }) =>
       api.post(`/v1/reservations/${reservation.id}/reassign`, body),
@@ -441,6 +460,17 @@ export function ReservationDetailsTab({
                 <dt className="text-muted-foreground">{t('reservations.createdAtLabel')}</dt>
                 <dd className="font-medium">{formatDateTime(reservation.createdAt, timezone)}</dd>
               </div>
+              {policyActive && (
+                <div className="md:col-span-2">
+                  <dt className="text-muted-foreground">{t('reservations.cancellationPolicy')}</dt>
+                  <dd className="font-medium">
+                    {t('reservations.cancellationPolicyText', {
+                      fee: `$${(policyFeeCents / 100).toFixed(2)}`,
+                      minutes: policyWindowMinutes,
+                    })}
+                  </dd>
+                </div>
+              )}
             </dl>
           )}
         </CardContent>
@@ -450,7 +480,16 @@ export function ReservationDetailsTab({
         open={cancelOpen}
         onOpenChange={setCancelOpen}
         title={t('reservations.cancel')}
-        description={t('reservations.confirmCancel')}
+        description={[
+          t('reservations.confirmCancel'),
+          cancelFeeWillApply
+            ? t('reservations.cancellationFeeWarning', {
+                fee: `$${(policyFeeCents / 100).toFixed(2)}`,
+              })
+            : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         confirmLabel={t('reservations.cancel')}
         variant="destructive"
         isPending={cancelMutation.isPending}

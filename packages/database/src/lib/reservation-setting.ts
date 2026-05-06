@@ -10,6 +10,7 @@ export interface ReservationSettings {
   bufferMinutes: number;
   cancellationWindowMinutes: number;
   cancellationFeeCents: number;
+  maxHours: number;
 }
 
 const RESERVATION_KEYS = [
@@ -17,6 +18,7 @@ const RESERVATION_KEYS = [
   'reservation.bufferMinutes',
   'reservation.cancellationWindowMinutes',
   'reservation.cancellationFeeCents',
+  'reservation.maxHours',
 ] as const;
 
 const DEFAULTS: ReservationSettings = {
@@ -24,6 +26,7 @@ const DEFAULTS: ReservationSettings = {
   bufferMinutes: 0,
   cancellationWindowMinutes: 0,
   cancellationFeeCents: 0,
+  maxHours: 3,
 };
 
 let cache: ReservationSettings | undefined;
@@ -58,6 +61,9 @@ export async function getReservationSettings(): Promise<ReservationSettings> {
       cancellationFeeCents: map.has('reservation.cancellationFeeCents')
         ? Number(map.get('reservation.cancellationFeeCents'))
         : DEFAULTS.cancellationFeeCents,
+      maxHours: map.has('reservation.maxHours')
+        ? Number(map.get('reservation.maxHours'))
+        : DEFAULTS.maxHours,
     };
     cachedAt = now;
     return cache;

@@ -369,8 +369,12 @@
     "confirmCancelTitle": "Cancel this reservation?",
     "confirmCancelDescription": "Cancel your reservation at {{station}} expiring {{time}}? This cannot be undone.",
     "confirmCancelScheduledDescription": "Cancel your reservation at {{station}} starting {{startsTime}} (expires {{expiresTime}})? This cannot be undone.",
-    "noShowFeeNote": "A holding fee may apply even if you don't show up. The reservation expires automatically at the end time.",
-    "paymentMethodRequired": "A payment method is required to create a reservation."
+    "noShowFeeNote": "A holding fee may apply even if you don't show up.",
+    "maxHoursHint": "Maximum reservation duration is {{hours}} hours.",
+    "paymentMethodRequired": "A payment method is required to create a reservation.",
+    "cancellationFeeWarning": "A cancellation fee of {{fee}} will be charged to your default payment method.",
+    "cancellationPolicy": "Cancellation policy",
+    "cancellationPolicyText": "If you cancel within {{minutes}} minutes of the start time, a {{fee}} cancellation fee will be charged."
   },
   "reservationDetail": {
     "title": "Reservation",

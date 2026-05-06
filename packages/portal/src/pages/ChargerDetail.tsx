@@ -24,6 +24,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { InfoNote } from '@/components/ui/info-note';
 import { ReportIssue } from '@/components/ReportIssue';
 import { useToast } from '@/components/ui/toast';
 import { PricingDisplay, isPricingFree } from '@/components/PricingDisplay';
@@ -205,6 +206,15 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
   });
   const hasDefaultPaymentMethod =
     paymentMethods != null && paymentMethods.some((pm) => pm.isDefault);
+
+  // Reservation policy (max hours) for the reserve-mode hint. Public endpoint.
+  const reservationPolicyQuery = useQuery({
+    queryKey: ['portal-features'],
+    queryFn: () => api.get<{ reservationMaxHours: number }>('/v1/portal/features'),
+    enabled: mode === 'reserve',
+    staleTime: 5 * 60_000,
+  });
+  const reservationMaxHours = reservationPolicyQuery.data?.reservationMaxHours ?? 0;
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -698,10 +708,10 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
                 }}
               />
             </div>
-            <p className="flex items-start gap-1 text-xs text-muted-foreground">
-              <Info className="h-3 w-3 mt-0.5 shrink-0" />
-              {t('reservations.noShowFeeNote')}
-            </p>
+            {reservationMaxHours > 0 && (
+              <InfoNote>{t('reservations.maxHoursHint', { hours: reservationMaxHours })}</InfoNote>
+            )}
+            <InfoNote>{t('reservations.noShowFeeNote')}</InfoNote>
             {!hasDefaultPaymentMethod && paymentMethods != null && (
               <Alert variant="warning">
                 <AlertCircle className="h-4 w-4" />

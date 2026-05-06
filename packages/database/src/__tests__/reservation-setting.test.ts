@@ -43,6 +43,7 @@ describe('getReservationSettings', () => {
       bufferMinutes: 0,
       cancellationWindowMinutes: 0,
       cancellationFeeCents: 0,
+      maxHours: 3,
     });
   });
 
@@ -62,6 +63,7 @@ describe('getReservationSettings', () => {
       bufferMinutes: 10,
       cancellationWindowMinutes: 30,
       cancellationFeeCents: 500,
+      maxHours: 3,
     });
   });
 
@@ -91,6 +93,7 @@ describe('getReservationSettings', () => {
       bufferMinutes: 0,
       cancellationWindowMinutes: 0,
       cancellationFeeCents: 0,
+      maxHours: 3,
     });
   });
 

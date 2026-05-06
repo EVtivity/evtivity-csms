@@ -88,6 +88,7 @@ vi.mock('@evtivity/database', () => ({
     bufferMinutes: 0,
     cancellationWindowMinutes: 0,
     cancellationFeeCents: 0,
+    maxHours: 0,
   }),
 }));
 
@@ -217,6 +218,7 @@ describe('Reservation routes', () => {
       bufferMinutes: 0,
       cancellationWindowMinutes: 0,
       cancellationFeeCents: 0,
+      maxHours: 0,
     });
   });
 
@@ -439,9 +441,10 @@ describe('Reservation routes', () => {
       setupDbResults([
         { id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null },
       ]);
-      // startsAt in the past so the window check passes (long span), but
-      // expiresAt is within 60s of NOW so the absolute-time check fails.
-      const startsAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      // Use startsAt 30s in the past (within the 60s STARTS_IN_PAST slack)
+      // so window math passes and STARTS_IN_PAST does NOT fire, but
+      // expiresAt is also within 60s of NOW so EXPIRES_TOO_SOON fires.
+      const startsAt = new Date(Date.now() - 30_000).toISOString();
       const expiresAt = new Date(Date.now() + 30_000).toISOString();
       const res = await app.inject({
         method: 'POST',
@@ -813,6 +816,7 @@ describe('Reservation routes', () => {
           bufferMinutes: 0,
           cancellationWindowMinutes: 0,
           cancellationFeeCents: 0,
+          maxHours: 0,
         });
 
         const res = await app.inject({
@@ -1046,6 +1050,7 @@ describe('Reservation routes', () => {
           bufferMinutes: 0,
           cancellationWindowMinutes: 60,
           cancellationFeeCents: 500,
+          maxHours: 0,
         });
 
         triggerCancelAccepted();
@@ -1086,6 +1091,7 @@ describe('Reservation routes', () => {
           bufferMinutes: 0,
           cancellationWindowMinutes: 60,
           cancellationFeeCents: 500,
+          maxHours: 0,
         });
 
         triggerCancelAccepted();
@@ -1120,6 +1126,7 @@ describe('Reservation routes', () => {
           bufferMinutes: 0,
           cancellationWindowMinutes: 60,
           cancellationFeeCents: 0,
+          maxHours: 0,
         });
 
         triggerCancelAccepted();
@@ -1154,6 +1161,7 @@ describe('Reservation routes', () => {
           bufferMinutes: 0,
           cancellationWindowMinutes: 60,
           cancellationFeeCents: 500,
+          maxHours: 0,
         });
         mockChargeReservationCancellationFee.mockRejectedValueOnce(
           new Error('Stripe card declined'),

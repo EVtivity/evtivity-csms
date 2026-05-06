@@ -32,6 +32,17 @@ interface ReservationDetailData {
   sessionId: string | null;
 }
 
+interface PortalFeatures {
+  reservationEnabled: boolean;
+  supportEnabled: boolean;
+  reservationCancellationFeeCents: number;
+  reservationCancellationWindowMinutes: number;
+}
+
+function formatCents(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
 function statusVariant(
   status: string,
 ): 'default' | 'secondary' | 'destructive' | 'outline' | 'info' {
@@ -65,6 +76,12 @@ export function ReservationDetail(): React.JSX.Element {
     enabled: id != null,
   });
 
+  const { data: features } = useQuery({
+    queryKey: ['portal-features'],
+    queryFn: () => api.get<PortalFeatures>('/v1/portal/features'),
+    staleTime: 5 * 60_000,
+  });
+
   const cancelMutation = useMutation({
     mutationFn: () => api.delete(`/v1/portal/reservations/${id ?? ''}`),
     onSuccess: () => {
@@ -87,6 +104,15 @@ export function ReservationDetail(): React.JSX.Element {
     .join(', ');
 
   const canCancel = reservation.status === 'active' || reservation.status === 'scheduled';
+
+  // Cancellation fee preview: matches the API's gate in reservations.ts so the
+  // user sees the same number we'd actually charge if they confirm.
+  const policyFeeCents = features?.reservationCancellationFeeCents ?? 0;
+  const policyWindowMinutes = features?.reservationCancellationWindowMinutes ?? 0;
+  const policyActive = policyFeeCents > 0 && policyWindowMinutes > 0;
+  const referenceTime = new Date(reservation.startsAt ?? reservation.createdAt).getTime();
+  const minutesUntilStart = Math.floor((referenceTime - Date.now()) / 60_000);
+  const cancelFeeWillApply = policyActive && canCancel && minutesUntilStart < policyWindowMinutes;
 
   return (
     <div className="space-y-4">
@@ -150,6 +176,22 @@ export function ReservationDetail(): React.JSX.Element {
         </CardContent>
       </Card>
 
+      {policyActive && canCancel && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">{t('reservations.cancellationPolicy')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              {t('reservations.cancellationPolicyText', {
+                fee: formatCents(policyFeeCents),
+                minutes: policyWindowMinutes,
+              })}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {reservation.status === 'used' && reservation.sessionId != null && (
         <Card
           className="cursor-pointer hover:shadow-md transition-shadow"
@@ -189,7 +231,7 @@ export function ReservationDetail(): React.JSX.Element {
           if (!open) setShowCancelConfirm(false);
         }}
         title={t('reservations.confirmCancelTitle')}
-        description={
+        description={[
           reservation.status === 'scheduled' && reservation.startsAt != null
             ? t('reservations.confirmCancelScheduledDescription', {
                 station: reservation.stationOcppId,
@@ -199,8 +241,13 @@ export function ReservationDetail(): React.JSX.Element {
             : t('reservations.confirmCancelDescription', {
                 station: reservation.stationOcppId,
                 time: formatDate(reservation.expiresAt, timezone),
-              })
-        }
+              }),
+          cancelFeeWillApply
+            ? t('reservations.cancellationFeeWarning', { fee: formatCents(policyFeeCents) })
+            : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         confirmLabel={t('reservations.cancel')}
         cancelLabel={t('common.keep')}
         variant="destructive"

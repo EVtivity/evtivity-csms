@@ -6,13 +6,13 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
-import { Info } from 'lucide-react';
 import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select } from '@/components/ui/select';
+import { InfoNote } from '@/components/ui/info-note';
 import { DriverCombobox } from '@/components/driver-combobox';
 import { StationCombobox, type StationSelection } from '@/components/station-combobox';
 import { api } from '@/lib/api';
@@ -121,6 +121,15 @@ export function ReservationCreate(): React.JSX.Element {
   useEffect(() => {
     setSelectedConnectorKey('');
   }, [selectedStation?.id]);
+
+  // System-wide reservation policy (max hours, cancellation fee, ...). Public
+  // endpoint so we don't need a separate operator query.
+  const policyQuery = useQuery({
+    queryKey: ['reservation-policy'],
+    queryFn: () => api.get<{ reservationMaxHours: number }>('/v1/portal/features'),
+    staleTime: 5 * 60_000,
+  });
+  const maxHours = policyQuery.data?.reservationMaxHours ?? 0;
 
   // Driver payment-method probe. Reservation may incur a no-show holding fee
   // or cancellation fee, so the API requires a default payment method when a
@@ -292,12 +301,10 @@ export function ReservationCreate(): React.JSX.Element {
                 )}
               </div>
             </div>
-            {isStartInFuture && (
-              <p className="flex items-center gap-1 text-xs text-info">
-                <Info className="h-3 w-3" />
-                {t('reservations.scheduledNote')}
-              </p>
+            {maxHours > 0 && (
+              <InfoNote>{t('reservations.maxHoursHint', { hours: maxHours })}</InfoNote>
             )}
+            {isStartInFuture && <InfoNote>{t('reservations.scheduledNote')}</InfoNote>}
             <div className="space-y-2">
               <Label>{t('reservations.driver')}</Label>
               <DriverCombobox value={selectedDriver} onSelect={setSelectedDriver} />
@@ -307,10 +314,7 @@ export function ReservationCreate(): React.JSX.Element {
                 </p>
               )}
             </div>
-            <p className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Info className="h-3 w-3" />
-              {t('reservations.noShowFeeNote')}
-            </p>
+            <InfoNote>{t('reservations.noShowFeeNote')}</InfoNote>
             {createMutation.isError && (
               <p className="text-sm text-destructive">{getErrorMessage(createMutation.error, t)}</p>
             )}

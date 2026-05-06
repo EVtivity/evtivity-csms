@@ -16,6 +16,7 @@ import {
   reservations,
   stationImages,
   settings,
+  getReservationSettings,
 } from '@evtivity/database';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { ID_PARAMS } from '../../lib/id-validation.js';
@@ -1807,10 +1808,30 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         });
         return;
       }
+      // Reject explicit startsAt in the past (beyond the 60s slack). The slack
+      // covers form-submit drift where a "now"-ish startsAt rolls slightly past
+      // by the time the request lands at the API.
+      if (body.startsAt != null && startsAtTime < Date.now() - MIN_DURATION_MS) {
+        await reply.status(400).send({
+          error: 'Reservation start time cannot be in the past',
+          code: 'RESERVATION_STARTS_IN_PAST',
+        });
+        return;
+      }
       if (expiresAtTime - Date.now() < MIN_DURATION_MS) {
         await reply.status(400).send({
           error: 'Reservation must end at least 60 seconds in the future',
           code: 'RESERVATION_EXPIRES_TOO_SOON',
+        });
+        return;
+      }
+      // System-wide cap on how long a single reservation can run.
+      const reservationCfg = await getReservationSettings();
+      const maxDurationMs = reservationCfg.maxHours * 60 * 60 * 1000;
+      if (maxDurationMs > 0 && expiresAtTime - startsAtTime > maxDurationMs) {
+        await reply.status(400).send({
+          error: `Reservation cannot exceed ${String(reservationCfg.maxHours)} hours`,
+          code: 'RESERVATION_TOO_LONG',
         });
         return;
       }

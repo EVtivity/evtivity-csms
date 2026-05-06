@@ -4,7 +4,12 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, like, or } from 'drizzle-orm';
-import { db, isReservationEnabled, isSupportEnabled } from '@evtivity/database';
+import {
+  db,
+  getReservationSettings,
+  isReservationEnabled,
+  isSupportEnabled,
+} from '@evtivity/database';
 import { settings } from '@evtivity/database';
 import { encryptString } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -64,7 +69,13 @@ export function settingsRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(
             z
-              .object({ reservationEnabled: z.boolean(), supportEnabled: z.boolean() })
+              .object({
+                reservationEnabled: z.boolean(),
+                supportEnabled: z.boolean(),
+                reservationCancellationFeeCents: z.number(),
+                reservationCancellationWindowMinutes: z.number(),
+                reservationMaxHours: z.number(),
+              })
               .passthrough(),
           ),
         },
@@ -73,7 +84,14 @@ export function settingsRoutes(app: FastifyInstance): void {
     async () => {
       const reservationEnabled = await isReservationEnabled();
       const supportEnabled = await isSupportEnabled();
-      return { reservationEnabled, supportEnabled };
+      const reservationConfig = await getReservationSettings();
+      return {
+        reservationEnabled,
+        supportEnabled,
+        reservationCancellationFeeCents: reservationConfig.cancellationFeeCents,
+        reservationCancellationWindowMinutes: reservationConfig.cancellationWindowMinutes,
+        reservationMaxHours: reservationConfig.maxHours,
+      };
     },
   );
 

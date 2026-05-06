@@ -366,8 +366,12 @@
     "confirmCancelTitle": "Diese Reservierung stornieren?",
     "confirmCancelDescription": "Reservierung an {{station}}, die am {{time}} ablauft, stornieren? Dies kann nicht ruckgangig gemacht werden.",
     "confirmCancelScheduledDescription": "Reservierung an {{station}} mit Beginn am {{startsTime}} (Ablauf {{expiresTime}}) stornieren? Dies kann nicht ruckgangig gemacht werden.",
-    "noShowFeeNote": "Eine Reservierungsgebühr kann auch dann anfallen, wenn Sie nicht erscheinen. Die Reservierung läuft zur Endzeit automatisch ab.",
-    "paymentMethodRequired": "Eine Zahlungsmethode ist erforderlich, um eine Reservierung zu erstellen."
+    "noShowFeeNote": "Eine Reservierungsgebühr kann auch dann anfallen, wenn Sie nicht erscheinen.",
+    "maxHoursHint": "Die maximale Reservierungsdauer beträgt {{hours}} Stunden.",
+    "paymentMethodRequired": "Eine Zahlungsmethode ist erforderlich, um eine Reservierung zu erstellen.",
+    "cancellationFeeWarning": "Eine Stornogebühr von {{fee}} wird Ihrer Standard-Zahlungsmethode belastet.",
+    "cancellationPolicy": "Stornierungsbedingungen",
+    "cancellationPolicyText": "Bei Stornierung innerhalb von {{minutes}} Minuten vor der Startzeit wird eine Stornogebühr von {{fee}} erhoben."
   },
   "reservationDetail": {
     "title": "Reservierung",

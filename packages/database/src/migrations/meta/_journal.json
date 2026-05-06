@@ -50,6 +50,13 @@
       "when": 1778204000000,
       "tag": "0006_periodic_jobs_to_worker",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1778293000000,
+      "tag": "0007_reservation_max_hours_setting",
+      "breakpoints": true
     }
   ]
 }

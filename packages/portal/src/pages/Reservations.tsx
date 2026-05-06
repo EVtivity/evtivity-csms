@@ -28,6 +28,17 @@ interface ReservationsResponse {
   data: Reservation[];
 }
 
+interface PortalFeatures {
+  reservationEnabled: boolean;
+  supportEnabled: boolean;
+  reservationCancellationFeeCents: number;
+  reservationCancellationWindowMinutes: number;
+}
+
+function formatCents(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
 function statusVariant(
   status: string,
 ): 'default' | 'secondary' | 'destructive' | 'outline' | 'info' {
@@ -61,6 +72,23 @@ export function Reservations(): React.JSX.Element {
     queryKey: ['portal-reservations'],
     queryFn: () => api.get<ReservationsResponse>('/v1/portal/reservations'),
   });
+
+  // Cancellation policy lives on /v1/portal/features so the cancel dialog can
+  // warn the holder about a potential fee before they confirm.
+  const { data: features } = useQuery({
+    queryKey: ['portal-features'],
+    queryFn: () => api.get<PortalFeatures>('/v1/portal/features'),
+    staleTime: 5 * 60_000,
+  });
+
+  function feeWillApply(reservation: Reservation): boolean {
+    if (features == null) return false;
+    if (features.reservationCancellationFeeCents <= 0) return false;
+    if (features.reservationCancellationWindowMinutes <= 0) return false;
+    const referenceTime = new Date(reservation.startsAt ?? reservation.createdAt).getTime();
+    const minutesUntilStart = Math.floor((referenceTime - Date.now()) / 60_000);
+    return minutesUntilStart < features.reservationCancellationWindowMinutes;
+  }
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/v1/portal/reservations/${id}`),
@@ -147,16 +175,25 @@ export function Reservations(): React.JSX.Element {
         title={t('reservations.confirmCancelTitle')}
         description={
           pendingCancel != null
-            ? pendingCancel.status === 'scheduled' && pendingCancel.startsAt != null
-              ? t('reservations.confirmCancelScheduledDescription', {
-                  station: pendingCancel.stationOcppId,
-                  startsTime: formatDate(pendingCancel.startsAt, timezone),
-                  expiresTime: formatDate(pendingCancel.expiresAt, timezone),
-                })
-              : t('reservations.confirmCancelDescription', {
-                  station: pendingCancel.stationOcppId,
-                  time: formatDate(pendingCancel.expiresAt, timezone),
-                })
+            ? [
+                pendingCancel.status === 'scheduled' && pendingCancel.startsAt != null
+                  ? t('reservations.confirmCancelScheduledDescription', {
+                      station: pendingCancel.stationOcppId,
+                      startsTime: formatDate(pendingCancel.startsAt, timezone),
+                      expiresTime: formatDate(pendingCancel.expiresAt, timezone),
+                    })
+                  : t('reservations.confirmCancelDescription', {
+                      station: pendingCancel.stationOcppId,
+                      time: formatDate(pendingCancel.expiresAt, timezone),
+                    }),
+                feeWillApply(pendingCancel) && features != null
+                  ? t('reservations.cancellationFeeWarning', {
+                      fee: formatCents(features.reservationCancellationFeeCents),
+                    })
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' ')
             : ''
         }
         confirmLabel={t('reservations.cancel')}

@@ -369,8 +369,12 @@
     "confirmCancelTitle": "取消此预约？",
     "confirmCancelDescription": "取消您在 {{station}} 的预约（到期时间 {{time}}）？此操作无法撤销。",
     "confirmCancelScheduledDescription": "取消您在 {{station}} 的预约（开始时间 {{startsTime}}，到期时间 {{expiresTime}}）？此操作无法撤销。",
-    "noShowFeeNote": "即使您未到场，仍可能收取预约保留费。预约将在结束时间自动过期。",
-    "paymentMethodRequired": "创建预约需要支付方式。"
+    "noShowFeeNote": "即使您未到场，仍可能收取预约保留费。",
+    "maxHoursHint": "最长预约时长为 {{hours}} 小时。",
+    "paymentMethodRequired": "创建预约需要支付方式。",
+    "cancellationFeeWarning": "将向您的默认支付方式收取 {{fee}} 取消费用。",
+    "cancellationPolicy": "取消政策",
+    "cancellationPolicyText": "如果在开始时间前 {{minutes}} 分钟内取消，将收取 {{fee}} 取消费用。"
   },
   "reservationDetail": {
     "title": "预约",
