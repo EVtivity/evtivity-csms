@@ -181,7 +181,7 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
         }
       }
 
-      await reply.status(401).send({ error: 'Unauthorized' });
+      await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
     }
   });
 
@@ -190,7 +190,9 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
       await request.jwtVerify();
       const payload = request.user as unknown as Record<string, unknown>;
       if (payload['type'] !== 'driver') {
-        await reply.status(403).send({ error: 'Forbidden: driver token required' });
+        await reply
+          .status(403)
+          .send({ error: 'Forbidden: driver token required', code: 'FORBIDDEN_DRIVER_TOKEN' });
         return;
       }
       // Check if driver account is still active
@@ -208,7 +210,7 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
         }
       }
     } catch {
-      await reply.status(401).send({ error: 'Unauthorized' });
+      await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
     }
   });
 }

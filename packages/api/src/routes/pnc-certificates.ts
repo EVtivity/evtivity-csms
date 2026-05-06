@@ -21,7 +21,6 @@ import {
 const caCertItem = z.object({}).passthrough();
 const csrItem = z.object({}).passthrough();
 const stationCertItem = z.object({}).passthrough();
-const refreshResponse = z.object({ success: z.literal(true), message: z.string() }).passthrough();
 
 const caCertQuery = paginationQuery.extend({
   certificateType: z.string().optional().describe('Filter by certificate type'),
@@ -373,7 +372,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         summary: 'Refresh root certificates from provider',
         operationId: 'refreshPncRootCertificates',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(refreshResponse) },
+        response: { 200: successResponse },
       },
     },
     async () => {
@@ -381,7 +380,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
       const payload = JSON.stringify({ action: 'refreshRootCertificates' });
       await getPubSub().publish('pnc_commands', payload);
 
-      return { success: true, message: 'Refresh request dispatched' };
+      return { success: true };
     },
   );
 }

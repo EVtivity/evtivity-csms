@@ -256,7 +256,9 @@ export function portalAuthRoutes(app: FastifyInstance): void {
 
       const driver = rows[0];
       if (driver == null) {
-        await reply.status(500).send({ error: 'Failed to create driver' });
+        await reply
+          .status(500)
+          .send({ error: 'Failed to create driver', code: 'DRIVER_CREATE_FAILED' });
         return;
       }
       const token = app.jwt.sign(

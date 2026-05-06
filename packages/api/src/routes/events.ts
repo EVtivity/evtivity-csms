@@ -95,7 +95,7 @@ export function eventStreamRoutes(app: FastifyInstance): void {
         }
       }
       if (token == null || token === '') {
-        return reply.status(401).send({ error: 'Unauthorized' });
+        return reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
       }
 
       let userId: string;
@@ -103,7 +103,7 @@ export function eventStreamRoutes(app: FastifyInstance): void {
         const decoded = app.jwt.verify(token);
         userId = (decoded as { userId: string }).userId;
       } catch {
-        return reply.status(401).send({ error: 'Unauthorized' });
+        return reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
       }
 
       const allowedSiteIds = await getUserSiteIds(userId);

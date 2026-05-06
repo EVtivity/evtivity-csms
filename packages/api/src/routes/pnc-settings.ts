@@ -222,9 +222,10 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
         });
 
         if (!response.ok && response.status !== 401 && response.status !== 403) {
-          await reply
-            .status(502)
-            .send({ success: false, error: `Provider returned ${String(response.status)}` });
+          await reply.status(502).send({
+            error: `Provider returned ${String(response.status)}`,
+            code: 'PROVIDER_TEST_FAILED',
+          });
           return;
         }
 
@@ -232,7 +233,7 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
         return { success: true, provider: providerType };
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
-        await reply.status(502).send({ success: false, error: message });
+        await reply.status(502).send({ error: message, code: 'PROVIDER_TEST_FAILED' });
         return;
       }
     },

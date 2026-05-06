@@ -88,7 +88,9 @@ export function portalStationEventRoutes(app: FastifyInstance): void {
         .limit(1);
 
       if (station == null) {
-        return await reply.status(404).send({ error: 'Station not found' });
+        return await reply
+          .status(404)
+          .send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
       }
 
       void reply

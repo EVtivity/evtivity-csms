@@ -34,13 +34,17 @@ export function webhookRoutes(app: FastifyInstance): void {
       const webhookSecret = process.env['STRIPE_WEBHOOK_SECRET'] ?? apiConfig.STRIPE_WEBHOOK_SECRET;
       if (webhookSecret == null || webhookSecret === '') {
         app.log.error('STRIPE_WEBHOOK_SECRET not configured');
-        await reply.status(500).send({ error: 'Webhook not configured' });
+        await reply
+          .status(500)
+          .send({ error: 'Webhook not configured', code: 'WEBHOOK_NOT_CONFIGURED' });
         return;
       }
 
       const signature = request.headers['stripe-signature'];
       if (signature == null || typeof signature !== 'string') {
-        await reply.status(400).send({ error: 'Missing stripe-signature header' });
+        await reply
+          .status(400)
+          .send({ error: 'Missing stripe-signature header', code: 'WEBHOOK_SIGNATURE_MISSING' });
         return;
       }
 
@@ -54,7 +58,9 @@ export function webhookRoutes(app: FastifyInstance): void {
           { error: err instanceof Error ? err.message : String(err) },
           'Webhook signature verification failed',
         );
-        await reply.status(400).send({ error: 'Invalid signature' });
+        await reply
+          .status(400)
+          .send({ error: 'Invalid signature', code: 'WEBHOOK_SIGNATURE_INVALID' });
         return;
       }
 

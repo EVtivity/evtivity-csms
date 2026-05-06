@@ -33,8 +33,6 @@ const createPartnerResponse = z
   .object({ partner: z.object({}).passthrough(), registrationToken: z.string() })
   .passthrough();
 
-const registerSyncResponse = z.object({ message: z.string() }).passthrough();
-
 const syncLogItem = z
   .object({
     id: z.string(),
@@ -360,7 +358,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(partnerParams),
         response: {
-          200: itemResponse(registerSyncResponse),
+          200: successResponse,
           400: errorResponse,
           404: errorResponse,
         },
@@ -395,7 +393,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         JSON.stringify({ partnerId: id, versionUrl: partner.versionUrl }),
       );
 
-      return { message: 'Registration initiated' };
+      return { success: true };
     },
   );
 
@@ -411,7 +409,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(syncParams),
         response: {
-          200: itemResponse(registerSyncResponse),
+          200: successResponse,
           400: errorResponse,
           404: errorResponse,
         },
@@ -442,7 +440,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
       const pubsub = getPubSub();
       await pubsub.publish('ocpi_sync', JSON.stringify({ partnerId: id, module }));
 
-      return { message: `Sync initiated for module: ${module}` };
+      return { success: true };
     },
   );
 

@@ -41,7 +41,9 @@ export function authorize(...requiredPermissions: string[]) {
 
     const user = request.user;
     if (!('userId' in user)) {
-      await reply.status(403).send({ error: 'Insufficient permissions' });
+      await reply
+        .status(403)
+        .send({ error: 'Insufficient permissions', code: 'INSUFFICIENT_PERMISSIONS' });
       return;
     }
 
@@ -57,7 +59,9 @@ export function authorize(...requiredPermissions: string[]) {
 
     for (const required of requiredPermissions) {
       if (!hasPermission(effectivePerms, required)) {
-        await reply.status(403).send({ error: 'Insufficient permissions' });
+        await reply
+          .status(403)
+          .send({ error: 'Insufficient permissions', code: 'INSUFFICIENT_PERMISSIONS' });
         return;
       }
     }

@@ -78,11 +78,11 @@ export function portalEventRoutes(app: FastifyInstance): void {
         await request.jwtVerify();
         const payload = request.user as unknown as Record<string, unknown>;
         if (payload['type'] !== 'driver') {
-          return await reply.status(403).send({ error: 'Forbidden' });
+          return await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
         }
         driverId = payload['driverId'] as string;
       } catch {
-        return await reply.status(401).send({ error: 'Unauthorized' });
+        return await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
       }
 
       void reply
