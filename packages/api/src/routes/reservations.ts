@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, or, ilike, desc, sql, count, inArray } from 'drizzle-orm';
+import { eq, and, or, ilike, desc, sql, count, inArray, gt } from 'drizzle-orm';
 import { db, client } from '@evtivity/database';
 import {
   reservations,
@@ -575,10 +575,13 @@ export function reservationRoutes(app: FastifyInstance): void {
       const conflictConditions = [
         eq(reservations.stationId, station.id),
         or(eq(reservations.status, 'active'), eq(reservations.status, 'scheduled')),
-        // existingStart < newEnd
-        sql`COALESCE(${reservations.startsAt}, ${reservations.createdAt}) < ${newEnd}`,
+        // existingStart < newEnd. The left side is a raw SQL fragment so
+        // Drizzle has no column type to drive Date serialization; pass an
+        // ISO string explicitly to avoid postgres-js binding a Date as a
+        // generic parameter.
+        sql`COALESCE(${reservations.startsAt}, ${reservations.createdAt}) < ${newEnd.toISOString()}`,
         // existing.expiresAt > newStart
-        sql`${reservations.expiresAt} > ${newStart}`,
+        gt(reservations.expiresAt, newStart),
       ];
       if (resolvedEvseId != null) {
         // EVSE-specific request: only conflict with same EVSE OR with
