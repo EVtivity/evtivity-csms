@@ -1,4 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
-  <circle cx="60" cy="60" r="56" fill="#4ade80"/>
-  <path d="M68 20L38 68h22l-6 32 30-48H62l6-32z" fill="white"/>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <!--
+    Both gaps are centered on the line that passes through the bolt's two
+    apexes (top apex 67.6,22 and bottom apex 54.3,98). All four gap edges
+    are parallel to that line. A straight line from one apex to the other
+    passes cleanly through the centers of both gap openings.
+  -->
+  <defs>
+    <mask id="ringgaps">
+      <rect width="120" height="120" fill="white"/>
+      <!-- Top gap parallelogram, centered on the apex line -->
+      <polygon points="68.82,-8.24 76.70,-6.86 69.82,32.54 61.94,31.16" fill="black"/>
+      <!-- Bottom gap parallelogram, centered on the apex line -->
+      <polygon points="52.08,87.46 59.96,88.84 53.08,128.24 45.20,126.86" fill="black"/>
+    </mask>
+  </defs>
+  <circle cx="60" cy="60" r="50" fill="none" stroke="#22c55e" stroke-width="12" mask="url(#ringgaps)"/>
+  <g transform="translate(60 60) scale(0.95) translate(-60 -60)">
+    <path d="M68 20L38 68h22l-6 32 30-48H62l6-32z" fill="#22c55e"/>
+  </g>
 </svg>

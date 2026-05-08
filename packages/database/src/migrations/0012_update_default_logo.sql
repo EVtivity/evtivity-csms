@@ -1,0 +1,16 @@
+-- Refresh company.logo / company.favicon defaults to the new ring-style mark
+-- (transparent center, two parallel-aligned gaps) for installs that still hold
+-- one of the previously seeded defaults. Operators who uploaded their own logo
+-- via Settings -> Company are not touched (their stored value won't match
+-- either old default).
+
+UPDATE settings
+SET value = '"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjAgMTIwIiB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCI+PGRlZnM+PG1hc2sgaWQ9InJpbmdnYXBzIj48cmVjdCB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCIgZmlsbD0id2hpdGUiLz48cG9seWdvbiBwb2ludHM9IjY4LjgyLC04LjI0IDc2LjcwLC02Ljg2IDY5LjgyLDMyLjU0IDYxLjk0LDMxLjE2IiBmaWxsPSJibGFjayIvPjxwb2x5Z29uIHBvaW50cz0iNTIuMDgsODcuNDYgNTkuOTYsODguODQgNTMuMDgsMTI4LjI0IDQ1LjIwLDEyNi44NiIgZmlsbD0iYmxhY2siLz48L21hc2s+PC9kZWZzPjxjaXJjbGUgY3g9IjYwIiBjeT0iNjAiIHI9IjUwIiBmaWxsPSJub25lIiBzdHJva2U9IiMyMmM1NWUiIHN0cm9rZS13aWR0aD0iMTIiIG1hc2s9InVybCgjcmluZ2dhcHMpIi8+PGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNjAgNjApIHNjYWxlKDAuOTUpIHRyYW5zbGF0ZSgtNjAgLTYwKSI+PHBhdGggZD0iTTY4IDIwTDM4IDY4aDIybC02IDMyIDMwLTQ4SDYybDYtMzJ6IiBmaWxsPSIjMjJjNTVlIi8+PC9nPjwvc3ZnPg=="',
+    updated_at = NOW()
+WHERE key IN ('company.logo', 'company.favicon')
+  AND value IN (
+    -- Original 0001_seed_defaults.sql default (small viewBox 0 0 24 24, fill #f0fdf4 + stroke)
+    '"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMjAiIGhlaWdodD0iMTIwIiB2aWV3Qm94PSIwIDAgMjQgMjQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzE2YTM0YSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjExIiBmaWxsPSIjZjBmZGY0IiBzdHJva2U9IiMxNmEzNGEiIHN0cm9rZS13aWR0aD0iMSIvPjxwYXRoIGQ9Ik0xMyAyTDMgMTRoOWwtMSA4IDEwLTEyaC05bDEtOHoiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDEuNSAxKSBzY2FsZSgwLjg1KSIgZmlsbD0iIzE2YTM0YSIgc3Ryb2tlPSIjMTZhMzRhIi8+PC9zdmc+"',
+    -- Previous seed.ts default (solid #4ade80 circle with white bolt)
+    '"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMjAiIGhlaWdodD0iMTIwIiB2aWV3Qm94PSIwIDAgMTIwIDEyMCI+PGNpcmNsZSBjeD0iNjAiIGN5PSI2MCIgcj0iNTYiIGZpbGw9IiM0YWRlODAiLz48cGF0aCBkPSJNNjggMjBMMzggNjhoMjJsLTYgMzIgMzAtNDhINjJsNi0zMnoiIGZpbGw9IndoaXRlIi8+PC9zdmc+"'
+  );

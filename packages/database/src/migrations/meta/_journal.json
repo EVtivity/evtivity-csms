@@ -85,6 +85,13 @@
       "when": 1746489700000,
       "tag": "0011_station_message_refresh_cron",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1746662400000,
+      "tag": "0012_update_default_logo",
+      "breakpoints": true
     }
   ]
 }

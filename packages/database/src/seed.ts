@@ -380,8 +380,8 @@ async function seed(): Promise<void> {
   console.log('  Tables cleared.');
 
   // ------ Settings ------
-  // EVtivity logo - green circle with white lightning bolt
-  const logoSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120"><circle cx="60" cy="60" r="56" fill="#4ade80"/><path d="M68 20L38 68h22l-6 32 30-48H62l6-32z" fill="white"/></svg>`;
+  // EVtivity logo - green ring (two parallel-aligned gaps) with green lightning bolt
+  const logoSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120"><defs><mask id="ringgaps"><rect width="120" height="120" fill="white"/><polygon points="68.82,-8.24 76.70,-6.86 69.82,32.54 61.94,31.16" fill="black"/><polygon points="52.08,87.46 59.96,88.84 53.08,128.24 45.20,126.86" fill="black"/></mask></defs><circle cx="60" cy="60" r="50" fill="none" stroke="#22c55e" stroke-width="12" mask="url(#ringgaps)"/><g transform="translate(60 60) scale(0.95) translate(-60 -60)"><path d="M68 20L38 68h22l-6 32 30-48H62l6-32z" fill="#22c55e"/></g></svg>`;
   const logoDataUri = `data:image/svg+xml;base64,${Buffer.from(logoSvg).toString('base64')}`;
 
   // Load overrides from seed.config.json (gitignored, not committed)
