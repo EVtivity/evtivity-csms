@@ -2416,7 +2416,7 @@
     "pushHistory": "전달 기록",
     "rawProfile": "원시 충전 프로필 (OCPP)",
     "noPushes": "기록된 전달이 없습니다",
-    "matchingStations": "일치하는 충전기",
+    "matchingStations": "일치하는 충전소",
     "noMatchingStations": "일치하는 온라인 충전기가 없습니다",
     "timeSlots": "시간 슬롯",
     "addTimeSlot": "시간 슬롯 추가",

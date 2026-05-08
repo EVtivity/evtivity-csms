@@ -2427,7 +2427,7 @@
     "pushHistory": "推送历史",
     "rawProfile": "原始充电配置文件 (OCPP)",
     "noPushes": "暂无推送记录",
-    "matchingStations": "匹配的站点",
+    "matchingStations": "匹配的充电站",
     "noMatchingStations": "无匹配的在线站点",
     "timeSlots": "时间段",
     "addTimeSlot": "添加时间段",

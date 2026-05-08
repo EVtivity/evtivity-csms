@@ -27,12 +27,16 @@ interface StationComboboxProps {
   value: StationSelection | null;
   onSelect: (station: StationSelection | null) => void;
   siteId?: string | undefined;
+  // Hide stations whose id is in this set. Used by the bulk reservation flow
+  // to prevent the same station appearing in two slots.
+  excludeIds?: ReadonlySet<string> | undefined;
 }
 
 export function StationCombobox({
   value,
   onSelect,
   siteId,
+  excludeIds,
 }: StationComboboxProps): React.JSX.Element {
   const { t } = useTranslation();
   const [input, setInput] = useState('');
@@ -58,6 +62,9 @@ export function StationCombobox({
       clearTimeout(timer);
     };
   }, [input, open, siteId]);
+
+  const filteredResults =
+    excludeIds == null ? results : results.filter((s) => !excludeIds.has(s.id));
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent): void {
@@ -103,9 +110,9 @@ export function StationCombobox({
         placeholder={t('stations.searchPlaceholder')}
         className="pl-9"
       />
-      {open && results.length > 0 && (
+      {open && filteredResults.length > 0 && (
         <ul className="absolute z-50 mt-1 w-full rounded-md border bg-popover p-1 shadow-md max-h-48 overflow-y-auto">
-          {results.map((station) => (
+          {filteredResults.map((station) => (
             <li key={station.id}>
               <button
                 type="button"

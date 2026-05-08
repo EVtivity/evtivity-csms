@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Plus, X, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,12 @@ import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
+import {
+  BulkReservationSlotRow,
+  emptyBulkReservationSlot,
+  parseSlotEvseId,
+  type BulkReservationSlotState,
+} from '@/components/fleet/BulkReservationSlotRow';
 import {
   Table,
   TableBody,
@@ -32,6 +38,12 @@ import {
 import { api, ApiError } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { fleetReservationStatusVariant } from '@/lib/status-variants';
+import { InfoNote } from '@/components/ui/info-note';
+import {
+  getDefaultStartsAt,
+  getDefaultExpiresAt,
+  validateReservationDateRange,
+} from '@/lib/reservation-datetime';
 
 interface FleetReservation {
   id: string;
@@ -43,12 +55,6 @@ interface FleetReservation {
   createdAt: string;
   updatedAt: string;
   reservationCount: number;
-}
-
-interface SlotEntry {
-  stationOcppId: string;
-  evseId: string;
-  driverId: string;
 }
 
 interface CreateResult {
@@ -66,10 +72,6 @@ interface CreateResult {
   }>;
 }
 
-function emptySlot(): SlotEntry {
-  return { stationOcppId: '', evseId: '', driverId: '' };
-}
-
 interface FleetReservationsTabProps {
   fleetId: string;
 }
@@ -85,12 +87,47 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
   const [dialogOpen, setDialogOpen] = useState(false);
   const [cancelId, setCancelId] = useState<string | null>(null);
 
-  // Form state
+  // Form state. Defaults pre-fill startsAt = now + 5min (rounded to next 5-min)
+  // and expiresAt = startsAt + 1h, mirroring the single-reservation create
+  // form. Operators almost never want "now"; they want a tidy near-future slot.
   const [name, setName] = useState('');
-  const [expiresAt, setExpiresAt] = useState('');
-  const [startsAt, setStartsAt] = useState('');
-  const [slots, setSlots] = useState<SlotEntry[]>([emptySlot()]);
-  const [chargingProfile, setChargingProfile] = useState('');
+  const [startsAt, setStartsAt] = useState(getDefaultStartsAt);
+  const [expiresAt, setExpiresAt] = useState(() => getDefaultExpiresAt(getDefaultStartsAt()));
+  const [slots, setSlots] = useState<BulkReservationSlotState[]>([emptyBulkReservationSlot()]);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+
+  // System reservation policy (max-hours cap). Same source as the single
+  // reservation create form so the hint and validation stay consistent.
+  const policyQuery = useQuery({
+    queryKey: ['reservation-policy'],
+    queryFn: () => api.get<{ reservationMaxHours: number }>('/v1/portal/features'),
+    staleTime: 5 * 60_000,
+  });
+  const maxHours = policyQuery.data?.reservationMaxHours ?? 0;
+
+  const dateValidation = validateReservationDateRange({
+    startsAt,
+    expiresAt,
+    maxHours,
+    startsAtRequired: false,
+  });
+  const dateErrorLabel: Record<string, string> = {
+    required: t('validation.required'),
+    invalid: t('validation.required'),
+    startsInPast: t('reservations.startsAtPastError', {
+      defaultValue: 'Start time cannot be in the past',
+    }),
+    expiresTooSoon: t('reservations.expiresTooSoonError', {
+      defaultValue: 'End time must be at least 60 seconds in the future',
+    }),
+    windowTooShort: t('reservations.windowTooShortError', {
+      defaultValue: 'End must be at least 60 seconds after start',
+    }),
+    tooLong: t('reservations.tooLongError', {
+      hours: maxHours,
+      defaultValue: `Reservation cannot exceed ${String(maxHours)} hours`,
+    }),
+  };
 
   const { data: response, isLoading } = useQuery({
     queryKey: ['fleets', fleetId, 'reservations', page],
@@ -155,14 +192,15 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
 
   function resetForm(): void {
     setName('');
-    setExpiresAt('');
-    setStartsAt('');
-    setSlots([emptySlot()]);
-    setChargingProfile('');
+    const start = getDefaultStartsAt();
+    setStartsAt(start);
+    setExpiresAt(getDefaultExpiresAt(start));
+    setSlots([emptyBulkReservationSlot()]);
+    setHasSubmitted(false);
   }
 
-  function updateSlot(index: number, field: keyof SlotEntry, value: string): void {
-    setSlots((prev) => prev.map((s, i) => (i === index ? { ...s, [field]: value } : s)));
+  function updateSlot(index: number, next: BulkReservationSlotState): void {
+    setSlots((prev) => prev.map((s, i) => (i === index ? next : s)));
   }
 
   function removeSlot(index: number): void {
@@ -170,20 +208,32 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
   }
 
   function addSlot(): void {
-    setSlots((prev) => [...prev, emptySlot()]);
+    setSlots((prev) => [...prev, emptyBulkReservationSlot()]);
   }
 
   function handleSubmit(): void {
+    setHasSubmitted(true);
+    if (
+      dateValidation.startsAtError != null ||
+      dateValidation.expiresAtError != null ||
+      slots.every((s) => s.station == null)
+    ) {
+      return;
+    }
     if (expiresAt === '') return;
 
     const slotPayload = slots
-      .filter((s) => s.stationOcppId !== '')
+      .filter((s) => s.station != null)
       .map((s) => {
-        const entry: Record<string, unknown> = { stationOcppId: s.stationOcppId };
-        if (s.evseId !== '') entry['evseId'] = Number(s.evseId);
-        if (s.driverId !== '') entry['driverId'] = s.driverId;
+        const station = s.station;
+        if (station == null) return null;
+        const entry: Record<string, unknown> = { stationOcppId: station.stationId };
+        const evseId = parseSlotEvseId(s.connectorKey);
+        if (evseId != null) entry['evseId'] = evseId;
+        if (s.driver != null) entry['driverId'] = s.driver.id;
         return entry;
-      });
+      })
+      .filter((e): e is Record<string, unknown> => e != null);
 
     if (slotPayload.length === 0) return;
 
@@ -193,18 +243,6 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
     };
     if (name !== '') body['name'] = name;
     if (startsAt !== '') body['startsAt'] = new Date(startsAt).toISOString();
-    if (chargingProfile.trim() !== '') {
-      try {
-        body['chargingProfile'] = JSON.parse(chargingProfile);
-      } catch {
-        toast({
-          title: t('common.error'),
-          description: 'Invalid JSON for charging profile',
-          variant: 'destructive',
-        });
-        return;
-      }
-    }
 
     createMutation.mutate(body);
   }
@@ -330,18 +368,6 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="fleet-reservation-expires">{t('reservations.expiresAt')} *</Label>
-                <Input
-                  id="fleet-reservation-expires"
-                  type="datetime-local"
-                  value={expiresAt}
-                  onChange={(e) => {
-                    setExpiresAt(e.target.value);
-                  }}
-                  required
-                />
-              </div>
-              <div className="grid gap-2">
                 <Label htmlFor="fleet-reservation-starts">{t('reservations.startsAt')}</Label>
                 <Input
                   id="fleet-reservation-starts"
@@ -350,86 +376,79 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
                   onChange={(e) => {
                     setStartsAt(e.target.value);
                   }}
+                  className={
+                    hasSubmitted && dateValidation.startsAtError != null ? 'border-destructive' : ''
+                  }
                 />
+                {hasSubmitted && dateValidation.startsAtError != null && (
+                  <p className="text-sm text-destructive">
+                    {dateErrorLabel[dateValidation.startsAtError]}
+                  </p>
+                )}
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="fleet-reservation-expires">{t('reservations.expiresAt')} *</Label>
+                <Input
+                  id="fleet-reservation-expires"
+                  type="datetime-local"
+                  value={expiresAt}
+                  onChange={(e) => {
+                    setExpiresAt(e.target.value);
+                  }}
+                  className={
+                    hasSubmitted && dateValidation.expiresAtError != null
+                      ? 'border-destructive'
+                      : ''
+                  }
+                />
+                {hasSubmitted && dateValidation.expiresAtError != null && (
+                  <p className="text-sm text-destructive">
+                    {dateErrorLabel[dateValidation.expiresAtError]}
+                  </p>
+                )}
               </div>
             </div>
+
+            {maxHours > 0 && (
+              <InfoNote>{t('reservations.maxHoursHint', { hours: maxHours })}</InfoNote>
+            )}
 
             {/* Station slots */}
             <div className="grid gap-2">
               <Label>{t('fleets.stations')}</Label>
               <div className="grid gap-3">
-                {slots.map((slot, index) => (
-                  <div key={index} className="flex items-end gap-2">
-                    <div className="grid gap-1 flex-1">
-                      <span className="text-xs text-muted-foreground">
-                        {t('stations.stationId')}
-                      </span>
-                      <Input
-                        value={slot.stationOcppId}
-                        onChange={(e) => {
-                          updateSlot(index, 'stationOcppId', e.target.value);
-                        }}
-                        placeholder="CS-0001"
-                        required
-                      />
-                    </div>
-                    <div className="grid gap-1 w-24">
-                      <span className="text-xs text-muted-foreground">EVSE ID</span>
-                      <Input
-                        type="number"
-                        min={1}
-                        value={slot.evseId}
-                        onChange={(e) => {
-                          updateSlot(index, 'evseId', e.target.value);
-                        }}
-                        placeholder="1"
-                      />
-                    </div>
-                    <div className="grid gap-1 flex-1">
-                      <span className="text-xs text-muted-foreground">
-                        {t('reservations.driverName')}
-                      </span>
-                      <Input
-                        value={slot.driverId}
-                        onChange={(e) => {
-                          updateSlot(index, 'driverId', e.target.value);
-                        }}
-                        placeholder={t('fleets.selectDriver')}
-                      />
-                    </div>
-                    {slots.length > 1 && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        aria-label="Remove station"
-                        onClick={() => {
-                          removeSlot(index);
-                        }}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                ))}
+                {slots.map((slot, index) => {
+                  // Exclude every OTHER slot's picked station so this row's
+                  // combobox can't surface it as a duplicate option.
+                  const others = new Set<string>();
+                  for (let j = 0; j < slots.length; j++) {
+                    if (j === index) continue;
+                    const id = slots[j]?.station?.id;
+                    if (id != null) others.add(id);
+                  }
+                  return (
+                    <BulkReservationSlotRow
+                      key={index}
+                      slot={slot}
+                      onChange={(next) => {
+                        updateSlot(index, next);
+                      }}
+                      onRemove={
+                        slots.length > 1
+                          ? () => {
+                              removeSlot(index);
+                            }
+                          : null
+                      }
+                      excludeStationIds={others}
+                    />
+                  );
+                })}
               </div>
               <Button type="button" variant="outline" size="sm" onClick={addSlot} className="w-fit">
                 <Plus className="h-4 w-4" />
                 {t('fleets.addStation')}
               </Button>
-            </div>
-
-            <div className="grid gap-2">
-              <Label>{t('fleets.chargingProfileJson')}</Label>
-              <textarea
-                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                value={chargingProfile}
-                onChange={(e) => {
-                  setChargingProfile(e.target.value);
-                }}
-                placeholder='{"chargingProfilePurpose": "TxProfile", ...}'
-              />
-              <p className="text-xs text-muted-foreground">{t('fleets.chargingProfileHelp')}</p>
             </div>
 
             <DialogFooter>

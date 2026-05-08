@@ -30,6 +30,7 @@ interface SmartChargingTemplate {
   chargingRateUnit: string;
   ocppVersion: string;
   createdAt: string;
+  matchingStationsCount: number;
 }
 
 export function SmartChargingTemplates({
@@ -95,6 +96,9 @@ export function SmartChargingTemplates({
                       <TableHead>{t('smartCharging.profileKind')}</TableHead>
                       <TableHead>{t('smartCharging.chargingRateUnit')}</TableHead>
                       <TableHead>{t('smartCharging.ocppVersion')}</TableHead>
+                      <TableHead className="text-right">
+                        {t('smartCharging.matchingStations')}
+                      </TableHead>
                       <TableHead>{t('common.created')}</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -127,6 +131,9 @@ export function SmartChargingTemplates({
                         </TableCell>
                         <TableCell className="text-xs">{template.chargingRateUnit}</TableCell>
                         <TableCell className="text-xs">OCPP {template.ocppVersion}</TableCell>
+                        <TableCell className="text-right text-xs">
+                          {template.matchingStationsCount}
+                        </TableCell>
                         <TableCell className="text-xs">
                           {formatDateTime(template.createdAt, timezone)}
                         </TableCell>

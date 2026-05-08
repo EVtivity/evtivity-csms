@@ -162,7 +162,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
       const limit = query.limit;
       const offset = (page - 1) * limit;
 
-      const [data, countResult] = await Promise.all([
+      const [rows, countResult] = await Promise.all([
         db
           .select()
           .from(chargingProfileTemplates)
@@ -171,6 +171,28 @@ export function smartChargingRoutes(app: FastifyInstance): void {
           .offset(offset),
         db.select({ total: count() }).from(chargingProfileTemplates),
       ]);
+
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+
+      const data = await Promise.all(
+        rows.map(async (template) => {
+          const filter = template.targetFilter as Record<string, string> | null;
+          const conds = [eq(chargingStations.ocppProtocol, `ocpp${template.ocppVersion}`)];
+          if (filter?.siteId) conds.push(eq(chargingStations.siteId, filter.siteId));
+          if (filter?.vendorId) conds.push(eq(chargingStations.vendorId, filter.vendorId));
+          if (filter?.model) conds.push(eq(chargingStations.model, filter.model));
+          if (accessibleSiteIds != null) {
+            if (accessibleSiteIds.length === 0) return { ...template, matchingStationsCount: 0 };
+            conds.push(inArray(chargingStations.siteId, accessibleSiteIds));
+          }
+          const [r] = await db
+            .select({ total: count() })
+            .from(chargingStations)
+            .where(and(...conds));
+          return { ...template, matchingStationsCount: r?.total ?? 0 };
+        }),
+      );
 
       return { data, total: countResult[0]?.total ?? 0 } satisfies PaginatedResponse<
         (typeof data)[number]

@@ -17,6 +17,11 @@ import { DriverCombobox } from '@/components/driver-combobox';
 import { StationCombobox, type StationSelection } from '@/components/station-combobox';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import {
+  getDefaultStartsAt,
+  getDefaultExpiresAt,
+  isStartsAtInFuture,
+} from '@/lib/reservation-datetime';
 
 interface Reservation {
   id: string;
@@ -40,29 +45,8 @@ interface Site {
   name: string;
 }
 
-function formatDateTimeLocal(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${String(d.getFullYear())}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-// Default startsAt: now + 5 min, rounded UP to the next 5-minute boundary.
-// Always lands in the future even after a few seconds of form-fill, and
-// aligns to a tidy clock minute. Prevents the previous foot-gun where the
-// pre-filled "now" became a past timestamp by the time the user hit Save.
-function getDefaultStartsAt(): string {
-  const d = new Date(Date.now() + 5 * 60 * 1000);
-  d.setSeconds(0, 0);
-  const remainder = d.getMinutes() % 5;
-  if (remainder !== 0) d.setMinutes(d.getMinutes() + (5 - remainder));
-  return formatDateTimeLocal(d);
-}
-
-// Default reservation length: 1 hour after startsAt.
-function getDefaultExpiresAt(startsAtLocal: string): string {
-  const start = new Date(startsAtLocal);
-  if (!Number.isFinite(start.getTime())) return '';
-  return formatDateTimeLocal(new Date(start.getTime() + 60 * 60 * 1000));
-}
+// Datetime helpers extracted to packages/csms/src/lib/reservation-datetime.ts so
+// the bulk reservation flow can share the same defaults and validation.
 
 export function ReservationCreate(): React.JSX.Element {
   const { t } = useTranslation();
@@ -172,8 +156,7 @@ export function ReservationCreate(): React.JSX.Element {
 
   const errors = getValidationErrors();
 
-  const isStartInFuture =
-    startsAt.trim() !== '' && new Date(startsAt).getTime() > Date.now() + 60_000;
+  const isStartInFuture = isStartsAtInFuture(startsAt);
 
   function handleSubmit(e: React.SyntheticEvent): void {
     e.preventDefault();
