@@ -115,38 +115,43 @@ export function LocationDetail(): React.JSX.Element {
           </Button>
         </div>
 
-        <h1 className="text-2xl font-bold">{location.name ?? t('location.title')}</h1>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-2xl">{location.name ?? t('location.title')}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Address */}
+            {fullAddress !== '' && (
+              <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                <MapPin className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>{fullAddress}</span>
+              </div>
+            )}
 
-        {/* Address */}
-        {fullAddress !== '' && (
-          <div className="flex items-start gap-2 text-sm text-muted-foreground">
-            <MapPin className="h-4 w-4 mt-0.5 shrink-0" />
-            <span>{fullAddress}</span>
-          </div>
-        )}
+            {/* Hours of Operation */}
+            {location.hoursOfOperation != null && location.hoursOfOperation !== '' && (
+              <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                <Clock className="h-4 w-4 mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-medium text-foreground">{t('location.hoursOfOperation')}</p>
+                  <p className="whitespace-pre-line">{location.hoursOfOperation}</p>
+                </div>
+              </div>
+            )}
 
-        {/* Hours of Operation */}
-        {location.hoursOfOperation != null && location.hoursOfOperation !== '' && (
-          <div className="flex items-start gap-2 text-sm text-muted-foreground">
-            <Clock className="h-4 w-4 mt-0.5 shrink-0" />
-            <div>
-              <p className="font-medium text-foreground">{t('location.hoursOfOperation')}</p>
-              <p className="whitespace-pre-line">{location.hoursOfOperation}</p>
+            {/* Station count */}
+            <div className="flex items-center gap-2 text-sm">
+              <Zap className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span>
+                {t('location.chargers', { count: location.evseCount })}
+                {' -- '}
+                <span className="text-success font-medium">
+                  {t('location.available', { count: location.availableCount })}
+                </span>
+              </span>
             </div>
-          </div>
-        )}
-
-        {/* Station count */}
-        <div className="flex items-center gap-2 text-sm">
-          <Zap className="h-4 w-4 text-muted-foreground shrink-0" />
-          <span>
-            {t('location.chargers', { count: location.evseCount })}
-            {' -- '}
-            <span className="text-success font-medium">
-              {t('location.available', { count: location.availableCount })}
-            </span>
-          </span>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* Image Carousel */}
         {siteId != null && <ImageCarousel siteId={siteId} />}
