@@ -486,6 +486,7 @@
     "ocppCommands": "OCPP 命令",
     "qrCodes": "二维码",
     "qrCodesDescription": "打印这些二维码并放置在充电桩上。驾驶员扫描即可开始访客结账充电。",
+    "qrCodesHardwareNote": "部分充电桩支持在硬件上直接显示二维码。配置方法：打开<configTab>配置</configTab>选项卡从充电桩拉取当前配置，确认承载二维码或连接器 URL 的变量，然后在<templates>设置 → 充电桩配置</templates>中创建模板，将新值推送到充电桩。",
     "port": "端口 {{id}}",
     "security": "安全",
     "securityProfile": "安全配置",

@@ -486,6 +486,7 @@
     "ocppCommands": "Comandos OCPP",
     "qrCodes": "Codigos QR",
     "qrCodesDescription": "Imprima estos codigos QR y coloquelos en el cargador. Los conductores los escanean para iniciar una sesion de pago como invitado.",
+    "qrCodesHardwareNote": "Algunos cargadores pueden mostrar el codigo QR en el hardware. Para configurarlos, abra la pestana <configTab>Configuraciones</configTab> para obtener los valores actuales de la estacion, identifique que variables contienen las URL del QR o del conector y luego cree una plantilla en <templates>Configuracion → Configuraciones de Estacion</templates> para aplicar los nuevos valores.",
     "port": "Puerto {{id}}",
     "security": "Seguridad",
     "securityProfile": "Perfil de Seguridad",

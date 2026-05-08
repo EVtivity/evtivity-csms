@@ -22,6 +22,7 @@ import {
   drivers,
   driverPaymentMethods,
   chargingProfileTemplates,
+  configTemplates,
 } from './schema/index.js';
 
 console.log('Seeding dev stations...');
@@ -314,6 +315,37 @@ for (const def of blockAllDefs) {
     console.log(`  Created smart charging template: ${def.name}`);
   } else {
     console.log(`  Smart charging template already exists: ${def.name}`);
+  }
+}
+
+// IOCHARGER vendor-specific config template: QR code URLs and connector codes
+// (SysConfigCtrlr component, OCPP 2.1). Targets the IoCharger vendor so the
+// operator can push it to IOCHARGER-001 / IOCHARGER-002 from the Configuration
+// Templates UI without picking individual stations.
+if (ioVendorId != null) {
+  const ioConfigTemplateName = 'IOCHARGER - QR & Connector Code';
+  const existingIoConfigTemplate = await db
+    .select({ id: configTemplates.id })
+    .from(configTemplates)
+    .where(eq(configTemplates.name, ioConfigTemplateName))
+    .limit(1);
+  if (existingIoConfigTemplate.length === 0) {
+    await db.insert(configTemplates).values({
+      name: ioConfigTemplateName,
+      description: 'IoCharger vendor QR code URLs, connector codes, and operator branding.',
+      ocppVersion: '2.1',
+      variables: [
+        { component: 'SysConfigCtrlr', variable: 'QR0', value: 'http://45.47.131.88:7101/charge' },
+        { component: 'SysConfigCtrlr', variable: 'QR1', value: 'http://45.47.131.88:7101/charge' },
+        { component: 'SysConfigCtrlr', variable: 'connCode0', value: 'IOCHARGER-002/1' },
+        { component: 'SysConfigCtrlr', variable: 'connCode1', value: 'IOCHARGER-002/1' },
+        { component: 'SecurityCtrlr', variable: 'OrganizationName', value: 'EVtivity' },
+      ],
+      targetFilter: { siteId, vendorId: ioVendorId },
+    });
+    console.log(`  Created config template: ${ioConfigTemplateName}`);
+  } else {
+    console.log(`  Config template already exists: ${ioConfigTemplateName}`);
   }
 }
 

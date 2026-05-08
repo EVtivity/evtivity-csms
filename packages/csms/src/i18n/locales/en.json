@@ -486,6 +486,7 @@
     "ocppCommands": "OCPP Commands",
     "qrCodes": "QR Codes",
     "qrCodesDescription": "Print these QR codes and place them on the charger. Drivers scan to start a guest checkout session.",
+    "qrCodesHardwareNote": "Some chargers can display the QR code on the hardware. To configure them, open the <configTab>Configurations</configTab> tab to pull the current values from the station, identify which variables hold the QR or connector URLs, then create a template under <templates>Settings → Station Configurations</templates> to push the new values.",
     "port": "Port {{id}}",
     "security": "Security",
     "securityProfile": "Security Profile",

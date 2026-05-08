@@ -22,7 +22,7 @@ export function AddIconButton({
   return (
     <span className="group relative inline-flex">
       <Button
-        variant="secondary"
+        variant="default"
         size="icon"
         className={sizeClass}
         onClick={onClick}

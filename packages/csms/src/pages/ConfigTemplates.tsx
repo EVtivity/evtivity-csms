@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CreateButton } from '@/components/create-button';
+import { RemoveIconButton } from '@/components/remove-icon-button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Table,
   TableBody,
@@ -25,14 +27,17 @@ interface ConfigTemplate {
   name: string;
   description: string | null;
   variables: unknown[];
+  matchingStationsCount: number;
   createdAt: string;
 }
 
 export function ConfigTemplates({ embedded }: { embedded?: boolean } = {}): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const timezone = useUserTimezone();
   const [page, setPage] = useState(1);
+  const [deleteTarget, setDeleteTarget] = useState<ConfigTemplate | null>(null);
   const limit = 25;
 
   const { data, isLoading } = useQuery({
@@ -41,6 +46,14 @@ export function ConfigTemplates({ embedded }: { embedded?: boolean } = {}): Reac
       api.get<{ data: ConfigTemplate[]; total: number }>(
         `/v1/config-templates?page=${String(page)}&limit=${String(limit)}`,
       ),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/v1/config-templates/${id}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['config-templates'] });
+      setDeleteTarget(null);
+    },
   });
 
   const totalPages = data != null ? Math.ceil(data.total / limit) : 1;
@@ -87,7 +100,11 @@ export function ConfigTemplates({ embedded }: { embedded?: boolean } = {}): Reac
                       <TableHead>{t('common.name')}</TableHead>
                       <TableHead>{t('common.description')}</TableHead>
                       <TableHead>{t('configTemplates.variableCount')}</TableHead>
+                      <TableHead className="text-right">
+                        {t('configTemplates.matchingStations')}
+                      </TableHead>
                       <TableHead>{t('common.created')}</TableHead>
+                      <TableHead className="w-12" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -107,8 +124,25 @@ export function ConfigTemplates({ embedded }: { embedded?: boolean } = {}): Reac
                         <TableCell className="text-xs">
                           {Array.isArray(template.variables) ? template.variables.length : 0}
                         </TableCell>
+                        <TableCell className="text-right text-xs">
+                          {template.matchingStationsCount}
+                        </TableCell>
                         <TableCell className="text-xs">
                           {formatDateTime(template.createdAt, timezone)}
+                        </TableCell>
+                        <TableCell
+                          className="text-right"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                          }}
+                        >
+                          <RemoveIconButton
+                            title={t('common.delete')}
+                            size="sm"
+                            onClick={() => {
+                              setDeleteTarget(template);
+                            }}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}
@@ -120,6 +154,23 @@ export function ConfigTemplates({ embedded }: { embedded?: boolean } = {}): Reac
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={deleteTarget != null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title={t('configTemplates.confirmDelete')}
+        description={t('configTemplates.confirmDeleteDescription')}
+        confirmLabel={t('common.delete')}
+        isPending={deleteMutation.isPending}
+        onConfirm={() => {
+          if (deleteTarget != null) {
+            deleteMutation.mutate(deleteTarget.id);
+          }
+          return false;
+        }}
+      />
     </>
   );
 

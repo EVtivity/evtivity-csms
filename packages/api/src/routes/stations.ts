@@ -3338,6 +3338,7 @@ export function stationRoutes(app: FastifyInstance): void {
         const searchCondition = or(
           ilike(stationConfigurations.component, `%${query.search}%`),
           ilike(stationConfigurations.variable, `%${query.search}%`),
+          ilike(stationConfigurations.value, `%${query.search}%`),
         );
         if (searchCondition != null) conditions.push(searchCondition);
       }

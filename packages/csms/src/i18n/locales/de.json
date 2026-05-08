@@ -486,6 +486,7 @@
     "ocppCommands": "OCPP-Befehle",
     "qrCodes": "QR-Codes",
     "qrCodesDescription": "Drucken Sie diese QR-Codes aus und platzieren Sie sie an der Ladestation. Fahrer scannen sie, um eine Gast-Bezahlsitzung zu starten.",
+    "qrCodesHardwareNote": "Einige Ladestationen koennen den QR-Code direkt auf der Hardware anzeigen. Um sie zu konfigurieren, oeffnen Sie den Tab <configTab>Konfigurationen</configTab>, um die aktuellen Werte von der Station abzurufen, ermitteln Sie, welche Variablen die QR- oder Anschluss-URLs enthalten, und erstellen Sie dann eine Vorlage unter <templates>Einstellungen → Stationskonfigurationen</templates>, um die neuen Werte zu uebertragen.",
     "port": "Port {{id}}",
     "security": "Sicherheit",
     "securityProfile": "Sicherheitsprofil",

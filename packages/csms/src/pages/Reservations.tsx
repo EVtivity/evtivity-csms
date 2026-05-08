@@ -39,6 +39,7 @@ interface Reservation {
   driverFirstName: string | null;
   driverLastName: string | null;
   status: string;
+  startsAt: string | null;
   expiresAt: string;
   createdAt: string;
   sessionId: string | null;
@@ -188,6 +189,7 @@ export function Reservations(): React.JSX.Element {
               <TableHead>{t('reservations.driverName')}</TableHead>
               <TableHead>{t('common.status')}</TableHead>
               <TableHead>{t('reservations.session')}</TableHead>
+              <TableHead>{t('reservations.startsAt')}</TableHead>
               <TableHead>{t('reservations.expiresAt')}</TableHead>
               <TableHead>{t('reservations.createdAt')}</TableHead>
             </TableRow>
@@ -195,8 +197,8 @@ export function Reservations(): React.JSX.Element {
           <TableBody>
             {isLoading && (
               <TableRow>
-                <TableCell colSpan={7}>
-                  <TableSkeleton columns={7} rows={5} />
+                <TableCell colSpan={8}>
+                  <TableSkeleton columns={8} rows={5} />
                 </TableCell>
               </TableRow>
             )}
@@ -258,13 +260,20 @@ export function Reservations(): React.JSX.Element {
                     <span className="text-muted-foreground">--</span>
                   )}
                 </TableCell>
+                <TableCell>
+                  {r.startsAt != null ? (
+                    formatDateTime(r.startsAt, timezone)
+                  ) : (
+                    <span className="text-muted-foreground">--</span>
+                  )}
+                </TableCell>
                 <TableCell>{formatDateTime(r.expiresAt, timezone)}</TableCell>
                 <TableCell>{formatDateTime(r.createdAt, timezone)}</TableCell>
               </TableRow>
             ))}
             {reservations?.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground">
+                <TableCell colSpan={8} className="text-center text-muted-foreground">
                   {t('reservations.noReservations')}
                 </TableCell>
               </TableRow>

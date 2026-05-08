@@ -486,6 +486,7 @@
     "ocppCommands": "OCPP 명령",
     "qrCodes": "QR 코드",
     "qrCodesDescription": "이 QR 코드를 인쇄하여 충전기에 부착하세요. 드라이버가 스캔하여 게스트 결제 세션을 시작합니다.",
+    "qrCodesHardwareNote": "일부 충전기는 하드웨어에 QR 코드를 직접 표시할 수 있습니다. 설정하려면 <configTab>구성</configTab> 탭을 열어 스테이션의 현재 값을 가져오고, QR 또는 커넥터 URL을 담고 있는 변수를 확인한 다음 <templates>설정 → 스테이션 구성</templates>에서 템플릿을 만들어 새 값을 적용하세요.",
     "port": "포트 {{id}}",
     "security": "보안",
     "securityProfile": "보안 프로필",

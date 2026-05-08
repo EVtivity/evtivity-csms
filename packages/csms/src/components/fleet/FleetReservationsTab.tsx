@@ -148,7 +148,7 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
       resetForm();
       toast({
         title: t('fleets.newBulkReservation'),
-        description: `${String(data.confirmed)} ${t('fleets.slotsConfirmed', { confirmed: data.confirmed })}${data.failed > 0 ? `, ${String(data.failed)} ${t('fleets.slotsFailed', { failed: data.failed })}` : ''}`,
+        description: `${t('fleets.slotsConfirmed', { confirmed: data.confirmed })}${data.failed > 0 ? `, ${t('fleets.slotsFailed', { failed: data.failed })}` : ''}`,
         variant: data.failed > 0 ? 'warning' : 'success',
       });
     },

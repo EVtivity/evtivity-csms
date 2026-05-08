@@ -2957,6 +2957,20 @@ async function seed(): Promise<void> {
       pushCount: 1,
       stationsPerPush: 30,
     },
+    {
+      name: 'IOCHARGER - QR & Connector Code',
+      description: 'IoCharger vendor QR code URLs, connector codes, and operator branding.',
+      ocppVersion: '2.1' as const,
+      variables: [
+        { component: 'SysConfigCtrlr', variable: 'QR0', value: 'http://45.47.131.88:7101/charge' },
+        { component: 'SysConfigCtrlr', variable: 'QR1', value: 'http://45.47.131.88:7101/charge' },
+        { component: 'SysConfigCtrlr', variable: 'connCode0', value: 'IOCHARGER-002/1' },
+        { component: 'SysConfigCtrlr', variable: 'connCode1', value: 'IOCHARGER-002/1' },
+        { component: 'SecurityCtrlr', variable: 'OrganizationName', value: 'EVtivity' },
+      ],
+      pushCount: 0,
+      stationsPerPush: 0,
+    },
   ];
 
   const createdConfigTemplates = await db

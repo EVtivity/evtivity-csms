@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useQuery } from '@tanstack/react-query';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
+import { Info } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { QrCodeCard } from '@/components/QrCodeCard';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { api } from '@/lib/api';
 
@@ -49,6 +52,25 @@ export function StationQrTab({
         {connectorsData != null && connectorsData.length > 0 ? (
           <>
             <p className="mb-4 text-sm text-muted-foreground">{t('stations.qrCodesDescription')}</p>
+            <Alert variant="info" className="mb-4">
+              <Info className="h-4 w-4" />
+              <AlertDescription>
+                <Trans
+                  i18nKey="stations.qrCodesHardwareNote"
+                  components={{
+                    configTab: (
+                      <Link
+                        to={`/stations/${stationId}?tab=configurations`}
+                        className="font-medium underline"
+                      />
+                    ),
+                    templates: (
+                      <Link to="/settings?tab=configuration" className="font-medium underline" />
+                    ),
+                  }}
+                />
+              </AlertDescription>
+            </Alert>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
               {connectorsData.map((evse) => (
                 <QrCodeCard

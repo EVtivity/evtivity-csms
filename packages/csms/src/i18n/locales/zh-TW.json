@@ -486,6 +486,7 @@
     "ocppCommands": "OCPP 命令",
     "qrCodes": "二維碼",
     "qrCodesDescription": "列印這些二維碼並放置在充電樁上。駕駛員掃描即可開始訪客結賬充電。",
+    "qrCodesHardwareNote": "部分充電樁支援在硬體上直接顯示二維碼。設定方式：開啟<configTab>配置</configTab>分頁從充電樁拉取目前配置，確認承載二維碼或連接器 URL 的變數，然後在<templates>設定 → 充電樁配置</templates>建立範本，將新值推送到充電樁。",
     "port": "埠 {{id}}",
     "security": "安全",
     "securityProfile": "安全配置",

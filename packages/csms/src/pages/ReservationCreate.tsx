@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
 import { CancelButton } from '@/components/cancel-button';
@@ -51,6 +51,7 @@ interface Site {
 export function ReservationCreate(): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const [selectedSiteId, setSelectedSiteId] = useState('');
   const [selectedStation, setSelectedStation] = useState<StationSelection | null>(null);
@@ -141,6 +142,9 @@ export function ReservationCreate(): React.JSX.Element {
       startsAt?: string;
     }) => api.post<Reservation>('/v1/reservations', body),
     onSuccess: (created) => {
+      // Invalidate every cached reservations query (list, station tab, driver
+      // tab, etc.) so the operator sees the new row when they navigate back.
+      void queryClient.invalidateQueries({ queryKey: ['reservations'] });
       void navigate(`/reservations/${created.id}`);
     },
   });
