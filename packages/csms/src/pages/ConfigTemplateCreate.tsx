@@ -5,8 +5,8 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { Plus } from 'lucide-react';
 import { BackButton } from '@/components/back-button';
-import { AddIconButton } from '@/components/add-icon-button';
 import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
 import { RemoveIconButton } from '@/components/remove-icon-button';
@@ -206,7 +206,16 @@ export function ConfigTemplateCreate(): React.JSX.Element {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>{t('configTemplates.variables')}</Label>
-                <AddIconButton title={t('common.add')} onClick={addVariable} size="sm" />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={addVariable}
+                >
+                  <Plus className="h-4 w-4" />
+                  {t('configTemplates.addVariable')}
+                </Button>
               </div>
               {variables.map((v, i) =>
                 ocppVersion === '1.6' ? (

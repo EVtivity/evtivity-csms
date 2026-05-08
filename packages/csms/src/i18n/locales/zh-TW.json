@@ -2470,6 +2470,7 @@
     "createTitle": "建立配置模板",
     "notFound": "未找到模板",
     "variables": "變數",
+    "addVariable": "新增變數",
     "noVariables": "未定義變數",
     "component": "元件",
     "variable": "變數",

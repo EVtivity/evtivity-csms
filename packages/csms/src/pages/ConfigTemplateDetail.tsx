@@ -6,8 +6,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
-import { Copy, Upload } from 'lucide-react';
-import { AddIconButton } from '@/components/add-icon-button';
+import { Copy, Plus, Upload } from 'lucide-react';
 import { EditButton } from '@/components/edit-button';
 import { RemoveButton } from '@/components/remove-button';
 import { SaveButton } from '@/components/save-button';
@@ -379,7 +378,16 @@ export function ConfigTemplateDetail(): React.JSX.Element {
               <div className="grid gap-2">
                 <div className="flex items-center justify-between">
                   <Label>{t('configTemplates.variables')}</Label>
-                  <AddIconButton title={t('common.add')} onClick={addVariable} size="sm" />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={addVariable}
+                  >
+                    <Plus className="h-4 w-4" />
+                    {t('configTemplates.addVariable')}
+                  </Button>
                 </div>
                 {editVariables.map((v, i) =>
                   editOcppVersion === '1.6' ? (

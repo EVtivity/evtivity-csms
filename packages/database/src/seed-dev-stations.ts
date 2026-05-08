@@ -323,7 +323,7 @@ for (const def of blockAllDefs) {
 // operator can push it to IOCHARGER-001 / IOCHARGER-002 from the Configuration
 // Templates UI without picking individual stations.
 if (ioVendorId != null) {
-  const ioConfigTemplateName = 'IOCHARGER - QR & Connector Code';
+  const ioConfigTemplateName = 'IOCHARGER-002 - QR & Connector Code';
   const existingIoConfigTemplate = await db
     .select({ id: configTemplates.id })
     .from(configTemplates)
@@ -335,10 +335,18 @@ if (ioVendorId != null) {
       description: 'IoCharger vendor QR code URLs, connector codes, and operator branding.',
       ocppVersion: '2.1',
       variables: [
-        { component: 'SysConfigCtrlr', variable: 'QR0', value: 'http://45.47.131.88:7101/charge' },
-        { component: 'SysConfigCtrlr', variable: 'QR1', value: 'http://45.47.131.88:7101/charge' },
-        { component: 'SysConfigCtrlr', variable: 'connCode0', value: 'IOCHARGER-002/1' },
-        { component: 'SysConfigCtrlr', variable: 'connCode1', value: 'IOCHARGER-002/1' },
+        {
+          component: 'SysConfigCtrlr',
+          variable: 'QR0',
+          value: 'http://45.47.131.88:7101/charge/IOCHARGER-002/1',
+        },
+        {
+          component: 'SysConfigCtrlr',
+          variable: 'QR1',
+          value: 'http://45.47.131.88:7101/charge/IOCHARGER-002/1',
+        },
+        { component: 'SysConfigCtrlr', variable: 'connCode0', value: 'IOCHARGER-002' },
+        { component: 'SysConfigCtrlr', variable: 'connCode1', value: 'IOCHARGER-002' },
         { component: 'SecurityCtrlr', variable: 'OrganizationName', value: 'EVtivity' },
       ],
       targetFilter: { siteId, vendorId: ioVendorId },
@@ -346,6 +354,40 @@ if (ioVendorId != null) {
     console.log(`  Created config template: ${ioConfigTemplateName}`);
   } else {
     console.log(`  Config template already exists: ${ioConfigTemplateName}`);
+  }
+
+  // OCPP 1.6 variant for IOCHARGER-001 (vendor-specific keys with empty
+  // component, since 1.6 has no component model).
+  const io16ConfigTemplateName = 'IOCHARGER-001 - QR & Connector Code';
+  const existingIo16ConfigTemplate = await db
+    .select({ id: configTemplates.id })
+    .from(configTemplates)
+    .where(eq(configTemplates.name, io16ConfigTemplateName))
+    .limit(1);
+  if (existingIo16ConfigTemplate.length === 0) {
+    await db.insert(configTemplates).values({
+      name: io16ConfigTemplateName,
+      description: 'IoCharger vendor QR code URLs and connector codes (OCPP 1.6).',
+      ocppVersion: '1.6',
+      variables: [
+        {
+          component: '',
+          variable: 'QR0',
+          value: 'http://45.47.131.88:7101/charge/IOCHARGER-001/1',
+        },
+        {
+          component: '',
+          variable: 'QR1',
+          value: 'http://45.47.131.88:7101/charge/IOCHARGER-001/1',
+        },
+        { component: '', variable: 'connCode0', value: 'IOCHARGER-001' },
+        { component: '', variable: 'connCode1', value: 'IOCHARGER-001' },
+      ],
+      targetFilter: { siteId, vendorId: ioVendorId },
+    });
+    console.log(`  Created config template: ${io16ConfigTemplateName}`);
+  } else {
+    console.log(`  Config template already exists: ${io16ConfigTemplateName}`);
   }
 }
 

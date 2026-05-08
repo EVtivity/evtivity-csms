@@ -2481,6 +2481,7 @@
     "createTitle": "创建配置模板",
     "notFound": "未找到模板",
     "variables": "变量",
+    "addVariable": "添加变量",
     "noVariables": "未定义变量",
     "component": "组件",
     "variable": "变量",

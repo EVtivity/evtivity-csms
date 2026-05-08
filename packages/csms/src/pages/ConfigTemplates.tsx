@@ -120,7 +120,9 @@ export function ConfigTemplates({ embedded }: { embedded?: boolean } = {}): Reac
                         <TableCell className="font-medium" data-testid="row-click-target">
                           {template.name}
                         </TableCell>
-                        <TableCell className="text-xs">{template.description ?? '--'}</TableCell>
+                        <TableCell className="text-xs whitespace-normal break-words max-w-md">
+                          {template.description ?? '--'}
+                        </TableCell>
                         <TableCell className="text-xs">
                           {Array.isArray(template.variables) ? template.variables.length : 0}
                         </TableCell>

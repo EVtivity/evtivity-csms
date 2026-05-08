@@ -2485,6 +2485,7 @@
     "createTitle": "Crear plantilla de configuracion",
     "notFound": "Plantilla no encontrada",
     "variables": "Variables",
+    "addVariable": "Agregar Variable",
     "noVariables": "Sin variables definidas",
     "component": "Componente",
     "variable": "Variable",

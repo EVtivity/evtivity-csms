@@ -2470,6 +2470,7 @@
     "createTitle": "Create Configuration Template",
     "notFound": "Template not found",
     "variables": "Variables",
+    "addVariable": "Add Variable",
     "noVariables": "No variables defined",
     "component": "Component",
     "variable": "Variable",

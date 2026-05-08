@@ -2456,6 +2456,7 @@
     "createTitle": "Konfigurationsvorlage erstellen",
     "notFound": "Vorlage nicht gefunden",
     "variables": "Variablen",
+    "addVariable": "Variable hinzufuegen",
     "noVariables": "Keine Variablen definiert",
     "component": "Komponente",
     "variable": "Variable",
