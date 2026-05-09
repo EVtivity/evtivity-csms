@@ -2424,23 +2424,33 @@ export function registerProjections(
     const fwRequestId = (payload.requestId as number | undefined) ?? null;
     const fwStatusInfo = payload.statusInfo != null ? sql.json(asJson(payload.statusInfo)) : null;
 
+    // Update the firmware_updates row AND capture its campaign_id atomically
+    // via RETURNING. Doing the campaign lookup as a separate SELECT after the
+    // UPDATE is racy for the OCPP 1.6 path -- the same WHERE clause that
+    // selects the in-flight non-terminal row excludes it once it flips to a
+    // terminal status like "Installed", so the lookup misses and the campaign
+    // update is silently skipped.
+    let linkedCampaignId: string | null = null;
     if (fwRequestId != null) {
       // 2.1 path: update by station + requestId
-      const updated = await sql`
+      const updated = await sql<Array<{ campaign_id: string | null }>>`
         UPDATE firmware_updates
         SET status = ${status}, status_info = ${fwStatusInfo}, last_status_at = now(), updated_at = now()
         WHERE station_id = ${stationUuid} AND request_id = ${fwRequestId}
+        RETURNING campaign_id
       `;
-      if (updated.count === 0) {
-        // No existing row (firmware started outside CSMS)
+      if (updated.length === 0) {
+        // No existing row (firmware started outside CSMS); insert as orphan.
         await sql`
           INSERT INTO firmware_updates (station_id, request_id, firmware_url, status, status_info, initiated_at, last_status_at)
           VALUES (${stationUuid}, ${fwRequestId}, 'unknown', ${status}, ${fwStatusInfo}, now(), now())
         `;
+      } else {
+        linkedCampaignId = updated[0]?.campaign_id ?? null;
       }
     } else {
       // 1.6 path: no requestId, update most recent non-terminal row for this station
-      const updated = await sql`
+      const updated = await sql<Array<{ campaign_id: string | null }>>`
         UPDATE firmware_updates
         SET status = ${status}, status_info = ${fwStatusInfo}, last_status_at = now(), updated_at = now()
         WHERE id = (
@@ -2449,16 +2459,23 @@ export function registerProjections(
             AND (status IS NULL OR status NOT IN ('Installed', 'InstallationFailed', 'InstallVerificationFailed', 'InvalidSignature', 'DownloadFailed'))
           ORDER BY created_at DESC LIMIT 1
         )
+        RETURNING campaign_id
       `;
-      if (updated.count === 0) {
+      if (updated.length === 0) {
         await sql`
           INSERT INTO firmware_updates (station_id, firmware_url, status, status_info, initiated_at, last_status_at)
           VALUES (${stationUuid}, 'unknown', ${status}, ${fwStatusInfo}, now(), now())
         `;
+      } else {
+        linkedCampaignId = updated[0]?.campaign_id ?? null;
       }
     }
 
-    // Update firmware campaign station status if linked
+    // Update firmware campaign station status if the row we just updated was
+    // linked to a campaign. Scoping by campaign_id (resolved via the RETURNING
+    // above, not a separate lookup) prevents an unrelated active campaign from
+    // being prematurely flipped to "completed" by status reports from this
+    // station.
     const campaignStatusMap: Record<string, string> = {
       Downloading: 'downloading',
       Downloaded: 'downloaded',
@@ -2471,45 +2488,6 @@ export function registerProjections(
     };
     const campaignStatus = campaignStatusMap[status];
     if (campaignStatus != null) {
-      // Resolve which campaign this status notification belongs to via the
-      // firmware_updates row. Without this scoping, the UPDATE below would
-      // affect every non-terminal firmware_campaign_stations row for the
-      // station, and the auto-complete check would run against unrelated
-      // campaigns -- which can prematurely flip an unrelated active campaign
-      // to "completed".
-      //
-      // 1.6 has no requestId, so fall back to the most recent NON-TERMINAL row
-      // for this station. Picking the most recent row of any kind would resolve
-      // to a manual operator update that ran after the campaign started, even
-      // though the in-flight status report belongs to the campaign.
-      const linkedCampaignRows =
-        fwRequestId != null
-          ? await sql`
-              SELECT campaign_id
-              FROM firmware_updates
-              WHERE station_id = ${stationUuid} AND request_id = ${fwRequestId}
-              LIMIT 1
-            `
-          : await sql`
-              SELECT campaign_id
-              FROM firmware_updates
-              WHERE station_id = ${stationUuid}
-                AND (
-                  status IS NULL
-                  OR status NOT IN (
-                    'Installed',
-                    'InstallationFailed',
-                    'InstallVerificationFailed',
-                    'InvalidSignature',
-                    'DownloadFailed'
-                  )
-                )
-              ORDER BY created_at DESC
-              LIMIT 1
-            `;
-      const linkedCampaignId =
-        (linkedCampaignRows[0]?.campaign_id as string | null | undefined) ?? null;
-
       if (linkedCampaignId != null) {
         await sql`
           UPDATE firmware_campaign_stations

@@ -5,9 +5,9 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, OctagonX } from 'lucide-react';
+import { AbortButton } from '@/components/abort-button';
 import { BackButton } from '@/components/back-button';
-import { CancelButton } from '@/components/cancel-button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -118,13 +118,13 @@ export function FirmwareCampaignProgressDetail(): React.JSX.Element {
         </CardHeader>
         <CardContent>
           {campaign.status === 'active' && (
-            <div className="mb-4 flex items-start justify-between gap-4 rounded-lg border border-warning/50 bg-warning/10 p-4">
-              <div className="flex items-start gap-3 text-warning">
-                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <div className="mb-4 flex items-center justify-between gap-4 rounded-lg border border-warning/50 bg-warning/10 p-4">
+              <div className="flex items-center gap-3 text-warning">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
                 <p className="text-sm">{t('firmwareCampaigns.cancelWarning')}</p>
               </div>
               <div className="shrink-0">
-                <CancelButton
+                <AbortButton
                   onClick={() => {
                     setCancelOpen(true);
                   }}
@@ -210,7 +210,8 @@ export function FirmwareCampaignProgressDetail(): React.JSX.Element {
         onOpenChange={setCancelOpen}
         title={t('firmwareCampaigns.confirmCancel')}
         description={t('firmwareCampaigns.confirmCancelDescription')}
-        confirmLabel={t('common.cancel')}
+        confirmLabel={t('common.abort')}
+        confirmIcon={<OctagonX className="h-4 w-4" />}
         variant="destructive"
         isPending={cancelMutation.isPending}
         onConfirm={() => {

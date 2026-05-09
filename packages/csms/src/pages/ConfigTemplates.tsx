@@ -38,7 +38,7 @@ export function ConfigTemplates({ embedded }: { embedded?: boolean } = {}): Reac
   const timezone = useUserTimezone();
   const [page, setPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<ConfigTemplate | null>(null);
-  const limit = 25;
+  const limit = 10;
 
   const { data, isLoading } = useQuery({
     queryKey: ['config-templates', page],

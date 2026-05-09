@@ -5,8 +5,11 @@ import * as React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
+// Layout uses flexbox so the leading icon vertically centers with the
+// description text. The previous implementation absolutely positioned the SVG
+// at the top-left, which left single-line alerts looking misaligned.
 const alertVariants = cva(
-  'relative w-full rounded-lg border p-4 [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg+div]:translate-y-[-3px] [&:has(svg)]:pl-11',
+  'relative w-full rounded-lg border p-4 flex items-center gap-3 [&>svg]:h-4 [&>svg]:w-4 [&>svg]:shrink-0',
   {
     variants: {
       variant: {

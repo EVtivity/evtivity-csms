@@ -45,7 +45,7 @@ export function FirmwareCampaigns({ embedded }: { embedded?: boolean } = {}): Re
   const navigate = useNavigate();
   const timezone = useUserTimezone();
   const [page, setPage] = useState(1);
-  const limit = 25;
+  const limit = 10;
 
   const { data, isLoading } = useQuery({
     queryKey: ['firmware-campaigns', page],
