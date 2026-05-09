@@ -103,7 +103,7 @@ export function FirmwareCampaignProgressDetail(): React.JSX.Element {
   return (
     <div className="px-4 py-4 md:px-6 md:py-6 space-y-6">
       <div className="flex items-center gap-4">
-        <BackButton to={`/firmware-campaigns/${campaignId}?tab=history`} />
+        <BackButton forceTo={`/firmware-campaigns/${campaignId}?tab=history`} />
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">{t('firmwareCampaigns.progress')}</h1>
           <p className="text-sm text-muted-foreground">

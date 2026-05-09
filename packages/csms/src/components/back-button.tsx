@@ -8,15 +8,22 @@ import { Button } from '@/components/ui/button';
 
 interface BackButtonProps {
   /**
-   * Explicit path to navigate to. When provided, the back button always goes
-   * here so callers can force a specific destination (e.g., a sibling tab) and
-   * not rely on the browser history stack, which can land on a stale state.
-   * When omitted, the button uses browser history with `/` as a fallback.
+   * Per-page default destination used when there is no browser history (direct
+   * link, fresh tab). Most callers want this and nothing else; e.g., a detail
+   * page passes its listing route here so refreshing the tab still gives a
+   * sensible Back target.
    */
   to?: string;
+  /**
+   * Hard override. When set, the button always goes here regardless of browser
+   * history. Use this only when the natural Back target is wrong - e.g., a
+   * Progress page that you reach by clicking "Start" on Details should send you
+   * to the History tab on Back, not back to Details.
+   */
+  forceTo?: string;
 }
 
-export function BackButton({ to }: BackButtonProps): React.JSX.Element {
+export function BackButton({ to, forceTo }: BackButtonProps): React.JSX.Element {
   const navigate = useNavigate();
   const { t } = useTranslation();
 
@@ -26,10 +33,13 @@ export function BackButton({ to }: BackButtonProps): React.JSX.Element {
       size="icon"
       aria-label={t('nav.back')}
       onClick={() => {
-        if (to != null) {
-          void navigate(to);
+        // Priority: explicit override -> browser history -> page default -> root.
+        if (forceTo != null) {
+          void navigate(forceTo);
         } else if (window.history.length > 1) {
           void navigate(-1);
+        } else if (to != null) {
+          void navigate(to);
         } else {
           void navigate('/');
         }

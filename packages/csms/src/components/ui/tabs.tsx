@@ -66,7 +66,7 @@ const TabsList = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivEl
     };
 
     return (
-      <div ref={ref} className={cn('relative max-w-full', className)} {...props}>
+      <div ref={ref} className={cn('relative max-w-full lg:max-w-[80%]', className)} {...props}>
         {canScrollLeft && (
           <button
             type="button"
