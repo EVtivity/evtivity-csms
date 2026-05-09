@@ -22,6 +22,7 @@ interface FirmwareUpdate {
   id: number;
   requestId: number | null;
   firmwareUrl: string;
+  version: string | null;
   status: string | null;
   initiatedAt: string;
   lastStatusAt: string | null;
@@ -81,6 +82,7 @@ export function StationFirmwareTab({ stationId, timezone }: Props): React.JSX.El
                   <TableRow>
                     <TableHead>{t('common.status')}</TableHead>
                     <TableHead>URL</TableHead>
+                    <TableHead>{t('firmwareCampaigns.version')}</TableHead>
                     <TableHead>{t('common.initiated')}</TableHead>
                     <TableHead>{t('common.lastUpdate')}</TableHead>
                   </TableRow>
@@ -94,6 +96,7 @@ export function StationFirmwareTab({ stationId, timezone }: Props): React.JSX.El
                         </Badge>
                       </TableCell>
                       <TableCell className="text-xs max-w-xs truncate">{fw.firmwareUrl}</TableCell>
+                      <TableCell className="text-xs">{fw.version ?? '--'}</TableCell>
                       <TableCell className="text-xs">
                         {formatDateTime(fw.initiatedAt, timezone)}
                       </TableCell>

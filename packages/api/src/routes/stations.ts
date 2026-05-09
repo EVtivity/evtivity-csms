@@ -25,6 +25,7 @@ import {
   stationEvents,
   stationConfigurations,
   firmwareUpdates,
+  firmwareCampaigns,
   chargingProfiles,
   evChargingNeeds,
   variableMonitoringRules,
@@ -479,6 +480,7 @@ export function stationRoutes(app: FastifyInstance): void {
           stationId: chargingStations.stationId,
           siteId: chargingStations.siteId,
           vendorId: chargingStations.vendorId,
+          vendorName: vendors.name,
           model: chargingStations.model,
           serialNumber: chargingStations.serialNumber,
           firmwareVersion: chargingStations.firmwareVersion,
@@ -513,6 +515,7 @@ export function stationRoutes(app: FastifyInstance): void {
           siteFreeVendEnabled: sql<boolean>`coalesce(${sites.freeVendEnabled}, false)`,
         })
         .from(chargingStations)
+        .leftJoin(vendors, eq(vendors.id, chargingStations.vendorId))
         .leftJoin(sites, eq(sites.id, chargingStations.siteId))
         .where(where);
 
@@ -760,6 +763,30 @@ export function stationRoutes(app: FastifyInstance): void {
             },
             tx,
           );
+        }
+
+        // Auto-create an empty config template owned by this station. Cascade
+        // delete is wired on the FK so removing the station also removes the
+        // template.
+        if (created != null) {
+          const tplOcppVersion = created.ocppProtocol === 'ocpp2.1' ? '2.1' : '1.6';
+          const tplFilter: {
+            stationId: string;
+            siteId?: string;
+            vendorId?: string;
+            model?: string;
+          } = { stationId: created.id };
+          if (created.siteId != null) tplFilter.siteId = created.siteId;
+          if (created.vendorId != null) tplFilter.vendorId = created.vendorId;
+          if (created.model != null) tplFilter.model = created.model;
+          await tx.insert(configTemplates).values({
+            name: `${created.stationId} - Configurations`,
+            description: `Auto generated. ${created.stationId} configurations (OCPP ${tplOcppVersion})`,
+            ocppVersion: tplOcppVersion,
+            variables: [],
+            stationId: created.id,
+            targetFilter: tplFilter,
+          });
         }
 
         return created;
@@ -3408,8 +3435,23 @@ export function stationRoutes(app: FastifyInstance): void {
 
       const [data, countResult] = await Promise.all([
         db
-          .select()
+          .select({
+            id: firmwareUpdates.id,
+            stationId: firmwareUpdates.stationId,
+            requestId: firmwareUpdates.requestId,
+            firmwareUrl: firmwareUpdates.firmwareUrl,
+            retrieveDateTime: firmwareUpdates.retrieveDateTime,
+            status: firmwareUpdates.status,
+            statusInfo: firmwareUpdates.statusInfo,
+            campaignId: firmwareUpdates.campaignId,
+            initiatedAt: firmwareUpdates.initiatedAt,
+            lastStatusAt: firmwareUpdates.lastStatusAt,
+            createdAt: firmwareUpdates.createdAt,
+            updatedAt: firmwareUpdates.updatedAt,
+            version: firmwareCampaigns.version,
+          })
           .from(firmwareUpdates)
+          .leftJoin(firmwareCampaigns, eq(firmwareCampaigns.id, firmwareUpdates.campaignId))
           .where(where)
           .orderBy(desc(firmwareUpdates.createdAt))
           .limit(limit)
@@ -3964,7 +4006,13 @@ export function stationRoutes(app: FastifyInstance): void {
               .object({
                 success: z.boolean(),
                 results: z.array(
-                  z.object({ variable: z.string(), status: z.string() }).passthrough(),
+                  z
+                    .object({
+                      component: z.string(),
+                      variable: z.string(),
+                      status: z.string(),
+                    })
+                    .passthrough(),
                 ),
               })
               .passthrough(),
@@ -4025,7 +4073,7 @@ export function stationRoutes(app: FastifyInstance): void {
       }
 
       const ocppVersion = station.ocppProtocol === 'ocpp1.6' ? '1.6' : '2.1';
-      const results: Array<{ variable: string; status: string }> = [];
+      const results: Array<{ component: string; variable: string; status: string }> = [];
       let hasFailure = false;
 
       if (ocppVersion === '1.6') {
@@ -4047,7 +4095,7 @@ export function stationRoutes(app: FastifyInstance): void {
           );
 
           if (result.error != null) {
-            results.push({ variable: `${v.component}.${v.variable}`, status: result.error });
+            results.push({ component: v.component, variable: v.variable, status: result.error });
             hasFailure = true;
           } else {
             const setResult = result.response as {
@@ -4056,7 +4104,7 @@ export function stationRoutes(app: FastifyInstance): void {
             };
             const status =
               setResult.setVariableResult?.[0]?.attributeStatus ?? setResult.status ?? 'Unknown';
-            results.push({ variable: `${v.component}.${v.variable}`, status });
+            results.push({ component: v.component, variable: v.variable, status });
             if (status !== 'Accepted') hasFailure = true;
           }
         }
@@ -4077,7 +4125,7 @@ export function stationRoutes(app: FastifyInstance): void {
 
         if (result.error != null) {
           for (const v of variables) {
-            results.push({ variable: `${v.component}.${v.variable}`, status: result.error });
+            results.push({ component: v.component, variable: v.variable, status: result.error });
           }
           hasFailure = true;
         } else {
@@ -4090,9 +4138,12 @@ export function stationRoutes(app: FastifyInstance): void {
           };
           const setResults = response.setVariableResult ?? [];
           for (const r of setResults) {
-            const varName = `${r.component?.name ?? ''}.${r.variable?.name ?? ''}`;
             const status = r.attributeStatus ?? 'Unknown';
-            results.push({ variable: varName, status });
+            results.push({
+              component: r.component?.name ?? '',
+              variable: r.variable?.name ?? '',
+              status,
+            });
             if (status !== 'Accepted') hasFailure = true;
           }
         }

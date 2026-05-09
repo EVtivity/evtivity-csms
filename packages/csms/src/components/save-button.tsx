@@ -44,7 +44,6 @@ export function SaveButton({
 
   return (
     <Button
-      variant="success"
       type={type}
       onClick={onClick}
       disabled={disabled ?? spinning}

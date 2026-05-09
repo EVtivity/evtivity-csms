@@ -18,6 +18,7 @@ interface CsmsEvent {
   sessionId: string | null;
   caseId: string | null;
   runId: number | null;
+  campaignId?: string | null;
 }
 
 function getQueryKeysForEvent(event: CsmsEvent): string[][] {
@@ -150,6 +151,15 @@ function getQueryKeysForEvent(event: CsmsEvent): string[][] {
         keys.push(['octt-runs', String(event.runId)]);
         keys.push(['octt-runs', String(event.runId), 'summary']);
       }
+      break;
+
+    case 'firmwareCampaign.stationUpdated':
+    case 'firmwareCampaign.completed':
+      // TanStack Query invalidates by prefix, so this single key covers the
+      // list page (`['firmware-campaigns', page]`), the detail page
+      // (`['firmware-campaigns', id]`), and every sub-query (`history`,
+      // `progress`). No need to push the more specific keys.
+      keys.push(['firmware-campaigns']);
       break;
   }
 

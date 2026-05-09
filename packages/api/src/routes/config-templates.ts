@@ -35,9 +35,16 @@ const targetFilterSchema = z
     siteId: z.string().optional(),
     vendorId: z.string().optional(),
     model: z.string().optional(),
+    stationId: z.string().optional(),
   })
   .optional()
   .nullable();
+
+const filterOptionsQuery = z.object({
+  siteId: z.string().optional().describe('Filter stations by site'),
+  vendorId: z.string().optional().describe('Filter stations by vendor'),
+  model: z.string().optional().describe('Filter stations by model'),
+});
 
 const createTemplateBody = z.object({
   name: z.string().min(1).describe('Template name'),
@@ -82,10 +89,12 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         summary: 'Get filter options for config template targeting',
         operationId: 'getConfigTemplateFilterOptions',
         security: [{ bearerAuth: [] }],
+        querystring: zodSchema(filterOptionsQuery),
         response: { 200: itemResponse(z.object({}).passthrough()) },
       },
     },
     async (request) => {
+      const query = request.query as z.infer<typeof filterOptionsQuery>;
       const { userId } = request.user as { userId: string };
       const accessibleSiteIds = await getUserSiteIds(userId);
 
@@ -102,10 +111,29 @@ export function configTemplateRoutes(app: FastifyInstance): void {
           .orderBy(asc(chargingStations.model)),
       ]);
 
+      const stationConds = [];
+      if (query.siteId) stationConds.push(eq(chargingStations.siteId, query.siteId));
+      if (query.vendorId) stationConds.push(eq(chargingStations.vendorId, query.vendorId));
+      if (query.model) stationConds.push(eq(chargingStations.model, query.model));
+      if (accessibleSiteIds != null && accessibleSiteIds.length > 0) {
+        stationConds.push(inArray(chargingStations.siteId, accessibleSiteIds));
+      }
+
+      const stationRows =
+        accessibleSiteIds != null && accessibleSiteIds.length === 0
+          ? []
+          : await db
+              .select({ id: chargingStations.id, stationId: chargingStations.stationId })
+              .from(chargingStations)
+              .where(stationConds.length > 0 ? and(...stationConds) : undefined)
+              .orderBy(asc(chargingStations.stationId))
+              .limit(500);
+
       return {
         sites: siteRows,
         vendors: vendorRows,
         models: modelRows.map((r) => r.model as string),
+        stations: stationRows,
       };
     },
   );
@@ -150,6 +178,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
           if (filter?.siteId) conds.push(eq(chargingStations.siteId, filter.siteId));
           if (filter?.vendorId) conds.push(eq(chargingStations.vendorId, filter.vendorId));
           if (filter?.model) conds.push(eq(chargingStations.model, filter.model));
+          if (filter?.stationId) conds.push(eq(chargingStations.id, filter.stationId));
           if (accessibleSiteIds != null) {
             if (accessibleSiteIds.length === 0) return { ...template, matchingStationsCount: 0 };
             conds.push(inArray(chargingStations.siteId, accessibleSiteIds));
@@ -334,6 +363,10 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     },
   );
 
+  const matchingStationsQuery = paginationQuery.extend({
+    status: z.enum(['online', 'offline']).optional().describe('Filter by online status'),
+  });
+
   // Preview matching stations for a template's target filter
   app.get(
     '/config-templates/:id/matching-stations',
@@ -345,13 +378,13 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         operationId: 'listConfigTemplateMatchingStations',
         security: [{ bearerAuth: [] }],
         params: zodSchema(templateParams),
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(matchingStationsQuery),
         response: { 200: paginatedResponse(templateItem), 404: errorResponse },
       },
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof templateParams>;
-      const query = request.query as z.infer<typeof paginationQuery>;
+      const query = request.query as z.infer<typeof matchingStationsQuery>;
       const page = query.page;
       const limit = query.limit;
       const offset = (page - 1) * limit;
@@ -366,13 +399,16 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       const expectedProtocol = `ocpp${ocppVersion}`;
 
       const filter = template.targetFilter as Record<string, string> | null;
-      const conditions = [
-        eq(chargingStations.isOnline, true),
-        eq(chargingStations.ocppProtocol, expectedProtocol),
-      ];
+      // Show all stations matching the filter (online + offline) so this list
+      // agrees with the matchingStationsCount shown on the templates list page.
+      // The push endpoint applies its own isOnline check separately.
+      const conditions = [eq(chargingStations.ocppProtocol, expectedProtocol)];
       if (filter?.siteId) conditions.push(eq(chargingStations.siteId, filter.siteId));
       if (filter?.vendorId) conditions.push(eq(chargingStations.vendorId, filter.vendorId));
       if (filter?.model) conditions.push(eq(chargingStations.model, filter.model));
+      if (filter?.stationId) conditions.push(eq(chargingStations.id, filter.stationId));
+      if (query.status === 'online') conditions.push(eq(chargingStations.isOnline, true));
+      if (query.status === 'offline') conditions.push(eq(chargingStations.isOnline, false));
 
       const { userId } = request.user as { userId: string };
       const accessibleSiteIds = await getUserSiteIds(userId);
@@ -389,6 +425,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
             id: chargingStations.id,
             stationId: chargingStations.stationId,
             model: chargingStations.model,
+            isOnline: chargingStations.isOnline,
             siteName: sites.name,
             vendorName: vendors.name,
           })
@@ -455,6 +492,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       if (filter?.siteId) conditions.push(eq(chargingStations.siteId, filter.siteId));
       if (filter?.vendorId) conditions.push(eq(chargingStations.vendorId, filter.vendorId));
       if (filter?.model) conditions.push(eq(chargingStations.model, filter.model));
+      if (filter?.stationId) conditions.push(eq(chargingStations.id, filter.stationId));
 
       const { userId } = request.user as { userId: string };
       const accessibleSiteIds = await getUserSiteIds(userId);
@@ -715,6 +753,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         if (filter.siteId && filter.siteId !== station.siteId) return false;
         if (filter.vendorId && filter.vendorId !== station.vendorId) return false;
         if (filter.model && filter.model !== station.model) return false;
+        if (filter.stationId && filter.stationId !== station.id) return false;
         return true;
       });
 

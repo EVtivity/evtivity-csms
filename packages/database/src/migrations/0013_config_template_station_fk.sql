@@ -1,0 +1,3 @@
+ALTER TABLE "config_templates" ADD COLUMN "station_id" text;--> statement-breakpoint
+ALTER TABLE "config_templates" ADD CONSTRAINT "config_templates_station_id_charging_stations_id_fk" FOREIGN KEY ("station_id") REFERENCES "public"."charging_stations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "idx_config_templates_station" ON "config_templates" USING btree ("station_id");

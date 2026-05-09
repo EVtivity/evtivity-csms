@@ -96,7 +96,7 @@ export function ConfigTemplatePushDetail(): React.JSX.Element {
   return (
     <div className="px-4 py-4 md:px-6 md:py-6 space-y-6">
       <div className="flex items-center gap-4">
-        <BackButton to={`/station-configurations/${push.templateId}`} />
+        <BackButton to={`/station-configurations/${push.templateId}?tab=pushes`} />
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">{t('configTemplates.pushProgress')}</h1>
           <p className="text-sm text-muted-foreground">

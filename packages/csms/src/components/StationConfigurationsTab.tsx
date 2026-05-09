@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Upload } from 'lucide-react';
+import { Pencil, RefreshCw, RotateCcw, Upload } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Table,
   TableBody,
@@ -26,7 +28,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
 import { SearchInput } from '@/components/search-input';
 import { Pagination } from '@/components/ui/pagination';
-import { api } from '@/lib/api';
+import { api, getApiErrorMessage } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 
 interface StationVariable {
@@ -46,21 +48,24 @@ interface ConfigTemplate {
   id: string;
   name: string;
   ocppVersion: string;
+  stationId: string | null;
 }
 
 interface PushResult {
   success: boolean;
-  results: Array<{ variable: string; status: string }>;
+  results: Array<{ component: string; variable: string; status: string }>;
 }
 
 interface Props {
   stationId: string;
+  stationOcppId: string;
   isOnline: boolean;
   ocppProtocol: string | null;
 }
 
 export function StationConfigurationsTab({
   stationId,
+  stationOcppId,
   isOnline,
   ocppProtocol,
 }: Props): React.JSX.Element {
@@ -93,6 +98,7 @@ export function StationConfigurationsTab({
   const [pushDialogOpen, setPushDialogOpen] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [pushResult, setPushResult] = useState<PushResult | null>(null);
+  const [rebootConfirmOpen, setRebootConfirmOpen] = useState(false);
 
   const isOcpp16 = ocppProtocol === 'ocpp1.6';
 
@@ -100,13 +106,24 @@ export function StationConfigurationsTab({
     queryKey: ['config-templates-list'],
     queryFn: () =>
       api.get<{ data: ConfigTemplate[]; total: number }>('/v1/config-templates?limit=100'),
-    enabled: pushDialogOpen,
   });
 
-  const filteredTemplates = (configTemplates?.data ?? []).filter((tpl) => {
-    if (isOcpp16) return tpl.ocppVersion === '1.6';
-    return tpl.ocppVersion === '2.1';
-  });
+  const defaultTemplate = (configTemplates?.data ?? []).find((tpl) => tpl.stationId === stationId);
+
+  const filteredTemplates = (configTemplates?.data ?? [])
+    .filter((tpl) => {
+      const versionMatch = isOcpp16 ? tpl.ocppVersion === '1.6' : tpl.ocppVersion === '2.1';
+      if (!versionMatch) return false;
+      // Exclude other stations' default templates. Templates without an owning
+      // station (general templates) remain visible.
+      if (tpl.stationId != null && tpl.stationId !== stationId) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (a.id === defaultTemplate?.id) return -1;
+      if (b.id === defaultTemplate?.id) return 1;
+      return a.name.localeCompare(b.name);
+    });
 
   const pushMutation = useMutation({
     mutationFn: (templateId: string) =>
@@ -119,13 +136,44 @@ export function StationConfigurationsTab({
       void queryClient.invalidateQueries({ queryKey: ['stations', stationId, 'configurations'] });
     },
     onError: () => {
-      setPushResult({ success: false, results: [{ variable: '--', status: 'Failed' }] });
+      setPushResult({
+        success: false,
+        results: [{ component: '', variable: '--', status: 'Failed' }],
+      });
+    },
+  });
+
+  const rebootMutation = useMutation({
+    mutationFn: async () => {
+      const path = isOcpp16 ? '/v1/ocpp/commands/v16/Reset' : '/v1/ocpp/commands/v21/Reset';
+      const payload = isOcpp16
+        ? { stationId: stationOcppId, type: 'Soft' }
+        : { stationId: stationOcppId, type: 'OnIdle' };
+      const result = await api.post<{
+        status?: string;
+        response?: { status?: string };
+      }>(path, payload);
+      const ocppStatus = result.response?.status;
+      if (ocppStatus != null && ocppStatus !== 'Accepted' && ocppStatus !== 'Scheduled') {
+        throw new Error(t('stations.rebootRejectedStatus', { status: ocppStatus }));
+      }
+      return result;
+    },
+    onSuccess: () => {
+      toast({ title: t('stations.rebootSuccess'), variant: 'success' });
+      setRebootConfirmOpen(false);
+    },
+    onError: (err) => {
+      const apiMessage = getApiErrorMessage(err);
+      const message =
+        apiMessage ?? (err instanceof Error ? err.message : t('stations.rebootFailed'));
+      toast({ title: t('stations.rebootFailed'), description: message, variant: 'destructive' });
     },
   });
 
   function handleOpenPush(): void {
     setPushDialogOpen(true);
-    setSelectedTemplateId('');
+    setSelectedTemplateId(defaultTemplate?.id ?? '');
     setPushResult(null);
   }
 
@@ -166,6 +214,14 @@ export function StationConfigurationsTab({
             <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
             {isRefreshing ? t('stations.refreshing') : t('stations.refreshConfigurations')}
           </Button>
+          {defaultTemplate != null && (
+            <Link to={`/station-configurations/${defaultTemplate.id}`}>
+              <Button variant="outline" size="sm">
+                <Pencil className="h-4 w-4" />
+                {t('stations.editStationConfiguration')}
+              </Button>
+            </Link>
+          )}
           <Button variant="outline" size="sm" disabled={!isOnline} onClick={handleOpenPush}>
             <Upload className="h-4 w-4" />
             {t('stations.pushConfiguration')}
@@ -248,14 +304,29 @@ export function StationConfigurationsTab({
             {pushResult != null && (
               <div className="grid gap-2">
                 <span className="text-sm font-medium">{t('stations.pushConfigResult')}:</span>
-                <Badge variant={pushResult.success ? 'success' : 'destructive'} className="w-fit">
-                  {pushResult.success ? 'Accepted' : 'Rejected'}
-                </Badge>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant={pushResult.success ? 'success' : 'destructive'} className="w-fit">
+                    {pushResult.success ? 'Accepted' : 'Rejected'}
+                  </Badge>
+                  {pushResult.success && isOnline && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setRebootConfirmOpen(true);
+                      }}
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                      {t('stations.rebootStation')}
+                    </Button>
+                  )}
+                </div>
                 {pushResult.results.length > 0 && (
                   <div className="overflow-x-auto max-h-60">
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          {!isOcpp16 && <TableHead>{t('stations.component')}</TableHead>}
                           <TableHead>{t('stations.variable')}</TableHead>
                           <TableHead>{t('common.status')}</TableHead>
                         </TableRow>
@@ -263,6 +334,7 @@ export function StationConfigurationsTab({
                       <TableBody>
                         {pushResult.results.map((r, idx) => (
                           <TableRow key={idx}>
+                            {!isOcpp16 && <TableCell className="text-xs">{r.component}</TableCell>}
                             <TableCell className="text-xs">{r.variable}</TableCell>
                             <TableCell>
                               <Badge variant={r.status === 'Accepted' ? 'success' : 'destructive'}>
@@ -298,6 +370,19 @@ export function StationConfigurationsTab({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={rebootConfirmOpen}
+        onOpenChange={setRebootConfirmOpen}
+        variant="default"
+        title={t('stations.rebootStation')}
+        description={t('stations.confirmRebootStation', { stationId })}
+        confirmLabel={t('stations.rebootStation')}
+        isPending={rebootMutation.isPending}
+        onConfirm={() => {
+          rebootMutation.mutate();
+        }}
+      />
     </Card>
   );
 }

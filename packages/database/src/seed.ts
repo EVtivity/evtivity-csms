@@ -156,6 +156,7 @@ const SITE_NAMES = [
 
 const VENDOR_NAMES = [
   'IoCharger',
+  'EVtivity',
   'ABB',
   'ChargePoint',
   'Tritium',
@@ -1222,10 +1223,18 @@ async function seed(): Promise<void> {
   const createdSites = await db.insert(sites).values(siteRows).returning({ id: sites.id });
   console.log(`  ${String(createdSites.length)} sites created.`);
 
-  // ------ Vendors (10) ------
+  // ------ Vendors ------
   const vendorRows = VENDOR_NAMES.map((name) => ({ name }));
-  const createdVendors = await db.insert(vendors).values(vendorRows).returning({ id: vendors.id });
+  const createdVendors = await db
+    .insert(vendors)
+    .values(vendorRows)
+    .returning({ id: vendors.id, name: vendors.name });
   console.log(`  ${String(createdVendors.length)} vendors created.`);
+  const ioVendorId = createdVendors.find((v) => v.name === 'IoCharger')?.id;
+  const evtivityVendorId = createdVendors.find((v) => v.name === 'EVtivity')?.id;
+  if (ioVendorId == null || evtivityVendorId == null) {
+    throw new Error('Required vendors (IoCharger, EVtivity) not created');
+  }
 
   // ------ Charging Stations (2000) ------
   // Stations 1-1000 (indices 0-999): OCPP 2.1
@@ -1253,7 +1262,6 @@ async function seed(): Promise<void> {
   const stationRows = Array.from({ length: 2000 }, (_, i) => {
     const is16 = i >= 1000;
     const siteRef = i === 0 ? at(createdSites, 0) : pick(createdSites);
-    const vendorRef = pick(createdVendors);
     const modelInfo = is16 ? pick(STATION_MODELS_16) : pick(STATION_MODELS);
     stationModels.push(modelInfo);
     const availability = pick(stationStatuses);
@@ -1293,7 +1301,9 @@ async function seed(): Promise<void> {
     return {
       stationId: i === 0 ? 'IOCHARGER-001' : `CS-${padNum(i + 1, 4)}`,
       siteId: siteRef.id,
-      vendorId: i === 0 ? (createdVendors[0]?.id ?? vendorRef.id) : vendorRef.id,
+      // IOCHARGER-001 keeps the IoCharger vendor; all CS-* stations use the
+      // EVtivity vendor so the demo data reflects a single-vendor fleet.
+      vendorId: i === 0 ? ioVendorId : evtivityVendorId,
       model: i === 0 ? 'IOCAH10-50' : modelInfo.model,
       serialNumber:
         i === 0 ? 'A10E231922830' : `SN-${String(2024 + Math.floor(i / 100))}-${padNum(i + 1, 4)}`,
@@ -1309,7 +1319,7 @@ async function seed(): Promise<void> {
       lastHeartbeat: null,
       loadPriority,
       securityProfile,
-      ocppProtocol: is16 ? 'ocpp1.6' : 'ocpp2.1',
+      ocppProtocol: i === 0 ? 'ocpp1.6' : is16 ? 'ocpp1.6' : 'ocpp2.1',
       basicAuthPasswordHash: passwordHash,
       isSimulator: i !== 0,
       latitude:
@@ -2920,6 +2930,23 @@ async function seed(): Promise<void> {
   );
 
   // ------ Config Templates (3) with Pushes ------
+  // Look up the IOCHARGER-001 station's filter fields so its default template
+  // can carry a fully-populated targetFilter (site, vendor, model, station).
+  const ioStationId = createdStations[0]?.id ?? null;
+  const [ioStationDetails] =
+    ioStationId != null
+      ? await db
+          .select({
+            id: chargingStations.id,
+            siteId: chargingStations.siteId,
+            vendorId: chargingStations.vendorId,
+            model: chargingStations.model,
+          })
+          .from(chargingStations)
+          .where(eq(chargingStations.id, ioStationId))
+          .limit(1)
+      : [null];
+
   const configTemplateDefs = [
     {
       name: 'Standard OCPP 2.1 Config',
@@ -2959,33 +2986,8 @@ async function seed(): Promise<void> {
       stationsPerPush: 30,
     },
     {
-      name: 'IOCHARGER-002 - Configurations',
-      description:
-        'IoCharger vendor defaults: QR code URLs, connector codes, operator branding, and tariff display toggle.',
-      ocppVersion: '2.1' as const,
-      variables: [
-        {
-          component: 'SysConfigCtrlr',
-          variable: 'QR0',
-          value: 'http://45.47.131.88:7101/charge/IOCHARGER-002/1',
-        },
-        {
-          component: 'SysConfigCtrlr',
-          variable: 'QR1',
-          value: 'http://45.47.131.88:7101/charge/IOCHARGER-002/1',
-        },
-        { component: 'SysConfigCtrlr', variable: 'connCode0', value: 'IOCHARGER-002' },
-        { component: 'SysConfigCtrlr', variable: 'connCode1', value: 'IOCHARGER-002' },
-        { component: 'SecurityCtrlr', variable: 'OrganizationName', value: 'EVtivity' },
-        { component: 'TariffCostCtrlr', variable: 'Enabled', value: 'false' },
-      ],
-      pushCount: 0,
-      stationsPerPush: 0,
-    },
-    {
       name: 'IOCHARGER-001 - Configurations',
-      description:
-        'IoCharger vendor defaults: QR code URLs, connector codes, and tariff display toggle (OCPP 1.6).',
+      description: 'Auto generated. IOCHARGER-001 configurations (OCPP 1.6)',
       ocppVersion: '1.6' as const,
       variables: [
         {
@@ -3002,6 +3004,17 @@ async function seed(): Promise<void> {
         { component: '', variable: 'connCode1', value: 'IOCHARGER-001' },
         { component: '', variable: 'TariffCostCtrlr.Enabled', value: 'false' },
       ],
+      // IOCHARGER-001 is the demo seed's index-0 station (createdStations[0]).
+      stationId: ioStationDetails?.id ?? null,
+      targetFilter:
+        ioStationDetails != null
+          ? {
+              stationId: ioStationDetails.id,
+              ...(ioStationDetails.siteId != null ? { siteId: ioStationDetails.siteId } : {}),
+              ...(ioStationDetails.vendorId != null ? { vendorId: ioStationDetails.vendorId } : {}),
+              ...(ioStationDetails.model != null ? { model: ioStationDetails.model } : {}),
+            }
+          : null,
       pushCount: 0,
       stationsPerPush: 0,
     },
@@ -3016,6 +3029,7 @@ async function seed(): Promise<void> {
         ocppVersion: t.ocppVersion,
         variables: t.variables,
         targetFilter: t.targetFilter ?? null,
+        ...('stationId' in t && t.stationId != null ? { stationId: t.stationId } : {}),
       })),
     )
     .returning({ id: configTemplates.id });

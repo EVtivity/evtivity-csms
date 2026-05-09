@@ -998,11 +998,13 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
         </CardContent>
       </Card>
 
-      <MatchingStationsCard
-        endpoint={`/v1/smart-charging/templates/${id ?? ''}/matching-stations`}
-        queryKey={['smart-charging-templates', id ?? '', 'matching-stations']}
-        subtitle={t('smartCharging.templates')}
-      />
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold">{t('firmwareCampaigns.matchingStations')}</h2>
+        <MatchingStationsCard
+          endpoint={`/v1/smart-charging/templates/${id ?? ''}/matching-stations`}
+          queryKey={['smart-charging-templates', id ?? '', 'matching-stations']}
+        />
+      </div>
 
       <ConfirmDialog
         open={deleteOpen}

@@ -11,22 +11,37 @@ import {
   timestamp,
   jsonb,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { chargingStations } from './assets.js';
 import { createId } from '../lib/id.js';
 
-export const configTemplates = pgTable('config_templates', {
-  id: text('id')
-    .primaryKey()
-    .$defaultFn(() => createId('configTemplate')),
-  name: varchar('name', { length: 200 }).notNull(),
-  description: text('description'),
-  variables: jsonb('variables').notNull().default([]),
-  ocppVersion: varchar('ocpp_version', { length: 10 }).notNull().default('2.1'),
-  targetFilter: jsonb('target_filter'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const configTemplates = pgTable(
+  'config_templates',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId('configTemplate')),
+    name: varchar('name', { length: 200 }).notNull(),
+    description: text('description'),
+    variables: jsonb('variables').notNull().default([]),
+    ocppVersion: varchar('ocpp_version', { length: 10 }).notNull().default('2.1'),
+    targetFilter: jsonb('target_filter'),
+    // When set, this template was auto-created for the given station and is
+    // pushed only to that station (targetFilter is ignored). Cascade delete
+    // so the template is removed with its station.
+    stationId: text('station_id').references(() => chargingStations.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // At most one default template per station. Postgres treats multiple NULLs
+    // as distinct in unique indexes, so general templates (no station_id) are
+    // unconstrained. Drizzle's onConflictDoUpdate inference also requires the
+    // index to be non-partial.
+    uniqueIndex('uq_config_templates_station').on(table.stationId),
+  ],
+);
 
 export const configTemplatePushStatusEnum = pgEnum('config_template_push_status', [
   'active',

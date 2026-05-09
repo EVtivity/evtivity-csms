@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useCallback } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { useTranslation } from 'react-i18next';
-import { Loader2 } from 'lucide-react';
+import { useTranslation, Trans } from 'react-i18next';
+import { Info, Loader2 } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -21,7 +23,7 @@ import { api } from '@/lib/api';
 import { useOcppSchema } from '@/hooks/use-ocpp-schema';
 import { resolveFields, formValuesToPayload, generateJsonStub } from '@/lib/ocpp-schema';
 import { SchemaForm } from '@/components/SchemaForm';
-import { OCPP_21_VARIABLES } from '@/lib/ocpp-variables';
+import { OCPP_21_VARIABLES, OCPP_16_KEYS } from '@/lib/ocpp-variables';
 
 const RESET_TYPES = ['Immediate', 'OnIdle'] as const;
 
@@ -378,10 +380,12 @@ function QuickActionForm({
   action,
   form,
   onChange,
+  internalStationId,
 }: {
   action: QuickAction;
   form: FormState;
   onChange: (patch: Partial<FormState>) => void;
+  internalStationId: string;
 }): React.JSX.Element | null {
   const { t } = useTranslation();
 
@@ -616,6 +620,22 @@ function QuickActionForm({
               ))}
             </Select>
           </div>
+          <Alert variant="info">
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              <Trans
+                i18nKey="commands.customKeyHint"
+                components={{
+                  configTab: (
+                    <Link
+                      to={`/stations/${internalStationId}?tab=configurations`}
+                      className="font-medium underline"
+                    />
+                  ),
+                }}
+              />
+            </AlertDescription>
+          </Alert>
         </div>
       );
     }
@@ -688,6 +708,22 @@ function QuickActionForm({
               }}
             />
           </div>
+          <Alert variant="info">
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              <Trans
+                i18nKey="commands.customKeyHint"
+                components={{
+                  configTab: (
+                    <Link
+                      to={`/stations/${internalStationId}?tab=configurations`}
+                      className="font-medium underline"
+                    />
+                  ),
+                }}
+              />
+            </AlertDescription>
+          </Alert>
         </div>
       );
     }
@@ -725,10 +761,12 @@ function QuickActionForm16({
   action,
   form,
   onChange,
+  internalStationId,
 }: {
   action: QuickAction16;
   form: FormState;
   onChange: (patch: Partial<FormState>) => void;
+  internalStationId: string;
 }): React.JSX.Element | null {
   const { t } = useTranslation();
 
@@ -881,13 +919,36 @@ function QuickActionForm16({
       return (
         <div className="space-y-2">
           <Label htmlFor="cmd16-get-config-key">{t('commands.configKeyOptional')}</Label>
-          <Input
+          <Select
             id="cmd16-get-config-key"
             value={form.getConfigKey}
             onChange={(e) => {
               onChange({ getConfigKey: e.target.value });
             }}
-          />
+          >
+            <option value="">{t('commands.allKeys')}</option>
+            {OCPP_16_KEYS.map((k) => (
+              <option key={k} value={k}>
+                {k}
+              </option>
+            ))}
+          </Select>
+          <Alert variant="info">
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              <Trans
+                i18nKey="commands.customKeyHint"
+                components={{
+                  configTab: (
+                    <Link
+                      to={`/stations/${internalStationId}?tab=configurations`}
+                      className="font-medium underline"
+                    />
+                  ),
+                }}
+              />
+            </AlertDescription>
+          </Alert>
         </div>
       );
     case 'ChangeConfiguration':
@@ -895,13 +956,36 @@ function QuickActionForm16({
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="cmd16-change-config-key">{t('commands.configKey')}</Label>
-            <Input
+            <Select
               id="cmd16-change-config-key"
               value={form.configKey}
               onChange={(e) => {
                 onChange({ configKey: e.target.value });
               }}
-            />
+            >
+              <option value="">{t('commands.selectKey')}</option>
+              {OCPP_16_KEYS.map((k) => (
+                <option key={k} value={k}>
+                  {k}
+                </option>
+              ))}
+            </Select>
+            <Alert variant="info">
+              <Info className="h-4 w-4" />
+              <AlertDescription>
+                <Trans
+                  i18nKey="commands.customKeyHint"
+                  components={{
+                    configTab: (
+                      <Link
+                        to={`/stations/${internalStationId}?tab=configurations`}
+                        className="font-medium underline"
+                      />
+                    ),
+                  }}
+                />
+              </AlertDescription>
+            </Alert>
           </div>
           <div className="space-y-2">
             <Label htmlFor="cmd16-change-config-value">{t('commands.configValue')}</Label>
@@ -972,6 +1056,7 @@ export function StationCommands({
   ocppProtocol,
 }: StationCommandsProps): React.JSX.Element {
   const { t } = useTranslation();
+  const { id: internalStationId = '' } = useParams<{ id: string }>();
   const is16 = ocppProtocol === 'ocpp1.6';
 
   const [activeAction, setActiveAction] = useState<QuickAction | QuickAction16 | null>(null);
@@ -1244,6 +1329,7 @@ export function StationCommands({
                     onChange={(patch) => {
                       setForm((prev) => ({ ...prev, ...patch }));
                     }}
+                    internalStationId={internalStationId}
                   />
                 ) : (
                   <QuickActionForm
@@ -1252,6 +1338,7 @@ export function StationCommands({
                     onChange={(patch) => {
                       setForm((prev) => ({ ...prev, ...patch }));
                     }}
+                    internalStationId={internalStationId}
                   />
                 ))}
               {result != null && (

@@ -3,13 +3,14 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Plus } from 'lucide-react';
 import { BackButton } from '@/components/back-button';
 import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
 import { RemoveIconButton } from '@/components/remove-icon-button';
+import { TargetFilterFields, type TargetFilterValue } from '@/components/TargetFilterFields';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -34,12 +35,6 @@ interface ConfigTemplate {
   createdAt: string;
 }
 
-interface FilterOptions {
-  sites: { id: string; name: string }[];
-  vendors: { id: string; name: string }[];
-  models: string[];
-}
-
 type OcppVersion = '2.1' | '1.6';
 
 export function ConfigTemplateCreate(): React.JSX.Element {
@@ -50,15 +45,8 @@ export function ConfigTemplateCreate(): React.JSX.Element {
   const [description, setDescription] = useState('');
   const [ocppVersion, setOcppVersion] = useState<OcppVersion>('2.1');
   const [variables, setVariables] = useState<TemplateVariable[]>([]);
-  const [filterSiteId, setFilterSiteId] = useState('');
-  const [filterVendorId, setFilterVendorId] = useState('');
-  const [filterModel, setFilterModel] = useState('');
+  const [filter, setFilter] = useState<TargetFilterValue>({});
   const [hasSubmitted, setHasSubmitted] = useState(false);
-
-  const { data: filterOptions } = useQuery({
-    queryKey: ['config-template-filter-options'],
-    queryFn: () => api.get<FilterOptions>('/v1/config-templates/filter-options'),
-  });
 
   const createMutation = useMutation({
     mutationFn: (body: {
@@ -66,7 +54,7 @@ export function ConfigTemplateCreate(): React.JSX.Element {
       description?: string;
       ocppVersion: OcppVersion;
       variables: TemplateVariable[];
-      targetFilter?: { siteId?: string; vendorId?: string; model?: string };
+      targetFilter?: TargetFilterValue;
     }) => api.post<ConfigTemplate>('/v1/config-templates', body),
     onSuccess: (created) => {
       void navigate(`/station-configurations/${created.id}`);
@@ -117,7 +105,7 @@ export function ConfigTemplateCreate(): React.JSX.Element {
       description?: string;
       ocppVersion: OcppVersion;
       variables: TemplateVariable[];
-      targetFilter?: { siteId?: string; vendorId?: string; model?: string };
+      targetFilter?: TargetFilterValue;
     } = {
       name,
       ocppVersion,
@@ -127,10 +115,6 @@ export function ConfigTemplateCreate(): React.JSX.Element {
           : variables.filter((v) => v.component && v.variable),
     };
     if (description.trim() !== '') body.description = description;
-    const filter: { siteId?: string; vendorId?: string; model?: string } = {};
-    if (filterSiteId) filter.siteId = filterSiteId;
-    if (filterVendorId) filter.vendorId = filterVendorId;
-    if (filterModel) filter.model = filterModel;
     if (Object.keys(filter).length > 0) body.targetFilter = filter;
     createMutation.mutate(body);
   }
@@ -302,65 +286,13 @@ export function ConfigTemplateCreate(): React.JSX.Element {
               )}
             </div>
 
-            <div className="space-y-2 pt-2">
-              <h3 className="text-sm font-medium">{t('configTemplates.targetFilter')}</h3>
-              <p className="text-xs text-muted-foreground">
-                {t('configTemplates.targetFilterHelp')}
-              </p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="filter-site">{t('configTemplates.site')}</Label>
-                <Select
-                  id="filter-site"
-                  value={filterSiteId}
-                  onChange={(e) => {
-                    setFilterSiteId(e.target.value);
-                  }}
-                >
-                  <option value="">{t('configTemplates.allSites')}</option>
-                  {filterOptions?.sites.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="filter-vendor">{t('configTemplates.vendor')}</Label>
-                <Select
-                  id="filter-vendor"
-                  value={filterVendorId}
-                  onChange={(e) => {
-                    setFilterVendorId(e.target.value);
-                  }}
-                >
-                  <option value="">{t('configTemplates.allVendors')}</option>
-                  {filterOptions?.vendors.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="filter-model">{t('configTemplates.model')}</Label>
-                <Select
-                  id="filter-model"
-                  value={filterModel}
-                  onChange={(e) => {
-                    setFilterModel(e.target.value);
-                  }}
-                >
-                  <option value="">{t('configTemplates.allModels')}</option>
-                  {filterOptions?.models.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            </div>
+            <TargetFilterFields
+              endpoint="/v1/config-templates/filter-options"
+              queryKeyPrefix={['config-template-filter-options']}
+              value={filter}
+              onChange={setFilter}
+              idPrefix="ct-create-filter"
+            />
 
             <div className="flex justify-end gap-2">
               <CancelButton

@@ -32,6 +32,7 @@ export const STATIONS_COLUMNS: ColumnMeta[] = [
   },
   { key: 'id', label: 'stations.id', defaultVisible: true, defaultVisibleMobile: false },
   { key: 'site', label: 'sites.siteName', defaultVisible: true, defaultVisibleMobile: true },
+  { key: 'vendor', label: 'stations.vendor', defaultVisible: false, defaultVisibleMobile: false },
   { key: 'model', label: 'stations.model', defaultVisible: true, defaultVisibleMobile: false },
   {
     key: 'securityProfile',
@@ -71,6 +72,7 @@ export interface Station {
   id: string;
   stationId: string;
   siteId?: string | null;
+  vendorName?: string | null;
   model: string | null;
   securityProfile?: number | undefined;
   ocppProtocol?: string | null;
@@ -331,6 +333,7 @@ export function StationsTable({
             {isVisible('stationId') && <TableHead>{t('stations.stationId')}</TableHead>}
             {isVisible('id') && <TableHead>{t('stations.id')}</TableHead>}
             {showSiteColumn && isVisible('site') && <TableHead>{t('sites.siteName')}</TableHead>}
+            {isVisible('vendor') && <TableHead>{t('stations.vendor')}</TableHead>}
             {isVisible('model') && <TableHead>{t('stations.model')}</TableHead>}
             {isVisible('securityProfile') && <TableHead>{t('stations.securityProfile')}</TableHead>}
             {isVisible('ocppProtocol') && <TableHead>{t('stations.ocppProtocol')}</TableHead>}
@@ -456,6 +459,9 @@ export function StationsTable({
                     '-'
                   )}
                 </TableCell>
+              )}
+              {isVisible('vendor') && (
+                <TableCell className="whitespace-nowrap">{station.vendorName ?? '-'}</TableCell>
               )}
               {isVisible('model') && (
                 <TableCell className="whitespace-nowrap">{station.model ?? '-'}</TableCell>

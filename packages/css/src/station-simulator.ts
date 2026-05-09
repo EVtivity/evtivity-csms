@@ -3903,7 +3903,13 @@ export class StationSimulator {
           fwLocation =
             (firmware?.['location'] as string | undefined) ?? (payload['location'] as string);
         }
-        void this.simulateFirmwareUpdate(fwLocation).catch(() => {});
+        // OCPP 2.1 carries the requestId on the UpdateFirmware payload, and
+        // FirmwareStatusNotification echoes it back so the CSMS can correlate
+        // status updates to the originating request. Without it, the CSMS
+        // creates a parallel "unknown" firmware_updates row per status and the
+        // original row stays stuck at status=null.
+        const fwRequestId = payload['requestId'] as number | undefined;
+        void this.simulateFirmwareUpdate(fwLocation, fwRequestId).catch(() => {});
         return this.is16 ? {} : { status: 'Accepted' };
       }
 
@@ -4948,14 +4954,14 @@ export class StationSimulator {
     this.evConnectTimeoutTimers.set(evseId, timer);
   }
 
-  private async simulateFirmwareUpdate(location: string): Promise<void> {
+  private async simulateFirmwareUpdate(location: string, requestId?: number): Promise<void> {
     const delay = () => new Promise((resolve) => setTimeout(resolve, 500));
     const send = async (status: string) => {
       if (this.isDestroyed()) return false;
       await delay();
       if (this.isDestroyed()) return false;
       this.firmwareUpdateStatus = status;
-      await this.sendFirmwareStatusNotification(status);
+      await this.sendFirmwareStatusNotification(status, requestId);
       return true;
     };
 

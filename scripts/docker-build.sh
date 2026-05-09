@@ -56,19 +56,40 @@ if [[ "$monitoring" == "y" || "$monitoring" == "Y" ]]; then
   PROFILES+=(--profile monitoring)
 fi
 
+# Restart postgres and redis (wipes all DB + Redis data and reseeds). Default
+# no so iterating on app code does not throw away local state every rebuild.
+read -rp "Restart postgres and redis (wipes DB + Redis data, reseeds)? [y/N] " restart_data
+RESTART_DATA="n"
+if [[ "$restart_data" == "y" || "$restart_data" == "Y" ]]; then
+  RESTART_DATA="y"
+fi
+
 echo ""
 if [ "$BIND_IP" != "127.0.0.1" ]; then
   echo "Bind IP: $BIND_IP (LAN)"
 fi
 echo "Profiles: ${PROFILES[*]:-none}"
+echo "Restart data services: $RESTART_DATA"
 echo ""
 
-# Tear down existing containers AND remove all named volumes so the next `up`
-# starts with an empty postgres. Using --volumes here (instead of a separate
-# `docker volume rm <name>`) avoids hard-coding the volume name -- compose
-# derives `<project>_<volume>` from the `name:` field in docker-compose.yml,
-# and a typo there silently leaves stale data in place across rebuilds.
-docker compose --profile tools --profile ocpi --profile monitoring down --remove-orphans --volumes --timeout 10
+if [ "$RESTART_DATA" = "y" ]; then
+  # Full teardown + volume removal so the next `up` starts with an empty
+  # postgres + redis. --volumes avoids hard-coding the volume name -- compose
+  # derives `<project>_<volume>` from the `name:` field in docker-compose.yml.
+  docker compose --profile tools --profile ocpi --profile monitoring down --remove-orphans --volumes --timeout 10
+else
+  # Preserve postgres + redis (and their volumes). Stop only the app services
+  # so they get rebuilt with the new image. The data services keep running so
+  # iteration on app code does not lose local state.
+  docker compose --profile tools --profile ocpi --profile monitoring stop --timeout 10 \
+    api ocpp csms portal simulator worker migrate \
+    ocpi ocpi-simulator ocpi-cpo-sim \
+    pgadmin mailpit ftp prometheus grafana loki alloy 2>/dev/null || true
+  docker compose --profile tools --profile ocpi --profile monitoring rm -f \
+    api ocpp csms portal simulator worker migrate \
+    ocpi ocpi-simulator ocpi-cpo-sim \
+    pgadmin mailpit ftp prometheus grafana loki alloy 2>/dev/null || true
+fi
 
 # Wait for TLS port to free up
 while lsof -i :8443 >/dev/null 2>&1; do sleep 1; done
@@ -82,7 +103,7 @@ while lsof -i :8443 >/dev/null 2>&1; do sleep 1; done
 # All env vars (auto-login, CSS_MODE, CSS_STATION_LIMIT, etc.) are read from
 # .env via docker-compose's automatic .env loading. To enable dev auto-login,
 # set VITE_CSMS_AUTO_LOGIN / VITE_PORTAL_AUTO_LOGIN in .env.
-docker compose up -d --build postgres redis
+docker compose up -d postgres redis
 
 # Wait for postgres to be healthy before running migrations and seeds. The
 # migrate container has its own healthcheck dependency, but the host-side
@@ -93,23 +114,29 @@ until docker compose exec -T postgres pg_isready -U evtivity >/dev/null 2>&1; do
   sleep 1
 done
 
-# Run migrations and seeds against the freshly-started postgres. The migrate
-# container exits 0 when done; we run it as a one-shot dependency.
+# Migrations are idempotent and safe to run on an existing database, so always
+# apply them. Seeding only runs on a fresh DB to avoid clobbering operator
+# changes.
 echo "Running migrations..."
 docker compose up --no-deps --build migrate
 
-echo ""
-# The seed scripts run on the host and resolve `@evtivity/lib` to its compiled
-# `dist/`. New lib exports (like STATION_MESSAGE_DEFAULTS) only land in `dist/`
-# when lib is built. Compile lib + database before seeding so a fresh checkout
-# never fails with "module does not provide an export named X".
-echo "Building lib + database for host-side seed..."
-npm run build --workspace=@evtivity/lib --workspace=@evtivity/database
+if [ "$RESTART_DATA" = "y" ]; then
+  echo ""
+  # The seed scripts run on the host and resolve `@evtivity/lib` to its compiled
+  # `dist/`. New lib exports (like STATION_MESSAGE_DEFAULTS) only land in `dist/`
+  # when lib is built. Compile lib + database before seeding so a fresh checkout
+  # never fails with "module does not provide an export named X".
+  echo "Building lib + database for host-side seed..."
+  npm run build --workspace=@evtivity/lib --workspace=@evtivity/database
 
-echo ""
-echo "Seeding database..."
-npm run db:seed
-npm run db:seed:dev
+  echo ""
+  echo "Seeding database..."
+  npm run db:seed
+  npm run db:seed:dev
+else
+  echo ""
+  echo "Skipping seed (data services preserved)."
+fi
 
 # Now bring up the remaining services (api, ocpp, csms, portal, simulator,
 # worker, plus any profiled services). They start with the final post-seed

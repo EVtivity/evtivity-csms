@@ -7,7 +7,12 @@ import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface BackButtonProps {
-  /** Fallback path when there is no browser history (e.g., direct link or new tab) */
+  /**
+   * Explicit path to navigate to. When provided, the back button always goes
+   * here so callers can force a specific destination (e.g., a sibling tab) and
+   * not rely on the browser history stack, which can land on a stale state.
+   * When omitted, the button uses browser history with `/` as a fallback.
+   */
   to?: string;
 }
 
@@ -21,10 +26,12 @@ export function BackButton({ to }: BackButtonProps): React.JSX.Element {
       size="icon"
       aria-label={t('nav.back')}
       onClick={() => {
-        if (window.history.length > 1) {
+        if (to != null) {
+          void navigate(to);
+        } else if (window.history.length > 1) {
           void navigate(-1);
         } else {
-          void navigate(to ?? '/');
+          void navigate('/');
         }
       }}
     >

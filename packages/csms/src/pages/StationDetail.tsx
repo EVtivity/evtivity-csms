@@ -320,6 +320,7 @@ export function StationDetail(): React.JSX.Element {
         <TabsContent value="configurations" className="space-y-6">
           <StationConfigurationsTab
             stationId={station.id}
+            stationOcppId={station.stationId}
             isOnline={station.isOnline}
             ocppProtocol={station.ocppProtocol}
           />

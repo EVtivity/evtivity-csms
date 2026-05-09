@@ -269,14 +269,25 @@ export function CompanySettings({
         <div className="grid gap-6 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>{t('settings.companyLogo')}</Label>
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleLogoChange}
+            />
             <div className="flex items-center gap-4">
               {settings != null && typeof settings['company.logo'] === 'string' ? (
-                <>
-                  <img
-                    src={settings['company.logo']}
-                    alt="Company logo"
-                    className="h-16 w-16 rounded border object-contain"
-                  />
+                <img
+                  src={settings['company.logo']}
+                  alt="Company logo"
+                  className="h-16 w-16 rounded border object-contain"
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">{t('settings.noLogo')}</p>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                {settings != null && typeof settings['company.logo'] === 'string' && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -288,61 +299,61 @@ export function CompanySettings({
                     <Trash2 className="h-4 w-4" />
                     {t('settings.removeLogo')}
                   </Button>
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">{t('settings.noLogo')}</p>
-              )}
-            </div>
-            <div>
-              <input
-                ref={logoInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleLogoChange}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  logoInputRef.current?.click();
-                }}
-                disabled={logoUploadMutation.isPending}
-              >
-                <Upload className="h-4 w-4" />
-                {t('settings.uploadLogo')}
-              </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    logoInputRef.current?.click();
+                  }}
+                  disabled={logoUploadMutation.isPending}
+                >
+                  <Upload className="h-4 w-4" />
+                  {t('settings.uploadLogo')}
+                </Button>
+              </div>
             </div>
           </div>
 
           <div className="space-y-2">
             <Label>{t('settings.qrCodeIcon')}</Label>
             <p className="text-xs text-muted-foreground">{t('settings.qrCodeIconDescription')}</p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".svg"
+              className="hidden"
+              onChange={handleFileChange}
+            />
             {hasIcon && svgDataUri != null ? (
-              <div className="space-y-3">
-                <div className="flex items-start gap-4">
-                  <div className="flex flex-col items-center gap-1">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      {t('settings.preview')}
-                    </p>
-                    <img src={svgDataUri} alt="QR icon" className="h-16 w-16 rounded border p-2" />
-                  </div>
-                  <div className="flex flex-col items-center gap-1">
-                    <p className="text-xs font-medium text-muted-foreground">QR</p>
-                    <QRCodeSVG
-                      value="https://portal.evtivity.com/charge/DEMO/1"
-                      size={120}
-                      level="H"
-                      marginSize={4}
-                      imageSettings={{
-                        src: svgDataUri,
-                        height: 24,
-                        width: 24,
-                        excavate: true,
-                      }}
-                    />
-                  </div>
+              <div className="flex items-start gap-4">
+                <div className="flex flex-col items-center gap-1">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {t('settings.preview')}
+                  </p>
+                  <img src={svgDataUri} alt="QR icon" className="h-16 w-16 rounded border p-2" />
                 </div>
+                <div className="flex flex-col items-center gap-1">
+                  <p className="text-xs font-medium text-muted-foreground">QR</p>
+                  <QRCodeSVG
+                    value="https://portal.evtivity.com/charge/DEMO/1"
+                    size={120}
+                    level="H"
+                    marginSize={4}
+                    imageSettings={{
+                      src: svgDataUri,
+                      height: 24,
+                      width: 24,
+                      excavate: true,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">{t('settings.noIcon')}</p>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {hasIcon && svgDataUri != null && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -354,18 +365,7 @@ export function CompanySettings({
                   <Trash2 className="h-4 w-4" />
                   {t('settings.removeIcon')}
                 </Button>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">{t('settings.noIcon')}</p>
-            )}
-            <div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".svg"
-                className="hidden"
-                onChange={handleFileChange}
-              />
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -385,102 +385,106 @@ export function CompanySettings({
           <div className="space-y-2">
             <Label>{t('settings.favicon')}</Label>
             <p className="text-xs text-muted-foreground">{t('settings.faviconDescription')}</p>
+            <input
+              ref={faviconInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFaviconChange}
+            />
             <div className="flex items-center gap-4">
               {settings != null &&
               typeof settings['company.favicon'] === 'string' &&
               settings['company.favicon'] !== '' ? (
-                <>
-                  <img
-                    src={settings['company.favicon']}
-                    alt="Favicon"
-                    className="h-8 w-8 rounded border object-contain"
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      faviconRemoveMutation.mutate();
-                    }}
-                    disabled={faviconRemoveMutation.isPending}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    {t('settings.removeFavicon')}
-                  </Button>
-                </>
+                <img
+                  src={settings['company.favicon']}
+                  alt="Favicon"
+                  className="h-8 w-8 rounded border object-contain"
+                />
               ) : (
                 <p className="text-sm text-muted-foreground">{t('settings.noFavicon')}</p>
               )}
-            </div>
-            <div>
-              <input
-                ref={faviconInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleFaviconChange}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  faviconInputRef.current?.click();
-                }}
-                disabled={faviconUploadMutation.isPending}
-              >
-                <Upload className="h-4 w-4" />
-                {t('settings.uploadFavicon')}
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                {settings != null &&
+                  typeof settings['company.favicon'] === 'string' &&
+                  settings['company.favicon'] !== '' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        faviconRemoveMutation.mutate();
+                      }}
+                      disabled={faviconRemoveMutation.isPending}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {t('settings.removeFavicon')}
+                    </Button>
+                  )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    faviconInputRef.current?.click();
+                  }}
+                  disabled={faviconUploadMutation.isPending}
+                >
+                  <Upload className="h-4 w-4" />
+                  {t('settings.uploadFavicon')}
+                </Button>
+              </div>
             </div>
           </div>
 
           <div className="space-y-2">
             <Label>{t('settings.ogImage')}</Label>
             <p className="text-xs text-muted-foreground">{t('settings.ogImageDescription')}</p>
+            <input
+              ref={ogImageInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleOgImageChange}
+            />
             <div className="flex items-center gap-4">
               {settings != null &&
               typeof settings['company.ogImage'] === 'string' &&
               settings['company.ogImage'] !== '' ? (
-                <>
-                  <img
-                    src={settings['company.ogImage']}
-                    alt="OG image"
-                    className="h-16 w-28 rounded border object-cover"
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      ogImageRemoveMutation.mutate();
-                    }}
-                    disabled={ogImageRemoveMutation.isPending}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    {t('settings.removeOgImage')}
-                  </Button>
-                </>
+                <img
+                  src={settings['company.ogImage']}
+                  alt="OG image"
+                  className="h-16 w-28 rounded border object-cover"
+                />
               ) : (
                 <p className="text-sm text-muted-foreground">{t('settings.noOgImage')}</p>
               )}
-            </div>
-            <div>
-              <input
-                ref={ogImageInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleOgImageChange}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  ogImageInputRef.current?.click();
-                }}
-                disabled={ogImageUploadMutation.isPending}
-              >
-                <Upload className="h-4 w-4" />
-                {t('settings.uploadOgImage')}
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                {settings != null &&
+                  typeof settings['company.ogImage'] === 'string' &&
+                  settings['company.ogImage'] !== '' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        ogImageRemoveMutation.mutate();
+                      }}
+                      disabled={ogImageRemoveMutation.isPending}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {t('settings.removeOgImage')}
+                    </Button>
+                  )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    ogImageInputRef.current?.click();
+                  }}
+                  disabled={ogImageUploadMutation.isPending}
+                >
+                  <Upload className="h-4 w-4" />
+                  {t('settings.uploadOgImage')}
+                </Button>
+              </div>
             </div>
           </div>
         </div>

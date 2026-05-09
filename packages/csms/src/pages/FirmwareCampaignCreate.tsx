@@ -3,14 +3,14 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
 import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
+import { TargetFilterFields, type TargetFilterValue } from '@/components/TargetFilterFields';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { api } from '@/lib/api';
 
@@ -23,12 +23,6 @@ interface Campaign {
   createdAt: string;
 }
 
-interface FilterOptions {
-  sites: { id: string; name: string }[];
-  vendors: { id: string; name: string }[];
-  models: string[];
-}
-
 export function FirmwareCampaignCreate(): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -36,22 +30,15 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
   const [name, setName] = useState('');
   const [firmwareUrl, setFirmwareUrl] = useState('');
   const [version, setVersion] = useState('');
-  const [filterSiteId, setFilterSiteId] = useState('');
-  const [filterVendorId, setFilterVendorId] = useState('');
-  const [filterModel, setFilterModel] = useState('');
+  const [filter, setFilter] = useState<TargetFilterValue>({});
   const [hasSubmitted, setHasSubmitted] = useState(false);
-
-  const { data: filterOptions } = useQuery({
-    queryKey: ['firmware-campaign-filter-options'],
-    queryFn: () => api.get<FilterOptions>('/v1/firmware-campaigns/filter-options'),
-  });
 
   const createMutation = useMutation({
     mutationFn: (body: {
       name: string;
       firmwareUrl: string;
       version?: string;
-      targetFilter?: { siteId?: string; vendorId?: string; model?: string };
+      targetFilter?: TargetFilterValue;
     }) => api.post<Campaign>('/v1/firmware-campaigns', body),
     onSuccess: (created) => {
       void navigate(`/firmware-campaigns/${created.id}`);
@@ -83,13 +70,9 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
       name: string;
       firmwareUrl: string;
       version?: string;
-      targetFilter?: { siteId?: string; vendorId?: string; model?: string };
+      targetFilter?: TargetFilterValue;
     } = { name, firmwareUrl };
     if (version.trim() !== '') body.version = version;
-    const filter: { siteId?: string; vendorId?: string; model?: string } = {};
-    if (filterSiteId) filter.siteId = filterSiteId;
-    if (filterVendorId) filter.vendorId = filterVendorId;
-    if (filterModel) filter.model = filterModel;
     if (Object.keys(filter).length > 0) body.targetFilter = filter;
     createMutation.mutate(body);
   }
@@ -118,91 +101,41 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
                 <p className="text-sm text-destructive">{errors.name}</p>
               )}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="campaign-firmware-url">{t('firmwareCampaigns.firmwareUrl')}</Label>
-              <Input
-                id="campaign-firmware-url"
-                placeholder="https://example.com/firmware-v2.bin"
-                value={firmwareUrl}
-                onChange={(e) => {
-                  setFirmwareUrl(e.target.value);
-                }}
-                className={hasSubmitted && errors.firmwareUrl ? 'border-destructive' : ''}
-              />
-              {hasSubmitted && errors.firmwareUrl && (
-                <p className="text-sm text-destructive">{errors.firmwareUrl}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="campaign-version">{t('firmwareCampaigns.version')}</Label>
-              <Input
-                id="campaign-version"
-                value={version}
-                onChange={(e) => {
-                  setVersion(e.target.value);
-                }}
-              />
+            <div className="grid grid-cols-1 md:grid-cols-10 gap-4">
+              <div className="space-y-2 md:col-span-7">
+                <Label htmlFor="campaign-firmware-url">{t('firmwareCampaigns.firmwareUrl')}</Label>
+                <Input
+                  id="campaign-firmware-url"
+                  placeholder="https://example.com/firmware-v2.bin"
+                  value={firmwareUrl}
+                  onChange={(e) => {
+                    setFirmwareUrl(e.target.value);
+                  }}
+                  className={hasSubmitted && errors.firmwareUrl ? 'border-destructive' : ''}
+                />
+                {hasSubmitted && errors.firmwareUrl && (
+                  <p className="text-sm text-destructive">{errors.firmwareUrl}</p>
+                )}
+              </div>
+              <div className="space-y-2 md:col-span-3">
+                <Label htmlFor="campaign-version">{t('firmwareCampaigns.version')}</Label>
+                <Input
+                  id="campaign-version"
+                  value={version}
+                  onChange={(e) => {
+                    setVersion(e.target.value);
+                  }}
+                />
+              </div>
             </div>
 
-            <div className="space-y-2 pt-2">
-              <h3 className="text-sm font-medium">{t('firmwareCampaigns.targetFilter')}</h3>
-              <p className="text-xs text-muted-foreground">
-                {t('firmwareCampaigns.targetFilterHelp')}
-              </p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="filter-site">{t('firmwareCampaigns.site')}</Label>
-                <Select
-                  id="filter-site"
-                  value={filterSiteId}
-                  onChange={(e) => {
-                    setFilterSiteId(e.target.value);
-                  }}
-                >
-                  <option value="">{t('firmwareCampaigns.allSites')}</option>
-                  {filterOptions?.sites.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="filter-vendor">{t('firmwareCampaigns.vendor')}</Label>
-                <Select
-                  id="filter-vendor"
-                  value={filterVendorId}
-                  onChange={(e) => {
-                    setFilterVendorId(e.target.value);
-                  }}
-                >
-                  <option value="">{t('firmwareCampaigns.allVendors')}</option>
-                  {filterOptions?.vendors.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="filter-model">{t('firmwareCampaigns.model')}</Label>
-                <Select
-                  id="filter-model"
-                  value={filterModel}
-                  onChange={(e) => {
-                    setFilterModel(e.target.value);
-                  }}
-                >
-                  <option value="">{t('firmwareCampaigns.allModels')}</option>
-                  {filterOptions?.models.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            </div>
+            <TargetFilterFields
+              endpoint="/v1/firmware-campaigns/filter-options"
+              queryKeyPrefix={['firmware-campaign-filter-options']}
+              value={filter}
+              onChange={setFilter}
+              idPrefix="fw-create-filter"
+            />
 
             <div className="flex justify-end gap-2">
               <CancelButton

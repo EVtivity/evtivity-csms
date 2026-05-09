@@ -92,6 +92,27 @@
       "when": 1746662400000,
       "tag": "0012_update_default_logo",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1778342330421,
+      "tag": "0013_config_template_station_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1778347085883,
+      "tag": "0014_config_template_unique_station",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1778400000000,
+      "tag": "0015_firmware_updates_request_id_unique",
+      "breakpoints": true
     }
   ]
 }

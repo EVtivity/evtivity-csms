@@ -286,6 +286,7 @@ export function registerProjections(
     stationId: string | null,
     siteId: string | null,
     sessionId?: string | null,
+    extra?: Record<string, unknown>,
   ): Promise<void> {
     try {
       const payload = JSON.stringify({
@@ -293,6 +294,7 @@ export function registerProjections(
         stationId,
         siteId,
         sessionId: sessionId ?? null,
+        ...(extra ?? {}),
       });
       await pubsub.publish('csms_events', payload);
     } catch {
@@ -2469,30 +2471,84 @@ export function registerProjections(
     };
     const campaignStatus = campaignStatusMap[status];
     if (campaignStatus != null) {
-      await sql`
-        UPDATE firmware_campaign_stations
-        SET status = ${campaignStatus}::firmware_campaign_station_status,
-            error_info = CASE WHEN ${campaignStatus} = 'failed' THEN ${status} ELSE error_info END,
-            updated_at = now()
-        WHERE station_id = ${stationUuid}
-          AND status NOT IN ('installed', 'failed')
-      `;
+      // Resolve which campaign this status notification belongs to via the
+      // firmware_updates row. Without this scoping, the UPDATE below would
+      // affect every non-terminal firmware_campaign_stations row for the
+      // station, and the auto-complete check would run against unrelated
+      // campaigns -- which can prematurely flip an unrelated active campaign
+      // to "completed".
+      //
+      // 1.6 has no requestId, so fall back to the most recent NON-TERMINAL row
+      // for this station. Picking the most recent row of any kind would resolve
+      // to a manual operator update that ran after the campaign started, even
+      // though the in-flight status report belongs to the campaign.
+      const linkedCampaignRows =
+        fwRequestId != null
+          ? await sql`
+              SELECT campaign_id
+              FROM firmware_updates
+              WHERE station_id = ${stationUuid} AND request_id = ${fwRequestId}
+              LIMIT 1
+            `
+          : await sql`
+              SELECT campaign_id
+              FROM firmware_updates
+              WHERE station_id = ${stationUuid}
+                AND (
+                  status IS NULL
+                  OR status NOT IN (
+                    'Installed',
+                    'InstallationFailed',
+                    'InstallVerificationFailed',
+                    'InvalidSignature',
+                    'DownloadFailed'
+                  )
+                )
+              ORDER BY created_at DESC
+              LIMIT 1
+            `;
+      const linkedCampaignId =
+        (linkedCampaignRows[0]?.campaign_id as string | null | undefined) ?? null;
 
-      // Check if all stations in the campaign are terminal (installed or failed)
-      await sql`
-        UPDATE firmware_campaigns
-        SET status = 'completed', updated_at = now()
-        WHERE id IN (
-          SELECT campaign_id FROM firmware_campaign_stations
+      if (linkedCampaignId != null) {
+        await sql`
+          UPDATE firmware_campaign_stations
+          SET status = ${campaignStatus}::firmware_campaign_station_status,
+              error_info = CASE WHEN ${campaignStatus} = 'failed' THEN ${status} ELSE error_info END,
+              updated_at = now()
           WHERE station_id = ${stationUuid}
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM firmware_campaign_stations fcs
-          WHERE fcs.campaign_id = firmware_campaigns.id
-            AND fcs.status NOT IN ('installed', 'failed')
-        )
-        AND status = 'active'
-      `;
+            AND campaign_id = ${linkedCampaignId}
+            AND status NOT IN ('installed', 'failed')
+        `;
+
+        // Auto-complete the campaign only when every targeted station is
+        // terminal. Returning the row also tells us whether the status flip
+        // actually happened, so we can publish an SSE event.
+        const completed = await sql`
+          UPDATE firmware_campaigns
+          SET status = 'completed', updated_at = now()
+          WHERE id = ${linkedCampaignId}
+            AND status = 'active'
+            AND NOT EXISTS (
+              SELECT 1 FROM firmware_campaign_stations fcs
+              WHERE fcs.campaign_id = ${linkedCampaignId}
+                AND fcs.status NOT IN ('installed', 'failed')
+            )
+          RETURNING id
+        `;
+
+        // Notify the UI so the campaign detail header refreshes immediately.
+        // Always publish on a station-status change, plus a separate
+        // event when the campaign itself flipped to completed.
+        await notifyChange('firmwareCampaign.stationUpdated', stationUuid, null, null, {
+          campaignId: linkedCampaignId,
+        });
+        if (completed.count > 0) {
+          await notifyChange('firmwareCampaign.completed', stationUuid, null, null, {
+            campaignId: linkedCampaignId,
+          });
+        }
+      }
     }
   });
 
@@ -3774,10 +3830,31 @@ export function registerProjections(
         ? ((firmware.retrieveDateTime as string | undefined) ?? null)
         : ((request.retrieveDate as string | undefined) ?? null);
 
-    await sql`
-      INSERT INTO firmware_updates (station_id, request_id, firmware_url, retrieve_date_time, initiated_at)
-      VALUES (${stationUuid}, ${requestId}, ${firmwareUrl}, ${retrieveDateTime}, now())
-    `;
+    // Upsert by (station_id, request_id) so a pre-inserted row from a firmware
+    // campaign (which carries campaign_id) is not duplicated. The pre-insert
+    // already contains the firmware_url and retrieve_date_time, so the UPDATE
+    // branch is a no-op for campaign-driven dispatches.
+    //
+    // Atomic via the partial unique index uniq_firmware_updates_station_request
+    // (migration 0015) so concurrent dispatches and the API pre-insert cannot
+    // double-insert. campaign_id is intentionally NOT touched on conflict --
+    // the pre-insert is the source of truth for that linkage.
+    if (requestId != null) {
+      await sql`
+        INSERT INTO firmware_updates (station_id, request_id, firmware_url, retrieve_date_time, initiated_at)
+        VALUES (${stationUuid}, ${requestId}, ${firmwareUrl}, ${retrieveDateTime}, now())
+        ON CONFLICT (station_id, request_id) WHERE request_id IS NOT NULL
+        DO UPDATE SET
+          firmware_url = EXCLUDED.firmware_url,
+          retrieve_date_time = EXCLUDED.retrieve_date_time,
+          updated_at = now()
+      `;
+    } else {
+      await sql`
+        INSERT INTO firmware_updates (station_id, request_id, firmware_url, retrieve_date_time, initiated_at)
+        VALUES (${stationUuid}, ${requestId}, ${firmwareUrl}, ${retrieveDateTime}, now())
+      `;
+    }
   });
 
   safeSubscribe('command.GetLog', async (event: DomainEvent) => {

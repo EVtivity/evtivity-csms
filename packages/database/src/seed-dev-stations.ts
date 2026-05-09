@@ -49,20 +49,20 @@ if (siteId == null) throw new Error('Failed to upsert dev site');
 // Look up first to avoid creating duplicate vendor rows on repeat runs.
 // vendors.name has no unique constraint, so onConflictDoNothing() cannot
 // catch the conflict and a plain insert would always succeed.
-const existingIoVendor = await db
-  .select({ id: vendors.id })
-  .from(vendors)
-  .where(eq(vendors.name, 'IoCharger'))
-  .limit(1);
-
-let ioVendorId: string | undefined = existingIoVendor[0]?.id;
-if (ioVendorId == null) {
-  const [ioVendor] = await db
-    .insert(vendors)
-    .values({ name: 'IoCharger' })
-    .returning({ id: vendors.id });
-  ioVendorId = ioVendor?.id;
+async function ensureVendor(name: string): Promise<string> {
+  const existing = await db
+    .select({ id: vendors.id })
+    .from(vendors)
+    .where(eq(vendors.name, name))
+    .limit(1);
+  if (existing[0] != null) return existing[0].id;
+  const [created] = await db.insert(vendors).values({ name }).returning({ id: vendors.id });
+  if (created == null) throw new Error(`Failed to create vendor: ${name}`);
+  return created.id;
 }
+
+const ioVendorId = await ensureVendor('IoCharger');
+const evtivityVendorId = await ensureVendor('EVtivity');
 
 const stationDefs = [
   {
@@ -70,7 +70,7 @@ const stationDefs = [
     vendorId: ioVendorId,
     model: 'IOCAH10-50',
     serialNumber: 'A10E231922830',
-    ocppProtocol: 'ocpp2.1',
+    ocppProtocol: 'ocpp1.6',
     isSimulator: false,
     connector: { type: 'Type1', power: '7.68', amps: 32 },
   },
@@ -85,7 +85,7 @@ const stationDefs = [
   },
   {
     stationId: 'CS-0001',
-    vendorId: null,
+    vendorId: evtivityVendorId,
     model: 'DCFC-150',
     serialNumber: 'SN-2026-0001',
     ocppProtocol: 'ocpp1.6',
@@ -94,7 +94,7 @@ const stationDefs = [
   },
   {
     stationId: 'CS-0002',
-    vendorId: null,
+    vendorId: evtivityVendorId,
     model: 'DCFC-150',
     serialNumber: 'SN-2026-0002',
     ocppProtocol: 'ocpp2.1',
@@ -105,7 +105,7 @@ const stationDefs = [
 
 let createdCount = 0;
 for (const def of stationDefs) {
-  const [inserted] = await db
+  const [insertedRow] = await db
     .insert(chargingStations)
     .values({
       stationId: def.stationId,
@@ -124,7 +124,55 @@ for (const def of stationDefs) {
     .onConflictDoNothing({ target: chargingStations.stationId })
     .returning({ id: chargingStations.id });
 
-  if (inserted == null) continue;
+  // If the station already exists, fetch its id so we can still refresh the
+  // owned config template below. Station fields themselves are preserved
+  // (an operator may have edited them).
+  let inserted: { id: string } | undefined = insertedRow;
+  if (inserted == null) {
+    const [existing] = await db
+      .select({ id: chargingStations.id })
+      .from(chargingStations)
+      .where(eq(chargingStations.stationId, def.stationId))
+      .limit(1);
+    if (existing == null) continue;
+    inserted = existing;
+  }
+
+  if (def.vendorId !== ioVendorId) {
+    const tplName = `${def.stationId} - Configurations`;
+    const tplOcppVersion = def.ocppProtocol === 'ocpp1.6' ? '1.6' : '2.1';
+    const tplFilter = {
+      stationId: inserted.id,
+      siteId,
+      vendorId: def.vendorId,
+      model: def.model,
+    };
+    await db
+      .insert(configTemplates)
+      .values({
+        name: tplName,
+        description: `Auto generated. ${def.stationId} configurations (OCPP ${tplOcppVersion})`,
+        ocppVersion: tplOcppVersion,
+        variables: [],
+        stationId: inserted.id,
+        targetFilter: tplFilter,
+      })
+      .onConflictDoUpdate({
+        target: configTemplates.stationId,
+        set: {
+          name: tplName,
+          description: `Auto generated. ${def.stationId} configurations (OCPP ${tplOcppVersion})`,
+          ocppVersion: tplOcppVersion,
+          targetFilter: tplFilter,
+          updatedAt: new Date(),
+        },
+      });
+  }
+
+  // EVSE / connector / CSS rows only get created on first insert. The unique
+  // constraints below would otherwise throw for an already-seeded station.
+  // Skip ahead to the next station so the script remains idempotent.
+  if (insertedRow == null) continue;
 
   const [evse] = await db
     .insert(evses)
@@ -239,7 +287,7 @@ if (existingPaymentMethod.length === 0) {
 // stations; the operator pushes from the Smart Charging UI once stations
 // are online. Anchor at midnight EST (05:00 UTC) so offsets line up with
 // wall-clock time-of-day (canonical form for Daily Recurring).
-if (ioVendorId != null) {
+{
   const templateName = 'IoCharger Off-Peak (11pm-3am EST)';
   const existingTemplate = await db
     .select({ id: chargingProfileTemplates.id })
@@ -318,80 +366,122 @@ for (const def of blockAllDefs) {
   }
 }
 
-// IOCHARGER vendor-specific config template: QR code URLs and connector codes
-// (SysConfigCtrlr component, OCPP 2.1). Targets the IoCharger vendor so the
-// operator can push it to IOCHARGER-001 / IOCHARGER-002 from the Configuration
-// Templates UI without picking individual stations.
-if (ioVendorId != null) {
-  const ioConfigTemplateName = 'IOCHARGER-002 - Configurations';
-  const existingIoConfigTemplate = await db
-    .select({ id: configTemplates.id })
-    .from(configTemplates)
-    .where(eq(configTemplates.name, ioConfigTemplateName))
+// IOCHARGER station-specific config templates: linked to the station via
+// the new stationId FK so the template is owned by (and cascade-deleted with)
+// the station. The seeded variables cover IoCharger vendor extensions.
+{
+  const [io2Station] = await db
+    .select({
+      id: chargingStations.id,
+      siteId: chargingStations.siteId,
+      vendorId: chargingStations.vendorId,
+      model: chargingStations.model,
+    })
+    .from(chargingStations)
+    .where(eq(chargingStations.stationId, 'IOCHARGER-002'))
     .limit(1);
-  if (existingIoConfigTemplate.length === 0) {
-    await db.insert(configTemplates).values({
-      name: ioConfigTemplateName,
-      description:
-        'IoCharger vendor defaults: QR code URLs, connector codes, operator branding, and tariff display toggle.',
-      ocppVersion: '2.1',
-      variables: [
-        {
-          component: 'SysConfigCtrlr',
-          variable: 'QR0',
-          value: 'http://45.47.131.88:7101/charge/IOCHARGER-002/1',
+  const [io1Station] = await db
+    .select({
+      id: chargingStations.id,
+      siteId: chargingStations.siteId,
+      vendorId: chargingStations.vendorId,
+      model: chargingStations.model,
+    })
+    .from(chargingStations)
+    .where(eq(chargingStations.stationId, 'IOCHARGER-001'))
+    .limit(1);
+
+  const ioConfigTemplateName = 'IOCHARGER-002 - Configurations';
+  const ioConfigTemplateValues = {
+    name: ioConfigTemplateName,
+    description: 'Auto generated. IOCHARGER-002 configurations (OCPP 2.1)',
+    ocppVersion: '2.1' as const,
+    variables: [
+      {
+        component: 'SysConfigCtrlr',
+        variable: 'QR0',
+        value: 'http://45.47.131.88:7101/charge/IOCHARGER-002/1',
+      },
+      {
+        component: 'SysConfigCtrlr',
+        variable: 'QR1',
+        value: 'http://45.47.131.88:7101/charge/IOCHARGER-002/1',
+      },
+      { component: 'SysConfigCtrlr', variable: 'connCode0', value: 'IOCHARGER-002' },
+      { component: 'SysConfigCtrlr', variable: 'connCode1', value: 'IOCHARGER-002' },
+      { component: 'SecurityCtrlr', variable: 'OrganizationName', value: 'EVtivity' },
+      { component: 'TariffCostCtrlr', variable: 'Enabled', value: 'false' },
+    ],
+  };
+  if (io2Station != null) {
+    const ioFilter = {
+      stationId: io2Station.id,
+      ...(io2Station.siteId != null ? { siteId: io2Station.siteId } : {}),
+      ...(io2Station.vendorId != null ? { vendorId: io2Station.vendorId } : {}),
+      ...(io2Station.model != null ? { model: io2Station.model } : {}),
+    };
+    await db
+      .insert(configTemplates)
+      .values({ ...ioConfigTemplateValues, stationId: io2Station.id, targetFilter: ioFilter })
+      .onConflictDoUpdate({
+        target: configTemplates.stationId,
+        set: {
+          name: ioConfigTemplateValues.name,
+          description: ioConfigTemplateValues.description,
+          ocppVersion: ioConfigTemplateValues.ocppVersion,
+          variables: ioConfigTemplateValues.variables,
+          targetFilter: ioFilter,
+          updatedAt: new Date(),
         },
-        {
-          component: 'SysConfigCtrlr',
-          variable: 'QR1',
-          value: 'http://45.47.131.88:7101/charge/IOCHARGER-002/1',
-        },
-        { component: 'SysConfigCtrlr', variable: 'connCode0', value: 'IOCHARGER-002' },
-        { component: 'SysConfigCtrlr', variable: 'connCode1', value: 'IOCHARGER-002' },
-        { component: 'SecurityCtrlr', variable: 'OrganizationName', value: 'EVtivity' },
-        { component: 'TariffCostCtrlr', variable: 'Enabled', value: 'false' },
-      ],
-      targetFilter: { siteId, vendorId: ioVendorId },
-    });
-    console.log(`  Created config template: ${ioConfigTemplateName}`);
-  } else {
-    console.log(`  Config template already exists: ${ioConfigTemplateName}`);
+      });
+    console.log(`  Upserted config template: ${ioConfigTemplateName}`);
   }
 
   // OCPP 1.6 variant for IOCHARGER-001 (vendor-specific keys with empty
   // component, since 1.6 has no component model).
   const io16ConfigTemplateName = 'IOCHARGER-001 - Configurations';
-  const existingIo16ConfigTemplate = await db
-    .select({ id: configTemplates.id })
-    .from(configTemplates)
-    .where(eq(configTemplates.name, io16ConfigTemplateName))
-    .limit(1);
-  if (existingIo16ConfigTemplate.length === 0) {
-    await db.insert(configTemplates).values({
-      name: io16ConfigTemplateName,
-      description:
-        'IoCharger vendor defaults: QR code URLs, connector codes, and tariff display toggle (OCPP 1.6).',
-      ocppVersion: '1.6',
-      variables: [
-        {
-          component: '',
-          variable: 'QR0',
-          value: 'http://45.47.131.88:7101/charge/IOCHARGER-001/1',
+  const io16ConfigTemplateValues = {
+    name: io16ConfigTemplateName,
+    description: 'Auto generated. IOCHARGER-001 configurations (OCPP 1.6)',
+    ocppVersion: '1.6' as const,
+    variables: [
+      {
+        component: '',
+        variable: 'QR0',
+        value: 'http://45.47.131.88:7101/charge/IOCHARGER-001/1',
+      },
+      {
+        component: '',
+        variable: 'QR1',
+        value: 'http://45.47.131.88:7101/charge/IOCHARGER-001/1',
+      },
+      { component: '', variable: 'connCode0', value: 'IOCHARGER-001' },
+      { component: '', variable: 'connCode1', value: 'IOCHARGER-001' },
+      { component: '', variable: 'TariffCostCtrlr.Enabled', value: 'false' },
+    ],
+  };
+  if (io1Station != null) {
+    const io16Filter = {
+      stationId: io1Station.id,
+      ...(io1Station.siteId != null ? { siteId: io1Station.siteId } : {}),
+      ...(io1Station.vendorId != null ? { vendorId: io1Station.vendorId } : {}),
+      ...(io1Station.model != null ? { model: io1Station.model } : {}),
+    };
+    await db
+      .insert(configTemplates)
+      .values({ ...io16ConfigTemplateValues, stationId: io1Station.id, targetFilter: io16Filter })
+      .onConflictDoUpdate({
+        target: configTemplates.stationId,
+        set: {
+          name: io16ConfigTemplateValues.name,
+          description: io16ConfigTemplateValues.description,
+          ocppVersion: io16ConfigTemplateValues.ocppVersion,
+          variables: io16ConfigTemplateValues.variables,
+          targetFilter: io16Filter,
+          updatedAt: new Date(),
         },
-        {
-          component: '',
-          variable: 'QR1',
-          value: 'http://45.47.131.88:7101/charge/IOCHARGER-001/1',
-        },
-        { component: '', variable: 'connCode0', value: 'IOCHARGER-001' },
-        { component: '', variable: 'connCode1', value: 'IOCHARGER-001' },
-        { component: '', variable: 'TariffCostCtrlr.Enabled', value: 'false' },
-      ],
-      targetFilter: { siteId, vendorId: ioVendorId },
-    });
-    console.log(`  Created config template: ${io16ConfigTemplateName}`);
-  } else {
-    console.log(`  Config template already exists: ${io16ConfigTemplateName}`);
+      });
+    console.log(`  Upserted config template: ${io16ConfigTemplateName}`);
   }
 }
 

@@ -4,8 +4,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Pagination } from '@/components/ui/pagination';
+import { Select } from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -21,6 +23,7 @@ interface MatchingStation {
   stationId: string;
   model: string | null;
   firmwareVersion?: string | null;
+  isOnline?: boolean;
   siteName: string | null;
   vendorName: string | null;
 }
@@ -28,43 +31,61 @@ interface MatchingStation {
 interface MatchingStationsCardProps {
   endpoint: string;
   queryKey: string[];
-  subtitle?: string;
   showFirmwareVersion?: boolean;
 }
+
+type StatusFilter = 'all' | 'online' | 'offline';
 
 export function MatchingStationsCard({
   endpoint,
   queryKey,
-  subtitle,
   showFirmwareVersion = false,
 }: MatchingStationsCardProps): React.JSX.Element {
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const limit = 10;
 
   const { data: matchingStations } = useQuery({
-    queryKey: [...queryKey, page],
-    queryFn: () =>
-      api.get<{ data: MatchingStation[]; total: number }>(
-        `${endpoint}?page=${String(page)}&limit=${String(limit)}`,
-      ),
+    queryKey: [...queryKey, page, statusFilter],
+    queryFn: () => {
+      const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (statusFilter !== 'all') params.set('status', statusFilter);
+      return api.get<{ data: MatchingStation[]; total: number }>(
+        `${endpoint}?${params.toString()}`,
+      );
+    },
   });
 
   const total = matchingStations?.total ?? 0;
   const totalPages = Math.ceil(total / limit);
 
+  function changeFilter(next: StatusFilter): void {
+    setStatusFilter(next);
+    setPage(1);
+  }
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>
-          {t('firmwareCampaigns.matchingStations')}{' '}
-          <span className="text-muted-foreground font-normal text-sm">({total})</span>
-        </CardTitle>
-        {subtitle != null && <CardDescription>{subtitle}</CardDescription>}
+        <div className="flex items-center justify-end">
+          <Select
+            aria-label={t('common.status')}
+            className="h-9 w-auto"
+            value={statusFilter}
+            onChange={(e) => {
+              changeFilter(e.target.value as StatusFilter);
+            }}
+          >
+            <option value="all">{t('common.all')}</option>
+            <option value="online">{t('status.online')}</option>
+            <option value="offline">{t('status.offline')}</option>
+          </Select>
+        </div>
       </CardHeader>
       <CardContent>
         {total === 0 ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-center text-sm text-muted-foreground">
             {t('firmwareCampaigns.noMatchingStations')}
           </p>
         ) : (
@@ -80,6 +101,7 @@ export function MatchingStationsCard({
                     {showFirmwareVersion && (
                       <TableHead>{t('firmwareCampaigns.currentFirmware')}</TableHead>
                     )}
+                    <TableHead>{t('common.status')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -92,6 +114,11 @@ export function MatchingStationsCard({
                       {showFirmwareVersion && (
                         <TableCell className="text-xs">{station.firmwareVersion ?? '--'}</TableCell>
                       )}
+                      <TableCell>
+                        <Badge variant={station.isOnline ? 'success' : 'destructive'}>
+                          {station.isOnline ? t('status.online') : t('status.offline')}
+                        </Badge>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

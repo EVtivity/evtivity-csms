@@ -182,6 +182,11 @@ const FirmwareCampaignDetail = lazy(() =>
     default: m.FirmwareCampaignDetail,
   })),
 );
+const FirmwareCampaignProgressDetail = lazy(() =>
+  import('@/pages/FirmwareCampaignProgressDetail').then((m) => ({
+    default: m.FirmwareCampaignProgressDetail,
+  })),
+);
 const SmartChargingTemplates = lazy(() =>
   import('@/pages/SmartChargingTemplates').then((m) => ({
     default: m.SmartChargingTemplates,
@@ -357,6 +362,10 @@ export function App(): React.JSX.Element {
                   <Route path="roaming/tariffs/:id" element={<RoamingTariffMappingDetail />} />
                   <Route path="firmware-campaigns/new" element={<FirmwareCampaignCreate />} />
                   <Route path="firmware-campaigns/:id" element={<FirmwareCampaignDetail />} />
+                  <Route
+                    path="firmware-campaigns/:id/progress"
+                    element={<FirmwareCampaignProgressDetail />}
+                  />
                   <Route path="smart-charging" element={<SmartChargingTemplates />} />
                   <Route path="smart-charging/new" element={<SmartChargingTemplateCreate />} />
                   <Route path="smart-charging/:id" element={<SmartChargingTemplateDetail />} />
