@@ -91,11 +91,24 @@ export function webhookRoutes(app: FastifyInstance): void {
             .from(paymentRecords)
             .where(eq(paymentRecords.stripePaymentIntentId, pi.id));
           if (record != null) {
+            const stripeFailureMessage =
+              pi.last_payment_error?.message ?? pi.last_payment_error?.code ?? null;
+            const failureReason =
+              stripeFailureMessage != null
+                ? `Stripe webhook: ${stripeFailureMessage.slice(0, 480)}`
+                : 'Stripe webhook: payment_intent.payment_failed';
             await db
               .update(paymentRecords)
-              .set({ status: 'failed', updatedAt: new Date() })
+              .set({
+                status: 'failed',
+                failureReason,
+                updatedAt: new Date(),
+              })
               .where(eq(paymentRecords.id, record.id));
-            app.log.info({ paymentIntentId: pi.id }, 'Payment marked as failed via webhook');
+            app.log.info(
+              { paymentIntentId: pi.id, reason: stripeFailureMessage },
+              'Payment marked as failed via webhook',
+            );
           }
           break;
         }
@@ -111,14 +124,18 @@ export function webhookRoutes(app: FastifyInstance): void {
               .from(paymentRecords)
               .where(eq(paymentRecords.stripePaymentIntentId, piId));
             if (record != null) {
-              const newStatus =
-                charge.amount_refunded === charge.amount ? 'refunded' : 'partially_refunded';
+              const refundedAmount = charge.amount_refunded;
+              const newStatus = refundedAmount >= charge.amount ? 'refunded' : 'partially_refunded';
               await db
                 .update(paymentRecords)
-                .set({ status: newStatus, updatedAt: new Date() })
+                .set({
+                  status: newStatus,
+                  refundedAmountCents: refundedAmount,
+                  updatedAt: new Date(),
+                })
                 .where(eq(paymentRecords.id, record.id));
               app.log.info(
-                { paymentIntentId: piId, status: newStatus },
+                { paymentIntentId: piId, status: newStatus, refundedAmount },
                 'Payment refund status updated via webhook',
               );
             }

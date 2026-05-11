@@ -1133,6 +1133,7 @@ export function paymentRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(paymentRecordItem),
           400: errorResponse,
+          404: errorResponse,
           409: errorResponse,
         },
       },
@@ -1199,6 +1200,17 @@ export function paymentRoutes(app: FastifyInstance): void {
           .from(chargingStations)
           .innerJoin(chargingSessions, eq(chargingSessions.stationId, chargingStations.id))
           .where(eq(chargingSessions.id, id));
+
+        // Site access enforcement: operators with restricted site access
+        // can only refund payments for sessions on their assigned sites.
+        const siteIds = await getUserSiteIds(userId);
+        if (siteIds != null && station?.siteId != null && !siteIds.includes(station.siteId)) {
+          await reply.status(404).send({
+            error: 'Payment not found',
+            code: 'PAYMENT_NOT_FOUND',
+          });
+          return null;
+        }
 
         const config = await getStripeConfig(station?.siteId ?? null);
         if (config == null) {
@@ -1347,6 +1359,15 @@ export function paymentRoutes(app: FastifyInstance): void {
         JOIN charging_stations cs2 ON cs2.id = cs.station_id
         WHERE cs.id = ${sessionId}
       `);
+
+      // Site access enforcement: operators with restricted site access can
+      // only retry payments for sessions on their assigned sites.
+      const siteIds = await getUserSiteIds(userId);
+      if (siteIds != null && sessionRow?.site_id != null && !siteIds.includes(sessionRow.site_id)) {
+        await reply.status(404).send({ error: 'Payment not found', code: 'PAYMENT_NOT_FOUND' });
+        return;
+      }
+
       const finalCostCents = sessionRow?.final_cost_cents ?? 0;
       const captured = record.capturedAmountCents ?? 0;
       const shortfall = finalCostCents - captured;
