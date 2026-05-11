@@ -23,21 +23,21 @@ import type { DriverJwtPayload } from '../../plugins/auth.js';
 
 const favoriteItem = z
   .object({
-    id: z.number(),
-    stationId: z.string(),
-    siteName: z.string().nullable(),
-    siteAddress: z.string().nullable(),
-    siteCity: z.string().nullable(),
-    siteState: z.string().nullable(),
-    isOnline: z.boolean(),
-    evseCount: z.number(),
-    availableCount: z.number(),
-    createdAt: z.coerce.date(),
+    id: z.number().int().min(1).describe('Favorite record ID'),
+    stationId: z.string().max(255).describe('OCPP station identity'),
+    siteName: z.string().max(255).nullable().describe('Site name'),
+    siteAddress: z.string().max(500).nullable().describe('Street address'),
+    siteCity: z.string().max(100).nullable().describe('City'),
+    siteState: z.string().max(100).nullable().describe('State or region'),
+    isOnline: z.boolean().describe('Whether the station is currently online'),
+    evseCount: z.number().int().min(0).describe('Total EVSEs at this station'),
+    availableCount: z.number().int().min(0).describe('Number of available EVSEs at this station'),
+    createdAt: z.coerce.date().describe('Timestamp when the station was favorited'),
   })
   .passthrough();
 
 const addFavoriteBody = z.object({
-  stationId: z.string().min(1).describe('OCPP station identifier'),
+  stationId: z.string().min(1).max(255).describe('OCPP station identifier'),
 });
 
 const removeFavoriteParams = z.object({
@@ -132,7 +132,17 @@ export function portalFavoriteRoutes(app: FastifyInstance): void {
         params: zodSchema(checkFavoriteParams),
         response: {
           200: itemResponse(
-            z.object({ isFavorite: z.boolean(), favoriteId: z.number().nullable() }).passthrough(),
+            z
+              .object({
+                isFavorite: z.boolean().describe('Whether the station is in the driver favorites'),
+                favoriteId: z
+                  .number()
+                  .int()
+                  .min(1)
+                  .nullable()
+                  .describe('Favorite record ID when isFavorite is true, otherwise null'),
+              })
+              .passthrough(),
           ),
         },
       },
@@ -179,7 +189,13 @@ export function portalFavoriteRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         body: zodSchema(addFavoriteBody),
         response: {
-          201: itemResponse(z.object({ id: z.number() }).passthrough()),
+          201: itemResponse(
+            z
+              .object({
+                id: z.number().int().min(1).describe('Newly created favorite record ID'),
+              })
+              .passthrough(),
+          ),
           404: errorResponse,
           409: errorResponse,
         },

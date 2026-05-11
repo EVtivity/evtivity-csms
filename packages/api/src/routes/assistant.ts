@@ -14,7 +14,7 @@ const chatBody = z.object({
     .array(
       z.object({
         role: z.enum(['user', 'assistant']),
-        content: z.string(),
+        content: z.string().max(20000),
       }),
     )
     .max(50)
@@ -24,8 +24,12 @@ const chatBody = z.object({
 
 const chatResponse = z
   .object({
-    reply: z.string(),
-    apiCallsMade: z.number(),
+    reply: z.string().max(50000).describe('AI assistant response text'),
+    apiCallsMade: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of API tool calls the assistant made to answer'),
   })
   .passthrough();
 
@@ -37,6 +41,8 @@ export function assistantRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['AI Assistant'],
         summary: 'Chat with the AI assistant',
+        description:
+          'Sends a message to the configured AI provider (Anthropic, OpenAI, or Gemini) and runs a tool-use loop. The two-tier flow first selects 1-4 relevant tool categories, then loads only those tool schemas before invoking the model. Tool calls execute via app.inject() with the operator JWT, inheriting RBAC and site access. Rate limited to 10 requests/min per user. Returns 400 if AI is not configured.',
         operationId: 'chatWithAssistant',
         security: [{ bearerAuth: [] }],
         body: zodSchema(chatBody),

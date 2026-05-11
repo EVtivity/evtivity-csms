@@ -44,19 +44,19 @@ import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
 
 const importSiteRow = z.object({
-  siteName: z.string().min(1),
-  stationId: z.string().optional(),
-  stationModel: z.string().optional(),
-  stationSerialNumber: z.string().optional(),
-  evseId: z.number().optional(),
-  connectorId: z.number().optional(),
-  connectorType: z.string().optional(),
-  maxPowerKw: z.number().optional(),
-  stationVendor: z.string().optional(),
+  siteName: z.string().min(1).max(255),
+  stationId: z.string().max(255).optional(),
+  stationModel: z.string().max(100).optional(),
+  stationSerialNumber: z.string().max(100).optional(),
+  evseId: z.number().int().min(1).optional(),
+  connectorId: z.number().int().min(1).optional(),
+  connectorType: z.string().max(50).optional(),
+  maxPowerKw: z.number().min(0).max(10000).optional(),
+  stationVendor: z.string().max(100).optional(),
 });
 
 const importSiteBody = z.object({
-  rows: z.array(importSiteRow),
+  rows: z.array(importSiteRow).max(10000),
   updateExisting: z
     .boolean()
     .describe('When true, updates existing sites/stations matched by name/stationId'),
@@ -68,16 +68,19 @@ const siteParams = z.object({
 
 const sitePricingGroupItem = z
   .object({
-    id: z.string(),
-    name: z.string(),
-    description: z.string().nullable(),
-    isDefault: z.boolean(),
-    tariffCount: z.number(),
+    id: z.string().describe('Pricing group identifier'),
+    name: z.string().max(255).describe('Display name of the pricing group'),
+    description: z.string().nullable().describe('Description of the pricing group'),
+    isDefault: z.boolean().describe('Whether this is the system default pricing group'),
+    tariffCount: z.number().int().min(0).describe('Number of tariffs in this pricing group'),
   })
   .passthrough();
 
 const sitePricingGroupRecordItem = z
-  .object({ siteId: z.string(), pricingGroupId: z.string() })
+  .object({
+    siteId: z.string().describe('Site identifier'),
+    pricingGroupId: z.string().describe('Pricing group identifier assigned to the site'),
+  })
   .passthrough();
 
 const addSitePricingGroupBody = z.object({
@@ -180,168 +183,260 @@ const siteSelect = {
 
 const siteItem = z
   .object({
-    id: z.string(),
-    name: z.string(),
-    address: z.string().nullable(),
-    city: z.string().nullable(),
-    state: z.string().nullable(),
-    postalCode: z.string().nullable(),
-    country: z.string().nullable(),
-    latitude: z.string().nullable(),
-    longitude: z.string().nullable(),
-    timezone: z.string().nullable(),
-    contactName: z.string().nullable(),
-    contactEmail: z.string().nullable(),
-    contactPhone: z.string().nullable(),
-    contactIsPublic: z.boolean(),
-    hoursOfOperation: z.string().nullable(),
-    metadata: z.record(z.unknown()).nullable(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
-    stationCount: z.number(),
-    loadManagementEnabled: z.boolean(),
-    maxPowerKw: z.number().nullable(),
-    totalDrawKw: z.number(),
+    id: z.string().describe('Site identifier'),
+    name: z.string().describe('Display name of the site'),
+    address: z.string().nullable().describe('Street address'),
+    city: z.string().nullable().describe('City name'),
+    state: z.string().nullable().describe('State, province, or region'),
+    postalCode: z.string().nullable().describe('Postal or ZIP code'),
+    country: z.string().nullable().describe('Country name or ISO code'),
+    latitude: z.string().nullable().describe('Latitude in decimal degrees as string for precision'),
+    longitude: z
+      .string()
+      .nullable()
+      .describe('Longitude in decimal degrees as string for precision'),
+    timezone: z.string().nullable().describe('IANA timezone name (e.g. America/Los_Angeles)'),
+    contactName: z.string().nullable().describe('Site contact person name'),
+    contactEmail: z.string().nullable().describe('Site contact email address'),
+    contactPhone: z.string().nullable().describe('Site contact phone number'),
+    contactIsPublic: z
+      .boolean()
+      .describe('Whether contact information is visible to drivers in the portal'),
+    hoursOfOperation: z.string().nullable().describe('Free-form description of operating hours'),
+    metadata: z.record(z.unknown()).nullable().describe('Arbitrary site metadata as JSON object'),
+    createdAt: z.coerce.date().describe('Timestamp when the site was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the site was last updated'),
+    stationCount: z.number().describe('Number of charging stations at this site'),
+    loadManagementEnabled: z.boolean().describe('Whether site-level load management is enabled'),
+    maxPowerKw: z.number().nullable().describe('Maximum power available at the site in kilowatts'),
+    totalDrawKw: z.number().describe('Current total power draw across all stations in kilowatts'),
   })
   .passthrough();
 
 const siteBase = z
   .object({
-    id: z.string(),
-    name: z.string(),
-    address: z.string().nullable(),
-    city: z.string().nullable(),
-    state: z.string().nullable(),
-    postalCode: z.string().nullable(),
-    country: z.string().nullable(),
-    latitude: z.string().nullable(),
-    longitude: z.string().nullable(),
-    timezone: z.string().nullable(),
-    hoursOfOperation: z.string().nullable(),
-    metadata: z.record(z.unknown()).nullable(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Site identifier'),
+    name: z.string().describe('Display name of the site'),
+    address: z.string().nullable().describe('Street address'),
+    city: z.string().nullable().describe('City name'),
+    state: z.string().nullable().describe('State, province, or region'),
+    postalCode: z.string().nullable().describe('Postal or ZIP code'),
+    country: z.string().nullable().describe('Country name or ISO code'),
+    latitude: z.string().nullable().describe('Latitude in decimal degrees as string for precision'),
+    longitude: z
+      .string()
+      .nullable()
+      .describe('Longitude in decimal degrees as string for precision'),
+    timezone: z.string().nullable().describe('IANA timezone name (e.g. America/Los_Angeles)'),
+    hoursOfOperation: z.string().nullable().describe('Free-form description of operating hours'),
+    metadata: z.record(z.unknown()).nullable().describe('Arbitrary site metadata as JSON object'),
+    createdAt: z.coerce.date().describe('Timestamp when the site was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the site was last updated'),
   })
   .passthrough();
 
 const importResultResponse = z
   .object({
-    sitesCreated: z.number(),
-    sitesUpdated: z.number(),
-    stationsCreated: z.number(),
-    stationsUpdated: z.number(),
-    evsesCreated: z.number(),
-    evsesUpdated: z.number(),
-    connectorsCreated: z.number(),
-    connectorsUpdated: z.number(),
-    errors: z.array(z.string()),
+    sitesCreated: z.number().describe('Number of new sites created from the import'),
+    sitesUpdated: z.number().describe('Number of existing sites updated by the import'),
+    stationsCreated: z.number().describe('Number of new charging stations created'),
+    stationsUpdated: z.number().describe('Number of existing charging stations updated'),
+    evsesCreated: z.number().describe('Number of new EVSEs created'),
+    evsesUpdated: z.number().describe('Number of existing EVSEs updated'),
+    connectorsCreated: z.number().describe('Number of new connectors created'),
+    connectorsUpdated: z.number().describe('Number of existing connectors updated'),
+    errors: z
+      .array(z.string())
+      .describe('List of error messages encountered during import, one per failing row'),
   })
   .passthrough();
 
 const siteMetricsResponse = z
   .object({
-    uptimePercent: z.number(),
-    portCount: z.number(),
-    utilizationPercent: z.number(),
-    totalSessions: z.number(),
-    completedSessions: z.number(),
-    faultedSessions: z.number(),
-    sessionSuccessPercent: z.number(),
-    totalEnergyWh: z.number(),
-    avgSessionDurationMinutes: z.number(),
-    disconnectCount: z.number(),
-    avgDowntimeMinutes: z.number(),
-    maxDowntimeMinutes: z.number(),
-    totalRevenueCents: z.number(),
-    avgRevenueCentsPerSession: z.number(),
-    totalTransactions: z.number(),
-    periodMonths: z.number(),
+    uptimePercent: z
+      .number()
+      .describe('Average port uptime percentage over the reporting period (0-100)'),
+    portCount: z.number().describe('Total number of charging ports at the site'),
+    utilizationPercent: z
+      .number()
+      .describe('Percentage of total port-hours occupied by sessions over the reporting period'),
+    totalSessions: z.number().describe('Total number of charging sessions in the reporting period'),
+    completedSessions: z.number().describe('Number of sessions that completed successfully'),
+    faultedSessions: z.number().describe('Number of sessions that ended in a fault state'),
+    sessionSuccessPercent: z
+      .number()
+      .describe('Percentage of sessions that completed successfully (0-100)'),
+    totalEnergyWh: z.number().describe('Total energy delivered in watt-hours'),
+    avgSessionDurationMinutes: z
+      .number()
+      .describe('Average session duration in minutes for completed sessions'),
+    disconnectCount: z
+      .number()
+      .describe('Number of station disconnect events in the reporting period'),
+    avgDowntimeMinutes: z.number().describe('Average duration of disconnect outages in minutes'),
+    maxDowntimeMinutes: z.number().describe('Longest single disconnect outage duration in minutes'),
+    totalRevenueCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Total revenue collected in cents (smallest currency unit)'),
+    avgRevenueCentsPerSession: z.number().describe('Average revenue per billable session in cents'),
+    totalTransactions: z
+      .number()
+      .describe('Number of billable transactions (sessions with cost data)'),
+    periodMonths: z.number().describe('Number of months covered by this metrics report'),
   })
   .passthrough();
 
 const siteStationItem = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    siteId: z.string().nullable(),
-    model: z.string().nullable(),
-    serialNumber: z.string().nullable(),
-    availability: z.string(),
-    securityProfile: z.number(),
-    lastHeartbeat: z.coerce.date().nullable(),
-    isOnline: z.boolean(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
-    status: z.string(),
-    connectorCount: z.number(),
-    connectorTypes: z.array(z.string()).nullable(),
+    id: z.string().describe('Internal station identifier (UUID)'),
+    stationId: z.string().describe('OCPP station identifier used by the charging station'),
+    siteId: z.string().nullable().describe('Identifier of the site this station belongs to'),
+    model: z.string().nullable().describe('Hardware model name reported by the station'),
+    serialNumber: z.string().nullable().describe('Hardware serial number reported by the station'),
+    availability: z
+      .string()
+      .describe('Station-level availability state (available, unavailable, faulted)'),
+    securityProfile: z
+      .number()
+      .describe('OCPP security profile level (0=none, 1=basic auth, 2=basic auth + TLS, 3=mTLS)'),
+    lastHeartbeat: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp of the most recent heartbeat received from the station'),
+    isOnline: z.boolean().describe('Whether the station is currently connected to the CSMS'),
+    createdAt: z.coerce.date().describe('Timestamp when the station was registered'),
+    updatedAt: z.coerce.date().describe('Timestamp when the station record was last updated'),
+    status: z
+      .string()
+      .describe(
+        'Derived station status from connector states (charging, reserved, faulted, available, unavailable, unknown)',
+      ),
+    connectorCount: z.number().describe('Number of connectors installed on this station'),
+    connectorTypes: z
+      .array(z.string())
+      .nullable()
+      .describe('Distinct connector types present on this station (e.g. CCS2, CHAdeMO, Type2)'),
   })
   .passthrough();
 
-const energyHistoryItem = z.object({ date: z.string(), energyWh: z.number() }).passthrough();
+const energyHistoryItem = z
+  .object({
+    date: z.string().describe('Calendar date in YYYY-MM-DD format (in site timezone)'),
+    energyWh: z.number().describe('Total energy delivered on this date in watt-hours'),
+  })
+  .passthrough();
 
 const revenueHistoryItem = z
-  .object({ date: z.string(), revenueCents: z.number(), sessionCount: z.number() })
+  .object({
+    date: z.string().describe('Calendar date in YYYY-MM-DD format (in site timezone)'),
+    revenueCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Total revenue collected on this date in cents (smallest currency unit)'),
+    sessionCount: z.number().describe('Number of billable sessions on this date'),
+  })
   .passthrough();
 
 const meterValueGroup = z
   .object({
-    measurand: z.string(),
-    unit: z.string().nullable(),
-    values: z.array(z.object({ timestamp: z.coerce.date(), value: z.string() }).passthrough()),
+    measurand: z
+      .string()
+      .describe('OCPP measurand name (e.g. Energy.Active.Import.Register, Power.Active.Import)'),
+    unit: z.string().nullable().describe('Unit of measure for the values (e.g. Wh, kW, V, A)'),
+    values: z
+      .array(
+        z
+          .object({
+            timestamp: z.coerce.date().describe('Timestamp when this meter sample was taken'),
+            value: z.string().describe('Meter reading value as a string for numeric precision'),
+          })
+          .passthrough(),
+      )
+      .describe('Chronologically ordered list of meter readings for this measurand'),
   })
   .passthrough();
 
 const siteSessionItem = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    stationName: z.string().nullable(),
-    siteName: z.string().nullable(),
-    driverId: z.string().nullable(),
-    driverName: z.string().nullable(),
-    transactionId: z.string().nullable(),
-    status: z.string(),
-    energyDeliveredWh: z.coerce.number().nullable(),
-    currentCostCents: z.number().nullable(),
-    finalCostCents: z.number().nullable(),
-    currency: z.string().nullable(),
-    startedAt: z.coerce.date(),
-    endedAt: z.coerce.date().nullable(),
-    freeVend: z.boolean(),
+    id: z.string().describe('Session identifier'),
+    stationId: z.string().describe('Internal station identifier (UUID)'),
+    stationName: z.string().nullable().describe('OCPP station identifier of the charging station'),
+    siteName: z.string().nullable().describe('Display name of the site'),
+    driverId: z.string().nullable().describe('Identifier of the driver, if known'),
+    driverName: z.string().nullable().describe('Full name of the driver (first + last)'),
+    transactionId: z
+      .string()
+      .nullable()
+      .describe('OCPP transaction identifier reported by the station'),
+    status: z.string().describe('Session status (active, completed, faulted, failed, idling)'),
+    energyDeliveredWh: z.coerce
+      .number()
+      .nullable()
+      .describe('Total energy delivered during the session in watt-hours'),
+    currentCostCents: z
+      .number()
+      .nullable()
+      .describe('Current accrued cost in cents while the session is active'),
+    finalCostCents: z
+      .number()
+      .nullable()
+      .describe('Final billed cost in cents after the session ended'),
+    currency: z.string().nullable().describe('ISO 4217 currency code for the cost values'),
+    startedAt: z.coerce.date().describe('Timestamp when the charging session started'),
+    endedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp when the session ended, or null if still active'),
+    freeVend: z
+      .boolean()
+      .describe('Whether the session was a free-vend session (no driver authorization or payment)'),
   })
   .passthrough();
 
 const layoutConnector = z
   .object({
-    connectorId: z.number(),
-    connectorType: z.string().nullable(),
-    maxPowerKw: z.number().nullable(),
-    status: z.string(),
-    isPluggedIn: z.boolean(),
-    energyDeliveredWh: z.number().nullable(),
+    connectorId: z.number().describe('OCPP connector ID within the EVSE'),
+    connectorType: z
+      .string()
+      .nullable()
+      .describe('Connector type (e.g. CCS2, CHAdeMO, Type2, Type1, NACS)'),
+    maxPowerKw: z.number().nullable().describe('Maximum power rating in kilowatts'),
+    status: z.string().describe('Current connector status'),
+    isPluggedIn: z
+      .boolean()
+      .describe('Whether a vehicle is currently plugged in (active session present)'),
+    energyDeliveredWh: z
+      .number()
+      .nullable()
+      .describe('Energy delivered during the active session in watt-hours, or null if idle'),
   })
   .passthrough();
 
 const layoutEvse = z
   .object({
-    evseId: z.number(),
-    connectors: z.array(layoutConnector),
+    evseId: z.number().describe('OCPP EVSE ID within the station'),
+    connectors: z.array(layoutConnector).describe('Connectors belonging to this EVSE'),
   })
   .passthrough();
 
 const layoutStation = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    model: z.string().nullable(),
-    status: z.string().nullable(),
-    isOnline: z.boolean(),
-    securityProfile: z.number(),
-    positionX: z.number(),
-    positionY: z.number(),
-    displayMessage: z.string().nullable(),
-    evses: z.array(layoutEvse),
+    id: z.string().describe('Internal station identifier (UUID)'),
+    stationId: z.string().describe('OCPP station identifier'),
+    model: z.string().nullable().describe('Hardware model name'),
+    status: z.string().nullable().describe('Station availability state'),
+    isOnline: z.boolean().describe('Whether the station is currently connected to the CSMS'),
+    securityProfile: z.number().describe('OCPP security profile level (0-3)'),
+    positionX: z.number().describe('X coordinate on the site layout canvas'),
+    positionY: z.number().describe('Y coordinate on the site layout canvas'),
+    displayMessage: z
+      .string()
+      .nullable()
+      .describe('Most recent accepted display message text shown on the station, if any'),
+    evses: z.array(layoutEvse).describe('EVSEs installed on this station'),
   })
   .passthrough();
 
@@ -351,8 +446,19 @@ const sitesListQuery = paginationQuery.extend({
   loadManagement: z.enum(['true', 'false']).optional().describe('Filter by load management status'),
 });
 
-const locationOption = z.object({ city: z.string(), state: z.string() }).passthrough();
-const filterOptionsResponse = z.object({ locations: z.array(locationOption) }).passthrough();
+const locationOption = z
+  .object({
+    city: z.string().describe('City name'),
+    state: z.string().describe('State, province, or region'),
+  })
+  .passthrough();
+const filterOptionsResponse = z
+  .object({
+    locations: z
+      .array(locationOption)
+      .describe('Distinct city and state combinations across the user-accessible sites'),
+  })
+  .passthrough();
 
 export function siteRoutes(app: FastifyInstance): void {
   app.get(
@@ -1062,7 +1168,13 @@ export function siteRoutes(app: FastifyInstance): void {
   });
 
   const popularTimesItem = z
-    .object({ dow: z.number(), hour: z.number(), avgSessions: z.number() })
+    .object({
+      dow: z.number().describe('Day of week (0=Sunday through 6=Saturday) in site timezone'),
+      hour: z.number().describe('Hour of day (0-23) in site timezone'),
+      avgSessions: z
+        .number()
+        .describe('Average number of sessions started in this day-of-week and hour bucket'),
+    })
     .passthrough();
 
   app.get(
@@ -1457,7 +1569,13 @@ export function siteRoutes(app: FastifyInstance): void {
         params: zodSchema(siteParams),
         body: zodSchema(layoutBody),
         response: {
-          200: zodSchema(z.object({ ok: z.boolean() }).passthrough()),
+          200: zodSchema(
+            z
+              .object({
+                ok: z.boolean().describe('True when the layout positions were saved successfully'),
+              })
+              .passthrough(),
+          ),
           404: errorResponse,
         },
       },
@@ -1622,9 +1740,19 @@ export function siteRoutes(app: FastifyInstance): void {
 
   const freeVendResponse = z
     .object({
-      success: z.boolean(),
-      pushId21: z.string().optional(),
-      pushId16: z.string().optional(),
+      success: z.boolean().describe('True when the free vend toggle was applied successfully'),
+      pushId21: z
+        .string()
+        .optional()
+        .describe(
+          'Identifier of the OCPP 2.1 config push triggered for stations at the site, if any',
+        ),
+      pushId16: z
+        .string()
+        .optional()
+        .describe(
+          'Identifier of the OCPP 1.6 config push triggered for stations at the site, if any',
+        ),
     })
     .passthrough();
 
@@ -1741,9 +1869,20 @@ export function siteRoutes(app: FastifyInstance): void {
 
   const carbonRegionResponse = z
     .object({
-      regionCode: z.string().nullable(),
-      regionName: z.string().nullable(),
-      carbonIntensityKgPerKwh: z.string().nullable(),
+      regionCode: z
+        .string()
+        .nullable()
+        .describe('Carbon intensity region code assigned to the site, or null if unset'),
+      regionName: z
+        .string()
+        .nullable()
+        .describe('Human-readable name of the carbon intensity region'),
+      carbonIntensityKgPerKwh: z
+        .string()
+        .nullable()
+        .describe(
+          'Carbon intensity for this region in kilograms of CO2 per kilowatt-hour, as string for precision',
+        ),
     })
     .passthrough();
 

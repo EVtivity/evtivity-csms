@@ -10,25 +10,30 @@ import { errorResponse, arrayResponse } from '../../lib/response-schemas.js';
 
 const roamingChargerItem = z
   .object({
-    id: z.number(),
-    partnerId: z.string(),
-    countryCode: z.string(),
-    partyId: z.string(),
-    locationId: z.string(),
-    name: z.string().nullable(),
-    address: z.string().nullable(),
-    city: z.string().nullable(),
-    latitude: z.string().nullable(),
-    longitude: z.string().nullable(),
-    evseCount: z.number(),
+    id: z.number().int().min(1).describe('Internal record ID for the cached external location'),
+    partnerId: z.string().describe('OCPI partner identifier'),
+    countryCode: z.string().length(2).describe('ISO 3166-1 alpha-2 country code'),
+    partyId: z.string().max(3).describe('OCPI party id (3-char)'),
+    locationId: z.string().max(36).describe('OCPI location_id assigned by the partner CPO'),
+    name: z.string().max(255).nullable().describe('Location display name'),
+    address: z.string().max(500).nullable().describe('Street address'),
+    city: z.string().max(100).nullable().describe('City'),
+    latitude: z.string().nullable().describe('Latitude in decimal degrees (string)'),
+    longitude: z.string().nullable().describe('Longitude in decimal degrees (string)'),
+    evseCount: z.number().int().min(0).describe('Number of EVSEs at this roaming location'),
   })
   .passthrough();
 
 const searchQuery = z.object({
-  q: z.string().min(1).optional().describe('Text search by location name'),
-  lat: z.coerce.number().optional().describe('Latitude for geo search'),
-  lng: z.coerce.number().optional().describe('Longitude for geo search'),
-  radius: z.coerce.number().min(1).default(50).describe('Search radius in km (default 50)'),
+  q: z.string().min(1).max(255).optional().describe('Text search by location name'),
+  lat: z.coerce.number().min(-90).max(90).optional().describe('Latitude for geo search'),
+  lng: z.coerce.number().min(-180).max(180).optional().describe('Longitude for geo search'),
+  radius: z.coerce
+    .number()
+    .min(1)
+    .max(500)
+    .default(50)
+    .describe('Search radius in km (default 50)'),
   limit: z.coerce
     .number()
     .int()

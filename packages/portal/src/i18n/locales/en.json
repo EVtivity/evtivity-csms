@@ -151,7 +151,9 @@
     "failedSetup": "Failed to initialize payment setup",
     "cardSetupFailed": "Card setup failed",
     "failedSave": "Failed to save payment method",
-    "stripeNotConfigured": "Payment processing is not available at this time."
+    "stripeNotConfigured": "Payment processing is not available at this time.",
+    "confirmRemoveTitle": "Remove payment method",
+    "confirmRemoveDescription": "Are you sure you want to remove this payment method? You will need to add it again to use it for charging."
   },
   "profile": {
     "title": "Profile",

@@ -20,6 +20,7 @@ import { useUserTimezone } from '@/lib/timezone';
 import { DriverDetailsTab } from '@/components/driver/DriverDetailsTab';
 import { DriverPaymentMethodsTab } from '@/components/driver/DriverPaymentMethodsTab';
 import { DriverPricingTab } from '@/components/driver/DriverPricingTab';
+import { DriverReservationsTab } from '@/components/driver/DriverReservationsTab';
 
 interface Driver {
   id: string;
@@ -48,6 +49,15 @@ export function DriverDetail(): React.JSX.Element {
   const navigate = useNavigate();
 
   const [tab, setTab] = useTab('details');
+
+  // Hide the Reservations tab when the global reservation feature is off.
+  const { data: globalSettings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => api.get<Record<string, unknown>>('/v1/settings'),
+    staleTime: 60_000,
+  });
+  const reservationEnabled =
+    globalSettings == null || globalSettings['reservation.enabled'] !== false;
 
   const { data: driver, isLoading } = useQuery({
     queryKey: ['drivers', id],
@@ -104,6 +114,9 @@ export function DriverDetail(): React.JSX.Element {
           <TabsTrigger value="payment-methods">{t('payments.paymentMethods')}</TabsTrigger>
           <TabsTrigger value="vehicles">{t('vehicles.title')}</TabsTrigger>
           <TabsTrigger value="sessions">{t('sessions.title')}</TabsTrigger>
+          {reservationEnabled && (
+            <TabsTrigger value="reservations">{t('reservations.title')}</TabsTrigger>
+          )}
           <TabsTrigger value="pricing">{t('drivers.pricing')}</TabsTrigger>
         </TabsList>
 
@@ -178,6 +191,12 @@ export function DriverDetail(): React.JSX.Element {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {reservationEnabled && (
+          <TabsContent value="reservations">
+            <DriverReservationsTab driverId={id ?? ''} timezone={timezone} />
+          </TabsContent>
+        )}
 
         <DriverPricingTab driverId={id ?? ''} />
       </Tabs>

@@ -27,9 +27,20 @@ const updateSettingBody = z.object({
   value: z.unknown(),
 });
 
-const settingItem = z.object({ key: z.string(), value: z.unknown() }).passthrough();
+const settingItem = z
+  .object({
+    key: z.string().max(100).describe('Setting key'),
+    value: z.unknown().describe('Setting value (any JSON type)'),
+  })
+  .passthrough();
 
-const s3StatusResponse = z.object({ configured: z.boolean() }).passthrough();
+const s3StatusResponse = z
+  .object({
+    configured: z
+      .boolean()
+      .describe('Whether S3 storage is fully configured (bucket, region, and credentials present)'),
+  })
+  .passthrough();
 
 export function settingsRoutes(app: FastifyInstance): void {
   // Public endpoint for portal branding (no auth required)
@@ -70,11 +81,31 @@ export function settingsRoutes(app: FastifyInstance): void {
           200: itemResponse(
             z
               .object({
-                reservationEnabled: z.boolean(),
-                supportEnabled: z.boolean(),
-                reservationCancellationFeeCents: z.number(),
-                reservationCancellationWindowMinutes: z.number(),
-                reservationMaxHours: z.number(),
+                reservationEnabled: z
+                  .boolean()
+                  .describe('Whether reservations are enabled in the portal'),
+                supportEnabled: z
+                  .boolean()
+                  .describe('Whether the support case feature is enabled in the portal'),
+                reservationCancellationFeeCents: z
+                  .number()
+                  .int()
+                  .min(0)
+                  .describe(
+                    'Cancellation fee in cents charged when a reservation is cancelled inside the cancellation window',
+                  ),
+                reservationCancellationWindowMinutes: z
+                  .number()
+                  .int()
+                  .min(0)
+                  .describe(
+                    'Minutes before reservation start during which cancellation incurs the fee',
+                  ),
+                reservationMaxHours: z
+                  .number()
+                  .int()
+                  .min(0)
+                  .describe('Maximum reservation duration in hours'),
               })
               .passthrough(),
           ),
@@ -101,7 +132,9 @@ export function settingsRoutes(app: FastifyInstance): void {
   const contentQuery = z.object({
     lang: z.enum(['en', 'de', 'es', 'zh']).default('en').describe('Language code'),
   });
-  const contentItem = z.object({ html: z.string() }).passthrough();
+  const contentItem = z
+    .object({ html: z.string().describe('Rendered HTML content for the requested legal document') })
+    .passthrough();
 
   app.get(
     '/portal/content/:type',

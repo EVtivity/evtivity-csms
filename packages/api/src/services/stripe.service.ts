@@ -225,6 +225,13 @@ export async function detachPaymentMethod(
   return config.stripe.paymentMethods.detach(paymentMethodId);
 }
 
+export async function retrievePaymentMethod(
+  config: StripeConfig,
+  paymentMethodId: string,
+): Promise<Stripe.PaymentMethod> {
+  return config.stripe.paymentMethods.retrieve(paymentMethodId);
+}
+
 export function clearConfigCache(): void {
   instanceCache.clear();
 }

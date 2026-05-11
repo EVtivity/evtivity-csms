@@ -10,7 +10,9 @@ import { verifyWebhookSignature } from '../services/stripe.service.js';
 import { itemResponse, errorResponse } from '../lib/response-schemas.js';
 import { config as apiConfig } from '../lib/config.js';
 
-const webhookResponse = z.object({ received: z.literal(true) }).passthrough();
+const webhookResponse = z
+  .object({ received: z.literal(true).describe('Acknowledgement that the webhook was processed') })
+  .passthrough();
 
 export function webhookRoutes(app: FastifyInstance): void {
   // Use string parsing for raw body access (needed for Stripe signature verification).

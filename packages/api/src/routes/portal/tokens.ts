@@ -18,12 +18,15 @@ import type { DriverJwtPayload } from '../../plugins/auth.js';
 
 const tokenItem = z
   .object({
-    id: z.string(),
-    driverId: z.string().nullable(),
-    idToken: z.string(),
-    tokenType: z.string(),
-    isActive: z.boolean(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Driver token ID (nanoid prefixed with dtk_)'),
+    driverId: z.string().nullable().describe('Owning driver ID'),
+    idToken: z.string().max(255).describe('RFID card UID or token identifier'),
+    tokenType: z
+      .string()
+      .max(20)
+      .describe('Token type (RFID, ISO14443, ISO15693, KeyCode, Local, MacAddress, Central)'),
+    isActive: z.boolean().describe('Whether the token is currently active'),
+    createdAt: z.coerce.date().describe('Timestamp the token was registered'),
   })
   .passthrough();
 

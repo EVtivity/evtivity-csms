@@ -229,6 +229,17 @@ export class CommandListener {
           aggregateId: stationId,
           payload: { request: payload, response },
         });
+      } else if (action === 'ReserveNow') {
+        // Worker handler dispatches scheduled reservations fire-and-forget.
+        // Publish the result so the projection can roll back the reservation
+        // when the station replies with a non-Accepted status (e.g. Occupied
+        // because the EVSE is in a charging session at activation time).
+        void this.eventBus.publish({
+          eventType: 'command.ReserveNow',
+          aggregateType: 'ChargingStation',
+          aggregateId: stationId,
+          payload: { request: payload, response },
+        });
       }
 
       if (commandId != null) {

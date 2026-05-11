@@ -33,27 +33,27 @@ const stateParams = z.object({
 });
 
 const updateBody = z.object({
-  body: z.string().describe('Handlebars template body'),
+  body: z.string().min(1).max(5000).describe('Handlebars template body'),
 });
 
 const previewBody = z.object({
   state: stateEnum.describe('Station message state'),
-  body: z.string().describe('Handlebars template body to render'),
-  sampleContext: z.record(z.string()).optional().describe('Variable overrides'),
+  body: z.string().min(1).max(5000).describe('Handlebars template body to render'),
+  sampleContext: z.record(z.string().max(1000)).optional().describe('Variable overrides'),
 });
 
 const templateItem = z
   .object({
-    state: z.string(),
-    body: z.string(),
-    updatedAt: z.coerce.date().nullable(),
-    updatedBy: z.string().nullable(),
+    state: stateEnum.describe('Station operating state the template renders for'),
+    body: z.string().max(5000).describe('Handlebars template body sent to the station display'),
+    updatedAt: z.coerce.date().nullable().describe('Timestamp of the most recent edit'),
+    updatedBy: z.string().nullable().describe('Operator user ID who last edited the template'),
   })
   .passthrough();
 
 const previewItem = z
   .object({
-    rendered: z.string(),
+    rendered: z.string().describe('Compiled template output using sample context values'),
   })
   .passthrough();
 

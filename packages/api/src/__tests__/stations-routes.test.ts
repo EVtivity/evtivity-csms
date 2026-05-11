@@ -736,9 +736,12 @@ describe('Station routes - handler logic', () => {
   });
 
   describe('POST /v1/stations/:id/evses/:evseId/stop-active-session', () => {
-    it('publishes RequestStopTransaction and returns the stopped session', async () => {
+    it('dispatches RequestStopTransaction and returns ghostRecovered=false on Accepted', async () => {
+      const { sendOcppCommandAndWait } = await import('../lib/ocpp-command.js');
+      const sendMock = vi.mocked(sendOcppCommandAndWait);
+      sendMock.mockResolvedValueOnce({ commandId: 'm', response: { status: 'Accepted' } });
       setupDbResults(
-        [{ stationId: 'CS-001' }],
+        [{ stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }],
         [{ id: 'evs_000000000001' }],
         [{ id: 'ses_000000000001', transactionId: 'tx-abc' }],
       );
@@ -754,13 +757,62 @@ describe('Station routes - handler logic', () => {
       const body = response.json();
       expect(body.sessionId).toBe('ses_000000000001');
       expect(body.transactionId).toBe('tx-abc');
-      expect(mockPublish).toHaveBeenCalledTimes(1);
-      const [channel, raw] = mockPublish.mock.calls[0] as [string, string];
-      expect(channel).toBe('ocpp_commands');
-      const cmd = JSON.parse(raw) as Record<string, unknown>;
-      expect(cmd['stationId']).toBe('CS-001');
-      expect(cmd['action']).toBe('RequestStopTransaction');
-      expect(cmd['payload']).toEqual({ transactionId: 'tx-abc' });
+      expect(body.ghostRecovered).toBe(false);
+      expect(sendMock).toHaveBeenCalledWith(
+        'CS-001',
+        'RequestStopTransaction',
+        { transactionId: 'tx-abc' },
+        'ocpp2.1',
+      );
+    });
+
+    it('returns ghostRecovered=true and force-cleans the DB on Rejected+TxNotFound', async () => {
+      const { sendOcppCommandAndWait } = await import('../lib/ocpp-command.js');
+      vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+        commandId: 'm',
+        response: { status: 'Rejected', statusInfo: { reasonCode: 'TxNotFound' } },
+      });
+      setupDbResults(
+        [{ stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }],
+        [{ id: 'evs_000000000001' }],
+        [{ id: 'ses_000000000001', transactionId: 'tx-ghost' }],
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/evses/1/stop-active-session`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.ghostRecovered).toBe(true);
+      expect(body.sessionId).toBe('ses_000000000001');
+      expect(body.transactionId).toBe('tx-ghost');
+    });
+
+    it('returns 504 when station does not respond', async () => {
+      const { sendOcppCommandAndWait } = await import('../lib/ocpp-command.js');
+      vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+        commandId: 'm',
+        error: 'No response within 35s',
+      });
+      setupDbResults(
+        [{ stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }],
+        [{ id: 'evs_000000000001' }],
+        [{ id: 'ses_000000000001', transactionId: 'tx-abc' }],
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/evses/1/stop-active-session`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(504);
+      expect(response.json().code).toBe('STATION_TIMEOUT');
     });
 
     it('returns 404 when station not found', async () => {
@@ -775,11 +827,10 @@ describe('Station routes - handler logic', () => {
 
       expect(response.statusCode).toBe(404);
       expect(response.json().code).toBe('STATION_NOT_FOUND');
-      expect(mockPublish).not.toHaveBeenCalled();
     });
 
     it('returns 404 when EVSE not found', async () => {
-      setupDbResults([{ stationId: 'CS-001' }], []);
+      setupDbResults([{ stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }], []);
 
       const response = await app.inject({
         method: 'POST',
@@ -790,11 +841,14 @@ describe('Station routes - handler logic', () => {
 
       expect(response.statusCode).toBe(404);
       expect(response.json().code).toBe('EVSE_NOT_FOUND');
-      expect(mockPublish).not.toHaveBeenCalled();
     });
 
     it('returns 404 when no active session on the EVSE', async () => {
-      setupDbResults([{ stationId: 'CS-001' }], [{ id: 'evs_000000000001' }], []);
+      setupDbResults(
+        [{ stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }],
+        [{ id: 'evs_000000000001' }],
+        [],
+      );
 
       const response = await app.inject({
         method: 'POST',
@@ -805,7 +859,6 @@ describe('Station routes - handler logic', () => {
 
       expect(response.statusCode).toBe(404);
       expect(response.json().code).toBe('NO_ACTIVE_SESSION');
-      expect(mockPublish).not.toHaveBeenCalled();
     });
   });
 
@@ -1495,7 +1548,7 @@ describe('Station routes - handler logic', () => {
       const certRow = {
         id: 'cert-1',
         stationId: VALID_STATION_ID,
-        certificateType: 'V2GCertificate',
+        certificateType: 'V2GRootCertificate',
         status: 'active',
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
@@ -1514,7 +1567,7 @@ describe('Station routes - handler logic', () => {
       expect(body).toHaveProperty('data');
       expect(body).toHaveProperty('total');
       expect(body.data).toHaveLength(1);
-      expect(body.data[0].certificateType).toBe('V2GCertificate');
+      expect(body.data[0].certificateType).toBe('V2GRootCertificate');
     });
 
     it('returns empty list when no certificates', async () => {
@@ -1659,7 +1712,7 @@ describe('Station routes - handler logic', () => {
         method: 'POST',
         url: `/stations/${VALID_STATION_ID}/certificates/query`,
         headers: { authorization: 'Bearer ' + token },
-        payload: { certificateType: ['V2GCertificate'] },
+        payload: { certificateType: ['V2GRootCertificate'] },
       });
 
       expect(response.statusCode).toBe(200);

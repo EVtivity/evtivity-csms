@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, ilike, sql, desc } from 'drizzle-orm';
 import { db } from '@evtivity/database';
-import { workerJobLogs } from '@evtivity/database';
+import { workerJobLogs, workerJobStatusEnum } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { paginatedResponse } from '../lib/response-schemas.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -14,19 +14,22 @@ import { authorize } from '../middleware/rbac.js';
 
 const workerJobLogItem = z
   .object({
-    id: z.number(),
-    jobName: z.string(),
-    queue: z.string(),
-    status: z.string(),
-    durationMs: z.number().nullable(),
-    error: z.string().nullable(),
-    startedAt: z.coerce.date(),
-    completedAt: z.coerce.date().nullable(),
+    id: z.number().describe('Identifier'),
+    jobName: z.string().describe('Worker job name'),
+    queue: z.string().describe('BullMQ queue the job ran in'),
+    status: z.enum(workerJobStatusEnum.enumValues).describe('Final job status'),
+    durationMs: z.number().nullable().describe('Job duration in milliseconds'),
+    error: z.string().nullable().describe('Error message when the job failed'),
+    startedAt: z.coerce.date().describe('Timestamp when the job started'),
+    completedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp when the job finished, or null if still running'),
   })
   .passthrough();
 
 const listWorkerLogsQuery = paginationQuery.extend({
-  status: z.string().optional().describe('Filter by job status (started, completed, failed)'),
+  status: z.enum(workerJobStatusEnum.enumValues).optional().describe('Filter by job status'),
   queue: z.string().optional().describe('Filter by queue name'),
 });
 
@@ -53,7 +56,7 @@ export function workerLogRoutes(app: FastifyInstance): void {
       const conditions = [];
 
       if (status) {
-        conditions.push(eq(workerJobLogs.status, status as 'started' | 'completed' | 'failed'));
+        conditions.push(eq(workerJobLogs.status, status));
       }
 
       if (queue) {

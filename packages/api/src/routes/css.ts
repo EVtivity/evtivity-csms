@@ -165,7 +165,7 @@ const createStationBody = z.object({
   clientKey: z.string().optional().describe('Client private key PEM'),
   caCert: z.string().optional().describe('CA certificate PEM'),
   sourceType: z.enum(['api', 'chaos', 'cli']).optional().describe('Source type'),
-  evses: z.array(createStationEvse).min(1).describe('EVSE configurations'),
+  evses: z.array(createStationEvse).min(1).max(50).describe('EVSE configurations'),
 });
 
 const updateStationBody = z.object({
@@ -217,8 +217,11 @@ const stationItem = z
 
 const actionResponse = z
   .object({
-    commandId: z.string(),
-    data: z.record(z.unknown()).optional(),
+    commandId: z.string().describe('Identifier for the dispatched simulator command'),
+    data: z
+      .record(z.unknown())
+      .optional()
+      .describe('Optional structured data returned by the simulator action'),
   })
   .passthrough();
 

@@ -4,7 +4,30 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, count, sql } from 'drizzle-orm';
-import { db, reports, reportSchedules } from '@evtivity/database';
+import {
+  db,
+  reports,
+  reportSchedules,
+  reportStatusEnum,
+  reportFrequencyEnum,
+} from '@evtivity/database';
+
+// Report types are registered in `packages/api/src/index.ts` via
+// `registerGenerator(name, fn)`. Keep this list in sync with that registration.
+// Used for both the input filter (reportListQuery) and create-body validation
+// so the docs surface the exact set of legal values.
+const REPORT_TYPES = [
+  'nevi',
+  'revenue',
+  'energy',
+  'sessions',
+  'utilization',
+  'stationHealth',
+  'sustainability',
+  'driverActivity',
+] as const;
+
+const REPORT_FORMATS = ['csv', 'pdf', 'xlsx'] as const;
 import { zodSchema } from '../lib/zod-schema.js';
 import {
   errorResponse,
@@ -19,67 +42,75 @@ import { authorize } from '../middleware/rbac.js';
 
 const reportItem = z
   .object({
-    id: z.string(),
-    name: z.string(),
-    reportType: z.string(),
-    status: z.string(),
-    format: z.string(),
-    fileName: z.string().nullable(),
-    fileSize: z.number().nullable(),
-    error: z.string().nullable(),
-    createdAt: z.coerce.date(),
-    completedAt: z.coerce.date().nullable(),
+    id: z.string().describe('Identifier'),
+    name: z.string().describe('Display name for the report'),
+    reportType: z.enum(REPORT_TYPES).describe('Report type'),
+    status: z.enum(reportStatusEnum.enumValues).describe('Generation lifecycle status'),
+    format: z.enum(REPORT_FORMATS).describe('Output file format'),
+    fileName: z.string().nullable().describe('Generated file name when ready'),
+    fileSize: z.number().nullable().describe('Generated file size in bytes'),
+    error: z.string().nullable().describe('Error message when generation failed'),
+    createdAt: z.coerce.date().describe('Timestamp when the report was queued'),
+    completedAt: z.coerce.date().nullable().describe('Timestamp when generation finished'),
   })
   .passthrough();
 
 const reportDetail = reportItem
-  .extend({ filters: z.record(z.unknown()).nullable(), generatedById: z.string().nullable() })
+  .extend({
+    filters: z
+      .record(z.unknown())
+      .nullable()
+      .describe('Filter criteria the report was generated with'),
+    generatedById: z.string().nullable().describe('User ID that requested the report'),
+  })
   .passthrough();
 
-const reportQueuedResponse = z.object({ id: z.string(), status: z.string() }).passthrough();
+const reportQueuedResponse = z
+  .object({
+    id: z.string().describe('Identifier of the queued report'),
+    status: z.string().describe('Initial status (typically "pending")'),
+  })
+  .passthrough();
 
 const scheduleItem = z
   .object({
-    id: z.string(),
-    name: z.string(),
-    reportType: z.string(),
-    format: z.string(),
-    frequency: z.string(),
-    dayOfWeek: z.number().nullable(),
-    dayOfMonth: z.number().nullable(),
-    filters: z.record(z.unknown()).nullable(),
-    recipientEmails: z.array(z.string()),
-    isEnabled: z.boolean(),
-    nextRunAt: z.coerce.date().nullable(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Identifier'),
+    name: z.string().describe('Display name'),
+    reportType: z.enum(REPORT_TYPES).describe('Report type to generate'),
+    format: z.enum(REPORT_FORMATS).describe('Output file format'),
+    frequency: z.enum(reportFrequencyEnum.enumValues).describe('How often the report runs'),
+    dayOfWeek: z
+      .number()
+      .nullable()
+      .describe('Day of week for weekly schedules (0=Sunday, 6=Saturday)'),
+    dayOfMonth: z.number().nullable().describe('Day of month for monthly schedules (1-31)'),
+    filters: z.record(z.unknown()).nullable().describe('Filter criteria applied each run'),
+    recipientEmails: z
+      .array(z.string())
+      .describe('Email addresses that receive the generated report'),
+    isEnabled: z.boolean().describe('Whether the schedule is active'),
+    nextRunAt: z.coerce.date().nullable().describe('Timestamp of the next scheduled run'),
+    createdAt: z.coerce.date().describe('Timestamp when created'),
+    updatedAt: z.coerce.date().describe('Timestamp when last modified'),
   })
   .passthrough();
 
 const generateBody = z.object({
   name: z.string().min(1).max(255),
-  reportType: z
-    .string()
-    .min(1)
-    .max(50)
-    .describe('Report type identifier (e.g. sessions, energy, revenue)'),
-  format: z.string().min(1).max(10).describe('Output file format (csv, pdf, xlsx)'),
+  reportType: z.enum(REPORT_TYPES).describe('Report type identifier'),
+  format: z.enum(REPORT_FORMATS).describe('Output file format'),
   filters: z.record(z.unknown()).optional().describe('Key-value filter criteria for the report'),
 });
 
 const reportListQuery = paginationQuery.extend({
-  reportType: z.string().optional().describe('Filter by report type'),
+  reportType: z.enum(REPORT_TYPES).optional().describe('Filter by report type'),
 });
 
 const createScheduleBody = z.object({
   name: z.string().min(1).max(255),
-  reportType: z
-    .string()
-    .min(1)
-    .max(50)
-    .describe('Report type identifier (e.g. sessions, energy, revenue)'),
-  format: z.string().min(1).max(10).describe('Output file format (csv, pdf, xlsx)'),
-  frequency: z.enum(['daily', 'weekly', 'monthly']).describe('How often the report runs'),
+  reportType: z.enum(REPORT_TYPES).describe('Report type identifier'),
+  format: z.enum(REPORT_FORMATS).describe('Output file format'),
+  frequency: z.enum(reportFrequencyEnum.enumValues).describe('How often the report runs'),
   dayOfWeek: z
     .number()
     .int()
@@ -97,6 +128,7 @@ const createScheduleBody = z.object({
   filters: z.record(z.unknown()).optional().describe('Key-value filter criteria for the report'),
   recipientEmails: z
     .array(z.string().email())
+    .max(50)
     .optional()
     .describe('Email addresses to receive the generated report'),
 });
@@ -213,6 +245,7 @@ export function reportRoutes(app: FastifyInstance): void {
         summary: 'Download a report file',
         operationId: 'downloadReport',
         security: [{ bearerAuth: [] }],
+        response: { 404: errorResponse },
       },
     },
     async (request, reply) => {

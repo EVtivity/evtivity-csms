@@ -95,6 +95,9 @@ vi.mock('drizzle-orm', () => ({
   desc: vi.fn(),
   count: vi.fn(),
   asc: vi.fn(),
+  gt: vi.fn(),
+  isNull: vi.fn(),
+  inArray: vi.fn(),
 }));
 
 const mockPgEnd = vi.fn().mockResolvedValue(undefined);
@@ -724,7 +727,14 @@ describe('Portal charger routes - handler logic', () => {
     });
 
     it('returns 400 when station is offline', async () => {
-      setupDbResults([{ id: VALID_STATION_ID, isOnline: false, onboardingStatus: 'accepted' }]);
+      setupDbResults([
+        {
+          id: VALID_STATION_ID,
+          isOnline: false,
+          onboardingStatus: 'accepted',
+          reservationsEnabled: true,
+        },
+      ]);
       const response = await app.inject({
         method: 'POST',
         url: '/portal/reservations',
@@ -740,7 +750,17 @@ describe('Portal charger routes - handler logic', () => {
 
     it('returns 400 PAYMENT_METHOD_REQUIRED when driver has no default card', async () => {
       // Station -> PM lookup (empty) -> 400
-      setupDbResults([{ id: VALID_STATION_ID, isOnline: true, onboardingStatus: 'accepted' }], []);
+      setupDbResults(
+        [
+          {
+            id: VALID_STATION_ID,
+            isOnline: true,
+            onboardingStatus: 'accepted',
+            reservationsEnabled: true,
+          },
+        ],
+        [],
+      );
       const response = await app.inject({
         method: 'POST',
         url: '/portal/reservations',
@@ -768,9 +788,19 @@ describe('Portal charger routes - handler logic', () => {
       // DB call 2: default payment method check (always required for portal)
       // DB call 3: conflict check (no conflicts)
       // DB call 4: insert returning reservation
+      // The new active-session pre-check is gated on activeSessionCheckHours
+      // > 0 in settings; the global mock leaves it undefined so the check is
+      // skipped and consumes no DB slot.
       // getNextReservationId uses db.execute (sequence)
       setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, onboardingStatus: 'accepted' }],
+        [
+          {
+            id: VALID_STATION_ID,
+            isOnline: true,
+            onboardingStatus: 'accepted',
+            reservationsEnabled: true,
+          },
+        ],
         [{ id: 1, isDefault: true }],
         [],
         [reservationData],
@@ -815,9 +845,23 @@ describe('Portal charger routes - handler logic', () => {
     });
 
     it('cancels an active reservation', async () => {
+      const startsAt = new Date(Date.now() + 30 * 60 * 1000);
       setupDbResults(
-        [{ id: VALID_STATION_ID, reservationId: 1, status: 'active', stationOcppId: 'CS-001' }],
-        [],
+        [
+          {
+            id: VALID_STATION_ID,
+            reservationId: 1,
+            status: 'active',
+            stationOcppId: 'CS-001',
+            siteId: null,
+            startsAt,
+            createdAt: new Date('2024-01-01T00:00:00Z'),
+          },
+        ],
+        // Helper conditional UPDATE+RETURNING wins the race; chargeFee=true
+        // but the default settings have cancellationFeeCents=0, so the helper
+        // returns early without firing the post-charge UPDATE.
+        [{ id: VALID_RESERVATION_ID }],
       );
       const response = await app.inject({
         method: 'DELETE',

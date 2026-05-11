@@ -23,118 +23,323 @@ import { authorize } from '../middleware/rbac.js';
 
 const dashboardStatsResponse = z
   .object({
-    totalStations: z.number(),
-    onlineStations: z.number(),
-    onlinePercent: z.number(),
-    activeSessions: z.number(),
-    totalSessions: z.number(),
-    totalEnergyWh: z.number(),
-    faultedStations: z.number(),
-    statusCounts: z.record(z.number()),
-    onboardingStatusCounts: z.record(z.number()),
+    totalStations: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Total number of stations matching site access filter'),
+    onlineStations: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of stations currently connected via WebSocket'),
+    onlinePercent: z.number().min(0).max(100).describe('Percentage of stations online (0-100)'),
+    activeSessions: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of charging sessions currently in progress'),
+    totalSessions: z.number().int().min(0).describe('Total number of charging sessions on record'),
+    totalEnergyWh: z
+      .number()
+      .min(0)
+      .describe('Total energy delivered across all sessions in watt-hours'),
+    faultedStations: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of stations currently in faulted state'),
+    statusCounts: z
+      .record(z.number().int().min(0))
+      .describe('Map of station availability status to count'),
+    onboardingStatusCounts: z
+      .record(z.number().int().min(0))
+      .describe('Map of station onboarding status to count'),
   })
   .passthrough();
 
-const dateValueItem = z.object({ date: z.string(), energyWh: z.number() }).passthrough();
-const dateCountItem = z.object({ date: z.string(), count: z.number() }).passthrough();
-const stationStatusItem = z.object({ status: z.string(), count: z.number() }).passthrough();
+const dateValueItem = z
+  .object({
+    date: z.string().describe('Date in YYYY-MM-DD format (local timezone)'),
+    energyWh: z.number().min(0).describe('Energy delivered on this date in watt-hours'),
+  })
+  .passthrough();
+const dateCountItem = z
+  .object({
+    date: z.string().describe('Date in YYYY-MM-DD format (local timezone)'),
+    count: z.number().int().min(0).describe('Number of sessions started on this date'),
+  })
+  .passthrough();
+const stationStatusItem = z
+  .object({
+    status: z.string().max(50).describe('Connector status (available, occupied, faulted, etc.)'),
+    count: z.number().int().min(0).describe('Number of connectors in this status'),
+  })
+  .passthrough();
 const siteLocationItem = z
   .object({
-    siteId: z.string(),
-    name: z.string(),
-    latitude: z.string(),
-    longitude: z.string(),
-    stationCount: z.number(),
+    siteId: z.string().describe('Site ID'),
+    name: z.string().max(255).describe('Site name'),
+    latitude: z.string().describe('Site latitude in decimal degrees'),
+    longitude: z.string().describe('Site longitude in decimal degrees'),
+    stationCount: z.number().int().min(0).describe('Number of stations at this site'),
   })
   .passthrough();
 const utilizationItem = z
-  .object({ site: z.string().nullable(), utilization: z.number() })
+  .object({
+    site: z.string().max(255).nullable().describe('Site name, null if site has no name'),
+    utilization: z
+      .number()
+      .min(0)
+      .max(100)
+      .describe('Utilization percentage (0-100): session-hours over total available hours'),
+  })
   .passthrough();
 const peakUsageItem = z
-  .object({ hour: z.number(), dayOfWeek: z.number(), count: z.number() })
+  .object({
+    hour: z.number().int().min(0).max(23).describe('Hour of day (0-23, local timezone)'),
+    dayOfWeek: z.number().int().min(0).max(6).describe('Day of week (0=Sunday, 6=Saturday)'),
+    count: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of sessions started in this hour/day-of-week bucket'),
+  })
   .passthrough();
 
 const financialStatsResponse = z
   .object({
-    totalRevenueCents: z.number(),
-    todayRevenueCents: z.number(),
-    avgRevenueCentsPerSession: z.number(),
-    totalTransactions: z.number(),
-    currency: z.string(),
+    totalRevenueCents: z.number().int().min(0).describe('Total revenue in cents'),
+    todayRevenueCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Revenue from sessions started today, in cents'),
+    avgRevenueCentsPerSession: z
+      .number()
+      .min(0)
+      .describe('Average revenue per paid session in cents'),
+    totalTransactions: z.number().int().min(0).describe('Number of paid transactions'),
+    currency: z.string().length(3).describe('ISO 4217 currency code (e.g. USD, EUR)'),
   })
   .passthrough();
 
 const revenueHistoryItem = z
-  .object({ date: z.string(), revenueCents: z.number(), sessionCount: z.number() })
+  .object({
+    date: z.string().describe('Date in YYYY-MM-DD format (local timezone)'),
+    revenueCents: z.number().int().min(0).describe('Revenue on this date in cents'),
+    sessionCount: z.number().int().min(0).describe('Number of paid sessions started on this date'),
+  })
   .passthrough();
 
 const paymentBreakdownItem = z
-  .object({ status: z.string(), count: z.number(), totalCents: z.number() })
+  .object({
+    status: z.string().max(50).describe('Payment status (captured, refunded, failed, etc.)'),
+    count: z.number().int().min(0).describe('Number of payments in this status'),
+    totalCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Total captured amount for payments in this status, in cents'),
+  })
   .passthrough();
 
 const uptimeResponse = z
-  .object({ uptimePercent: z.number(), totalPorts: z.number(), stationsBelowThreshold: z.number() })
+  .object({
+    uptimePercent: z
+      .number()
+      .min(0)
+      .max(100)
+      .describe('Average port uptime percentage across the period (0-100)'),
+    totalPorts: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Total number of ports counted in the uptime calculation'),
+    stationsBelowThreshold: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of stations with uptime below the 97% threshold'),
+  })
   .passthrough();
 
 const ocppHealthResponse = z
   .object({
-    connectedStations: z.number().nullable(),
-    avgPingLatencyMs: z.number().nullable(),
-    maxPingLatencyMs: z.number().nullable(),
-    pingSuccessRate: z.number().nullable(),
-    totalPingsSent: z.number().nullable(),
-    totalPongsReceived: z.number().nullable(),
-    serverStartedAt: z.coerce.date().nullable(),
-    updatedAt: z.coerce.date().nullable(),
+    connectedStations: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Number of stations currently connected via WebSocket'),
+    avgPingLatencyMs: z
+      .number()
+      .min(0)
+      .nullable()
+      .describe('Average OCPP ping latency in milliseconds'),
+    maxPingLatencyMs: z
+      .number()
+      .min(0)
+      .nullable()
+      .describe('Maximum OCPP ping latency in milliseconds'),
+    pingSuccessRate: z
+      .number()
+      .min(0)
+      .max(100)
+      .nullable()
+      .describe('Percentage of successful pings (0-100)'),
+    totalPingsSent: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Total number of pings sent since OCPP server started'),
+    totalPongsReceived: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Total number of pong responses received since OCPP server started'),
+    serverStartedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp when the OCPP server process started'),
+    updatedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp when the health metrics were last updated'),
   })
   .passthrough();
 
 const snapshotItem = z
   .object({
-    totalStations: z.number(),
-    onlineStations: z.number(),
-    onlinePercent: z.number(),
-    uptimePercent: z.number(),
-    activeSessions: z.number(),
-    totalEnergyWh: z.number(),
-    dayEnergyWh: z.number(),
-    totalSessions: z.number(),
-    daySessions: z.number(),
-    connectedStations: z.number(),
-    totalRevenueCents: z.number(),
-    dayRevenueCents: z.number(),
-    avgRevenueCentsPerSession: z.number(),
-    totalTransactions: z.number(),
-    dayTransactions: z.number(),
-    totalPorts: z.number(),
-    stationsBelowThreshold: z.number(),
+    totalStations: z.number().int().min(0).describe('Total number of stations on this date'),
+    onlineStations: z.number().int().min(0).describe('Number of stations online on this date'),
+    onlinePercent: z
+      .number()
+      .min(0)
+      .max(100)
+      .describe('Percentage of stations online on this date (0-100)'),
+    uptimePercent: z
+      .number()
+      .min(0)
+      .max(100)
+      .describe('Average port uptime percentage on this date (0-100)'),
+    activeSessions: z.number().int().min(0).describe('Number of active sessions on this date'),
+    totalEnergyWh: z
+      .number()
+      .min(0)
+      .describe('Cumulative energy delivered through this date in watt-hours'),
+    dayEnergyWh: z.number().min(0).describe('Energy delivered on this date in watt-hours'),
+    totalSessions: z.number().int().min(0).describe('Cumulative session count through this date'),
+    daySessions: z.number().int().min(0).describe('Number of sessions started on this date'),
+    connectedStations: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of stations connected via WebSocket on this date'),
+    totalRevenueCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Cumulative revenue through this date in cents'),
+    dayRevenueCents: z.number().int().min(0).describe('Revenue earned on this date in cents'),
+    avgRevenueCentsPerSession: z.number().min(0).describe('Average revenue per session in cents'),
+    totalTransactions: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Cumulative paid transaction count through this date'),
+    dayTransactions: z.number().int().min(0).describe('Number of paid transactions on this date'),
+    totalPorts: z.number().int().min(0).describe('Total number of ports tracked on this date'),
+    stationsBelowThreshold: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of stations with uptime below the 97% threshold on this date'),
   })
   .passthrough();
 
 const trendResponse = z
   .object({
-    days: z.array(
-      z
-        .object({
-          date: z.string(),
-          totalStations: z.number(),
-          onlinePercent: z.number(),
-          uptimePercent: z.number(),
-          totalEnergyWh: z.number(),
-          dayEnergyWh: z.number(),
-          totalSessions: z.number(),
-          daySessions: z.number(),
-          connectedStations: z.number(),
-          totalRevenueCents: z.number(),
-          dayRevenueCents: z.number(),
-          avgRevenueCentsPerSession: z.number(),
-          totalTransactions: z.number(),
-          dayTransactions: z.number(),
-          totalPorts: z.number(),
-          stationsBelowThreshold: z.number(),
-        })
-        .passthrough(),
-    ),
+    days: z
+      .array(
+        z
+          .object({
+            date: z.string().describe('Date in YYYY-MM-DD format (local timezone)'),
+            totalStations: z
+              .number()
+              .int()
+              .min(0)
+              .describe('Total number of stations on this date'),
+            onlinePercent: z
+              .number()
+              .min(0)
+              .max(100)
+              .describe('Percentage of stations online on this date (0-100)'),
+            uptimePercent: z
+              .number()
+              .min(0)
+              .max(100)
+              .describe('Average port uptime percentage on this date (0-100)'),
+            totalEnergyWh: z
+              .number()
+              .min(0)
+              .describe('Cumulative energy delivered through this date in watt-hours'),
+            dayEnergyWh: z.number().min(0).describe('Energy delivered on this date in watt-hours'),
+            totalSessions: z
+              .number()
+              .int()
+              .min(0)
+              .describe('Cumulative session count through this date'),
+            daySessions: z
+              .number()
+              .int()
+              .min(0)
+              .describe('Number of sessions started on this date'),
+            connectedStations: z
+              .number()
+              .int()
+              .min(0)
+              .describe('Number of stations connected via WebSocket on this date'),
+            totalRevenueCents: z
+              .number()
+              .int()
+              .min(0)
+              .describe('Cumulative revenue through this date in cents'),
+            dayRevenueCents: z
+              .number()
+              .int()
+              .min(0)
+              .describe('Revenue earned on this date in cents'),
+            avgRevenueCentsPerSession: z
+              .number()
+              .min(0)
+              .describe('Average revenue per session in cents'),
+            totalTransactions: z
+              .number()
+              .int()
+              .min(0)
+              .describe('Cumulative paid transaction count through this date'),
+            dayTransactions: z
+              .number()
+              .int()
+              .min(0)
+              .describe('Number of paid transactions on this date'),
+            totalPorts: z
+              .number()
+              .int()
+              .min(0)
+              .describe('Total number of ports tracked on this date'),
+            stationsBelowThreshold: z
+              .number()
+              .int()
+              .min(0)
+              .describe('Number of stations with uptime below the 97% threshold on this date'),
+          })
+          .passthrough(),
+      )
+      .describe('Per-day snapshot rows ordered by date'),
   })
   .passthrough();
 
@@ -1272,9 +1477,11 @@ export function dashboardRoutes(app: FastifyInstance): void {
 
   const carbonStatsResponse = z
     .object({
-      totalCo2AvoidedKg: z.number(),
-      sessionCount: z.number(),
-      avgCo2AvoidedKgPerSession: z.number(),
+      totalCo2AvoidedKg: z.number().describe('Total CO2 avoided across the period in kilograms'),
+      sessionCount: z.number().describe('Number of completed sessions with carbon data'),
+      avgCo2AvoidedKgPerSession: z
+        .number()
+        .describe('Average CO2 avoided per session in kilograms'),
     })
     .passthrough();
 

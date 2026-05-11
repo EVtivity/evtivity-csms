@@ -32,7 +32,7 @@ const createLoadBody = z
       .optional()
       .describe('Circuit ID (exactly one of panelId or circuitId required)'),
     name: z.string().min(1).max(255),
-    estimatedDrawKw: z.number().min(0).describe('Estimated power draw in kW'),
+    estimatedDrawKw: z.number().min(0).max(10000).describe('Estimated power draw in kW'),
   })
   .refine((d) => (d.panelId != null) !== (d.circuitId != null), {
     message: 'Exactly one of panelId or circuitId must be provided',
@@ -40,21 +40,27 @@ const createLoadBody = z
 
 const updateLoadBody = z.object({
   name: z.string().min(1).max(255).optional(),
-  estimatedDrawKw: z.number().min(0).optional(),
+  estimatedDrawKw: z.number().min(0).max(10000).optional(),
   panelId: z.string().nullable().optional(),
   circuitId: z.string().nullable().optional(),
 });
 
 const loadItem = z
   .object({
-    id: z.number(),
-    panelId: z.string().nullable(),
-    circuitId: z.string().nullable(),
-    name: z.string(),
-    estimatedDrawKw: z.number(),
-    meterDeviceId: z.string().nullable(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.number().int().min(1).describe('Identifier'),
+    panelId: z
+      .string()
+      .nullable()
+      .describe('Parent panel identifier when the load attaches to a panel'),
+    circuitId: z
+      .string()
+      .nullable()
+      .describe('Parent circuit identifier when the load attaches to a circuit'),
+    name: z.string().max(255).describe('Display name'),
+    estimatedDrawKw: z.number().min(0).describe('Estimated continuous power draw in kW'),
+    meterDeviceId: z.string().max(255).nullable().describe('Optional meter device identifier'),
+    createdAt: z.coerce.date().describe('Timestamp when created'),
+    updatedAt: z.coerce.date().describe('Timestamp when last modified'),
   })
   .passthrough();
 

@@ -64,6 +64,9 @@ vi.mock('@evtivity/database', () => ({
     execute: vi.fn(() => Promise.resolve([])),
   },
   firmwareCampaigns: { id: 'id', createdAt: 'createdAt', status: 'status' },
+  firmwareCampaignStatusEnum: {
+    enumValues: ['draft', 'active', 'completed', 'cancelled'] as const,
+  },
   firmwareCampaignStations: {
     id: 'id',
     campaignId: 'campaignId',

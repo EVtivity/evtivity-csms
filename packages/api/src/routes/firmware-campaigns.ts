@@ -9,6 +9,7 @@ import {
   db,
   firmwareCampaigns,
   firmwareCampaignStations,
+  firmwareCampaignStatusEnum,
   firmwareUpdates,
   chargingStations,
   sites,
@@ -33,7 +34,7 @@ const campaignItem = z
     name: z.string().describe('Campaign name'),
     firmwareUrl: z.string().describe('Firmware download URL'),
     version: z.string().nullable().describe('Firmware version'),
-    status: z.string().describe('Campaign status (draft/active/completed/cancelled)'),
+    status: z.enum(firmwareCampaignStatusEnum.enumValues).describe('Campaign status'),
     targetFilter: z.record(z.unknown()).nullable().describe('Filter selecting target stations'),
     createdById: z.string().nullable().describe('User ID that created the campaign'),
     createdAt: z.string().describe('Row creation timestamp'),
@@ -56,14 +57,35 @@ const fwMatchingStationItem = z
 const filterOptionsResponse = z
   .object({
     sites: z
-      .array(z.object({ id: z.string(), name: z.string() }).passthrough())
+      .array(
+        z
+          .object({
+            id: z.string().describe('Site identifier'),
+            name: z.string().describe('Site display name'),
+          })
+          .passthrough(),
+      )
       .describe('Sites available for targeting'),
     vendors: z
-      .array(z.object({ id: z.string(), name: z.string() }).passthrough())
+      .array(
+        z
+          .object({
+            id: z.string().describe('Vendor identifier'),
+            name: z.string().describe('Vendor display name'),
+          })
+          .passthrough(),
+      )
       .describe('Vendors available for targeting'),
     models: z.array(z.string()).describe('Distinct station models available for targeting'),
     stations: z
-      .array(z.object({ id: z.string(), stationId: z.string() }).passthrough())
+      .array(
+        z
+          .object({
+            id: z.string().describe('Station UUID'),
+            stationId: z.string().describe('Human-readable station identifier'),
+          })
+          .passthrough(),
+      )
       .describe('Stations matching the current filter'),
   })
   .passthrough();
@@ -115,7 +137,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.firmware:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Get filter options for firmware campaign targeting',
         operationId: 'getFirmwareCampaignFilterOptions',
         security: [{ bearerAuth: [] }],
@@ -174,7 +196,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.firmware:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'List firmware campaigns',
         operationId: 'listFirmwareCampaigns',
         security: [{ bearerAuth: [] }],
@@ -210,7 +232,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.firmware:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Get firmware campaign with station progress',
         operationId: 'getFirmwareCampaign',
         security: [{ bearerAuth: [] }],
@@ -287,7 +309,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.firmware:write')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Create a firmware campaign',
         operationId: 'createFirmwareCampaign',
         security: [{ bearerAuth: [] }],
@@ -320,7 +342,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.firmware:write')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Update a draft firmware campaign',
         operationId: 'updateFirmwareCampaign',
         security: [{ bearerAuth: [] }],
@@ -364,7 +386,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.firmware:write')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Delete a draft firmware campaign',
         operationId: 'deleteFirmwareCampaign',
         security: [{ bearerAuth: [] }],
@@ -405,7 +427,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.firmware:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Preview stations matching the campaign target filter',
         operationId: 'listFirmwareCampaignMatchingStations',
         security: [{ bearerAuth: [] }],
@@ -483,8 +505,10 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.firmware:write')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Start a firmware campaign - dispatch UpdateFirmware to targets',
+        description:
+          'Resolves matching online stations via the campaign target filter, transitions the campaign to active, and dispatches UpdateFirmware to each station. Per-station progress is tracked in firmware_campaign_stations and firmware_updates and updated by the FirmwareStatusNotification projection. Returns 409 if the campaign is not in draft state or no stations match.',
         operationId: 'startFirmwareCampaign',
         security: [{ bearerAuth: [] }],
         params: zodSchema(campaignParams),
@@ -623,8 +647,10 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.firmware:write')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Cancel an active firmware campaign',
+        description:
+          'Marks the campaign as cancelled. Stations with in-flight UpdateFirmware operations continue to completion; the cancellation prevents further dispatches. Already-completed per-station rows remain unchanged.',
         operationId: 'cancelFirmwareCampaign',
         security: [{ bearerAuth: [] }],
         params: zodSchema(campaignParams),

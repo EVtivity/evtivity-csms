@@ -21,68 +21,111 @@ import { authorize } from '../middleware/rbac.js';
 
 const pricingGroupItem = z
   .object({
-    id: z.string(),
-    name: z.string(),
-    description: z.string().nullable(),
-    isDefault: z.boolean(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Pricing group identifier'),
+    name: z.string().describe('Pricing group display name'),
+    description: z.string().nullable().describe('Pricing group description'),
+    isDefault: z.boolean().describe('Whether this is the system fallback pricing group'),
+    createdAt: z.coerce.date().describe('Timestamp when the pricing group was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the pricing group was last updated'),
   })
   .passthrough();
 
 const tariffItem = z
   .object({
-    id: z.string(),
-    pricingGroupId: z.string(),
-    name: z.string(),
-    currency: z.string(),
-    pricePerKwh: z.string().nullable(),
-    pricePerMinute: z.string().nullable(),
-    pricePerSession: z.string().nullable(),
-    isActive: z.boolean(),
-    idleFeePricePerMinute: z.string().nullable(),
-    taxRate: z.string().nullable(),
-    restrictions: z.unknown().nullable(),
-    reservationFeePerMinute: z.string().nullable(),
-    priority: z.number(),
-    isDefault: z.boolean(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Tariff identifier'),
+    pricingGroupId: z.string().describe('Owning pricing group identifier'),
+    name: z.string().describe('Tariff display name'),
+    currency: z.string().describe('ISO 4217 currency code (USD, EUR, etc.)'),
+    pricePerKwh: z.string().nullable().describe('Cost per kWh in the tariff currency, e.g. "0.25"'),
+    pricePerMinute: z.string().nullable().describe('Cost per active charging minute'),
+    pricePerSession: z.string().nullable().describe('Flat fee charged at session start'),
+    isActive: z.boolean().describe('Whether this tariff currently participates in resolution'),
+    idleFeePricePerMinute: z
+      .string()
+      .nullable()
+      .describe('Cost per minute after the configured idle grace period'),
+    taxRate: z.string().nullable().describe('Decimal tax rate (e.g. "0.0825" for 8.25%)'),
+    restrictions: z
+      .unknown()
+      .nullable()
+      .describe(
+        'JSONB restrictions: timeRange, daysOfWeek, dateRange, holidays, energyThresholdKwh',
+      ),
+    reservationFeePerMinute: z
+      .string()
+      .nullable()
+      .describe(
+        'Reservation holding fee per minute, charged from reservation start to session start',
+      ),
+    priority: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Resolution priority (higher wins). Derived from restriction type (10 time, 20 day+time, 30 seasonal, 40 holiday, 50 energy threshold).',
+      ),
+    isDefault: z.boolean().describe('Whether this is the fallback tariff for the group'),
+    createdAt: z.coerce.date().describe('Timestamp when the tariff was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the tariff was last updated'),
   })
   .passthrough();
 
 const scheduleItem = z
   .object({
-    id: z.string(),
-    name: z.string(),
-    currency: z.string(),
-    pricePerKwh: z.string().nullable(),
-    pricePerMinute: z.string().nullable(),
-    pricePerSession: z.string().nullable(),
-    idleFeePricePerMinute: z.string().nullable(),
-    taxRate: z.string().nullable(),
-    restrictions: z.unknown().nullable(),
-    priority: z.number(),
-    isDefault: z.boolean(),
-    isCurrent: z.boolean(),
+    id: z.string().describe('Tariff identifier'),
+    name: z.string().describe('Tariff display name'),
+    currency: z.string().describe('ISO 4217 currency code (USD, EUR, etc.)'),
+    pricePerKwh: z.string().nullable().describe('Cost per kWh in the tariff currency, e.g. "0.25"'),
+    pricePerMinute: z.string().nullable().describe('Cost per active charging minute'),
+    pricePerSession: z.string().nullable().describe('Flat fee charged at session start'),
+    idleFeePricePerMinute: z
+      .string()
+      .nullable()
+      .describe('Cost per minute after the configured idle grace period'),
+    taxRate: z.string().nullable().describe('Decimal tax rate (e.g. "0.0825" for 8.25%)'),
+    restrictions: z
+      .unknown()
+      .nullable()
+      .describe(
+        'JSONB restrictions: timeRange, daysOfWeek, dateRange, holidays, energyThresholdKwh',
+      ),
+    priority: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Resolution priority (higher wins). Derived from restriction type.'),
+    isDefault: z.boolean().describe('Whether this is the fallback tariff for the group'),
+    isCurrent: z.boolean().describe('Whether this tariff is the one resolved as active right now'),
   })
   .passthrough();
 
 const activeTariffItem = z
   .object({
-    id: z.string(),
-    name: z.string(),
-    currency: z.string(),
-    pricePerKwh: z.string().nullable(),
-    pricePerMinute: z.string().nullable(),
-    pricePerSession: z.string().nullable(),
-    idleFeePricePerMinute: z.string().nullable(),
-    taxRate: z.string().nullable(),
-    restrictions: z.unknown().nullable(),
-    priority: z.number(),
-    isDefault: z.boolean(),
-    pricingGroupId: z.string(),
-    pricingGroupName: z.string(),
+    id: z.string().describe('Tariff identifier'),
+    name: z.string().describe('Tariff display name'),
+    currency: z.string().describe('ISO 4217 currency code (USD, EUR, etc.)'),
+    pricePerKwh: z.string().nullable().describe('Cost per kWh in the tariff currency, e.g. "0.25"'),
+    pricePerMinute: z.string().nullable().describe('Cost per active charging minute'),
+    pricePerSession: z.string().nullable().describe('Flat fee charged at session start'),
+    idleFeePricePerMinute: z
+      .string()
+      .nullable()
+      .describe('Cost per minute after the configured idle grace period'),
+    taxRate: z.string().nullable().describe('Decimal tax rate (e.g. "0.0825" for 8.25%)'),
+    restrictions: z
+      .unknown()
+      .nullable()
+      .describe(
+        'JSONB restrictions: timeRange, daysOfWeek, dateRange, holidays, energyThresholdKwh',
+      ),
+    priority: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Resolution priority (higher wins). Derived from restriction type.'),
+    isDefault: z.boolean().describe('Whether this is the fallback tariff for the group'),
+    pricingGroupId: z.string().describe('Pricing group identifier this tariff belongs to'),
+    pricingGroupName: z.string().describe('Pricing group display name'),
   })
   .passthrough();
 

@@ -4,7 +4,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
-import { db, chargingSessions, chargingStations } from '@evtivity/database';
+import {
+  db,
+  chargingSessions,
+  chargingStations,
+  transactionEventTypeEnum,
+  sessionStatusEnum,
+} from '@evtivity/database';
 import * as transactionService from '../services/transaction.service.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -20,15 +26,21 @@ import { authorize } from '../middleware/rbac.js';
 
 const transactionEventItem = z
   .object({
-    id: z.number().describe('Internal transaction event ID'),
+    id: z.number().int().min(1).describe('Internal transaction event ID'),
     sessionId: z.string().describe('Charging session ID'),
-    eventType: z.string().describe('Transaction event type (Started/Updated/Ended)'),
-    seqNo: z.number().describe('Sequence number from the station'),
+    eventType: z.enum(transactionEventTypeEnum.enumValues).describe('Transaction event type'),
+    seqNo: z.number().int().min(0).describe('Sequence number from the station'),
     timestamp: z.string().describe('Timestamp the event occurred at the station'),
-    triggerReason: z.string().describe('Reason that triggered the event'),
+    triggerReason: z.string().max(50).describe('Reason that triggered the event'),
     offline: z.boolean().describe('Whether the event was queued offline'),
-    numberOfPhasesUsed: z.number().nullable().describe('Number of phases in use during the event'),
-    cableMaxCurrent: z.number().nullable().describe('Cable max current rating in amps'),
+    numberOfPhasesUsed: z
+      .number()
+      .int()
+      .min(1)
+      .max(3)
+      .nullable()
+      .describe('Number of phases in use during the event'),
+    cableMaxCurrent: z.number().min(0).nullable().describe('Cable max current rating in amps'),
     payload: z.record(z.unknown()).nullable().describe('Raw OCPP transaction event payload'),
     createdAt: z.string().describe('Timestamp the row was inserted in the CSMS'),
   })
@@ -42,19 +54,29 @@ const transactionSessionItem = z
     connectorId: z.string().nullable().describe('Connector ID'),
     driverId: z.string().nullable().describe('Driver ID associated with the session'),
     transactionId: z.string().describe('OCPP transaction ID'),
-    status: z.string().describe('Session status (active/completed/failed/faulted)'),
+    status: z.enum(sessionStatusEnum.enumValues).describe('Session status'),
     startedAt: z.string().nullable().describe('Session start timestamp'),
     endedAt: z.string().nullable().describe('Session end timestamp'),
-    meterStart: z.number().nullable().describe('Energy meter reading at session start (Wh)'),
-    meterStop: z.number().nullable().describe('Energy meter reading at session end (Wh)'),
+    meterStart: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Energy meter reading at session start (Wh)'),
+    meterStop: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Energy meter reading at session end (Wh)'),
     energyDeliveredWh: z.string().nullable().describe('Energy delivered in Wh'),
     stoppedReason: z.string().nullable().describe('Reason the session ended'),
     isRoaming: z.boolean().describe('Whether the session is a roaming session'),
     remoteStartId: z.number().nullable().describe('OCPP remoteStart correlation ID'),
     reservationId: z.string().nullable().describe('Reservation ID linked to the session'),
-    currentCostCents: z.number().nullable().describe('Running cost in cents'),
-    finalCostCents: z.number().nullable().describe('Final cost in cents'),
-    currency: z.string().nullable().describe('Currency code (ISO 4217)'),
+    currentCostCents: z.number().int().min(0).nullable().describe('Running cost in cents'),
+    finalCostCents: z.number().int().min(0).nullable().describe('Final cost in cents'),
+    currency: z.string().length(3).nullable().describe('Currency code (ISO 4217)'),
     tariffId: z.string().nullable().describe('Tariff ID applied to the session'),
     tariffPricePerKwh: z.string().nullable().describe('Tariff energy price snapshot'),
     tariffPricePerMinute: z.string().nullable().describe('Tariff time price snapshot'),

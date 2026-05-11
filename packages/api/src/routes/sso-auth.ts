@@ -9,6 +9,7 @@ import { generateId } from '@evtivity/lib';
 import { setAuthCookies } from '../lib/csms-cookies.js';
 import { createRefreshToken } from '../services/refresh-token.service.js';
 import { config as apiConfig } from '../lib/config.js';
+import { errorResponse } from '../lib/response-schemas.js';
 
 function isSecureRequest(request: FastifyRequest): boolean {
   const proto = request.headers['x-forwarded-proto'];
@@ -32,6 +33,7 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
         summary: 'Initiate SAML SSO login',
         operationId: 'ssoLogin',
         security: [],
+        response: { 400: errorResponse },
       },
     },
     async (request, reply) => {

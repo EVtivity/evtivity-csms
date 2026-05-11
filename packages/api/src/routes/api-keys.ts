@@ -23,41 +23,56 @@ const createApiKeyBody = z.object({
     .number()
     .int()
     .min(1)
+    .max(3650)
     .nullable()
     .optional()
-    .describe('Days until expiry. Null or omitted for non-expiring.'),
+    .describe('Days until expiry (max 10 years). Null or omitted for non-expiring.'),
   permissions: z
-    .array(z.string())
+    .array(z.string().max(100))
     .min(1, 'At least one permission is required')
+    .max(200)
     .describe('Permission scope. Must be a subset of your permissions.'),
 });
 
 const updateApiKeyBody = z.object({
   permissions: z
-    .array(z.string())
+    .array(z.string().max(100))
     .min(1, 'At least one permission is required')
+    .max(200)
     .describe('Permission scope. Must be a subset of your permissions.'),
 });
 
 const apiKeyItem = z
   .object({
-    id: z.number(),
-    name: z.string().nullable(),
-    createdAt: z.coerce.date(),
-    expiresAt: z.coerce.date().nullable(),
-    lastUsedAt: z.coerce.date().nullable(),
-    permissions: z.unknown().nullable(),
+    id: z.number().int().min(1).describe('Identifier'),
+    name: z.string().max(255).nullable().describe('Display name'),
+    createdAt: z.coerce.date().describe('Timestamp when the key was created'),
+    expiresAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp when the key expires (null if non-expiring)'),
+    lastUsedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp of the last successful authentication'),
+    permissions: z.unknown().nullable().describe('Permission scope granted to this key'),
   })
   .passthrough();
 
 const apiKeyCreatedItem = z
   .object({
-    id: z.number(),
-    name: z.string(),
-    rawToken: z.string(),
-    expiresAt: z.coerce.date().nullable(),
-    createdAt: z.coerce.date(),
-    permissions: z.unknown().nullable(),
+    id: z.number().int().min(1).describe('Identifier'),
+    name: z.string().max(255).describe('Display name'),
+    rawToken: z
+      .string()
+      .length(64)
+      .describe('Raw bearer token. Shown once at creation; cannot be retrieved later.'),
+    expiresAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp when the key expires (null if non-expiring)'),
+    createdAt: z.coerce.date().describe('Timestamp when the key was created'),
+    permissions: z.unknown().nullable().describe('Permission scope granted to this key'),
   })
   .passthrough();
 
@@ -89,6 +104,8 @@ export function apiKeyRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['API Keys'],
         summary: 'Create a new API key',
+        description:
+          'Generates a 64-character hex API token, stores its SHA-256 hash in refresh_tokens with type=api_key, and returns the raw token in the response. The raw token is shown ONCE and never retrievable again. Optional permissions array scopes the key to a subset of the creator current permissions; expiresInDays sets a hard expiry. Returns 403 if requested permissions exceed the creator permissions.',
         operationId: 'createApiKey',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createApiKeyBody),

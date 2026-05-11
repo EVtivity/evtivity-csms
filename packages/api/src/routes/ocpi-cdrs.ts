@@ -14,21 +14,31 @@ import { authorize } from '../middleware/rbac.js';
 
 const cdrListItem = z
   .object({
-    id: z.string(),
-    partnerId: z.string().nullable(),
-    ocpiCdrId: z.string(),
-    chargingSessionId: z.string().nullable(),
-    totalEnergy: z.string().nullable(),
-    totalCost: z.string().nullable(),
-    currency: z.string().nullable(),
-    isCredit: z.boolean(),
-    pushStatus: z.string(),
-    createdAt: z.coerce.date(),
-    partnerName: z.string().nullable(),
+    id: z.string().describe('Identifier'),
+    partnerId: z.string().nullable().describe('OCPI partner ID, when known'),
+    ocpiCdrId: z.string().max(36).describe('OCPI CDR identifier (UUID) used by partners'),
+    chargingSessionId: z
+      .string()
+      .nullable()
+      .describe('Linked CSMS charging session ID, when this CDR maps to a local session'),
+    totalEnergy: z
+      .string()
+      .nullable()
+      .describe('Total energy delivered in kWh, as a decimal string'),
+    totalCost: z.string().nullable().describe('Total cost as a decimal string'),
+    currency: z.string().length(3).nullable().describe('ISO 4217 currency code'),
+    isCredit: z.boolean().describe('True when this CDR is a credit (refund) for an earlier CDR'),
+    pushStatus: z
+      .enum(['pending', 'sent', 'confirmed', 'failed'])
+      .describe('Outbound delivery status to the partner'),
+    createdAt: z.coerce.date().describe('Timestamp when the CDR was created'),
+    partnerName: z.string().max(255).nullable().describe('Display name of the OCPI partner'),
   })
   .passthrough();
 
-const creditCdrResponse = z.object({ cdrId: z.string() }).passthrough();
+const creditCdrResponse = z
+  .object({ cdrId: z.string().describe('Identifier of the newly created credit CDR') })
+  .passthrough();
 
 const cdrQuery = paginationQuery.extend({
   partnerId: ID_PARAMS.ocpiPartnerId.optional().describe('Filter by OCPI partner ID'),

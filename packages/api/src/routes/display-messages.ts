@@ -17,29 +17,51 @@ import { authorize } from '../middleware/rbac.js';
 
 const displayMessageItem = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    ocppMessageId: z.number(),
-    priority: z.string(),
-    status: z.string(),
-    format: z.string(),
-    content: z.string(),
-    language: z.string().nullable(),
-    state: z.string().nullable(),
-    startDateTime: z.coerce.date().nullable(),
-    endDateTime: z.coerce.date().nullable(),
-    transactionId: z.string().nullable(),
-    evseId: z.number().nullable(),
-    messageExtra: z.array(z.record(z.unknown())).nullable(),
-    ocppResponse: z.record(z.unknown()).nullable(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Identifier'),
+    stationId: z.string().describe('Charging station identifier'),
+    ocppMessageId: z.number().int().min(0).describe('OCPP message slot ID assigned on the station'),
+    priority: z
+      .enum(['AlwaysFront', 'InFront', 'NormalCycle'])
+      .describe('OCPP display priority level'),
+    status: z
+      .enum(['pending', 'accepted', 'rejected', 'cleared', 'expired'])
+      .describe('Lifecycle status of this message'),
+    format: z.enum(['ASCII', 'HTML', 'URI', 'UTF8', 'QRCODE']).describe('Content encoding format'),
+    content: z.string().max(1024).describe('Message body to display on the station'),
+    language: z.string().max(8).nullable().describe('ISO 639-1 language code'),
+    state: z
+      .enum(['Charging', 'Faulted', 'Idle', 'Unavailable', 'Suspended', 'Discharging'])
+      .nullable()
+      .describe('Operating state in which the message is shown'),
+    startDateTime: z.coerce.date().nullable().describe('Earliest time the message is displayed'),
+    endDateTime: z.coerce.date().nullable().describe('Latest time the message is displayed'),
+    transactionId: z
+      .string()
+      .max(36)
+      .nullable()
+      .describe('OCPP transaction the message is scoped to'),
+    evseId: z.number().int().min(0).nullable().describe('OCPP EVSE the message targets'),
+    messageExtra: z
+      .array(z.record(z.unknown()))
+      .max(50)
+      .nullable()
+      .describe('Additional OCPP message components'),
+    ocppResponse: z
+      .record(z.unknown())
+      .nullable()
+      .describe('Raw response payload from the station'),
+    createdAt: z.coerce.date().describe('Timestamp when created'),
+    updatedAt: z.coerce.date().describe('Timestamp when last modified'),
   })
   .passthrough();
 
-const clearMessageResponse = z.object({ status: z.literal('cleared') }).passthrough();
+const clearMessageResponse = z
+  .object({ status: z.literal('cleared').describe('Outcome status') })
+  .passthrough();
 
-const refreshMessageResponse = z.object({ status: z.string() }).passthrough();
+const refreshMessageResponse = z
+  .object({ status: z.string().describe('Result status returned by the station') })
+  .passthrough();
 
 const stationIdParams = z.object({
   stationId: ID_PARAMS.stationId.describe('Charging station ID'),
@@ -138,6 +160,8 @@ export function displayMessageRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Display Messages'],
         summary: 'Create and send a display message to a station',
+        description:
+          'Inserts a display_messages row with a freshly allocated ocppMessageId, then dispatches SetDisplayMessage and waits synchronously for the station response. The row status flips to accepted or rejected based on the station reply. Returns 504 on timeout, 502 on station rejection, and 400 if the station is offline.',
         operationId: 'createDisplayMessage',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationIdParams),
@@ -274,6 +298,8 @@ export function displayMessageRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Display Messages'],
         summary: 'Clear a display message from a station',
+        description:
+          'Dispatches ClearDisplayMessage to the station for the given OCPP message slot and marks the row cleared on Accepted. Returns 400 if the message is not in accepted state, 502 on station rejection, and 504 on timeout.',
         operationId: 'clearDisplayMessage',
         security: [{ bearerAuth: [] }],
         params: zodSchema(messageIdParams),
@@ -360,6 +386,8 @@ export function displayMessageRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Display Messages'],
         summary: 'Refresh display messages from a station',
+        description:
+          'Dispatches GetDisplayMessages to the station. Message data arrives asynchronously via the NotifyDisplayMessages event projection, which upserts rows into display_messages. Returns the synchronous Accepted/Rejected status from the trigger call.',
         operationId: 'refreshDisplayMessages',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationIdParams),

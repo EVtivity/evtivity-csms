@@ -13,16 +13,16 @@ import { authorize } from '../middleware/rbac.js';
 
 const runResponseSchema = z
   .object({
-    id: z.number().describe('Run ID'),
-    status: z.string().describe('Run status (pending/running/completed/failed)'),
-    ocppVersion: z.string().describe('OCPP version filter (ocpp2.1/ocpp1.6/all)'),
-    sutType: z.string().describe('System under test (csms/cs)'),
-    totalTests: z.number().describe('Total number of tests in this run'),
-    passed: z.number().describe('Number of passed tests'),
-    failed: z.number().describe('Number of failed tests'),
-    skipped: z.number().describe('Number of skipped tests'),
-    errors: z.number().describe('Number of tests that errored'),
-    durationMs: z.number().nullable().describe('Total run duration in ms'),
+    id: z.number().int().min(1).describe('Run ID'),
+    status: z.enum(['pending', 'running', 'completed', 'failed']).describe('Run status'),
+    ocppVersion: z.enum(['ocpp2.1', 'ocpp1.6', 'all']).describe('OCPP version filter'),
+    sutType: z.enum(['csms', 'cs']).describe('System under test'),
+    totalTests: z.number().int().min(0).describe('Total number of tests in this run'),
+    passed: z.number().int().min(0).describe('Number of passed tests'),
+    failed: z.number().int().min(0).describe('Number of failed tests'),
+    skipped: z.number().int().min(0).describe('Number of skipped tests'),
+    errors: z.number().int().min(0).describe('Number of tests that errored'),
+    durationMs: z.number().int().min(0).nullable().describe('Total run duration in ms'),
     triggeredBy: z.string().nullable().describe('User ID that triggered the run'),
     startedAt: z.string().nullable().describe('Run start timestamp'),
     completedAt: z.string().nullable().describe('Run completion timestamp'),
@@ -32,29 +32,29 @@ const runResponseSchema = z
 
 const testResultSchema = z
   .object({
-    id: z.number().describe('Test result row ID'),
-    runId: z.number().describe('Parent run ID'),
-    testId: z.string().describe('OCTT test case ID'),
-    testName: z.string().describe('Human-readable test case name'),
-    module: z.string().describe('OCTT module name'),
-    ocppVersion: z.string().describe('OCPP version for this test'),
-    status: z.string().describe('Test status (passed/failed/skipped/error)'),
-    durationMs: z.number().describe('Test duration in ms'),
-    steps: z.array(z.record(z.unknown())).nullable().describe('Per-step result details'),
-    error: z.string().nullable().describe('Error message if the test failed or errored'),
+    id: z.number().int().min(1).describe('Test result row ID'),
+    runId: z.number().int().min(1).describe('Parent run ID'),
+    testId: z.string().max(100).describe('OCTT test case ID'),
+    testName: z.string().max(500).describe('Human-readable test case name'),
+    module: z.string().max(100).describe('OCTT module name'),
+    ocppVersion: z.enum(['ocpp2.1', 'ocpp1.6']).describe('OCPP version for this test'),
+    status: z.enum(['passed', 'failed', 'skipped', 'error']).describe('Test status'),
+    durationMs: z.number().int().min(0).describe('Test duration in ms'),
+    steps: z.array(z.record(z.unknown())).max(500).nullable().describe('Per-step result details'),
+    error: z.string().max(10000).nullable().describe('Error message if the test failed or errored'),
     createdAt: z.string().describe('Row creation timestamp'),
   })
   .passthrough();
 
 const moduleSummarySchema = z
   .object({
-    module: z.string(),
-    ocppVersion: z.string(),
-    total: z.number(),
-    passed: z.number(),
-    failed: z.number(),
-    skipped: z.number(),
-    errors: z.number(),
+    module: z.string().max(100).describe('OCTT module name'),
+    ocppVersion: z.enum(['ocpp2.1', 'ocpp1.6']).describe('OCPP version covered by this module'),
+    total: z.number().int().min(0).describe('Total test cases in this module'),
+    passed: z.number().int().min(0).describe('Number of passed tests'),
+    failed: z.number().int().min(0).describe('Number of failed tests'),
+    skipped: z.number().int().min(0).describe('Number of skipped tests'),
+    errors: z.number().int().min(0).describe('Number of tests that errored'),
   })
   .passthrough();
 

@@ -18,13 +18,23 @@ import { authorize } from '../middleware/rbac.js';
 
 const ruleItem = z
   .object({
-    id: z.number(),
-    component: z.string(),
-    variable: z.string(),
-    minSeverity: z.number(),
-    isEnabled: z.boolean(),
-    notifyChannel: z.string(),
-    notifyRecipient: z.string(),
+    id: z.number().int().min(1).describe('Identifier'),
+    component: z.string().max(100).describe('OCPP component name the rule monitors'),
+    variable: z.string().max(100).describe('OCPP variable name the rule monitors'),
+    minSeverity: z
+      .number()
+      .int()
+      .min(0)
+      .max(9)
+      .describe('Minimum severity that triggers the rule (0=Danger, 9=Informational)'),
+    isEnabled: z.boolean().describe('Whether the rule is active'),
+    notifyChannel: z
+      .enum(['email', 'webhook', 'sms', 'log'])
+      .describe('Channel used to deliver the alert'),
+    notifyRecipient: z
+      .string()
+      .max(500)
+      .describe('Recipient address for the chosen channel ($admin resolves to system admins)'),
   })
   .passthrough();
 
@@ -33,26 +43,26 @@ const createRuleBody = z.object({
   variable: z.string().min(1).max(100).describe('OCPP variable name'),
   minSeverity: z.number().int().min(0).max(9).default(0).describe('Minimum severity (0=Danger)'),
   isEnabled: z.boolean().default(true),
-  notifyChannel: z.string().max(50).default('email'),
+  notifyChannel: z.enum(['email', 'webhook', 'sms', 'log']).default('email'),
   notifyRecipient: z.string().max(500).default('$admin'),
 });
 
 const updateRuleBody = z.object({
   minSeverity: z.number().int().min(0).max(9).optional(),
   isEnabled: z.boolean().optional(),
-  notifyChannel: z.string().max(50).optional(),
+  notifyChannel: z.enum(['email', 'webhook', 'sms', 'log']).optional(),
   notifyRecipient: z.string().max(500).optional(),
 });
 
 const ruleIdParams = z.object({
-  id: z.coerce.number().int().describe('Alert rule ID'),
+  id: z.coerce.number().int().min(1).describe('Alert rule ID'),
 });
 
 export function eventAlertRuleRoutes(app: FastifyInstance): void {
   app.get('/event-alert-rules', {
     onRequest: [authorize('stations:read')],
     schema: {
-      tags: ['Stations'],
+      tags: ['Event Alert Rules'],
       summary: 'List event alert rules',
       operationId: 'listEventAlertRules',
       security: [{ bearerAuth: [] }],
@@ -75,7 +85,7 @@ export function eventAlertRuleRoutes(app: FastifyInstance): void {
   app.post('/event-alert-rules', {
     onRequest: [authorize('stations:write')],
     schema: {
-      tags: ['Stations'],
+      tags: ['Event Alert Rules'],
       summary: 'Create event alert rule',
       operationId: 'createEventAlertRule',
       security: [{ bearerAuth: [] }],
@@ -92,7 +102,7 @@ export function eventAlertRuleRoutes(app: FastifyInstance): void {
   app.patch('/event-alert-rules/:id', {
     onRequest: [authorize('stations:write')],
     schema: {
-      tags: ['Stations'],
+      tags: ['Event Alert Rules'],
       summary: 'Update event alert rule',
       operationId: 'updateEventAlertRule',
       security: [{ bearerAuth: [] }],
@@ -120,7 +130,7 @@ export function eventAlertRuleRoutes(app: FastifyInstance): void {
   app.delete('/event-alert-rules/:id', {
     onRequest: [authorize('stations:write')],
     schema: {
-      tags: ['Stations'],
+      tags: ['Event Alert Rules'],
       summary: 'Delete event alert rule',
       operationId: 'deleteEventAlertRule',
       security: [{ bearerAuth: [] }],

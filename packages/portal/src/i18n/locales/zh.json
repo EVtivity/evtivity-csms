@@ -151,7 +151,9 @@
     "failedSetup": "初始化支付设置失败",
     "cardSetupFailed": "信用卡设置失败",
     "failedSave": "保存支付方式失败",
-    "stripeNotConfigured": "支付处理暂不可用。"
+    "stripeNotConfigured": "支付处理暂不可用。",
+    "confirmRemoveTitle": "删除支付方式",
+    "confirmRemoveDescription": "确定要删除此支付方式吗？您需要重新添加才能使用它进行充电。"
   },
   "profile": {
     "title": "个人资料",

@@ -30,14 +30,16 @@ import { authorize } from '../middleware/rbac.js';
 const ocpiPartnerItem = z
   .object({
     id: z.string().describe('OCPI partner ID'),
-    name: z.string().describe('Partner name'),
-    countryCode: z.string().describe('ISO 3166-1 alpha-2 country code'),
-    partyId: z.string().describe('OCPI party identifier'),
+    name: z.string().max(255).describe('Partner name'),
+    countryCode: z.string().length(2).describe('ISO 3166-1 alpha-2 country code'),
+    partyId: z.string().max(3).describe('OCPI party identifier'),
     roles: z.unknown().describe('OCPI roles advertised by the partner'),
     ourRoles: z.unknown().describe('OCPI roles advertised by this CSMS to the partner'),
-    status: z.string().describe('Partner connection status'),
-    version: z.string().nullable().describe('Negotiated OCPI version'),
-    versionUrl: z.string().nullable().describe('OCPI versions endpoint URL'),
+    status: z
+      .enum(['pending', 'connected', 'suspended', 'disconnected'])
+      .describe('Partner connection status'),
+    version: z.string().max(20).nullable().describe('Negotiated OCPI version'),
+    versionUrl: z.string().max(2048).nullable().describe('OCPI versions endpoint URL'),
     createdAt: z.string().describe('Row creation timestamp'),
     updatedAt: z.string().describe('Row last update timestamp'),
   })
@@ -46,21 +48,33 @@ const ocpiPartnerItem = z
 const createPartnerResponse = z
   .object({
     partner: ocpiPartnerItem.describe('Created partner record'),
-    registrationToken: z.string().describe('One-time registration token to share with the partner'),
+    registrationToken: z
+      .string()
+      .max(255)
+      .describe('One-time registration token to share with the partner'),
   })
   .passthrough();
 
 const syncLogItem = z
   .object({
-    id: z.string(),
-    partnerId: z.string(),
-    module: z.string(),
-    direction: z.string(),
-    action: z.string(),
-    status: z.string(),
-    objectsCount: z.number().nullable(),
-    errorMessage: z.string().nullable(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Identifier'),
+    partnerId: z.string().describe('OCPI partner ID'),
+    module: z
+      .enum(['locations', 'tariffs', 'cdrs', 'tokens', 'sessions', 'commands'])
+      .describe('OCPI module name involved in the sync'),
+    direction: z
+      .enum(['inbound', 'outbound'])
+      .describe('Whether data flowed in (pull) or out (push)'),
+    action: z.string().max(50).describe('Specific action performed (e.g., pull, push, register)'),
+    status: z.enum(['success', 'partial', 'failed']).describe('Outcome status of the sync'),
+    objectsCount: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Number of objects transferred during the sync'),
+    errorMessage: z.string().max(1000).nullable().describe('Error details when the sync failed'),
+    createdAt: z.coerce.date().describe('Timestamp when the sync ran'),
   })
   .passthrough();
 
@@ -72,7 +86,7 @@ const createPartnerBody = z.object({
   name: z.string().min(1).max(255),
   countryCode: z.string().length(2).describe('ISO 3166-1 alpha-2 country code'),
   partyId: z.string().min(1).max(3).describe('OCPI party identifier'),
-  versionUrl: z.string().url().optional().describe('OCPI versions endpoint URL'),
+  versionUrl: z.string().url().max(2048).optional().describe('OCPI versions endpoint URL'),
 });
 
 const updatePartnerBody = z.object({
@@ -81,12 +95,14 @@ const updatePartnerBody = z.object({
     .enum(['pending', 'connected', 'suspended', 'disconnected'])
     .optional()
     .describe('Partner connection status'),
-  versionUrl: z.string().url().optional().describe('OCPI versions endpoint URL'),
+  versionUrl: z.string().url().max(2048).optional().describe('OCPI versions endpoint URL'),
 });
 
 const syncParams = z.object({
   id: ID_PARAMS.ocpiPartnerId.describe('OCPI partner ID'),
-  module: z.string().min(1).describe('OCPI module name to sync (e.g. locations, tariffs, cdrs)'),
+  module: z
+    .enum(['locations', 'tariffs', 'cdrs', 'tokens', 'sessions'])
+    .describe('OCPI module name to sync'),
 });
 
 const syncLogQuery = paginationQuery.extend({
@@ -371,6 +387,8 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['OCPI'],
         summary: 'Initiate outbound OCPI registration',
+        description:
+          'Publishes an ocpi_register event so the OCPI server kicks off the credentials handshake against the partner versionUrl. Registration is asynchronous; the partner status updates as the OCPI server progresses through versions, endpoints, and credentials POST. Returns 400 if the partner has no versionUrl configured.',
         operationId: 'registerOcpiPartner',
         security: [{ bearerAuth: [] }],
         params: zodSchema(partnerParams),
@@ -422,6 +440,8 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['OCPI'],
         summary: 'Trigger manual OCPI module sync',
+        description:
+          'Publishes an ocpi_sync event so the OCPI server pulls the requested module (locations, tariffs, cdrs, tokens) from the partner sender endpoint. Results are upserted into the corresponding ocpi_external_* tables. Returns immediately; track sync progress via the sync log endpoint.',
         operationId: 'syncOcpiPartnerModule',
         security: [{ bearerAuth: [] }],
         params: zodSchema(syncParams),

@@ -42,7 +42,7 @@ const neviStationDataItem = z
       .string()
       .nullable()
       .describe('Distributed energy resource capacity in kWh (decimal string)'),
-    derType: z.string().nullable().describe('Type of distributed energy resource'),
+    derType: z.string().max(100).nullable().describe('Type of distributed energy resource'),
     programParticipation: z
       .unknown()
       .describe('JSON array of NEVI program names the station participates in'),
@@ -59,14 +59,26 @@ const neviStationDataList = z
 
 const neviExcludedDowntimeItem = z
   .object({
-    id: z.number().describe('Excluded downtime row ID'),
+    id: z.number().int().min(1).describe('Excluded downtime row ID'),
     stationId: z.string().describe('Charging station ID'),
-    stationName: z.string().optional().describe('Human-readable station ID (joined from station)'),
-    evseId: z.number().describe('EVSE ID on the station'),
-    reason: z.string().describe('Reason for the excluded downtime'),
+    stationName: z
+      .string()
+      .max(255)
+      .optional()
+      .describe('Human-readable station ID (joined from station)'),
+    evseId: z.number().int().min(1).describe('EVSE ID on the station'),
+    reason: z
+      .enum([
+        'utility_outage',
+        'vandalism',
+        'natural_disaster',
+        'scheduled_maintenance',
+        'vehicle_caused',
+      ])
+      .describe('Reason for the excluded downtime'),
     startedAt: z.string().describe('Downtime start timestamp (ISO 8601)'),
     endedAt: z.string().nullable().describe('Downtime end timestamp (ISO 8601), null if ongoing'),
-    notes: z.string().nullable().describe('Operator notes'),
+    notes: z.string().max(1000).nullable().describe('Operator notes'),
     createdById: z.string().nullable().optional().describe('User who created the record'),
     createdAt: z.string().describe('Created timestamp (ISO 8601)'),
     updatedAt: z.string().optional().describe('Updated timestamp (ISO 8601)'),
@@ -93,14 +105,15 @@ const upsertStationDataBody = z.object({
     .optional()
     .describe('Type of distributed energy resource (e.g. solar, battery)'),
   programParticipation: z
-    .array(z.string())
+    .array(z.string().max(100))
+    .max(50)
     .optional()
     .describe('List of NEVI program names the station participates in'),
 });
 
 const createExcludedDowntimeBody = z.object({
   stationId: ID_PARAMS.stationId.describe('Station ID'),
-  evseId: z.number().int().describe('EVSE ID on the station'),
+  evseId: z.number().int().min(1).describe('EVSE ID on the station'),
   reason: z
     .enum([
       'utility_outage',

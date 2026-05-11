@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, or, ilike, desc, sql, count, inArray, gt } from 'drizzle-orm';
+import { eq, and, or, ilike, desc, sql, count, inArray, gt, isNull } from 'drizzle-orm';
 import { db, client } from '@evtivity/database';
 import {
   reservations,
@@ -27,85 +27,212 @@ import { getUserSiteIds } from '../lib/site-access.js';
 import { ALL_TEMPLATES_DIRS } from '../lib/template-dirs.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { errorResponse, paginatedResponse, itemResponse } from '../lib/response-schemas.js';
-import { chargeReservationCancellationFee } from '../lib/reservation-fees.js';
+import { applyReservationCancellation } from '../lib/reservation-cancel.js';
 import { assertReservationsAllowed } from '../lib/reservation-eligibility.js';
 import { authorize } from '../middleware/rbac.js';
 
 const reservationListItem = z
   .object({
-    id: z.string(),
-    reservationId: z.number(),
-    stationId: z.string(),
-    stationOcppId: z.string(),
-    siteName: z.string().nullable(),
-    evseOcppId: z.number().nullable(),
-    driverId: z.string().nullable(),
-    driverFirstName: z.string().nullable(),
-    driverLastName: z.string().nullable(),
-    status: z.string(),
-    expiresAt: z.coerce.date(),
-    createdAt: z.coerce.date(),
-    sessionId: z.string().nullable(),
+    id: z.string().describe('Reservation identifier'),
+    reservationId: z.number().describe('OCPP reservation id (integer) sent to the station'),
+    stationId: z.string().describe('Station internal ID'),
+    stationOcppId: z.string().describe('Station OCPP identity'),
+    siteName: z.string().nullable().describe('Site name where the station is located'),
+    evseOcppId: z
+      .number()
+      .nullable()
+      .describe('OCPP EVSE id, null when the reservation is station-wide'),
+    driverId: z
+      .string()
+      .nullable()
+      .describe('Driver internal ID, null for operator-comp reservations'),
+    driverFirstName: z.string().nullable().describe('Driver first name'),
+    driverLastName: z.string().nullable().describe('Driver last name'),
+    status: z
+      .string()
+      .describe('Reservation status (scheduled, active, in_use, used, cancelled, expired)'),
+    expiresAt: z.coerce.date().describe('Timestamp when the reservation expires automatically'),
+    createdAt: z.coerce.date().describe('Timestamp the reservation was created'),
+    sessionId: z
+      .string()
+      .nullable()
+      .describe('Charging session ID that consumed this reservation, null until used'),
   })
   .passthrough();
 
 const reservationCreatedItem = z
   .object({
-    id: z.string(),
-    reservationId: z.number(),
-    stationId: z.string(),
-    evseId: z.string().nullable(),
-    driverId: z.string().nullable(),
-    status: z.string(),
-    expiresAt: z.coerce.date(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Reservation identifier'),
+    reservationId: z.number().describe('OCPP reservation id (integer) sent to the station'),
+    stationId: z.string().describe('Station internal ID'),
+    evseId: z
+      .string()
+      .nullable()
+      .describe('EVSE internal ID, null when the reservation is station-wide'),
+    driverId: z
+      .string()
+      .nullable()
+      .describe('Driver internal ID associated with the reservation, null for operator-comp'),
+    status: z.string().describe('Reservation status (scheduled or active depending on startsAt)'),
+    expiresAt: z.coerce.date().describe('Timestamp when the reservation expires automatically'),
+    createdAt: z.coerce.date().describe('Timestamp the reservation was created'),
   })
   .passthrough();
 
 const reservationDetailItem = z
   .object({
-    id: z.string(),
-    reservationId: z.number(),
-    stationId: z.string(),
-    stationOcppId: z.string(),
-    evseId: z.string().nullable(),
-    evseOcppId: z.number().nullable(),
-    driverId: z.string().nullable(),
-    driverFirstName: z.string().nullable(),
-    driverLastName: z.string().nullable(),
-    status: z.string(),
-    expiresAt: z.coerce.date(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
-    sessionId: z.string().nullable(),
-    sessionStatus: z.string().nullable().optional(),
-    sessionEnergyWh: z.string().nullable().optional(),
-    sessionCostCents: z.number().nullable().optional(),
-    sessionStartedAt: z.coerce.date().nullable().optional(),
-    sessionEndedAt: z.coerce.date().nullable().optional(),
+    id: z.string().describe('Reservation identifier'),
+    reservationId: z.number().describe('OCPP reservation id (integer) sent to the station'),
+    stationId: z.string().describe('Station internal ID'),
+    stationOcppId: z.string().describe('Station OCPP identity'),
+    evseId: z
+      .string()
+      .nullable()
+      .describe('EVSE internal ID, null when the reservation is station-wide'),
+    evseOcppId: z
+      .number()
+      .nullable()
+      .describe('OCPP EVSE id, null when the reservation is station-wide'),
+    driverId: z
+      .string()
+      .nullable()
+      .describe('Driver internal ID, null for operator-comp reservations'),
+    driverFirstName: z.string().nullable().describe('Driver first name'),
+    driverLastName: z.string().nullable().describe('Driver last name'),
+    status: z
+      .string()
+      .describe('Reservation status (scheduled, active, in_use, used, cancelled, expired)'),
+    expiresAt: z.coerce.date().describe('Timestamp when the reservation expires automatically'),
+    createdAt: z.coerce.date().describe('Timestamp the reservation was created'),
+    updatedAt: z.coerce.date().describe('Timestamp the reservation was last updated'),
+    cancelledBy: z
+      .enum(['driver', 'operator', 'system'])
+      .nullable()
+      .describe('Actor who cancelled (driver/operator/system), null if not cancelled'),
+    cancelReason: z
+      .enum([
+        'driver_initiated',
+        'operator_manual',
+        'expired_no_show',
+        'station_rejected_occupied',
+        'station_rejected_other',
+        'station_offline_at_activation',
+        'system_cleanup',
+      ])
+      .nullable()
+      .describe('Typed cancel reason, null if not cancelled'),
+    cancelNote: z.string().max(500).nullable().describe('Operator-provided free-text note'),
+    cancellationFeeCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Cancellation fee charged in cents (0 when waived or no payment method)'),
+    sessionId: z
+      .string()
+      .nullable()
+      .describe('Charging session ID that consumed this reservation, null until used'),
+    sessionStatus: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('Status of the linked charging session, if any'),
+    sessionEnergyWh: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('Energy delivered by the linked session in Watt-hours'),
+    sessionCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .optional()
+      .describe('Final cost of the linked session in cents'),
+    sessionStartedAt: z.coerce
+      .date()
+      .nullable()
+      .optional()
+      .describe('Timestamp the linked session started charging'),
+    sessionEndedAt: z.coerce
+      .date()
+      .nullable()
+      .optional()
+      .describe('Timestamp the linked session stopped charging'),
   })
   .passthrough();
 
 const cancelReservationResponse = z
-  .object({ status: z.literal('cancelled'), warning: z.string().optional() })
+  .object({
+    status: z.literal('cancelled').describe('Always "cancelled" when the request succeeds'),
+    cancellationFeeChargedCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Actual fee charged in cents (0 when waived or no payment method)'),
+    feeChargeFailed: z
+      .boolean()
+      .optional()
+      .describe(
+        'True when a fee was attempted but the Stripe charge threw. Audit row shows 0; reconcile via Stripe.',
+      ),
+    warning: z
+      .string()
+      .optional()
+      .describe('Non-fatal warning message (e.g. station OCPP CancelReservation timed out)'),
+  })
   .passthrough();
 
+/**
+ * Body shape for DELETE /v1/reservations/:id. The route schema deliberately
+ * does NOT declare this as a Zod body validator (Fastify rejects empty
+ * payloads on .optional() schemas, which breaks existing clients that send
+ * DELETE without a body). The handler casts request.body to this shape at
+ * runtime instead.
+ *
+ * - chargeCancellationFee: operator opt-in. Defaults to false; system and
+ *   driver-initiated paths ignore this.
+ * - reason: free-text note explaining why the operator cancelled.
+ */
+interface CancelReservationBody {
+  chargeCancellationFee?: boolean;
+  reason?: string;
+}
+
 const reassignReservationResponse = z
-  .object({ status: z.literal('reassigned'), newStationOcppId: z.string() })
+  .object({
+    status: z.literal('reassigned').describe('Always "reassigned" when the request succeeds'),
+    newStationOcppId: z
+      .string()
+      .describe('OCPP identity of the station the reservation was moved to'),
+  })
   .passthrough();
 
 const reservationCommandItem = z
   .object({
-    id: z.number(),
-    direction: z.string(),
-    messageType: z.number(),
-    messageId: z.string(),
-    action: z.string().nullable(),
-    payload: z.unknown(),
-    errorCode: z.string().nullable(),
-    errorDescription: z.string().nullable(),
-    createdAt: z.coerce.date(),
-    responseTimeMs: z.number().nullable(),
+    id: z.number().describe('Internal OCPP message log ID'),
+    direction: z.string().describe('Message direction (inbound or outbound relative to the CSMS)'),
+    messageType: z.number().describe('OCPP message type (2 = CALL, 3 = CALLRESULT, 4 = CALLERROR)'),
+    messageId: z.string().describe('OCPP message correlation ID linking CALL to RESULT/ERROR'),
+    action: z
+      .string()
+      .nullable()
+      .describe('OCPP action name (ReserveNow, CancelReservation), null on RESULT/ERROR rows'),
+    payload: z.unknown().describe('Raw OCPP message payload as sent on the wire'),
+    errorCode: z
+      .string()
+      .nullable()
+      .describe('OCPP error code on CALLERROR messages, null otherwise'),
+    errorDescription: z
+      .string()
+      .nullable()
+      .describe('OCPP error description on CALLERROR messages, null otherwise'),
+    createdAt: z.coerce.date().describe('Timestamp the message was logged'),
+    responseTimeMs: z
+      .number()
+      .nullable()
+      .describe(
+        'Round-trip time in milliseconds for paired CALL/RESULT messages, null on the CALL row',
+      ),
   })
   .passthrough();
 
@@ -270,6 +397,10 @@ export function reservationRoutes(app: FastifyInstance): void {
           expiresAt: reservations.expiresAt,
           createdAt: reservations.createdAt,
           updatedAt: reservations.updatedAt,
+          cancelledBy: reservations.cancelledBy,
+          cancelReason: reservations.cancelReason,
+          cancelNote: reservations.cancelNote,
+          cancellationFeeCents: reservations.cancellationFeeCents,
           sessionId: chargingSessions.id,
           sessionStatus: chargingSessions.status,
           sessionEnergyWh: chargingSessions.energyDeliveredWh,
@@ -442,6 +573,8 @@ export function reservationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Reservations'],
         summary: 'Create a reservation and send ReserveNow to station',
+        description:
+          'Creates a charging reservation and dispatches ReserveNow to the station. Future-dated reservations are persisted with status=scheduled and activated by a delayed worker job at startsAt; immediate reservations are sent to the station synchronously. Returns 409 if another active reservation conflicts with the requested EVSE/time window. Returns 502/504 when the station rejects or times out on the synchronous ReserveNow call.',
         operationId: 'createReservation',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createReservationBody),
@@ -562,6 +695,46 @@ export function reservationRoutes(app: FastifyInstance): void {
         resolvedEvseId = evse.id;
       }
 
+      const newStart = body.startsAt != null ? new Date(body.startsAt) : new Date();
+      const newEnd = new Date(body.expiresAt);
+
+      // If the reservation starts within `reservation.activeSessionCheckHours`
+      // of "now", reject when an active charging session is in progress on the
+      // targeted EVSE (or any EVSE on the station for station-wide
+      // reservations). The OCPP ReserveNow command requires the EVSE to be
+      // Available, so a near-future reservation against a busy EVSE will fail
+      // when the worker dispatches it -- catch it up-front so the operator
+      // gets a friendly 409 instead of a confusing async failure. Reservations
+      // scheduled far enough in the future are allowed; the worker
+      // re-validates at activation time, and the command.ReserveNow projection
+      // rolls back the reservation if the station rejects with `Occupied`.
+      // Setting reservation.activeSessionCheckHours = 0 disables the check.
+      const activeSessionCheckMs = reservationCfgForLimit.activeSessionCheckHours * 60 * 60 * 1000;
+      const startsAtTimeMs = newStart.getTime();
+      if (activeSessionCheckMs > 0 && startsAtTimeMs - Date.now() < activeSessionCheckMs) {
+        const sessionConditions = [
+          eq(chargingSessions.stationId, station.id),
+          isNull(chargingSessions.endedAt),
+        ];
+        if (resolvedEvseId != null) {
+          sessionConditions.push(eq(chargingSessions.evseId, resolvedEvseId));
+        }
+        const [activeSession] = await db
+          .select({ id: chargingSessions.id })
+          .from(chargingSessions)
+          .where(and(...sessionConditions));
+        if (activeSession != null) {
+          await reply.status(409).send({
+            error:
+              resolvedEvseId != null
+                ? 'EVSE has an active charging session that conflicts with this reservation'
+                : 'Station has an active charging session that conflicts with this reservation',
+            code: 'EVSE_IN_USE',
+          });
+          return;
+        }
+      }
+
       // Check for conflicting active or scheduled reservations whose time
       // window OVERLAPS the requested one. Two windows [aStart, aEnd] and
       // [bStart, bEnd] overlap iff aStart < bEnd AND bStart < aEnd. The
@@ -571,8 +744,6 @@ export function reservationRoutes(app: FastifyInstance): void {
       // startsAt. Without time-overlap math the check would block any
       // future reservation just because some other future window exists on
       // the same EVSE.
-      const newStart = body.startsAt != null ? new Date(body.startsAt) : new Date();
-      const newEnd = new Date(body.expiresAt);
       const conflictConditions = [
         eq(reservations.stationId, station.id),
         or(eq(reservations.status, 'active'), eq(reservations.status, 'scheduled')),
@@ -726,11 +897,38 @@ export function reservationRoutes(app: FastifyInstance): void {
       const result = await sendOcppCommandAndWait(body.stationId, 'ReserveNow', ocppPayload);
 
       if (result.error != null) {
-        // Station rejected or timed out: cancel the reservation
-        await db
-          .update(reservations)
-          .set({ status: 'cancelled', updatedAt: new Date() })
-          .where(eq(reservations.id, reservation.id));
+        // Station rejected or timed out: roll back through the helper so the
+        // audit row carries actor=system + reason. System path never charges.
+        const rollback = await applyReservationCancellation({
+          reservationDbId: reservation.id,
+          siteId: station.siteId,
+          driverId: reservation.driverId,
+          startsAt: reservation.startsAt ?? reservation.createdAt,
+          createdAt: reservation.createdAt,
+          actor: 'system',
+          reason: 'station_rejected_other',
+          chargeFee: false,
+          logger: request.log,
+        });
+
+        // Tell the driver their reservation was killed. The command.ReserveNow
+        // projection also tries to dispatch on rejection, but its UPDATE will
+        // see no row when this route's UPDATE has already won the race -- so
+        // we must dispatch here when we won, and skip when we didn't.
+        if (rollback.cancelled && reservation.driverId != null) {
+          void dispatchDriverNotification(
+            client,
+            'reservation.Cancelled',
+            reservation.driverId,
+            {
+              reservationId: reservation.reservationId,
+              stationId: body.stationId,
+              cancellationFeeFormatted: '',
+            },
+            ALL_TEMPLATES_DIRS,
+            getPubSub(),
+          );
+        }
 
         const isTimeout = result.error.includes('No response within');
         await reply.status(isTimeout ? 504 : 502).send({
@@ -743,10 +941,35 @@ export function reservationRoutes(app: FastifyInstance): void {
       // Check station response status
       const responseStatus = result.response?.['status'] as string | undefined;
       if (responseStatus != null && responseStatus !== 'Accepted') {
-        await db
-          .update(reservations)
-          .set({ status: 'cancelled', updatedAt: new Date() })
-          .where(eq(reservations.id, reservation.id));
+        const rollback = await applyReservationCancellation({
+          reservationDbId: reservation.id,
+          siteId: station.siteId,
+          driverId: reservation.driverId,
+          startsAt: reservation.startsAt ?? reservation.createdAt,
+          createdAt: reservation.createdAt,
+          actor: 'system',
+          reason:
+            responseStatus === 'Occupied' ? 'station_rejected_occupied' : 'station_rejected_other',
+          chargeFee: false,
+          logger: request.log,
+        });
+
+        // Same race rationale as above: the command.ReserveNow projection
+        // would otherwise miss the dispatch when this UPDATE wins.
+        if (rollback.cancelled && reservation.driverId != null) {
+          void dispatchDriverNotification(
+            client,
+            'reservation.Cancelled',
+            reservation.driverId,
+            {
+              reservationId: reservation.reservationId,
+              stationId: body.stationId,
+              cancellationFeeFormatted: '',
+            },
+            ALL_TEMPLATES_DIRS,
+            getPubSub(),
+          );
+        }
 
         await reply.status(400).send({
           error: `Station rejected reservation: ${responseStatus}`,
@@ -783,6 +1006,8 @@ export function reservationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Reservations'],
         summary: 'Update an active reservation',
+        description:
+          'Updates the driver, EVSE, or expiration on an active or scheduled reservation. Does not re-send ReserveNow; the row is mutated in place and the worker (for scheduled) or the existing station-side reservation continues. Returns 409 if the new EVSE/time window conflicts with another reservation on the station.',
         operationId: 'updateReservation',
         security: [{ bearerAuth: [] }],
         params: zodSchema(reservationIdParams),
@@ -920,6 +1145,10 @@ export function reservationRoutes(app: FastifyInstance): void {
           expiresAt: reservations.expiresAt,
           createdAt: reservations.createdAt,
           updatedAt: reservations.updatedAt,
+          cancelledBy: reservations.cancelledBy,
+          cancelReason: reservations.cancelReason,
+          cancelNote: reservations.cancelNote,
+          cancellationFeeCents: reservations.cancellationFeeCents,
           sessionId: chargingSessions.id,
           sessionStatus: chargingSessions.status,
           sessionEnergyWh: chargingSessions.energyDeliveredWh,
@@ -946,9 +1175,14 @@ export function reservationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Reservations'],
         summary: 'Cancel an active reservation',
+        description:
+          'Dispatches CancelReservation to the station (skipped for scheduled reservations not yet pushed) and marks the reservation cancelled with actor=operator. When chargeCancellationFee=true and the driver has a default payment method, a fee charge is attempted via Stripe and reflected in the response. Sends a reservation.Cancelled notification to the driver when this caller wins the cancellation race. Returns warning text instead of an error when the OCPP CancelReservation call times out.',
         operationId: 'cancelReservation',
         security: [{ bearerAuth: [] }],
         params: zodSchema(reservationIdParams),
+        // Body schema deliberately not declared at the route level so existing
+        // clients that send no payload still work. The shape is documented on
+        // cancelReservationBody and parsed manually in the handler.
         response: {
           200: itemResponse(cancelReservationResponse),
           400: errorResponse,
@@ -958,6 +1192,25 @@ export function reservationRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof reservationIdParams>;
+      const rawBody = request.body as CancelReservationBody | null;
+      const chargeCancellationFee = rawBody?.chargeCancellationFee === true;
+      const operatorReason = rawBody?.reason;
+      // Defensive runtime validation: the route-level Zod body validator was
+      // dropped to keep DELETE-without-payload working, so enforce length and
+      // type checks here.
+      if (operatorReason != null && typeof operatorReason !== 'string') {
+        await reply
+          .status(400)
+          .send({ error: 'reason must be a string', code: 'VALIDATION_ERROR' });
+        return;
+      }
+      if (operatorReason != null && operatorReason.length > 500) {
+        await reply.status(400).send({
+          error: 'reason cannot exceed 500 characters',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
 
       const [reservation] = await db
         .select({
@@ -999,36 +1252,6 @@ export function reservationRoutes(app: FastifyInstance): void {
 
       const isScheduled = reservation.status === 'scheduled';
 
-      const reservationConfig = await getReservationSettings();
-
-      let cancellationFeeChargedCents = 0;
-      if (
-        reservationConfig.cancellationFeeCents > 0 &&
-        reservationConfig.cancellationWindowMinutes > 0 &&
-        reservation.driverId != null
-      ) {
-        const referenceTime = reservation.startsAt ?? reservation.createdAt;
-        const minutesUntilStart = Math.floor((referenceTime.getTime() - Date.now()) / 60_000);
-
-        if (minutesUntilStart < reservationConfig.cancellationWindowMinutes) {
-          try {
-            await chargeReservationCancellationFee(
-              reservation.driverId,
-              reservation.siteId,
-              reservationConfig.cancellationFeeCents,
-              reservation.id,
-            );
-            cancellationFeeChargedCents = reservationConfig.cancellationFeeCents;
-          } catch (err) {
-            request.log.error(
-              { err, reservationId: reservation.id },
-              'cancellation fee charge failed',
-            );
-            // Non-fatal: proceed with cancellation even if fee fails
-          }
-        }
-      }
-
       // Skip OCPP CancelReservation for scheduled reservations (not yet sent to station)
       let result: { error?: string } = {};
       if (!isScheduled) {
@@ -1037,18 +1260,30 @@ export function reservationRoutes(app: FastifyInstance): void {
         });
       }
 
-      // Update status regardless of station response
-      await db
-        .update(reservations)
-        .set({ status: 'cancelled', updatedAt: new Date() })
-        .where(eq(reservations.id, id));
+      // Apply the cancellation. The helper writes actor/reason metadata,
+      // optionally charges the fee (gated by chargeCancellationFee), and
+      // marks the row cancelled in one place. We pass actor='operator' here;
+      // the helper guarantees system paths can never charge.
+      const { feeChargedCents, cancelled, feeChargeFailed } = await applyReservationCancellation({
+        reservationDbId: reservation.id,
+        siteId: reservation.siteId,
+        driverId: reservation.driverId,
+        startsAt: reservation.startsAt ?? reservation.createdAt,
+        createdAt: reservation.createdAt,
+        actor: 'operator',
+        reason: 'operator_manual',
+        note: operatorReason,
+        chargeFee: chargeCancellationFee,
+        logger: request.log,
+      });
 
-      // Notify driver of cancellation
-      if (reservation.driverId != null) {
+      // Only notify the driver when this caller actually flipped the row.
+      // A concurrent cancel (driver/system) winning the race already sent its
+      // own notification; firing another would deliver a misleading
+      // "feeFormatted: ''" message and double-notify.
+      if (cancelled && reservation.driverId != null) {
         const cancellationFeeFormatted =
-          cancellationFeeChargedCents > 0
-            ? `$${(cancellationFeeChargedCents / 100).toFixed(2)}`
-            : '';
+          feeChargedCents > 0 ? `$${(feeChargedCents / 100).toFixed(2)}` : '';
         void dispatchDriverNotification(
           client,
           'reservation.Cancelled',
@@ -1064,10 +1299,19 @@ export function reservationRoutes(app: FastifyInstance): void {
       }
 
       if (result.error != null) {
-        return { status: 'cancelled', warning: result.error };
+        return {
+          status: 'cancelled',
+          cancellationFeeChargedCents: feeChargedCents,
+          ...(feeChargeFailed ? { feeChargeFailed: true } : {}),
+          warning: result.error,
+        };
       }
 
-      return { status: 'cancelled' };
+      return {
+        status: 'cancelled',
+        cancellationFeeChargedCents: feeChargedCents,
+        ...(feeChargeFailed ? { feeChargeFailed: true } : {}),
+      };
     },
   );
 
@@ -1079,6 +1323,8 @@ export function reservationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Reservations'],
         summary: 'Move an active reservation to a different station',
+        description:
+          'Moves a reservation to a different station and optionally a different EVSE. For scheduled reservations the move is a pure DB update; the worker dispatches ReserveNow at startsAt. For active reservations, ReserveNow is sent to the new station first; on success the row is updated and a best-effort CancelReservation is sent to the old station. Returns 400 if the new station rejects the ReserveNow.',
         operationId: 'reassignReservation',
         security: [{ bearerAuth: [] }],
         params: zodSchema(reservationIdParams),

@@ -14,23 +14,23 @@ import { authorize } from '../middleware/rbac.js';
 
 const accessLogItem = z
   .object({
-    id: z.string(),
-    userId: z.string().nullable(),
-    driverId: z.string().nullable(),
-    action: z.string(),
-    category: z.string(),
-    authType: z.string().nullable(),
-    method: z.string().nullable(),
-    path: z.string().nullable(),
-    statusCode: z.number().nullable(),
-    durationMs: z.number().nullable(),
-    remoteAddress: z.string().nullable(),
-    userAgent: z.string().nullable(),
-    metadata: z.record(z.unknown()).nullable(),
-    createdAt: z.coerce.date(),
-    userEmail: z.string().nullable(),
-    userFirstName: z.string().nullable(),
-    userLastName: z.string().nullable(),
+    id: z.string().describe('Identifier'),
+    userId: z.string().nullable().describe('Operator user ID, when the actor is an operator'),
+    driverId: z.string().nullable().describe('Driver ID, when the actor is a driver'),
+    action: z.string().describe('Action name (e.g., login, logout, station.update)'),
+    category: z.string().describe('Log category: auth, action, api, or portal'),
+    authType: z.string().nullable().describe('Authentication mechanism (jwt, api_key, basic)'),
+    method: z.string().nullable().describe('HTTP method when the entry is for an API call'),
+    path: z.string().nullable().describe('HTTP request path when the entry is for an API call'),
+    statusCode: z.number().nullable().describe('HTTP response status code'),
+    durationMs: z.number().nullable().describe('Request duration in milliseconds'),
+    remoteAddress: z.string().nullable().describe('IP address of the client'),
+    userAgent: z.string().nullable().describe('User-Agent header from the request'),
+    metadata: z.record(z.unknown()).nullable().describe('Additional structured metadata'),
+    createdAt: z.coerce.date().describe('Timestamp when the entry was recorded'),
+    userEmail: z.string().nullable().describe('Email of the actor (operator or driver)'),
+    userFirstName: z.string().nullable().describe('First name of the actor'),
+    userLastName: z.string().nullable().describe('Last name of the actor'),
   })
   .passthrough();
 
@@ -40,8 +40,14 @@ const createLogBody = z.object({
 });
 
 const listLogsQuery = paginationQuery.extend({
-  category: z.string().optional().describe('Filter by log category (browser, api, portal)'),
-  method: z.string().optional().describe('Filter by HTTP method'),
+  category: z
+    .enum(['browser', 'csms', 'api', 'portal'])
+    .optional()
+    .describe('Filter by log category. browser/csms map to operator UI auth+action.'),
+  method: z
+    .enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'])
+    .optional()
+    .describe('Filter by HTTP method'),
 });
 
 const AUTH_ACTIONS = new Set(['login', 'logout']);
@@ -137,8 +143,6 @@ export function accessLogRoutes(app: FastifyInstance): void {
         conditions.push(eq(accessLogs.authType, 'api_key'));
       } else if (category === 'portal') {
         conditions.push(eq(accessLogs.category, 'portal'));
-      } else if (category) {
-        conditions.push(eq(accessLogs.category, category));
       }
 
       if (method) {

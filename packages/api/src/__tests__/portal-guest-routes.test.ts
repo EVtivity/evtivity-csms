@@ -537,7 +537,7 @@ describe('Portal guest routes - handler logic', () => {
       setupDbResults([]);
       const response = await app.inject({
         method: 'GET',
-        url: '/portal/guest/status/abc123token',
+        url: '/portal/guest/status/abc123def456abc12345',
       });
       expect(response.statusCode).toBe(404);
       expect(response.json().code).toBe('SESSION_NOT_FOUND');
@@ -554,7 +554,7 @@ describe('Portal guest routes - handler logic', () => {
       ]);
       const response = await app.inject({
         method: 'GET',
-        url: '/portal/guest/status/abc123token',
+        url: '/portal/guest/status/abc123def456abc12345',
       });
       expect(response.statusCode).toBe(200);
       const body = response.json();
@@ -587,7 +587,7 @@ describe('Portal guest routes - handler logic', () => {
       );
       const response = await app.inject({
         method: 'GET',
-        url: '/portal/guest/status/abc123token',
+        url: '/portal/guest/status/abc123def456abc12345',
       });
       expect(response.statusCode).toBe(200);
       const body = response.json();
@@ -602,7 +602,7 @@ describe('Portal guest routes - handler logic', () => {
       setupDbResults([]);
       const response = await app.inject({
         method: 'POST',
-        url: '/portal/guest/stop/abc123token',
+        url: '/portal/guest/stop/abc123def456abc12345',
       });
       expect(response.statusCode).toBe(404);
       expect(response.json().code).toBe('SESSION_NOT_FOUND');
@@ -618,7 +618,7 @@ describe('Portal guest routes - handler logic', () => {
       ]);
       const response = await app.inject({
         method: 'POST',
-        url: '/portal/guest/stop/abc123token',
+        url: '/portal/guest/stop/abc123def456abc12345',
       });
       expect(response.statusCode).toBe(400);
       expect(response.json().code).toBe('NOT_CHARGING');
@@ -634,7 +634,7 @@ describe('Portal guest routes - handler logic', () => {
       ]);
       const response = await app.inject({
         method: 'POST',
-        url: '/portal/guest/stop/abc123token',
+        url: '/portal/guest/stop/abc123def456abc12345',
       });
       expect(response.statusCode).toBe(400);
       expect(response.json().code).toBe('NO_CHARGING_SESSION');
@@ -653,7 +653,7 @@ describe('Portal guest routes - handler logic', () => {
       );
       const response = await app.inject({
         method: 'POST',
-        url: '/portal/guest/stop/abc123token',
+        url: '/portal/guest/stop/abc123def456abc12345',
       });
       expect(response.statusCode).toBe(400);
       expect(response.json().code).toBe('SESSION_NOT_FOUND');
@@ -672,7 +672,7 @@ describe('Portal guest routes - handler logic', () => {
       );
       const response = await app.inject({
         method: 'POST',
-        url: '/portal/guest/stop/abc123token',
+        url: '/portal/guest/stop/abc123def456abc12345',
       });
       expect(response.statusCode).toBe(200);
       expect(response.json().success).toBe(true);

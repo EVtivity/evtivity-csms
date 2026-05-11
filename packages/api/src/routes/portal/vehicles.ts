@@ -13,19 +13,27 @@ import type { DriverJwtPayload } from '../../plugins/auth.js';
 
 const vehicleItem = z
   .object({
-    id: z.string(),
-    driverId: z.string(),
-    make: z.string().nullable(),
-    model: z.string().nullable(),
-    year: z.string().nullable(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Vehicle ID (nanoid prefixed with veh_)'),
+    driverId: z.string().describe('Owning driver ID'),
+    make: z.string().max(100).nullable().describe('Vehicle make (e.g. Tesla, Ford)'),
+    model: z.string().max(100).nullable().describe('Vehicle model (e.g. Model 3, F-150 Lightning)'),
+    year: z
+      .string()
+      .regex(/^\d{4}$/)
+      .nullable()
+      .describe('Vehicle year (4-digit)'),
+    createdAt: z.coerce.date().describe('Timestamp when the vehicle was added'),
   })
   .passthrough();
 
 const createVehicleBody = z.object({
   make: z.string().min(1).max(100).describe('Vehicle manufacturer'),
   model: z.string().min(1).max(100).describe('Vehicle model'),
-  year: z.string().max(4).optional().describe('Model year'),
+  year: z
+    .string()
+    .regex(/^\d{4}$/)
+    .optional()
+    .describe('Model year (4-digit)'),
 });
 
 const vehicleParams = z.object({
@@ -34,7 +42,7 @@ const vehicleParams = z.object({
 
 const efficiencyResponse = z
   .object({
-    efficiencyMiPerKwh: z.number(),
+    efficiencyMiPerKwh: z.number().min(0).max(20).describe('Energy efficiency in miles per kWh'),
   })
   .passthrough();
 

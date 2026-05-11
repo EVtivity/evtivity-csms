@@ -11,9 +11,12 @@ import {
   sites,
   drivers,
   transactionEvents,
+  transactionEventTypeEnum,
   paymentRecords,
+  paymentStatusEnum,
   meterValues,
   guestSessions,
+  sessionStatusEnum,
 } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -26,113 +29,219 @@ import { authorize } from '../middleware/rbac.js';
 
 const sessionListItem = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    stationName: z.string().nullable(),
-    siteName: z.string().nullable(),
-    driverId: z.string().nullable(),
-    driverName: z.string().nullable(),
-    transactionId: z.string().nullable(),
-    status: z.string(),
-    startedAt: z.coerce.date(),
-    endedAt: z.coerce.date().nullable(),
-    idleStartedAt: z.coerce.date().nullable(),
-    energyDeliveredWh: z.coerce.number().nullable(),
-    co2AvoidedKg: z.coerce.number().nullable(),
-    currentCostCents: z.number().nullable(),
-    finalCostCents: z.number().nullable(),
-    currency: z.string().nullable(),
-    freeVend: z.boolean(),
-    isGuestSession: z.boolean(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Session identifier'),
+    stationId: z.string().describe('Station internal ID'),
+    stationName: z.string().nullable().describe('Station OCPP identity (display name)'),
+    siteName: z.string().nullable().describe('Site name where the station is located'),
+    driverId: z.string().nullable().describe('Driver internal ID, null for guest sessions'),
+    driverName: z
+      .string()
+      .nullable()
+      .describe('Full driver name (first + last), null for guest sessions'),
+    transactionId: z.string().nullable().describe('OCPP transaction id reported by the station'),
+    status: z.enum(sessionStatusEnum.enumValues).describe('Session lifecycle state'),
+    startedAt: z.coerce.date().describe('Timestamp when charging started'),
+    endedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp when charging stopped (null if active)'),
+    idleStartedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp when the session became idle (null if not idle)'),
+    energyDeliveredWh: z.coerce
+      .number()
+      .min(0)
+      .nullable()
+      .describe('Total energy delivered in Watt-hours'),
+    co2AvoidedKg: z.coerce.number().nullable().describe('CO2 avoided vs gasoline in kg'),
+    currentCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Running cost in cents (active sessions)'),
+    finalCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Final cost in cents (completed sessions)'),
+    currency: z.string().length(3).nullable().describe('ISO 4217 currency code'),
+    freeVend: z.boolean().describe('True when site free vend mode bypassed payment'),
+    isGuestSession: z
+      .boolean()
+      .describe('True when this is a guest (non-registered driver) session'),
+    createdAt: z.coerce.date().describe('Timestamp the session row was created in the CSMS'),
   })
   .passthrough();
 
 const transactionEventItem = z
   .object({
-    id: z.string(),
-    eventType: z.string(),
-    seqNo: z.number(),
-    timestamp: z.coerce.date(),
-    triggerReason: z.string(),
-    offline: z.boolean(),
+    id: z.string().describe('Transaction event identifier'),
+    eventType: z
+      .enum(transactionEventTypeEnum.enumValues)
+      .describe('OCPP transaction event type (Started, Updated, Ended)'),
+    seqNo: z.number().int().min(0).describe('Sequence number from the station'),
+    timestamp: z.coerce.date().describe('Timestamp the event occurred at the station'),
+    triggerReason: z.string().max(50).describe('OCPP trigger that caused this event'),
+    offline: z.boolean().describe('True when the event was queued offline by the station'),
   })
   .passthrough();
 
 const paymentRecordItem = z
   .object({
-    id: z.string(),
-    status: z.string(),
-    paymentSource: z.string(),
-    currency: z.string(),
-    preAuthAmountCents: z.number().nullable(),
-    capturedAmountCents: z.number().nullable(),
-    refundedAmountCents: z.number(),
-    failureReason: z.string().nullable(),
+    id: z.string().describe('Payment record identifier'),
+    status: z.enum(paymentStatusEnum.enumValues).describe('Payment lifecycle status'),
+    paymentSource: z.string().max(50).describe('Payment source (e.g. stripe, card_on_file, guest)'),
+    currency: z.string().length(3).describe('ISO 4217 currency code'),
+    preAuthAmountCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Pre-authorized hold amount in cents'),
+    capturedAmountCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Amount captured from the payment method in cents'),
+    refundedAmountCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Amount refunded back to the driver in cents'),
+    failureReason: z
+      .string()
+      .max(500)
+      .nullable()
+      .describe('Failure description from the payment processor, null on success'),
   })
   .passthrough();
 
 const sessionDetail = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    stationName: z.string().nullable(),
-    siteName: z.string().nullable(),
-    driverId: z.string().nullable(),
-    driverName: z.string().nullable(),
-    transactionId: z.string().nullable(),
-    status: z.string(),
-    startedAt: z.coerce.date(),
-    endedAt: z.coerce.date().nullable(),
-    idleStartedAt: z.coerce.date().nullable(),
-    energyDeliveredWh: z.coerce.number().nullable(),
-    co2AvoidedKg: z.coerce.number().nullable(),
-    currentCostCents: z.number().nullable(),
-    finalCostCents: z.number().nullable(),
-    currency: z.string().nullable(),
-    stoppedReason: z.string().nullable(),
-    reservationId: z.string().nullable(),
-    freeVend: z.boolean(),
-    paymentRecord: paymentRecordItem.nullable(),
+    id: z.string().describe('Session identifier'),
+    stationId: z.string().describe('Station internal ID'),
+    stationName: z.string().nullable().describe('Station OCPP identity (display name)'),
+    siteName: z.string().nullable().describe('Site name where the station is located'),
+    driverId: z.string().nullable().describe('Driver internal ID, null for guest sessions'),
+    driverName: z
+      .string()
+      .nullable()
+      .describe('Full driver name (first + last), null for guest sessions'),
+    transactionId: z.string().nullable().describe('OCPP transaction id reported by the station'),
+    status: z.enum(sessionStatusEnum.enumValues).describe('Session lifecycle state'),
+    startedAt: z.coerce.date().describe('Timestamp when charging started'),
+    endedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp when charging stopped (null if active)'),
+    idleStartedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp when the session became idle (null if not idle)'),
+    energyDeliveredWh: z.coerce
+      .number()
+      .min(0)
+      .nullable()
+      .describe('Total energy delivered in Watt-hours'),
+    co2AvoidedKg: z.coerce.number().nullable().describe('CO2 avoided vs gasoline in kg'),
+    currentCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Running cost in cents (active sessions)'),
+    finalCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Final cost in cents (completed sessions)'),
+    currency: z.string().length(3).nullable().describe('ISO 4217 currency code'),
+    stoppedReason: z
+      .string()
+      .max(100)
+      .nullable()
+      .describe('OCPP reason the session ended (e.g. EVDisconnected, Local, Remote)'),
+    reservationId: z
+      .string()
+      .nullable()
+      .describe('Reservation ID linked to the session, null if no reservation'),
+    freeVend: z.boolean().describe('True when site free vend mode bypassed payment'),
+    paymentRecord: paymentRecordItem
+      .nullable()
+      .describe('Linked payment record, null when no payment was taken'),
     guestSession: z
       .object({
-        sessionToken: z.string(),
-        guestEmail: z.string(),
-        status: z.string(),
-        preAuthAmountCents: z.number().nullable(),
-        stripePaymentIntentId: z.string().nullable(),
-        expiresAt: z.coerce.date(),
-        createdAt: z.coerce.date(),
+        sessionToken: z
+          .string()
+          .describe('Opaque token used by the guest portal to view this session'),
+        guestEmail: z.string().email().describe('Email address provided by the guest at checkout'),
+        status: z.string().max(50).describe('Guest session status (active, completed, expired)'),
+        preAuthAmountCents: z
+          .number()
+          .int()
+          .min(0)
+          .nullable()
+          .describe('Pre-authorized hold on the guest payment method in cents'),
+        stripePaymentIntentId: z
+          .string()
+          .nullable()
+          .describe('Stripe PaymentIntent ID for the guest charge'),
+        expiresAt: z.coerce.date().describe('Timestamp when the guest session token expires'),
+        createdAt: z.coerce.date().describe('Timestamp the guest session was created'),
       })
       .passthrough()
-      .nullable(),
+      .nullable()
+      .describe('Guest session details, null when the session was started by a registered driver'),
   })
   .passthrough();
 
 const meterValueItem = z
   .object({
-    id: z.number(),
-    timestamp: z.coerce.date(),
-    measurand: z.string().nullable(),
-    value: z.string(),
-    unit: z.string().nullable(),
-    phase: z.string().nullable(),
-    location: z.string().nullable(),
-    context: z.string().nullable(),
+    id: z.number().int().min(1).describe('Internal meter value identifier'),
+    timestamp: z.coerce.date().describe('Timestamp the meter reading was sampled at the station'),
+    measurand: z
+      .string()
+      .max(50)
+      .nullable()
+      .describe('OCPP measurand (e.g. Energy.Active.Import.Register, Power.Active.Import)'),
+    value: z.string().max(100).describe('Sampled value as a numeric string'),
+    unit: z.string().max(20).nullable().describe('Unit of the sampled value (Wh, W, A, V, etc.)'),
+    phase: z
+      .string()
+      .max(20)
+      .nullable()
+      .describe('Electrical phase the value applies to (L1, L2, L3, N, L1-N, etc.)'),
+    location: z
+      .string()
+      .max(20)
+      .nullable()
+      .describe('Sampling location (Body, Cable, EV, Inlet, Outlet)'),
+    context: z
+      .string()
+      .max(50)
+      .nullable()
+      .describe('OCPP reading context (e.g. Sample.Periodic, Transaction.Begin, Transaction.End)'),
   })
   .passthrough();
 
 const meterValueQuery = paginationQuery.extend({
-  measurand: z.string().optional().describe('Filter by measurand name'),
+  measurand: z.string().max(50).optional().describe('Filter by measurand name'),
 });
 
 const sessionListQuery = paginationQuery.extend({
   siteId: ID_PARAMS.siteId.optional().describe('Filter by site ID'),
   stationId: ID_PARAMS.stationId.optional().describe('Filter by station ID'),
   status: z
-    .enum(['active', 'completed', 'faulted', 'idling'])
+    // 'idling' is a virtual filter value (status='active' AND idle_started_at IS NOT NULL)
+    // not present in the DB enum; the handler maps it.
+    .enum([...sessionStatusEnum.enumValues, 'idling'] as const)
     .optional()
-    .describe('Filter by session status'),
+    .describe('Filter by session status (or "idling" for active+idle)'),
 });
 
 const sessionParams = z.object({

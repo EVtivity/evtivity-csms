@@ -11,6 +11,15 @@ export interface ReservationSettings {
   cancellationWindowMinutes: number;
   cancellationFeeCents: number;
   maxHours: number;
+  /**
+   * When creating a reservation whose start time falls within this many hours
+   * of "now", reject if the targeted EVSE has an active charging session. We
+   * cannot predict when an in-flight session will end, so a near-future
+   * reservation against a busy EVSE will fail at the station with `Occupied`.
+   * Reservations scheduled further out are allowed; the worker re-validates at
+   * activation time. Set to 0 to disable the check entirely.
+   */
+  activeSessionCheckHours: number;
 }
 
 const RESERVATION_KEYS = [
@@ -19,6 +28,7 @@ const RESERVATION_KEYS = [
   'reservation.cancellationWindowMinutes',
   'reservation.cancellationFeeCents',
   'reservation.maxHours',
+  'reservation.activeSessionCheckHours',
 ] as const;
 
 const DEFAULTS: ReservationSettings = {
@@ -27,6 +37,7 @@ const DEFAULTS: ReservationSettings = {
   cancellationWindowMinutes: 0,
   cancellationFeeCents: 0,
   maxHours: 3,
+  activeSessionCheckHours: 3,
 };
 
 let cache: ReservationSettings | undefined;
@@ -64,6 +75,9 @@ export async function getReservationSettings(): Promise<ReservationSettings> {
       maxHours: map.has('reservation.maxHours')
         ? Number(map.get('reservation.maxHours'))
         : DEFAULTS.maxHours,
+      activeSessionCheckHours: map.has('reservation.activeSessionCheckHours')
+        ? Number(map.get('reservation.activeSessionCheckHours'))
+        : DEFAULTS.activeSessionCheckHours,
     };
     cachedAt = now;
     return cache;

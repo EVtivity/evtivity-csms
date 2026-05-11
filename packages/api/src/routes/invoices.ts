@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, and, count } from 'drizzle-orm';
-import { db, invoices } from '@evtivity/database';
+import { db, invoices, invoiceStatusEnum } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -13,18 +13,23 @@ import { errorResponse, paginatedResponse, itemResponse } from '../lib/response-
 
 const invoiceListItem = z
   .object({
-    id: z.string(),
-    invoiceNumber: z.string(),
-    driverId: z.string().nullable(),
-    status: z.string(),
-    issuedAt: z.coerce.date().nullable(),
-    dueAt: z.coerce.date().nullable(),
-    currency: z.string(),
-    subtotalCents: z.number(),
-    taxCents: z.number(),
-    totalCents: z.number(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Invoice ID'),
+    invoiceNumber: z.string().describe('Human-readable invoice number, e.g. INV-202603-0042'),
+    driverId: z.string().nullable().describe('Driver ID this invoice is billed to'),
+    status: z
+      .enum(invoiceStatusEnum.enumValues)
+      .describe('Invoice status (draft, issued, paid, void)'),
+    issuedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp when the invoice was issued to the driver'),
+    dueAt: z.coerce.date().nullable().describe('Payment due timestamp'),
+    currency: z.string().length(3).describe('ISO 4217 currency code'),
+    subtotalCents: z.number().int().min(0).describe('Subtotal amount in cents (pre-tax)'),
+    taxCents: z.number().int().min(0).describe('Tax amount in cents'),
+    totalCents: z.number().int().min(0).describe('Total amount in cents (subtotal + tax)'),
+    createdAt: z.coerce.date().describe('Timestamp when the invoice was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the invoice was last updated'),
   })
   .passthrough();
 
@@ -33,13 +38,13 @@ const invoiceRecord = z
     id: z.string().describe('Invoice ID'),
     invoiceNumber: z.string().describe('Human-readable invoice number'),
     driverId: z.string().nullable().describe('Driver ID this invoice is billed to'),
-    status: z.string().describe('Invoice status (draft, issued, paid, void)'),
+    status: z.enum(invoiceStatusEnum.enumValues).describe('Invoice status'),
     issuedAt: z.string().nullable().describe('Timestamp when the invoice was issued'),
     dueAt: z.string().nullable().describe('Timestamp when payment is due'),
-    currency: z.string().describe('ISO 4217 currency code'),
-    subtotalCents: z.number().describe('Subtotal amount in cents (pre-tax)'),
-    taxCents: z.number().describe('Tax amount in cents'),
-    totalCents: z.number().describe('Total amount in cents (subtotal + tax)'),
+    currency: z.string().length(3).describe('ISO 4217 currency code'),
+    subtotalCents: z.number().int().min(0).describe('Subtotal amount in cents (pre-tax)'),
+    taxCents: z.number().int().min(0).describe('Tax amount in cents'),
+    totalCents: z.number().int().min(0).describe('Total amount in cents (subtotal + tax)'),
     metadata: z.record(z.unknown()).nullable().describe('Free-form invoice metadata'),
     createdAt: z.string().describe('Timestamp when the invoice was created'),
     updatedAt: z.string().describe('Timestamp when the invoice was last updated'),
@@ -48,14 +53,14 @@ const invoiceRecord = z
 
 const invoiceLineItem = z
   .object({
-    id: z.number().describe('Line item ID'),
+    id: z.number().int().min(1).describe('Line item ID'),
     invoiceId: z.string().describe('Invoice ID this line item belongs to'),
     sessionId: z.string().nullable().describe('Charging session ID linked to this line item'),
-    description: z.string().describe('Line item description'),
+    description: z.string().max(500).describe('Line item description'),
     quantity: z.string().describe('Quantity (numeric string)'),
-    unitPriceCents: z.number().describe('Unit price in cents'),
-    totalCents: z.number().describe('Line item total in cents'),
-    taxCents: z.number().describe('Tax amount in cents for this line item'),
+    unitPriceCents: z.number().int().min(0).describe('Unit price in cents'),
+    totalCents: z.number().int().min(0).describe('Line item total in cents'),
+    taxCents: z.number().int().min(0).describe('Tax amount in cents for this line item'),
     metadata: z.record(z.unknown()).nullable().describe('Free-form line item metadata'),
     createdAt: z.string().describe('Timestamp when the line item was created'),
   })
@@ -188,6 +193,8 @@ export function invoiceRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Invoices'],
         summary: 'Generate an invoice for a single charging session',
+        description:
+          'Builds an invoice from the session and its tariff snapshot, allocating a sequential invoice number from invoice_number_seq. Inserts the invoice header and line items in a transaction. Returns 400 if the session is not eligible (no driver, no final cost, or already invoiced).',
         operationId: 'createSessionInvoice',
         security: [{ bearerAuth: [] }],
         params: zodSchema(sessionIdParams),
@@ -215,6 +222,8 @@ export function invoiceRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Invoices'],
         summary: 'Generate an aggregated invoice for a driver over a date range',
+        description:
+          'Aggregates every uninvoiced completed session for the driver between startDate and endDate into a single invoice with one line item per session. Allocates an invoice number from invoice_number_seq. Returns 400 if no eligible sessions are found in the window.',
         operationId: 'createAggregatedInvoice',
         security: [{ bearerAuth: [] }],
         body: zodSchema(aggregatedInvoiceBody),
@@ -246,10 +255,12 @@ export function invoiceRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Invoices'],
         summary: 'Void an invoice',
+        description:
+          'Marks an invoice as void. Voiding does not issue refunds; use the payments refund endpoint for that. Returns 200 with the invoice unchanged when called against an already-voided invoice (idempotent).',
         operationId: 'voidInvoice',
         security: [{ bearerAuth: [] }],
         params: zodSchema(invoiceIdParams),
-        response: { 200: itemResponse(invoiceDetailItem), 404: errorResponse },
+        response: { 200: itemResponse(invoiceRecord), 404: errorResponse },
       },
     },
     async (request, reply) => {
@@ -276,6 +287,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
         operationId: 'downloadInvoice',
         security: [{ bearerAuth: [] }],
         params: zodSchema(invoiceIdParams),
+        response: { 404: errorResponse },
       },
     },
     async (request, reply) => {

@@ -22,63 +22,97 @@ import type { DriverJwtPayload } from '../../plugins/auth.js';
 
 const portalSessionListItem = z
   .object({
-    id: z.string(),
-    transactionId: z.string().nullable(),
-    status: z.string(),
-    startedAt: z.coerce.date(),
-    endedAt: z.coerce.date().nullable(),
-    energyDeliveredWh: z.coerce.number().nullable(),
-    co2AvoidedKg: z.coerce.number().nullable(),
-    finalCostCents: z.number().nullable(),
-    currency: z.string().nullable(),
-    stationName: z.string().nullable(),
-    siteName: z.string().nullable(),
-    siteAddress: z.string().nullable(),
-    siteCity: z.string().nullable(),
-    siteState: z.string().nullable(),
-    reservationId: z.string().nullable(),
+    id: z.string().describe('Charging session ID (nanoid prefixed with ses_)'),
+    transactionId: z.string().nullable().describe('OCPP transaction ID assigned by the station'),
+    status: z
+      .string()
+      .max(50)
+      .describe('Session status (active, completed, failed, faulted, etc.)'),
+    startedAt: z.coerce.date().describe('Session start timestamp'),
+    endedAt: z.coerce.date().nullable().describe('Session end timestamp, null when active'),
+    energyDeliveredWh: z.coerce
+      .number()
+      .min(0)
+      .nullable()
+      .describe('Energy delivered in Watt-hours'),
+    co2AvoidedKg: z.coerce.number().nullable().describe('CO2 avoided vs gasoline in kg'),
+    finalCostCents: z.number().int().min(0).nullable().describe('Final session cost in cents'),
+    currency: z.string().length(3).nullable().describe('ISO 4217 currency code'),
+    stationName: z.string().max(255).nullable().describe('OCPP station identity (display name)'),
+    siteName: z.string().max(255).nullable().describe('Site name'),
+    siteAddress: z.string().max(500).nullable().describe('Street address'),
+    siteCity: z.string().max(100).nullable().describe('City'),
+    siteState: z.string().max(100).nullable().describe('State or region'),
+    reservationId: z
+      .string()
+      .nullable()
+      .describe('Reservation ID this session was started from, if any'),
   })
   .passthrough();
 
 const paymentRecordItem = z
   .object({
-    id: z.number(),
-    sessionId: z.string().nullable(),
-    driverId: z.string().nullable(),
-    status: z.string(),
-    currency: z.string(),
-    preAuthAmountCents: z.number().nullable(),
-    capturedAmountCents: z.number().nullable(),
-    stripePaymentIntentId: z.string().nullable(),
-    createdAt: z.coerce.date(),
+    id: z.number().int().min(1).describe('Payment record ID'),
+    sessionId: z.string().nullable().describe('Charging session ID this payment is linked to'),
+    driverId: z.string().nullable().describe('Driver ID that owns the payment'),
+    status: z
+      .string()
+      .max(50)
+      .describe(
+        'Payment status (pending, authorized, captured, partially_refunded, refunded, failed)',
+      ),
+    currency: z.string().length(3).describe('ISO 4217 currency code'),
+    preAuthAmountCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Pre-authorized amount in cents'),
+    capturedAmountCents: z.number().int().min(0).nullable().describe('Captured amount in cents'),
+    stripePaymentIntentId: z.string().max(255).nullable().describe('Stripe PaymentIntent ID'),
+    createdAt: z.coerce.date().describe('Timestamp the payment record was created'),
   })
   .passthrough();
 
 const portalSessionDetail = portalSessionListItem
   .extend({
-    currentCostCents: z.number().nullable(),
-    meterStart: z.string().nullable(),
-    meterStop: z.string().nullable(),
-    stoppedReason: z.string().nullable(),
-    driverId: z.string().nullable(),
-    updatedAt: z.coerce.date(),
-    idleStartedAt: z.coerce.date().nullable(),
-    currentPowerW: z.number().nullable(),
-    payment: paymentRecordItem.nullable(),
+    currentCostCents: z.number().int().min(0).nullable().describe('Running cost in cents'),
+    meterStart: z.string().nullable().describe('Meter reading at session start in Wh'),
+    meterStop: z.string().nullable().describe('Meter reading at session end in Wh'),
+    stoppedReason: z
+      .string()
+      .max(100)
+      .nullable()
+      .describe('Reason the session ended (Local, Remote, EVDisconnected, etc.)'),
+    driverId: z.string().nullable().describe('Driver ID that owns the session'),
+    updatedAt: z.coerce.date().describe('Last time the session row was updated'),
+    idleStartedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp the EV stopped drawing power, used to bill idle fees'),
+    currentPowerW: z
+      .number()
+      .min(0)
+      .nullable()
+      .describe('Most recent active power reading in Watts'),
+    payment: paymentRecordItem.nullable().describe('Linked payment record, if any'),
   })
   .passthrough();
 
 const powerHistoryItem = z
   .object({
-    timestamp: z.coerce.date(),
-    powerW: z.number(),
+    timestamp: z.coerce.date().describe('Meter sample timestamp'),
+    powerW: z.number().min(0).describe('Active power in Watts'),
   })
   .passthrough();
 
 const energyHistoryItem = z
   .object({
-    timestamp: z.coerce.date(),
-    energyWh: z.number(),
+    timestamp: z.coerce.date().describe('Meter sample timestamp'),
+    energyWh: z
+      .number()
+      .min(0)
+      .describe('Cumulative energy delivered in Watt-hours since session start'),
   })
   .passthrough();
 
@@ -103,11 +137,11 @@ const monthlySummaryQuery = z.object({
 
 const monthlySummaryResponse = z
   .object({
-    totalCostCents: z.number(),
-    totalEnergyWh: z.number(),
-    totalCo2AvoidedKg: z.number(),
-    sessionCount: z.number(),
-    currency: z.string().nullable(),
+    totalCostCents: z.number().int().min(0).describe('Total cost across the month in cents'),
+    totalEnergyWh: z.number().min(0).describe('Total energy delivered across the month in Wh'),
+    totalCo2AvoidedKg: z.number().describe('Total CO2 avoided across the month in kg'),
+    sessionCount: z.number().int().min(0).describe('Number of completed sessions in the month'),
+    currency: z.string().length(3).nullable().describe('ISO 4217 currency code'),
   })
   .passthrough();
 
@@ -116,21 +150,21 @@ const monthlyStatementSessionItem = z
     id: z.string().describe('Charging session ID'),
     startedAt: z.coerce.date().nullable().describe('Session start timestamp'),
     endedAt: z.coerce.date().nullable().describe('Session end timestamp'),
-    energyDeliveredWh: z.coerce.number().nullable().describe('Energy delivered in Wh'),
+    energyDeliveredWh: z.coerce.number().min(0).nullable().describe('Energy delivered in Wh'),
     co2AvoidedKg: z.coerce.number().nullable().describe('Estimated CO2 avoided in kg'),
-    finalCostCents: z.number().nullable().describe('Final session cost in cents'),
-    currency: z.string().nullable().describe('Currency code (ISO 4217)'),
-    siteName: z.string().nullable().describe('Site name for the station'),
-    siteCity: z.string().nullable().describe('Site city'),
+    finalCostCents: z.number().int().min(0).nullable().describe('Final session cost in cents'),
+    currency: z.string().length(3).nullable().describe('Currency code (ISO 4217)'),
+    siteName: z.string().max(255).nullable().describe('Site name for the station'),
+    siteCity: z.string().max(100).nullable().describe('Site city'),
   })
   .passthrough();
 
 const monthlyStatementTotals = z
   .object({
-    totalCostCents: z.number().describe('Total cost across the statement in cents'),
-    totalEnergyWh: z.number().describe('Total energy delivered across the statement in Wh'),
+    totalCostCents: z.number().int().min(0).describe('Total cost across the statement in cents'),
+    totalEnergyWh: z.number().min(0).describe('Total energy delivered across the statement in Wh'),
     totalCo2AvoidedKg: z.number().describe('Total CO2 avoided across the statement in kg'),
-    sessionCount: z.number().describe('Number of completed sessions in the statement'),
+    sessionCount: z.number().int().min(0).describe('Number of completed sessions in the statement'),
   })
   .passthrough();
 
@@ -428,7 +462,13 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(sessionParams),
         response: {
-          200: itemResponse(z.object({ data: z.array(powerHistoryItem) }).passthrough()),
+          200: itemResponse(
+            z
+              .object({
+                data: z.array(powerHistoryItem).describe('Time-ordered power samples'),
+              })
+              .passthrough(),
+          ),
           403: errorResponse,
           404: errorResponse,
         },
@@ -477,7 +517,13 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(sessionParams),
         response: {
-          200: itemResponse(z.object({ data: z.array(energyHistoryItem) }).passthrough()),
+          200: itemResponse(
+            z
+              .object({
+                data: z.array(energyHistoryItem).describe('Time-ordered cumulative energy samples'),
+              })
+              .passthrough(),
+          ),
           403: errorResponse,
           404: errorResponse,
         },

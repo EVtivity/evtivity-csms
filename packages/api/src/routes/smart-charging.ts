@@ -24,19 +24,30 @@ import {
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 
+// OCPP 2.1 ChargingProfilePurposeEnumType minus the two purposes excluded from
+// templates: TxProfile (needs a transactionId per station) and
+// ChargingStationExternalConstraints (reserved for the load-management loop;
+// template pushes would race with the 10s allocator).
+const TEMPLATE_PROFILE_PURPOSES = [
+  'ChargingStationMaxProfile',
+  'TxDefaultProfile',
+  'PriorityCharging',
+  'LocalGeneration',
+] as const;
+
 const templateItem = z
   .object({
     id: z.string().describe('Template ID'),
     name: z.string().describe('Template name'),
     description: z.string().nullable().describe('Template description'),
-    ocppVersion: z.string().describe('OCPP version (1.6 or 2.1)'),
+    ocppVersion: z.enum(['2.1', '1.6']).describe('OCPP version'),
     profileId: z.number().describe('OCPP charging profile ID'),
-    profilePurpose: z.string().describe('Charging profile purpose'),
-    profileKind: z.string().describe('Charging profile kind (Absolute or Recurring)'),
-    recurrencyKind: z.string().nullable().describe('Recurrency kind (Daily or Weekly)'),
+    profilePurpose: z.enum(TEMPLATE_PROFILE_PURPOSES).describe('Charging profile purpose'),
+    profileKind: z.enum(['Absolute', 'Recurring']).describe('Charging profile kind'),
+    recurrencyKind: z.enum(['Daily', 'Weekly']).nullable().describe('Recurrency kind'),
     stackLevel: z.number().describe('Stack level'),
     evseId: z.number().describe('EVSE ID (0 for station-wide)'),
-    chargingRateUnit: z.string().describe('Charging rate unit (W or A)'),
+    chargingRateUnit: z.enum(['W', 'A']).describe('Charging rate unit'),
     schedulePeriods: z.unknown().describe('Charging schedule periods (JSONB array)'),
     startSchedule: z.string().nullable().describe('Schedule start time (ISO 8601)'),
     duration: z.number().nullable().describe('Schedule duration in seconds'),
@@ -59,10 +70,24 @@ const templateParams = z.object({ id: z.string().describe('Template ID') });
 const filterOptionsItem = z
   .object({
     sites: z
-      .array(z.object({ id: z.string(), name: z.string() }).passthrough())
+      .array(
+        z
+          .object({
+            id: z.string().describe('Site identifier'),
+            name: z.string().describe('Site display name'),
+          })
+          .passthrough(),
+      )
       .describe('Sites the user can access'),
     vendors: z
-      .array(z.object({ id: z.string(), name: z.string() }).passthrough())
+      .array(
+        z
+          .object({
+            id: z.string().describe('Vendor identifier'),
+            name: z.string().describe('Vendor display name'),
+          })
+          .passthrough(),
+      )
       .describe('All vendors'),
     models: z.array(z.string()).describe('Distinct station model names'),
   })
@@ -155,14 +180,12 @@ const createTemplateBody = z.object({
   description: z.string().optional().describe('Template description'),
   ocppVersion: z.enum(['2.1', '1.6']).default('2.1').describe('OCPP version'),
   profileId: z.number().int().default(100).describe('OCPP charging profile ID'),
-  profilePurpose: z
-    .string()
-    .refine((v) => v !== 'TxProfile' && v !== 'ChargingStationExternalConstraints', {
-      message: 'TxProfile and ChargingStationExternalConstraints are not allowed',
-    })
-    .describe('Charging profile purpose'),
+  profilePurpose: z.enum(TEMPLATE_PROFILE_PURPOSES).describe('Charging profile purpose'),
   profileKind: z.enum(['Absolute', 'Recurring']).describe('Charging profile kind'),
-  recurrencyKind: z.string().optional().describe('Recurrency kind (required if Recurring)'),
+  recurrencyKind: z
+    .enum(['Daily', 'Weekly'])
+    .optional()
+    .describe('Recurrency kind (required if Recurring)'),
   stackLevel: z.number().int().min(0).default(0).describe('Stack level'),
   evseId: z.number().int().min(0).default(0).describe('EVSE ID (0 for station-wide)'),
   chargingRateUnit: z.enum(['W', 'A']).default('W').describe('Charging rate unit'),
@@ -182,14 +205,9 @@ const updateTemplateBody = z.object({
   description: z.string().optional(),
   ocppVersion: z.enum(['2.1', '1.6']).optional(),
   profileId: z.number().int().optional(),
-  profilePurpose: z
-    .string()
-    .refine((v) => v !== 'TxProfile' && v !== 'ChargingStationExternalConstraints', {
-      message: 'TxProfile and ChargingStationExternalConstraints are not allowed',
-    })
-    .optional(),
+  profilePurpose: z.enum(TEMPLATE_PROFILE_PURPOSES).optional(),
   profileKind: z.enum(['Absolute', 'Recurring']).optional(),
-  recurrencyKind: z.string().optional().nullable(),
+  recurrencyKind: z.enum(['Daily', 'Weekly']).optional().nullable(),
   stackLevel: z.number().int().min(0).optional(),
   evseId: z.number().int().min(0).optional(),
   chargingRateUnit: z.enum(['W', 'A']).optional(),
@@ -208,7 +226,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('smartCharging:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Smart Charging'],
         summary: 'Get filter options for smart charging template targeting',
         operationId: 'getSmartChargingFilterOptions',
         security: [{ bearerAuth: [] }],
@@ -246,7 +264,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('smartCharging:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Smart Charging'],
         summary: 'List charging profile templates',
         operationId: 'listChargingProfileTemplates',
         security: [{ bearerAuth: [] }],
@@ -304,7 +322,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('smartCharging:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Smart Charging'],
         summary: 'Get charging profile template',
         operationId: 'getChargingProfileTemplate',
         security: [{ bearerAuth: [] }],
@@ -334,7 +352,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('smartCharging:write')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Smart Charging'],
         summary: 'Create a charging profile template',
         operationId: 'createChargingProfileTemplate',
         security: [{ bearerAuth: [] }],
@@ -349,17 +367,9 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const body = request.body as z.infer<typeof createTemplateBody>;
 
-      // Validate excluded purposes
-      if (
-        body.profilePurpose === 'TxProfile' ||
-        body.profilePurpose === 'ChargingStationExternalConstraints'
-      ) {
-        await reply.status(400).send({
-          error: 'TxProfile and ChargingStationExternalConstraints are not allowed',
-          code: 'VALIDATION_ERROR',
-        });
-        return;
-      }
+      // profilePurpose is now constrained to TEMPLATE_PROFILE_PURPOSES at the
+      // schema layer; the prior runtime guard against TxProfile and
+      // ChargingStationExternalConstraints is unreachable.
 
       // Validate recurrencyKind requirement
       if (body.profileKind === 'Recurring' && !body.recurrencyKind) {
@@ -431,7 +441,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('smartCharging:write')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Smart Charging'],
         summary: 'Update a charging profile template',
         operationId: 'updateChargingProfileTemplate',
         security: [{ bearerAuth: [] }],
@@ -540,7 +550,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('smartCharging:write')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Smart Charging'],
         summary: 'Duplicate a charging profile template',
         operationId: 'duplicateChargingProfileTemplate',
         security: [{ bearerAuth: [] }],
@@ -623,7 +633,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('smartCharging:write')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Smart Charging'],
         summary: 'Delete a charging profile template',
         operationId: 'deleteChargingProfileTemplate',
         security: [{ bearerAuth: [] }],
@@ -654,7 +664,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('smartCharging:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Smart Charging'],
         summary: 'Preview stations matching the template target filter',
         operationId: 'listChargingProfileMatchingStations',
         security: [{ bearerAuth: [] }],
@@ -731,7 +741,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('smartCharging:write')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Smart Charging'],
         summary: 'Push charging profile template to matching stations via SetChargingProfile',
         operationId: 'pushChargingProfileTemplate',
         security: [{ bearerAuth: [] }],
@@ -825,7 +835,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('smartCharging:write')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Smart Charging'],
         summary: 'Clear charging profile from all matching stations',
         operationId: 'clearChargingProfileTemplate',
         security: [{ bearerAuth: [] }],
@@ -917,7 +927,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('smartCharging:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Smart Charging'],
         summary: 'List push history for a charging profile template',
         operationId: 'listChargingProfilePushes',
         security: [{ bearerAuth: [] }],
@@ -994,7 +1004,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('smartCharging:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Smart Charging'],
         summary: 'Get charging profile push detail with per-station results',
         operationId: 'getChargingProfilePushDetail',
         security: [{ bearerAuth: [] }],

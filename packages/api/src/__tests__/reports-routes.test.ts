@@ -67,6 +67,12 @@ vi.mock('@evtivity/database', () => ({
   },
   reports: {},
   reportSchedules: {},
+  reportStatusEnum: {
+    enumValues: ['pending', 'generating', 'completed', 'failed'] as const,
+  },
+  reportFrequencyEnum: {
+    enumValues: ['daily', 'weekly', 'monthly'] as const,
+  },
 }));
 
 vi.mock('drizzle-orm', () => ({

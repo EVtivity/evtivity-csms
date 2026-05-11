@@ -20,15 +20,28 @@ import {
 
 const tariffMappingItem = z
   .object({
-    id: z.string(),
-    tariffId: z.string(),
-    partnerId: z.string().nullable(),
-    ocpiTariffId: z.string(),
-    currency: z.string(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
-    tariffName: z.string().nullable().optional(),
-    partnerName: z.string().nullable().optional(),
+    id: z.string().describe('Identifier'),
+    tariffId: z.string().describe('Internal CSMS tariff identifier this mapping references'),
+    partnerId: z
+      .string()
+      .nullable()
+      .describe('OCPI partner ID this mapping applies to, or null for default'),
+    ocpiTariffId: z.string().max(36).describe('OCPI tariff identifier exposed to partners'),
+    currency: z.string().length(3).describe('ISO 4217 currency code'),
+    createdAt: z.coerce.date().describe('Timestamp when created'),
+    updatedAt: z.coerce.date().describe('Timestamp when last modified'),
+    tariffName: z
+      .string()
+      .max(255)
+      .nullable()
+      .optional()
+      .describe('Name of the linked internal tariff'),
+    partnerName: z
+      .string()
+      .max(255)
+      .nullable()
+      .optional()
+      .describe('Display name of the OCPI partner'),
   })
   .passthrough();
 

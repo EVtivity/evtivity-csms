@@ -164,83 +164,119 @@ const userSelect = {
 
 const loginResponse = z
   .object({
-    token: z.string().optional(),
+    token: z
+      .string()
+      .optional()
+      .describe(
+        'Operator JWT (kept for backward compatibility; cookies are the primary transport)',
+      ),
     user: z
       .object({
-        id: z.string(),
-        email: z.string(),
-        firstName: z.string().nullable(),
-        lastName: z.string().nullable(),
-        language: z.string(),
-        timezone: z.string().optional(),
+        id: z.string().describe('User identifier'),
+        email: z.string().describe('Email address'),
+        firstName: z.string().nullable().describe('First name'),
+        lastName: z.string().nullable().describe('Last name'),
+        language: z.string().describe('Preferred UI language code'),
+        timezone: z.string().optional().describe('IANA timezone identifier'),
       })
       .passthrough()
-      .optional(),
+      .optional()
+      .describe('Authenticated user, omitted when MFA is required'),
     role: z
       .object({
-        id: z.string(),
-        name: z.string(),
+        id: z.string().describe('Role identifier'),
+        name: z.string().describe('Role display name'),
       })
       .passthrough()
       .nullable()
-      .optional(),
-    mfaRequired: z.boolean().optional(),
-    mfaMethod: z.string().optional(),
-    mfaToken: z.string().optional(),
-    challengeId: z.number().optional(),
-    mustResetPassword: z.boolean().optional(),
+      .optional()
+      .describe('Role assigned to the user'),
+    mfaRequired: z
+      .boolean()
+      .optional()
+      .describe('Whether the user must complete MFA before authentication finishes'),
+    mfaMethod: z.string().optional().describe('MFA method to use (email, sms, totp)'),
+    mfaToken: z
+      .string()
+      .optional()
+      .describe('Short-lived MFA pending token to send with the verify request'),
+    challengeId: z
+      .number()
+      .optional()
+      .describe('Identifier of the email/SMS challenge created for the user'),
+    mustResetPassword: z
+      .boolean()
+      .optional()
+      .describe('Whether the user must reset their password before continuing'),
   })
   .passthrough();
 
 const userItem = z
   .object({
-    id: z.string(),
-    email: z.string(),
-    firstName: z.string().nullable(),
-    lastName: z.string().nullable(),
-    phone: z.string().nullable(),
-    roleId: z.string(),
-    isActive: z.boolean(),
-    mustResetPassword: z.boolean(),
-    language: z.string(),
-    timezone: z.string(),
-    themePreference: z.string(),
-    lastLoginAt: z.coerce.date().nullable(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Identifier'),
+    email: z.string().describe('Email address'),
+    firstName: z.string().nullable().describe('First name'),
+    lastName: z.string().nullable().describe('Last name'),
+    phone: z.string().nullable().describe('Phone number for SMS notifications'),
+    roleId: z.string().describe('Identifier of the assigned role'),
+    isActive: z.boolean().describe('Whether the user can log in'),
+    mustResetPassword: z
+      .boolean()
+      .describe('Whether the user must reset their password on next login'),
+    language: z.string().describe('Preferred UI language code'),
+    timezone: z.string().describe('IANA timezone identifier'),
+    themePreference: z.string().describe('Preferred dashboard theme (light, dark, system)'),
+    lastLoginAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp of the most recent successful login'),
+    createdAt: z.coerce.date().describe('Timestamp when the user was created'),
   })
   .passthrough();
 
 const userWithRole = z
   .object({
-    id: z.string(),
-    email: z.string(),
-    firstName: z.string().nullable(),
-    lastName: z.string().nullable(),
-    roleId: z.string(),
-    isActive: z.boolean(),
-    mustResetPassword: z.boolean(),
-    language: z.string(),
-    timezone: z.string(),
-    lastLoginAt: z.coerce.date().nullable(),
-    createdAt: z.coerce.date(),
-    role: z.object({ id: z.string(), name: z.string() }).passthrough().nullable(),
+    id: z.string().describe('Identifier'),
+    email: z.string().describe('Email address'),
+    firstName: z.string().nullable().describe('First name'),
+    lastName: z.string().nullable().describe('Last name'),
+    roleId: z.string().describe('Identifier of the assigned role'),
+    isActive: z.boolean().describe('Whether the user can log in'),
+    mustResetPassword: z
+      .boolean()
+      .describe('Whether the user must reset their password on next login'),
+    language: z.string().describe('Preferred UI language code'),
+    timezone: z.string().describe('IANA timezone identifier'),
+    lastLoginAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp of the most recent successful login'),
+    createdAt: z.coerce.date().describe('Timestamp when the user was created'),
+    role: z
+      .object({
+        id: z.string().describe('Role identifier'),
+        name: z.string().describe('Role display name'),
+      })
+      .passthrough()
+      .nullable()
+      .describe('Joined role record'),
   })
   .passthrough();
 
 const userCreated = z
   .object({
-    id: z.string(),
-    email: z.string(),
-    firstName: z.string().nullable(),
-    lastName: z.string().nullable(),
-    roleId: z.string(),
+    id: z.string().describe('Identifier of the newly created user'),
+    email: z.string().describe('Email address'),
+    firstName: z.string().nullable().describe('First name'),
+    lastName: z.string().nullable().describe('Last name'),
+    roleId: z.string().describe('Identifier of the assigned role'),
   })
   .passthrough();
 
 const roleItem = z
   .object({
-    id: z.string(),
-    name: z.string(),
+    id: z.string().describe('Identifier'),
+    name: z.string().describe('Role name (e.g., admin, operator)'),
   })
   .passthrough();
 
@@ -906,6 +942,8 @@ export function userRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Users'],
         summary: 'Create a new user',
+        description:
+          'Creates a user with mustResetPassword=true, copies the role default permissions into user_permissions, applies site access (hasAllSiteAccess or per-site assignments via user_site_assignments), and sends an invitation email containing a setup link. Returns 409 on duplicate email.',
         operationId: 'createUser',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createUserBody),
@@ -1179,6 +1217,8 @@ export function userRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Users'],
         summary: 'Reset a user password by admin',
+        description:
+          'Generates a new temporary password for the target user, hashes it with argon2, and sets mustResetPassword=true so the user is forced to change it on next login. Revokes all of the user existing refresh tokens. The new password is returned in the response and must be communicated out-of-band.',
         operationId: 'resetUserPassword',
         security: [{ bearerAuth: [] }],
         params: zodSchema(userParams),
@@ -1306,6 +1346,8 @@ export function userRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Users'],
         summary: 'Resend account setup invitation to a user',
+        description:
+          'Generates a fresh password reset token for the user and sends a new invitation email with the setup link. Used to recover from expired or lost invitations. Only valid for users that have never logged in or have mustResetPassword set.',
         operationId: 'resendUserInvite',
         security: [{ bearerAuth: [] }],
         params: zodSchema(userParams),
@@ -1409,6 +1451,8 @@ export function userRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Users'],
         summary: 'Verify MFA code and complete login',
+        description:
+          'Validates the short-lived MFA pending JWT, verifies the supplied TOTP code or email/SMS challenge code (single-use, 5-minute TTL), and on success issues the real access JWT plus refresh token cookies. Returns 401 if the code is invalid, expired, or already used.',
         operationId: 'verifyMfa',
         security: [],
         body: zodSchema(mfaVerifyBody),
@@ -1514,11 +1558,23 @@ export function userRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Users'],
         summary: 'Resend MFA verification code',
+        description:
+          'Creates a new mfa_challenges row and dispatches a fresh 6-digit code via the email or SMS channel selected at login. Only applies to email/SMS methods (TOTP needs no resend). Returns 400 if the MFA pending JWT has expired.',
         operationId: 'resendMfa',
         security: [],
         body: zodSchema(mfaResendBody),
         response: {
-          200: itemResponse(z.object({ challengeId: z.number() }).passthrough()),
+          200: itemResponse(
+            z
+              .object({
+                challengeId: z
+                  .number()
+                  .int()
+                  .min(1)
+                  .describe('Identifier of the new MFA challenge that was created'),
+              })
+              .passthrough(),
+          ),
           400: errorResponse,
           401: errorResponse,
         },
@@ -1577,9 +1633,11 @@ export function userRoutes(app: FastifyInstance): void {
 
   const mfaStatusResponse = z
     .object({
-      mfaEnabled: z.boolean(),
-      mfaMethod: z.string().nullable(),
-      availableMethods: z.array(z.string()),
+      mfaEnabled: z.boolean().describe('Whether MFA is enabled for the user'),
+      mfaMethod: z.string().nullable().describe('Currently enrolled MFA method (email, sms, totp)'),
+      availableMethods: z
+        .array(z.string())
+        .describe('MFA methods the system has enabled and the user may enroll in'),
     })
     .passthrough();
 
@@ -1622,9 +1680,15 @@ export function userRoutes(app: FastifyInstance): void {
 
   const mfaSetupResponse = z
     .object({
-      qrDataUri: z.string().optional(),
-      secret: z.string().optional(),
-      challengeId: z.number().optional(),
+      qrDataUri: z.string().optional().describe('Data URI of the TOTP QR code (TOTP setup only)'),
+      secret: z
+        .string()
+        .optional()
+        .describe('TOTP shared secret in case the user cannot scan the QR code'),
+      challengeId: z
+        .number()
+        .optional()
+        .describe('Identifier of the email/SMS verification challenge'),
     })
     .passthrough();
 
@@ -1635,6 +1699,8 @@ export function userRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Users'],
         summary: 'Start MFA setup',
+        description:
+          'Begins MFA enrollment for the requested method. For TOTP, returns the new secret and otpauth URI plus a QR code data URL. For email/SMS, dispatches a verification code to the user contact and returns a challengeId. Setup is not active until confirmed via the confirm endpoint.',
         operationId: 'setupMfa',
         security: [{ bearerAuth: [] }],
         body: zodSchema(mfaSetupBody),
@@ -1698,6 +1764,8 @@ export function userRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Users'],
         summary: 'Confirm MFA setup with verification code',
+        description:
+          'Verifies the supplied code against the in-flight MFA setup (TOTP secret or email/SMS challenge). On success, persists the secret (encrypted for TOTP) and flips mfaEnabled=true on the user. Returns 400 if the code is invalid or the setup has expired.',
         operationId: 'confirmMfa',
         security: [{ bearerAuth: [] }],
         body: zodSchema(mfaConfirmBody),
@@ -1752,6 +1820,8 @@ export function userRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Users'],
         summary: 'Disable MFA',
+        description:
+          'Requires the user current password (verified via argon2), then clears mfaEnabled, mfaMethod, and the encrypted TOTP secret. The next login will skip the MFA challenge. Returns 401 if the password is wrong.',
         operationId: 'disableMfa',
         security: [{ bearerAuth: [] }],
         body: zodSchema(mfaDisableBody),
@@ -1796,13 +1866,16 @@ export function userRoutes(app: FastifyInstance): void {
 
   const aiConfigResponse = z
     .object({
-      configured: z.boolean(),
-      provider: z.string().nullable(),
-      model: z.string().nullable(),
-      temperature: z.number().nullable(),
-      topP: z.number().nullable(),
-      topK: z.number().nullable(),
-      systemPrompt: z.string().nullable(),
+      configured: z.boolean().describe('Whether the user has saved a personal AI assistant config'),
+      provider: z.string().nullable().describe('Selected AI provider (anthropic, openai, gemini)'),
+      model: z.string().nullable().describe('Model override applied for this user'),
+      temperature: z.number().nullable().describe('Generation temperature (0-2)'),
+      topP: z.number().nullable().describe('Nucleus sampling threshold (0-1)'),
+      topK: z.number().nullable().describe('Top-K token selection limit'),
+      systemPrompt: z
+        .string()
+        .nullable()
+        .describe('Custom system prompt that overrides the default'),
     })
     .passthrough();
 
@@ -1811,13 +1884,23 @@ export function userRoutes(app: FastifyInstance): void {
   app.get(
     '/users/me/notification-preferences',
     {
-      onRequest: [app.authenticate],
+      onRequest: [authorize('users:read')],
       schema: {
         tags: ['Users'],
         summary: 'Get operator notification preferences',
         operationId: 'getUserNotificationPreferences',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(z.object({ smsEnabled: z.boolean() }).passthrough()) },
+        response: {
+          200: itemResponse(
+            z
+              .object({
+                smsEnabled: z
+                  .boolean()
+                  .describe('Whether the operator opted in to SMS notifications'),
+              })
+              .passthrough(),
+          ),
+        },
       },
     },
     async (request) => {
@@ -1833,14 +1916,24 @@ export function userRoutes(app: FastifyInstance): void {
   app.put(
     '/users/me/notification-preferences',
     {
-      onRequest: [app.authenticate],
+      onRequest: [authorize('users:write')],
       schema: {
         tags: ['Users'],
         summary: 'Update operator notification preferences',
         operationId: 'updateUserNotificationPreferences',
         security: [{ bearerAuth: [] }],
         body: zodSchema(z.object({ smsEnabled: z.boolean() })),
-        response: { 200: itemResponse(z.object({ smsEnabled: z.boolean() }).passthrough()) },
+        response: {
+          200: itemResponse(
+            z
+              .object({
+                smsEnabled: z
+                  .boolean()
+                  .describe('Whether the operator opted in to SMS notifications'),
+              })
+              .passthrough(),
+          ),
+        },
       },
     },
     async (request) => {
@@ -1997,14 +2090,20 @@ export function userRoutes(app: FastifyInstance): void {
 
   const supportAiConfigResponse = z
     .object({
-      configured: z.boolean(),
-      provider: z.string().nullable(),
-      model: z.string().nullable(),
-      temperature: z.number().nullable(),
-      topP: z.number().nullable(),
-      topK: z.number().nullable(),
-      systemPrompt: z.string().nullable(),
-      tone: z.string().nullable(),
+      configured: z.boolean().describe('Whether the user has saved a personal support AI config'),
+      provider: z.string().nullable().describe('Selected AI provider for support case drafting'),
+      model: z.string().nullable().describe('Model override applied for this user'),
+      temperature: z.number().nullable().describe('Generation temperature (0-2)'),
+      topP: z.number().nullable().describe('Nucleus sampling threshold (0-1)'),
+      topK: z.number().nullable().describe('Top-K token selection limit'),
+      systemPrompt: z
+        .string()
+        .nullable()
+        .describe('Custom system prompt that overrides the default'),
+      tone: z
+        .string()
+        .nullable()
+        .describe('Tone preset used for drafting (professional, friendly, formal)'),
     })
     .passthrough();
 
@@ -2191,8 +2290,8 @@ export function userRoutes(app: FastifyInstance): void {
 
   const permissionGroupItem = z
     .object({
-      label: z.string(),
-      permissions: z.array(z.string()),
+      label: z.string().describe('Display label for the permission group'),
+      permissions: z.array(z.string()).describe('Permission strings that belong to this group'),
     })
     .passthrough();
 

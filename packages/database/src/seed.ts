@@ -497,6 +497,7 @@ async function seed(): Promise<void> {
     'reservation.cancellationWindowMinutes': 0,
     'reservation.cancellationFeeCents': 0,
     'reservation.maxHours': 3,
+    'reservation.activeSessionCheckHours': 3,
     'fleet.enabled': true,
     'support.enabled': true,
     'guest.enabled': true,
@@ -3003,6 +3004,11 @@ async function seed(): Promise<void> {
         { component: '', variable: 'connCode0', value: 'IOCHARGER-001' },
         { component: '', variable: 'connCode1', value: 'IOCHARGER-001' },
         { component: '', variable: 'TariffCostCtrlr.Enabled', value: 'false' },
+        {
+          component: '',
+          variable: 'TariffCostCtrlr.TariffFallbackMessage',
+          value: 'Welcome to EVtivity Charging. Scan barcode to start.',
+        },
       ],
       // IOCHARGER-001 is the demo seed's index-0 station (createdStations[0]).
       stationId: ioStationDetails?.id ?? null,

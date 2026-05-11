@@ -35,6 +35,10 @@ interface ReservationDetail {
   expiresAt: string;
   createdAt: string;
   updatedAt: string;
+  cancelledBy: string | null;
+  cancelReason: string | null;
+  cancelNote: string | null;
+  cancellationFeeCents: number;
   sessionId: string | null;
   sessionStatus: string | null;
   sessionEnergyWh: string | null;

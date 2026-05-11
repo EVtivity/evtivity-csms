@@ -2,13 +2,24 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import crypto from 'node:crypto';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Job } from 'bullmq';
 import { eq, and } from 'drizzle-orm';
-import { db, reservations, chargingStations, evses } from '@evtivity/database';
+import { client, db, reservations, chargingStations, evses } from '@evtivity/database';
 import type { PubSubClient } from '@evtivity/lib';
-import { createLogger } from '@evtivity/lib';
+import { createLogger, dispatchDriverNotification } from '@evtivity/lib';
 
 const log = createLogger('reservation-activate');
+
+const currentDir = dirname(fileURLToPath(import.meta.url));
+const API_TEMPLATES_DIR =
+  process.env['API_TEMPLATES_DIR'] ??
+  resolve(currentDir, '..', '..', '..', 'api', 'src', 'templates');
+const OCPP_TEMPLATES_DIR =
+  process.env['OCPP_TEMPLATES_DIR'] ??
+  resolve(currentDir, '..', '..', '..', 'ocpp', 'src', 'templates');
+const ALL_TEMPLATES_DIRS = [OCPP_TEMPLATES_DIR, API_TEMPLATES_DIR];
 
 export async function handleReservationActivate(job: Job, pubsub: PubSubClient): Promise<void> {
   const { reservationDbId } = job.data as { reservationDbId: string };
@@ -56,14 +67,48 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
 
   // Check station is online
   if (!reservation.isOnline) {
-    await db
+    // System-path cancel: write actor + reason metadata so the audit reflects
+    // why the reservation was killed. RETURNING driver_id lets us notify the
+    // driver -- without this, a scheduled reservation against an offline
+    // station would silently disappear from the portal.
+    const cancelled = await db
       .update(reservations)
-      .set({ status: 'cancelled', updatedAt: new Date() })
-      .where(eq(reservations.id, reservationDbId));
+      .set({
+        status: 'cancelled',
+        cancelledBy: 'system',
+        cancelReason: 'station_offline_at_activation',
+        cancellationFeeCents: 0,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(reservations.id, reservationDbId), eq(reservations.status, 'scheduled')))
+      .returning({ driverId: reservations.driverId });
     log.warn(
       { reservationDbId, stationId: reservation.stationOcppId },
       'Station offline, cancelling scheduled reservation',
     );
+
+    const driverId = cancelled[0]?.driverId ?? null;
+    if (driverId != null) {
+      try {
+        await dispatchDriverNotification(
+          client,
+          'reservation.Cancelled',
+          driverId,
+          {
+            reservationId: reservation.reservationId,
+            stationId: reservation.stationOcppId,
+            cancellationFeeFormatted: '',
+          },
+          ALL_TEMPLATES_DIRS,
+          pubsub,
+        );
+      } catch (err) {
+        log.warn(
+          { err, driverId, reservationDbId },
+          'Failed to dispatch offline-station cancel notification',
+        );
+      }
+    }
     return;
   }
 

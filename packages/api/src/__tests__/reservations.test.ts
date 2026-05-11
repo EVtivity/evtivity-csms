@@ -89,6 +89,7 @@ vi.mock('@evtivity/database', () => ({
     cancellationWindowMinutes: 0,
     cancellationFeeCents: 0,
     maxHours: 0,
+    activeSessionCheckHours: 3,
   }),
 }));
 
@@ -103,6 +104,7 @@ vi.mock('drizzle-orm', () => ({
   asc: vi.fn(),
   inArray: vi.fn(),
   gt: vi.fn(),
+  isNull: vi.fn(),
 }));
 
 // PubSub mock
@@ -183,6 +185,10 @@ function makeReservation(overrides: Record<string, unknown> = {}) {
     expiresAt: new Date('2030-01-01T00:00:00Z'),
     createdAt: new Date('2024-01-01T00:00:00Z'),
     updatedAt: new Date('2024-01-01T00:00:00Z'),
+    cancelledBy: null,
+    cancelReason: null,
+    cancelNote: null,
+    cancellationFeeCents: 0,
     sessionId: null,
     sessionStatus: null,
     sessionEnergyWh: null,
@@ -220,6 +226,7 @@ describe('Reservation routes', () => {
       cancellationWindowMinutes: 0,
       cancellationFeeCents: 0,
       maxHours: 0,
+      activeSessionCheckHours: 3,
     });
   });
 
@@ -458,9 +465,10 @@ describe('Reservation routes', () => {
     });
 
     it('returns 400 DRIVER_NOT_FOUND when provided driverId does not exist', async () => {
-      // Station -> conflict (no conflicts) -> driver lookup (empty)
+      // Station -> active session check (empty) -> conflict (no conflicts) -> driver lookup (empty)
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+        [],
         [],
         [],
       );
@@ -475,9 +483,10 @@ describe('Reservation routes', () => {
     });
 
     it('returns 400 PAYMENT_METHOD_REQUIRED when driver has no default payment method', async () => {
-      // Station -> conflict -> driver exists -> PM lookup (empty)
+      // Station -> active session check (empty) -> conflict -> driver exists -> PM lookup (empty)
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+        [],
         [],
         [{ id: VALID_DRIVER_ID }],
         [],
@@ -494,11 +503,13 @@ describe('Reservation routes', () => {
 
     it('returns 500 when reservation insert returns null', async () => {
       // DB call 1: station lookup (online)
-      // DB call 2: conflict check (no conflicts)
-      // DB call 3: insert returning empty (null reservation)
+      // DB call 2: active session check (no active session)
+      // DB call 3: conflict check (no conflicts)
+      // DB call 4: insert returning empty (null reservation)
       // getNextReservationId uses db.execute (sequence)
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+        [],
         [],
 
         [],
@@ -517,11 +528,13 @@ describe('Reservation routes', () => {
     it('returns 200 on success with Accepted station response', async () => {
       const reservation = makeReservation({ reservationId: 6 });
       // DB call 1: station lookup
-      // DB call 2: conflict check (no conflicts)
-      // DB call 3: getNextReservationId
-      // DB call 4: insert returning reservation
+      // DB call 2: active session check (no active session)
+      // DB call 3: conflict check (no conflicts)
+      // DB call 4: getNextReservationId
+      // DB call 5: insert returning reservation
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+        [],
         [],
 
         [reservation],
@@ -546,12 +559,14 @@ describe('Reservation routes', () => {
       const reservation = makeReservation({ reservationId: 6 });
       // DB call 1: station lookup
       // DB call 2: evse resolution
-      // DB call 3: conflict check (no conflicts)
-      // DB call 4: getNextReservationId
-      // DB call 5: insert returning reservation
+      // DB call 3: active session check (no active session)
+      // DB call 4: conflict check (no conflicts)
+      // DB call 5: getNextReservationId
+      // DB call 6: insert returning reservation
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
         [{ id: VALID_EVSE_ID }],
+        [],
         [],
 
         [reservation],
@@ -584,13 +599,15 @@ describe('Reservation routes', () => {
     it('returns 200 with driverId in payload', async () => {
       const reservation = makeReservation({ reservationId: 6, driverId: VALID_DRIVER_ID });
       // DB call 1: station lookup
-      // DB call 2: conflict check (no conflicts)
-      // DB call 3: driver existence check (driverId provided)
-      // DB call 4: default payment method check (driverId provided)
+      // DB call 2: active session check (no active session)
+      // DB call 3: conflict check (no conflicts)
+      // DB call 4: driver existence check (driverId provided)
+      // DB call 5: default payment method check (driverId provided)
       // (db.execute for getNextReservationId is mocked separately, not in this chain)
-      // DB call 5: insert returning reservation
+      // DB call 6: insert returning reservation
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+        [],
         [],
         [{ id: VALID_DRIVER_ID }],
         [{ id: 1, isDefault: true }],
@@ -624,12 +641,14 @@ describe('Reservation routes', () => {
     it('returns 504 on timeout (error contains "No response within")', async () => {
       const reservation = makeReservation({ reservationId: 6 });
       // DB call 1: station lookup
-      // DB call 2: conflict check (no conflicts)
-      // DB call 3: getNextReservationId
-      // DB call 4: insert returning reservation
-      // DB call 5: update to cancel after timeout
+      // DB call 2: active session check (no active session)
+      // DB call 3: conflict check (no conflicts)
+      // DB call 4: getNextReservationId
+      // DB call 5: insert returning reservation
+      // DB call 6: update to cancel after timeout
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+        [],
         [],
 
         [reservation],
@@ -665,12 +684,14 @@ describe('Reservation routes', () => {
     it('returns 502 on OCPP error response', async () => {
       const reservation = makeReservation({ reservationId: 6 });
       // DB call 1: station lookup
-      // DB call 2: conflict check (no conflicts)
-      // DB call 3: getNextReservationId
-      // DB call 4: insert returning reservation
-      // DB call 5: update to cancel after error
+      // DB call 2: active session check (no active session)
+      // DB call 3: conflict check (no conflicts)
+      // DB call 4: getNextReservationId
+      // DB call 5: insert returning reservation
+      // DB call 6: update to cancel after error
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+        [],
         [],
 
         [reservation],
@@ -706,12 +727,14 @@ describe('Reservation routes', () => {
     it('returns 400 when station rejects reservation (non-Accepted status)', async () => {
       const reservation = makeReservation({ reservationId: 6 });
       // DB call 1: station lookup
-      // DB call 2: conflict check (no conflicts)
-      // DB call 3: getNextReservationId
-      // DB call 4: insert returning reservation
-      // DB call 5: update to cancel after rejection
+      // DB call 2: active session check (no active session)
+      // DB call 3: conflict check (no conflicts)
+      // DB call 4: getNextReservationId
+      // DB call 5: insert returning reservation
+      // DB call 6: update to cancel after rejection
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+        [],
         [],
 
         [reservation],
@@ -747,9 +770,11 @@ describe('Reservation routes', () => {
 
     it('returns 409 when conflicting active reservation exists', async () => {
       // DB call 1: station lookup
-      // DB call 2: conflict check (returns existing reservation)
+      // DB call 2: active session check (no active session)
+      // DB call 3: conflict check (returns existing reservation)
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+        [],
         [{ id: VALID_RESERVATION_ID }],
       );
 
@@ -784,11 +809,13 @@ describe('Reservation routes', () => {
     it('uses sequence for reservation ID allocation', async () => {
       const reservation = makeReservation({ reservationId: 6 });
       // DB call 1: station lookup
-      // DB call 2: conflict check (no conflicts)
-      // DB call 3: insert returning reservation
+      // DB call 2: active session check (no active session)
+      // DB call 3: conflict check (no conflicts)
+      // DB call 4: insert returning reservation
       // getNextReservationId uses db.execute (sequence, returns 6)
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+        [],
         [],
         [reservation],
       );
@@ -818,6 +845,7 @@ describe('Reservation routes', () => {
           cancellationWindowMinutes: 0,
           cancellationFeeCents: 0,
           maxHours: 0,
+          activeSessionCheckHours: 3,
         });
 
         const res = await app.inject({
@@ -827,7 +855,7 @@ describe('Reservation routes', () => {
           headers: { authorization: `Bearer ${token}` },
         });
         expect(res.statusCode).toBe(403);
-        expect(res.json().code).toBe('RESERVATIONS_DISABLED');
+        expect(res.json().code).toBe('RESERVATION_DISABLED');
       });
 
       it('returns 403 when station.reservationsEnabled=false', async () => {
@@ -844,7 +872,7 @@ describe('Reservation routes', () => {
           headers: { authorization: `Bearer ${token}` },
         });
         expect(res.statusCode).toBe(403);
-        expect(res.json().code).toBe('RESERVATIONS_DISABLED');
+        expect(res.json().code).toBe('RESERVATION_DISABLED');
       });
 
       it('returns 403 when site.reservationsEnabled=false', async () => {
@@ -870,18 +898,20 @@ describe('Reservation routes', () => {
           headers: { authorization: `Bearer ${token}` },
         });
         expect(res.statusCode).toBe(403);
-        expect(res.json().code).toBe('RESERVATIONS_DISABLED');
+        expect(res.json().code).toBe('RESERVATION_DISABLED');
       });
 
       it('allows reservation when all toggles are enabled', async () => {
         const reservation = makeReservation({ reservationId: 6 });
         // DB call 1: station lookup (online, reservationsEnabled=true, no siteId)
         // assertReservationsAllowed: no site DB query (siteId is null)
-        // DB call 2: conflict check (no conflicts)
-        // DB call 3: getNextReservationId
-        // DB call 4: insert returning reservation
+        // DB call 2: active session check (no active session)
+        // DB call 3: conflict check (no conflicts)
+        // DB call 4: getNextReservationId
+        // DB call 5: insert returning reservation
         setupDbResults(
           [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+          [],
           [],
 
           [reservation],
@@ -1028,7 +1058,7 @@ describe('Reservation routes', () => {
         }, 10);
       }
 
-      it('charges fee when cancelling within the window', async () => {
+      it('charges fee when operator opts in and cancelling within the window', async () => {
         // startsAt = now + 30 minutes (within a 60-minute window)
         const startsAt = new Date(Date.now() + 30 * 60 * 1000);
         setupDbResults(
@@ -1044,6 +1074,9 @@ describe('Reservation routes', () => {
               createdAt: new Date('2024-01-01T00:00:00Z'),
             },
           ],
+          // Helper conditional UPDATE+RETURNING wins the race.
+          [{ id: VALID_RESERVATION_ID }],
+          // Helper post-charge UPDATE writes feeChargedCents back onto the row.
           [],
         );
         vi.mocked(getReservationSettings).mockResolvedValue({
@@ -1052,6 +1085,7 @@ describe('Reservation routes', () => {
           cancellationWindowMinutes: 60,
           cancellationFeeCents: 500,
           maxHours: 0,
+          activeSessionCheckHours: 3,
         });
 
         triggerCancelAccepted();
@@ -1060,6 +1094,7 @@ describe('Reservation routes', () => {
           method: 'DELETE',
           url: `/reservations/${VALID_RESERVATION_ID}`,
           headers: { authorization: `Bearer ${token}` },
+          payload: { chargeCancellationFee: true },
         });
         expect(res.statusCode).toBe(200);
         expect(mockChargeReservationCancellationFee).toHaveBeenCalledWith(
@@ -1070,9 +1105,9 @@ describe('Reservation routes', () => {
         );
       });
 
-      it('does not charge fee when outside the window', async () => {
-        // startsAt = now + 120 minutes (outside a 60-minute window)
-        const startsAt = new Date(Date.now() + 120 * 60 * 1000);
+      it('does not charge fee when operator does not opt in (default)', async () => {
+        // Default (no body / no opt-in) should NOT charge even within window
+        const startsAt = new Date(Date.now() + 30 * 60 * 1000);
         setupDbResults(
           [
             {
@@ -1080,12 +1115,14 @@ describe('Reservation routes', () => {
               reservationId: 1,
               status: 'active',
               stationOcppId: 'CS-001',
+              siteId: null,
               driverId: VALID_DRIVER_ID,
               startsAt,
               createdAt: new Date('2024-01-01T00:00:00Z'),
             },
           ],
-          [],
+          // Helper conditional UPDATE+RETURNING wins the race.
+          [{ id: VALID_RESERVATION_ID }],
         );
         vi.mocked(getReservationSettings).mockResolvedValue({
           enabled: true,
@@ -1093,6 +1130,7 @@ describe('Reservation routes', () => {
           cancellationWindowMinutes: 60,
           cancellationFeeCents: 500,
           maxHours: 0,
+          activeSessionCheckHours: 3,
         });
 
         triggerCancelAccepted();
@@ -1106,7 +1144,53 @@ describe('Reservation routes', () => {
         expect(mockChargeReservationCancellationFee).not.toHaveBeenCalled();
       });
 
-      it('does not charge fee when cancellationFeeCents is 0', async () => {
+      it('does not charge fee when outside the window even with opt-in', async () => {
+        // startsAt = now + 120 minutes (outside a 60-minute window). Operator
+        // explicitly opts in via chargeCancellationFee=true, so the only thing
+        // stopping the charge is the window-gate inside the helper. Without
+        // the opt-in this test would re-test the default-no-opt-in path
+        // instead of the window math.
+        const startsAt = new Date(Date.now() + 120 * 60 * 1000);
+        setupDbResults(
+          [
+            {
+              id: VALID_RESERVATION_ID,
+              reservationId: 1,
+              status: 'active',
+              stationOcppId: 'CS-001',
+              driverId: VALID_DRIVER_ID,
+              startsAt,
+              createdAt: new Date('2024-01-01T00:00:00Z'),
+            },
+          ],
+          // Helper conditional UPDATE+RETURNING wins the race.
+          [{ id: VALID_RESERVATION_ID }],
+        );
+        vi.mocked(getReservationSettings).mockResolvedValue({
+          enabled: true,
+          bufferMinutes: 0,
+          cancellationWindowMinutes: 60,
+          cancellationFeeCents: 500,
+          maxHours: 0,
+          activeSessionCheckHours: 3,
+        });
+
+        triggerCancelAccepted();
+
+        const res = await app.inject({
+          method: 'DELETE',
+          url: `/reservations/${VALID_RESERVATION_ID}`,
+          headers: { authorization: `Bearer ${token}` },
+          payload: { chargeCancellationFee: true },
+        });
+        expect(res.statusCode).toBe(200);
+        expect(mockChargeReservationCancellationFee).not.toHaveBeenCalled();
+      });
+
+      it('does not charge fee when cancellationFeeCents is 0 even with opt-in', async () => {
+        // Operator opts in but the configured fee is zero, so no charge fires.
+        // Without the opt-in this test would short-circuit on the no-opt-in
+        // default and never exercise the fee-cents gate.
         const startsAt = new Date(Date.now() + 30 * 60 * 1000);
         setupDbResults(
           [
@@ -1120,7 +1204,8 @@ describe('Reservation routes', () => {
               createdAt: new Date('2024-01-01T00:00:00Z'),
             },
           ],
-          [],
+          // Helper conditional UPDATE+RETURNING wins the race.
+          [{ id: VALID_RESERVATION_ID }],
         );
         vi.mocked(getReservationSettings).mockResolvedValue({
           enabled: true,
@@ -1128,6 +1213,7 @@ describe('Reservation routes', () => {
           cancellationWindowMinutes: 60,
           cancellationFeeCents: 0,
           maxHours: 0,
+          activeSessionCheckHours: 3,
         });
 
         triggerCancelAccepted();
@@ -1136,6 +1222,7 @@ describe('Reservation routes', () => {
           method: 'DELETE',
           url: `/reservations/${VALID_RESERVATION_ID}`,
           headers: { authorization: `Bearer ${token}` },
+          payload: { chargeCancellationFee: true },
         });
         expect(res.statusCode).toBe(200);
         expect(mockChargeReservationCancellationFee).not.toHaveBeenCalled();
@@ -1155,7 +1242,9 @@ describe('Reservation routes', () => {
               createdAt: new Date('2024-01-01T00:00:00Z'),
             },
           ],
-          [],
+          // Helper conditional UPDATE+RETURNING wins the race; the post-charge
+          // UPDATE is skipped because Stripe throws.
+          [{ id: VALID_RESERVATION_ID }],
         );
         vi.mocked(getReservationSettings).mockResolvedValue({
           enabled: true,
@@ -1163,6 +1252,7 @@ describe('Reservation routes', () => {
           cancellationWindowMinutes: 60,
           cancellationFeeCents: 500,
           maxHours: 0,
+          activeSessionCheckHours: 3,
         });
         mockChargeReservationCancellationFee.mockRejectedValueOnce(
           new Error('Stripe card declined'),
@@ -1174,10 +1264,15 @@ describe('Reservation routes', () => {
           method: 'DELETE',
           url: `/reservations/${VALID_RESERVATION_ID}`,
           headers: { authorization: `Bearer ${token}` },
+          payload: { chargeCancellationFee: true },
         });
-        // Cancellation proceeds despite fee failure
+        // Cancellation proceeds despite fee failure; feeChargeFailed surfaces
+        // so the caller knows to reconcile.
         expect(res.statusCode).toBe(200);
-        expect(res.json().status).toBe('cancelled');
+        const body = res.json();
+        expect(body.status).toBe('cancelled');
+        expect(body.cancellationFeeChargedCents).toBe(0);
+        expect(body.feeChargeFailed).toBe(true);
       });
     });
   });
@@ -1195,6 +1290,7 @@ describe('Reservation routes', () => {
       const reservation = makeReservation({ reservationId: 6 });
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+        [],
         [],
 
         [reservation],
@@ -1221,6 +1317,7 @@ describe('Reservation routes', () => {
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
         [],
+        [],
 
         [reservation],
         [],
@@ -1242,6 +1339,7 @@ describe('Reservation routes', () => {
       const reservation = makeReservation({ reservationId: 6 });
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+        [],
         [],
 
         [reservation],
@@ -1281,6 +1379,7 @@ describe('Reservation routes', () => {
       const reservation = makeReservation({ reservationId: 6 });
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+        [],
         [],
 
         [reservation],
@@ -1323,11 +1422,13 @@ describe('Reservation routes', () => {
     it('returns Accepted when response status is null (no status field)', async () => {
       const reservation = makeReservation({ reservationId: 6 });
       // DB call 1: station lookup
-      // DB call 2: conflict check (no conflicts)
-      // DB call 3: getNextReservationId
-      // DB call 4: insert returning reservation
+      // DB call 2: active session check (no active session)
+      // DB call 3: conflict check (no conflicts)
+      // DB call 4: getNextReservationId
+      // DB call 5: insert returning reservation
       setupDbResults(
         [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
+        [],
         [],
 
         [reservation],

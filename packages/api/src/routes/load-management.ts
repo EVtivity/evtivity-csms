@@ -73,13 +73,16 @@ const hierarchyNodeSchema: z.ZodType = z.lazy(() =>
 
 const loadStationItem = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    currentDrawKw: z.number(),
-    allocatedLimitKw: z.number().nullable(),
-    loadPriority: z.number(),
-    isOnline: z.boolean(),
-    hasActiveSession: z.boolean(),
+    id: z.string().describe('Station identifier'),
+    stationId: z.string().describe('OCPP station ID'),
+    currentDrawKw: z.number().describe('Current power draw in kW'),
+    allocatedLimitKw: z
+      .number()
+      .nullable()
+      .describe('Allocated power limit in kW (null when unmanaged)'),
+    loadPriority: z.number().describe('Load priority rank from 1 (highest) to 10 (lowest)'),
+    isOnline: z.boolean().describe('Whether the station is online'),
+    hasActiveSession: z.boolean().describe('Whether a charging session is active'),
   })
   .passthrough();
 
@@ -87,12 +90,15 @@ const loadManagementItem = z
   .object({
     config: z
       .object({
-        strategy: z.string(),
-        isEnabled: z.boolean(),
+        strategy: z.enum(['equal_share', 'priority_based']).describe('Load distribution strategy'),
+        isEnabled: z.boolean().describe('Whether load management is active'),
       })
-      .nullable(),
-    hierarchy: z.array(hierarchyNodeSchema),
-    stations: z.array(loadStationItem),
+      .nullable()
+      .describe('Site load management configuration, or null when not configured'),
+    hierarchy: z
+      .array(hierarchyNodeSchema)
+      .describe('Electrical hierarchy of panels and circuits at the site'),
+    stations: z.array(loadStationItem).describe('Stations and their current allocation state'),
   })
   .passthrough();
 
@@ -100,7 +106,7 @@ const siteLoadManagementRecord = z
   .object({
     id: z.number().describe('Site load management config row ID'),
     siteId: z.string().describe('Site ID'),
-    strategy: z.string().describe('Load distribution strategy (equal_share or priority_based)'),
+    strategy: z.enum(['equal_share', 'priority_based']).describe('Load distribution strategy'),
     isEnabled: z.boolean().describe('Whether load management is active for this site'),
     createdAt: z.string().describe('Created timestamp (ISO 8601)'),
     updatedAt: z.string().describe('Updated timestamp (ISO 8601)'),
@@ -108,17 +114,23 @@ const siteLoadManagementRecord = z
   .passthrough();
 
 const loadPriorityItem = z
-  .object({ id: z.string(), stationId: z.string(), loadPriority: z.number() })
+  .object({
+    id: z.string().describe('Station identifier'),
+    stationId: z.string().describe('OCPP station ID'),
+    loadPriority: z.number().describe('Load priority rank from 1 (highest) to 10 (lowest)'),
+  })
   .passthrough();
 
 const historyItem = z
   .object({
-    id: z.string(),
-    siteLimitKw: z.number(),
-    totalDrawKw: z.number(),
-    availableKw: z.number(),
-    strategy: z.string(),
-    createdAt: z.string(),
+    id: z.string().describe('Allocation log entry identifier'),
+    siteLimitKw: z.number().describe('Site power limit at the time of allocation, in kW'),
+    totalDrawKw: z.number().describe('Total measured power draw in kW'),
+    availableKw: z.number().describe('Power capacity available for distribution in kW'),
+    strategy: z
+      .enum(['equal_share', 'priority_based'])
+      .describe('Strategy used for this allocation cycle'),
+    createdAt: z.string().describe('Timestamp of the allocation cycle'),
   })
   .passthrough();
 
@@ -262,6 +274,8 @@ export function loadManagementRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Load Management'],
         summary: 'Create or update load management config for a site',
+        description:
+          'Upserts the site-level load management config (strategy and isEnabled). Toggling isEnabled=true causes the 10-second control loop to start dispatching SetChargingProfile to stations on the next tick. Power limits live on panels and circuits, not on this row.',
         operationId: 'upsertSiteLoadManagement',
         security: [{ bearerAuth: [] }],
         body: zodSchema(putBody),

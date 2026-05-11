@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, or, ilike, desc, asc, sql, gte, count, inArray } from 'drizzle-orm';
+import { eq, and, or, ilike, desc, asc, sql, gte, gt, isNull, count, inArray } from 'drizzle-orm';
 import { db, client } from '@evtivity/database';
 import {
   chargingStations,
@@ -24,9 +24,15 @@ import { getPubSub } from '../../lib/pubsub.js';
 import { errorResponse, itemResponse, arrayResponse } from '../../lib/response-schemas.js';
 import { getS3Config, generateDownloadUrl } from '../../services/s3.service.js';
 import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../../lib/ocpp-command.js';
+import { applyReservationCancellation } from '../../lib/reservation-cancel.js';
+import { assertReservationsAllowed } from '../../lib/reservation-eligibility.js';
 import { isStationCheckRateLimited } from '../../lib/rate-limiters.js';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
-import { getStripeConfig } from '../../services/stripe.service.js';
+import { getStripeConfig, createPreAuthorization } from '../../services/stripe.service.js';
+
+function isSimulatedCustomer(stripeCustomerId: string): boolean {
+  return stripeCustomerId.startsWith('cus_sim_');
+}
 import { resolveTariff, isTariffFree } from '../../services/tariff.service.js';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import { ALL_TEMPLATES_DIRS } from '../../lib/template-dirs.js';
@@ -34,144 +40,245 @@ import { isEvseInReservationBuffer } from '../../lib/reservation-buffer.js';
 
 const portalConnectorItem = z
   .object({
-    connectorId: z.number(),
-    connectorType: z.string().nullable(),
-    maxPowerKw: z.number().nullable(),
-    maxCurrentAmps: z.number().nullable(),
-    status: z.string(),
+    connectorId: z.number().int().min(1).describe('Connector index within the EVSE'),
+    connectorType: z
+      .string()
+      .max(50)
+      .nullable()
+      .describe('Physical connector type (CCS2, CHAdeMO, Type1, Type2, NACS, etc.)'),
+    maxPowerKw: z.number().min(0).nullable().describe('Maximum charging power in kilowatts'),
+    maxCurrentAmps: z.number().min(0).nullable().describe('Maximum current in Amps'),
+    status: z
+      .string()
+      .max(50)
+      .describe(
+        'Live connector status (available, occupied, charging, preparing, ev_connected, suspended_ev, suspended_evse, idle, finishing, reserved, faulted, unavailable)',
+      ),
   })
   .passthrough();
 
 const portalChargerDetail = z
   .object({
-    stationId: z.string(),
-    siteId: z.string().nullable(),
-    model: z.string().nullable(),
-    isOnline: z.boolean(),
-    siteName: z.string().nullable(),
-    siteAddress: z.string().nullable(),
-    siteCity: z.string().nullable(),
-    siteState: z.string().nullable(),
-    paymentEnabled: z.boolean(),
-    evse: z.object({
-      evseId: z.number(),
-      connectors: z.array(portalConnectorItem),
-      reservationExpiresAt: z.string().nullable(),
-      reservationDriverId: z.string().nullable(),
-    }),
+    stationId: z.string().max(255).describe('OCPP station identity'),
+    siteId: z.string().nullable().describe('Owning site ID'),
+    model: z.string().max(100).nullable().describe('Station hardware model'),
+    isOnline: z.boolean().describe('Whether the station is currently online'),
+    siteName: z.string().max(255).nullable().describe('Site name'),
+    siteAddress: z.string().max(500).nullable().describe('Street address'),
+    siteCity: z.string().max(100).nullable().describe('City'),
+    siteState: z.string().max(100).nullable().describe('State or region'),
+    paymentEnabled: z
+      .boolean()
+      .describe('Whether Stripe is configured for this site and payment is required'),
+    evse: z
+      .object({
+        evseId: z.number().int().min(1).describe('EVSE ID on the station'),
+        connectors: z.array(portalConnectorItem).describe('Connectors on this EVSE'),
+        reservationExpiresAt: z
+          .string()
+          .nullable()
+          .describe('ISO 8601 timestamp the active reservation expires, null when not reserved'),
+        reservationDriverId: z
+          .string()
+          .nullable()
+          .describe('Driver ID holding the active reservation, null when not reserved'),
+      })
+      .describe('Selected EVSE detail with reservation context'),
   })
   .passthrough();
 
 const portalEvseItem = z
   .object({
-    evseId: z.number(),
-    connectors: z.array(portalConnectorItem),
-    reservationExpiresAt: z.string().nullable(),
-    reservationDriverId: z.string().nullable(),
+    evseId: z.number().int().min(1).describe('EVSE ID on the station'),
+    connectors: z.array(portalConnectorItem).describe('Connectors on this EVSE'),
+    reservationExpiresAt: z
+      .string()
+      .nullable()
+      .describe('ISO 8601 timestamp the active reservation expires, null when not reserved'),
+    reservationDriverId: z
+      .string()
+      .nullable()
+      .describe('Driver ID holding the active reservation, null when not reserved'),
   })
   .passthrough();
 
 const portalStationDetail = z
   .object({
-    stationId: z.string(),
-    siteId: z.string().nullable(),
-    model: z.string().nullable(),
-    isOnline: z.boolean(),
-    siteName: z.string().nullable(),
-    siteAddress: z.string().nullable(),
-    siteCity: z.string().nullable(),
-    siteState: z.string().nullable(),
-    siteContactName: z.string().nullable(),
-    siteContactEmail: z.string().nullable(),
-    siteContactPhone: z.string().nullable(),
-    paymentEnabled: z.boolean(),
-    evses: z.array(portalEvseItem),
+    stationId: z.string().max(255).describe('OCPP station identity'),
+    siteId: z.string().nullable().describe('Owning site ID'),
+    model: z.string().max(100).nullable().describe('Station hardware model'),
+    isOnline: z.boolean().describe('Whether the station is currently online'),
+    siteName: z.string().max(255).nullable().describe('Site name'),
+    siteAddress: z.string().max(500).nullable().describe('Street address'),
+    siteCity: z.string().max(100).nullable().describe('City'),
+    siteState: z.string().max(100).nullable().describe('State or region'),
+    siteContactName: z
+      .string()
+      .max(255)
+      .nullable()
+      .describe('Public site contact name (null when contact is private)'),
+    siteContactEmail: z
+      .string()
+      .max(255)
+      .nullable()
+      .describe('Public site contact email (null when contact is private)'),
+    siteContactPhone: z
+      .string()
+      .max(50)
+      .nullable()
+      .describe('Public site contact phone (null when contact is private)'),
+    paymentEnabled: z
+      .boolean()
+      .describe('Whether Stripe is configured for this site and payment is required'),
+    evses: z.array(portalEvseItem).describe('All EVSEs on the station'),
   })
   .passthrough();
 
 const portalConnectorSummary = z
   .object({
-    connectorType: z.string().nullable(),
-    maxPowerKw: z.number().nullable(),
-    maxCurrentAmps: z.number().nullable(),
-    status: z.string(),
+    connectorType: z
+      .string()
+      .max(50)
+      .nullable()
+      .describe('Physical connector type (CCS2, CHAdeMO, Type1, Type2, NACS, etc.)'),
+    maxPowerKw: z.number().min(0).nullable().describe('Maximum charging power in kilowatts'),
+    maxCurrentAmps: z.number().min(0).nullable().describe('Maximum current in Amps'),
+    status: z.string().max(50).describe('Live connector status'),
   })
   .passthrough();
 
 const portalChargerSearch = z
   .object({
-    stationId: z.string(),
-    model: z.string().nullable(),
-    isOnline: z.boolean(),
-    siteName: z.string().nullable(),
-    evseCount: z.number(),
-    availableCount: z.number(),
-    connectors: z.array(portalConnectorSummary),
+    stationId: z.string().max(255).describe('OCPP station identity'),
+    model: z.string().max(100).nullable().describe('Station hardware model'),
+    isOnline: z.boolean().describe('Whether the station is currently online'),
+    siteName: z.string().max(255).nullable().describe('Site name'),
+    evseCount: z.number().int().min(0).describe('Total EVSEs at this station'),
+    availableCount: z.number().int().min(0).describe('Number of available EVSEs at this station'),
+    connectors: z
+      .array(portalConnectorSummary)
+      .describe('Summary of all connectors on the station for filtering and display'),
   })
   .passthrough();
 
-const startChargingResponse = z.object({ chargingSessionId: z.string() }).passthrough();
+const startChargingResponse = z
+  .object({
+    chargingSessionId: z
+      .string()
+      .describe('Newly created charging session ID, used to poll session state'),
+  })
+  .passthrough();
 
 const activeSessionItem = z
   .object({
-    id: z.string(),
-    stationId: z.string().nullable(),
-    transactionId: z.string().nullable(),
-    startedAt: z.coerce.date(),
-    energyDeliveredWh: z.coerce.number().nullable(),
-    currentCostCents: z.number().nullable(),
-    currency: z.string().nullable(),
+    id: z.string().describe('Charging session ID'),
+    stationId: z.string().nullable().describe('OCPP station identity'),
+    transactionId: z.string().nullable().describe('OCPP transaction ID assigned by the station'),
+    startedAt: z.coerce.date().describe('Session start timestamp'),
+    energyDeliveredWh: z.coerce
+      .number()
+      .min(0)
+      .nullable()
+      .describe('Energy delivered so far in Watt-hours'),
+    currentCostCents: z.number().int().min(0).nullable().describe('Running cost in cents'),
+    currency: z.string().length(3).nullable().describe('ISO 4217 currency code'),
   })
   .passthrough();
 
 const stopSessionResponse = z
-  .object({ status: z.string(), chargingSessionId: z.string() })
+  .object({
+    status: z
+      .enum(['stopping', 'stopped', 'ghostRecovered'])
+      .describe(
+        'Stop request lifecycle state. "stopping" = station accepted, "ghostRecovered" = station had no record and the DB was force-cleaned',
+      ),
+    chargingSessionId: z.string().describe('Charging session ID'),
+  })
   .passthrough();
 
 const reservationItem = z
   .object({
-    id: z.string(),
-    reservationId: z.number(),
-    stationOcppId: z.string(),
-    status: z.string(),
-    startsAt: z.coerce.date().nullable(),
-    expiresAt: z.coerce.date(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Reservation ID (nanoid prefixed with rsv_)'),
+    reservationId: z.number().int().min(1).describe('OCPP reservation ID echoed to the station'),
+    stationOcppId: z.string().max(255).describe('OCPP station identity'),
+    status: z
+      .string()
+      .max(50)
+      .describe(
+        'Reservation status (scheduled, active, used, cancelled, expired, system_cancelled)',
+      ),
+    startsAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Reservation window start, null for immediately-active reservations'),
+    expiresAt: z.coerce.date().describe('Reservation window end'),
+    createdAt: z.coerce.date().describe('Timestamp the reservation was created'),
   })
   .passthrough();
 
 const reservationDetail = z
   .object({
-    id: z.string(),
-    reservationId: z.number(),
-    stationOcppId: z.string(),
-    siteName: z.string().nullable(),
-    siteAddress: z.string().nullable(),
-    siteCity: z.string().nullable(),
-    siteState: z.string().nullable(),
-    evseId: z.number().nullable(),
-    status: z.string(),
-    startsAt: z.coerce.date().nullable(),
-    expiresAt: z.coerce.date(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
-    sessionId: z.string().nullable(),
+    id: z.string().describe('Reservation ID (nanoid prefixed with rsv_)'),
+    reservationId: z.number().int().min(1).describe('OCPP reservation ID echoed to the station'),
+    stationOcppId: z.string().max(255).describe('OCPP station identity'),
+    siteName: z.string().max(255).nullable().describe('Site name'),
+    siteAddress: z.string().max(500).nullable().describe('Street address'),
+    siteCity: z.string().max(100).nullable().describe('City'),
+    siteState: z.string().max(100).nullable().describe('State or region'),
+    evseId: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('EVSE ID on the station, null for station-wide reservations'),
+    status: z
+      .string()
+      .max(50)
+      .describe(
+        'Reservation status (scheduled, active, used, cancelled, expired, system_cancelled)',
+      ),
+    startsAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Reservation window start, null for immediately-active reservations'),
+    expiresAt: z.coerce.date().describe('Reservation window end'),
+    createdAt: z.coerce.date().describe('Timestamp the reservation was created'),
+    updatedAt: z.coerce.date().describe('Timestamp the reservation was last updated'),
+    sessionId: z
+      .string()
+      .nullable()
+      .describe('Charging session ID created from this reservation, set only for used status'),
   })
   .passthrough();
 
 const reservationCreated = z
   .object({
-    id: z.string(),
-    reservationId: z.number(),
-    stationId: z.string(),
-    driverId: z.string().nullable(),
-    status: z.string(),
-    expiresAt: z.coerce.date(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Reservation ID (nanoid prefixed with rsv_)'),
+    reservationId: z.number().int().min(1).describe('OCPP reservation ID echoed to the station'),
+    stationId: z.string().describe('Internal station UUID'),
+    driverId: z.string().nullable().describe('Driver ID that owns the reservation'),
+    status: z.string().max(50).describe('Initial reservation status (scheduled or active)'),
+    expiresAt: z.coerce.date().describe('Reservation window end'),
+    createdAt: z.coerce.date().describe('Timestamp the reservation was created'),
   })
   .passthrough();
 
-const cancelReservationResponse = z.object({ status: z.literal('cancelled') }).passthrough();
+const cancelReservationResponse = z
+  .object({
+    status: z.literal('cancelled'),
+    cancellationFeeChargedCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Actual fee charged in cents (0 when waived or no payment method)'),
+    feeChargeFailed: z
+      .boolean()
+      .optional()
+      .describe(
+        'True when a fee was attempted but the Stripe charge threw. Audit row shows 0; reconcile via Stripe.',
+      ),
+  })
+  .passthrough();
 
 const sessionIdParams = z.object({
   sessionId: ID_PARAMS.sessionId.describe('Charging session ID'),
@@ -203,12 +310,18 @@ const stationIdParams = z.object({
 
 const portalPricingInfo = z
   .object({
-    currency: z.string(),
-    pricePerKwh: z.string().nullable(),
-    pricePerMinute: z.string().nullable(),
-    pricePerSession: z.string().nullable(),
-    idleFeePricePerMinute: z.string().nullable(),
-    taxRate: z.string().nullable(),
+    currency: z.string().length(3).describe('ISO 4217 currency code'),
+    pricePerKwh: z.string().nullable().describe('Energy price per kWh in major currency units'),
+    pricePerMinute: z
+      .string()
+      .nullable()
+      .describe('Time price per minute while charging in major currency units'),
+    pricePerSession: z.string().nullable().describe('Flat session fee in major currency units'),
+    idleFeePricePerMinute: z
+      .string()
+      .nullable()
+      .describe('Idle fee per minute (after grace period) in major currency units'),
+    taxRate: z.string().nullable().describe('Sales tax rate as a decimal (e.g. 0.0875 = 8.75%)'),
   })
   .passthrough();
 
@@ -225,16 +338,18 @@ const nearbyQuery = z.object({
 
 const portalNearbyStation = z
   .object({
-    stationId: z.string(),
-    model: z.string().nullable(),
-    isOnline: z.boolean(),
-    siteName: z.string().nullable(),
-    siteAddress: z.string().nullable(),
-    siteCity: z.string().nullable(),
-    distanceKm: z.number(),
-    evseCount: z.number(),
-    availableCount: z.number(),
-    connectors: z.array(portalConnectorSummary),
+    stationId: z.string().max(255).describe('OCPP station identity'),
+    model: z.string().max(100).nullable().describe('Station hardware model'),
+    isOnline: z.boolean().describe('Whether the station is currently online'),
+    siteName: z.string().max(255).nullable().describe('Site name'),
+    siteAddress: z.string().max(500).nullable().describe('Street address'),
+    siteCity: z.string().max(100).nullable().describe('City'),
+    distanceKm: z.number().min(0).describe('Great-circle distance from the search point in km'),
+    evseCount: z.number().int().min(0).describe('Total EVSEs at this station'),
+    availableCount: z.number().int().min(0).describe('Number of available EVSEs at this station'),
+    connectors: z
+      .array(portalConnectorSummary)
+      .describe('Summary of all connectors on the station for filtering and display'),
   })
   .passthrough();
 
@@ -596,10 +711,12 @@ export function portalChargerRoutes(app: FastifyInstance): void {
 
   const mapConfigResponse = z
     .object({
-      apiKey: z.string(),
-      defaultLat: z.number(),
-      defaultLng: z.number(),
-      defaultZoom: z.number(),
+      apiKey: z
+        .string()
+        .describe('Google Maps JavaScript API key (empty string when not configured)'),
+      defaultLat: z.number().describe('Default map center latitude'),
+      defaultLng: z.number().describe('Default map center longitude'),
+      defaultZoom: z.number().describe('Default Google Maps zoom level'),
     })
     .passthrough();
 
@@ -646,32 +763,41 @@ export function portalChargerRoutes(app: FastifyInstance): void {
 
   const portalLocationDetail = z
     .object({
-      siteId: z.string(),
-      name: z.string().nullable(),
-      address: z.string().nullable(),
-      city: z.string().nullable(),
-      state: z.string().nullable(),
-      postalCode: z.string().nullable(),
-      latitude: z.string().nullable(),
-      longitude: z.string().nullable(),
-      hoursOfOperation: z.string().nullable(),
-      contactName: z.string().nullable(),
-      contactEmail: z.string().nullable(),
-      contactPhone: z.string().nullable(),
-      stationCount: z.number(),
-      evseCount: z.number(),
-      availableCount: z.number(),
+      siteId: z.string().describe('Site ID'),
+      name: z.string().nullable().describe('Site name'),
+      address: z.string().nullable().describe('Street address'),
+      city: z.string().nullable().describe('City'),
+      state: z.string().nullable().describe('State or region'),
+      postalCode: z.string().nullable().describe('Postal or ZIP code'),
+      latitude: z.string().nullable().describe('Latitude in decimal degrees (string)'),
+      longitude: z.string().nullable().describe('Longitude in decimal degrees (string)'),
+      hoursOfOperation: z.string().nullable().describe('Free-form hours of operation text'),
+      contactName: z
+        .string()
+        .nullable()
+        .describe('Public contact name (null when contact is private)'),
+      contactEmail: z
+        .string()
+        .nullable()
+        .describe('Public contact email (null when contact is private)'),
+      contactPhone: z
+        .string()
+        .nullable()
+        .describe('Public contact phone (null when contact is private)'),
+      stationCount: z.number().describe('Number of stations at this site'),
+      evseCount: z.number().describe('Total EVSEs across all stations at this site'),
+      availableCount: z.number().describe('Number of available connectors across the site'),
     })
     .passthrough();
 
   const portalLocationImage = z
     .object({
-      id: z.number(),
-      stationId: z.string(),
-      fileName: z.string(),
-      fileSize: z.number(),
-      contentType: z.string(),
-      caption: z.string().nullable(),
+      id: z.number().describe('Image ID'),
+      stationId: z.string().describe('Owning station ID'),
+      fileName: z.string().describe('Original uploaded file name'),
+      fileSize: z.number().describe('File size in bytes'),
+      contentType: z.string().describe('MIME content type'),
+      caption: z.string().nullable().describe('Operator-supplied caption shown to drivers'),
     })
     .passthrough();
 
@@ -686,7 +812,13 @@ export function portalChargerRoutes(app: FastifyInstance): void {
   });
 
   const popularTimesItem = z
-    .object({ dow: z.number(), hour: z.number(), avgSessions: z.number() })
+    .object({
+      dow: z.number().describe('Day of week (0 = Sunday, 6 = Saturday) in the site timezone'),
+      hour: z.number().describe('Hour of day (0-23) in the site timezone'),
+      avgSessions: z
+        .number()
+        .describe('Average sessions per (dow, hour) bucket over the requested weeks'),
+    })
     .passthrough();
 
   const imageIdParams = z.object({
@@ -828,7 +960,13 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         security: [],
         params: zodSchema(imageIdParams),
         response: {
-          200: itemResponse(z.object({ downloadUrl: z.string() }).passthrough()),
+          200: itemResponse(
+            z
+              .object({
+                downloadUrl: z.string().describe('Presigned S3 GET URL valid for a short time'),
+              })
+              .passthrough(),
+          ),
           404: errorResponse,
         },
       },
@@ -1100,6 +1238,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Portal Chargers'],
         summary: 'Check connector status via TriggerMessage',
+        description:
+          'Dispatches OCPP TriggerMessage(StatusNotification) and waits up to 10s for the station to report fresh connector status. Used by the portal pre-start flow to detect cable presence before remote start. Per-station rate limited (5/min).',
         operationId: 'portalCheckConnectorStatus',
         security: [{ bearerAuth: [] }],
         params: zodSchema(chargerParams),
@@ -1107,8 +1247,16 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           200: itemResponse(
             z
               .object({
-                connectorStatus: z.string().nullable(),
-                error: z.string().optional(),
+                connectorStatus: z
+                  .string()
+                  .nullable()
+                  .describe(
+                    'Refreshed connector status, or null when the station is offline or did not respond',
+                  ),
+                error: z
+                  .string()
+                  .optional()
+                  .describe('Human-readable reason the status could not be refreshed'),
               })
               .passthrough(),
           ),
@@ -1180,6 +1328,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Portal Chargers'],
         summary: 'Start a charging session on a charger EVSE',
+        description:
+          'Validates connector availability, performs a fail-fast Stripe pre-authorization on the supplied payment method (skipped for free tariffs and simulated customers), then dispatches RequestStartTransaction (OCPP 2.1) or RemoteStartTransaction (OCPP 1.6) to the station. On TxInProgress rejection, attempts ghost-transaction recovery (RequestStop + retry). Returns 402 PAYMENT_PREAUTH_FAILED if the card is declined, 400 if the connector is not in a startable state, 502/504 on station rejection or timeout.',
         operationId: 'portalStartCharging',
         security: [{ bearerAuth: [] }],
         params: zodSchema(chargerParams),
@@ -1187,6 +1337,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(startChargingResponse),
           400: errorResponse,
+          402: errorResponse,
           403: errorResponse,
           404: errorResponse,
           409: errorResponse,
@@ -1345,8 +1496,17 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Get Stripe config to determine currency; pre-auth is handled by the payment gate
+      // Get Stripe config to determine currency. Pre-auth runs below after
+      // session creation so a card decline fails the start request immediately
+      // (returning 402) instead of letting the station begin charging and the
+      // event-projection payment gate stop it asynchronously.
       const config = await getStripeConfig(station.siteId ?? null);
+
+      let pmForPreAuth: {
+        id: number;
+        stripeCustomerId: string;
+        stripePaymentMethodId: string;
+      } | null = null;
 
       if (config != null) {
         // Check if pricing is free for this driver
@@ -1365,7 +1525,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
 
           // Verify payment method belongs to driver
           const [pmRow] = await db
-            .select({ id: driverPaymentMethods.id })
+            .select({
+              id: driverPaymentMethods.id,
+              stripeCustomerId: driverPaymentMethods.stripeCustomerId,
+              stripePaymentMethodId: driverPaymentMethods.stripePaymentMethodId,
+            })
             .from(driverPaymentMethods)
             .where(
               and(
@@ -1381,6 +1545,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
             });
             return;
           }
+          pmForPreAuth = pmRow;
         }
       }
 
@@ -1420,6 +1585,87 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           .status(500)
           .send({ error: 'Failed to create session', code: 'SESSION_CREATE_FAILED' });
         return;
+      }
+
+      // Fail-fast pre-auth: charge the card BEFORE telling the station to start
+      // charging. Skips simulated customers (handled by the event-projection
+      // payment gate) and free tariffs. On success the payment_records row is
+      // inserted with status='pre_authorized' and the projection's payment gate
+      // skips its work via the existing duplicate guard. On failure the session
+      // is removed and the API returns 402 so the driver sees the decline
+      // immediately instead of getting a stranded ghost session.
+      if (
+        pmForPreAuth != null &&
+        config != null &&
+        !isSimulatedCustomer(pmForPreAuth.stripeCustomerId)
+      ) {
+        try {
+          const paymentIntent = await createPreAuthorization(
+            config,
+            pmForPreAuth.stripeCustomerId,
+            pmForPreAuth.stripePaymentMethodId,
+          );
+          await db.execute(sql`
+            INSERT INTO payment_records (
+              session_id, driver_id, site_payment_config_id,
+              stripe_payment_intent_id, stripe_customer_id,
+              payment_source, currency, pre_auth_amount_cents, status
+            )
+            VALUES (
+              ${session.id},
+              ${driverId},
+              ${config.configId},
+              ${paymentIntent.id},
+              ${pmForPreAuth.stripeCustomerId},
+              'web_portal',
+              ${config.currency},
+              ${config.preAuthAmountCents},
+              'pre_authorized'
+            )
+            ON CONFLICT (session_id) DO NOTHING
+          `);
+        } catch (err: unknown) {
+          const reason = err instanceof Error ? err.message.slice(0, 500) : 'Unknown decline';
+          request.log.warn(
+            { err, sessionId: session.id, paymentMethodId: pmForPreAuth.id },
+            'Pre-auth failed, rejecting start request',
+          );
+          try {
+            await db.execute(sql`
+              INSERT INTO payment_records (
+                session_id, driver_id, site_payment_config_id,
+                stripe_customer_id, payment_source, currency, status, failure_reason
+              )
+              VALUES (
+                ${session.id},
+                ${driverId},
+                ${config.configId},
+                ${pmForPreAuth.stripeCustomerId},
+                'web_portal',
+                ${config.currency},
+                'failed',
+                ${reason}
+              )
+              ON CONFLICT (session_id) DO NOTHING
+            `);
+          } catch {
+            // Recording the failure is best-effort
+          }
+          await db
+            .update(chargingSessions)
+            .set({
+              status: 'failed',
+              stoppedReason: 'PreAuthDeclined',
+              endedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(eq(chargingSessions.id, session.id));
+          await reply.status(402).send({
+            error: `Payment authorization declined: ${reason}`,
+            code: 'PAYMENT_PREAUTH_FAILED',
+          });
+          return;
+        }
       }
 
       // Send RequestStartTransaction and wait for station response
@@ -1554,7 +1800,15 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         operationId: 'portalListActiveSessions',
         security: [{ bearerAuth: [] }],
         response: {
-          200: itemResponse(z.object({ data: z.array(activeSessionItem) }).passthrough()),
+          200: itemResponse(
+            z
+              .object({
+                data: z
+                  .array(activeSessionItem)
+                  .describe('Active charging sessions for the authenticated driver'),
+              })
+              .passthrough(),
+          ),
         },
       },
     },
@@ -1586,10 +1840,16 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Portal Chargers'],
         summary: 'Stop an active charging session',
+        description:
+          'Sends RequestStopTransaction (OCPP 2.1) or RemoteStopTransaction (OCPP 1.6) for the supplied sessionId and waits up to 35s for the station response. If the station rejects with reasonCode=TxNotFound (a "ghost session"), the API automatically marks the session faulted in the database and returns status=ghostRecovered. Returns 404 if the session does not exist or is not owned by the driver, 504 if the station does not respond within the timeout window.',
         operationId: 'portalStopSession',
         security: [{ bearerAuth: [] }],
         params: zodSchema(sessionIdParams),
-        response: { 200: itemResponse(stopSessionResponse), 404: errorResponse },
+        response: {
+          200: itemResponse(stopSessionResponse),
+          404: errorResponse,
+          504: errorResponse,
+        },
       },
     },
     async (request, reply) => {
@@ -1601,6 +1861,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           id: chargingSessions.id,
           transactionId: chargingSessions.transactionId,
           stationOcppId: chargingStations.stationId,
+          ocppProtocol: chargingStations.ocppProtocol,
         })
         .from(chargingSessions)
         .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
@@ -1620,17 +1881,44 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const commandId = crypto.randomUUID();
-      const notification = JSON.stringify({
-        commandId,
-        stationId: session.stationOcppId,
-        action: 'RequestStopTransaction',
-        payload: {
-          transactionId: session.transactionId,
-        },
-      });
+      const cmdResult = await sendOcppCommandAndWait(
+        session.stationOcppId,
+        'RequestStopTransaction',
+        { transactionId: session.transactionId },
+        session.ocppProtocol ?? undefined,
+      );
 
-      await getPubSub().publish('ocpp_commands', notification);
+      if (cmdResult.error != null) {
+        await reply.status(504).send({ error: 'Station did not respond', code: 'STATION_TIMEOUT' });
+        return;
+      }
+
+      const status = cmdResult.response?.['status'] as string | undefined;
+      const statusInfo = cmdResult.response?.['statusInfo'] as { reasonCode?: string } | undefined;
+      const isGhost = status === 'Rejected' && statusInfo?.reasonCode === 'TxNotFound';
+
+      if (isGhost) {
+        await db.execute(sql`
+          UPDATE charging_sessions
+          SET status = 'faulted',
+              stopped_reason = 'TxNotFound',
+              ended_at = now(),
+              final_cost_cents = COALESCE(final_cost_cents, current_cost_cents),
+              updated_at = now()
+          WHERE id = ${session.id} AND status = 'active'
+        `);
+        await db.execute(sql`
+          UPDATE session_tariff_segments
+          SET ended_at = now(),
+              duration_minutes = EXTRACT(EPOCH FROM (now() - started_at)) / 60
+          WHERE session_id = ${session.id} AND ended_at IS NULL
+        `);
+        request.log.info(
+          { sessionId: session.id, transactionId: session.transactionId },
+          'Ghost session recovered: station returned TxNotFound, marked DB faulted',
+        );
+        return { status: 'ghostRecovered', chargingSessionId: session.id };
+      }
 
       return { status: 'stopping', chargingSessionId: session.id };
     },
@@ -1647,7 +1935,17 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         summary: 'List reservations for the driver',
         operationId: 'portalListReservations',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(z.object({ data: z.array(reservationItem) }).passthrough()) },
+        response: {
+          200: itemResponse(
+            z
+              .object({
+                data: z
+                  .array(reservationItem)
+                  .describe('Reservations for the authenticated driver, newest first'),
+              })
+              .passthrough(),
+          ),
+        },
       },
     },
     async (request) => {
@@ -1770,6 +2068,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Portal Chargers'],
         summary: 'Create a reservation on a station',
+        description:
+          'Creates a reservation owned by the authenticated driver and dispatches ReserveNow to the station. Future-dated reservations are persisted as scheduled and activated by a delayed worker job at startsAt. Requires a default payment method to cover potential cancellation fees. Returns 409 on EVSE/time conflict and 502/504 on station rejection or timeout for immediate reservations.',
         operationId: 'portalCreateReservation',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createDriverReservationBody),
@@ -1790,9 +2090,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       const [station] = await db
         .select({
           id: chargingStations.id,
+          siteId: chargingStations.siteId,
           isOnline: chargingStations.isOnline,
           availability: chargingStations.availability,
           onboardingStatus: chargingStations.onboardingStatus,
+          reservationsEnabled: chargingStations.reservationsEnabled,
         })
         .from(chargingStations)
         .where(eq(chargingStations.stationId, body.stationId));
@@ -1809,6 +2111,20 @@ export function portalChargerRoutes(app: FastifyInstance): void {
             ? 'Station is pending approval'
             : 'Station is blocked';
         await reply.status(403).send({ error: msg, code });
+        return;
+      }
+
+      // Check system-wide, site-level, and station-level reservation eligibility.
+      // Operator + fleet routes already gate on this; the portal create route
+      // was previously skipping it, letting drivers create reservations against
+      // sites or stations whose operator had explicitly disabled the feature.
+      try {
+        await assertReservationsAllowed(station);
+      } catch (err) {
+        const e = err as { statusCode?: number; code?: string; message?: string };
+        await reply
+          .status((e.statusCode ?? 500) as 400)
+          .send({ error: e.message ?? 'Reservations not allowed', code: e.code });
         return;
       }
 
@@ -1899,14 +2215,58 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         resolvedEvseId = evse.id;
       }
 
-      // Check for conflicting active or scheduled reservations
+      // Reject when the targeted EVSE has an active charging session and the
+      // reservation starts within `reservation.activeSessionCheckHours`.
+      // Mirrors the operator route's pre-check; otherwise the worker would
+      // dispatch ReserveNow against a busy EVSE and the system-cancel
+      // projection would silently roll back, which the driver experiences as
+      // a reservation that disappears with no explanation.
+      const activeSessionCheckMs = reservationCfg.activeSessionCheckHours * 60 * 60 * 1000;
+      const newStart = body.startsAt != null ? new Date(body.startsAt) : new Date();
+      const newEnd = new Date(body.expiresAt);
+      if (activeSessionCheckMs > 0 && newStart.getTime() - Date.now() < activeSessionCheckMs) {
+        const sessionConditions = [
+          eq(chargingSessions.stationId, station.id),
+          isNull(chargingSessions.endedAt),
+        ];
+        if (resolvedEvseId != null) {
+          sessionConditions.push(eq(chargingSessions.evseId, resolvedEvseId));
+        }
+        const [activeSession] = await db
+          .select({ id: chargingSessions.id })
+          .from(chargingSessions)
+          .where(and(...sessionConditions));
+        if (activeSession != null) {
+          await reply.status(409).send({
+            error:
+              resolvedEvseId != null
+                ? 'EVSE has an active charging session that conflicts with this reservation'
+                : 'Station has an active charging session that conflicts with this reservation',
+            code: 'EVSE_IN_USE',
+          });
+          return;
+        }
+      }
+
+      // Check for conflicting active or scheduled reservations whose time
+      // window OVERLAPS the requested one. Two windows [aStart, aEnd] and
+      // [bStart, bEnd] overlap iff aStart < bEnd AND bStart < aEnd. The
+      // existing reservation's start defaults to its createdAt when there's
+      // no explicit startsAt. Without time-overlap math the check would block
+      // any future reservation just because some other future window exists
+      // on the same EVSE.
       const conflictConditions = [
         eq(reservations.stationId, station.id),
         or(eq(reservations.status, 'active'), eq(reservations.status, 'scheduled')),
-        sql`${reservations.expiresAt} > NOW()`,
+        sql`COALESCE(${reservations.startsAt}, ${reservations.createdAt}) < ${newEnd.toISOString()}`,
+        gt(reservations.expiresAt, newStart),
       ];
       if (resolvedEvseId != null) {
-        conflictConditions.push(eq(reservations.evseId, resolvedEvseId));
+        // EVSE-specific request: conflict with same EVSE OR with station-level
+        // reservations (evseId IS NULL applies to all EVSEs).
+        conflictConditions.push(
+          or(eq(reservations.evseId, resolvedEvseId), sql`${reservations.evseId} IS NULL`),
+        );
       }
       const [conflict] = await db
         .select({ id: reservations.id })
@@ -2007,6 +2367,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Portal Chargers'],
         summary: 'Cancel a reservation',
+        description:
+          'Cancels a driver-owned reservation. Dispatches CancelReservation to the station for active reservations; scheduled reservations are cancelled DB-only (not yet pushed to the station). May charge a cancellation fee per the reservation policy when the cancellation is within the fee window. Returns 404 if the reservation is not owned by the driver.',
         operationId: 'portalCancelReservation',
         security: [{ bearerAuth: [] }],
         params: zodSchema(reservationIdParams),
@@ -2027,6 +2389,9 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           reservationId: reservations.reservationId,
           status: reservations.status,
           stationOcppId: chargingStations.stationId,
+          siteId: chargingStations.siteId,
+          startsAt: reservations.startsAt,
+          createdAt: reservations.createdAt,
         })
         .from(reservations)
         .innerJoin(chargingStations, eq(reservations.stationId, chargingStations.id))
@@ -2059,25 +2424,47 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         await getPubSub().publish('ocpp_commands', notification);
       }
 
-      await db
-        .update(reservations)
-        .set({ status: 'cancelled', updatedAt: new Date() })
-        .where(eq(reservations.id, id));
-
-      // Notify driver of cancellation
-      void dispatchDriverNotification(
-        client,
-        'reservation.Cancelled',
+      // Driver-initiated: chargeFee=true. The helper still gates on the
+      // cancellation-window settings, so a cancellation outside the window
+      // (or with cancellationFeeCents=0) won't actually charge.
+      const { feeChargedCents, cancelled, feeChargeFailed } = await applyReservationCancellation({
+        reservationDbId: reservation.id,
+        siteId: reservation.siteId,
         driverId,
-        {
-          reservationId: reservation.reservationId,
-          stationId: reservation.stationOcppId,
-        },
-        ALL_TEMPLATES_DIRS,
-        getPubSub(),
-      );
+        startsAt: reservation.startsAt ?? reservation.createdAt,
+        createdAt: reservation.createdAt,
+        actor: 'driver',
+        reason: 'driver_initiated',
+        chargeFee: true,
+        logger: request.log,
+      });
 
-      return { status: 'cancelled' };
+      // Only notify when this caller actually flipped the row. A concurrent
+      // operator/system cancel winning the race already sent its own message;
+      // firing another would deliver a misleading "feeFormatted: ''" and
+      // double-notify the driver.
+      if (cancelled) {
+        const cancellationFeeFormatted =
+          feeChargedCents > 0 ? `$${(feeChargedCents / 100).toFixed(2)}` : '';
+        void dispatchDriverNotification(
+          client,
+          'reservation.Cancelled',
+          driverId,
+          {
+            reservationId: reservation.reservationId,
+            stationId: reservation.stationOcppId,
+            cancellationFeeFormatted,
+          },
+          ALL_TEMPLATES_DIRS,
+          getPubSub(),
+        );
+      }
+
+      return {
+        status: 'cancelled',
+        cancellationFeeChargedCents: feeChargedCents,
+        ...(feeChargeFailed ? { feeChargeFailed: true } : {}),
+      };
     },
   );
 }

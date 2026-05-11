@@ -59,68 +59,125 @@ import { authorize } from '../middleware/rbac.js';
 
 const ocppEventSettingItem = z
   .object({
-    id: z.string(),
-    eventType: z.string(),
-    recipient: z.string(),
-    channel: z.string(),
-    templateHtml: z.string().nullable(),
-    language: z.string().nullable(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Setting ID'),
+    eventType: z
+      .string()
+      .max(255)
+      .describe('OCPP event type (e.g. station.Connected, ocpp.BootNotification)'),
+    recipient: z.string().max(500).describe('Recipient address (email, webhook URL, or $admin)'),
+    channel: z
+      .enum(['email', 'webhook', 'sms', 'log'])
+      .describe('Delivery channel (email, webhook, sms, log)'),
+    templateHtml: z
+      .string()
+      .max(50000)
+      .nullable()
+      .describe('Custom HTML template override for this event/channel'),
+    language: z.string().max(10).nullable().describe('Template language code (en, es, zh, etc.)'),
+    createdAt: z.coerce.date().describe('Timestamp when the setting was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the setting was last updated'),
   })
   .passthrough();
 
 const driverEventSettingItem = z
   .object({
-    id: z.string(),
-    eventType: z.string(),
-    isEnabled: z.boolean(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Setting ID'),
+    eventType: z
+      .string()
+      .max(255)
+      .describe('Driver event type (e.g. session.Started, session.Completed)'),
+    isEnabled: z.boolean().describe('Whether notifications are enabled for this event type'),
+    createdAt: z.coerce.date().describe('Timestamp when the setting was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the setting was last updated'),
   })
   .passthrough();
 
 const notificationHistoryItem = z
   .object({
-    id: z.string(),
-    eventType: z.string(),
-    channel: z.string(),
-    recipient: z.string(),
-    status: z.string(),
-    metadata: z.record(z.unknown()).nullable(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Notification ID'),
+    eventType: z
+      .string()
+      .max(255)
+      .describe('Notification event type (e.g. session.Started, ocpp.BootNotification)'),
+    channel: z
+      .enum(['email', 'webhook', 'sms', 'log'])
+      .describe('Delivery channel (email, webhook, sms, log)'),
+    recipient: z.string().max(500).describe('Recipient address (email, phone, or webhook URL)'),
+    status: z
+      .enum(['pending', 'sent', 'failed'])
+      .describe('Delivery status (pending, sent, failed)'),
+    metadata: z
+      .record(z.unknown())
+      .nullable()
+      .describe('Arbitrary metadata about the notification (driverId, error details, etc.)'),
+    createdAt: z.coerce.date().describe('Timestamp when the notification was dispatched'),
   })
   .passthrough();
 
 const notificationTemplateItem = z
   .object({
-    eventType: z.string(),
-    channel: z.string(),
-    language: z.string(),
-    subject: z.string().nullable(),
-    bodyHtml: z.string().nullable(),
-    isCustomized: z.boolean(),
+    eventType: z.string().max(255).describe('Notification event type (e.g. session.Started)'),
+    channel: z
+      .enum(['email', 'webhook', 'sms', 'log'])
+      .describe('Delivery channel (email, webhook, sms, log)'),
+    language: z.string().max(10).describe('Template language code (en, es, zh, etc.)'),
+    subject: z
+      .string()
+      .max(500)
+      .nullable()
+      .describe('Email subject line, null for non-email channels'),
+    bodyHtml: z
+      .string()
+      .max(50000)
+      .nullable()
+      .describe('Custom email HTML body or SMS text content'),
+    isCustomized: z
+      .boolean()
+      .describe('True if this template is customized in the database, false if from default file'),
   })
   .passthrough();
 
 const notificationTemplateDbItem = z
   .object({
-    id: z.string(),
-    eventType: z.string(),
-    channel: z.string(),
-    language: z.string(),
-    subject: z.string().nullable(),
-    bodyHtml: z.string().nullable(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Template ID'),
+    eventType: z.string().max(255).describe('Notification event type (e.g. session.Started)'),
+    channel: z
+      .enum(['email', 'webhook', 'sms', 'log'])
+      .describe('Delivery channel (email, webhook, sms, log)'),
+    language: z.string().max(10).describe('Template language code (en, es, zh, etc.)'),
+    subject: z
+      .string()
+      .max(500)
+      .nullable()
+      .describe('Email subject line, null for non-email channels'),
+    bodyHtml: z
+      .string()
+      .max(50000)
+      .nullable()
+      .describe('Custom email HTML body or SMS text content'),
+    createdAt: z.coerce.date().describe('Timestamp when the template was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the template was last updated'),
   })
   .passthrough();
 
 const templatePreviewResponse = z
-  .object({ subject: z.string().nullable(), bodyHtml: z.string().nullable() })
+  .object({
+    subject: z
+      .string()
+      .nullable()
+      .describe('Rendered email subject with sample variables, null for non-email channels'),
+    bodyHtml: z
+      .string()
+      .nullable()
+      .describe('Rendered template body with sample variables (HTML for email, text for SMS)'),
+  })
   .passthrough();
 
-const ocppEventTemplateResponse = z.object({ template: z.string() }).passthrough();
+const ocppEventTemplateResponse = z
+  .object({
+    template: z.string().describe('Default Handlebars template content from the .hbs file'),
+  })
+  .passthrough();
 
 const OCPP_EVENT_TYPES = [
   'station.Connected',

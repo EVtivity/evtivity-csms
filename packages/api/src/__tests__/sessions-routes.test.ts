@@ -78,9 +78,26 @@ vi.mock('@evtivity/database', () => ({
   sites: {},
   drivers: {},
   transactionEvents: {},
+  transactionEventTypeEnum: {
+    enumValues: ['Started', 'Updated', 'Ended'] as const,
+  },
   paymentRecords: {},
+  paymentStatusEnum: {
+    enumValues: [
+      'pending',
+      'pre_authorized',
+      'captured',
+      'partially_refunded',
+      'refunded',
+      'failed',
+      'cancelled',
+    ] as const,
+  },
   meterValues: {},
   guestSessions: {},
+  sessionStatusEnum: {
+    enumValues: ['active', 'completed', 'invalid', 'faulted', 'failed'] as const,
+  },
 }));
 
 vi.mock('drizzle-orm', () => {

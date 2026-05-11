@@ -48,76 +48,103 @@ function envHasValue(key: string, defaultValueIfDev?: string): boolean {
 
 const systemInfoResponse = z
   .object({
-    version: z.string(),
-    nodeEnv: z.string(),
-    logLevel: z.string(),
+    version: z.string().describe('Application version (from package.json)'),
+    nodeEnv: z.string().describe('Node.js environment (development, production, etc.)'),
+    logLevel: z.string().describe('Pino log level in use'),
     network: z
       .object({
-        bindIp: z.string().nullable(),
-        apiPort: z.string(),
-        apiHost: z.string(),
-        ocppPort: z.string(),
-        ocppHost: z.string(),
-        ocppHealthPort: z.string(),
-        ocppTlsPort: z.string().nullable(),
-        ocppTlsEnabled: z.boolean(),
-        ocpiPort: z.string().nullable(),
-        ocpiHost: z.string().nullable(),
-        metricsPort: z.string(),
-        csmsUrl: z.string().nullable(),
-        portalUrl: z.string().nullable(),
-        cookieDomain: z.string().nullable(),
-        corsOrigin: z.string(),
+        bindIp: z.string().nullable().describe('Bind IP override, when set'),
+        apiPort: z.string().describe('REST API listening port'),
+        apiHost: z.string().describe('REST API listening host'),
+        ocppPort: z.string().describe('OCPP WebSocket listening port'),
+        ocppHost: z.string().describe('OCPP WebSocket listening host'),
+        ocppHealthPort: z.string().describe('OCPP health check port'),
+        ocppTlsPort: z.string().nullable().describe('OCPP TLS port, when TLS is enabled'),
+        ocppTlsEnabled: z.boolean().describe('Whether OCPP TLS (wss) is enabled'),
+        ocpiPort: z.string().nullable().describe('OCPI server port'),
+        ocpiHost: z.string().nullable().describe('OCPI server host'),
+        metricsPort: z.string().describe('Prometheus metrics port'),
+        csmsUrl: z.string().nullable().describe('Public URL of the CSMS dashboard'),
+        portalUrl: z.string().nullable().describe('Public URL of the driver portal'),
+        cookieDomain: z.string().nullable().describe('Cookie domain used for auth cookies'),
+        corsOrigin: z.string().describe('Configured CORS allowed origin(s)'),
       })
-      .passthrough(),
+      .passthrough()
+      .describe('Network listener and URL configuration'),
     rateLimits: z
       .object({
-        rateLimitMax: z.string(),
-        rateLimitWindow: z.string(),
-        authRateLimitMax: z.string(),
-        ocppMaxConnectionsPerIp: z.string().nullable(),
-        ocppMaxMessagesPerIpPerSecond: z.string().nullable(),
+        rateLimitMax: z.string().describe('Default request rate limit per window'),
+        rateLimitWindow: z.string().describe('Default rate limit window duration'),
+        authRateLimitMax: z.string().describe('Login rate limit per window'),
+        ocppMaxConnectionsPerIp: z
+          .string()
+          .nullable()
+          .describe('Maximum simultaneous OCPP connections allowed from one IP'),
+        ocppMaxMessagesPerIpPerSecond: z
+          .string()
+          .nullable()
+          .describe('Maximum OCPP messages per second from one IP'),
       })
-      .passthrough(),
+      .passthrough()
+      .describe('Rate-limit configuration'),
     ocpp: z
       .object({
-        instanceId: z.string().nullable(),
-        registrationPolicy: z.string(),
+        instanceId: z
+          .string()
+          .nullable()
+          .describe('Pod identifier used by RedisConnectionRegistry for horizontal scaling'),
+        registrationPolicy: z
+          .string()
+          .describe('Station registration policy (approval-required or auto-approve)'),
       })
-      .passthrough(),
+      .passthrough()
+      .describe('OCPP server configuration'),
     ocpi: z
       .object({
-        baseUrl: z.string().nullable(),
-        countryCode: z.string(),
-        partyId: z.string(),
-        businessName: z.string().nullable(),
+        baseUrl: z.string().nullable().describe('Public OCPI base URL exposed to partners'),
+        countryCode: z.string().describe('OCPI country code (ISO 3166-1)'),
+        partyId: z.string().describe('OCPI party identifier'),
+        businessName: z.string().nullable().describe('Business name advertised over OCPI'),
       })
-      .passthrough(),
+      .passthrough()
+      .describe('OCPI configuration'),
     simulator: z
       .object({
-        mode: z.string(),
-        actionIntervalMs: z.string().nullable(),
-        stationLimit: z.string().nullable(),
+        mode: z.string().describe('Charging station simulator mode (standby, chaos, etc.)'),
+        actionIntervalMs: z
+          .string()
+          .nullable()
+          .describe('Action interval in milliseconds when running in chaos mode'),
+        stationLimit: z.string().nullable().describe('Maximum number of simulated stations'),
       })
-      .passthrough(),
+      .passthrough()
+      .describe('Charging station simulator configuration'),
     seed: z
       .object({
-        seedDemo: z.string(),
+        seedDemo: z.string().describe('Whether demo data seeding is enabled'),
       })
-      .passthrough(),
+      .passthrough()
+      .describe('Database seeding configuration'),
     secrets: z
       .object({
-        jwtConfigured: z.boolean(),
-        settingsEncryptionConfigured: z.boolean(),
-        stripeConfigured: z.boolean(),
-        smtpConfigured: z.boolean(),
-        twilioConfigured: z.boolean(),
-        s3Configured: z.boolean(),
-        recaptchaConfigured: z.boolean(),
-        hubjectConfigured: z.boolean(),
-        googleMapsConfigured: z.boolean(),
+        jwtConfigured: z.boolean().describe('Whether JWT_SECRET is set to a non-default value'),
+        settingsEncryptionConfigured: z
+          .boolean()
+          .describe('Whether SETTINGS_ENCRYPTION_KEY is configured'),
+        stripeConfigured: z.boolean().describe('Whether Stripe API credentials are configured'),
+        smtpConfigured: z
+          .boolean()
+          .describe('Whether SMTP credentials are configured for email delivery'),
+        twilioConfigured: z
+          .boolean()
+          .describe('Whether Twilio credentials are configured for SMS delivery'),
+        s3Configured: z.boolean().describe('Whether S3 storage is configured'),
+        recaptchaConfigured: z.boolean().describe('Whether reCAPTCHA secret key is configured'),
+        hubjectConfigured: z.boolean().describe('Whether Hubject PnC token is configured'),
+        googleMapsConfigured: z.boolean().describe('Whether Google Maps API key is configured'),
       })
-      .passthrough(),
+      .passthrough()
+      .describe('Configured-status flags for secrets (no secret values are returned)'),
   })
   .passthrough();
 

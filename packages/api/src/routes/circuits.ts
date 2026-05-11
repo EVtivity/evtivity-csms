@@ -37,16 +37,16 @@ const phaseConnectionsSchema = z
 
 const createCircuitBody = z.object({
   name: z.string().min(1).max(255),
-  breakerRatingAmps: z.number().int().min(1).describe('Breaker rating in amps'),
+  breakerRatingAmps: z.number().int().min(1).max(10000).describe('Breaker rating in amps'),
   phaseConnections: phaseConnectionsSchema,
-  sortOrder: z.number().int().min(0).optional(),
+  sortOrder: z.number().int().min(0).max(10000).optional(),
 });
 
 const updateCircuitBody = z.object({
   name: z.string().min(1).max(255).optional(),
-  breakerRatingAmps: z.number().int().min(1).optional(),
+  breakerRatingAmps: z.number().int().min(1).max(10000).optional(),
   phaseConnections: phaseConnectionsSchema,
-  sortOrder: z.number().int().min(0).optional(),
+  sortOrder: z.number().int().min(0).max(10000).optional(),
 });
 
 const assignCircuitBody = z.object({
@@ -55,24 +55,33 @@ const assignCircuitBody = z.object({
 
 const circuitItem = z
   .object({
-    id: z.string(),
-    panelId: z.string(),
-    name: z.string(),
-    breakerRatingAmps: z.number(),
-    maxContinuousKw: z.number(),
-    phaseConnections: z.string().nullable(),
-    sortOrder: z.number(),
-    stationCount: z.number(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Identifier'),
+    panelId: z.string().describe('Parent panel identifier'),
+    name: z.string().max(255).describe('Display name'),
+    breakerRatingAmps: z.number().int().min(1).max(10000).describe('Breaker rating in amps'),
+    maxContinuousKw: z
+      .number()
+      .min(0)
+      .describe('Maximum continuous load in kW (NEC 80% derating applied)'),
+    phaseConnections: z
+      .enum(phaseConnectionValues)
+      .nullable()
+      .describe('Phases connected to this circuit; null inherits panel phases'),
+    sortOrder: z.number().int().min(0).describe('Display ordering within the panel'),
+    stationCount: z.number().int().min(0).describe('Number of stations assigned to this circuit'),
+    createdAt: z.coerce.date().describe('Timestamp when created'),
+    updatedAt: z.coerce.date().describe('Timestamp when last modified'),
   })
   .passthrough();
 
 const stationCircuitItem = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    circuitId: z.string().nullable(),
+    id: z.string().describe('Station identifier'),
+    stationId: z.string().describe('OCPP station ID'),
+    circuitId: z
+      .string()
+      .nullable()
+      .describe('Assigned circuit identifier, or null when unassigned'),
   })
   .passthrough();
 

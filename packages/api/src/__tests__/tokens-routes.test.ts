@@ -258,7 +258,9 @@ describe('Token routes - handler logic', () => {
       expect(body.errors).toEqual([]);
     });
 
-    it('returns errors for rows with missing fields', async () => {
+    it('returns 400 when row has missing fields (Zod validation)', async () => {
+      // Zod schema now enforces idToken/tokenType .min(1); empty strings fail
+      // at validation before reaching the handler's per-row check.
       const response = await app.inject({
         method: 'POST',
         url: '/tokens/import',
@@ -267,11 +269,12 @@ describe('Token routes - handler logic', () => {
           rows: [{ idToken: '', tokenType: '' }],
         },
       });
-      expect(response.statusCode).toBe(200);
-      const body = response.json();
-      expect(body.imported).toBe(0);
-      expect(body.errors).toHaveLength(1);
-      expect(body.errors[0]).toContain('Row 1');
+      expect(response.statusCode).toBe(400);
+      // Fastify zod-type-provider returns FST_ERR_VALIDATION for body schema
+      // failures; the global error handler maps this to VALIDATION_ERROR in
+      // production, but the test app injects routes directly without that
+      // middleware wired up. Either code is acceptable.
+      expect(['VALIDATION_ERROR', 'FST_ERR_VALIDATION']).toContain(response.json().code);
     });
 
     it('returns errors when driver email not found', async () => {

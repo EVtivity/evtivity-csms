@@ -16,6 +16,28 @@ export const reservationStatusEnum = pgEnum('reservation_status', [
   'expired',
 ]);
 
+// Who triggered the cancellation. Drives whether a cancellation fee may
+// apply: driver -> always per settings, operator -> opt-in per request,
+// system -> never.
+export const reservationCancelledByEnum = pgEnum('reservation_cancelled_by', [
+  'driver',
+  'operator',
+  'system',
+]);
+
+// Why the reservation was cancelled. Stable enum so the UI and notification
+// templates can render the right localized string. Free-form notes from the
+// operator land in `cancelNote` instead.
+export const reservationCancelReasonEnum = pgEnum('reservation_cancel_reason', [
+  'driver_initiated',
+  'operator_manual',
+  'expired_no_show',
+  'station_rejected_occupied',
+  'station_rejected_other',
+  'station_offline_at_activation',
+  'system_cleanup',
+]);
+
 export const reservations = pgTable(
   'reservations',
   {
@@ -35,9 +57,14 @@ export const reservations = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     fleetReservationId: text('fleet_reservation_id').references(() => fleetReservations.id),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    cancelledBy: reservationCancelledByEnum('cancelled_by'),
+    cancelReason: reservationCancelReasonEnum('cancel_reason'),
+    cancelNote: text('cancel_note'),
+    cancellationFeeCents: integer('cancellation_fee_cents').notNull().default(0),
   },
   (table) => [
     index('idx_reservations_station_id').on(table.stationId),
     index('idx_reservations_status').on(table.status),
+    index('idx_reservations_driver_id').on(table.driverId),
   ],
 );

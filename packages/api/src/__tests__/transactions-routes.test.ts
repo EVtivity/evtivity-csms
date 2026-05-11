@@ -83,8 +83,14 @@ vi.mock('@evtivity/database', () => ({
     }),
   },
   transactionEvents: {},
+  transactionEventTypeEnum: {
+    enumValues: ['Started', 'Updated', 'Ended'] as const,
+  },
   chargingSessions: {},
   chargingStations: {},
+  sessionStatusEnum: {
+    enumValues: ['active', 'completed', 'invalid', 'faulted', 'failed'] as const,
+  },
 }));
 
 vi.mock('drizzle-orm', () => {

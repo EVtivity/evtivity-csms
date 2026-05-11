@@ -79,6 +79,26 @@ vi.mock('@evtivity/database', () => ({
   supportCaseAttachments: {},
   supportCaseSessions: {},
   supportCaseReads: { userId: 'user_id', caseId: 'case_id' },
+  supportCaseStatusEnum: {
+    enumValues: ['open', 'in_progress', 'waiting_on_driver', 'resolved', 'closed'] as const,
+  },
+  supportCaseCategoryEnum: {
+    enumValues: [
+      'billing_dispute',
+      'charging_failure',
+      'connector_damage',
+      'account_issue',
+      'payment_problem',
+      'reservation_issue',
+      'general_inquiry',
+    ] as const,
+  },
+  supportCasePriorityEnum: {
+    enumValues: ['low', 'medium', 'high', 'urgent'] as const,
+  },
+  supportCaseMessageSenderEnum: {
+    enumValues: ['driver', 'operator', 'system'] as const,
+  },
   drivers: {},
   users: {},
   chargingSessions: {},

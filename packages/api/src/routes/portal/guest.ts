@@ -28,65 +28,139 @@ import { isEvseInReservationBuffer } from '../../lib/reservation-buffer.js';
 
 const guestPricingInfo = z
   .object({
-    currency: z.string(),
-    pricePerKwh: z.string().nullable(),
-    pricePerMinute: z.string().nullable(),
-    pricePerSession: z.string().nullable(),
-    idleFeePricePerMinute: z.string().nullable(),
-    taxRate: z.string().nullable(),
+    currency: z.string().length(3).describe('ISO 4217 currency code'),
+    pricePerKwh: z.string().nullable().describe('Energy price per kWh in major currency units'),
+    pricePerMinute: z
+      .string()
+      .nullable()
+      .describe('Time price per minute while charging in major currency units'),
+    pricePerSession: z.string().nullable().describe('Flat session fee in major currency units'),
+    idleFeePricePerMinute: z
+      .string()
+      .nullable()
+      .describe('Idle fee per minute (after grace period) in major currency units'),
+    taxRate: z.string().nullable().describe('Sales tax rate as a decimal (e.g. 0.0875 = 8.75%)'),
   })
   .passthrough();
 
 const chargerConfigResponse = z
   .object({
-    paymentEnabled: z.boolean(),
-    isFree: z.boolean(),
-    publishableKey: z.string().optional(),
-    currency: z.string().optional(),
-    preAuthAmountCents: z.number().optional(),
-    pricing: guestPricingInfo.optional(),
+    paymentEnabled: z
+      .boolean()
+      .describe('Whether Stripe is configured for this station and payment is required'),
+    isFree: z.boolean().describe('Whether the station is free to use (no payment required)'),
+    publishableKey: z
+      .string()
+      .max(255)
+      .optional()
+      .describe('Stripe publishable key for the configured Stripe account'),
+    currency: z.string().length(3).optional().describe('ISO 4217 currency code'),
+    preAuthAmountCents: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe('Pre-authorization hold amount in cents'),
+    pricing: guestPricingInfo
+      .optional()
+      .describe('Resolved pricing for this station (null when no tariff is assigned)'),
   })
   .passthrough();
 
-const guestStartResponse = z.object({ sessionToken: z.string() }).passthrough();
+const guestStartResponse = z
+  .object({
+    sessionToken: z
+      .string()
+      .length(20)
+      .describe('Opaque session token used to track the guest session lifecycle'),
+  })
+  .passthrough();
 
 const guestStatusResponse = z
   .object({
-    status: z.string(),
-    stationOcppId: z.string(),
-    evseId: z.number(),
-    isSimulator: z.boolean().optional(),
-    energyDeliveredWh: z.coerce.number().nullable().optional(),
-    currentCostCents: z.number().nullable().optional(),
-    finalCostCents: z.number().nullable().optional(),
-    currency: z.string().nullable().optional(),
-    failureReason: z.string().nullable().optional(),
-    startedAt: z.coerce.date().nullable().optional(),
-    endedAt: z.coerce.date().nullable().optional(),
-    idleStartedAt: z.coerce.date().nullable().optional(),
+    status: z
+      .enum(['pending_payment', 'payment_authorized', 'charging', 'completed', 'failed', 'expired'])
+      .describe('Guest session lifecycle state'),
+    stationOcppId: z.string().max(255).describe('OCPP station identity'),
+    evseId: z.number().int().min(1).describe('EVSE ID on the station'),
+    isSimulator: z
+      .boolean()
+      .optional()
+      .describe('Whether the station is a simulator (drives portal hints)'),
+    energyDeliveredWh: z.coerce
+      .number()
+      .min(0)
+      .nullable()
+      .optional()
+      .describe('Energy delivered so far in Watt-hours'),
+    currentCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .optional()
+      .describe('Running cost in cents'),
+    finalCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .optional()
+      .describe('Final captured cost in cents (set when the session completes)'),
+    currency: z.string().length(3).nullable().optional().describe('ISO 4217 currency code'),
+    failureReason: z
+      .string()
+      .max(500)
+      .nullable()
+      .optional()
+      .describe('Failure reason from Stripe or the OCPP layer when status is failed'),
+    startedAt: z.coerce.date().nullable().optional().describe('Charging start timestamp'),
+    endedAt: z.coerce.date().nullable().optional().describe('Charging end timestamp'),
+    idleStartedAt: z.coerce
+      .date()
+      .nullable()
+      .optional()
+      .describe('Timestamp the EV stopped drawing power, used to bill idle fees'),
   })
   .passthrough();
 
 const guestPowerHistoryItem = z
-  .object({ timestamp: z.coerce.date(), powerW: z.number() })
+  .object({
+    timestamp: z.coerce.date().describe('Meter sample timestamp'),
+    powerW: z.number().min(0).describe('Active power in Watts'),
+  })
   .passthrough();
 
 const guestEnergyHistoryItem = z
-  .object({ timestamp: z.coerce.date(), energyWh: z.number() })
+  .object({
+    timestamp: z.coerce.date().describe('Meter sample timestamp'),
+    energyWh: z
+      .number()
+      .min(0)
+      .describe('Cumulative energy delivered in Watt-hours since session start'),
+  })
   .passthrough();
 
 const chargerConfigParams = z.object({
-  stationId: z.string().describe('OCPP station identifier'),
-  evseId: z.coerce.number().int().describe('EVSE ID on the station'),
+  stationId: z.string().min(1).max(255).describe('OCPP station identifier'),
+  evseId: z.coerce.number().int().min(1).describe('EVSE ID on the station'),
 });
 
 const guestStartBody = z.object({
-  paymentMethodId: z.string().min(1).optional(),
-  guestEmail: z.string().email().optional(),
+  paymentMethodId: z.string().min(1).max(255).optional(),
+  guestEmail: z.string().email().max(255).optional(),
 });
 
 const sessionTokenParams = z.object({
-  sessionToken: z.string().min(1).describe('Guest session token returned from the start endpoint'),
+  // Generated tokens are 20-char hex (10 random bytes) per the OCPP 1.6
+  // idTag maxLength constraint, but accept any string up to the DB column
+  // width so callers passing an unknown token get a clean 404 from the
+  // handler instead of a 400 from the validator.
+  sessionToken: z
+    .string()
+    .min(1)
+    .max(64)
+    .describe('Guest session token returned from the start endpoint (20-char hex)'),
 });
 
 export function portalGuestRoutes(app: FastifyInstance): void {
@@ -101,6 +175,8 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Portal Guest'],
         summary: 'Check connector status via TriggerMessage (guest)',
+        description:
+          'Public version of the check-status flow used by the guest charging UI. Dispatches OCPP TriggerMessage(StatusNotification) and waits up to 10s for a fresh status report. Per-station rate limited (5/min) to prevent unauthenticated abuse.',
         operationId: 'guestCheckConnectorStatus',
         security: [],
         params: zodSchema(guestCheckStatusParams),
@@ -108,8 +184,16 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           200: itemResponse(
             z
               .object({
-                connectorStatus: z.string().nullable(),
-                error: z.string().optional(),
+                connectorStatus: z
+                  .string()
+                  .nullable()
+                  .describe(
+                    'Refreshed connector status, or null when the station is offline or did not respond',
+                  ),
+                error: z
+                  .string()
+                  .optional()
+                  .describe('Human-readable reason the status could not be refreshed'),
               })
               .passthrough(),
           ),
@@ -250,6 +334,8 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Portal Guest'],
         summary: 'Start a guest charging session with payment',
+        description:
+          'Creates a guest_sessions row with a 20-character session token (unique per guest), creates a Stripe PaymentIntent with capture_method=manual for paid sessions (free sessions skip Stripe), and dispatches RequestStartTransaction with the token as the OCPP idToken. Rate limited 5/min per IP. Returns 504 if the station does not ack within 35s (cancels the pre-auth and rolls back the row).',
         operationId: 'portalGuestStartCharging',
         security: [],
         params: zodSchema(chargerConfigParams),
@@ -637,6 +723,8 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Portal Guest'],
         summary: 'Stop a guest charging session',
+        description:
+          'Fire-and-forget RequestStopTransaction dispatched via pub/sub for the guest session linked to the supplied sessionToken. The portal polls /status to detect the actual stop. Rate limited 10/min. Returns 400 if the session is not in charging state.',
         operationId: 'portalGuestStopCharging',
         security: [],
         params: zodSchema(sessionTokenParams),
@@ -714,7 +802,15 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         security: [],
         params: zodSchema(sessionTokenParams),
         response: {
-          200: itemResponse(z.object({ data: z.array(guestPowerHistoryItem) }).passthrough()),
+          200: itemResponse(
+            z
+              .object({
+                data: z
+                  .array(guestPowerHistoryItem)
+                  .describe('Time-ordered power samples for the guest session'),
+              })
+              .passthrough(),
+          ),
           404: errorResponse,
           429: errorResponse,
         },
@@ -771,7 +867,15 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         security: [],
         params: zodSchema(sessionTokenParams),
         response: {
-          200: itemResponse(z.object({ data: z.array(guestEnergyHistoryItem) }).passthrough()),
+          200: itemResponse(
+            z
+              .object({
+                data: z
+                  .array(guestEnergyHistoryItem)
+                  .describe('Time-ordered cumulative energy samples for the guest session'),
+              })
+              .passthrough(),
+          ),
           404: errorResponse,
           429: errorResponse,
         },

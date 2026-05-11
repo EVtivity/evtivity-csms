@@ -18,25 +18,36 @@ import {
 
 const locationPublishListItem = z
   .object({
-    id: z.string(),
-    name: z.string(),
-    address: z.string().nullable(),
-    city: z.string().nullable(),
-    country: z.string().nullable(),
-    isPublished: z.boolean(),
-    publishToAll: z.boolean(),
-    ocpiLocationId: z.string().nullable(),
+    id: z.string().describe('Site identifier'),
+    name: z.string().max(255).describe('Site name'),
+    address: z.string().max(500).nullable().describe('Street address'),
+    city: z.string().max(100).nullable().describe('City'),
+    country: z.string().max(100).nullable().describe('Country'),
+    isPublished: z.boolean().describe('Whether the site is published as an OCPI location'),
+    publishToAll: z.boolean().describe('When true, the site is visible to every partner'),
+    ocpiLocationId: z
+      .string()
+      .max(36)
+      .nullable()
+      .describe('Custom OCPI location identifier exposed to partners'),
   })
   .passthrough();
 
 const locationPublishDetail = z
   .object({
-    siteId: z.string(),
-    siteName: z.string(),
-    isPublished: z.boolean(),
-    publishToAll: z.boolean(),
-    ocpiLocationId: z.string().nullable(),
-    partnerIds: z.array(z.string()),
+    siteId: z.string().describe('Site identifier'),
+    siteName: z.string().max(255).describe('Site name'),
+    isPublished: z.boolean().describe('Whether the site is published as an OCPI location'),
+    publishToAll: z.boolean().describe('When true, the site is visible to every partner'),
+    ocpiLocationId: z
+      .string()
+      .max(36)
+      .nullable()
+      .describe('Custom OCPI location identifier exposed to partners'),
+    partnerIds: z
+      .array(z.string())
+      .max(500)
+      .describe('Partner IDs the site is visible to when publishToAll is false'),
   })
   .passthrough();
 
@@ -53,6 +64,7 @@ const publishBody = z.object({
   ocpiLocationId: z.string().max(36).optional().describe('Custom OCPI location identifier'),
   partnerIds: z
     .array(ID_PARAMS.ocpiPartnerId)
+    .max(500)
     .optional()
     .describe('Partner IDs to publish to when publishToAll is false'),
 });

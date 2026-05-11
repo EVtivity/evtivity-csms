@@ -27,64 +27,89 @@ const stationIdParams = z.object({
 
 const localAuthEntryItem = z
   .object({
-    id: z.number(),
-    stationId: z.string(),
-    driverTokenId: z.string().nullable(),
-    idToken: z.string(),
-    tokenType: z.string(),
-    authStatus: z.string(),
-    addedAt: z.coerce.date(),
-    pushedAt: z.coerce.date().nullable(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
-    driverName: z.string().nullable(),
+    id: z.number().describe('Identifier'),
+    stationId: z.string().describe('Charging station identifier'),
+    driverTokenId: z
+      .string()
+      .nullable()
+      .describe('Linked driver token ID, or null when the source token was deleted'),
+    idToken: z.string().describe('RFID token value as it appears on the station'),
+    tokenType: z.string().describe('OCPP token type (e.g., ISO14443, Central)'),
+    authStatus: z
+      .string()
+      .describe(
+        'OCPP authorization status pushed to the station (Accepted, Blocked, Expired, Invalid, ConcurrentTx)',
+      ),
+    addedAt: z.coerce.date().describe('Timestamp when the entry was added to the tracked list'),
+    pushedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp when the entry was last pushed to the station; null when pending'),
+    createdAt: z.coerce.date().describe('Timestamp when created'),
+    updatedAt: z.coerce.date().describe('Timestamp when last modified'),
+    driverName: z
+      .string()
+      .nullable()
+      .describe('Display name of the linked driver, or null when no driver is associated'),
   })
   .passthrough();
 
 const versionInfoItem = z
   .object({
-    localVersion: z.number(),
-    lastSyncAt: z.coerce.date().nullable(),
-    lastModifiedAt: z.coerce.date().nullable(),
-    entries: z.array(localAuthEntryItem),
-    total: z.number(),
+    localVersion: z.number().describe('Current CSMS-side version number for the local auth list'),
+    lastSyncAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp of the most recent successful push to the station'),
+    lastModifiedAt: z.coerce
+      .date()
+      .nullable()
+      .describe(
+        'Timestamp when entries were last added or removed; compare with lastSyncAt to detect unpushed changes',
+      ),
+    entries: z.array(localAuthEntryItem).describe('Tracked local auth entries on the current page'),
+    total: z.number().describe('Total number of tracked entries'),
   })
   .passthrough();
 
 const availableTokenItem = z
   .object({
-    id: z.string(),
-    idToken: z.string(),
-    tokenType: z.string(),
-    driverName: z.string().nullable(),
+    id: z.string().describe('Driver token identifier'),
+    idToken: z.string().describe('RFID token value'),
+    tokenType: z.string().describe('OCPP token type (e.g., ISO14443, Central)'),
+    driverName: z.string().nullable().describe('Display name of the driver who owns the token'),
   })
   .passthrough();
 
 const pushResponse = z
   .object({
-    status: z.string(),
-    entriesCount: z.number(),
-    version: z.number(),
+    status: z.string().describe('OCPP push result status (typically Accepted)'),
+    entriesCount: z.number().describe('Number of entries pushed to the station'),
+    version: z.number().describe('New version number recorded after the push'),
   })
   .passthrough();
 
 const mutateResponse = z
   .object({
-    status: z.string(),
-    count: z.number(),
+    status: z.string().describe('Mutation outcome status'),
+    count: z.number().describe('Number of entries affected by the operation'),
   })
   .passthrough();
 
 const addTokensBody = z.object({
-  tokenIds: z.array(z.string()).min(1).describe('Driver token IDs to add'),
+  tokenIds: z.array(z.string()).min(1).max(1000).describe('Driver token IDs to add'),
 });
 
 const removeEntriesBody = z.object({
-  entryIds: z.array(z.number().int().min(1)).min(1).describe('Local auth entry IDs to remove'),
+  entryIds: z
+    .array(z.number().int().min(1))
+    .min(1)
+    .max(1000)
+    .describe('Local auth entry IDs to remove'),
 });
 
 const availableTokensQuery = z.object({
-  search: z.string().optional().describe('Search filter for token or driver name'),
+  search: z.string().max(255).optional().describe('Search filter for token or driver name'),
 });
 
 async function getStation(stationId: string) {
@@ -311,6 +336,8 @@ export function localAuthListRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Local Auth List'],
         summary: 'Push tracked entries to station via OCPP SendLocalList Full',
+        description:
+          'Reconciles tracked entries (drops orphans, blocks deactivated tokens), increments the local list version, and dispatches SendLocalList(Full) to the station. On Accepted, updates lastSyncAt and stamps pushedAt on every entry. Returns 400 if the station is offline and 502 on station rejection or timeout.',
         operationId: 'pushLocalAuthList',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationIdParams),

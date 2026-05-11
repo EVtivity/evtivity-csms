@@ -12,6 +12,10 @@ import {
   supportCaseAttachments,
   supportCaseSessions,
   supportCaseReads,
+  supportCaseStatusEnum,
+  supportCaseCategoryEnum,
+  supportCasePriorityEnum,
+  supportCaseMessageSenderEnum,
   drivers,
   users,
   chargingSessions,
@@ -37,95 +41,122 @@ import {
 
 const supportCaseListItem = z
   .object({
-    id: z.string(),
-    caseNumber: z.string(),
-    subject: z.string(),
-    status: z.string(),
-    category: z.string(),
-    priority: z.string(),
-    createdByDriver: z.boolean(),
-    driverName: z.string().nullable(),
-    assignedToName: z.string().nullable(),
-    assignedTo: z.string().nullable(),
-    driverId: z.string().nullable(),
-    isRead: z.boolean(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Support case ID'),
+    caseNumber: z.string().describe('Human-readable case number, e.g. CASE-00042'),
+    subject: z.string().max(255).describe('Case subject line'),
+    status: z
+      .enum(supportCaseStatusEnum.enumValues)
+      .describe('Case status (open, in_progress, waiting_on_driver, resolved, closed)'),
+    category: z.enum(supportCaseCategoryEnum.enumValues).describe('Case category'),
+    priority: z.enum(supportCasePriorityEnum.enumValues).describe('Case priority level'),
+    createdByDriver: z.boolean().describe('True if the case was created by the driver'),
+    driverName: z.string().nullable().describe('Full name of the linked driver'),
+    assignedToName: z.string().nullable().describe('Full name of the assigned operator'),
+    assignedTo: z.string().nullable().describe('Operator user ID assigned to handle this case'),
+    driverId: z.string().nullable().describe('Driver ID linked to this case'),
+    isRead: z.boolean().describe('True if the current operator has read the latest messages'),
+    createdAt: z.coerce.date().describe('Timestamp when the case was created'),
   })
   .passthrough();
 
 const supportCaseItem = z
   .object({
-    id: z.string(),
-    caseNumber: z.string(),
-    subject: z.string(),
-    description: z.string(),
-    status: z.string(),
-    category: z.string(),
-    priority: z.string(),
-    driverId: z.string().nullable(),
-    stationId: z.string().nullable(),
-    assignedTo: z.string().nullable(),
-    createdByDriver: z.boolean(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Support case ID'),
+    caseNumber: z.string().describe('Human-readable case number, e.g. CASE-00042'),
+    subject: z.string().max(255).describe('Case subject line'),
+    description: z.string().describe('Initial case description'),
+    status: z
+      .enum(supportCaseStatusEnum.enumValues)
+      .describe('Case status (open, in_progress, waiting_on_driver, resolved, closed)'),
+    category: z.enum(supportCaseCategoryEnum.enumValues).describe('Case category'),
+    priority: z.enum(supportCasePriorityEnum.enumValues).describe('Case priority level'),
+    driverId: z.string().nullable().describe('Driver ID linked to this case'),
+    stationId: z.string().nullable().describe('Charging station ID related to this case'),
+    assignedTo: z.string().nullable().describe('Operator user assigned to handle this case'),
+    createdByDriver: z.boolean().describe('True if the case was created by the driver'),
+    createdAt: z.coerce.date().describe('Timestamp when the case was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the case was last updated'),
   })
   .passthrough();
 
 const attachmentItem = z
   .object({
-    id: z.string(),
-    messageId: z.string(),
-    fileName: z.string(),
-    fileSize: z.number(),
-    contentType: z.string(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Attachment ID'),
+    messageId: z.string().describe('Message ID this attachment belongs to'),
+    fileName: z.string().max(255).describe('Original uploaded file name'),
+    fileSize: z.number().int().min(0).describe('File size in bytes'),
+    contentType: z.string().max(100).describe('MIME content type'),
+    createdAt: z.coerce.date().describe('Timestamp when the attachment was uploaded'),
   })
   .passthrough();
 
 const supportCaseMessageItem = z
   .object({
-    id: z.string(),
-    senderType: z.string(),
-    senderId: z.string().nullable(),
-    body: z.string(),
-    isInternal: z.boolean(),
-    createdAt: z.coerce.date(),
-    attachments: z.array(attachmentItem).optional(),
+    id: z.string().describe('Message ID'),
+    senderType: z
+      .enum(supportCaseMessageSenderEnum.enumValues)
+      .describe('Message sender (driver, operator, system)'),
+    senderId: z
+      .string()
+      .nullable()
+      .describe('User or driver ID of the sender, null for system messages'),
+    body: z.string().describe('Message body'),
+    isInternal: z.boolean().describe('True for operator-only internal notes'),
+    createdAt: z.coerce.date().describe('Timestamp when the message was created'),
+    attachments: z.array(attachmentItem).optional().describe('Attachments on this message'),
   })
   .passthrough();
 
-const sessionRef = z.object({ id: z.string(), transactionId: z.string().nullable() }).passthrough();
+const sessionRef = z
+  .object({
+    id: z.string().describe('Charging session ID'),
+    transactionId: z.string().nullable().describe('OCPP transaction ID for the session'),
+  })
+  .passthrough();
 
 const supportCaseDetail = supportCaseItem
   .extend({
-    driverName: z.string().nullable(),
-    driverEmail: z.string().nullable(),
-    stationName: z.string().nullable(),
-    assignedToName: z.string().nullable(),
-    resolvedAt: z.coerce.date().nullable(),
-    closedAt: z.coerce.date().nullable(),
-    sessions: z.array(sessionRef),
-    messages: z.array(supportCaseMessageItem),
+    driverName: z.string().nullable().describe('Full name of the linked driver'),
+    driverEmail: z.string().nullable().describe('Email address of the linked driver'),
+    stationName: z.string().nullable().describe('Station ID/name of the related charging station'),
+    assignedToName: z.string().nullable().describe('Full name of the assigned operator'),
+    resolvedAt: z.coerce.date().nullable().describe('Timestamp when the case was resolved'),
+    closedAt: z.coerce.date().nullable().describe('Timestamp when the case was closed'),
+    sessions: z.array(sessionRef).describe('Charging sessions linked to this case'),
+    messages: z
+      .array(supportCaseMessageItem)
+      .describe('Messages on this case in chronological order'),
   })
   .passthrough();
 
 const uploadUrlResponse = z
-  .object({ uploadUrl: z.string(), s3Key: z.string(), s3Bucket: z.string() })
+  .object({
+    uploadUrl: z.string().describe('Presigned S3 PUT URL for uploading the attachment'),
+    s3Key: z.string().describe('S3 object key for the attachment file'),
+    s3Bucket: z.string().describe('S3 bucket name where the attachment will be stored'),
+  })
   .passthrough();
 
-const downloadUrlResponse = z.object({ downloadUrl: z.string() }).passthrough();
+const downloadUrlResponse = z
+  .object({
+    downloadUrl: z.string().describe('Presigned S3 GET URL for downloading the attachment'),
+  })
+  .passthrough();
 
 const paymentRecordItem = z
   .object({
-    id: z.string(),
-    sessionId: z.string().nullable(),
-    driverId: z.string().nullable(),
-    status: z.string(),
-    currency: z.string(),
-    capturedAmountCents: z.number().nullable(),
-    refundedAmountCents: z.number(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Payment record ID'),
+    sessionId: z.string().nullable().describe('Charging session ID linked to this payment'),
+    driverId: z.string().nullable().describe('Driver ID linked to this payment'),
+    status: z.string().describe('Payment lifecycle state'),
+    currency: z.string().describe('ISO 4217 currency code'),
+    capturedAmountCents: z
+      .number()
+      .nullable()
+      .describe('Amount captured from the pre-authorization in cents'),
+    refundedAmountCents: z.number().int().min(0).describe('Total amount refunded in cents'),
+    createdAt: z.coerce.date().describe('Timestamp when the payment record was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the payment record was last updated'),
   })
   .passthrough();
 import {
@@ -175,7 +206,7 @@ const listCasesQuery = paginationQuery.extend({
 
 const createCaseBody = z.object({
   subject: z.string().min(1).max(255),
-  description: z.string().min(1),
+  description: z.string().min(1).max(5000),
   category: z
     .enum([
       'billing_dispute',
@@ -230,7 +261,7 @@ const updateCaseBody = z.object({
 });
 
 const createMessageBody = z.object({
-  body: z.string().min(1),
+  body: z.string().min(1).max(10000),
   isInternal: z.boolean().default(false).describe('If true, message is only visible to operators'),
 });
 
@@ -433,7 +464,15 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         operationId: 'getUnreadSupportCaseCount',
         security: [{ bearerAuth: [] }],
         response: {
-          200: zodSchema(z.object({ count: z.number() }).passthrough()),
+          200: zodSchema(
+            z
+              .object({
+                count: z
+                  .number()
+                  .describe('Number of unread support cases assigned to the current operator'),
+              })
+              .passthrough(),
+          ),
         },
       },
     },
@@ -1229,6 +1268,8 @@ export function supportCaseRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Support Cases'],
         summary: 'Issue a refund for a session linked to a support case',
+        description:
+          'Issues a Stripe refund for the supplied sessionId, which must be linked to this case via the support_case_sessions junction table. Supports partial refunds via amountCents. Allowed against captured or partially_refunded payments. Posts an audit message to the case timeline on success.',
         operationId: 'refundSupportCaseSession',
         security: [{ bearerAuth: [] }],
         params: zodSchema(caseIdParams),
@@ -1392,7 +1433,14 @@ export function supportCaseRoutes(app: FastifyInstance): void {
       .describe('Generate an internal note instead of a customer-facing reply'),
   });
 
-  const aiAssistResponse = z.object({ draft: z.string(), apiCallsMade: z.number() }).passthrough();
+  const aiAssistResponse = z
+    .object({
+      draft: z.string().describe('Generated AI draft reply text'),
+      apiCallsMade: z
+        .number()
+        .describe('Number of internal API calls the AI made to gather context'),
+    })
+    .passthrough();
 
   app.post(
     '/support-cases/:id/ai-assist',
@@ -1411,6 +1459,8 @@ export function supportCaseRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Support Cases'],
         summary: 'Generate an AI draft reply for a support case',
+        description:
+          'Invokes the support AI service to draft a reply for the case. The service uses GET-only tools to gather context (case detail, messages, linked sessions, station info, driver history) and produces text. The draft is returned for operator review and is not sent or persisted automatically.',
         operationId: 'supportCaseAiAssist',
         security: [{ bearerAuth: [] }],
         params: zodSchema(caseIdParams),

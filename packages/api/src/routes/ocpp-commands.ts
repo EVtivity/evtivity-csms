@@ -86,20 +86,23 @@ const RESULTS_CHANNEL = 'ocpp_command_results';
 
 const ocppCommandSuccess = z
   .object({
-    status: z.string(),
-    stationId: z.string(),
-    action: z.string(),
-    response: z.record(z.unknown()).optional(),
+    status: z.string().describe('Command outcome status (typically "accepted")'),
+    stationId: z.string().describe('Target station OCPP ID'),
+    action: z.string().describe('OCPP action that was dispatched'),
+    response: z
+      .record(z.unknown())
+      .optional()
+      .describe('Raw OCPP response payload from the station'),
   })
   .passthrough();
 
 const ocppCommandError = z
   .object({
-    status: z.string(),
-    code: z.string(),
-    stationId: z.string(),
-    action: z.string(),
-    error: z.string(),
+    status: z.string().describe('Failure status (e.g., "timeout", "error")'),
+    code: z.string().describe('Stable error code (e.g., COMMAND_TIMEOUT, COMMAND_ERROR)'),
+    stationId: z.string().describe('Target station OCPP ID'),
+    action: z.string().describe('OCPP action that was dispatched'),
+    error: z.string().describe('Human-readable error message'),
   })
   .passthrough();
 
@@ -302,6 +305,7 @@ function commandRoute(
   ocppVersion: 'ocpp2.1' | 'ocpp1.6',
   summary: string,
   bodySchema: z.ZodType,
+  description: string,
 ): void {
   app.post(
     `/ocpp/commands/${version}/${commandName}`,
@@ -310,6 +314,7 @@ function commandRoute(
       schema: {
         tags: [`OCPP ${version === 'v21' ? '2.1' : '1.6'} Commands`],
         summary,
+        description,
         operationId: `ocpp${version}_${commandName}`,
         security: [{ bearerAuth: [] }],
         body: zodSchema(bodySchema),
@@ -593,7 +598,7 @@ const getTariffsV21Body = z.object({
 
 const clearTariffsV21Body = z.object({
   stationId: stationIdField,
-  tariffIds: z.array(z.string()).optional().describe('Tariff IDs to clear'),
+  tariffIds: z.array(z.string()).max(100).optional().describe('Tariff IDs to clear'),
   evseId: z.number().int().optional().describe('EVSE ID'),
 });
 
@@ -615,8 +620,8 @@ const customerInformationV21Body = z.object({
 
 const costUpdatedV21Body = z.object({
   stationId: stationIdField,
-  totalCost: z.number().describe('Total cost'),
-  transactionId: z.string().describe('Transaction ID'),
+  totalCost: z.number().min(0).describe('Total cost in major currency units'),
+  transactionId: z.string().min(1).max(36).describe('Transaction ID'),
 });
 
 const usePriorityChargingV21Body = z.object({
@@ -931,7 +936,15 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
   // OCPP 2.1 Commands
   // -------------------------------------------------------------------------
 
-  commandRoute(app, 'v21', 'Reset', 'ocpp2.1', 'Reset a station', resetV21Body);
+  commandRoute(
+    app,
+    'v21',
+    'Reset',
+    'ocpp2.1',
+    'Reset a station',
+    resetV21Body,
+    'Reboots the station via OCPP Reset. Type Immediate cycles the station now; OnIdle waits until no active transaction; ImmediateAndResume resumes the transaction after reboot. Stations may take seconds to minutes to reconnect.',
+  );
 
   commandRoute(
     app,
@@ -940,6 +953,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Request to start a transaction',
     requestStartTransactionV21Body,
+    'Sends RequestStartTransaction to start a charging session remotely. The command is dispatched asynchronously via Redis pub/sub; the API blocks until the station responds (max 35s). Returns 502 if the station rejects (e.g., transaction already in progress, EVSE unavailable), or 504 if the station does not respond within the timeout window.',
   );
 
   commandRoute(
@@ -949,6 +963,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Request to stop a transaction',
     requestStopTransactionV21Body,
+    'Sends RequestStopTransaction to stop an active charging session. The transactionId in the payload must match an active transaction on the station. Returns 502 if the station rejects (e.g., transactionId not found), or 504 on timeout.',
   );
 
   commandRoute(
@@ -958,6 +973,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Get status of a transaction',
     getTransactionStatusV21Body,
+    'Queries the station for the status of a specific transaction or all ongoing transactions. The response indicates whether messages are still in the offline queue and whether the transaction is active. Returns 504 on timeout.',
   );
 
   commandRoute(
@@ -967,6 +983,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Change station or EVSE availability',
     changeAvailabilityV21Body,
+    'Sets the operational status (Operative or Inoperative) of the whole station or a specific EVSE. If a transaction is active on the targeted EVSE, the station may return Scheduled and apply the change after the transaction ends. Returns 502 on rejection or 504 on timeout.',
   );
 
   commandRoute(
@@ -976,6 +993,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Unlock a connector',
     unlockConnectorV21Body,
+    'Forces the station to mechanically unlock a connector, typically used when a cable is stuck. Stops any active transaction on the connector first. Returns 502 if the station cannot unlock (UnlockFailed, OngoingAuthorizedTransaction) or 504 on timeout.',
   );
 
   commandRoute(
@@ -985,6 +1003,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Trigger a message from station',
     triggerMessageV21Body,
+    'Asks the station to proactively send a specific OCPP message (e.g., BootNotification, StatusNotification, MeterValues, SignChargingStationCertificate). Useful for refreshing CSMS state on demand. Returns 502 if the station does not support the requested message, or 504 on timeout.',
   );
 
   commandRoute(
@@ -994,6 +1013,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Get local authorization list version',
     getLocalListVersionV21Body,
+    'Returns the version number of the local authorization list currently stored on the station. A version of 0 means no list is loaded. Used to decide whether SendLocalList Differential or Full is required. Returns 504 on timeout.',
   );
 
   commandRoute(
@@ -1003,6 +1023,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Send local authorization list',
     sendLocalListV21Body,
+    'Pushes a local authorization list (Full or Differential update) to the station so it can authorize tokens while offline. The station enforces ItemsPerMessageSendLocalList; callers must split larger lists themselves. Returns 502 on VersionMismatch or Failed, 504 on timeout.',
   );
 
   commandRoute(
@@ -1012,6 +1033,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Set a charging profile',
     setChargingProfileV21Body,
+    'Installs a charging profile (e.g., ChargingStationMaxProfile, TxDefaultProfile, TxProfile) on the station to limit power per the schedule. Profiles stack by purpose and stackLevel; the station enforces the most restrictive limit. Returns 502 on Rejected (e.g., invalid schedule), or 504 on timeout.',
   );
 
   commandRoute(
@@ -1021,6 +1043,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Clear charging profiles',
     clearChargingProfileV21Body,
+    'Removes one or more charging profiles from the station, optionally filtered by profile ID, purpose, stack level, or EVSE. Returns 502 with Unknown if no matching profiles were found, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1030,6 +1053,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Get charging profiles from station',
     getChargingProfilesV21Body,
+    'Asks the station to report installed charging profiles matching the given criteria. The station responds Accepted synchronously, then streams ReportChargingProfiles messages asynchronously. Returns 502 with NoProfiles if nothing matches, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1039,9 +1063,18 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Get composite charging schedule',
     getCompositeScheduleV21Body,
+    'Asks the station to compute and return the merged power schedule from all active charging profiles for the given EVSE and duration. Useful for verifying the effective limit a connected EV will see. Returns 502 on Rejected or 504 on timeout.',
   );
 
-  commandRoute(app, 'v21', 'ClearCache', 'ocpp2.1', 'Clear authorization cache', clearCacheV21Body);
+  commandRoute(
+    app,
+    'v21',
+    'ClearCache',
+    'ocpp2.1',
+    'Clear authorization cache',
+    clearCacheV21Body,
+    'Wipes the station-side authorization cache so previously cached idTokens must re-authorize against the CSMS on next presentation. Returns 502 if the station has no cache or rejects, or 504 on timeout.',
+  );
 
   commandRoute(
     app,
@@ -1050,9 +1083,18 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Update station firmware',
     updateFirmwareV21Body,
+    'Instructs the station to download and install firmware from the given URI at the scheduled time. The station replies Accepted/Rejected synchronously, then streams FirmwareStatusNotification messages as it downloads, installs, and reboots. Returns 502 on Rejected, or 504 on timeout.',
   );
 
-  commandRoute(app, 'v21', 'ReserveNow', 'ocpp2.1', 'Create a reservation', reserveNowV21Body);
+  commandRoute(
+    app,
+    'v21',
+    'ReserveNow',
+    'ocpp2.1',
+    'Create a reservation',
+    reserveNowV21Body,
+    'Reserves an EVSE (or any EVSE matching connectorType) for a specific idToken until expiryDateTime. Returns 502 if the station rejects (Faulted, Occupied, Unavailable, Rejected) or 504 on timeout. Reservations are released automatically when the EV plugs in or expiry passes.',
+  );
 
   commandRoute(
     app,
@@ -1061,6 +1103,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Cancel a reservation',
     cancelReservationV21Body,
+    'Cancels a previously created reservation by ID. Returns 502 with Rejected if the reservationId is unknown to the station, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1070,6 +1113,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Send a vendor-specific data transfer',
     dataTransferV21Body,
+    'Sends a vendor-specific payload to the station using the OCPP DataTransfer extension mechanism. Use vendorId and messageId to match the station vendor implementation. Returns 502 with UnknownVendorId or UnknownMessageId on rejection, or 504 on timeout.',
   );
 
   // GetVariables needs custom handling to respect ItemsPerMessageGetVariables limit.
@@ -1081,6 +1125,8 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['OCPP 2.1 Commands'],
         summary: 'Get station variables',
+        description:
+          'Reads one or more OCPP 2.1 configuration variables from the station. The CSMS must respect the station-reported ItemsPerMessageGetVariables limit; this endpoint splits requests automatically and aggregates the results. Returns 502 on per-variable rejection or 504 on timeout.',
         operationId: 'ocppv21_GetVariables',
         security: [{ bearerAuth: [] }],
         body: zodSchema(getVariablesV21Body),
@@ -1178,9 +1224,25 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     },
   );
 
-  commandRoute(app, 'v21', 'SetVariables', 'ocpp2.1', 'Set station variables', setVariablesV21Body);
+  commandRoute(
+    app,
+    'v21',
+    'SetVariables',
+    'ocpp2.1',
+    'Set station variables',
+    setVariablesV21Body,
+    'Sets one or more OCPP 2.1 configuration variables on the station. The CSMS must respect the station-reported ItemsPerMessageSetVariables limit; oversized batches must be split by the caller. Returns 502 on per-variable rejection (Rejected, NotSupportedAttributeType, RebootRequired) or 504 on timeout.',
+  );
 
-  commandRoute(app, 'v21', 'GetLog', 'ocpp2.1', 'Request log upload from station', getLogV21Body);
+  commandRoute(
+    app,
+    'v21',
+    'GetLog',
+    'ocpp2.1',
+    'Request log upload from station',
+    getLogV21Body,
+    'Asks the station to upload diagnostics or security logs to the given remote location (HTTP/HTTPS/FTP). The station replies Accepted/Rejected synchronously, then streams LogStatusNotification messages as it uploads. Returns 502 on Rejected or 504 on timeout.',
+  );
 
   commandRoute(
     app,
@@ -1189,6 +1251,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Send signed certificate to station',
     certificateSignedV21Body,
+    'Delivers a signed certificate chain to the station in response to its earlier SignCertificate request. Used for charging-station mTLS certificates (SP3 renewal) and V2G contract certificates. Returns 502 if the station rejects the chain (Rejected, Failed) or 504 on timeout.',
   );
 
   commandRoute(
@@ -1198,6 +1261,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Install a CA certificate on station',
     installCertificateV21Body,
+    'Installs a root CA certificate (CSMS root, Manufacturer root, V2G root, MO root) into the station trust store. Returns 502 if the station rejects (Rejected, Failed) or 504 on timeout. Stations enforce a vendor-specific maximum number of installed certificates.',
   );
 
   commandRoute(
@@ -1207,6 +1271,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Delete a certificate from station',
     deleteCertificateV21Body,
+    'Removes an installed certificate from the station, identified by its issuer name hash, issuer key hash, and serial number. Returns 502 with NotFound or Failed if the certificate cannot be removed, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1216,6 +1281,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Query installed certificate IDs',
     getInstalledCertificateIdsV21Body,
+    'Lists the installed certificates on the station with their hash data, optionally filtered by certificate type. Returns 502 with NotFound if no matching certificates exist, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1225,6 +1291,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Get base report from station',
     getBaseReportV21Body,
+    'Asks the station to report its full configuration baseline (ConfigurationInventory, FullInventory, or SummaryInventory). The station replies Accepted synchronously, then streams NotifyReport messages with the data. Returns 502 on Rejected or 504 on timeout.',
   );
 
   commandRoute(
@@ -1234,6 +1301,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Get detailed report from station',
     getReportV21Body,
+    'Asks the station to report a custom subset of components and variables matching the given criteria. The station replies Accepted synchronously, then streams NotifyReport messages with the matching data. Returns 502 on Rejected or 504 on timeout.',
   );
 
   commandRoute(
@@ -1243,6 +1311,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Set monitoring base configuration',
     setMonitoringBaseV21Body,
+    'Activates a built-in monitoring baseline on the station (All, FactoryDefault, or HardWiredOnly). Replaces any active monitoring rules. Returns 502 on Rejected or 504 on timeout.',
   );
 
   commandRoute(
@@ -1252,6 +1321,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Set monitoring severity level',
     setMonitoringLevelV21Body,
+    'Sets the minimum severity level (0 = Danger to 9 = Debug) at which the station emits NotifyEvent monitoring messages. Returns 502 on Rejected or 504 on timeout.',
   );
 
   commandRoute(
@@ -1261,6 +1331,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Set variable monitoring rules',
     setVariableMonitoringV21Body,
+    'Installs threshold, delta, or periodic monitoring rules on specific component variables. The station fires NotifyEvent when rules trigger. Returns 502 on per-rule rejection (UnknownComponent, UnknownVariable, UnsupportedMonitorType) or 504 on timeout.',
   );
 
   commandRoute(
@@ -1270,6 +1341,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Clear variable monitoring rules',
     clearVariableMonitoringV21Body,
+    'Removes one or more variable monitoring rules from the station by monitor ID. Returns 502 with NotFound for IDs that do not exist on the station, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1279,6 +1351,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Get monitoring report',
     getMonitoringReportV21Body,
+    'Asks the station to report installed monitoring rules matching the given component variables and criteria. The station replies Accepted synchronously, then streams NotifyMonitoringReport messages. Returns 502 with NotSupported or EmptyResultSet, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1288,6 +1361,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Set network connection profile',
     setNetworkProfileV21Body,
+    'Configures a network connection profile (e.g., OCPP server URL, security profile, APN) for the station to use on next boot. Returns 502 on Rejected or Failed, or 504 on timeout. The station applies the profile after a reset.',
   );
 
   commandRoute(
@@ -1297,6 +1371,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Set a display message on station',
     setDisplayMessageV21Body,
+    'Pushes a message to the station display, scoped by message state (Idle, Charging, Faulted, etc.) and priority. Returns 502 on Rejected, NotSupportedMessageFormat, NotSupportedPriority, or NotSupportedState, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1306,6 +1381,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Get display messages from station',
     getDisplayMessagesV21Body,
+    'Asks the station to report installed display messages, optionally filtered by ID, priority, or state. The station replies Accepted synchronously, then streams NotifyDisplayMessages. Returns 502 with Unknown if no matches, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1315,6 +1391,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Clear a display message',
     clearDisplayMessageV21Body,
+    'Removes a previously installed display message by ID. Returns 502 with Unknown if the ID is not present on the station, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1324,9 +1401,18 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Set default tariff on station',
     setDefaultTariffV21Body,
+    'Installs the default tariff for the given EVSE so the station can display real-time pricing on its screen. Returns 502 on Rejected (e.g., TooManyElements) or 504 on timeout.',
   );
 
-  commandRoute(app, 'v21', 'GetTariffs', 'ocpp2.1', 'Get tariffs from station', getTariffsV21Body);
+  commandRoute(
+    app,
+    'v21',
+    'GetTariffs',
+    'ocpp2.1',
+    'Get tariffs from station',
+    getTariffsV21Body,
+    'Returns the list of tariffs currently installed on the station for the given EVSE, including the default tariff and any transaction-specific tariffs. Returns 502 with NoTariff or 504 on timeout.',
+  );
 
   commandRoute(
     app,
@@ -1335,6 +1421,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Clear tariffs from station',
     clearTariffsV21Body,
+    'Removes installed tariffs from the station, optionally filtered by tariff IDs or EVSE. Returns 502 with NotFound or 504 on timeout.',
   );
 
   commandRoute(
@@ -1344,6 +1431,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Change tariff for active transaction',
     changeTransactionTariffV21Body,
+    'Switches the tariff applied to an active transaction so the station can display the new price and the CSMS can bill the post-change segment correctly. Used by split-billing on tariff boundaries. Returns 502 on Rejected (TxNotFound, TooManyElements) or 504 on timeout.',
   );
 
   commandRoute(
@@ -1353,6 +1441,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Request or clear customer information',
     customerInformationV21Body,
+    'Asks the station to report stored data about a customer (report=true) and/or clear it (clear=true), identified by idToken, customer identifier, or certificate hash. Used for GDPR right-to-access and right-to-erasure. Returns 502 on Rejected or 504 on timeout.',
   );
 
   commandRoute(
@@ -1362,6 +1451,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Send updated cost to station',
     costUpdatedV21Body,
+    'Pushes the running total cost of an active transaction to the station so its display shows up-to-date pricing to the driver. Used periodically during charging when a custom display is configured. Returns 502 on Rejected or 504 on timeout.',
   );
 
   commandRoute(
@@ -1371,6 +1461,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Activate or deactivate priority charging',
     usePriorityChargingV21Body,
+    'Toggles priority charging on an active transaction so the station bypasses normal load-management throttling for this session. Typically used for emergency vehicles or premium subscribers. Returns 502 with NoProfile or Rejected, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1380,6 +1471,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Update dynamic charging schedule',
     updateDynamicScheduleV21Body,
+    'Updates one or more periods of an existing dynamic charging profile in place, without re-sending the whole profile. Used by external EMS systems for real-time grid response. Returns 502 on Rejected (e.g., NoProfile) or 504 on timeout.',
   );
 
   commandRoute(
@@ -1389,6 +1481,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Publish firmware to local controller',
     publishFirmwareV21Body,
+    'Tells a local controller to download a firmware image and host it for downstream stations to fetch (used in hub-and-spoke deployments). The station streams PublishFirmwareStatusNotification updates as the publish progresses. Returns 502 on Rejected or 504 on timeout.',
   );
 
   commandRoute(
@@ -1398,6 +1491,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Unpublish firmware from local controller',
     unpublishFirmwareV21Body,
+    'Removes a previously published firmware image from a local controller, identified by its MD5 checksum. Returns 502 with NoFirmware, DownloadOngoing, or Unpublished result, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1407,6 +1501,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Send AFRR signal to station',
     afrrSignalV21Body,
+    'Sends an automatic Frequency Restoration Reserve setpoint signal to a grid-services-enabled station so it can adjust power output in response to grid frequency. Returns 502 on Rejected or 504 on timeout.',
   );
 
   commandRoute(
@@ -1416,6 +1511,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Set DER control on station',
     setDERControlV21Body,
+    'Installs a Distributed Energy Resource control configuration (e.g., volt-var curve, fixed power factor, frequency droop) on the station to support grid-interactive operation. Returns 502 on Rejected, NotSupported, or OutOfRange, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1425,6 +1521,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Get DER control settings from station',
     getDERControlV21Body,
+    'Asks the station to report installed DER control configurations, optionally filtered by control type, control ID, or default flag. The station replies Accepted synchronously, then streams ReportDERControl messages. Returns 502 on NotSupported or NotFound, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1434,6 +1531,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Clear DER control settings',
     clearDERControlV21Body,
+    'Removes one or more DER control configurations from the station, optionally filtered by control type or ID. Returns 502 with NotFound or NotSupported, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1443,6 +1541,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Open periodic event stream',
     openPeriodicEventStreamV21Body,
+    'Opens a periodic event stream so the station emits NotifyPeriodicEventStream messages on the configured interval for the named variable. Used for high-frequency telemetry that does not fit normal MeterValues. Returns 502 on Rejected or 504 on timeout.',
   );
 
   commandRoute(
@@ -1452,6 +1551,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Close periodic event stream',
     closePeriodicEventStreamV21Body,
+    'Closes an existing periodic event stream by ID so the station stops sending NotifyPeriodicEventStream messages. Returns 502 with Rejected if the stream ID is unknown, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1461,6 +1561,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Adjust periodic event stream',
     adjustPeriodicEventStreamV21Body,
+    'Updates the parameters (interval, values per message) of an open periodic event stream without closing and reopening it. Returns 502 on Rejected or 504 on timeout.',
   );
 
   commandRoute(
@@ -1470,6 +1571,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Get periodic event streams',
     getPeriodicEventStreamV21Body,
+    'Returns the list of currently open periodic event streams on the station with their parameters. Returns 504 on timeout.',
   );
 
   commandRoute(
@@ -1479,6 +1581,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Request battery swap',
     requestBatterySwapV21Body,
+    'Triggers a battery swap operation on a station that supports swappable batteries (e.g., e-scooter or fleet stations). The station replies Accepted synchronously, then streams BatterySwap status events. Returns 502 on Rejected or 504 on timeout.',
   );
 
   commandRoute(
@@ -1488,6 +1591,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Validate VAT number',
     vatNumberValidationV21Body,
+    'Returns the VAT validation result for the given VAT number, optionally scoped to an EVSE. Used for invoice/B2B charging flows. Returns 502 on Rejected or 504 on timeout.',
   );
 
   // -------------------------------------------------------------------------
@@ -1501,6 +1605,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Remote start a transaction',
     remoteStartTransactionV16Body,
+    'Sends RemoteStartTransaction to start a charging session on an OCPP 1.6 station. The connectorId is optional; when omitted the station picks an available connector. Returns 502 if the station rejects (e.g., no connector available, idTag invalid) or 504 on timeout.',
   );
 
   commandRoute(
@@ -1510,9 +1615,18 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Remote stop a transaction',
     remoteStopTransactionV16Body,
+    'Sends RemoteStopTransaction to stop an active charging session on an OCPP 1.6 station. The transactionId in the payload must match a transaction the station currently knows. Returns 502 if the station rejects (e.g., transactionId not active) or 504 on timeout.',
   );
 
-  commandRoute(app, 'v16', 'Reset', 'ocpp1.6', 'Reset a station', resetV16Body);
+  commandRoute(
+    app,
+    'v16',
+    'Reset',
+    'ocpp1.6',
+    'Reset a station',
+    resetV16Body,
+    'Reboots an OCPP 1.6 station. Type Hard cycles power immediately and resets all configuration in volatile memory; Soft restarts the OCPP application but preserves transient state. Stations may take seconds to minutes to reconnect. Returns 502 on Rejected or 504 on timeout.',
+  );
 
   commandRoute(
     app,
@@ -1521,6 +1635,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Change connector availability',
     changeAvailabilityV16Body,
+    'Sets the availability (Operative or Inoperative) of a specific connector or the whole charge point (connectorId=0). If a transaction is active, the station may return Scheduled and apply the change after the transaction ends. Returns 502 on Rejected or 504 on timeout.',
   );
 
   commandRoute(
@@ -1530,6 +1645,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Unlock a connector',
     unlockConnectorV16Body,
+    'Forces the station to mechanically unlock a connector, typically used when a cable is stuck. Returns 502 if the station cannot unlock (UnlockFailed, NotSupported) or 504 on timeout.',
   );
 
   commandRoute(
@@ -1539,6 +1655,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Trigger a message from station',
     triggerMessageV16Body,
+    'Asks the station to proactively send a specific OCPP 1.6 message (e.g., BootNotification, StatusNotification, MeterValues, Heartbeat). Useful for refreshing CSMS state on demand. Returns 502 with NotImplemented or Rejected, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1548,6 +1665,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Get local authorization list version',
     getLocalListVersionV16Body,
+    'Returns the listVersion currently stored on the station. A version of 0 means no list is loaded; -1 means the station does not support local lists. Used to decide whether SendLocalList Differential or Full is required. Returns 504 on timeout.',
   );
 
   commandRoute(
@@ -1557,6 +1675,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Send local authorization list',
     sendLocalListV16Body,
+    'Pushes a local authorization list (Full or Differential update) to an OCPP 1.6 station so it can authorize idTags while offline. The station enforces SendLocalListMaxLength; callers must split larger lists themselves. Returns 502 on VersionMismatch, NotSupported, or Failed, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1566,6 +1685,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Set a charging profile',
     setChargingProfileV16Body,
+    'Installs a charging profile (ChargePointMaxProfile, TxDefaultProfile, or TxProfile) on the OCPP 1.6 station to limit power per the schedule. Profiles stack by purpose and stackLevel. Returns 502 on Rejected or NotSupported, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1575,6 +1695,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Clear charging profiles',
     clearChargingProfileV16Body,
+    'Removes one or more charging profiles from an OCPP 1.6 station, optionally filtered by profile ID, connector ID, purpose, or stack level. Returns 502 with Unknown if no matches, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1584,9 +1705,18 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Get composite charging schedule',
     getCompositeScheduleV16Body,
+    'Asks the OCPP 1.6 station to compute and return the merged power schedule from all active charging profiles for the given connector and duration. Returns 502 on Rejected or 504 on timeout.',
   );
 
-  commandRoute(app, 'v16', 'ClearCache', 'ocpp1.6', 'Clear authorization cache', clearCacheV16Body);
+  commandRoute(
+    app,
+    'v16',
+    'ClearCache',
+    'ocpp1.6',
+    'Clear authorization cache',
+    clearCacheV16Body,
+    'Wipes the OCPP 1.6 station-side authorization cache so previously cached idTags must re-authorize against the CSMS on next presentation. Returns 502 on Rejected or 504 on timeout.',
+  );
 
   commandRoute(
     app,
@@ -1595,9 +1725,18 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Update station firmware',
     updateFirmwareV16Body,
+    'Instructs the OCPP 1.6 station to download firmware from the given URI starting at retrieveDate. The station streams FirmwareStatusNotification messages as it downloads, installs, and reboots. This is the unsigned variant; use SignedUpdateFirmware for SP2/SP3 stations. Returns 504 on timeout.',
   );
 
-  commandRoute(app, 'v16', 'ReserveNow', 'ocpp1.6', 'Create a reservation', reserveNowV16Body);
+  commandRoute(
+    app,
+    'v16',
+    'ReserveNow',
+    'ocpp1.6',
+    'Create a reservation',
+    reserveNowV16Body,
+    'Reserves a connector for a specific idTag until expiryDate on an OCPP 1.6 station. Returns 502 if the station rejects (Faulted, Occupied, Unavailable, Rejected, NotSupported) or 504 on timeout. Reservations are released automatically when the EV plugs in or expiry passes.',
+  );
 
   commandRoute(
     app,
@@ -1606,6 +1745,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Cancel a reservation',
     cancelReservationV16Body,
+    'Cancels a previously created reservation by ID on an OCPP 1.6 station. Returns 502 with Rejected if the reservationId is unknown to the station, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1615,6 +1755,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Send a vendor-specific data transfer',
     dataTransferV16Body,
+    'Sends a vendor-specific payload to an OCPP 1.6 station using the DataTransfer extension mechanism. Use vendorId and messageId to match the station vendor implementation. Returns 502 with UnknownVendorId or UnknownMessageId on rejection, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1624,6 +1765,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Get station configuration keys',
     getConfigurationV16Body,
+    'Reads OCPP 1.6 configuration keys from the station. When key is omitted, returns all known keys. Unknown keys are returned in the unknownKey list. Returns 504 on timeout.',
   );
 
   commandRoute(
@@ -1633,6 +1775,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Change a station configuration key',
     changeConfigurationV16Body,
+    'Sets a single OCPP 1.6 configuration key on the station. Returns 502 if the station rejects (Rejected, NotSupported, RebootRequired) or 504 on timeout. Some keys require a station reset to take effect.',
   );
 
   commandRoute(
@@ -1642,6 +1785,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Request diagnostics upload',
     getDiagnosticsV16Body,
+    'Asks the OCPP 1.6 station to upload a diagnostics archive to the given remote location (HTTP/HTTPS/FTP). The station streams DiagnosticsStatusNotification messages as it uploads. Returns 504 on timeout.',
   );
 
   commandRoute(
@@ -1651,6 +1795,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Update firmware with signature verification',
     signedUpdateFirmwareV16Body,
+    'OCPP 1.6 Security Extension variant of UpdateFirmware that requires the firmware image to be signed by an installed manufacturer root certificate. Used by SP2/SP3 stations. Returns 502 with Rejected, AcceptedCanceled, InvalidCertificate, or RevokedCertificate, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1660,6 +1805,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Trigger an extended message from station',
     extendedTriggerMessageV16Body,
+    'OCPP 1.6 Security Extension variant of TriggerMessage that adds SignChargePointCertificate and LogStatusNotification to the trigger menu. Returns 502 with NotImplemented or Rejected, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1669,6 +1815,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Send signed certificate to station',
     certificateSignedV16Body,
+    'OCPP 1.6 Security Extension command that delivers a signed certificate chain to the station in response to its earlier SignCertificate request. Used for SP2/SP3 mTLS renewal. Returns 502 if the station rejects the chain, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1678,6 +1825,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Install a CA certificate on station',
     installCertificateV16Body,
+    'OCPP 1.6 Security Extension command to install a Central System or Manufacturer root CA certificate into the station trust store. Returns 502 with Rejected or Failed, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1687,6 +1835,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Delete a certificate from station',
     deleteCertificateV16Body,
+    'OCPP 1.6 Security Extension command to remove an installed certificate from the station, identified by its issuer name hash, issuer key hash, and serial number. Returns 502 with NotFound or Failed, or 504 on timeout.',
   );
 
   commandRoute(
@@ -1696,7 +1845,16 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Query installed certificate IDs',
     getInstalledCertificateIdsV16Body,
+    'OCPP 1.6 Security Extension command that lists installed certificates of the given type with their hash data. Returns 502 with NotFound if no matching certificates exist, or 504 on timeout.',
   );
 
-  commandRoute(app, 'v16', 'GetLog', 'ocpp1.6', 'Request log upload from station', getLogV16Body);
+  commandRoute(
+    app,
+    'v16',
+    'GetLog',
+    'ocpp1.6',
+    'Request log upload from station',
+    getLogV16Body,
+    'OCPP 1.6 Security Extension command that asks the station to upload diagnostics or security logs to the given remote location. The station streams LogStatusNotification messages as it uploads. Returns 502 on Rejected or 504 on timeout.',
+  );
 }

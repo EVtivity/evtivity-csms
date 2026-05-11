@@ -323,17 +323,15 @@ describe('Access log routes', () => {
       expect(body.total).toBe(0);
     });
 
-    it('returns 200 with a custom category value', async () => {
-      setupDbResults([], [{ count: 0 }]);
+    it('returns 400 when category is not in the enum', async () => {
+      // category was tightened from z.string() to z.enum(['browser','csms','api','portal'])
+      // so unknown values are now rejected at the validation layer.
       const response = await app.inject({
         method: 'GET',
         url: '/access-logs?category=custom_category',
         headers: { authorization: `Bearer ${operatorToken}` },
       });
-      expect(response.statusCode).toBe(200);
-      const body = response.json();
-      expect(body.data).toEqual([]);
-      expect(body.total).toBe(0);
+      expect(response.statusCode).toBe(400);
     });
 
     it('returns 200 with method filter', async () => {

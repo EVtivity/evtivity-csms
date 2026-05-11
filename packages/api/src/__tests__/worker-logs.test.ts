@@ -74,6 +74,9 @@ vi.mock('@evtivity/database', () => ({
     execute: vi.fn(() => Promise.resolve([])),
   },
   workerJobLogs: {},
+  workerJobStatusEnum: {
+    enumValues: ['started', 'completed', 'failed'] as const,
+  },
 }));
 
 vi.mock('drizzle-orm', () => {

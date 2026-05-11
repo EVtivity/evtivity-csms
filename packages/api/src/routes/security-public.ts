@@ -14,12 +14,18 @@ import { itemResponse } from '../lib/response-schemas.js';
 
 const publicSecurityResponse = z
   .object({
-    recaptchaEnabled: z.boolean(),
-    recaptchaSiteKey: z.string(),
-    mfaMethods: z.array(z.string()),
-    roamingEnabled: z.boolean(),
-    ssoEnabled: z.boolean(),
-    supportAiEnabled: z.boolean(),
+    recaptchaEnabled: z.boolean().describe('Whether reCAPTCHA v3 is enabled on login pages'),
+    recaptchaSiteKey: z
+      .string()
+      .max(255)
+      .describe('reCAPTCHA v3 site key for client-side script load'),
+    mfaMethods: z
+      .array(z.enum(['email', 'totp', 'sms']))
+      .max(3)
+      .describe('MFA methods available for users to enroll'),
+    roamingEnabled: z.boolean().describe('Whether OCPI roaming is enabled'),
+    ssoEnabled: z.boolean().describe('Whether SSO login is enabled'),
+    supportAiEnabled: z.boolean().describe('Whether the support case AI assist feature is enabled'),
   })
   .passthrough();
 

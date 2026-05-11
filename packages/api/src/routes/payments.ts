@@ -34,96 +34,188 @@ import {
 
 const sitePaymentConfigItem = z
   .object({
-    id: z.string(),
-    siteId: z.string(),
-    stripeConnectedAccountId: z.string().nullable(),
-    currency: z.string(),
-    preAuthAmountCents: z.number(),
-    platformFeePercent: z.string().nullable(),
-    isEnabled: z.boolean(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Site payment configuration ID'),
+    siteId: z.string().describe('Site ID this payment configuration belongs to'),
+    stripeConnectedAccountId: z
+      .string()
+      .max(255)
+      .nullable()
+      .describe('Stripe Connect account ID for the site, if using a connected account'),
+    currency: z.string().length(3).describe('ISO 4217 currency code'),
+    preAuthAmountCents: z.number().int().min(0).describe('Pre-authorization hold amount in cents'),
+    platformFeePercent: z
+      .string()
+      .nullable()
+      .describe(
+        'Site-level platform fee percentage override (numeric string, null = use global default)',
+      ),
+    isEnabled: z.boolean().describe('Whether payments are enabled for this site'),
+    createdAt: z.coerce.date().describe('Timestamp when the configuration was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the configuration was last updated'),
   })
   .passthrough();
 
 const stripeSettingsResponse = z
   .object({
-    publishableKey: z.unknown().nullable(),
-    currency: z.unknown(),
-    preAuthAmountCents: z.unknown(),
-    platformFeePercent: z.number(),
+    publishableKey: z
+      .unknown()
+      .nullable()
+      .describe('Stripe publishable API key for client-side Stripe.js'),
+    currency: z.unknown().describe('Default ISO 4217 currency code'),
+    preAuthAmountCents: z.unknown().describe('Default pre-authorization amount in cents'),
+    platformFeePercent: z
+      .number()
+      .min(0)
+      .max(100)
+      .describe('Default platform fee percentage (0-100)'),
   })
   .passthrough();
 
 const driverPaymentMethodItem = z
   .object({
-    id: z.string(),
-    driverId: z.string(),
-    stripeCustomerId: z.string(),
-    stripePaymentMethodId: z.string(),
-    cardBrand: z.string().nullable(),
-    cardLast4: z.string().nullable(),
-    isDefault: z.boolean(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Payment method ID'),
+    driverId: z.string().describe('Driver ID this payment method belongs to'),
+    stripeCustomerId: z.string().max(255).describe('Stripe Customer identifier for the driver'),
+    stripePaymentMethodId: z.string().max(255).describe('Stripe PaymentMethod identifier used'),
+    cardBrand: z
+      .string()
+      .max(20)
+      .nullable()
+      .describe('Card network (visa, mastercard, amex, etc.)'),
+    cardLast4: z.string().length(4).nullable().describe('Last 4 digits of the card used'),
+    isDefault: z.boolean().describe('True if this is the default payment method for the driver'),
+    createdAt: z.coerce.date().describe('Timestamp when the payment method was added'),
+    updatedAt: z.coerce.date().describe('Timestamp when the payment method was last updated'),
   })
   .passthrough();
 
 const setupIntentResponse = z
   .object({
-    clientSecret: z.string().nullable(),
-    customerId: z.string(),
-    publishableKey: z.string(),
+    clientSecret: z
+      .string()
+      .nullable()
+      .describe('Stripe SetupIntent client secret used to confirm the setup on the client'),
+    customerId: z.string().max(255).describe('Stripe Customer identifier for the driver'),
+    publishableKey: z
+      .string()
+      .max(255)
+      .describe('Stripe publishable API key for client-side Stripe.js'),
   })
   .passthrough();
 
 const paymentRecordItem = z
   .object({
-    id: z.string(),
-    sessionId: z.string().nullable(),
-    driverId: z.string().nullable(),
-    sitePaymentConfigId: z.string().nullable(),
-    stripePaymentIntentId: z.string().nullable(),
-    stripeCustomerId: z.string().nullable(),
-    paymentSource: z.string().nullable(),
-    currency: z.string(),
-    preAuthAmountCents: z.number(),
-    capturedAmountCents: z.number().nullable(),
-    refundedAmountCents: z.number(),
-    status: z.string(),
-    failureReason: z.string().nullable(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Payment record ID'),
+    sessionId: z.string().nullable().describe('Charging session ID linked to this payment'),
+    driverId: z.string().nullable().describe('Driver ID linked to this payment'),
+    sitePaymentConfigId: z
+      .string()
+      .nullable()
+      .describe('Site payment configuration ID used for this payment'),
+    stripePaymentIntentId: z
+      .string()
+      .max(255)
+      .nullable()
+      .describe('Stripe PaymentIntent identifier'),
+    stripeCustomerId: z
+      .string()
+      .max(255)
+      .nullable()
+      .describe('Stripe Customer identifier for the driver'),
+    paymentSource: z
+      .string()
+      .max(50)
+      .nullable()
+      .describe('Origin of the payment (e.g. web_portal, guest_checkout)'),
+    currency: z.string().length(3).describe('ISO 4217 currency code'),
+    preAuthAmountCents: z.number().int().min(0).describe('Pre-authorization hold amount in cents'),
+    capturedAmountCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Amount captured from the pre-authorization in cents'),
+    refundedAmountCents: z.number().int().min(0).describe('Total amount refunded in cents'),
+    status: z
+      .enum([
+        'pending',
+        'pre_authorized',
+        'captured',
+        'partially_refunded',
+        'refunded',
+        'failed',
+        'cancelled',
+      ])
+      .describe('Payment lifecycle state'),
+    failureReason: z
+      .string()
+      .max(500)
+      .nullable()
+      .describe('Error message returned by Stripe when the payment failed'),
+    createdAt: z.coerce.date().describe('Timestamp when the payment record was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the payment record was last updated'),
   })
   .passthrough();
 
 const preAuthFailedResponse = z
   .object({
-    error: z.string(),
-    code: z.string(),
-    paymentRecord: paymentRecordItem,
+    error: z.string().describe('Human-readable error message describing the pre-auth failure'),
+    code: z.string().describe('Stable machine-readable error code'),
+    paymentRecord: paymentRecordItem.describe(
+      'Payment record created for the failed pre-authorization',
+    ),
   })
   .passthrough();
 
 const reconciliationRunItem = z
   .object({
-    id: z.string(),
-    checkedCount: z.number(),
-    matchedCount: z.number(),
-    discrepancyCount: z.number(),
-    errorCount: z.number(),
-    discrepancies: z.array(z.unknown()).nullable(),
-    errors: z.array(z.unknown()).nullable(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Reconciliation run ID'),
+    checkedCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of payment records checked against Stripe'),
+    matchedCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of payment records that matched Stripe state'),
+    discrepancyCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of payment records that did not match Stripe state'),
+    errorCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of payment records that errored during reconciliation'),
+    discrepancies: z
+      .array(z.unknown())
+      .nullable()
+      .describe('Detailed discrepancy entries from this reconciliation run'),
+    errors: z
+      .array(z.unknown())
+      .nullable()
+      .describe('Detailed error entries from this reconciliation run'),
+    createdAt: z.coerce.date().describe('Timestamp when the reconciliation run completed'),
   })
   .passthrough();
 
 const reconciliationResultItem = z
   .object({
-    checked: z.number(),
-    matched: z.number(),
-    discrepancies: z.array(z.unknown()),
-    errors: z.array(z.unknown()),
+    checked: z.number().int().min(0).describe('Number of payment records checked against Stripe'),
+    matched: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of payment records that matched Stripe state'),
+    discrepancies: z
+      .array(z.unknown())
+      .describe('Detailed discrepancy entries found during reconciliation'),
+    errors: z
+      .array(z.unknown())
+      .describe('Detailed error entries encountered during reconciliation'),
   })
   .passthrough();
 import { authorize } from '../middleware/rbac.js';
@@ -913,6 +1005,8 @@ export function paymentRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Payments'],
         summary: 'Capture a pre-authorized payment for a session',
+        description:
+          'Captures a previously pre-authorized PaymentIntent in Stripe up to the supplied amount and updates the payment record to captured. When the requested amount is zero, the PaymentIntent is cancelled instead. Returns 400 if the payment is not in pre_authorized state.',
         operationId: 'captureSessionPayment',
         security: [{ bearerAuth: [] }],
         params: zodSchema(sessionIdParams),
@@ -1007,6 +1101,8 @@ export function paymentRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Payments'],
         summary: 'Refund a captured payment for a session',
+        description:
+          'Issues a Stripe refund against the payment record for the session. Supports partial refunds via amountCents; defaults to a full refund. Updates the payment record to refunded or partially_refunded and writes an audit log entry on success. Returns 409 if the payment is not refundable (uncaptured, already fully refunded).',
         operationId: 'refundSessionPayment',
         security: [{ bearerAuth: [] }],
         params: zodSchema(sessionIdParams),

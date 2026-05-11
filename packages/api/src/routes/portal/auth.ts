@@ -38,14 +38,14 @@ import {
 const portalDriverItem = z
   .object({
     id: z.string(),
-    firstName: z.string().nullable(),
-    lastName: z.string().nullable(),
-    email: z.string().nullable(),
-    phone: z.string().nullable(),
-    language: z.string().nullable(),
-    timezone: z.string().nullable(),
-    themePreference: z.string(),
-    distanceUnit: z.string(),
+    firstName: z.string().max(100).nullable(),
+    lastName: z.string().max(100).nullable(),
+    email: z.string().email().max(255).nullable(),
+    phone: z.string().max(50).nullable(),
+    language: z.string().max(10).nullable(),
+    timezone: z.string().max(50).nullable(),
+    themePreference: z.enum(['light', 'dark']),
+    distanceUnit: z.enum(['mi', 'km']),
     isActive: z.boolean(),
     emailVerified: z.boolean(),
     createdAt: z.coerce.date(),
@@ -58,9 +58,9 @@ const portalAuthLoginResponse = z
   .object({
     driver: portalDriverItem.optional(),
     mfaRequired: z.boolean().optional(),
-    mfaMethod: z.string().optional(),
+    mfaMethod: z.enum(['email', 'sms', 'totp']).optional(),
     mfaToken: z.string().optional(),
-    challengeId: z.number().optional(),
+    challengeId: z.number().int().min(1).optional(),
   })
   .passthrough();
 
@@ -200,6 +200,8 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Portal Auth'],
         summary: 'Register a new driver account',
+        description:
+          'Creates a driver row with registrationSource=portal, hashes the password with argon2, sends a verification email, and sets portal session and refresh cookies. Verifies the reCAPTCHA token when enabled. Returns 409 on duplicate email and 403 if portal registration is disabled by settings.',
         operationId: 'portalRegister',
         security: [],
         body: zodSchema(registerBody),
@@ -447,6 +449,8 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Portal Auth'],
         summary: 'Refresh access token using refresh token cookie',
+        description:
+          'Validates the portal_refresh cookie against refresh_tokens, ensures the driver is still active, rotates the refresh token (revokes old, issues new), and sets new portal session and refresh cookies. Rate limited to 30/min. Returns 401 if the refresh cookie is missing, expired, revoked, or the driver is deactivated.',
         operationId: 'portalRefreshToken',
         security: [],
         response: { 200: successResponse, 401: errorResponse },
@@ -537,6 +541,8 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Portal Auth'],
         summary: 'Verify MFA code and complete portal login',
+        description:
+          'Validates the short-lived MFA pending JWT, verifies the supplied TOTP code or email/SMS challenge code, and on success sets portal session and refresh cookies. Codes expire after 5 minutes and are single-use. Returns 401 on invalid code or expired pending JWT.',
         operationId: 'portalVerifyMfa',
         security: [],
         body: zodSchema(mfaVerifyBody),

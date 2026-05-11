@@ -58,16 +58,24 @@ const stationParams = z.object({
 
 const stationPricingGroupItem = z
   .object({
-    id: z.string(),
-    name: z.string(),
-    description: z.string().nullable(),
-    isDefault: z.boolean(),
-    tariffCount: z.number(),
+    id: z.string().describe('Pricing group identifier'),
+    name: z.string().describe('Pricing group display name'),
+    description: z
+      .string()
+      .nullable()
+      .describe('Operator-provided description of the pricing group'),
+    isDefault: z
+      .boolean()
+      .describe('Whether this is the default pricing group used when no other group matches'),
+    tariffCount: z.number().describe('Number of tariffs configured under this pricing group'),
   })
   .passthrough();
 
 const stationPricingGroupRecordItem = z
-  .object({ stationId: z.string(), pricingGroupId: z.string() })
+  .object({
+    stationId: z.string().describe('Internal station identifier (nanoid)'),
+    pricingGroupId: z.string().describe('Pricing group identifier assigned to the station'),
+  })
   .passthrough();
 
 const addStationPricingGroupBody = z.object({
@@ -81,14 +89,26 @@ const stationPricingGroupParams = z.object({
 
 const stationMeterValueItem = z
   .object({
-    id: z.number(),
-    timestamp: z.coerce.date(),
-    measurand: z.string().nullable(),
-    value: z.string(),
-    unit: z.string().nullable(),
-    phase: z.string().nullable(),
-    location: z.string().nullable(),
-    context: z.string().nullable(),
+    id: z.number().describe('Meter value row ID'),
+    timestamp: z.coerce.date().describe('Timestamp when the meter sample was taken on the station'),
+    measurand: z
+      .string()
+      .nullable()
+      .describe('OCPP measurand name (e.g., Energy.Active.Import.Register, Power.Active.Import)'),
+    value: z.string().describe('Reported numeric value (stored as string to preserve precision)'),
+    unit: z.string().nullable().describe('Unit of measure (e.g., Wh, W, A, V)'),
+    phase: z
+      .string()
+      .nullable()
+      .describe('Electrical phase the value applies to (L1, L2, L3, N, etc.)'),
+    location: z
+      .string()
+      .nullable()
+      .describe('Physical location of the meter (Body, Cable, EV, Inlet, Outlet)'),
+    context: z
+      .string()
+      .nullable()
+      .describe('Reading context (e.g., Sample.Periodic, Transaction.Begin, Transaction.End)'),
   })
   .passthrough();
 
@@ -175,227 +195,447 @@ const setCredentialsBody = z.object({
 
 const stationItem = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    siteId: z.string().nullable(),
-    vendorId: z.string().nullable(),
-    model: z.string().nullable(),
-    serialNumber: z.string().nullable(),
-    firmwareVersion: z.string().nullable(),
-    iccid: z.string().nullable(),
-    imsi: z.string().nullable(),
-    availability: z.string(),
-    onboardingStatus: z.string(),
-    lastHeartbeat: z.coerce.date().nullable(),
-    isOnline: z.boolean(),
-    isSimulator: z.boolean(),
-    loadPriority: z.number(),
-    securityProfile: z.number(),
-    ocppProtocol: z.string().nullable(),
-    hasPassword: z.boolean(),
-    metadata: z.record(z.unknown()).nullable(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
-    status: z.string(),
-    connectorCount: z.number(),
-    connectorTypes: z.array(z.string()).nullable(),
-    siteFreeVendEnabled: z.boolean(),
+    id: z.string().describe('Internal station identifier (nanoid)'),
+    stationId: z
+      .string()
+      .max(255)
+      .describe('OCPP station identity used by the charging station to authenticate'),
+    siteId: z.string().nullable().describe('Site this station belongs to, if any'),
+    vendorId: z.string().nullable().describe('Vendor (manufacturer) identifier, if known'),
+    model: z.string().max(100).nullable().describe('Manufacturer model name'),
+    serialNumber: z.string().max(100).nullable().describe('Manufacturer serial number'),
+    firmwareVersion: z.string().max(50).nullable().describe('Currently installed firmware version'),
+    iccid: z.string().max(20).nullable().describe('SIM card ICCID for cellular-connected stations'),
+    imsi: z.string().max(20).nullable().describe('SIM card IMSI for cellular-connected stations'),
+    availability: z
+      .enum(['available', 'unavailable', 'faulted'])
+      .describe('Operator-controlled availability state'),
+    onboardingStatus: z
+      .enum(['pending', 'accepted', 'blocked'])
+      .describe('Provisioning lifecycle state (pending awaiting approval, accepted, blocked)'),
+    lastHeartbeat: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp of the last OCPP Heartbeat received from the station'),
+    isOnline: z.boolean().describe('Whether the station is currently connected via WebSocket'),
+    isSimulator: z
+      .boolean()
+      .describe('Whether this station is backed by the built-in CSS simulator'),
+    loadPriority: z
+      .number()
+      .int()
+      .min(1)
+      .max(10)
+      .describe('Load management priority (1 = lowest, 10 = highest)'),
+    securityProfile: z
+      .number()
+      .int()
+      .min(0)
+      .max(3)
+      .describe('OCPP security profile: 0=plain, 1=Basic Auth, 2=TLS+Basic, 3=mTLS'),
+    ocppProtocol: z
+      .enum(['ocpp1.6', 'ocpp2.1'])
+      .nullable()
+      .describe('OCPP protocol version negotiated with the station'),
+    hasPassword: z
+      .boolean()
+      .describe('Whether a Basic Auth password is configured for this station'),
+    metadata: z
+      .record(z.unknown())
+      .nullable()
+      .describe('Free-form operator metadata stored as a JSON object'),
+    createdAt: z.coerce.date().describe('When the station record was created'),
+    updatedAt: z.coerce.date().describe('When the station record was last updated'),
+    status: z
+      .string()
+      .max(50)
+      .describe(
+        'Derived station status across all connectors (charging, reserved, faulted, available, unavailable, unknown)',
+      ),
+    connectorCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Total number of connectors across all EVSEs on this station'),
+    connectorTypes: z
+      .array(z.string().max(50))
+      .max(20)
+      .nullable()
+      .describe('Distinct connector types present on this station'),
+    siteFreeVendEnabled: z
+      .boolean()
+      .describe("Whether the station's site has free vend mode enabled"),
   })
   .passthrough();
 
 const stationDetail = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    siteId: z.string().nullable(),
-    vendorId: z.string().nullable(),
-    vendorName: z.string().nullable(),
-    model: z.string().nullable(),
-    serialNumber: z.string().nullable(),
-    firmwareVersion: z.string().nullable(),
-    iccid: z.string().nullable(),
-    imsi: z.string().nullable(),
-    availability: z.string(),
-    onboardingStatus: z.string(),
-    lastHeartbeat: z.coerce.date().nullable(),
-    isOnline: z.boolean(),
-    isSimulator: z.boolean(),
-    loadPriority: z.number(),
-    securityProfile: z.number(),
-    ocppProtocol: z.string().nullable(),
-    hasPassword: z.boolean(),
-    metadata: z.record(z.unknown()).nullable(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
-    status: z.string(),
-    siteHoursOfOperation: z.string().nullable(),
-    siteFreeVendEnabled: z.boolean(),
+    id: z.string().describe('Internal station identifier (nanoid)'),
+    stationId: z
+      .string()
+      .max(255)
+      .describe('OCPP station identity used by the charging station to authenticate'),
+    siteId: z.string().nullable().describe('Site this station belongs to, if any'),
+    vendorId: z.string().nullable().describe('Vendor (manufacturer) identifier, if known'),
+    vendorName: z
+      .string()
+      .max(255)
+      .nullable()
+      .describe('Vendor display name (joined from the vendors table)'),
+    model: z.string().max(100).nullable().describe('Manufacturer model name'),
+    serialNumber: z.string().max(100).nullable().describe('Manufacturer serial number'),
+    firmwareVersion: z.string().max(50).nullable().describe('Currently installed firmware version'),
+    iccid: z.string().max(20).nullable().describe('SIM card ICCID for cellular-connected stations'),
+    imsi: z.string().max(20).nullable().describe('SIM card IMSI for cellular-connected stations'),
+    availability: z
+      .enum(['available', 'unavailable', 'faulted'])
+      .describe('Operator-controlled availability state'),
+    onboardingStatus: z
+      .enum(['pending', 'accepted', 'blocked'])
+      .describe('Provisioning lifecycle state (pending awaiting approval, accepted, blocked)'),
+    lastHeartbeat: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp of the last OCPP Heartbeat received from the station'),
+    isOnline: z.boolean().describe('Whether the station is currently connected via WebSocket'),
+    isSimulator: z
+      .boolean()
+      .describe('Whether this station is backed by the built-in CSS simulator'),
+    loadPriority: z
+      .number()
+      .int()
+      .min(1)
+      .max(10)
+      .describe('Load management priority (1 = lowest, 10 = highest)'),
+    securityProfile: z
+      .number()
+      .int()
+      .min(0)
+      .max(3)
+      .describe('OCPP security profile: 0=plain, 1=Basic Auth, 2=TLS+Basic, 3=mTLS'),
+    ocppProtocol: z
+      .enum(['ocpp1.6', 'ocpp2.1'])
+      .nullable()
+      .describe('OCPP protocol version negotiated with the station'),
+    hasPassword: z
+      .boolean()
+      .describe('Whether a Basic Auth password is configured for this station'),
+    metadata: z
+      .record(z.unknown())
+      .nullable()
+      .describe('Free-form operator metadata stored as a JSON object'),
+    createdAt: z.coerce.date().describe('When the station record was created'),
+    updatedAt: z.coerce.date().describe('When the station record was last updated'),
+    status: z
+      .string()
+      .max(50)
+      .describe(
+        'Derived station status across all connectors (charging, reserved, faulted, available, unavailable, unknown)',
+      ),
+    siteHoursOfOperation: z
+      .string()
+      .max(500)
+      .nullable()
+      .describe("Free-form text describing the site's hours of operation"),
+    siteFreeVendEnabled: z
+      .boolean()
+      .describe("Whether the station's site has free vend mode enabled"),
   })
   .passthrough();
 
 const stationCreated = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    siteId: z.string().nullable(),
-    vendorId: z.string().nullable(),
-    model: z.string().nullable(),
-    serialNumber: z.string().nullable(),
-    firmwareVersion: z.string().nullable(),
-    availability: z.string(),
-    onboardingStatus: z.string(),
-    isOnline: z.boolean(),
-    isSimulator: z.boolean(),
-    loadPriority: z.number(),
-    securityProfile: z.number(),
-    hasPassword: z.boolean(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Internal station identifier (nanoid)'),
+    stationId: z
+      .string()
+      .max(255)
+      .describe('OCPP station identity used by the charging station to authenticate'),
+    siteId: z.string().nullable().describe('Site this station belongs to, if any'),
+    vendorId: z.string().nullable().describe('Vendor (manufacturer) identifier, if known'),
+    model: z.string().max(100).nullable().describe('Manufacturer model name'),
+    serialNumber: z.string().max(100).nullable().describe('Manufacturer serial number'),
+    firmwareVersion: z.string().max(50).nullable().describe('Currently installed firmware version'),
+    availability: z
+      .enum(['available', 'unavailable', 'faulted'])
+      .describe('Operator-controlled availability state'),
+    onboardingStatus: z
+      .enum(['pending', 'accepted', 'blocked'])
+      .describe('Provisioning lifecycle state (pending awaiting approval, accepted, blocked)'),
+    isOnline: z.boolean().describe('Whether the station is currently connected via WebSocket'),
+    isSimulator: z
+      .boolean()
+      .describe('Whether this station is backed by the built-in CSS simulator'),
+    loadPriority: z
+      .number()
+      .int()
+      .min(1)
+      .max(10)
+      .describe('Load management priority (1 = lowest, 10 = highest)'),
+    securityProfile: z
+      .number()
+      .int()
+      .min(0)
+      .max(3)
+      .describe('OCPP security profile: 0=plain, 1=Basic Auth, 2=TLS+Basic, 3=mTLS'),
+    hasPassword: z
+      .boolean()
+      .describe('Whether a Basic Auth password is configured for this station'),
+    createdAt: z.coerce.date().describe('When the station record was created'),
+    updatedAt: z.coerce.date().describe('When the station record was last updated'),
   })
   .passthrough();
 
 const connectorDetail = z
   .object({
-    connectorId: z.number(),
-    connectorType: z.string().nullable(),
-    maxPowerKw: z.number().nullable(),
-    maxCurrentAmps: z.number().nullable(),
-    status: z.string(),
-    autoCreated: z.boolean(),
-    isIdling: z.boolean(),
+    connectorId: z.number().int().min(1).describe('OCPP connector ID within the EVSE (1-based)'),
+    connectorType: z
+      .string()
+      .max(50)
+      .nullable()
+      .describe('Physical connector type (CCS2, CHAdeMO, Type2, Type1, GBT, Tesla, NACS)'),
+    maxPowerKw: z.number().min(0).nullable().describe('Maximum charging power in kilowatts'),
+    maxCurrentAmps: z.number().min(0).nullable().describe('Maximum charging current in amps'),
+    status: z
+      .string()
+      .max(50)
+      .describe('Current connector operational status (available, charging, faulted, etc.)'),
+    autoCreated: z
+      .boolean()
+      .describe('Whether the connector was created automatically from an OCPP StatusNotification'),
+    isIdling: z
+      .boolean()
+      .describe(
+        'Whether an active session on this connector has entered idle (paused) state and is accruing idle time',
+      ),
   })
   .passthrough();
 
 const evseDetail = z
   .object({
-    evseId: z.number(),
-    autoCreated: z.boolean(),
-    connectors: z.array(connectorDetail),
+    evseId: z.number().describe('OCPP EVSE id (1-based)'),
+    autoCreated: z
+      .boolean()
+      .describe('Whether the EVSE was created automatically from an OCPP message'),
+    connectors: z.array(connectorDetail).describe('Connectors on this EVSE'),
   })
   .passthrough();
 
 const evseResponse = z
   .object({
-    evseId: z.number(),
-    connectors: z.array(
-      z
-        .object({
-          connectorId: z.number(),
-          connectorType: z.string().nullable(),
-          maxPowerKw: z.number().nullable(),
-          maxCurrentAmps: z.number().nullable(),
-          status: z.string(),
-        })
-        .passthrough(),
-    ),
+    evseId: z.number().describe('OCPP EVSE id (1-based)'),
+    connectors: z
+      .array(
+        z
+          .object({
+            connectorId: z.number().describe('OCPP connector ID within the EVSE (1-based)'),
+            connectorType: z
+              .string()
+              .nullable()
+              .describe('Physical connector type (CCS2, CHAdeMO, Type2, Type1, GBT, Tesla, NACS)'),
+            maxPowerKw: z.number().nullable().describe('Maximum charging power in kilowatts'),
+            maxCurrentAmps: z.number().nullable().describe('Maximum charging current in amps'),
+            status: z.string().describe('Current connector operational status'),
+          })
+          .passthrough(),
+      )
+      .describe('Connectors on this EVSE'),
   })
   .passthrough();
 
 const connectorResponse = z
   .object({
-    connectorId: z.number(),
-    connectorType: z.string().nullable(),
-    maxPowerKw: z.number().nullable(),
-    maxCurrentAmps: z.number().nullable(),
-    status: z.string(),
+    connectorId: z.number().describe('OCPP connector ID within the EVSE (1-based)'),
+    connectorType: z
+      .string()
+      .nullable()
+      .describe('Physical connector type (CCS2, CHAdeMO, Type2, Type1, GBT, Tesla, NACS)'),
+    maxPowerKw: z.number().nullable().describe('Maximum charging power in kilowatts'),
+    maxCurrentAmps: z.number().nullable().describe('Maximum charging current in amps'),
+    status: z.string().describe('Current connector operational status'),
   })
   .passthrough();
 
-const deleteResponse = z.object({ status: z.string() }).passthrough();
+const deleteResponse = z
+  .object({ status: z.string().describe('Result of the delete operation (e.g., "deleted")') })
+  .passthrough();
 
 const meterValueGroup = z
   .object({
-    measurand: z.string(),
-    unit: z.string().nullable(),
-    values: z.array(z.object({ timestamp: z.coerce.date(), value: z.string() }).passthrough()),
+    measurand: z.string().describe('OCPP measurand name this group of samples belongs to'),
+    unit: z.string().nullable().describe('Unit of measure for the values in this group'),
+    values: z
+      .array(
+        z
+          .object({
+            timestamp: z.coerce.date().describe('Timestamp when the sample was taken'),
+            value: z.string().describe('Sample value (string to preserve numeric precision)'),
+          })
+          .passthrough(),
+      )
+      .describe('Time-ordered list of meter samples for this measurand'),
   })
   .passthrough();
 
-const energyHistoryItem = z.object({ date: z.string(), energyWh: z.number() }).passthrough();
+const energyHistoryItem = z
+  .object({
+    date: z.string().describe('Calendar date in YYYY-MM-DD (in the site timezone)'),
+    energyWh: z.number().describe('Total energy delivered on that date in watt-hours'),
+  })
+  .passthrough();
 
 const revenueHistoryItem = z
-  .object({ date: z.string(), revenueCents: z.number(), sessionCount: z.number() })
+  .object({
+    date: z.string().describe('Calendar date in YYYY-MM-DD (in the site timezone)'),
+    revenueCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Total revenue collected on that date in the smallest currency unit (cents)'),
+    sessionCount: z.number().describe('Number of revenue-generating sessions on that date'),
+  })
   .passthrough();
 
 const stationMetricsResponse = z
   .object({
-    uptimePercent: z.number(),
-    portCount: z.number(),
-    utilizationPercent: z.number(),
-    totalSessions: z.number(),
-    completedSessions: z.number(),
-    faultedSessions: z.number(),
-    sessionSuccessPercent: z.number(),
-    totalEnergyWh: z.number(),
-    avgSessionDurationMinutes: z.number(),
-    disconnectCount: z.number(),
-    avgDowntimeMinutes: z.number(),
-    maxDowntimeMinutes: z.number(),
-    totalRevenueCents: z.number(),
-    avgRevenueCentsPerSession: z.number(),
-    totalTransactions: z.number(),
-    periodMonths: z.number(),
+    uptimePercent: z
+      .number()
+      .describe('NEVI-formula uptime percentage averaged across all ports for the period'),
+    portCount: z.number().describe('Number of ports (EVSEs) on the station'),
+    utilizationPercent: z
+      .number()
+      .describe(
+        'Percentage of available port-hours spent actively charging (0-100, can exceed 100 for overlapping sessions)',
+      ),
+    totalSessions: z.number().describe('Total number of charging sessions in the period'),
+    completedSessions: z
+      .number()
+      .describe('Number of sessions that completed successfully in the period'),
+    faultedSessions: z.number().describe('Number of sessions that ended in a faulted state'),
+    sessionSuccessPercent: z
+      .number()
+      .describe('Percentage of sessions that completed successfully (0-100)'),
+    totalEnergyWh: z.number().describe('Total energy delivered in the period in watt-hours'),
+    avgSessionDurationMinutes: z
+      .number()
+      .describe('Average duration of completed sessions in minutes'),
+    disconnectCount: z
+      .number()
+      .describe('Number of times the station disconnected from the CSMS in the period'),
+    avgDowntimeMinutes: z.number().describe('Average downtime per disconnect in minutes'),
+    maxDowntimeMinutes: z.number().describe('Longest single downtime period in minutes'),
+    totalRevenueCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Total revenue in the period in the smallest currency unit (cents)'),
+    avgRevenueCentsPerSession: z
+      .number()
+      .describe('Average revenue per session in the smallest currency unit (cents)'),
+    totalTransactions: z
+      .number()
+      .describe('Number of revenue-generating transactions in the period'),
+    periodMonths: z.number().describe('Number of months covered by these metrics'),
   })
   .passthrough();
 
 const sessionItem = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    stationName: z.string().nullable(),
-    siteName: z.string().nullable(),
-    driverId: z.string().nullable(),
-    driverName: z.string().nullable(),
-    transactionId: z.string().nullable(),
-    status: z.string(),
-    startedAt: z.coerce.date(),
-    endedAt: z.coerce.date().nullable(),
-    energyDeliveredWh: z.coerce.number().nullable(),
-    currentCostCents: z.number().nullable(),
-    finalCostCents: z.number().nullable(),
-    currency: z.string().nullable(),
-    isGuestSession: z.boolean(),
+    id: z.string().describe('Internal session identifier (nanoid)'),
+    stationId: z.string().describe('Internal station identifier (nanoid) the session belongs to'),
+    stationName: z.string().nullable().describe('OCPP station identity for display'),
+    siteName: z.string().nullable().describe('Name of the site this station belongs to'),
+    driverId: z
+      .string()
+      .nullable()
+      .describe('Internal driver identifier, null for guest or free-vend sessions'),
+    driverName: z
+      .string()
+      .nullable()
+      .describe('Driver full name (first + last), null for guest or free-vend sessions'),
+    transactionId: z.string().nullable().describe('OCPP transaction id reported by the station'),
+    status: z.string().describe('Session status (active, completed, failed, faulted)'),
+    startedAt: z.coerce.date().describe('When the session started'),
+    endedAt: z.coerce.date().nullable().describe('When the session ended, null if still active'),
+    energyDeliveredWh: z.coerce
+      .number()
+      .nullable()
+      .describe('Total energy delivered in the session in watt-hours'),
+    currentCostCents: z
+      .number()
+      .nullable()
+      .describe('Running cost of the session in the smallest currency unit (cents)'),
+    finalCostCents: z
+      .number()
+      .nullable()
+      .describe('Final cost after the session ended in the smallest currency unit (cents)'),
+    currency: z.string().nullable().describe('ISO 4217 currency code for cost fields'),
+    isGuestSession: z
+      .boolean()
+      .describe('Whether this session was started by an unauthenticated guest with a card payment'),
   })
   .passthrough();
 
 const ocppLogItem = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    action: z.string().nullable(),
-    direction: z.string(),
-    messageId: z.string().nullable(),
-    payload: z.unknown(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('OCPP log row identifier'),
+    stationId: z.string().describe('Internal station identifier (nanoid) the message belongs to'),
+    action: z
+      .string()
+      .nullable()
+      .describe('OCPP action name (e.g., BootNotification, Heartbeat, TransactionEvent)'),
+    direction: z
+      .string()
+      .describe('Message direction (inbound = from station to CSMS, outbound = CSMS to station)'),
+    messageId: z
+      .string()
+      .nullable()
+      .describe('OCPP message id used to correlate request and response'),
+    payload: z.unknown().describe('Raw OCPP payload object'),
+    createdAt: z.coerce.date().describe('When the message was logged'),
   })
   .passthrough();
 
 const ocppLogsResponse = z
   .object({
-    data: z.array(ocppLogItem),
-    total: z.number(),
-    actions: z.array(z.string()),
+    data: z.array(ocppLogItem).describe('Page of OCPP log entries'),
+    total: z.number().describe('Total number of matching log entries across all pages'),
+    actions: z
+      .array(z.string())
+      .describe('Distinct OCPP action names seen on this station, for filter dropdowns'),
   })
   .passthrough();
 
 const securityLogItem = z
   .object({
-    id: z.string(),
-    event: z.string(),
-    remoteAddress: z.string().nullable(),
-    metadata: z.record(z.unknown()).nullable(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Security log row identifier'),
+    event: z
+      .string()
+      .describe(
+        'Security event type (auth_failed, password_changed, credentials_rotated, connected, disconnected)',
+      ),
+    remoteAddress: z
+      .string()
+      .nullable()
+      .describe('Remote IP address of the station when the event occurred, if available'),
+    metadata: z.record(z.unknown()).nullable().describe('Event-specific metadata as a JSON object'),
+    createdAt: z.coerce.date().describe('When the event was recorded'),
   })
   .passthrough();
 
 const certificateItem = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    certificateType: z.string(),
-    status: z.string(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Station certificate row identifier'),
+    stationId: z
+      .string()
+      .describe('Internal station identifier (nanoid) the certificate belongs to'),
+    certificateType: z
+      .string()
+      .describe(
+        'Certificate type (e.g., V2GRootCertificate, ChargingStationCertificate, CSMSRootCertificate)',
+      ),
+    status: z.string().describe('Certificate lifecycle status (active, expired, revoked)'),
+    createdAt: z.coerce.date().describe('When the certificate was first stored'),
+    updatedAt: z.coerce.date().describe('When the certificate record was last updated'),
   })
   .passthrough();
 
@@ -613,6 +853,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Refresh station configurations from the station via OCPP',
+        description:
+          'Dispatches GetConfiguration (OCPP 1.6) or GetBaseReport(FullInventory) (OCPP 2.1) to pull the current variable set. The station response is processed asynchronously by the event projection, which upserts rows in station_configurations. Returns 400 if the station is offline and 502 if the station rejects the command.',
         operationId: 'refreshStationConfigurations',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -1150,6 +1392,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Add an EVSE with connectors to a station',
+        description:
+          'Inserts a new EVSE row plus its connector rows in a single request. The EVSE starts with status=unavailable until the station reports a StatusNotification. Returns 409 if the OCPP evseId already exists on the station.',
         operationId: 'addStationEvse',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -1325,6 +1569,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: "Force the station to re-report this EVSE's connector status",
+        description:
+          'Dispatches TriggerMessage(StatusNotification) for the first connector on the EVSE and waits for the station to report back. Returns the fresh status; returns null status when the station is offline or fails to respond within the trigger window.',
         operationId: 'refreshEvseConnectorStatus',
         security: [{ bearerAuth: [] }],
         params: zodSchema(evseParams),
@@ -1332,8 +1578,16 @@ export function stationRoutes(app: FastifyInstance): void {
           200: itemResponse(
             z
               .object({
-                status: z.string().nullable(),
-                error: z.string().optional(),
+                status: z
+                  .string()
+                  .nullable()
+                  .describe(
+                    'Fresh connector status reported by the station, or null if the station is offline or did not respond in time',
+                  ),
+                error: z
+                  .string()
+                  .optional()
+                  .describe('Error message when the trigger could not be completed'),
               })
               .passthrough(),
           ),
@@ -1401,6 +1655,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Force-stop the active charging session on this EVSE',
+        description:
+          'Sends RequestStopTransaction (OCPP 2.1) or RemoteStopTransaction (OCPP 1.6) and waits up to 35s for the station response. If the station rejects with reasonCode=TxNotFound (a "ghost session" where the CSMS thinks a transaction is active but the station has no record), the API automatically marks the session faulted in the database and returns ghostRecovered=true. Returns 404 if no active session exists on the EVSE, 504 if the station does not respond within the timeout window.',
         operationId: 'stopActiveEvseSession',
         security: [{ bearerAuth: [] }],
         params: zodSchema(evseParams),
@@ -1408,12 +1664,22 @@ export function stationRoutes(app: FastifyInstance): void {
           200: itemResponse(
             z
               .object({
-                sessionId: z.string(),
-                transactionId: z.string(),
+                sessionId: z
+                  .string()
+                  .describe('Internal identifier of the session that was stopped or recovered'),
+                transactionId: z
+                  .string()
+                  .describe('OCPP transaction id of the session that was stopped or recovered'),
+                ghostRecovered: z
+                  .boolean()
+                  .describe(
+                    'True when the station rejected with TxNotFound and the session was force-cleaned in the database',
+                  ),
               })
               .passthrough(),
           ),
           404: errorResponse,
+          504: errorResponse,
         },
       },
     },
@@ -1426,7 +1692,10 @@ export function stationRoutes(app: FastifyInstance): void {
       }
 
       const [station] = await db
-        .select({ stationId: chargingStations.stationId })
+        .select({
+          stationId: chargingStations.stationId,
+          ocppProtocol: chargingStations.ocppProtocol,
+        })
         .from(chargingStations)
         .where(eq(chargingStations.id, id));
       if (station == null) {
@@ -1455,20 +1724,58 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const commandId = randomUUID();
-      await getPubSub().publish(
-        'ocpp_commands',
-        JSON.stringify({
-          commandId,
-          stationId: station.stationId,
-          action: 'RequestStopTransaction',
-          payload: { transactionId: activeSession.transactionId },
-        }),
+      const cmdResult = await sendOcppCommandAndWait(
+        station.stationId,
+        'RequestStopTransaction',
+        { transactionId: activeSession.transactionId },
+        station.ocppProtocol ?? undefined,
       );
 
+      if (cmdResult.error != null) {
+        await reply.status(504).send({ error: 'Station did not respond', code: 'STATION_TIMEOUT' });
+        return;
+      }
+
+      const status = cmdResult.response?.['status'] as string | undefined;
+      const statusInfo = cmdResult.response?.['statusInfo'] as { reasonCode?: string } | undefined;
+      const isGhost = status === 'Rejected' && statusInfo?.reasonCode === 'TxNotFound';
+
+      if (isGhost) {
+        // Ghost session: station has no record of this transaction. Force-clean
+        // the DB so the connector tile clears immediately rather than waiting
+        // for the stale-session worker.
+        await db.execute(sql`
+          UPDATE charging_sessions
+          SET status = 'faulted',
+              stopped_reason = 'TxNotFound',
+              ended_at = now(),
+              final_cost_cents = COALESCE(final_cost_cents, current_cost_cents),
+              updated_at = now()
+          WHERE id = ${activeSession.id} AND status = 'active'
+        `);
+        await db.execute(sql`
+          UPDATE session_tariff_segments
+          SET ended_at = now(),
+              duration_minutes = EXTRACT(EPOCH FROM (now() - started_at)) / 60
+          WHERE session_id = ${activeSession.id} AND ended_at IS NULL
+        `);
+        request.log.info(
+          { sessionId: activeSession.id, transactionId: activeSession.transactionId },
+          'Ghost session recovered: station returned TxNotFound, marked DB faulted',
+        );
+        return {
+          sessionId: activeSession.id,
+          transactionId: activeSession.transactionId,
+          ghostRecovered: true,
+        };
+      }
+
+      // Station accepted the stop. The natural TransactionEvent.Ended will close
+      // the session in the projection.
       return {
         sessionId: activeSession.id,
         transactionId: activeSession.transactionId,
+        ghostRecovered: false,
       };
     },
   );
@@ -1568,6 +1875,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Delete an EVSE and all its connectors',
+        description:
+          'Removes the EVSE row and cascade-deletes its connectors. Returns 409 if any connector on the EVSE is currently occupied (active session, charging, or any in-use status).',
         operationId: 'deleteStationEvse',
         security: [{ bearerAuth: [] }],
         params: zodSchema(evseParams),
@@ -1890,7 +2199,14 @@ export function stationRoutes(app: FastifyInstance): void {
       .describe('Number of days to look back'),
   });
 
-  const uptimeHistoryItem = z.object({ date: z.string(), uptimePercent: z.number() }).passthrough();
+  const uptimeHistoryItem = z
+    .object({
+      date: z.string().describe('Calendar date in YYYY-MM-DD (in the site timezone)'),
+      uptimePercent: z
+        .number()
+        .describe('Average uptime percentage across all ports for that day (0-100)'),
+    })
+    .passthrough();
 
   app.get(
     '/stations/:id/uptime-history',
@@ -2013,7 +2329,13 @@ export function stationRoutes(app: FastifyInstance): void {
   });
 
   const popularTimesItem = z
-    .object({ dow: z.number(), hour: z.number(), avgSessions: z.number() })
+    .object({
+      dow: z.number().describe('Day of week as integer (0 = Sunday, 6 = Saturday)'),
+      hour: z.number().describe('Hour of day in 24-hour format (0-23, in the site timezone)'),
+      avgSessions: z
+        .number()
+        .describe('Average number of sessions started in that day-of-week / hour bucket'),
+    })
     .passthrough();
 
   app.get(
@@ -2406,6 +2728,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Set or update station Basic Auth password',
+        description:
+          'Hashes the provided password with argon2 and stores it on the station record. If the station is online, dispatches SetVariables(SecurityCtrlr.BasicAuthPassword) and a Reset(OnIdle) command so the station reconnects with the new credential. Logs a password_changed entry to the connection log.',
         operationId: 'setStationCredentials',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -2484,6 +2808,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Rotate station Basic Auth password via OCPP',
+        description:
+          'Generates a fresh 20-character Basic Auth password, dispatches SetVariables(SecurityCtrlr.BasicAuthPassword) to the station, and stores the new hash on success. Times out after 35s; the previous credential remains active until the new one is acknowledged. Returns 502 if the station rejects the SetVariables call and 409 if the station is offline.',
         operationId: 'rotateStationCredentials',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -2703,7 +3029,20 @@ export function stationRoutes(app: FastifyInstance): void {
   });
 
   const getInstalledCertsBody = z.object({
-    certificateType: z.array(z.string()).optional(),
+    certificateType: z
+      .array(
+        z.enum([
+          'V2GRootCertificate',
+          'MORootCertificate',
+          'CSMSRootCertificate',
+          'V2GCertificateChain',
+          'ManufacturerRootCertificate',
+          'OEMRootCertificate',
+        ]),
+      )
+      .max(20)
+      .optional()
+      .describe('OCPP 2.1 GetCertificateIdUseEnumType filter'),
   });
 
   app.get(
@@ -2761,6 +3100,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Install a certificate on a station',
+        description:
+          'Dispatches OCPP InstallCertificate to the station and returns immediately. The station response is processed asynchronously by the certificate event projection, which records the install result. Used for both V2G (PnC) and ChargingStationCertificate (SP3/mTLS) certificates.',
         operationId: 'installStationCertificate',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -2808,6 +3149,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Delete a certificate from a station',
+        description:
+          'Dispatches OCPP DeleteCertificate to the station with the supplied hash data and returns immediately. The result is processed asynchronously and reflected in the station_certificates mirror.',
         operationId: 'deleteStationCertificate',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -2854,6 +3197,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Query installed certificate IDs from a station',
+        description:
+          'Dispatches OCPP GetInstalledCertificateIds to the station to enumerate certificates of the requested types. The station response is handled asynchronously and updates the station_certificates mirror.',
         operationId: 'queryStationCertificates',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -3185,13 +3530,22 @@ export function stationRoutes(app: FastifyInstance): void {
 
   const securityEventItem = z
     .object({
-      id: z.number(),
-      stationId: z.string(),
-      type: z.string(),
-      severity: z.string(),
-      timestamp: z.coerce.date(),
-      techInfo: z.string().nullable(),
-      createdAt: z.coerce.date(),
+      id: z.number().describe('Security event row ID'),
+      stationId: z
+        .string()
+        .describe('Internal station identifier (nanoid) the event was raised on'),
+      type: z
+        .string()
+        .describe(
+          'OCPP security event type (e.g., FirmwareUpdated, InvalidTLSVersion, TamperDetectionActivated)',
+        ),
+      severity: z.string().describe('Severity level (critical, high, medium, low, info)'),
+      timestamp: z.coerce.date().describe('Timestamp when the event occurred on the station'),
+      techInfo: z
+        .string()
+        .nullable()
+        .describe('Optional vendor-specific technical information about the event'),
+      createdAt: z.coerce.date().describe('When the event row was inserted into the CSMS'),
     })
     .passthrough();
 
@@ -3347,7 +3701,9 @@ export function stationRoutes(app: FastifyInstance): void {
       variable: z.string().describe('OCPP variable name'),
       variableInstance: z.string().nullable().describe('Variable instance label'),
       value: z.string().nullable().describe('Reported variable value'),
-      attributeType: z.string().describe('OCPP attribute type (Actual, Target, MinSet, MaxSet)'),
+      attributeType: z
+        .enum(['Actual', 'Target', 'MinSet', 'MaxSet'])
+        .describe('OCPP 2.1 AttributeEnumType'),
       source: z.string().describe('Where the row originated (e.g., NotifyReport, GetVariables)'),
       createdAt: z.string().describe('When the row was first observed'),
       updatedAt: z.string().describe('When the row was last updated'),
@@ -3620,6 +3976,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Refresh charging profiles from the station via OCPP GetChargingProfiles',
+        description:
+          'Dispatches GetChargingProfiles to pull the current set of profiles from the station. The station response is processed asynchronously by the ReportChargingProfiles event projection, which mirrors profiles into the charging_profiles table. OCPP 1.6 is not supported (returns 400). Returns 502 on station rejection or timeout.',
         operationId: 'refreshStationChargingProfiles',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -3801,6 +4159,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Clear charging profiles from the station',
+        description:
+          'Dispatches ClearChargingProfile with the supplied criteria (purpose, stackLevel, evseId) or a specific chargingProfileId. On Accepted, deletes the matching rows from the charging_profiles mirror and triggers a best-effort GetChargingProfiles refresh on OCPP 2.1 stations. Returns 502 on station rejection or timeout.',
         operationId: 'clearStationChargingProfiles',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -3936,6 +4296,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Push a charging profile template to this station',
+        description:
+          'Dispatches a best-effort ClearChargingProfile for the same purpose/stackLevel/evseId, then SetChargingProfile with the template payload. On Accepted, fires a background GetChargingProfiles to refresh the CSMS mirror (OCPP 2.1 only). Returns success=false with the station status when rejected.',
         operationId: 'pushStationChargingProfile',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -3944,9 +4306,16 @@ export function stationRoutes(app: FastifyInstance): void {
           200: itemResponse(
             z
               .object({
-                success: z.boolean(),
-                status: z.string(),
-                errorInfo: z.string().optional(),
+                success: z
+                  .boolean()
+                  .describe('Whether the station accepted the charging profile push'),
+                status: z
+                  .string()
+                  .describe('OCPP SetChargingProfile response status (Accepted, Rejected, etc.)'),
+                errorInfo: z
+                  .string()
+                  .optional()
+                  .describe('Error description when the push failed or was rejected'),
               })
               .passthrough(),
           ),
@@ -4085,6 +4454,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Push a configuration template to this station',
+        description:
+          'Iterates the template variables and dispatches SetVariables (OCPP 2.1, batched) or one ChangeConfiguration per variable (OCPP 1.6). Per-variable results are returned with the per-variable status. After a successful push, a refresh (GetBaseReport on 2.1, GetConfiguration on 1.6) updates the CSMS mirror. Returns success=true only when every variable was Accepted.',
         operationId: 'pushStationConfiguration',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -4093,16 +4464,26 @@ export function stationRoutes(app: FastifyInstance): void {
           200: itemResponse(
             z
               .object({
-                success: z.boolean(),
-                results: z.array(
-                  z
-                    .object({
-                      component: z.string(),
-                      variable: z.string(),
-                      status: z.string(),
-                    })
-                    .passthrough(),
-                ),
+                success: z
+                  .boolean()
+                  .describe('Whether every variable in the template was accepted by the station'),
+                results: z
+                  .array(
+                    z
+                      .object({
+                        component: z
+                          .string()
+                          .describe('OCPP component name the variable belongs to'),
+                        variable: z.string().describe('OCPP variable name'),
+                        status: z
+                          .string()
+                          .describe(
+                            'Per-variable result (Accepted, Rejected, NotSupported, error message, etc.)',
+                          ),
+                      })
+                      .passthrough(),
+                  )
+                  .describe('Per-variable push result, in the order the variables were sent'),
               })
               .passthrough(),
           ),
@@ -4333,10 +4714,12 @@ export function stationRoutes(app: FastifyInstance): void {
         .describe('OCPP monitor ID assigned by the station, if any'),
       component: z.string().describe('OCPP component name being monitored'),
       variable: z.string().describe('OCPP variable name being monitored'),
-      type: z.string().describe('Monitor type (UpperThreshold, LowerThreshold, Delta, Periodic)'),
+      type: z
+        .enum(['UpperThreshold', 'LowerThreshold', 'Delta', 'Periodic', 'PeriodicClockAligned'])
+        .describe('Monitor type (OCPP 2.1 MonitorEnumType)'),
       value: z.string().describe('Threshold or interval value (numeric stored as string)'),
       severity: z.number().describe('OCPP severity level 0-9'),
-      status: z.string().describe('Rule status (pending, active, cleared, error)'),
+      status: z.enum(['pending', 'active', 'cleared', 'error']).describe('Rule status'),
       errorInfo: z.string().nullable().describe('Error info when status is error'),
       createdAt: z.string().describe('Row creation timestamp'),
       updatedAt: z.string().describe('Row update timestamp'),
@@ -4347,9 +4730,8 @@ export function stationRoutes(app: FastifyInstance): void {
     component: z.string().min(1).describe('OCPP component name'),
     variable: z.string().min(1).describe('OCPP variable name'),
     type: z
-      .string()
-      .min(1)
-      .describe('Monitor type (e.g., UpperThreshold, LowerThreshold, Delta, Periodic)'),
+      .enum(['UpperThreshold', 'LowerThreshold', 'Delta', 'Periodic', 'PeriodicClockAligned'])
+      .describe('Monitor type (OCPP 2.1 MonitorEnumType)'),
     value: z.number().describe('Threshold value or interval'),
     severity: z.number().int().min(0).max(9).default(0).describe('OCPP severity level 0-9'),
   });
@@ -4415,6 +4797,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Create a variable monitoring rule and dispatch SetVariableMonitoring',
+        description:
+          'Inserts a variable_monitoring_rules row in pending state and dispatches SetVariableMonitoring to the station via pub/sub. The station response is processed asynchronously and updates the rule status to active or rejected.',
         operationId: 'createStationMonitoringRule',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -4500,6 +4884,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Delete a variable monitoring rule and dispatch ClearVariableMonitoring',
+        description:
+          'Dispatches ClearVariableMonitoring to the station and removes the rule row. The station may take a moment to acknowledge; the local row is removed eagerly so the rule no longer appears in lists.',
         operationId: 'deleteStationMonitoringRule',
         security: [{ bearerAuth: [] }],
         params: zodSchema(monitoringRuleIdParams),

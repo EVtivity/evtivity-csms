@@ -44,6 +44,7 @@ describe('getReservationSettings', () => {
       cancellationWindowMinutes: 0,
       cancellationFeeCents: 0,
       maxHours: 3,
+      activeSessionCheckHours: 3,
     });
   });
 
@@ -64,6 +65,7 @@ describe('getReservationSettings', () => {
       cancellationWindowMinutes: 30,
       cancellationFeeCents: 500,
       maxHours: 3,
+      activeSessionCheckHours: 3,
     });
   });
 
@@ -94,6 +96,7 @@ describe('getReservationSettings', () => {
       cancellationWindowMinutes: 0,
       cancellationFeeCents: 0,
       maxHours: 3,
+      activeSessionCheckHours: 3,
     });
   });
 

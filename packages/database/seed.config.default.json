@@ -94,6 +94,7 @@
     "reservation.cancellationWindowMinutes": 0,
     "reservation.cancellationFeeCents": 0,
     "reservation.maxHours": 3,
+    "reservation.activeSessionCheckHours": 3,
     "fleet.enabled": true,
     "support.enabled": true,
     "guest.enabled": true,

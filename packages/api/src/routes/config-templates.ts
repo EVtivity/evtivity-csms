@@ -178,33 +178,39 @@ const filterOptionsQuery = z.object({
 });
 
 const createTemplateBody = z.object({
-  name: z.string().min(1).describe('Template name'),
-  description: z.string().optional().describe('Template description'),
+  name: z.string().min(1).max(255).describe('Template name'),
+  description: z.string().max(1000).optional().describe('Template description'),
   ocppVersion: z.enum(['2.1', '1.6']).default('2.1').describe('OCPP version for this template'),
   variables: z
     .array(
       z.object({
-        component: z.string(),
-        variable: z.string(),
-        value: z.string(),
+        // OCPP 1.6 has no Component concept - empty string is valid for 1.6 templates
+        component: z.string().max(100),
+        variable: z.string().min(1).max(100),
+        value: z.string().max(2500),
       }),
     )
+    .min(1)
+    .max(500)
     .describe('Variable definitions to set on target stations'),
   targetFilter: targetFilterSchema.describe('Filter to select target stations'),
 });
 
 const updateTemplateBody = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
+  name: z.string().min(1).max(255).optional(),
+  description: z.string().max(1000).optional(),
   ocppVersion: z.enum(['2.1', '1.6']).optional().describe('OCPP version for this template'),
   variables: z
     .array(
       z.object({
-        component: z.string(),
-        variable: z.string(),
-        value: z.string(),
+        // OCPP 1.6 has no Component concept - empty string is valid for 1.6 templates
+        component: z.string().max(100),
+        variable: z.string().min(1).max(100),
+        value: z.string().max(2500),
       }),
     )
+    .min(1)
+    .max(500)
     .optional(),
   targetFilter: targetFilterSchema,
 });
@@ -216,7 +222,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.stationConfig:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Get filter options for config template targeting',
         operationId: 'getConfigTemplateFilterOptions',
         security: [{ bearerAuth: [] }],
@@ -275,7 +281,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.stationConfig:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'List configuration templates',
         operationId: 'listConfigTemplates',
         security: [{ bearerAuth: [] }],
@@ -334,7 +340,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.stationConfig:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Get configuration template',
         operationId: 'getConfigTemplate',
         security: [{ bearerAuth: [] }],
@@ -361,7 +367,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.stationConfig:write')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Create a configuration template',
         operationId: 'createConfigTemplate',
         security: [{ bearerAuth: [] }],
@@ -393,7 +399,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.stationConfig:write')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Update a configuration template',
         operationId: 'updateConfigTemplate',
         security: [{ bearerAuth: [] }],
@@ -431,7 +437,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.stationConfig:write')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Duplicate a configuration template',
         operationId: 'duplicateConfigTemplate',
         security: [{ bearerAuth: [] }],
@@ -469,7 +475,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.stationConfig:write')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Delete a configuration template',
         operationId: 'deleteConfigTemplate',
         security: [{ bearerAuth: [] }],
@@ -504,7 +510,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.stationConfig:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Preview stations matching the template target filter',
         operationId: 'listConfigTemplateMatchingStations',
         security: [{ bearerAuth: [] }],
@@ -582,8 +588,10 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.stationConfig:write')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Push configuration template variables to matching stations via SetVariables',
+        description:
+          'Resolves online stations matching the template target filter and dispatches SetVariables (OCPP 2.1) or ChangeConfiguration (OCPP 1.6) for every variable. Creates a config_template_pushes row plus one config_template_push_stations row per target. Per-variable results stream back asynchronously. Returns the pushId so the caller can poll progress.',
         operationId: 'pushConfigTemplate',
         security: [{ bearerAuth: [] }],
         params: zodSchema(templateParams),
@@ -676,7 +684,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.stationConfig:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'List push history for a configuration template',
         operationId: 'listConfigTemplatePushes',
         security: [{ bearerAuth: [] }],
@@ -769,7 +777,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.stationConfig:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Get config template push detail with per-station results',
         operationId: 'getConfigTemplatePushDetail',
         security: [{ bearerAuth: [] }],
@@ -840,7 +848,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.stationConfig:read')],
       schema: {
-        tags: ['Stations'],
+        tags: ['Fleet Operations'],
         summary: 'Compare station variables against matching config templates',
         operationId: 'getStationConfigDrift',
         security: [{ bearerAuth: [] }],

@@ -24,12 +24,20 @@ const panelIdParam = z.object({
 const createPanelBody = z.object({
   name: z.string().min(1).max(255),
   parentPanelId: z.string().nullable().optional(),
-  breakerRatingAmps: z.number().int().min(1).describe('Breaker rating in amps'),
-  voltageV: z.number().int(),
-  phases: z.number().int(),
-  safetyMarginKw: z.number().min(0).optional().default(0),
+  breakerRatingAmps: z.number().int().min(1).max(10000).describe('Breaker rating in amps'),
+  voltageV: z
+    .number()
+    .int()
+    .refine((v) => [120, 208, 240, 277, 480].includes(v), {
+      message: 'Voltage must be one of: 120, 208, 240, 277, 480',
+    }),
+  phases: z
+    .number()
+    .int()
+    .refine((v) => [1, 3].includes(v), { message: 'Phases must be 1 or 3' }),
+  safetyMarginKw: z.number().min(0).max(10000).optional().default(0),
   oversubscriptionRatio: z.number().min(1.0).max(3.0).optional().default(1.0),
-  sortOrder: z.number().int().min(0).optional(),
+  sortOrder: z.number().int().min(0).max(10000).optional(),
 });
 
 const updatePanelBody = z.object({
@@ -54,20 +62,30 @@ const updatePanelBody = z.object({
 
 const panelItem = z
   .object({
-    id: z.string(),
-    siteId: z.string(),
-    parentPanelId: z.string().nullable(),
-    name: z.string(),
-    breakerRatingAmps: z.number(),
-    voltageV: z.number(),
-    phases: z.number(),
-    maxContinuousKw: z.number(),
-    safetyMarginKw: z.number(),
-    oversubscriptionRatio: z.number(),
-    sortOrder: z.number(),
-    circuitCount: z.number(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Identifier'),
+    siteId: z.string().describe('Site identifier the panel belongs to'),
+    parentPanelId: z
+      .string()
+      .nullable()
+      .describe('Parent panel identifier when nested under a sub-panel'),
+    name: z.string().max(255).describe('Display name'),
+    breakerRatingAmps: z.number().int().min(1).max(10000).describe('Main breaker rating in amps'),
+    voltageV: z.number().int().min(0).max(1000).describe('Service voltage in volts'),
+    phases: z.number().int().min(1).max(3).describe('Number of phases (1 or 3)'),
+    maxContinuousKw: z
+      .number()
+      .min(0)
+      .describe('Maximum continuous load in kW (NEC 80% derating applied)'),
+    safetyMarginKw: z.number().min(0).describe('Safety margin reserved from capacity in kW'),
+    oversubscriptionRatio: z
+      .number()
+      .min(1.0)
+      .max(3.0)
+      .describe('Ratio of connected capacity to physical capacity allowed'),
+    sortOrder: z.number().int().min(0).describe('Display ordering within the site'),
+    circuitCount: z.number().int().min(0).describe('Number of circuits attached to this panel'),
+    createdAt: z.coerce.date().describe('Timestamp when created'),
+    updatedAt: z.coerce.date().describe('Timestamp when last modified'),
   })
   .passthrough();
 
@@ -75,25 +93,30 @@ const panelCircuitItem = z
   .object({
     id: z.string().describe('Circuit ID'),
     panelId: z.string().describe('Parent panel ID'),
-    name: z.string().describe('Circuit name'),
-    breakerRatingAmps: z.number().describe('Circuit breaker rating in amps'),
-    maxContinuousKw: z.number().describe('Computed max continuous power in kW'),
-    phaseConnections: z.string().nullable().describe('Phase connection assignment'),
-    sortOrder: z.number().describe('Display sort order'),
+    name: z.string().max(255).describe('Circuit name'),
+    breakerRatingAmps: z
+      .number()
+      .int()
+      .min(1)
+      .max(10000)
+      .describe('Circuit breaker rating in amps'),
+    maxContinuousKw: z.number().min(0).describe('Computed max continuous power in kW'),
+    phaseConnections: z.string().max(20).nullable().describe('Phase connection assignment'),
+    sortOrder: z.number().int().min(0).describe('Display sort order'),
     createdAt: z.coerce.date().describe('Row creation timestamp'),
     updatedAt: z.coerce.date().describe('Row last update timestamp'),
-    stationCount: z.number().describe('Number of stations attached to this circuit'),
+    stationCount: z.number().int().min(0).describe('Number of stations attached to this circuit'),
   })
   .passthrough();
 
 const panelUnmanagedLoadItem = z
   .object({
-    id: z.number().describe('Unmanaged load ID'),
+    id: z.number().int().min(1).describe('Unmanaged load ID'),
     panelId: z.string().nullable().describe('Parent panel ID, if attached to a panel'),
     circuitId: z.string().nullable().describe('Parent circuit ID, if attached to a circuit'),
-    name: z.string().describe('Unmanaged load name'),
-    estimatedDrawKw: z.number().describe('Estimated load draw in kW'),
-    meterDeviceId: z.string().nullable().describe('Optional meter device identifier'),
+    name: z.string().max(255).describe('Unmanaged load name'),
+    estimatedDrawKw: z.number().min(0).describe('Estimated load draw in kW'),
+    meterDeviceId: z.string().max(255).nullable().describe('Optional meter device identifier'),
     createdAt: z.coerce.date().describe('Row creation timestamp'),
     updatedAt: z.coerce.date().describe('Row last update timestamp'),
   })
@@ -101,21 +124,33 @@ const panelUnmanagedLoadItem = z
 
 const panelDetailItem = z
   .object({
-    id: z.string(),
-    siteId: z.string(),
-    parentPanelId: z.string().nullable(),
-    name: z.string(),
-    breakerRatingAmps: z.number(),
-    voltageV: z.number(),
-    phases: z.number(),
-    maxContinuousKw: z.number(),
-    safetyMarginKw: z.number(),
-    oversubscriptionRatio: z.number(),
-    sortOrder: z.number(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
-    circuits: z.array(panelCircuitItem),
-    unmanagedLoads: z.array(panelUnmanagedLoadItem),
+    id: z.string().describe('Identifier'),
+    siteId: z.string().describe('Site identifier the panel belongs to'),
+    parentPanelId: z
+      .string()
+      .nullable()
+      .describe('Parent panel identifier when nested under a sub-panel'),
+    name: z.string().max(255).describe('Display name'),
+    breakerRatingAmps: z.number().int().min(1).max(10000).describe('Main breaker rating in amps'),
+    voltageV: z.number().int().min(0).max(1000).describe('Service voltage in volts'),
+    phases: z.number().int().min(1).max(3).describe('Number of phases (1 or 3)'),
+    maxContinuousKw: z
+      .number()
+      .min(0)
+      .describe('Maximum continuous load in kW (NEC 80% derating applied)'),
+    safetyMarginKw: z.number().min(0).describe('Safety margin reserved from capacity in kW'),
+    oversubscriptionRatio: z
+      .number()
+      .min(1.0)
+      .max(3.0)
+      .describe('Ratio of connected capacity to physical capacity allowed'),
+    sortOrder: z.number().int().min(0).describe('Display ordering within the site'),
+    createdAt: z.coerce.date().describe('Timestamp when created'),
+    updatedAt: z.coerce.date().describe('Timestamp when last modified'),
+    circuits: z.array(panelCircuitItem).describe('Circuits attached to this panel'),
+    unmanagedLoads: z
+      .array(panelUnmanagedLoadItem)
+      .describe('Unmanaged loads attached to this panel'),
   })
   .passthrough();
 

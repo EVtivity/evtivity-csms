@@ -17,120 +17,194 @@ import {
 
 const fleetListItem = z
   .object({
-    id: z.string(),
-    name: z.string(),
-    description: z.string().nullable(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
-    driverCount: z.number(),
-    stationCount: z.number(),
+    id: z.string().describe('Fleet identifier'),
+    name: z.string().max(255).describe('Fleet display name'),
+    description: z.string().max(1000).nullable().describe('Fleet description'),
+    createdAt: z.coerce.date().describe('Timestamp when the fleet was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the fleet was last updated'),
+    driverCount: z.number().int().min(0).describe('Number of drivers in this fleet'),
+    stationCount: z.number().int().min(0).describe('Number of stations assigned to this fleet'),
   })
   .passthrough();
 
 const fleetItem = z
   .object({
-    id: z.string(),
-    name: z.string(),
-    description: z.string().nullable(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Fleet identifier'),
+    name: z.string().max(255).describe('Fleet display name'),
+    description: z.string().max(1000).nullable().describe('Fleet description'),
+    createdAt: z.coerce.date().describe('Timestamp when the fleet was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the fleet was last updated'),
   })
   .passthrough();
 
 const fleetDriverItem = z
   .object({
-    id: z.string(),
-    firstName: z.string().nullable(),
-    lastName: z.string().nullable(),
-    email: z.string().nullable(),
-    phone: z.string().nullable(),
-    isActive: z.boolean(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Driver identifier'),
+    firstName: z.string().max(100).nullable().describe('Driver first name'),
+    lastName: z.string().max(100).nullable().describe('Driver last name'),
+    email: z.string().email().max(255).nullable().describe('Driver email address'),
+    phone: z.string().max(50).nullable().describe('Driver phone number in E.164 format'),
+    isActive: z.boolean().describe('Whether the driver account is enabled'),
+    createdAt: z.coerce.date().describe('Timestamp when the driver was created'),
   })
   .passthrough();
 
-const fleetDriverRecordItem = z.object({ fleetId: z.string(), driverId: z.string() }).passthrough();
+const fleetDriverRecordItem = z
+  .object({
+    fleetId: z.string().describe('Fleet identifier'),
+    driverId: z.string().describe('Driver identifier'),
+  })
+  .passthrough();
 
 const fleetStationItem = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    siteId: z.string().nullable(),
-    model: z.string().nullable(),
-    securityProfile: z.number().nullable(),
-    ocppProtocol: z.string().nullable(),
-    status: z.string(),
-    connectorCount: z.number(),
-    connectorTypes: z.array(z.string()).nullable(),
-    isOnline: z.boolean(),
-    lastHeartbeat: z.coerce.date().nullable(),
+    id: z.string().describe('Station identifier'),
+    stationId: z.string().max(255).describe('Station OCPP id (display label)'),
+    siteId: z.string().nullable().describe('Site identifier the station belongs to'),
+    model: z.string().max(100).nullable().describe('Station hardware model'),
+    securityProfile: z
+      .number()
+      .int()
+      .min(0)
+      .max(3)
+      .nullable()
+      .describe('OCPP security profile (0=none, 1=basic, 2=basic+TLS, 3=mTLS)'),
+    ocppProtocol: z
+      .enum(['ocpp1.6', 'ocpp2.1'])
+      .nullable()
+      .describe('OCPP protocol version negotiated with the station'),
+    status: z.string().max(50).describe('Station availability status'),
+    connectorCount: z.number().int().min(0).describe('Total number of connectors on the station'),
+    connectorTypes: z
+      .array(z.string().max(50))
+      .max(20)
+      .nullable()
+      .describe('Unique connector types present on the station (e.g. CCS2, Type2)'),
+    isOnline: z.boolean().describe('Whether the station currently has an active OCPP connection'),
+    lastHeartbeat: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp of the most recent OCPP heartbeat'),
   })
   .passthrough();
 
 const fleetStationRecordItem = z
-  .object({ fleetId: z.string(), stationId: z.string() })
+  .object({
+    fleetId: z.string().describe('Fleet identifier'),
+    stationId: z.string().describe('Station identifier'),
+  })
   .passthrough();
 
 const fleetVehicleItem = z
   .object({
-    id: z.string(),
-    driverId: z.string(),
-    driverName: z.string(),
-    make: z.string().nullable(),
-    model: z.string().nullable(),
-    year: z.string().nullable(),
-    vin: z.string().nullable(),
-    licensePlate: z.string().nullable(),
+    id: z.string().describe('Vehicle identifier'),
+    driverId: z.string().describe('Owning driver identifier'),
+    driverName: z.string().max(255).describe('Owning driver full name'),
+    make: z.string().max(100).nullable().describe('Vehicle make (e.g. Tesla, BMW)'),
+    model: z.string().max(100).nullable().describe('Vehicle model (e.g. Model 3, i4)'),
+    year: z
+      .string()
+      .regex(/^\d{4}$/)
+      .nullable()
+      .describe('Model year (4-digit)'),
+    vin: z.string().max(17).nullable().describe('Vehicle identification number (17 chars)'),
+    licensePlate: z.string().max(20).nullable().describe('Vehicle license plate'),
   })
   .passthrough();
 
 const fleetSessionItem = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    stationName: z.string().nullable(),
-    siteName: z.string().nullable(),
-    transactionId: z.string().nullable(),
-    status: z.string(),
-    startedAt: z.coerce.date().nullable(),
-    endedAt: z.coerce.date().nullable(),
-    idleStartedAt: z.coerce.date().nullable(),
-    energyDeliveredWh: z.number(),
-    currentCostCents: z.number(),
-    finalCostCents: z.number().nullable(),
-    currency: z.string().nullable(),
+    id: z.string().describe('Charging session identifier'),
+    stationId: z.string().describe('Station identifier where the session occurred'),
+    stationName: z.string().max(255).nullable().describe('Station OCPP id (display label)'),
+    siteName: z.string().max(255).nullable().describe('Site name where the station is located'),
+    transactionId: z.string().nullable().describe('OCPP transaction identifier'),
+    status: z
+      .string()
+      .max(50)
+      .describe('Session status (active, completed, failed, faulted, etc.)'),
+    startedAt: z.coerce.date().nullable().describe('Timestamp when the session started'),
+    endedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp when the session ended, null if active'),
+    idleStartedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp when the connector went idle during the session'),
+    energyDeliveredWh: z.number().min(0).describe('Total energy delivered in watt-hours'),
+    currentCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Running cost in cents during active session'),
+    finalCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Final billed cost in cents after session completes'),
+    currency: z.string().length(3).nullable().describe('ISO 4217 currency code (USD, EUR, etc.)'),
   })
   .passthrough();
 
 const fleetMetricsItem = z
   .object({
-    totalSessions: z.number(),
-    completedSessions: z.number(),
-    faultedSessions: z.number(),
-    sessionSuccessPercent: z.number(),
-    totalEnergyWh: z.number(),
-    avgSessionDurationMinutes: z.number(),
-    activeDrivers: z.number(),
-    totalDrivers: z.number(),
-    totalVehicles: z.number(),
-    periodMonths: z.number(),
+    totalSessions: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Total number of charging sessions in the reporting period'),
+    completedSessions: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of sessions that completed successfully'),
+    faultedSessions: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of sessions that ended in a fault state'),
+    sessionSuccessPercent: z
+      .number()
+      .min(0)
+      .max(100)
+      .describe('Percentage of sessions that completed successfully (0-100)'),
+    totalEnergyWh: z.number().min(0).describe('Total energy delivered in watt-hours'),
+    avgSessionDurationMinutes: z.number().min(0).describe('Average session duration in minutes'),
+    activeDrivers: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of drivers with at least one session in the period'),
+    totalDrivers: z.number().int().min(0).describe('Total number of drivers in this fleet'),
+    totalVehicles: z.number().describe('Total number of vehicles owned by fleet drivers'),
+    periodMonths: z.number().describe('Number of months included in the metrics window'),
   })
   .passthrough();
 
-const energyHistoryItem = z.object({ date: z.string(), energyWh: z.number() }).passthrough();
+const energyHistoryItem = z
+  .object({
+    date: z.string().describe('Day in ISO date format (YYYY-MM-DD)'),
+    energyWh: z.number().describe('Total energy delivered on this day in watt-hours'),
+  })
+  .passthrough();
 
 const fleetPricingGroupItem = z
   .object({
-    id: z.string(),
-    name: z.string(),
-    description: z.string().nullable(),
-    isDefault: z.boolean(),
-    tariffCount: z.number(),
+    id: z.string().describe('Pricing group identifier'),
+    name: z.string().describe('Pricing group display name'),
+    description: z.string().nullable().describe('Pricing group description'),
+    isDefault: z.boolean().describe('Whether this is the system default pricing group'),
+    tariffCount: z.number().describe('Number of tariffs in this pricing group'),
   })
   .passthrough();
 
 const fleetPricingGroupRecordItem = z
-  .object({ fleetId: z.string(), pricingGroupId: z.string() })
+  .object({
+    fleetId: z.string().describe('Fleet identifier'),
+    pricingGroupId: z.string().describe('Pricing group identifier'),
+  })
   .passthrough();
 
 const fleetParams = z.object({

@@ -149,7 +149,9 @@
     "failedSetup": "Zahlungseinrichtung konnte nicht initialisiert werden",
     "cardSetupFailed": "Karteneinrichtung fehlgeschlagen",
     "failedSave": "Zahlungsmethode konnte nicht gespeichert werden",
-    "stripeNotConfigured": "Zahlungsabwicklung ist derzeit nicht verfügbar."
+    "stripeNotConfigured": "Zahlungsabwicklung ist derzeit nicht verfügbar.",
+    "confirmRemoveTitle": "Zahlungsmethode entfernen",
+    "confirmRemoveDescription": "Möchtest du diese Zahlungsmethode wirklich entfernen? Du musst sie erneut hinzufügen, um sie zum Laden zu verwenden."
   },
   "profile": {
     "title": "Profil",

@@ -12,6 +12,8 @@ import { SaveButton } from '@/components/save-button';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -81,6 +83,10 @@ interface ReservationData {
   expiresAt: string;
   createdAt: string;
   updatedAt: string;
+  cancelledBy: string | null;
+  cancelReason: string | null;
+  cancelNote: string | null;
+  cancellationFeeCents: number;
   sessionId: string | null;
   sessionStatus: string | null;
   sessionEnergyWh: string | null;
@@ -109,6 +115,8 @@ export function ReservationDetailsTab({
   const [editDriver, setEditDriver] = useState<{ id: string; name: string } | null>(null);
   const [editSubmitted, setEditSubmitted] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelChargeFee, setCancelChargeFee] = useState(false);
+  const [cancelNote, setCancelNote] = useState('');
   const [reassignOpen, setReassignOpen] = useState(false);
   const [reassignStation, setReassignStation] = useState<{ id: string; stationId: string } | null>(
     null,
@@ -154,11 +162,17 @@ export function ReservationDetailsTab({
   });
 
   const cancelMutation = useMutation({
-    mutationFn: () => api.delete(`/v1/reservations/${reservation.id}`),
+    mutationFn: () =>
+      api.delete(`/v1/reservations/${reservation.id}`, {
+        chargeCancellationFee: cancelChargeFee,
+        reason: cancelNote.trim() === '' ? undefined : cancelNote.trim(),
+      }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['reservations'] });
       void queryClient.invalidateQueries({ queryKey: ['reservations', reservation.id] });
       setCancelOpen(false);
+      setCancelChargeFee(false);
+      setCancelNote('');
     },
   });
 
@@ -176,10 +190,6 @@ export function ReservationDetailsTab({
   const policyFeeCents = policyQuery.data?.reservationCancellationFeeCents ?? 0;
   const policyWindowMinutes = policyQuery.data?.reservationCancellationWindowMinutes ?? 0;
   const policyActive = policyFeeCents > 0 && policyWindowMinutes > 0;
-  const cancelable = reservation.status === 'active' || reservation.status === 'scheduled';
-  const referenceTime = new Date(reservation.startsAt ?? reservation.createdAt).getTime();
-  const minutesUntilStart = Math.floor((referenceTime - Date.now()) / 60_000);
-  const cancelFeeWillApply = policyActive && cancelable && minutesUntilStart < policyWindowMinutes;
 
   const reassignMutation = useMutation({
     mutationFn: (body: { newStationOcppId: string; newEvseId?: number }) =>
@@ -460,7 +470,49 @@ export function ReservationDetailsTab({
                 <dt className="text-muted-foreground">{t('reservations.createdAtLabel')}</dt>
                 <dd className="font-medium">{formatDateTime(reservation.createdAt, timezone)}</dd>
               </div>
-              {policyActive && (
+              {reservation.status === 'cancelled' && reservation.cancelledBy != null && (
+                <>
+                  <div>
+                    <dt className="text-muted-foreground">{t('reservations.cancelledByLabel')}</dt>
+                    <dd className="font-medium">
+                      {/* Dynamic key per actor enum value. */}
+                      {t(
+                        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+                        `reservations.cancelledByActor.${reservation.cancelledBy}` as never,
+                      )}
+                    </dd>
+                  </div>
+                  {reservation.cancelReason != null && (
+                    <div>
+                      <dt className="text-muted-foreground">
+                        {t('reservations.cancelReasonLabel')}
+                      </dt>
+                      <dd className="font-medium">
+                        {/* Dynamic key per cancel-reason enum value. */}
+                        {t(
+                          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+                          `reservations.cancelReason.${reservation.cancelReason}` as never,
+                        )}
+                      </dd>
+                    </div>
+                  )}
+                  {reservation.cancelNote != null && reservation.cancelNote.trim() !== '' && (
+                    <div className="md:col-span-2">
+                      <dt className="text-muted-foreground">{t('reservations.cancelNoteLabel')}</dt>
+                      <dd className="font-medium whitespace-pre-wrap">{reservation.cancelNote}</dd>
+                    </div>
+                  )}
+                  {reservation.cancellationFeeCents > 0 && (
+                    <div>
+                      <dt className="text-muted-foreground">{t('reservations.cancellationFee')}</dt>
+                      <dd className="font-medium">
+                        ${(reservation.cancellationFeeCents / 100).toFixed(2)}
+                      </dd>
+                    </div>
+                  )}
+                </>
+              )}
+              {policyActive && reservation.status !== 'cancelled' && (
                 <div className="md:col-span-2">
                   <dt className="text-muted-foreground">{t('reservations.cancellationPolicy')}</dt>
                   <dd className="font-medium">
@@ -478,25 +530,55 @@ export function ReservationDetailsTab({
 
       <ConfirmDialog
         open={cancelOpen}
-        onOpenChange={setCancelOpen}
-        title={t('reservations.cancel')}
-        description={[
-          t('reservations.confirmCancel'),
-          cancelFeeWillApply
-            ? t('reservations.cancellationFeeWarning', {
-                fee: `$${(policyFeeCents / 100).toFixed(2)}`,
-              })
-            : '',
-        ]
-          .filter(Boolean)
-          .join(' ')}
+        onOpenChange={(open) => {
+          setCancelOpen(open);
+          if (!open) {
+            setCancelChargeFee(false);
+            setCancelNote('');
+          }
+        }}
+        title={t('reservations.cancelReservation')}
+        description={t('reservations.confirmCancel')}
         confirmLabel={t('reservations.cancel')}
         variant="destructive"
         isPending={cancelMutation.isPending}
         onConfirm={() => {
           cancelMutation.mutate();
         }}
-      />
+      >
+        <div className="grid gap-3">
+          {policyActive && (
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={cancelChargeFee}
+                onChange={(e) => {
+                  setCancelChargeFee(e.target.checked);
+                }}
+              />
+              <span>
+                {t('reservations.chargeCancellationFeeLabel', {
+                  fee: `$${(policyFeeCents / 100).toFixed(2)}`,
+                })}
+              </span>
+            </label>
+          )}
+          <div className="grid gap-1.5">
+            <Label htmlFor="cancel-note" className="text-sm">
+              {t('reservations.cancelReasonNoteLabel')}
+            </Label>
+            <Textarea
+              id="cancel-note"
+              value={cancelNote}
+              onChange={(e) => {
+                setCancelNote(e.target.value);
+              }}
+              placeholder={t('reservations.cancelReasonNotePlaceholder')}
+              rows={3}
+              maxLength={500}
+            />
+          </div>
+        </div>
+      </ConfirmDialog>
 
       <Dialog open={reassignOpen} onOpenChange={setReassignOpen}>
         <DialogContent className="max-w-[95vw] md:max-w-lg overflow-visible">

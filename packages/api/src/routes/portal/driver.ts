@@ -30,22 +30,33 @@ import { revokeAllDriverRefreshTokens } from '../../services/refresh-token.servi
 
 const portalDriverProfile = z
   .object({
-    id: z.string(),
-    firstName: z.string().nullable(),
-    lastName: z.string().nullable(),
-    email: z.string().nullable(),
-    phone: z.string().nullable(),
-    language: z.string().nullable(),
-    timezone: z.string().nullable(),
-    themePreference: z.string(),
-    distanceUnit: z.string(),
-    isActive: z.boolean(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Driver ID (nanoid prefixed with drv_)'),
+    firstName: z.string().max(100).nullable().describe('Driver first name'),
+    lastName: z.string().max(100).nullable().describe('Driver last name'),
+    email: z.string().email().max(255).nullable().describe('Driver email address'),
+    phone: z.string().max(50).nullable().describe('Driver phone number in E.164 format'),
+    language: z
+      .string()
+      .max(10)
+      .nullable()
+      .describe('Preferred UI and notification language code (e.g. en, es, zh)'),
+    timezone: z
+      .string()
+      .max(50)
+      .nullable()
+      .describe('Preferred IANA timezone (e.g. America/Los_Angeles)'),
+    themePreference: z.enum(['light', 'dark']).describe('Preferred UI theme'),
+    distanceUnit: z.enum(['mi', 'km']).describe('Preferred distance unit (miles or kilometers)'),
+    isActive: z.boolean().describe('Whether the driver account is active'),
+    createdAt: z.coerce.date().describe('Timestamp the driver account was created'),
   })
   .passthrough();
 
 const notificationPrefsItem = z
-  .object({ emailEnabled: z.boolean(), smsEnabled: z.boolean() })
+  .object({
+    emailEnabled: z.boolean().describe('Whether email notifications are enabled'),
+    smsEnabled: z.boolean().describe('Whether SMS notifications are enabled'),
+  })
   .passthrough();
 
 const updateProfileBody = z.object({
@@ -258,9 +269,14 @@ export function portalDriverRoutes(app: FastifyInstance): void {
 
   const mfaStatusResponse = z
     .object({
-      mfaEnabled: z.boolean(),
-      mfaMethod: z.string().nullable(),
-      availableMethods: z.array(z.string()),
+      mfaEnabled: z.boolean().describe('Whether MFA is enabled for this driver'),
+      mfaMethod: z
+        .string()
+        .nullable()
+        .describe('Active MFA method (totp, email, sms) or null if MFA is disabled'),
+      availableMethods: z
+        .array(z.string())
+        .describe('MFA methods enabled by the system administrator (totp, email, sms)'),
     })
     .passthrough();
 
@@ -303,9 +319,18 @@ export function portalDriverRoutes(app: FastifyInstance): void {
 
   const mfaSetupResponse = z
     .object({
-      qrDataUri: z.string().optional(),
-      secret: z.string().optional(),
-      challengeId: z.number().optional(),
+      qrDataUri: z
+        .string()
+        .optional()
+        .describe('PNG data URI of the TOTP QR code (TOTP setup only)'),
+      secret: z
+        .string()
+        .optional()
+        .describe('Plaintext TOTP secret for manual entry (TOTP setup only)'),
+      challengeId: z
+        .number()
+        .optional()
+        .describe('Email/SMS challenge ID used by the confirm step (email/sms setup only)'),
     })
     .passthrough();
 

@@ -14,17 +14,27 @@ import type { DriverJwtPayload } from '../../plugins/auth.js';
 
 const notificationItem = z
   .object({
-    id: z.number(),
-    channel: z.string(),
-    subject: z.string().nullable(),
-    eventType: z.string().nullable(),
-    createdAt: z.coerce.date(),
+    id: z.number().int().min(1).describe('Notification ID'),
+    channel: z
+      .enum(['email', 'webhook', 'sms', 'log'])
+      .describe('Delivery channel used for this notification'),
+    subject: z
+      .string()
+      .max(500)
+      .nullable()
+      .describe('Subject line (email) or summary text (other channels)'),
+    eventType: z
+      .string()
+      .max(255)
+      .nullable()
+      .describe('Domain event type that triggered this notification'),
+    createdAt: z.coerce.date().describe('Timestamp the notification was dispatched'),
   })
   .passthrough();
 
 const unreadCountResponse = z
   .object({
-    count: z.number(),
+    count: z.number().int().min(0).describe('Number of notifications since lastNotificationReadAt'),
   })
   .passthrough();
 

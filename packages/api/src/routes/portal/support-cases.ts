@@ -11,6 +11,10 @@ import {
   supportCaseMessages,
   supportCaseAttachments,
   supportCaseSessions,
+  supportCaseStatusEnum,
+  supportCaseCategoryEnum,
+  supportCasePriorityEnum,
+  supportCaseMessageSenderEnum,
   chargingSessions,
   chargingStations,
 } from '@evtivity/database';
@@ -24,69 +28,104 @@ import type { DriverJwtPayload } from '../../plugins/auth.js';
 
 const portalSupportCaseItem = z
   .object({
-    id: z.string(),
-    caseNumber: z.string(),
-    subject: z.string(),
-    status: z.string(),
-    category: z.string(),
-    priority: z.string(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Support case ID (nanoid prefixed with cas_)'),
+    caseNumber: z.string().describe('Human-readable case number, e.g. CASE-00042'),
+    subject: z.string().max(255).describe('Case subject line'),
+    status: z
+      .enum(supportCaseStatusEnum.enumValues)
+      .describe('Case status (open, in_progress, waiting_on_driver, resolved, closed)'),
+    category: z
+      .enum(supportCaseCategoryEnum.enumValues)
+      .describe(
+        'Case category (billing_dispute, charging_failure, connector_damage, account_issue, payment_problem, reservation_issue, general_inquiry)',
+      ),
+    priority: z
+      .enum(supportCasePriorityEnum.enumValues)
+      .describe('Case priority (low, medium, high, urgent)'),
+    createdAt: z.coerce.date().describe('Timestamp the case was opened'),
+    updatedAt: z.coerce.date().describe('Timestamp the case was last updated'),
   })
   .passthrough();
 
 const attachmentItem = z
   .object({
-    id: z.string(),
-    messageId: z.string(),
-    fileName: z.string(),
-    fileSize: z.number(),
-    contentType: z.string(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Attachment ID'),
+    messageId: z.string().describe('Parent message ID'),
+    fileName: z.string().max(255).describe('Original uploaded file name'),
+    fileSize: z.number().int().min(0).describe('File size in bytes'),
+    contentType: z.string().max(100).describe('MIME content type'),
+    createdAt: z.coerce.date().describe('Timestamp the attachment was uploaded'),
   })
   .passthrough();
 
 const messageItem = z
   .object({
-    id: z.string(),
-    senderType: z.string(),
-    body: z.string(),
-    createdAt: z.coerce.date(),
-    attachments: z.array(attachmentItem).optional(),
+    id: z.string().describe('Message ID'),
+    senderType: z
+      .enum(supportCaseMessageSenderEnum.enumValues)
+      .describe('Who sent the message (driver, operator, system)'),
+    body: z.string().describe('Message body text'),
+    createdAt: z.coerce.date().describe('Timestamp the message was sent'),
+    attachments: z
+      .array(attachmentItem)
+      .optional()
+      .describe('Attachments uploaded with this message'),
   })
   .passthrough();
 
-const sessionRef = z.object({ id: z.string(), transactionId: z.string().nullable() }).passthrough();
+const sessionRef = z
+  .object({
+    id: z.string().describe('Charging session ID'),
+    transactionId: z.string().nullable().describe('OCPP transaction ID for the session'),
+  })
+  .passthrough();
 
 const portalSupportCaseDetail = portalSupportCaseItem
   .extend({
-    description: z.string(),
-    driverId: z.string().nullable(),
-    stationId: z.string().nullable(),
-    stationName: z.string().nullable(),
-    resolvedAt: z.coerce.date().nullable(),
-    sessions: z.array(sessionRef),
-    messages: z.array(messageItem),
+    description: z.string().describe('Original case description from the driver'),
+    driverId: z.string().nullable().describe('Driver ID that owns the case'),
+    stationId: z.string().nullable().describe('Linked station ID, if any'),
+    stationName: z.string().nullable().describe('OCPP station identity for the linked station'),
+    resolvedAt: z.coerce.date().nullable().describe('Timestamp the case was resolved'),
+    sessions: z.array(sessionRef).describe('Charging sessions linked to this case'),
+    messages: z
+      .array(messageItem)
+      .describe('Chronologically ordered driver-visible messages on the case'),
   })
   .passthrough();
 
 const portalMessageResponse = z
   .object({
-    id: z.string(),
-    caseId: z.string(),
-    senderType: z.string(),
-    senderId: z.string().nullable(),
-    body: z.string(),
-    isInternal: z.boolean(),
-    createdAt: z.coerce.date(),
+    id: z.string().describe('Message ID'),
+    caseId: z.string().describe('Parent case ID'),
+    senderType: z
+      .enum(supportCaseMessageSenderEnum.enumValues)
+      .describe('Who sent the message (driver, operator, system)'),
+    senderId: z
+      .string()
+      .nullable()
+      .describe('User or driver ID of the sender, null for system messages'),
+    body: z.string().describe('Message body text'),
+    isInternal: z
+      .boolean()
+      .describe('Whether the message is an internal note (always false for portal replies)'),
+    createdAt: z.coerce.date().describe('Timestamp the message was sent'),
   })
   .passthrough();
 
 const uploadUrlResponse = z
-  .object({ uploadUrl: z.string(), s3Key: z.string(), s3Bucket: z.string() })
+  .object({
+    uploadUrl: z.string().describe('Presigned S3 PUT URL valid for a short time'),
+    s3Key: z.string().describe('S3 object key the client must upload to'),
+    s3Bucket: z.string().describe('S3 bucket name the client must upload to'),
+  })
   .passthrough();
 
-const downloadUrlResponse = z.object({ downloadUrl: z.string() }).passthrough();
+const downloadUrlResponse = z
+  .object({
+    downloadUrl: z.string().describe('Presigned S3 GET URL valid for a short time'),
+  })
+  .passthrough();
 import {
   getS3Config,
   generateUploadUrl,
@@ -108,7 +147,7 @@ const attachmentIdParams = z.object({
 
 const createCaseBody = z.object({
   subject: z.string().min(1).max(255),
-  description: z.string().min(1),
+  description: z.string().min(1).max(5000),
   category: z
     .enum([
       'billing_dispute',
@@ -125,7 +164,7 @@ const createCaseBody = z.object({
 });
 
 const createMessageBody = z.object({
-  body: z.string().min(1),
+  body: z.string().min(1).max(10000),
 });
 
 const requestUploadUrlBody = z.object({

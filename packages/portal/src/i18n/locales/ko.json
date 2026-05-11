@@ -151,7 +151,9 @@
     "failedSetup": "결제 설정 초기화에 실패했습니다",
     "cardSetupFailed": "카드 설정에 실패했습니다",
     "failedSave": "결제 수단 저장에 실패했습니다",
-    "stripeNotConfigured": "현재 결제 처리를 이용할 수 없습니다."
+    "stripeNotConfigured": "현재 결제 처리를 이용할 수 없습니다.",
+    "confirmRemoveTitle": "결제 수단 삭제",
+    "confirmRemoveDescription": "이 결제 수단을 삭제하시겠습니까? 충전에 사용하려면 다시 추가해야 합니다."
   },
   "profile": {
     "title": "프로필",

@@ -18,23 +18,42 @@ import {
   itemResponse,
 } from '../lib/response-schemas.js';
 
+// OCPP 2.1 InstallCertificateUseEnumType + V2G CertificateUseEnumType
+const PKI_CERTIFICATE_TYPES = [
+  'V2GRootCertificate',
+  'MORootCertificate',
+  'CSMSRootCertificate',
+  'V2GCertificateChain',
+  'ManufacturerRootCertificate',
+  'OEMRootCertificate',
+  'ChargingStationCertificate',
+] as const;
+
 const caCertItem = z
   .object({
-    id: z.number().describe('CA certificate ID'),
-    certificateType: z
-      .string()
-      .describe('Certificate type (e.g. V2GRootCertificate, MORootCertificate)'),
-    certificate: z.string().describe('PEM-encoded certificate'),
-    serialNumber: z.string().nullable().describe('Certificate serial number'),
-    issuer: z.string().nullable().describe('Issuer distinguished name'),
-    subject: z.string().nullable().describe('Subject distinguished name'),
+    id: z.number().int().min(1).describe('CA certificate ID'),
+    certificateType: z.enum(PKI_CERTIFICATE_TYPES).describe('Certificate type'),
+    certificate: z.string().max(20000).describe('PEM-encoded certificate'),
+    serialNumber: z.string().max(255).nullable().describe('Certificate serial number'),
+    issuer: z.string().max(500).nullable().describe('Issuer distinguished name'),
+    subject: z.string().max(500).nullable().describe('Subject distinguished name'),
     validFrom: z.string().nullable().describe('Validity start timestamp (ISO 8601)'),
     validTo: z.string().nullable().describe('Validity end timestamp (ISO 8601)'),
-    hashAlgorithm: z.string().nullable().describe('Hash algorithm used (e.g. SHA256)'),
-    issuerNameHash: z.string().nullable().describe('Hash of the issuer distinguished name'),
-    issuerKeyHash: z.string().nullable().describe('Hash of the issuer public key'),
-    status: z.string().describe('Certificate status (active, expired, revoked)'),
-    source: z.string().nullable().describe('Certificate source (e.g. manual_upload, hubject)'),
+    hashAlgorithm: z
+      .enum(['SHA256', 'SHA384', 'SHA512'])
+      .nullable()
+      .describe('Hash algorithm used'),
+    issuerNameHash: z
+      .string()
+      .max(255)
+      .nullable()
+      .describe('Hash of the issuer distinguished name'),
+    issuerKeyHash: z.string().max(255).nullable().describe('Hash of the issuer public key'),
+    status: z.enum(['active', 'expired', 'revoked']).describe('Certificate status'),
+    source: z
+      .enum(['manual_upload', 'hubject', 'station'])
+      .nullable()
+      .describe('Certificate source'),
     createdAt: z.string().describe('Created timestamp (ISO 8601)'),
     updatedAt: z.string().describe('Updated timestamp (ISO 8601)'),
   })
@@ -42,18 +61,25 @@ const caCertItem = z
 
 const csrItem = z
   .object({
-    id: z.number().describe('CSR request ID'),
+    id: z.number().int().min(1).describe('CSR request ID'),
     stationId: z.string().nullable().describe('Charging station ID associated with this CSR'),
-    csr: z.string().describe('PEM-encoded certificate signing request'),
-    certificateType: z.string().describe('Certificate type requested'),
-    requestId: z.number().nullable().describe('OCPP request ID from the station'),
-    status: z.string().describe('CSR status (pending, submitted, signed, rejected, expired)'),
+    csr: z.string().max(20000).describe('PEM-encoded certificate signing request'),
+    certificateType: z.enum(PKI_CERTIFICATE_TYPES).describe('Certificate type requested'),
+    requestId: z.number().int().min(0).nullable().describe('OCPP request ID from the station'),
+    status: z
+      .enum(['pending', 'submitted', 'signed', 'rejected', 'expired'])
+      .describe('CSR status'),
     signedCertificateChain: z
       .string()
+      .max(40000)
       .nullable()
       .describe('PEM-encoded signed certificate chain (when signed)'),
-    providerReference: z.string().nullable().describe('Reference ID from the PKI provider'),
-    errorMessage: z.string().nullable().describe('Error message if signing failed'),
+    providerReference: z
+      .string()
+      .max(255)
+      .nullable()
+      .describe('Reference ID from the PKI provider'),
+    errorMessage: z.string().max(1000).nullable().describe('Error message if signing failed'),
     submittedAt: z
       .string()
       .nullable()
@@ -69,28 +95,38 @@ const csrItem = z
 
 const stationCertItem = z
   .object({
-    id: z.number().describe('Station certificate ID'),
+    id: z.number().int().min(1).describe('Station certificate ID'),
     stationId: z.string().describe('Charging station ID'),
-    certificateType: z.string().describe('Certificate type'),
-    certificate: z.string().describe('PEM-encoded certificate'),
-    serialNumber: z.string().nullable().describe('Certificate serial number'),
-    issuer: z.string().nullable().describe('Issuer distinguished name'),
-    subject: z.string().nullable().describe('Subject distinguished name'),
+    certificateType: z.enum(PKI_CERTIFICATE_TYPES).describe('Certificate type'),
+    certificate: z.string().max(20000).describe('PEM-encoded certificate'),
+    serialNumber: z.string().max(255).nullable().describe('Certificate serial number'),
+    issuer: z.string().max(500).nullable().describe('Issuer distinguished name'),
+    subject: z.string().max(500).nullable().describe('Subject distinguished name'),
     validFrom: z.string().nullable().describe('Validity start timestamp (ISO 8601)'),
     validTo: z.string().nullable().describe('Validity end timestamp (ISO 8601)'),
-    hashAlgorithm: z.string().nullable().describe('Hash algorithm used'),
-    issuerNameHash: z.string().nullable().describe('Hash of the issuer distinguished name'),
-    issuerKeyHash: z.string().nullable().describe('Hash of the issuer public key'),
-    parentCaId: z.number().nullable().describe('FK to parent CA certificate'),
-    source: z.string().nullable().describe('Certificate source'),
-    status: z.string().describe('Certificate status (active, expired, revoked)'),
+    hashAlgorithm: z
+      .enum(['SHA256', 'SHA384', 'SHA512'])
+      .nullable()
+      .describe('Hash algorithm used'),
+    issuerNameHash: z
+      .string()
+      .max(255)
+      .nullable()
+      .describe('Hash of the issuer distinguished name'),
+    issuerKeyHash: z.string().max(255).nullable().describe('Hash of the issuer public key'),
+    parentCaId: z.number().int().min(1).nullable().describe('FK to parent CA certificate'),
+    source: z
+      .enum(['manual_upload', 'hubject', 'station'])
+      .nullable()
+      .describe('Certificate source'),
+    status: z.enum(['active', 'expired', 'revoked']).describe('Certificate status'),
     createdAt: z.string().describe('Created timestamp (ISO 8601)'),
     updatedAt: z.string().describe('Updated timestamp (ISO 8601)'),
   })
   .passthrough();
 
 const caCertQuery = paginationQuery.extend({
-  certificateType: z.string().optional().describe('Filter by certificate type'),
+  certificateType: z.enum(PKI_CERTIFICATE_TYPES).optional().describe('Filter by certificate type'),
   status: z
     .enum(['active', 'expired', 'revoked'])
     .optional()
@@ -114,16 +150,20 @@ const stationCertQuery = paginationQuery.extend({
 });
 
 const uploadCaCertBody = z.object({
-  certificate: z.string().min(1).describe('PEM-encoded certificate'),
-  certificateType: z
-    .string()
-    .min(1)
-    .describe('Certificate type (e.g. V2GRootCertificate, MORootCertificate)'),
-  source: z.string().optional().describe('Certificate source (defaults to manual_upload)'),
+  certificate: z.string().min(1).max(20000).describe('PEM-encoded certificate'),
+  certificateType: z.enum(PKI_CERTIFICATE_TYPES).describe('Certificate type'),
+  source: z
+    .enum(['manual_upload', 'hubject', 'station'])
+    .optional()
+    .describe('Certificate source (defaults to manual_upload)'),
 });
 
 const signCsrBody = z.object({
-  signedCertificateChain: z.string().min(1).describe('PEM-encoded signed certificate chain'),
+  signedCertificateChain: z
+    .string()
+    .min(1)
+    .max(40000)
+    .describe('PEM-encoded signed certificate chain'),
 });
 
 const idParams = z.object({ id: z.coerce.number().int().min(1).describe('Resource ID') });
@@ -289,6 +329,8 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['PnC'],
         summary: 'Sign a pending CSR request',
+        description:
+          'Marks the CSR signed with the operator-supplied PEM certificate and dispatches CertificateSigned to the station. The station_certificates mirror is updated when the station acknowledges via the certificate event projection. Returns 400 if the CSR is not in pending state.',
         operationId: 'signPncCsrRequest',
         security: [{ bearerAuth: [] }],
         params: zodSchema(idParams),
@@ -354,6 +396,8 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['PnC'],
         summary: 'Reject a pending CSR request',
+        description:
+          'Marks the CSR rejected with an optional reason. The station is informed via CertificateSigned with status=Rejected so it can retry or fall back. Returns 400 if the CSR is not in pending state.',
         operationId: 'rejectPncCsrRequest',
         security: [{ bearerAuth: [] }],
         params: zodSchema(idParams),
@@ -437,6 +481,8 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['PnC'],
         summary: 'Refresh root certificates from provider',
+        description:
+          'Fetches the current root certificate set from the configured PKI provider (Hubject or manual) and upserts each into pki_ca_certificates. Used to pick up newly issued or rotated roots without manual upload. Returns 502 if the provider call fails.',
         operationId: 'refreshPncRootCertificates',
         security: [{ bearerAuth: [] }],
         response: { 200: successResponse },

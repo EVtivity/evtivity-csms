@@ -151,7 +151,9 @@
     "failedSetup": "Error al inicializar la configuracion de pago",
     "cardSetupFailed": "Error al configurar la tarjeta",
     "failedSave": "Error al guardar el metodo de pago",
-    "stripeNotConfigured": "El procesamiento de pagos no esta disponible en este momento."
+    "stripeNotConfigured": "El procesamiento de pagos no esta disponible en este momento.",
+    "confirmRemoveTitle": "Eliminar metodo de pago",
+    "confirmRemoveDescription": "Esta seguro de que desea eliminar este metodo de pago? Tendra que agregarlo de nuevo para usarlo en la carga."
   },
   "profile": {
     "title": "Perfil",

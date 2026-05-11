@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 
 interface PaymentMethod {
@@ -77,15 +78,11 @@ function AddCardForm({
           ? setupIntent.payment_method
           : setupIntent.payment_method.id;
 
-      // The SetupIntent contains the payment method details
-      const pmDetails =
-        typeof setupIntent.payment_method === 'string' ? null : setupIntent.payment_method;
-
+      // The server fetches cardBrand/cardLast4 from Stripe authoritatively;
+      // SetupIntent.payment_method here is just the ID string by default.
       await api.post('/v1/portal/payment-methods', {
         stripePaymentMethodId: pmId,
         stripeCustomerId: customerId,
-        cardBrand: pmDetails?.card?.brand,
-        cardLast4: pmDetails?.card?.last4,
       });
 
       await queryClient.invalidateQueries({ queryKey: ['portal-payment-methods'] });
@@ -124,6 +121,7 @@ export function PaymentMethods(): React.JSX.Element {
   const [stripePromise, setStripePromise] = useState<ReturnType<typeof loadStripe> | null>(null);
   const [setupClientSecret, setSetupClientSecret] = useState('');
   const [setupCustomerId, setSetupCustomerId] = useState('');
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
 
   const { data: methods, isLoading } = useQuery({
     queryKey: ['portal-payment-methods'],
@@ -219,7 +217,7 @@ export function PaymentMethods(): React.JSX.Element {
                   size="icon"
                   className="h-12 w-12"
                   onClick={() => {
-                    deleteMutation.mutate(pm.id);
+                    setPendingDeleteId(pm.id);
                   }}
                   title={t('payments.remove')}
                   aria-label={t('payments.remove')}
@@ -247,6 +245,26 @@ export function PaymentMethods(): React.JSX.Element {
           </CardContent>
         </Card>
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteId != null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteId(null);
+        }}
+        title={t('payments.confirmRemoveTitle')}
+        description={t('payments.confirmRemoveDescription')}
+        confirmLabel={t('payments.remove')}
+        isPending={deleteMutation.isPending}
+        onConfirm={() => {
+          if (pendingDeleteId != null) {
+            deleteMutation.mutate(pendingDeleteId, {
+              onSuccess: () => {
+                setPendingDeleteId(null);
+              },
+            });
+          }
+        }}
+      />
     </div>
   );
 }

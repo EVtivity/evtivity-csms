@@ -259,10 +259,10 @@ if (existingDriver.length === 0) {
 
 // Default payment method for the dev driver. Uses Stripe placeholder IDs
 // (cus_dev_/pm_dev_) so the row shape is correct without requiring a live
-// Stripe call at seed time. Card 4222 2222 2222 2222 is a Stripe test card
-// (Visa, last4 2222). Real Stripe API calls (PaymentIntent, capture) will
-// reject these placeholder IDs, but the portal UI and reservation flow rely
-// only on the row's existence.
+// Stripe call at seed time. Card 4242 4242 4242 4242 is the canonical Stripe
+// test card (Visa, last4 4242, always succeeds in test mode). Real Stripe
+// API calls (PaymentIntent, capture) will reject these placeholder IDs, but
+// the portal UI and reservation flow rely only on the row's existence.
 const existingPaymentMethod = await db
   .select({ id: driverPaymentMethods.id })
   .from(driverPaymentMethods)
@@ -272,12 +272,12 @@ if (existingPaymentMethod.length === 0) {
   await db.insert(driverPaymentMethods).values({
     driverId: devDriverId,
     stripeCustomerId: 'cus_dev_driver',
-    stripePaymentMethodId: 'pm_dev_driver_visa_2222',
+    stripePaymentMethodId: 'pm_dev_driver_visa_4242',
     cardBrand: 'visa',
-    cardLast4: '2222',
+    cardLast4: '4242',
     isDefault: true,
   });
-  console.log('  Dev driver payment method created (Visa **** 2222).');
+  console.log('  Dev driver payment method created (Visa **** 4242).');
 } else {
   console.log('  Dev driver payment method already exists.');
 }
@@ -411,6 +411,11 @@ for (const def of blockAllDefs) {
       { component: 'SysConfigCtrlr', variable: 'connCode1', value: 'IOCHARGER-002' },
       { component: 'SecurityCtrlr', variable: 'OrganizationName', value: 'EVtivity' },
       { component: 'TariffCostCtrlr', variable: 'Enabled', value: 'false' },
+      {
+        component: 'TariffCostCtrlr',
+        variable: 'TariffFallbackMessage',
+        value: 'Welcome to EVtivity Charging. Scan barcode to start.',
+      },
     ],
   };
   if (io2Station != null) {
@@ -458,6 +463,11 @@ for (const def of blockAllDefs) {
       { component: '', variable: 'connCode0', value: 'IOCHARGER-001' },
       { component: '', variable: 'connCode1', value: 'IOCHARGER-001' },
       { component: '', variable: 'TariffCostCtrlr.Enabled', value: 'false' },
+      {
+        component: '',
+        variable: 'TariffCostCtrlr.TariffFallbackMessage',
+        value: 'Welcome to EVtivity Charging. Scan barcode to start.',
+      },
     ],
   };
   if (io1Station != null) {

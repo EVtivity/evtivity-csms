@@ -10,7 +10,9 @@ import { successResponse, itemResponse, errorResponse } from '../lib/response-sc
 import { authorize } from '../middleware/rbac.js';
 import { config as apiConfig } from '../lib/config.js';
 
-const testProviderResponse = z.object({ success: z.boolean() }).passthrough();
+const testProviderResponse = z
+  .object({ success: z.boolean().describe('Whether the provider connectivity test succeeded') })
+  .passthrough();
 
 const PNC_KEYS = [
   'pnc.enabled',

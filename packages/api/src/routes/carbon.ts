@@ -18,61 +18,82 @@ import { getUserSiteIds } from '../lib/site-access.js';
 
 const carbonFactorItem = z
   .object({
-    id: z.number(),
-    regionCode: z.string(),
-    regionName: z.string(),
-    countryCode: z.string(),
-    carbonIntensityKgPerKwh: z.string(),
-    source: z.string(),
-    updatedAt: z.string(),
+    id: z.number().int().min(1).describe('Identifier'),
+    regionCode: z
+      .string()
+      .max(20)
+      .describe('Carbon intensity region code (e.g., EPA eGRID subregion)'),
+    regionName: z.string().max(255).describe('Human-readable region name'),
+    countryCode: z.string().length(2).describe('ISO 3166-1 alpha-2 country code'),
+    carbonIntensityKgPerKwh: z.string().describe('Grid carbon intensity in kg CO2 per kWh'),
+    source: z.string().max(255).describe('Data source (e.g., EPA eGRID, Ember)'),
+    updatedAt: z.string().describe('Timestamp when the factor was last updated'),
   })
   .passthrough();
 
 const reportMonthlySummary = z
   .object({
-    month: z.string(),
-    co2AvoidedKg: z.number(),
-    energyWh: z.number(),
-    sessionCount: z.number(),
+    month: z.string().describe('Month in YYYY-MM format'),
+    co2AvoidedKg: z.number().describe('CO2 avoided this month, in kilograms'),
+    energyWh: z.number().min(0).describe('Energy delivered this month, in watt-hours'),
+    sessionCount: z.number().int().min(0).describe('Number of completed sessions this month'),
   })
   .passthrough();
 
 const reportSiteBreakdown = z
   .object({
-    siteId: z.string(),
-    siteName: z.string(),
-    co2AvoidedKg: z.number(),
-    energyWh: z.number(),
-    sessionCount: z.number(),
+    siteId: z.string().describe('Site identifier'),
+    siteName: z.string().max(255).describe('Site display name'),
+    co2AvoidedKg: z.number().describe('CO2 avoided at this site, in kilograms'),
+    energyWh: z.number().min(0).describe('Energy delivered at this site, in watt-hours'),
+    sessionCount: z.number().int().min(0).describe('Number of completed sessions at this site'),
   })
   .passthrough();
 
 const reportResponse = z
   .object({
-    monthlySummary: z.array(reportMonthlySummary),
-    siteBreakdown: z.array(reportSiteBreakdown),
+    monthlySummary: z
+      .array(reportMonthlySummary)
+      .describe('Per-month aggregates over the reporting window'),
+    siteBreakdown: z
+      .array(reportSiteBreakdown)
+      .describe('Per-site aggregates over the reporting window'),
     cumulativeTotal: z
       .object({
-        co2AvoidedKg: z.number(),
-        energyWh: z.number(),
-        sessionCount: z.number(),
-        treesEquivalent: z.number(),
+        co2AvoidedKg: z
+          .number()
+          .describe('Total CO2 avoided across the reporting window, in kilograms'),
+        energyWh: z.number().min(0).describe('Total energy delivered, in watt-hours'),
+        sessionCount: z.number().int().min(0).describe('Total number of completed sessions'),
+        treesEquivalent: z
+          .number()
+          .min(0)
+          .describe('Equivalent number of trees absorbing the CO2 for one year (EPA estimate)'),
       })
-      .passthrough(),
+      .passthrough()
+      .describe('Cumulative totals across the reporting window'),
   })
   .passthrough();
 
 const countryQuery = z.object({
-  country: z.string().optional().describe('Filter by ISO 3166-1 country code'),
+  country: z.string().length(2).optional().describe('Filter by ISO 3166-1 country code'),
 });
 
 const regionCodeParams = z.object({
-  regionCode: z.string().describe('Carbon intensity region code'),
+  regionCode: z.string().max(20).describe('Carbon intensity region code'),
 });
 
 const reportQuery = z.object({
-  from: z.string().optional().describe('Start date (YYYY-MM-DD)'),
-  to: z.string().optional().describe('End date (YYYY-MM-DD)'),
+  from: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .describe('Start date (YYYY-MM-DD)'),
+  to: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .describe('End date (YYYY-MM-DD)'),
   siteId: z.string().optional().describe('Filter to a specific site'),
 });
 

@@ -43,6 +43,32 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
         { name: 'OCPI', description: 'OCPI roaming partner management' },
         { name: 'PnC', description: 'Plug and Charge certificate management' },
         { name: 'Local Auth List', description: 'Station local authorization list management' },
+        {
+          name: 'Fleet Operations',
+          description:
+            'Bulk operations across multiple stations (firmware campaigns, configuration templates, smart charging profiles)',
+        },
+        {
+          name: 'Smart Charging',
+          description: 'OCPP charging profiles, EV charging needs, and variable monitoring rules',
+        },
+        {
+          name: 'Event Alert Rules',
+          description: 'Station event alert rule configuration',
+        },
+        { name: 'Portal Events', description: 'Driver portal server-sent events' },
+        {
+          name: 'CSS Actions',
+          description: 'Simulator actions that work on all OCPP versions',
+        },
+        {
+          name: 'CSS OCPP 2.1 Actions',
+          description: 'Simulator actions for OCPP 2.1 stations',
+        },
+        {
+          name: 'CSS OCPP 1.6 Actions',
+          description: 'Simulator actions for OCPP 1.6 stations',
+        },
         { name: 'NEVI', description: 'NEVI compliance reporting' },
         { name: 'Portal Auth', description: 'Driver portal authentication' },
         { name: 'Portal Chargers', description: 'Driver portal charger search and sessions' },
@@ -59,9 +85,6 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
         { name: 'API Keys', description: 'API key management' },
         { name: 'AI Assistant', description: 'AI-powered operator assistant' },
         { name: 'CSS Management', description: 'Charging station simulator management' },
-        { name: 'CSS Actions', description: 'Simulator actions that work on all OCPP versions' },
-        { name: 'CSS OCPP 2.1 Actions', description: 'Simulator actions for OCPP 2.1 stations' },
-        { name: 'CSS OCPP 1.6 Actions', description: 'Simulator actions for OCPP 1.6 stations' },
         { name: 'OCTT', description: 'OCPP conformance test runner' },
       ],
       components: {

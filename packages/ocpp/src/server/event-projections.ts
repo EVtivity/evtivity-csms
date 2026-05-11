@@ -2571,21 +2571,65 @@ export function registerProjections(
 
   safeSubscribe('ocpp.ReservationStatusUpdate', async (event: DomainEvent) => {
     const payload = event.payload;
-    const reservationId = payload.reservationId as number;
+    const reservationOcppId = payload.reservationId as number;
     const updateStatus = payload.reservationUpdateStatus as string;
 
-    const statusMap: Record<string, string> = {
-      Expired: 'expired',
-      Removed: 'cancelled',
-    };
-    const dbStatus = statusMap[updateStatus];
-    if (dbStatus == null) return;
+    if (updateStatus === 'Expired') {
+      // Expired reservations stay on the dedicated 'expired' status path,
+      // which has its own no-show fee handling in the worker.
+      await sql`
+        UPDATE reservations
+        SET status = 'expired', updated_at = now()
+        WHERE reservation_id = ${reservationOcppId}
+      `;
+      return;
+    }
 
-    await sql`
-      UPDATE reservations
-      SET status = ${dbStatus}, updated_at = now()
-      WHERE reservation_id = ${reservationId}
-    `;
+    if (updateStatus === 'Removed') {
+      // Station-initiated removal (operator pressed cancel on the station,
+      // physical fault, etc.). Treat as a system cancel: write metadata,
+      // never charge a fee. Scope the UPDATE to the reporting station to
+      // avoid touching a stale row at a different station with the same
+      // OCPP reservation id (no DB-level uniqueness across stations).
+      const stationUuid = await resolveStationUuid(event.aggregateId);
+      if (stationUuid == null) return;
+
+      const cancelled = await sql<Array<{ driver_id: string | null }>>`
+        UPDATE reservations
+        SET status = 'cancelled',
+            cancelled_by = 'system',
+            cancel_reason = 'system_cleanup'::reservation_cancel_reason,
+            cancellation_fee_cents = 0,
+            updated_at = now()
+        WHERE reservation_id = ${reservationOcppId}
+          AND station_id = ${stationUuid}
+          AND status IN ('active', 'scheduled')
+        RETURNING driver_id
+      `;
+
+      const driverId = cancelled[0]?.driver_id ?? null;
+      if (driverId != null) {
+        try {
+          await dispatchDriverNotification(
+            sql,
+            'reservation.Cancelled',
+            driverId,
+            {
+              reservationId: reservationOcppId,
+              stationId: event.aggregateId,
+              cancellationFeeFormatted: '',
+            },
+            ALL_TEMPLATES_DIRS,
+            pubsub,
+          );
+        } catch (err) {
+          logger.warn(
+            { err, driverId, reservationOcppId },
+            'Failed to dispatch station-removed driver notification',
+          );
+        }
+      }
+    }
   });
 
   // ---- Payment Projections ----
@@ -2705,8 +2749,21 @@ export function registerProjections(
     // Case 1: OCPI roaming session -- billing handled by eMSP via CDR
     if (isRoaming) return;
 
-    /** Stops the session by publishing RequestStopTransaction on the ocpp_commands channel. */
-    async function stopSession(): Promise<void> {
+    /**
+     * Stops the session by publishing RequestStopTransaction and marking the
+     * DB session row faulted. The DB write is defensive: if the OCPP stop
+     * never lands (station offline, message lost, station rejects with
+     * TxNotFound), the DB still reflects a closed session so the connector
+     * tile clears and the cleanup worker doesn't have to wait for the
+     * stale-session timeout.
+     */
+    async function stopSession(
+      reason:
+        | 'PaymentFailed'
+        | 'MissingPaymentMethod'
+        | 'GuestPaymentNotAuthorized'
+        | 'AnonymousSession',
+    ): Promise<void> {
       try {
         await pubsub.publish(
           'ocpp_commands',
@@ -2718,7 +2775,26 @@ export function registerProjections(
           }),
         );
       } catch (err) {
-        logger.error({ err }, 'Failed to stop session after payment gate failure');
+        logger.error({ err }, 'Failed to publish RequestStopTransaction');
+      }
+
+      try {
+        await sql`
+          UPDATE charging_sessions
+          SET status = 'faulted',
+              stopped_reason = ${reason},
+              ended_at = now(),
+              updated_at = now()
+          WHERE id = ${sessionId} AND status = 'active'
+        `;
+        await sql`
+          UPDATE session_tariff_segments
+          SET ended_at = now(),
+              duration_minutes = EXTRACT(EPOCH FROM (now() - started_at)) / 60
+          WHERE session_id = ${sessionId} AND ended_at IS NULL
+        `;
+      } catch (err) {
+        logger.error({ err, sessionId, reason }, 'Failed to mark session faulted');
       }
     }
 
@@ -2738,7 +2814,7 @@ export function registerProjections(
         logger.warn(
           `Driver ${driverId} has no payment method for non-free session ${transactionId}, stopping`,
         );
-        await stopSession();
+        await stopSession('MissingPaymentMethod');
         try {
           void dispatchDriverNotification(
             sql,
@@ -2871,7 +2947,7 @@ export function registerProjections(
 
         if (failed) {
           logger.warn(`Simulated pre-auth failure for session ${transactionId}`);
-          await stopSession();
+          await stopSession('PaymentFailed');
           try {
             void dispatchDriverNotification(
               sql,
@@ -3000,7 +3076,7 @@ export function registerProjections(
           logger.error({ err: dbErr }, 'Failed to record pre-auth failure');
         }
 
-        await stopSession();
+        await stopSession('PaymentFailed');
 
         try {
           void dispatchDriverNotification(
@@ -3049,7 +3125,7 @@ export function registerProjections(
         logger.warn(
           `No valid guest session for idToken ${String(idToken).slice(0, 8)}..., stopping session ${transactionId}`,
         );
-        await stopSession();
+        await stopSession('GuestPaymentNotAuthorized');
         if (guestEmail != null) {
           try {
             void dispatchSystemNotification(
@@ -3074,7 +3150,7 @@ export function registerProjections(
       logger.warn(
         `Anonymous session ${transactionId} has no driver, no roaming token, and no guest session, stopping`,
       );
-      await stopSession();
+      await stopSession('AnonymousSession');
     }
   }
 
@@ -3862,6 +3938,85 @@ export function registerProjections(
       INSERT INTO log_uploads (station_id, log_type, remote_location, initiated_at)
       VALUES (${stationUuid}, 'DiagnosticsLog', ${location}, now())
     `;
+  });
+
+  // command.ReserveNow: roll back the reservation when the station did not
+  // accept the request. Scheduled reservations are dispatched fire-and-forget
+  // by the worker (no response wait), so without this projection a station
+  // reply of `Occupied` (EVSE busy at activation time), `Faulted`, `Rejected`,
+  // or `Unavailable` would leave the DB row showing `active` even though no
+  // reservation exists on the station. The immediate-start path in
+  // packages/api/src/routes/reservations.ts already handles its own response
+  // synchronously, but it's a no-op for that path because by the time this
+  // projection runs the row will already be `cancelled` (the WHERE clause
+  // filters to `active`/`scheduled` only).
+  safeSubscribe('command.ReserveNow', async (event: DomainEvent) => {
+    const request = event.payload.request as Record<string, unknown>;
+    const response = event.payload.response as Record<string, unknown> | undefined;
+    const status = response != null ? (response['status'] as string | undefined) : undefined;
+    if (status == null || status === 'Accepted') return;
+
+    // Worker builds the payload in OCPP 2.1 shape (`id`, `idToken`,
+    // `expiryDateTime`, `evseId?`); CommandListener translates to 1.6 on the
+    // wire but the event payload preserves the pre-translation form, so `id`
+    // is always the OCPP reservation id.
+    const reservationOcppId =
+      typeof request['id'] === 'number'
+        ? request['id']
+        : typeof request['reservationId'] === 'number'
+          ? request['reservationId']
+          : null;
+    if (reservationOcppId == null) return;
+
+    const stationUuid = await resolveStationUuid(event.aggregateId);
+    if (stationUuid == null) return;
+
+    // System-path cancellation: write the cancelled_by/cancel_reason metadata
+    // and force the cancellation fee to 0. The cancel_reason values must
+    // match the reservation_cancel_reason enum in the schema. RETURNING
+    // gives us the driver_id so we can dispatch the cancellation
+    // notification -- otherwise the driver sees the reservation silently
+    // disappear from the portal.
+    const cancelReason =
+      status === 'Occupied' ? 'station_rejected_occupied' : 'station_rejected_other';
+    const cancelled = await sql<Array<{ driver_id: string | null }>>`
+      UPDATE reservations
+      SET status = 'cancelled',
+          cancelled_by = 'system',
+          cancel_reason = ${cancelReason}::reservation_cancel_reason,
+          cancellation_fee_cents = 0,
+          updated_at = now()
+      WHERE reservation_id = ${reservationOcppId}
+        AND station_id = ${stationUuid}
+        AND status IN ('active', 'scheduled')
+      RETURNING driver_id
+    `;
+    logger.warn(
+      { stationId: event.aggregateId, reservationOcppId, status, cancelReason },
+      `Station rejected ReserveNow with status: ${status}; reservation cancelled`,
+    );
+    const driverId = cancelled[0]?.driver_id ?? null;
+    if (driverId != null) {
+      try {
+        await dispatchDriverNotification(
+          sql,
+          'reservation.Cancelled',
+          driverId,
+          {
+            reservationId: reservationOcppId,
+            stationId: event.aggregateId,
+            cancellationFeeFormatted: '',
+          },
+          ALL_TEMPLATES_DIRS,
+          pubsub,
+        );
+      } catch (err) {
+        logger.warn(
+          { err, driverId, reservationOcppId },
+          'Failed to dispatch system-cancel driver notification',
+        );
+      }
+    }
   });
 
   // ---- EV Charging Needs and Schedules ----

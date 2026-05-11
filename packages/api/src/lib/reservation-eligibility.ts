@@ -13,7 +13,7 @@ interface StationEligibilityInfo {
 export async function assertReservationsAllowed(station: StationEligibilityInfo): Promise<void> {
   const config = await getReservationSettings();
   if (!config.enabled) {
-    throw new AppError('Reservations are disabled system-wide', 403, 'RESERVATIONS_DISABLED');
+    throw new AppError('Reservations are disabled system-wide', 403, 'RESERVATION_DISABLED');
   }
 
   if (station.siteId != null) {
@@ -23,11 +23,11 @@ export async function assertReservationsAllowed(station: StationEligibilityInfo)
       .where(eq(sites.id, station.siteId));
 
     if (site != null && !site.reservationsEnabled) {
-      throw new AppError('Reservations are disabled for this site', 403, 'RESERVATIONS_DISABLED');
+      throw new AppError('Reservations are disabled for this site', 403, 'RESERVATION_DISABLED');
     }
   }
 
   if (!station.reservationsEnabled) {
-    throw new AppError('Reservations are disabled for this station', 403, 'RESERVATIONS_DISABLED');
+    throw new AppError('Reservations are disabled for this station', 403, 'RESERVATION_DISABLED');
   }
 }

@@ -17,6 +17,7 @@ import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import { errorResponse, paginatedResponse, itemResponse } from '../lib/response-schemas.js';
 import { sendOcppCommandAndWait } from '../lib/ocpp-command.js';
+import { applyReservationCancellation } from '../lib/reservation-cancel.js';
 import { assertReservationsAllowed } from '../lib/reservation-eligibility.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
@@ -25,43 +26,58 @@ import { authorize } from '../middleware/rbac.js';
 
 const fleetReservationListItem = z
   .object({
-    id: z.string(),
-    fleetId: z.string(),
-    name: z.string().nullable(),
-    status: z.string(),
-    startsAt: z.coerce.date().nullable(),
-    expiresAt: z.coerce.date(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
-    reservationCount: z.number(),
+    id: z.string().describe('Identifier'),
+    fleetId: z.string().describe('Fleet identifier this reservation belongs to'),
+    name: z.string().max(255).nullable().describe('Optional display name'),
+    status: z
+      .enum(['active', 'partial', 'failed', 'cancelled', 'expired'])
+      .describe('Aggregate status across all slots'),
+    startsAt: z.coerce.date().nullable().describe('Scheduled start time'),
+    expiresAt: z.coerce.date().describe('Reservation expiry time'),
+    createdAt: z.coerce.date().describe('Timestamp when created'),
+    updatedAt: z.coerce.date().describe('Timestamp when last modified'),
+    reservationCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of individual reservations under this fleet reservation'),
   })
   .passthrough();
 
 const slotResultItem = z
   .object({
-    stationOcppId: z.string(),
-    evseId: z.number().nullable(),
-    reservationId: z.string().nullable(),
-    status: z.enum(['confirmed', 'rejected']),
-    error: z.string().nullable(),
+    stationOcppId: z.string().max(255).describe('OCPP station identifier'),
+    evseId: z.number().int().min(1).nullable().describe('EVSE ID requested for this slot'),
+    reservationId: z
+      .string()
+      .nullable()
+      .describe('Created reservation identifier, or null when rejected'),
+    status: z.enum(['confirmed', 'rejected']).describe('Outcome of this slot'),
+    error: z.string().max(500).nullable().describe('Error message when the slot was rejected'),
   })
   .passthrough();
 
 const createFleetReservationResponse = z
   .object({
-    id: z.string(),
-    status: z.string(),
-    confirmed: z.number(),
-    failed: z.number(),
-    total: z.number(),
-    results: z.array(slotResultItem),
+    id: z.string().describe('Fleet reservation identifier'),
+    status: z
+      .enum(['active', 'partial', 'failed'])
+      .describe('Aggregate status of the bulk operation'),
+    confirmed: z.number().int().min(0).describe('Number of slots confirmed by their stations'),
+    failed: z.number().int().min(0).describe('Number of slots that failed or were rejected'),
+    total: z.number().int().min(0).describe('Total number of slots requested'),
+    results: z.array(slotResultItem).describe('Per-slot outcome details'),
   })
   .passthrough();
 
 const cancelFleetReservationResponse = z
   .object({
-    status: z.literal('cancelled'),
-    cancelledCount: z.number(),
+    status: z.literal('cancelled').describe('Resulting status'),
+    cancelledCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of individual reservations that were cancelled'),
   })
   .passthrough();
 
@@ -76,11 +92,11 @@ const fleetReservationIdParams = z.object({
 });
 
 const createFleetReservationBody = z.object({
-  name: z.string().optional().describe('Optional name for this fleet reservation'),
+  name: z.string().max(255).optional().describe('Optional name for this fleet reservation'),
   slots: z
     .array(
       z.object({
-        stationOcppId: z.string().describe('OCPP station identifier'),
+        stationOcppId: z.string().min(1).max(255).describe('OCPP station identifier'),
         evseId: z.coerce.number().int().min(1).optional().describe('EVSE ID on the station'),
         driverId: ID_PARAMS.driverId.optional().describe('Driver ID'),
       }),
@@ -102,6 +118,8 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Fleets'],
         summary: 'Create bulk reservations for a fleet',
+        description:
+          'Allocates reservations across the supplied station/EVSE list and creates one reservation per fleet driver. Future-dated reservations are persisted as scheduled and activated by the worker; immediate reservations dispatch ReserveNow synchronously. Returns the per-driver allocation result with success/failure status for each.',
         operationId: 'createFleetReservation',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetIdParams),
@@ -207,6 +225,7 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
         reservationId: number;
         stationId: string;
         stationOcppId: string;
+        siteId: string | null;
         resolvedEvseId: string | null;
         evseId: number | undefined;
         driverId: string | undefined;
@@ -255,6 +274,7 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
           reservationId,
           stationId: station.id,
           stationOcppId: station.stationId,
+          siteId: station.siteId,
           resolvedEvseId,
           evseId: slot.evseId,
           driverId: slot.driverId,
@@ -307,19 +327,40 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
           );
 
           if (result.error != null) {
-            await db
-              .update(reservations)
-              .set({ status: 'cancelled', updatedAt: new Date() })
-              .where(eq(reservations.id, reservation.id));
+            // System rollback: command did not reach the station or timed out.
+            await applyReservationCancellation({
+              reservationDbId: reservation.id,
+              siteId: validated.siteId,
+              driverId: validated.driverId ?? null,
+              startsAt: reservation.startsAt ?? reservation.createdAt,
+              createdAt: reservation.createdAt,
+              actor: 'system',
+              reason: 'station_rejected_other',
+              chargeFee: false,
+              logger: request.log,
+            });
             throw new Error(result.error);
           }
 
           const responseStatus = result.response?.['status'] as string | undefined;
           if (responseStatus != null && responseStatus !== 'Accepted') {
-            await db
-              .update(reservations)
-              .set({ status: 'cancelled', updatedAt: new Date() })
-              .where(eq(reservations.id, reservation.id));
+            // Station replied non-Accepted. Map Occupied to its dedicated
+            // enum value so the metadata audit can distinguish it from other
+            // station-rejection reasons.
+            await applyReservationCancellation({
+              reservationDbId: reservation.id,
+              siteId: validated.siteId,
+              driverId: validated.driverId ?? null,
+              startsAt: reservation.startsAt ?? reservation.createdAt,
+              createdAt: reservation.createdAt,
+              actor: 'system',
+              reason:
+                responseStatus === 'Occupied'
+                  ? 'station_rejected_occupied'
+                  : 'station_rejected_other',
+              chargeFee: false,
+              logger: request.log,
+            });
             throw new Error(`Station rejected reservation: ${responseStatus}`);
           }
 
@@ -493,6 +534,8 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Fleets'],
         summary: 'Cancel all reservations in a fleet reservation',
+        description:
+          'Cancels every reservation in the fleet booking. Active reservations get a CancelReservation dispatched to their station; scheduled reservations are cancelled DB-only. Operator-initiated and never charges cancellation fees. Returns counts of cancelled and skipped reservations.',
         operationId: 'cancelFleetReservation',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetReservationIdParams),
@@ -552,12 +595,18 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Query all active individual reservations for this fleet reservation
+      // Query all active individual reservations for this fleet reservation.
+      // Pull every field the cancel helper needs so each leg is an
+      // independent unit of work.
       const activeReservations = await db
         .select({
           id: reservations.id,
           reservationId: reservations.reservationId,
           stationOcppId: chargingStations.stationId,
+          siteId: chargingStations.siteId,
+          driverId: reservations.driverId,
+          startsAt: reservations.startsAt,
+          createdAt: reservations.createdAt,
         })
         .from(reservations)
         .innerJoin(chargingStations, eq(reservations.stationId, chargingStations.id))
@@ -565,7 +614,8 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
           and(eq(reservations.fleetReservationId, id), inArray(reservations.status, ['active'])),
         );
 
-      // Cancel each reservation in parallel (best effort)
+      // Cancel each reservation in parallel (best effort). Fleet-level cancel
+      // never charges per-driver fees -- the fleet operator owns the policy.
       await Promise.allSettled(
         activeReservations.map(async (reservation) => {
           // Send CancelReservation to station (best effort)
@@ -577,11 +627,17 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
             // Best effort
           }
 
-          // Update reservation status
-          await db
-            .update(reservations)
-            .set({ status: 'cancelled', updatedAt: new Date() })
-            .where(eq(reservations.id, reservation.id));
+          await applyReservationCancellation({
+            reservationDbId: reservation.id,
+            siteId: reservation.siteId,
+            driverId: reservation.driverId,
+            startsAt: reservation.startsAt ?? reservation.createdAt,
+            createdAt: reservation.createdAt,
+            actor: 'operator',
+            reason: 'operator_manual',
+            chargeFee: false,
+            logger: request.log,
+          });
         }),
       );
 

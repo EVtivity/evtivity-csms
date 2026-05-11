@@ -22,54 +22,72 @@ import { authorize } from '../middleware/rbac.js';
 
 const tokenItem = z
   .object({
-    id: z.string(),
-    driverId: z.string().nullable(),
-    idToken: z.string(),
-    tokenType: z.string(),
-    isActive: z.boolean(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
-    driverFirstName: z.string().nullable(),
-    driverLastName: z.string().nullable(),
-    driverEmail: z.string().nullable(),
+    id: z.string().describe('Token ID'),
+    driverId: z.string().nullable().describe('Assigned driver ID, null if unassigned'),
+    idToken: z.string().describe('Token identifier (e.g. RFID UID)'),
+    tokenType: z.string().describe('OCPP IdToken type (ISO14443, ISO15693, Central, eMAID, etc.)'),
+    isActive: z.boolean().describe('Whether the token can be used to authorize charging'),
+    createdAt: z.coerce.date().describe('Timestamp when the token was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the token was last updated'),
+    driverFirstName: z
+      .string()
+      .nullable()
+      .describe('Assigned driver first name, null if unassigned'),
+    driverLastName: z.string().nullable().describe('Assigned driver last name, null if unassigned'),
+    driverEmail: z.string().nullable().describe('Assigned driver email, null if unassigned'),
   })
   .passthrough();
 
 const tokenCreated = z
   .object({
-    id: z.string(),
-    driverId: z.string().nullable(),
-    idToken: z.string(),
-    tokenType: z.string(),
-    isActive: z.boolean(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Token ID'),
+    driverId: z.string().nullable().describe('Assigned driver ID, null if unassigned'),
+    idToken: z.string().describe('Token identifier (e.g. RFID UID)'),
+    tokenType: z.string().describe('OCPP IdToken type (ISO14443, ISO15693, Central, eMAID, etc.)'),
+    isActive: z.boolean().describe('Whether the token can be used to authorize charging'),
+    createdAt: z.coerce.date().describe('Timestamp when the token was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the token was last updated'),
   })
   .passthrough();
 
 const tokenImportResult = z
   .object({
-    imported: z.number(),
-    errors: z.array(z.string()),
+    imported: z.number().describe('Number of tokens successfully imported'),
+    errors: z.array(z.string()).describe('List of error messages for rows that failed to import'),
   })
   .passthrough();
 
 const tokenSessionItem = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    stationName: z.string().nullable(),
-    siteName: z.string().nullable(),
-    driverId: z.string().nullable(),
-    driverName: z.string().nullable(),
-    transactionId: z.string().nullable(),
-    status: z.string(),
-    startedAt: z.coerce.date(),
-    endedAt: z.coerce.date().nullable(),
-    energyDeliveredWh: z.coerce.number().nullable(),
-    currentCostCents: z.number().nullable(),
-    finalCostCents: z.number().nullable(),
-    currency: z.string().nullable(),
+    id: z.string().describe('Charging session ID'),
+    stationId: z.string().describe('Charging station ID'),
+    stationName: z.string().nullable().describe('Station OCPP identifier, null if unavailable'),
+    siteName: z.string().nullable().describe('Site name, null if station has no site'),
+    driverId: z.string().nullable().describe('Driver ID, null for guest or free-vend sessions'),
+    driverName: z
+      .string()
+      .nullable()
+      .describe('Driver full name, null for guest or unassigned sessions'),
+    transactionId: z.string().nullable().describe('OCPP transaction ID, null if not yet assigned'),
+    status: z.string().describe('Session status (active, completed, failed, faulted, etc.)'),
+    startedAt: z.coerce.date().describe('Timestamp when the session started'),
+    endedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp when the session ended, null if still active'),
+    energyDeliveredWh: z.coerce
+      .number()
+      .nullable()
+      .describe('Energy delivered in watt-hours, null if not yet measured'),
+    currentCostCents: z
+      .number()
+      .nullable()
+      .describe('Current accumulated cost in cents, null if free or not yet calculated'),
+    finalCostCents: z
+      .number()
+      .nullable()
+      .describe('Final cost in cents after session ended, null if session still active'),
+    currency: z.string().nullable().describe('ISO 4217 currency code, null if session has no cost'),
   })
   .passthrough();
 
@@ -101,18 +119,18 @@ const updateTokenBody = z.object({
 });
 
 const importTokenRow = z.object({
-  idToken: z.string(),
-  tokenType: z.string(),
-  driverEmail: z.string().optional(),
+  idToken: z.string().min(1).max(255),
+  tokenType: z.string().min(1).max(20),
+  driverEmail: z.string().email().max(255).optional(),
   isActive: z.boolean().optional(),
 });
 
 const importTokenBody = z.object({
-  rows: z.array(importTokenRow),
+  rows: z.array(importTokenRow).max(10000),
 });
 
 const tokenListQuery = paginationQuery.extend({
-  tokenType: z.string().optional().describe('Filter by token type'),
+  tokenType: z.string().max(20).optional().describe('Filter by token type'),
   status: z.enum(['active', 'inactive']).optional().describe('Filter by token status'),
 });
 
@@ -127,7 +145,15 @@ export function tokenRoutes(app: FastifyInstance): void {
         operationId: 'getTokenFilterOptions',
         security: [{ bearerAuth: [] }],
         response: {
-          200: itemResponse(z.object({ tokenTypes: z.array(z.string()) }).passthrough()),
+          200: itemResponse(
+            z
+              .object({
+                tokenTypes: z
+                  .array(z.string())
+                  .describe('Distinct OCPP IdToken type values present in the system'),
+              })
+              .passthrough(),
+          ),
         },
       },
     },

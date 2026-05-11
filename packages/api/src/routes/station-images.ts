@@ -45,7 +45,13 @@ const uploadUrlBody = z.object({
 });
 
 const uploadUrlResponse = z
-  .object({ uploadUrl: z.string(), s3Key: z.string(), s3Bucket: z.string() })
+  .object({
+    uploadUrl: z
+      .string()
+      .describe('Presigned S3 PUT URL the client uses to upload the file directly'),
+    s3Key: z.string().describe('S3 object key under which the file will be stored'),
+    s3Bucket: z.string().describe('S3 bucket the file is uploaded to'),
+  })
   .passthrough();
 
 const confirmUploadBody = z.object({
@@ -74,18 +80,18 @@ const reorderBody = z.object({
 
 const imageItem = z
   .object({
-    id: z.number().describe('Image ID'),
+    id: z.number().int().min(1).describe('Image ID'),
     stationId: z.string().describe('Station ID'),
-    fileName: z.string().describe('Original file name'),
-    fileSize: z.number().describe('File size in bytes'),
-    contentType: z.string().describe('MIME type of the file'),
-    s3Key: z.string().describe('S3 object key'),
-    s3Bucket: z.string().describe('S3 bucket name'),
-    caption: z.string().nullable().describe('Optional caption text'),
-    tags: z.array(z.string()).describe('Tags for filtering and grouping'),
+    fileName: z.string().max(255).describe('Original file name'),
+    fileSize: z.number().int().min(0).describe('File size in bytes'),
+    contentType: z.string().max(100).describe('MIME type of the file'),
+    s3Key: z.string().max(1024).describe('S3 object key'),
+    s3Bucket: z.string().max(255).describe('S3 bucket name'),
+    caption: z.string().max(1000).nullable().describe('Optional caption text'),
+    tags: z.array(z.string().max(50)).max(20).describe('Tags for filtering and grouping'),
     isDriverVisible: z.boolean().describe('Whether the image is shown to drivers in the portal'),
     isMainImage: z.boolean().describe('Whether this is the primary image for the station'),
-    sortOrder: z.number().describe('Display order within the station image gallery'),
+    sortOrder: z.number().int().min(0).describe('Display order within the station image gallery'),
     uploadedBy: z.string().nullable().describe('User ID of the operator who uploaded the image'),
     createdAt: z.string().describe('Timestamp when the image was uploaded'),
     updatedAt: z.string().describe('Timestamp when the image was last updated'),
@@ -129,6 +135,8 @@ export function stationImageRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Get a presigned S3 upload URL for a station image',
+        description:
+          'Generates a 5-minute presigned PUT URL for uploading a station image to S3 (max 10MB). The S3 key is built under stations/{stationId}/. Call the confirm endpoint after the PUT succeeds to register the image in the database. Returns 400 if S3 is not configured.',
         operationId: 'getStationImageUploadUrl',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationIdParams),
@@ -168,6 +176,8 @@ export function stationImageRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Confirm a station image upload after S3 PUT',
+        description:
+          'Inserts a station_images row with the S3 metadata supplied by the client after a successful PUT. Computes the next sortOrder. When isMainImage=true, clears the previous main image on this station so only one main image exists at a time.',
         operationId: 'confirmStationImageUpload',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationIdParams),
@@ -347,7 +357,13 @@ export function stationImageRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(imageIdParams),
         response: {
-          200: itemResponse(z.object({ downloadUrl: z.string() }).passthrough()),
+          200: itemResponse(
+            z
+              .object({
+                downloadUrl: z.string().describe('Presigned S3 GET URL for downloading the image'),
+              })
+              .passthrough(),
+          ),
           400: errorResponse,
           404: errorResponse,
         },
@@ -427,6 +443,8 @@ export function stationImageRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Set an image as the main station image',
+        description:
+          'Marks the supplied image as the main station image and clears isMainImage on every other image for the same station. The main image is rendered in the station header and used as the default visual on listings.',
         operationId: 'setMainStationImage',
         security: [{ bearerAuth: [] }],
         params: zodSchema(imageIdParams),

@@ -113,6 +113,20 @@
       "when": 1778400000000,
       "tag": "0015_firmware_updates_request_id_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1778500000000,
+      "tag": "0016_reservation_active_session_check",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1778600000000,
+      "tag": "0017_reservation_cancel_metadata",
+      "breakpoints": true
     }
   ]
 }

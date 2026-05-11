@@ -12,10 +12,10 @@ import { authorize } from '../middleware/rbac.js';
 
 const holidayItem = z
   .object({
-    id: z.number(),
-    name: z.string(),
-    date: z.string(),
-    createdAt: z.coerce.date(),
+    id: z.number().describe('Identifier'),
+    name: z.string().describe('Holiday name'),
+    date: z.string().describe('Holiday date in YYYY-MM-DD format'),
+    createdAt: z.coerce.date().describe('Timestamp when created'),
   })
   .passthrough();
 

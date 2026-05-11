@@ -19,27 +19,42 @@ import {
   createSetupIntent,
   createCustomer,
   detachPaymentMethod,
+  retrievePaymentMethod,
 } from '../../services/stripe.service.js';
+
+function isSimulatedCustomer(stripeCustomerId: string): boolean {
+  return stripeCustomerId.startsWith('cus_sim_');
+}
 
 const paymentMethodItem = z
   .object({
-    id: z.string(),
-    driverId: z.string(),
-    stripeCustomerId: z.string(),
-    stripePaymentMethodId: z.string(),
-    cardBrand: z.string().nullable(),
-    cardLast4: z.string().nullable(),
-    isDefault: z.boolean(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Driver payment method ID'),
+    driverId: z.string().describe('Owning driver ID'),
+    stripeCustomerId: z.string().max(255).describe('Stripe Customer ID'),
+    stripePaymentMethodId: z.string().max(255).describe('Stripe PaymentMethod ID'),
+    cardBrand: z
+      .string()
+      .max(20)
+      .nullable()
+      .describe('Card network (visa, mastercard, amex, etc.)'),
+    cardLast4: z.string().length(4).nullable().describe('Last 4 digits of the card'),
+    isDefault: z.boolean().describe('Whether this is the default payment method'),
+    createdAt: z.coerce.date().describe('Timestamp the payment method was added'),
+    updatedAt: z.coerce.date().describe('Timestamp the payment method was last updated'),
   })
   .passthrough();
 
 const setupIntentResponse = z
   .object({
-    clientSecret: z.string().nullable(),
-    customerId: z.string(),
-    publishableKey: z.string(),
+    clientSecret: z
+      .string()
+      .nullable()
+      .describe('Stripe SetupIntent client_secret used by Stripe.js to confirm the card'),
+    customerId: z.string().max(255).describe('Stripe Customer ID associated with the driver'),
+    publishableKey: z
+      .string()
+      .max(255)
+      .describe('Stripe publishable key for the configured Stripe account'),
   })
   .passthrough();
 
@@ -69,10 +84,43 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { driverId } = request.user as DriverJwtPayload;
-      return db
+      const rows = await db
         .select()
         .from(driverPaymentMethods)
         .where(eq(driverPaymentMethods.driverId, driverId));
+
+      // Backfill cardBrand/cardLast4 from Stripe for legacy rows where the
+      // frontend stored null (the SetupIntent.payment_method was a string ID,
+      // not the expanded object). One-time per row, then never again.
+      const needsBackfill = rows.filter(
+        (r) => r.cardLast4 == null && !isSimulatedCustomer(r.stripeCustomerId),
+      );
+      if (needsBackfill.length > 0) {
+        const stripeConfig = await getStripeConfig(null);
+        if (stripeConfig != null) {
+          for (const row of needsBackfill) {
+            try {
+              const pm = await retrievePaymentMethod(stripeConfig, row.stripePaymentMethodId);
+              const brand = pm.card?.brand ?? null;
+              const last4 = pm.card?.last4 ?? null;
+              if (brand != null || last4 != null) {
+                await db
+                  .update(driverPaymentMethods)
+                  .set({ cardBrand: brand, cardLast4: last4, updatedAt: new Date() })
+                  .where(eq(driverPaymentMethods.id, row.id));
+                row.cardBrand = brand;
+                row.cardLast4 = last4;
+              }
+            } catch (err: unknown) {
+              request.log.warn(
+                { err, paymentMethodId: row.stripePaymentMethodId },
+                'Failed to backfill card details from Stripe',
+              );
+            }
+          }
+        }
+      }
+      return rows;
     },
   );
 
@@ -83,6 +131,8 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Portal Payments'],
         summary: 'Create a Stripe SetupIntent for adding a payment method',
+        description:
+          'Lazily creates a Stripe customer for the driver if one does not already exist, then creates a SetupIntent so the portal can collect a card via Stripe Elements without an immediate charge. Returns the client secret and the Stripe publishable key needed to initialize Stripe.js.',
         operationId: 'portalCreateSetupIntent',
         security: [{ bearerAuth: [] }],
         response: {
@@ -187,14 +237,35 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
 
       const isDefault = existingMethods.length === 0;
 
+      // Resolve cardBrand/cardLast4 server-side from Stripe. The client cannot
+      // reliably send these because stripe.confirmCardSetup() returns
+      // SetupIntent.payment_method as a string ID, not the expanded object.
+      let cardBrand: string | null = body.cardBrand ?? null;
+      let cardLast4: string | null = body.cardLast4 ?? null;
+      if (!isSimulatedCustomer(body.stripeCustomerId)) {
+        try {
+          const stripeConfig = await getStripeConfig(null);
+          if (stripeConfig != null) {
+            const pm = await retrievePaymentMethod(stripeConfig, body.stripePaymentMethodId);
+            cardBrand = pm.card?.brand ?? cardBrand;
+            cardLast4 = pm.card?.last4 ?? cardLast4;
+          }
+        } catch (err: unknown) {
+          request.log.warn(
+            { err, paymentMethodId: body.stripePaymentMethodId },
+            'Failed to fetch card details from Stripe; storing client-supplied values',
+          );
+        }
+      }
+
       const [method] = await db
         .insert(driverPaymentMethods)
         .values({
           driverId,
           stripeCustomerId: body.stripeCustomerId,
           stripePaymentMethodId: body.stripePaymentMethodId,
-          cardBrand: body.cardBrand,
-          cardLast4: body.cardLast4,
+          cardBrand,
+          cardLast4,
           isDefault,
         })
         .returning();

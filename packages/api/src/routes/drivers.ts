@@ -14,6 +14,7 @@ import {
   sites,
   pricingGroupDrivers,
   pricingGroups,
+  reservations,
 } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -29,41 +30,47 @@ import {
 
 const driverItem = z
   .object({
-    id: z.string(),
-    firstName: z.string().nullable(),
-    lastName: z.string().nullable(),
-    email: z.string().nullable(),
-    phone: z.string().nullable(),
-    isActive: z.boolean(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Driver identifier'),
+    firstName: z.string().max(100).nullable().describe('Driver first name'),
+    lastName: z.string().max(100).nullable().describe('Driver last name'),
+    email: z.string().email().max(255).nullable().describe('Driver email address'),
+    phone: z.string().max(50).nullable().describe('Driver phone number in E.164 format'),
+    isActive: z.boolean().describe('Whether the driver account is enabled'),
+    createdAt: z.coerce.date().describe('Timestamp when the driver was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the driver was last updated'),
   })
   .passthrough();
 
 const driverTokenItem = z
   .object({
-    id: z.string(),
-    driverId: z.string(),
-    idToken: z.string(),
-    tokenType: z.string(),
-    isActive: z.boolean(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Token identifier'),
+    driverId: z.string().describe('Owning driver identifier'),
+    idToken: z.string().max(255).describe('Token value (e.g. RFID card UID, eMAID)'),
+    tokenType: z
+      .string()
+      .max(20)
+      .describe('OCPP IdToken type (e.g. ISO14443, ISO15693, Central, eMAID)'),
+    isActive: z.boolean().describe('Whether the token is currently usable for authorization'),
+    createdAt: z.coerce.date().describe('Timestamp when the token was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the token was last updated'),
   })
   .passthrough();
 
 const driverPricingGroupItem = z
   .object({
-    id: z.string(),
-    name: z.string(),
-    description: z.string().nullable(),
-    isDefault: z.boolean(),
-    tariffCount: z.number(),
+    id: z.string().describe('Pricing group identifier'),
+    name: z.string().max(255).describe('Pricing group display name'),
+    description: z.string().max(1000).nullable().describe('Pricing group description'),
+    isDefault: z.boolean().describe('Whether this is the system default pricing group'),
+    tariffCount: z.number().int().min(0).describe('Number of tariffs in this pricing group'),
   })
   .passthrough();
 
 const driverPricingGroupRecordItem = z
-  .object({ driverId: z.string(), pricingGroupId: z.string() })
+  .object({
+    driverId: z.string().describe('Driver identifier'),
+    pricingGroupId: z.string().describe('Pricing group identifier'),
+  })
   .passthrough();
 
 const addDriverPricingGroupBody = z.object({
@@ -78,6 +85,43 @@ const driverPricingGroupParams = z.object({
 const driverParams = z.object({
   id: ID_PARAMS.driverId.describe('Driver ID'),
 });
+
+const driverReservationItem = z
+  .object({
+    id: z.string().describe('Internal reservation row id'),
+    reservationId: z.number().describe('OCPP integer reservation id'),
+    stationId: z.string().describe('Station UUID'),
+    stationOcppId: z.string().describe('Station OCPP id (display label)'),
+    siteName: z.string().nullable().describe('Site name'),
+    status: z.string().describe('Reservation status'),
+    startsAt: z.coerce.date().nullable().describe('Reservation start (null = at-creation)'),
+    expiresAt: z.coerce.date().describe('Reservation expiry'),
+    createdAt: z.coerce.date().describe('Timestamp when the reservation was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the reservation was last updated'),
+    cancelledBy: z
+      .enum(['driver', 'operator', 'system'])
+      .nullable()
+      .describe('Actor who cancelled (driver/operator/system)'),
+    cancelReason: z
+      .enum([
+        'driver_initiated',
+        'operator_manual',
+        'expired_no_show',
+        'station_rejected_occupied',
+        'station_rejected_other',
+        'station_offline_at_activation',
+        'system_cleanup',
+      ])
+      .nullable()
+      .describe('Typed cancel reason enum value'),
+    cancelNote: z.string().max(500).nullable().describe('Operator-provided free-text note'),
+    cancellationFeeCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Fee actually charged (cents, 0 when waived)'),
+  })
+  .passthrough();
 
 const createDriverBody = z.object({
   firstName: z.string().max(100),
@@ -105,49 +149,80 @@ const createTokenBody = z.object({
 
 const driverSessionItem = z
   .object({
-    id: z.string(),
-    stationId: z.string(),
-    stationName: z.string().nullable(),
-    siteName: z.string().nullable(),
-    driverId: z.string().nullable(),
-    driverName: z.string().nullable(),
-    transactionId: z.string().nullable(),
-    status: z.string(),
-    startedAt: z.coerce.date(),
-    endedAt: z.coerce.date().nullable(),
-    energyDeliveredWh: z.coerce.number().nullable(),
-    currentCostCents: z.number().nullable(),
-    finalCostCents: z.number().nullable(),
-    currency: z.string().nullable(),
+    id: z.string().describe('Charging session identifier'),
+    stationId: z.string().describe('Station identifier where the session occurred'),
+    stationName: z.string().max(255).nullable().describe('Station OCPP id (display label)'),
+    siteName: z.string().max(255).nullable().describe('Site name where the station is located'),
+    driverId: z.string().nullable().describe('Driver identifier, null for guest sessions'),
+    driverName: z.string().max(255).nullable().describe('Driver full name'),
+    transactionId: z.string().nullable().describe('OCPP transaction identifier'),
+    status: z
+      .string()
+      .max(50)
+      .describe('Session status (active, completed, failed, faulted, etc.)'),
+    startedAt: z.coerce.date().describe('Timestamp when the session started'),
+    endedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('Timestamp when the session ended, null if active'),
+    energyDeliveredWh: z.coerce
+      .number()
+      .min(0)
+      .nullable()
+      .describe('Total energy delivered in watt-hours'),
+    currentCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Running cost in cents during active session'),
+    finalCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Final billed cost in cents after session completes'),
+    currency: z.string().length(3).nullable().describe('ISO 4217 currency code (USD, EUR, etc.)'),
   })
   .passthrough();
 
 const vehicleItem = z
   .object({
-    id: z.string(),
-    driverId: z.string(),
-    make: z.string().nullable(),
-    model: z.string().nullable(),
-    year: z.string().nullable(),
-    vin: z.string().nullable(),
-    licensePlate: z.string().nullable(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    id: z.string().describe('Vehicle identifier'),
+    driverId: z.string().describe('Owning driver identifier'),
+    make: z.string().max(100).nullable().describe('Vehicle make (e.g. Tesla, BMW)'),
+    model: z.string().max(100).nullable().describe('Vehicle model (e.g. Model 3, i4)'),
+    year: z
+      .string()
+      .regex(/^\d{4}$/)
+      .nullable()
+      .describe('Model year (4-digit)'),
+    vin: z.string().max(17).nullable().describe('Vehicle identification number (17 chars)'),
+    licensePlate: z.string().max(20).nullable().describe('Vehicle license plate'),
+    createdAt: z.coerce.date().describe('Timestamp when the vehicle was created'),
+    updatedAt: z.coerce.date().describe('Timestamp when the vehicle was last updated'),
   })
   .passthrough();
 
 const createVehicleBody = z.object({
-  make: z.string().max(100).describe('Vehicle make (e.g. Tesla, BMW)'),
-  model: z.string().max(100).describe('Vehicle model (e.g. Model 3, i4)'),
-  year: z.string().max(4).optional().describe('Model year (e.g. 2024)'),
+  make: z.string().min(1).max(100).describe('Vehicle make (e.g. Tesla, BMW)'),
+  model: z.string().min(1).max(100).describe('Vehicle model (e.g. Model 3, i4)'),
+  year: z
+    .string()
+    .regex(/^\d{4}$/)
+    .optional()
+    .describe('Model year (4-digit)'),
   vin: z.string().max(17).optional().describe('Vehicle Identification Number'),
   licensePlate: z.string().max(20).optional().describe('License plate number'),
 });
 
 const updateVehicleBody = z.object({
-  make: z.string().max(100).optional(),
-  model: z.string().max(100).optional(),
-  year: z.string().max(4).optional(),
+  make: z.string().min(1).max(100).optional(),
+  model: z.string().min(1).max(100).optional(),
+  year: z
+    .string()
+    .regex(/^\d{4}$/)
+    .optional(),
   vin: z.string().max(17).optional(),
   licensePlate: z.string().max(20).optional(),
 });
@@ -587,6 +662,71 @@ export function driverRoutes(app: FastifyInstance): void {
         db
           .select({ count: sql<number>`count(*)::int` })
           .from(chargingSessions)
+          .where(where),
+      ]);
+
+      return { data, total: countRows[0]?.count ?? 0 } satisfies PaginatedResponse<
+        (typeof data)[number]
+      >;
+    },
+  );
+
+  // --- Reservations ---
+
+  app.get(
+    '/drivers/:id/reservations',
+    {
+      onRequest: [authorize('drivers:read')],
+      schema: {
+        tags: ['Drivers'],
+        summary: 'List reservations for a driver, with cancel metadata',
+        operationId: 'listDriverReservations',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(driverParams),
+        querystring: zodSchema(paginationQuery),
+        response: { 200: paginatedResponse(driverReservationItem), 404: errorResponse },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof driverParams>;
+      const { page, limit } = request.query as z.infer<typeof paginationQuery>;
+      const offset = (page - 1) * limit;
+
+      const [driver] = await db.select().from(drivers).where(eq(drivers.id, id));
+      if (driver == null) {
+        await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+        return;
+      }
+
+      const where = eq(reservations.driverId, id);
+      const [data, countRows] = await Promise.all([
+        db
+          .select({
+            id: reservations.id,
+            reservationId: reservations.reservationId,
+            stationId: reservations.stationId,
+            stationOcppId: chargingStations.stationId,
+            siteName: sites.name,
+            status: reservations.status,
+            startsAt: reservations.startsAt,
+            expiresAt: reservations.expiresAt,
+            createdAt: reservations.createdAt,
+            updatedAt: reservations.updatedAt,
+            cancelledBy: reservations.cancelledBy,
+            cancelReason: reservations.cancelReason,
+            cancelNote: reservations.cancelNote,
+            cancellationFeeCents: reservations.cancellationFeeCents,
+          })
+          .from(reservations)
+          .innerJoin(chargingStations, eq(reservations.stationId, chargingStations.id))
+          .leftJoin(sites, eq(chargingStations.siteId, sites.id))
+          .where(where)
+          .orderBy(desc(reservations.createdAt))
+          .limit(limit)
+          .offset(offset),
+        db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(reservations)
           .where(where),
       ]);
 
