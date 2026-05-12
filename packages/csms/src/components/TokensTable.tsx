@@ -35,7 +35,13 @@ export const TOKENS_COLUMNS: ColumnMeta[] = [
     defaultVisibleMobile: true,
     alwaysVisible: true,
   },
-  { key: 'created', label: 'common.created', defaultVisible: true, defaultVisibleMobile: false },
+  {
+    key: 'expiresAt',
+    label: 'tokens.expiresAt',
+    defaultVisible: true,
+    defaultVisibleMobile: false,
+  },
+  { key: 'created', label: 'common.created', defaultVisible: false, defaultVisibleMobile: false },
 ];
 
 export interface Token {
@@ -44,6 +50,9 @@ export interface Token {
   idToken: string;
   tokenType: string;
   isActive: boolean;
+  expiresAt?: string | null;
+  revokedAt?: string | null;
+  revokedReason?: string | null;
   createdAt: string;
   driverFirstName?: string | null;
   driverLastName?: string | null;
@@ -90,6 +99,7 @@ export function TokensTable({
               {isVisible('tokenId') && <TableHead>{t('tokens.tokenId')}</TableHead>}
               {isVisible('type') && <TableHead>{t('tokens.type')}</TableHead>}
               {isVisible('status') && <TableHead>{t('common.status')}</TableHead>}
+              {isVisible('expiresAt') && <TableHead>{t('tokens.expiresAt')}</TableHead>}
               {isVisible('created') && <TableHead>{t('common.created')}</TableHead>}
             </TableRow>
           </TableHeader>
@@ -140,9 +150,37 @@ export function TokensTable({
                 {isVisible('type') && <TableCell>{token.tokenType}</TableCell>}
                 {isVisible('status') && (
                   <TableCell data-testid="row-click-target">
-                    <Badge variant={token.isActive ? 'default' : 'secondary'}>
-                      {token.isActive ? t('common.active') : t('common.inactive')}
-                    </Badge>
+                    {(() => {
+                      const now = Date.now();
+                      const expiresAt =
+                        token.expiresAt != null ? new Date(token.expiresAt).getTime() : null;
+                      const isExpired = expiresAt != null && expiresAt <= now;
+                      const isRevoked = token.revokedAt != null;
+                      if (!token.isActive && isExpired) {
+                        return <Badge variant="warning">{t('tokens.expiredBadge')}</Badge>;
+                      }
+                      if (!token.isActive && isRevoked) {
+                        return <Badge variant="destructive">{t('tokens.revokedBadge')}</Badge>;
+                      }
+                      return (
+                        <Badge variant={token.isActive ? 'default' : 'secondary'}>
+                          {token.isActive ? t('common.active') : t('common.inactive')}
+                        </Badge>
+                      );
+                    })()}
+                  </TableCell>
+                )}
+                {isVisible('expiresAt') && (
+                  <TableCell>
+                    {(() => {
+                      if (token.expiresAt == null) return '--';
+                      const ms = new Date(token.expiresAt).getTime();
+                      const days = Math.ceil((ms - Date.now()) / 86_400_000);
+                      const text = formatDate(token.expiresAt, timezone);
+                      if (days < 0) return <span className="text-destructive">{text}</span>;
+                      if (days <= 30) return <span className="text-warning">{text}</span>;
+                      return text;
+                    })()}
                   </TableCell>
                 )}
                 {isVisible('created') && (

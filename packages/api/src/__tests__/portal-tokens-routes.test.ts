@@ -56,13 +56,52 @@ vi.mock('@evtivity/database', () => ({
     update: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
     execute: vi.fn(() => Promise.resolve([])),
+    transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        select: vi.fn(() => makeChain()),
+        insert: vi.fn(() => makeChain()),
+        update: vi.fn(() => makeChain()),
+        delete: vi.fn(() => makeChain()),
+      };
+      return fn(tx);
+    }),
   },
+  client: {},
   driverTokens: {},
+  drivers: {},
+  users: {},
+  tokenAuditLog: {},
+  stationLocalAuthEntries: {},
+  stationLocalAuthVersions: {},
 }));
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
   and: vi.fn(),
+  or: vi.fn(),
+  ilike: vi.fn(),
+  sql: vi.fn(),
+  desc: vi.fn(),
+  inArray: vi.fn(),
+}));
+
+vi.mock('@evtivity/lib', () => ({
+  dispatchDriverNotification: vi.fn().mockResolvedValue(undefined),
+  createLogger: vi.fn(() => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  })),
+}));
+
+vi.mock('../lib/pubsub.js', () => ({
+  getPubSub: vi.fn(() => ({
+    publish: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn().mockResolvedValue({ unsubscribe: vi.fn() }),
+    close: vi.fn().mockResolvedValue(undefined),
+  })),
+  setPubSub: vi.fn(),
 }));
 
 import { registerAuth } from '../plugins/auth.js';
@@ -212,7 +251,22 @@ describe('Portal token routes', () => {
         isActive: false,
         createdAt: new Date(),
       };
-      setupDbResults([{ id: TOKEN_ID, driverId: DRIVER_ID }], [updatedToken]);
+      // 1) Route's ownership check (existing select)
+      // 2) tokenService.updateToken: select current row
+      // 3) tokenService.updateToken: update returning
+      setupDbResults(
+        [{ id: TOKEN_ID, driverId: DRIVER_ID }],
+        [
+          {
+            id: TOKEN_ID,
+            idToken: 'ABCD1234',
+            tokenType: 'ISO14443',
+            driverId: DRIVER_ID,
+            isActive: true,
+          },
+        ],
+        [updatedToken],
+      );
       const response = await app.inject({
         method: 'PATCH',
         url: `/portal/tokens/${TOKEN_ID}`,

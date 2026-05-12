@@ -7,6 +7,8 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Select } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { ClipboardList } from 'lucide-react';
 import { CreateButton } from '@/components/create-button';
 import { ImportButton } from '@/components/import-button';
 import { ExportButton } from '@/components/export-button';
@@ -18,6 +20,7 @@ import { ColumnVisibilityToggle } from '@/components/ColumnVisibilityToggle';
 import { useColumnVisibility } from '@/hooks/use-column-visibility';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { api } from '@/lib/api';
+import { useHasPermission } from '@/lib/auth';
 import { useUserTimezone } from '@/lib/timezone';
 
 export function Tokens(): React.JSX.Element {
@@ -28,6 +31,7 @@ export function Tokens(): React.JSX.Element {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [filterType, setFilterType] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const canReadDrivers = useHasPermission('drivers:read');
 
   const { data: filterOptions } = useQuery({
     queryKey: ['tokens-filter-options'],
@@ -109,6 +113,17 @@ export function Tokens(): React.JSX.Element {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl md:text-3xl font-bold">{t('tokens.title')}</h1>
         <div className="flex flex-wrap items-center gap-2">
+          {canReadDrivers && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                void navigate('/tokens/authorize-log');
+              }}
+            >
+              <ClipboardList className="h-4 w-4 mr-2" />
+              {t('tokens.authorizeLog')}
+            </Button>
+          )}
           <ImportButton
             label={importMutation.isPending ? t('tokens.importing') : t('tokens.importCsv')}
             onClick={() => {

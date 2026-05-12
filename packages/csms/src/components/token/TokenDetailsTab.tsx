@@ -132,7 +132,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
               <>
                 <EditButton label={t('common.edit')} onClick={startEdit} />
                 <RemoveButton
-                  label={t('tokens.deleteToken')}
+                  label={t('common.delete')}
                   onClick={() => {
                     setDeleteOpen(true);
                   }}

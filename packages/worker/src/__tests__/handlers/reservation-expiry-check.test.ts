@@ -15,6 +15,8 @@ vi.mock('@evtivity/database', () => ({
   pricingHolidays: {},
   fleetMembers: {},
   driverPaymentMethods: {},
+  writeReservationAudit: vi.fn().mockResolvedValue(undefined),
+  reservationDiffChanged: vi.fn().mockReturnValue(false),
 }));
 
 const mockPublish = vi.fn().mockResolvedValue(undefined);

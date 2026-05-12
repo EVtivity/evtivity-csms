@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyBaseLogger } from 'fastify';
-import { and, eq, inArray } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { db, reservations } from '@evtivity/database';
-import { getReservationSettings } from '@evtivity/database';
+import { getReservationSettings, writeReservationAudit } from '@evtivity/database';
 import { chargeReservationCancellationFee } from './reservation-fees.js';
 
 /** Who triggered the cancellation. */
@@ -32,6 +32,14 @@ export interface ReservationCancelInput {
   /** Created_at fallback when starts_at is null. */
   createdAt: Date;
   actor: ReservationCancelledBy;
+  /**
+   * Operator userId when `actor==='operator'`. Stored on the audit row.
+   */
+  actorUserId?: string | null | undefined;
+  /**
+   * Driver id when `actor==='driver'`. Stored on the audit row.
+   */
+  actorDriverId?: string | null | undefined;
   reason: ReservationCancelReason;
   /** Optional free-text note; persisted for operator-initiated cancels. */
   note?: string | undefined;
@@ -103,31 +111,55 @@ export async function applyReservationCancellation(
     }
   }
 
-  // Conditional UPDATE: only one concurrent cancel can win. Always write
-  // cancellation_fee_cents = 0 here; the actual fee (if charged) is written
-  // back in a second UPDATE only after Stripe confirms.
-  const updated = await db
-    .update(reservations)
-    .set({
-      status: 'cancelled',
-      cancelledBy: input.actor,
-      cancelReason: input.reason,
-      cancelNote: input.note ?? null,
-      cancellationFeeCents: 0,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(reservations.id, input.reservationDbId),
-        inArray(reservations.status, ['active', 'scheduled']),
-      ),
-    )
-    .returning({ id: reservations.id });
+  // Conditional UPDATE: only one concurrent cancel can win. The RETURNING
+  // pulls the status from a CTE that captures the row's status BEFORE the
+  // SET applies, so the audit row gets the real previous status
+  // ('active' or 'scheduled') instead of null. The CTE approach keeps this
+  // as one round-trip and avoids a TOCTOU between a separate SELECT and
+  // the UPDATE.
+  const updated = await db.execute<{ id: string; status_before: string }>(
+    sql`
+      WITH old AS (
+        SELECT id, status AS status_before
+        FROM ${reservations}
+        WHERE id = ${input.reservationDbId}
+          AND status IN ('active', 'scheduled')
+      )
+      UPDATE ${reservations}
+      SET status = 'cancelled',
+          cancelled_by = ${input.actor}::reservation_cancelled_by,
+          cancel_reason = ${input.reason}::reservation_cancel_reason,
+          cancel_note = ${input.note ?? null},
+          cancellation_fee_cents = 0,
+          updated_at = now()
+      FROM old
+      WHERE ${reservations}.id = old.id
+      RETURNING ${reservations}.id, old.status_before
+    `,
+  );
 
-  if (updated.length === 0) {
+  const winningRow = (updated as unknown as Array<{ id: string; status_before: string }>)[0];
+  if (winningRow == null) {
     // Lost the race or the row was already terminal.
     return { feeChargedCents: 0, cancelled: false, feeChargeFailed: false };
   }
+
+  // Exactly one writer (the conditional-UPDATE winner) writes the audit row.
+  // Concurrent cancels that lose the race above return early and skip this.
+  // notes carries only the optional free-text note; the reason enum already
+  // lives on reservations.cancel_reason and would be duplicated here.
+  await writeReservationAudit({
+    reservationId: input.reservationDbId,
+    action: 'cancelled',
+    actor: input.actor,
+    actorUserId: input.actorUserId ?? null,
+    actorDriverId: input.actorDriverId ?? null,
+    driverIdBefore: input.driverId,
+    driverIdAfter: input.driverId,
+    statusBefore: winningRow.status_before,
+    statusAfter: 'cancelled',
+    notes: input.note != null && input.note !== '' ? input.note : null,
+  });
 
   if (plannedFeeCents === 0) {
     return { feeChargedCents: 0, cancelled: true, feeChargeFailed: false };

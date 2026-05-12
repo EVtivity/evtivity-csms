@@ -7,8 +7,7 @@ import { loadLanguage } from '@/i18n/index';
 import { cn } from '@/lib/utils';
 
 const LANGUAGES = [
-  { code: 'en', label: 'English (US)' },
-  { code: 'en-GB', label: 'English (UK)' },
+  { code: 'en', label: 'English' },
   { code: 'de', label: 'Deutsch' },
   { code: 'es', label: 'Español' },
   { code: 'ko', label: '한국어' },

@@ -111,6 +111,8 @@ const removeEntriesBody = z.object({
 
 const availableTokensQuery = z.object({
   search: z.string().max(255).optional().describe('Search filter for token or driver name'),
+  page: z.coerce.number().int().min(1).default(1).describe('Page number (1-based)'),
+  limit: z.coerce.number().int().min(1).max(200).default(50).describe('Page size, max 200'),
 });
 
 async function getStation(stationId: string) {
@@ -298,6 +300,7 @@ export function localAuthListRoutes(app: FastifyInstance): void {
       }
 
       const where = and(...conditions);
+      const offset = (query.page - 1) * query.limit;
 
       const [tokens, totalResult] = await Promise.all([
         db
@@ -311,7 +314,8 @@ export function localAuthListRoutes(app: FastifyInstance): void {
           .from(driverTokens)
           .leftJoin(drivers, eq(driverTokens.driverId, drivers.id))
           .where(where)
-          .limit(50),
+          .limit(query.limit)
+          .offset(offset),
         db
           .select({ count: count() })
           .from(driverTokens)

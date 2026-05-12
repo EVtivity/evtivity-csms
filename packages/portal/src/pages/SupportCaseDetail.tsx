@@ -195,7 +195,7 @@ export function SupportCaseDetail(): React.JSX.Element {
           />
           <Button
             type="submit"
-            size="sm"
+            className="h-12"
             disabled={messageMutation.isPending || messageBody.trim() === ''}
           >
             {t('supportCases.sendMessage')}

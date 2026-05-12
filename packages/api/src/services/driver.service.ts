@@ -4,6 +4,7 @@
 import { eq, desc } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { drivers, driverTokens } from '@evtivity/database';
+import * as tokenService from './token.service.js';
 
 export async function listDrivers() {
   return db.select().from(drivers).orderBy(desc(drivers.createdAt));
@@ -46,22 +47,25 @@ export async function getDriverTokens(driverId: string) {
   return db.select().from(driverTokens).where(eq(driverTokens.driverId, driverId));
 }
 
+// Both functions delegate to tokenService so audit + driver notification +
+// reactive local-auth invalidation always fire, matching every other token
+// mutation path. The system actor is used here because callers (legacy seed,
+// test fixtures) don't carry a user/driver context. Real interactive flows
+// should call tokenService directly with the right actor.
 export async function createDriverToken(
   driverId: string,
   data: { idToken: string; tokenType: string },
 ) {
-  const [token] = await db
-    .insert(driverTokens)
-    .values({ driverId, ...data })
-    .returning();
-  return token;
+  return tokenService.createToken(
+    { driverId, idToken: data.idToken, tokenType: data.tokenType },
+    { type: 'system' },
+  );
 }
 
 export async function deactivateDriverToken(tokenId: string) {
-  const [token] = await db
-    .update(driverTokens)
-    .set({ isActive: false, updatedAt: new Date() })
-    .where(eq(driverTokens.id, tokenId))
-    .returning();
-  return token ?? null;
+  return tokenService.updateToken(
+    tokenId,
+    { isActive: false, revokedReason: 'Deactivated via driver service' },
+    { type: 'system' },
+  );
 }

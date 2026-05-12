@@ -257,6 +257,13 @@ export function StationLocalAuthList({
                           {entry.pushedAt == null && (
                             <Badge variant="warning">{t('stations.pending')}</Badge>
                           )}
+                          {entry.driverTokenId == null && (
+                            // Backing driver_tokens row was deleted; FK is
+                            // SET NULL. The push reconciler drops these on the
+                            // next Send Local List, but operators need to see
+                            // them before that.
+                            <Badge variant="destructive">{t('stations.tokenDeleted')}</Badge>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>{formatDateTime(entry.addedAt, timezone)}</TableCell>

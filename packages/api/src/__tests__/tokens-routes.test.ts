@@ -72,12 +72,26 @@ vi.mock('@evtivity/database', () => ({
     update: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
     execute: vi.fn(() => Promise.resolve([])),
+    transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        select: vi.fn(() => makeChain()),
+        insert: vi.fn(() => makeChain()),
+        update: vi.fn(() => makeChain()),
+        delete: vi.fn(() => makeChain()),
+      };
+      return fn(tx);
+    }),
   },
+  client: {},
   chargingSessions: {},
   chargingStations: {},
   sites: {},
   driverTokens: {},
   drivers: {},
+  users: {},
+  tokenAuditLog: {},
+  stationLocalAuthEntries: {},
+  stationLocalAuthVersions: {},
 }));
 
 vi.mock('drizzle-orm', () => {
@@ -91,8 +105,28 @@ vi.mock('drizzle-orm', () => {
     desc: vi.fn(),
     count: vi.fn(),
     asc: vi.fn(),
+    inArray: vi.fn(),
   };
 });
+
+vi.mock('@evtivity/lib', () => ({
+  dispatchDriverNotification: vi.fn().mockResolvedValue(undefined),
+  createLogger: vi.fn(() => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  })),
+}));
+
+vi.mock('../lib/pubsub.js', () => ({
+  getPubSub: vi.fn(() => ({
+    publish: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn().mockResolvedValue({ unsubscribe: vi.fn() }),
+    close: vi.fn().mockResolvedValue(undefined),
+  })),
+  setPubSub: vi.fn(),
+}));
 
 import { registerAuth } from '../plugins/auth.js';
 import { tokenRoutes } from '../routes/tokens.js';
@@ -137,6 +171,9 @@ describe('Token routes - handler logic', () => {
           idToken: 'RFID001',
           tokenType: 'ISO14443',
           isActive: true,
+          expiresAt: null,
+          revokedAt: null,
+          revokedReason: null,
           createdAt: '2024-01-01T00:00:00.000Z',
           updatedAt: '2024-01-01T00:00:00.000Z',
           driverFirstName: 'John',
@@ -224,7 +261,7 @@ describe('Token routes - handler logic', () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers['content-type']).toBe('text/csv');
       const csv = response.body;
-      expect(csv).toBe('idToken,tokenType,driverEmail,isActive');
+      expect(csv).toBe('idToken,tokenType,driverEmail,isActive,expiresAt');
     });
 
     it('passes search to export service', async () => {
@@ -241,8 +278,17 @@ describe('Token routes - handler logic', () => {
 
   describe('POST /v1/tokens/import', () => {
     it('imports tokens from rows', async () => {
-      // Per-row: dup check (empty), driver lookup (when email present), then batch insert
-      setupDbResults([], [{ id: VALID_DRIVER_ID }], []);
+      // Inside the transaction:
+      //  1. driver lookup by email
+      //  2. existing tokens check (empty)
+      //  3. insert returning the inserted row
+      //  4. audit insert
+      setupDbResults(
+        [{ id: VALID_DRIVER_ID, email: 'john@example.com' }],
+        [],
+        [{ id: TOKEN_ID_2, idToken: 'RFID001', tokenType: 'ISO14443', driverId: VALID_DRIVER_ID }],
+        [],
+      );
       const response = await app.inject({
         method: 'POST',
         url: '/tokens/import',
@@ -296,7 +342,15 @@ describe('Token routes - handler logic', () => {
     });
 
     it('imports tokens without driverEmail', async () => {
-      setupDbResults([]);
+      // No driver email -> skip driver lookup. Inside tx:
+      //  1. existing tokens check (empty)
+      //  2. insert returning
+      //  3. audit insert
+      setupDbResults(
+        [],
+        [{ id: TOKEN_ID_2, idToken: 'RFID003', tokenType: 'ISO14443', driverId: null }],
+        [],
+      );
       const response = await app.inject({
         method: 'POST',
         url: '/tokens/import',
@@ -453,6 +507,9 @@ describe('Token routes - handler logic', () => {
         idToken: 'RFID001',
         tokenType: 'ISO14443',
         isActive: true,
+        expiresAt: null,
+        revokedAt: null,
+        revokedReason: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
         driverFirstName: 'John',
@@ -500,6 +557,9 @@ describe('Token routes - handler logic', () => {
         idToken: 'RFID-NEW',
         tokenType: 'ISO14443',
         isActive: true,
+        expiresAt: null,
+        revokedAt: null,
+        revokedReason: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
@@ -524,6 +584,9 @@ describe('Token routes - handler logic', () => {
         idToken: 'RFID-DRIVER',
         tokenType: 'ISO14443',
         isActive: true,
+        expiresAt: null,
+        revokedAt: null,
+        revokedReason: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
@@ -548,6 +611,9 @@ describe('Token routes - handler logic', () => {
         idToken: 'RFID-UPDATED',
         tokenType: 'eMAID',
         isActive: false,
+        expiresAt: null,
+        revokedAt: null,
+        revokedReason: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
@@ -584,10 +650,18 @@ describe('Token routes - handler logic', () => {
         idToken: 'RFID001',
         tokenType: 'ISO14443',
         isActive: true,
+        expiresAt: null,
+        revokedAt: null,
+        revokedReason: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
-      setupDbResults([updated]);
+      // current-row SELECT, then update returning
+      // (no dup check because idToken/tokenType not in payload)
+      setupDbResults(
+        [{ id: TOKEN_ID_2, idToken: 'RFID001', tokenType: 'ISO14443', isActive: true }],
+        [updated],
+      );
       const response = await app.inject({
         method: 'PATCH',
         url: `/tokens/${VALID_TOKEN_ID}`,
@@ -605,10 +679,17 @@ describe('Token routes - handler logic', () => {
         idToken: 'RFID001',
         tokenType: 'ISO14443',
         isActive: true,
+        expiresAt: null,
+        revokedAt: null,
+        revokedReason: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
-      setupDbResults([updated]);
+      // current-row SELECT, then update returning
+      setupDbResults(
+        [{ id: TOKEN_ID_2, idToken: 'RFID001', tokenType: 'ISO14443', isActive: true }],
+        [updated],
+      );
       const response = await app.inject({
         method: 'PATCH',
         url: `/tokens/${VALID_TOKEN_ID}`,
@@ -628,10 +709,14 @@ describe('Token routes - handler logic', () => {
         idToken: 'RFID-DELETED',
         tokenType: 'ISO14443',
         isActive: true,
+        expiresAt: null,
+        revokedAt: null,
+        revokedReason: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      setupDbResults([deleted]);
+      // Preflight active-session check (empty), then delete returning
+      setupDbResults([], [deleted]);
       const response = await app.inject({
         method: 'DELETE',
         url: `/tokens/${VALID_TOKEN_ID}`,
@@ -643,7 +728,8 @@ describe('Token routes - handler logic', () => {
     });
 
     it('returns 404 when token not found', async () => {
-      setupDbResults([]);
+      // Preflight active-session check (empty), then delete returning (empty)
+      setupDbResults([], []);
       const response = await app.inject({
         method: 'DELETE',
         url: `/tokens/${VALID_TOKEN_ID}`,

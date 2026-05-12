@@ -137,7 +137,14 @@
     "battery": "Battery",
     "collectingData": "Collecting data...",
     "fromReservation": "From Reservation",
-    "fromReservationHint": "View the reservation that started this session"
+    "fromReservationHint": "View the reservation that started this session",
+    "tapToSetVehicle": "Tap to set vehicle",
+    "changeVehicle": "Change vehicle",
+    "changeVehicleDescription": "Select the vehicle you used for this session.",
+    "noVehiclesAdd": "You don't have any vehicles yet. Add one in your account to estimate distance.",
+    "goToAccount": "Go to Account",
+    "clearVehicle": "Clear vehicle",
+    "vehicleUpdateFailed": "Failed to update vehicle."
   },
   "payments": {
     "title": "Payment Methods",
@@ -695,16 +702,22 @@
     "cardRemoved": "RFID card removed.",
     "removeFailed": "Failed to remove card.",
     "confirmRemoveTitle": "Remove RFID Card",
-    "confirmRemoveDescription": "Are you sure you want to remove this RFID card? This action cannot be undone."
+    "confirmRemoveDescription": "Are you sure you want to remove this RFID card? This action cannot be undone.",
+    "confirmRemoveSoftDeleteDescription": "This RFID card will be deactivated and will no longer authorize charging. Your historical sessions are preserved.",
+    "tokenType": "Token type",
+    "inactiveBadge": "Inactive"
   },
   "vehicles": {
     "addVehicle": "Add Vehicle",
     "make": "Make",
     "model": "Model",
     "year": "Year",
+    "yearPlaceholder": "YYYY",
+    "yearFormat": "Year must be 4 digits",
     "delete": "Delete vehicle",
     "noVehicles": "No vehicles added.",
-    "helper": "Used to estimate miles from energy consumed."
+    "helper": "Used to estimate miles from energy consumed.",
+    "addFailed": "Failed to add vehicle. Please try again."
   },
   "notifications": {
     "title": "Notifications",

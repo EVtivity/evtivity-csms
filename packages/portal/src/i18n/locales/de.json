@@ -134,7 +134,14 @@
     "battery": "Batterie",
     "collectingData": "Daten werden gesammelt...",
     "fromReservation": "Aus Reservierung",
-    "fromReservationHint": "Reservierung anzeigen, die diese Sitzung gestartet hat"
+    "fromReservationHint": "Reservierung anzeigen, die diese Sitzung gestartet hat",
+    "tapToSetVehicle": "Tippen, um Fahrzeug festzulegen",
+    "changeVehicle": "Fahrzeug ändern",
+    "changeVehicleDescription": "Wähle das Fahrzeug, das du für diese Sitzung verwendet hast.",
+    "noVehiclesAdd": "Du hast noch keine Fahrzeuge. Füge im Konto eines hinzu, um die Distanz zu schätzen.",
+    "goToAccount": "Zum Konto",
+    "clearVehicle": "Fahrzeug entfernen",
+    "vehicleUpdateFailed": "Fahrzeug konnte nicht aktualisiert werden."
   },
   "payments": {
     "title": "Zahlungsmethoden",
@@ -691,16 +698,22 @@
     "cardRemoved": "RFID-Karte entfernt.",
     "removeFailed": "Karte konnte nicht entfernt werden.",
     "confirmRemoveTitle": "RFID-Karte entfernen",
-    "confirmRemoveDescription": "Möchtest du diese RFID-Karte wirklich entfernen? Diese Aktion kann nicht rückgängig gemacht werden."
+    "confirmRemoveDescription": "Möchtest du diese RFID-Karte wirklich entfernen? Diese Aktion kann nicht rückgängig gemacht werden.",
+    "confirmRemoveSoftDeleteDescription": "Diese RFID-Karte wird deaktiviert und autorisiert keine Ladevorgänge mehr. Deine bisherigen Sitzungen bleiben erhalten.",
+    "tokenType": "Token-Typ",
+    "inactiveBadge": "Inaktiv"
   },
   "vehicles": {
     "addVehicle": "Fahrzeug hinzufügen",
     "make": "Marke",
     "model": "Modell",
     "year": "Baujahr",
+    "yearPlaceholder": "JJJJ",
+    "yearFormat": "Baujahr muss 4 Ziffern haben",
     "delete": "Fahrzeug löschen",
     "noVehicles": "Keine Fahrzeuge hinzugefügt.",
-    "helper": "Wird verwendet, um Meilen aus der verbrauchten Energie zu schätzen."
+    "helper": "Wird verwendet, um Meilen aus der verbrauchten Energie zu schätzen.",
+    "addFailed": "Fahrzeug konnte nicht hinzugefügt werden. Bitte erneut versuchen."
   },
   "notifications": {
     "title": "Benachrichtigungen",

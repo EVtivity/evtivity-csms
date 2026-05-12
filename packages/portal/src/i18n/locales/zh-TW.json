@@ -137,7 +137,14 @@
     "battery": "電池電量",
     "collectingData": "正在收集資料...",
     "fromReservation": "來自預約",
-    "fromReservationHint": "查看啟動此工作階段的預約"
+    "fromReservationHint": "查看啟動此工作階段的預約",
+    "tapToSetVehicle": "點擊設定車輛",
+    "changeVehicle": "變更車輛",
+    "changeVehicleDescription": "選擇本次工作階段使用的車輛。",
+    "noVehiclesAdd": "您尚未新增車輛。請在帳戶中新增一輛以估算里程。",
+    "goToAccount": "前往帳戶",
+    "clearVehicle": "清除車輛",
+    "vehicleUpdateFailed": "更新車輛失敗。"
   },
   "payments": {
     "title": "支付方式",
@@ -695,16 +702,22 @@
     "cardRemoved": "RFID 卡已刪除。",
     "removeFailed": "刪除信用卡失敗。",
     "confirmRemoveTitle": "刪除 RFID 卡",
-    "confirmRemoveDescription": "確定要刪除此 RFID 卡嗎？此操作無法撤銷。"
+    "confirmRemoveDescription": "確定要刪除此 RFID 卡嗎？此操作無法撤銷。",
+    "confirmRemoveSoftDeleteDescription": "此 RFID 卡將被停用，不再授權充電。您的歷史工作階段將被保留。",
+    "tokenType": "權杖類型",
+    "inactiveBadge": "未啟用"
   },
   "vehicles": {
     "addVehicle": "新增車輛",
     "make": "品牌",
     "model": "型號",
     "year": "年份",
+    "yearPlaceholder": "YYYY",
+    "yearFormat": "年份必須為 4 位數字",
     "delete": "刪除車輛",
     "noVehicles": "未新增車輛。",
-    "helper": "用於根據用電量估算里程。"
+    "helper": "用於根據用電量估算里程。",
+    "addFailed": "新增車輛失敗，請重試。"
   },
   "notifications": {
     "title": "通知",

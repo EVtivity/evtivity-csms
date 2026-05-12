@@ -137,7 +137,14 @@
     "battery": "Bateria",
     "collectingData": "Recopilando datos...",
     "fromReservation": "Desde la reserva",
-    "fromReservationHint": "Ver la reserva que inicio esta sesion"
+    "fromReservationHint": "Ver la reserva que inicio esta sesion",
+    "tapToSetVehicle": "Toca para definir el vehiculo",
+    "changeVehicle": "Cambiar vehiculo",
+    "changeVehicleDescription": "Selecciona el vehiculo que usaste en esta sesion.",
+    "noVehiclesAdd": "Aun no tienes vehiculos. Agrega uno en tu cuenta para estimar la distancia.",
+    "goToAccount": "Ir a Cuenta",
+    "clearVehicle": "Quitar vehiculo",
+    "vehicleUpdateFailed": "No se pudo actualizar el vehiculo."
   },
   "payments": {
     "title": "Metodos de Pago",
@@ -695,16 +702,22 @@
     "cardRemoved": "Tarjeta RFID eliminada.",
     "removeFailed": "Error al eliminar tarjeta.",
     "confirmRemoveTitle": "Eliminar tarjeta RFID",
-    "confirmRemoveDescription": "Estas seguro de que deseas eliminar esta tarjeta RFID? Esta accion no se puede deshacer."
+    "confirmRemoveDescription": "Estas seguro de que deseas eliminar esta tarjeta RFID? Esta accion no se puede deshacer.",
+    "confirmRemoveSoftDeleteDescription": "Esta tarjeta RFID se desactivara y ya no autorizara la carga. Tus sesiones historicas se conservan.",
+    "tokenType": "Tipo de token",
+    "inactiveBadge": "Inactiva"
   },
   "vehicles": {
     "addVehicle": "Agregar Vehiculo",
     "make": "Marca",
     "model": "Modelo",
     "year": "Ano",
+    "yearPlaceholder": "AAAA",
+    "yearFormat": "El ano debe tener 4 digitos",
     "delete": "Eliminar vehiculo",
     "noVehicles": "No hay vehiculos agregados.",
-    "helper": "Usado para estimar millas del consumo de energia."
+    "helper": "Usado para estimar millas del consumo de energia.",
+    "addFailed": "No se pudo agregar el vehiculo. Intente nuevamente."
   },
   "notifications": {
     "title": "Notificaciones",

@@ -157,7 +157,9 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
     const guestWhereFn = vi.fn().mockReturnValue({ limit: guestLimitFn });
     const guestFromFn = vi.fn().mockReturnValue({ where: guestWhereFn });
 
-    const ocpiLimitFn = vi.fn().mockResolvedValue([{ isValid: true }]);
+    const ocpiLimitFn = vi
+      .fn()
+      .mockResolvedValue([{ isValid: true, whitelist: 'ALWAYS', tokenData: null }]);
     const ocpiWhereFn = vi.fn().mockReturnValue({ limit: ocpiLimitFn });
     const ocpiFromFn = vi.fn().mockReturnValue({ where: ocpiWhereFn });
 
@@ -187,7 +189,12 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
     const guestWhereFn = vi.fn().mockReturnValue({ limit: guestLimitFn });
     const guestFromFn = vi.fn().mockReturnValue({ where: guestWhereFn });
 
-    const ocpiLimitFn = vi.fn().mockResolvedValue([{ isValid: false }]);
+    // Handler now reads `isValid`, `whitelist`, and `tokenData` from the row.
+    // The reason string interpolates `whitelist.toLowerCase()` so we must
+    // supply it.
+    const ocpiLimitFn = vi
+      .fn()
+      .mockResolvedValue([{ isValid: false, whitelist: 'ALWAYS', tokenData: null }]);
     const ocpiWhereFn = vi.fn().mockReturnValue({ limit: ocpiLimitFn });
     const ocpiFromFn = vi.fn().mockReturnValue({ where: ocpiWhereFn });
 

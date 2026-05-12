@@ -137,7 +137,14 @@
     "battery": "배터리",
     "collectingData": "데이터 수집 중...",
     "fromReservation": "예약에서 시작",
-    "fromReservationHint": "이 세션을 시작한 예약 보기"
+    "fromReservationHint": "이 세션을 시작한 예약 보기",
+    "tapToSetVehicle": "차량을 설정하려면 누르세요",
+    "changeVehicle": "차량 변경",
+    "changeVehicleDescription": "이 세션에 사용한 차량을 선택하세요.",
+    "noVehiclesAdd": "등록된 차량이 없습니다. 거리를 추정하려면 계정에서 차량을 추가하세요.",
+    "goToAccount": "계정으로 이동",
+    "clearVehicle": "차량 해제",
+    "vehicleUpdateFailed": "차량을 업데이트하지 못했습니다."
   },
   "payments": {
     "title": "결제 수단",
@@ -695,16 +702,22 @@
     "cardRemoved": "RFID 카드가 삭제되었습니다.",
     "removeFailed": "카드 삭제에 실패했습니다.",
     "confirmRemoveTitle": "RFID 카드 삭제",
-    "confirmRemoveDescription": "이 RFID 카드를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다."
+    "confirmRemoveDescription": "이 RFID 카드를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
+    "confirmRemoveSoftDeleteDescription": "이 RFID 카드는 비활성화되며 더 이상 충전을 승인하지 않습니다. 이전 세션 기록은 보존됩니다.",
+    "tokenType": "토큰 유형",
+    "inactiveBadge": "비활성"
   },
   "vehicles": {
     "addVehicle": "차량 추가",
     "make": "제조사",
     "model": "모델",
     "year": "연식",
+    "yearPlaceholder": "YYYY",
+    "yearFormat": "연식은 4자리 숫자여야 합니다",
     "delete": "차량 삭제",
     "noVehicles": "등록된 차량이 없습니다.",
-    "helper": "에너지 소비량에서 마일을 추정하는 데 사용됩니다."
+    "helper": "에너지 소비량에서 마일을 추정하는 데 사용됩니다.",
+    "addFailed": "차량을 추가하지 못했습니다. 다시 시도해 주세요."
   },
   "notifications": {
     "title": "알림",

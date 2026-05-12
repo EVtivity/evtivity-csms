@@ -77,6 +77,7 @@ vi.mock('@evtivity/database', () => ({
   reservations: {},
   stationImages: {},
   settings: {},
+  driverTokens: {},
   getReservationSettings: vi.fn().mockResolvedValue({
     enabled: true,
     bufferMinutes: 0,
@@ -84,6 +85,8 @@ vi.mock('@evtivity/database', () => ({
     cancellationFeeCents: 0,
     maxHours: 0,
   }),
+  writeReservationAudit: vi.fn().mockResolvedValue(undefined),
+  reservationDiffChanged: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -787,11 +790,12 @@ describe('Portal charger routes - handler logic', () => {
       // DB call 1: station lookup
       // DB call 2: default payment method check (always required for portal)
       // DB call 3: conflict check (no conflicts)
-      // DB call 4: insert returning reservation
+      // DB call 4: driverTokens lookup for preferredTokenId (empty)
+      // DB call 5: insert returning reservation
       // The new active-session pre-check is gated on activeSessionCheckHours
       // > 0 in settings; the global mock leaves it undefined so the check is
       // skipped and consumes no DB slot.
-      // getNextReservationId uses db.execute (sequence)
+      // getNextReservationId uses db.execute (sequence) and does not consume a slot.
       setupDbResults(
         [
           {
@@ -802,6 +806,7 @@ describe('Portal charger routes - handler logic', () => {
           },
         ],
         [{ id: 1, isDefault: true }],
+        [],
         [],
         [reservationData],
       );

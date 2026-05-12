@@ -678,7 +678,14 @@ describe('TransactionEvent handler', () => {
       idToken: { idToken: 'TEST-TOKEN-001', type: 'ISO14443' },
     });
     const response = await handleTransactionEvent(ctx);
-    expect(response).toEqual({ idTokenInfo: { status: 'Accepted' } });
+    // The handler returns groupIdToken when the token is not blocked/expired
+    // so the station can identify the token's group on response.
+    expect(response).toEqual({
+      idTokenInfo: {
+        status: 'Accepted',
+        groupIdToken: { idToken: 'TEST-TOKEN-001', type: 'ISO14443' },
+      },
+    });
     expect(publishMock).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: 'ocpp.TransactionEvent' }),
     );

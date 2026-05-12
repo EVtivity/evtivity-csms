@@ -56,10 +56,24 @@ vi.mock('@evtivity/database', () => ({
     update: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
     execute: vi.fn(() => Promise.resolve([])),
+    transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        select: vi.fn(() => makeChain()),
+        insert: vi.fn(() => makeChain()),
+        update: vi.fn(() => makeChain()),
+        delete: vi.fn(() => makeChain()),
+      };
+      return fn(tx);
+    }),
   },
+  client: {},
   drivers: {},
   driverTokens: {},
   vehicles: {},
+  users: {},
+  tokenAuditLog: {},
+  stationLocalAuthEntries: {},
+  stationLocalAuthVersions: {},
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -71,6 +85,26 @@ vi.mock('drizzle-orm', () => ({
   desc: vi.fn(),
   count: vi.fn(),
   asc: vi.fn(),
+  inArray: vi.fn(),
+}));
+
+vi.mock('@evtivity/lib', () => ({
+  dispatchDriverNotification: vi.fn().mockResolvedValue(undefined),
+  createLogger: vi.fn(() => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  })),
+}));
+
+vi.mock('../lib/pubsub.js', () => ({
+  getPubSub: vi.fn(() => ({
+    publish: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn().mockResolvedValue({ unsubscribe: vi.fn() }),
+    close: vi.fn().mockResolvedValue(undefined),
+  })),
+  setPubSub: vi.fn(),
 }));
 
 vi.mock('../middleware/rbac.js', () => ({
@@ -481,7 +515,8 @@ describe('Driver routes (operator)', () => {
 
     it('returns 201 on success', async () => {
       const driverToken = makeToken({ idToken: 'RFID-XYZ' });
-      setupDbResults([driverToken]);
+      // tokenService.createToken: dup-check (empty) -> insert returning
+      setupDbResults([], [driverToken]);
 
       const res = await app.inject({
         method: 'POST',

@@ -203,6 +203,7 @@ export const ERROR_CODES = {
   TARIFF_OVERLAP: 'TARIFF_OVERLAP',
   TEMPLATE_NOT_FOUND: 'TEMPLATE_NOT_FOUND',
   TOKEN_DUPLICATE: 'TOKEN_DUPLICATE',
+  TOKEN_IN_USE: 'TOKEN_IN_USE',
   TOKEN_NOT_FOUND: 'TOKEN_NOT_FOUND',
   TOTP_NOT_CONFIGURED: 'TOTP_NOT_CONFIGURED',
   TRANSACTION_NOT_FOUND: 'TRANSACTION_NOT_FOUND',
@@ -411,6 +412,7 @@ export type ErrorCode =
   | 'TARIFF_OVERLAP'
   | 'TEMPLATE_NOT_FOUND'
   | 'TOKEN_DUPLICATE'
+  | 'TOKEN_IN_USE'
   | 'TOKEN_NOT_FOUND'
   | 'TOTP_NOT_CONFIGURED'
   | 'TRANSACTION_NOT_FOUND'
@@ -628,6 +630,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   TARIFF_OVERLAP: 'Tariff overlaps with an existing tariff',
   TEMPLATE_NOT_FOUND: 'Template not found',
   TOKEN_DUPLICATE: 'Token already registered',
+  TOKEN_IN_USE: 'Token is currently in use by an active charging session',
   TOKEN_NOT_FOUND: 'Token not found',
   TOTP_NOT_CONFIGURED: 'TOTP not set up',
   TRANSACTION_NOT_FOUND: 'Transaction not found',

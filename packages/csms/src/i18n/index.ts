@@ -13,7 +13,6 @@ void i18n.use(initReactI18next).init({
   },
   lng: savedLanguage,
   fallbackLng: {
-    'en-GB': ['en'],
     'zh-TW': ['zh', 'en'],
     default: ['en'],
   },

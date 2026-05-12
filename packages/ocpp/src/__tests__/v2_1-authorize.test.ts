@@ -97,7 +97,15 @@ describe('v2_1 Authorize handler', () => {
     });
     const response = await handleAuthorize(ctx);
 
-    expect(response).toEqual({ idTokenInfo: { status: 'Accepted' } });
+    // For ACCEPT_WHEN_NOT_FOUND token types (Central, NoAuthorization), the
+    // handler returns groupIdToken so the station can identify the token's
+    // group. This matches the OCPP 2.1 spec for idTokenInfo response shape.
+    expect(response).toEqual({
+      idTokenInfo: {
+        status: 'Accepted',
+        groupIdToken: { idToken: 'central-token', type: 'Central' },
+      },
+    });
   });
 
   it('returns Invalid for ISO14443 token not found in DB', async () => {

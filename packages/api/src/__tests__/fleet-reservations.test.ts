@@ -71,6 +71,8 @@ vi.mock('@evtivity/database', () => ({
   evses: {},
   fleetReservations: {},
   fleets: {},
+  writeReservationAudit: vi.fn().mockResolvedValue(undefined),
+  reservationDiffChanged: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock('drizzle-orm', () => ({

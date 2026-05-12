@@ -13,10 +13,12 @@ import {
   sites,
   chargingSessions,
   driverPaymentMethods,
+  driverTokens,
   reservations,
   stationImages,
   settings,
   getReservationSettings,
+  writeReservationAudit,
 } from '@evtivity/database';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { ID_PARAMS } from '../../lib/id-validation.js';
@@ -2349,6 +2351,23 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       const isFutureScheduled =
         body.startsAt != null && new Date(body.startsAt).getTime() > Date.now();
 
+      // Auto-bind the driver's most recently active token (like vehicle
+      // auto-link). This lets the StartTransaction handler verify that the
+      // card the driver actually taps belongs to them, and powers per-token
+      // reporting in the operator UI.
+      let preferredTokenId: string | null = null;
+      try {
+        const [lastToken] = await db
+          .select({ id: driverTokens.id })
+          .from(driverTokens)
+          .where(and(eq(driverTokens.driverId, driverId), eq(driverTokens.isActive, true)))
+          .orderBy(desc(driverTokens.updatedAt))
+          .limit(1);
+        preferredTokenId = lastToken?.id ?? null;
+      } catch {
+        // Non-critical
+      }
+
       const [reservation] = await db
         .insert(reservations)
         .values({
@@ -2356,6 +2375,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           stationId: station.id,
           evseId: resolvedEvseId,
           driverId,
+          tokenId: preferredTokenId,
           status: isFutureScheduled ? 'scheduled' : 'active',
           expiresAt: new Date(body.expiresAt),
           ...(body.startsAt != null ? { startsAt: new Date(body.startsAt) } : {}),
@@ -2369,6 +2389,22 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         });
         return;
       }
+
+      await writeReservationAudit(
+        {
+          reservationId: reservation.id,
+          action: 'created',
+          actor: 'driver',
+          actorDriverId: driverId,
+          driverIdAfter: reservation.driverId,
+          tokenIdAfter: reservation.tokenId,
+          evseIdAfter: reservation.evseId,
+          statusAfter: reservation.status,
+          expiresAtAfter: reservation.expiresAt,
+        },
+        undefined,
+        request.log,
+      );
 
       if (isFutureScheduled) {
         // Enqueue delayed job via pub/sub bridge to the worker
@@ -2491,6 +2527,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         startsAt: reservation.startsAt ?? reservation.createdAt,
         createdAt: reservation.createdAt,
         actor: 'driver',
+        actorDriverId: driverId,
         reason: 'driver_initiated',
         chargeFee: true,
         logger: request.log,

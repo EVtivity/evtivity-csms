@@ -63,6 +63,20 @@ interface SessionDetailData {
   } | null;
   reservationId: string | null;
   token: { idToken: string; tokenType: string } | null;
+  vehicle: {
+    id: string;
+    make: string | null;
+    model: string | null;
+    year: string | null;
+    efficiencyMiPerKwh: number;
+  } | null;
+}
+
+interface DriverVehicle {
+  id: string;
+  make: string | null;
+  model: string | null;
+  year: string | null;
 }
 
 interface PortalFeatures {
@@ -76,10 +90,6 @@ interface PowerHistoryResponse {
 
 interface EnergyHistoryResponse {
   data: Array<{ timestamp: string; energyWh: number }>;
-}
-
-interface VehicleEfficiency {
-  efficiencyMiPerKwh: number;
 }
 
 function useElapsedTime(startedAt: string | null | undefined, isActive: boolean): string {
@@ -118,6 +128,8 @@ export function SessionDetail(): React.JSX.Element {
   const { toast } = useToast();
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [showVehicleDialog, setShowVehicleDialog] = useState(false);
+  const [pendingVehicleId, setPendingVehicleId] = useState<string | null>(null);
 
   const { data: session, isLoading } = useQuery({
     queryKey: ['portal-session', id],
@@ -147,9 +159,22 @@ export function SessionDetail(): React.JSX.Element {
     refetchInterval: isActive ? 10000 : false,
   });
 
-  const { data: vehicleEfficiency } = useQuery({
-    queryKey: ['portal-vehicle-efficiency'],
-    queryFn: () => api.get<VehicleEfficiency>('/v1/portal/vehicles/efficiency'),
+  const { data: driverVehicles } = useQuery({
+    queryKey: ['portal-vehicles'],
+    queryFn: () => api.get<DriverVehicle[]>('/v1/portal/vehicles'),
+    enabled: showVehicleDialog,
+  });
+
+  const setVehicleMutation = useMutation({
+    mutationFn: (vehicleId: string | null) =>
+      api.patch(`/v1/portal/sessions/${id ?? ''}/vehicle`, { vehicleId }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['portal-session', id] });
+      setShowVehicleDialog(false);
+    },
+    onError: () => {
+      toast({ variant: 'destructive', title: t('sessionDetail.vehicleUpdateFailed') });
+    },
   });
 
   const { data: features } = useQuery({
@@ -212,8 +237,17 @@ export function SessionDetail(): React.JSX.Element {
       ? t('sessionDetail.free')
       : formatCents(costCents, session.currency ?? 'USD');
   const energy = formatEnergy(session.energyDeliveredWh);
-  const efficiency = vehicleEfficiency?.efficiencyMiPerKwh ?? 3.5;
+  const efficiency = session.vehicle?.efficiencyMiPerKwh ?? 3.5;
   const miles = formatDistance(session.energyDeliveredWh, efficiency, distanceUnit);
+  const vehicleLabel =
+    session.vehicle != null
+      ? [session.vehicle.make, session.vehicle.model]
+          .filter((v) => v != null && v !== '')
+          .join(' ') +
+        (session.vehicle.year != null && session.vehicle.year !== ''
+          ? ` (${session.vehicle.year})`
+          : '')
+      : null;
 
   const isFaulted = session.status === 'faulted' || session.status === 'failed';
 
@@ -265,7 +299,24 @@ export function SessionDetail(): React.JSX.Element {
           <StatusIcon className="h-5 w-5" />
           {statusLabel}
         </div>
-        {session.energyDeliveredWh != null && <p className="text-3xl font-bold">{miles}</p>}
+        {session.energyDeliveredWh != null && (
+          <button
+            type="button"
+            onClick={() => {
+              setPendingVehicleId(session.vehicle?.id ?? null);
+              setShowVehicleDialog(true);
+            }}
+            className="block w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
+            aria-label={t('sessionDetail.changeVehicle')}
+          >
+            <p className="text-3xl font-bold hover:underline decoration-dotted underline-offset-4">
+              {miles}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {vehicleLabel ?? t('sessionDetail.tapToSetVehicle')}
+            </p>
+          </button>
+        )}
         {isActive && session.updatedAt != null && (
           <p className="text-xs text-muted-foreground">
             {t('sessionDetail.lastUpdated', {
@@ -452,6 +503,81 @@ export function SessionDetail(): React.JSX.Element {
         sessionId={session.id}
         stationName={session.stationName != null ? session.stationName : undefined}
       />
+
+      {/* Vehicle picker dialog */}
+      <ConfirmDialog
+        open={showVehicleDialog}
+        onOpenChange={(open) => {
+          if (setVehicleMutation.isPending && !open) return;
+          setShowVehicleDialog(open);
+        }}
+        title={t('sessionDetail.changeVehicle')}
+        description={
+          driverVehicles != null && driverVehicles.length === 0
+            ? t('sessionDetail.noVehiclesAdd')
+            : t('sessionDetail.changeVehicleDescription')
+        }
+        confirmLabel={
+          driverVehicles != null && driverVehicles.length === 0
+            ? t('sessionDetail.goToAccount')
+            : t('common.save')
+        }
+        cancelLabel={t('common.cancel')}
+        isPending={setVehicleMutation.isPending}
+        onConfirm={() => {
+          if (driverVehicles != null && driverVehicles.length === 0) {
+            void navigate('/account');
+            return undefined;
+          }
+          if (pendingVehicleId !== (session.vehicle?.id ?? null)) {
+            setVehicleMutation.mutate(pendingVehicleId);
+            return false;
+          }
+          return undefined;
+        }}
+      >
+        {driverVehicles != null && driverVehicles.length > 0 && (
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {driverVehicles.map((v) => {
+              const label =
+                [v.make, v.model].filter((p) => p != null && p !== '').join(' ') +
+                (v.year != null && v.year !== '' ? ` (${v.year})` : '');
+              const checked = pendingVehicleId === v.id;
+              return (
+                <label
+                  key={v.id}
+                  className={`flex items-center gap-3 rounded-md border p-3 cursor-pointer transition-colors ${
+                    checked ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="session-vehicle"
+                    value={v.id}
+                    checked={checked}
+                    onChange={() => {
+                      setPendingVehicleId(v.id);
+                    }}
+                    className="h-4 w-4 text-primary"
+                  />
+                  <span className="text-sm font-medium">{label}</span>
+                </label>
+              );
+            })}
+            {pendingVehicleId != null && (
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingVehicleId(null);
+                }}
+                className="text-xs text-muted-foreground hover:text-foreground underline"
+              >
+                {t('sessionDetail.clearVehicle')}
+              </button>
+            )}
+          </div>
+        )}
+      </ConfirmDialog>
 
       {/* Stop confirmation dialog */}
       <ConfirmDialog

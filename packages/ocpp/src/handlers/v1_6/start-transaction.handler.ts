@@ -5,6 +5,7 @@ import { sql as dsql, eq } from 'drizzle-orm';
 import { db, driverTokens, drivers, guestSessions } from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { StartTransaction } from '../../generated/v1_6/types/messages/StartTransaction.js';
+import { logAuthorizeAttempt } from '../authorize-log.js';
 
 export async function handleStartTransaction(
   ctx: HandlerContext,
@@ -83,11 +84,24 @@ export async function handleStartTransaction(
   });
 
   // Validate the idTag against driver_tokens, then guest_sessions.
-  // Return Invalid if unknown, Blocked if inactive.
-  let idTagStatus: 'Accepted' | 'Blocked' | 'Invalid' = 'Accepted';
+  // Mirrors the Authorize handler: pick the active+non-revoked+non-expired
+  // row when multiple rows match (same idToken with different tokenType is
+  // allowed by uniqueness). A station that skips Authorize and goes straight
+  // to StartTransaction must not be able to bypass revocation/expiry.
+  let idTagStatus: 'Accepted' | 'Blocked' | 'Invalid' | 'Expired' = 'Accepted';
+  let outcome: 'accepted' | 'invalid' | 'blocked' | 'expired' | 'unknown' | 'db_error' = 'accepted';
+  let matchedTokenId: string | null = null;
+  let matchedDriverId: string | null = null;
+  let reason: string | null = null;
   try {
     const tokens = await db
-      .select({ isActive: driverTokens.isActive })
+      .select({
+        id: driverTokens.id,
+        driverId: driverTokens.driverId,
+        isActive: driverTokens.isActive,
+        expiresAt: driverTokens.expiresAt,
+        revokedAt: driverTokens.revokedAt,
+      })
       .from(driverTokens)
       .where(eq(driverTokens.idToken, request.idTag));
     if (tokens.length === 0) {
@@ -98,12 +112,20 @@ export async function handleStartTransaction(
       let resolved = false;
       if (request.idTag.startsWith('drv_')) {
         const [driver] = await db
-          .select({ isActive: drivers.isActive })
+          .select({ id: drivers.id, isActive: drivers.isActive })
           .from(drivers)
           .where(eq(drivers.id, request.idTag))
           .limit(1);
         if (driver != null) {
-          idTagStatus = driver.isActive ? 'Accepted' : 'Blocked';
+          if (driver.isActive) {
+            idTagStatus = 'Accepted';
+            outcome = 'accepted';
+          } else {
+            idTagStatus = 'Blocked';
+            outcome = 'blocked';
+            reason = 'driver_inactive';
+          }
+          matchedDriverId = driver.id;
           resolved = true;
         }
       }
@@ -116,16 +138,73 @@ export async function handleStartTransaction(
           .limit(1);
         if (guest == null) {
           idTagStatus = 'Invalid';
+          outcome = 'unknown';
+          reason = 'token_not_found';
         } else if (guest.status !== 'payment_authorized' && guest.status !== 'charging') {
           idTagStatus = 'Blocked';
+          outcome = 'blocked';
+          reason = `guest_${guest.status}`;
+        } else {
+          reason = 'guest_session';
         }
       }
-    } else if (!tokens.some((t) => t.isActive)) {
-      idTagStatus = 'Blocked';
+    } else {
+      const now = new Date();
+      const usable = tokens.find(
+        (t) =>
+          t.isActive &&
+          t.revokedAt == null &&
+          (t.expiresAt == null || t.expiresAt.getTime() > now.getTime()),
+      );
+      if (usable != null) {
+        matchedTokenId = usable.id;
+        matchedDriverId = usable.driverId;
+      } else {
+        const expiredRow = tokens.find(
+          (t) => t.expiresAt != null && t.expiresAt.getTime() <= now.getTime(),
+        );
+        if (expiredRow != null) {
+          matchedTokenId = expiredRow.id;
+          matchedDriverId = expiredRow.driverId;
+          idTagStatus = 'Expired';
+          outcome = 'expired';
+          reason = 'expired_at';
+        } else {
+          const fallback = tokens[0];
+          matchedTokenId = fallback?.id ?? null;
+          matchedDriverId = fallback?.driverId ?? null;
+          idTagStatus = 'Blocked';
+          outcome = 'blocked';
+          reason = 'inactive_or_revoked';
+        }
+      }
     }
   } catch {
     // DB unavailable: accept by default (fail-open)
+    outcome = 'db_error';
+    reason = 'db_unreachable';
   }
+
+  // Forensic log: stations using LocalAuthList skip Authorize and come
+  // straight to StartTransaction, so this is the only record of the
+  // authorization decision for those flows.
+  void logAuthorizeAttempt(
+    {
+      stationId: ctx.stationId,
+      idToken: request.idTag,
+      tokenType: 'ISO14443',
+      matchedTokenId,
+      matchedDriverId,
+      outcome,
+      ocppVersion: 'ocpp1.6',
+      reason,
+    },
+    ctx.logger,
+  );
+
+  // OCPP 1.6 StartTransaction's idTagInfo.status enum only includes
+  // Accepted/Blocked/Expired/Invalid/ConcurrentTx (no NoCredit). Our 'Expired'
+  // maps directly.
 
   return {
     transactionId,

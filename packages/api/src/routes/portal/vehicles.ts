@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, asc } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { vehicles, vehicleEfficiencyLookup } from '@evtivity/database';
 import { zodSchema } from '../../lib/zod-schema.js';
@@ -44,6 +44,26 @@ const vehicleParams = z.object({
 const efficiencyResponse = z
   .object({
     efficiencyMiPerKwh: z.number().min(0).max(20).describe('Energy efficiency in miles per kWh'),
+  })
+  .passthrough();
+
+const lookupQuery = z.object({
+  make: z.string().optional().describe('Filter models by make (case-insensitive)'),
+});
+
+const lookupResponse = z
+  .object({
+    makes: z.array(z.string()).describe('Distinct vehicle makes seeded in the lookup table'),
+    models: z
+      .array(
+        z
+          .object({
+            make: z.string().describe('Vehicle make'),
+            model: z.string().describe('Vehicle model'),
+          })
+          .passthrough(),
+      )
+      .describe('Make/model pairs, optionally filtered by ?make='),
   })
   .passthrough();
 
@@ -190,6 +210,52 @@ export function portalVehicleRoutes(app: FastifyInstance): void {
 
       return {
         efficiencyMiPerKwh: match != null ? Number(match.efficiencyMiPerKwh) : DEFAULT_EFFICIENCY,
+      };
+    },
+  );
+
+  app.get(
+    '/portal/vehicles/lookup',
+    {
+      onRequest: [app.authenticateDriver],
+      schema: {
+        tags: ['Portal Vehicles'],
+        summary: 'List known vehicle makes and models for autocomplete',
+        operationId: 'portalLookupVehicles',
+        security: [{ bearerAuth: [] }],
+        querystring: zodSchema(lookupQuery),
+        response: { 200: itemResponse(lookupResponse) },
+      },
+    },
+    async (request) => {
+      const { make } = request.query as z.infer<typeof lookupQuery>;
+
+      const makeRows = await db
+        .selectDistinct({ make: vehicleEfficiencyLookup.make })
+        .from(vehicleEfficiencyLookup)
+        .orderBy(asc(vehicleEfficiencyLookup.make));
+
+      const modelRows =
+        make != null && make.trim() !== ''
+          ? await db
+              .selectDistinct({
+                make: vehicleEfficiencyLookup.make,
+                model: vehicleEfficiencyLookup.model,
+              })
+              .from(vehicleEfficiencyLookup)
+              .where(sql`LOWER(${vehicleEfficiencyLookup.make}) = LOWER(${make})`)
+              .orderBy(asc(vehicleEfficiencyLookup.model))
+          : await db
+              .selectDistinct({
+                make: vehicleEfficiencyLookup.make,
+                model: vehicleEfficiencyLookup.model,
+              })
+              .from(vehicleEfficiencyLookup)
+              .orderBy(asc(vehicleEfficiencyLookup.make), asc(vehicleEfficiencyLookup.model));
+
+      return {
+        makes: makeRows.map((r) => r.make),
+        models: modelRows,
       };
     },
   );

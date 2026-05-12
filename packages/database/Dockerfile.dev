@@ -19,5 +19,10 @@ RUN npm ci --ignore-scripts
 COPY tsconfig.base.json tsconfig.json ./
 COPY packages/lib/ packages/lib/
 COPY packages/database/ packages/database/
+COPY scripts/ scripts/
 RUN npx tsc -b --force packages/lib
-CMD ["sh", "-c", "cd packages/database && npx drizzle-kit migrate"]
+# Run migrations, then verify every SQL file is recorded in __drizzle_migrations.
+# The verifier exits non-zero on a silently-skipped migration so docker-compose's
+# `service_completed_successfully` blocks dependent services from starting
+# against a stale schema.
+CMD ["sh", "-c", "cd packages/database && npx drizzle-kit migrate && node ../../scripts/verify-migrations-applied.mjs"]

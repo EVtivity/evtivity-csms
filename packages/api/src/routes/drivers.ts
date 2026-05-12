@@ -21,6 +21,8 @@ import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
+import * as tokenService from '../services/token.service.js';
+import type { JwtPayload } from '../plugins/auth.js';
 import {
   paginatedResponse,
   itemResponse,
@@ -426,17 +428,31 @@ export function driverRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(driverParams),
         body: zodSchema(createTokenBody),
-        response: { 201: itemResponse(driverTokenItem) },
+        response: {
+          201: itemResponse(driverTokenItem),
+          409: errorWith('Duplicate token', [ERROR_CODES.TOKEN_DUPLICATE]),
+        },
       },
     },
     async (request, reply) => {
+      const { userId } = request.user as JwtPayload;
       const { id } = request.params as z.infer<typeof driverParams>;
       const body = request.body as z.infer<typeof createTokenBody>;
-      const [token] = await db
-        .insert(driverTokens)
-        .values({ driverId: id, ...body })
-        .returning();
-      await reply.status(201).send(token);
+      try {
+        const token = await tokenService.createToken(
+          { driverId: id, idToken: body.idToken, tokenType: body.tokenType },
+          { type: 'operator', userId },
+        );
+        await reply.status(201).send(token);
+      } catch (err) {
+        if (err instanceof tokenService.DuplicateTokenError) {
+          await reply
+            .status(409)
+            .send({ error: 'Token already registered', code: 'TOKEN_DUPLICATE' });
+          return;
+        }
+        throw err;
+      }
     },
   );
 

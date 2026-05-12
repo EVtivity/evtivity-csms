@@ -78,6 +78,9 @@ interface ReservationData {
   driverId: string | null;
   driverFirstName: string | null;
   driverLastName: string | null;
+  tokenId: string | null;
+  tokenIdToken: string | null;
+  tokenType: string | null;
   status: string;
   startsAt: string | null;
   expiresAt: string;
@@ -463,6 +466,26 @@ export function ReservationDetailsTab({
                     </Link>
                   ) : (
                     <span className="text-muted-foreground">{t('reservations.noDriver')}</span>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('reservations.token')}</dt>
+                <dd className="font-medium">
+                  {reservation.tokenId != null && reservation.tokenIdToken != null ? (
+                    <Link
+                      to={`/tokens/${reservation.tokenId}`}
+                      className="text-primary hover:underline"
+                    >
+                      <span className="font-mono text-xs">{reservation.tokenIdToken}</span>
+                      {reservation.tokenType != null && (
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          ({reservation.tokenType})
+                        </span>
+                      )}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">--</span>
                   )}
                 </dd>
               </div>

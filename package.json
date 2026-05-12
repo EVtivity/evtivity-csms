@@ -51,7 +51,8 @@
     "license:check": "node scripts/add-license-headers.mjs --check",
     "test:e2e": "npx playwright test",
     "prepare": "husky && tsc -b",
-    "check:openapi": "./scripts/check-openapi-schemas.sh"
+    "check:openapi": "./scripts/check-openapi-schemas.sh",
+    "check:migrations": "node scripts/check-migrations.mjs"
   },
   "license": "BUSL-1.1",
   "engines": {

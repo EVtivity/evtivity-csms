@@ -1,10 +1,19 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { pgTable, pgEnum, text, integer, timestamp, index } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  pgEnum,
+  text,
+  serial,
+  integer,
+  timestamp,
+  varchar,
+  index,
+} from 'drizzle-orm/pg-core';
 import { createId } from '../lib/id.js';
 import { chargingStations, evses, connectors } from './assets.js';
-import { drivers } from './drivers.js';
+import { drivers, driverTokens } from './drivers.js';
 import { fleetReservations } from './fleet-reservations.js';
 
 export const reservationStatusEnum = pgEnum('reservation_status', [
@@ -51,6 +60,7 @@ export const reservations = pgTable(
     evseId: text('evse_id').references(() => evses.id),
     connectorId: text('connector_id').references(() => connectors.id),
     driverId: text('driver_id').references(() => drivers.id),
+    tokenId: text('token_id').references(() => driverTokens.id, { onDelete: 'set null' }),
     status: reservationStatusEnum('status').notNull().default('active'),
     startsAt: timestamp('starts_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
@@ -66,5 +76,49 @@ export const reservations = pgTable(
     index('idx_reservations_station_id').on(table.stationId),
     index('idx_reservations_status').on(table.status),
     index('idx_reservations_driver_id').on(table.driverId),
+    index('idx_reservations_token_id').on(table.tokenId),
+  ],
+);
+
+export const reservationAuditActionEnum = pgEnum('reservation_audit_action', [
+  'created',
+  'updated',
+  'cancelled',
+  'expired',
+  'used',
+  'session_failed',
+]);
+
+export const reservationAuditActorEnum = pgEnum('reservation_audit_actor', [
+  'operator',
+  'driver',
+  'system',
+]);
+
+export const reservationAuditLog = pgTable(
+  'reservation_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    reservationId: text('reservation_id'),
+    action: reservationAuditActionEnum('action').notNull(),
+    actor: reservationAuditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    driverIdBefore: text('driver_id_before'),
+    driverIdAfter: text('driver_id_after'),
+    tokenIdBefore: text('token_id_before'),
+    tokenIdAfter: text('token_id_after'),
+    evseIdBefore: text('evse_id_before'),
+    evseIdAfter: text('evse_id_after'),
+    statusBefore: varchar('status_before', { length: 30 }),
+    statusAfter: varchar('status_after', { length: 30 }),
+    expiresAtBefore: timestamp('expires_at_before', { withTimezone: true }),
+    expiresAtAfter: timestamp('expires_at_after', { withTimezone: true }),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_reservation_audit_reservation_id').on(table.reservationId),
+    index('idx_reservation_audit_created_at').on(table.createdAt),
   ],
 );

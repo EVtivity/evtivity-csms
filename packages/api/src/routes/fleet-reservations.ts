@@ -11,6 +11,7 @@ import {
   evses,
   fleetReservations,
   fleets,
+  writeReservationAudit,
 } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -291,7 +292,7 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
       const insertedReservations =
         validatedSlots.length > 0
           ? await db.transaction(async (tx) => {
-              return tx
+              const inserted = await tx
                 .insert(reservations)
                 .values(
                   validatedSlots.map((v) => ({
@@ -306,6 +307,26 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
                   })),
                 )
                 .returning();
+              // Bulk audit: one `created` row per inserted reservation. Inside
+              // the same transaction so a rollback removes audit entries too.
+              for (const r of inserted) {
+                await writeReservationAudit(
+                  {
+                    reservationId: r.id,
+                    action: 'created',
+                    actor: 'operator',
+                    actorUserId: userId,
+                    driverIdAfter: r.driverId,
+                    evseIdAfter: r.evseId,
+                    statusAfter: r.status,
+                    expiresAtAfter: r.expiresAt,
+                    notes: `fleet reservation ${fleetReservation.id}`,
+                  },
+                  tx,
+                  request.log,
+                );
+              }
+              return inserted;
             })
           : [];
 

@@ -83,6 +83,9 @@ vi.mock('@evtivity/database', () => ({
   sites: {},
   ocppMessageLogs: {},
   driverPaymentMethods: {},
+  driverTokens: {},
+  users: {},
+  reservationAuditLog: {},
   getReservationSettings: vi.fn().mockResolvedValue({
     enabled: true,
     bufferMinutes: 0,
@@ -91,6 +94,8 @@ vi.mock('@evtivity/database', () => ({
     maxHours: 0,
     activeSessionCheckHours: 3,
   }),
+  writeReservationAudit: vi.fn().mockResolvedValue(undefined),
+  reservationDiffChanged: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -180,6 +185,9 @@ function makeReservation(overrides: Record<string, unknown> = {}) {
     driverId: null,
     driverFirstName: null,
     driverLastName: null,
+    tokenId: null,
+    tokenIdToken: null,
+    tokenType: null,
     status: 'active',
     startsAt: null,
     expiresAt: new Date('2030-01-01T00:00:00Z'),

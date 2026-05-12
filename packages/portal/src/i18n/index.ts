@@ -9,8 +9,6 @@ function getInitialLanguage(): string {
   const stored = localStorage.getItem('portal_language');
   if (stored != null) return stored;
   const browserFull = navigator.language;
-  // Check full locale first (en-GB, zh-TW)
-  if (browserFull === 'en-GB') return 'en-GB';
   if (browserFull === 'zh-TW' || browserFull === 'zh-Hant') return 'zh-TW';
   const browser = browserFull.split('-')[0];
   if (browser === 'de') return 'de';
@@ -28,7 +26,6 @@ void i18n.use(initReactI18next).init({
   },
   lng: savedLanguage,
   fallbackLng: {
-    'en-GB': ['en'],
     'zh-TW': ['zh', 'en'],
     default: ['en'],
   },

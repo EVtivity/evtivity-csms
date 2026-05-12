@@ -11,6 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ReservationDetailsTab } from '@/components/reservation/ReservationDetailsTab';
 import { ReservationSessionTab } from '@/components/reservation/ReservationSessionTab';
 import { ReservationCommandsTab } from '@/components/reservation/ReservationCommandsTab';
+import { ReservationHistoryTab } from '@/components/reservation/ReservationHistoryTab';
 import { useTab } from '@/hooks/use-tab';
 import { api } from '@/lib/api';
 import { useUserTimezone } from '@/lib/timezone';
@@ -30,6 +31,9 @@ interface ReservationDetail {
   driverId: string | null;
   driverFirstName: string | null;
   driverLastName: string | null;
+  tokenId: string | null;
+  tokenIdToken: string | null;
+  tokenType: string | null;
   status: string;
   startsAt: string | null;
   expiresAt: string;
@@ -110,6 +114,7 @@ export function ReservationDetail(): React.JSX.Element {
         <TabsList>
           <TabsTrigger value="details">{t('reservations.detailsTab')}</TabsTrigger>
           {hasSession && <TabsTrigger value="session">{t('reservations.sessionTab')}</TabsTrigger>}
+          <TabsTrigger value="history">{t('reservations.historyTab')}</TabsTrigger>
           <TabsTrigger value="commands">{t('reservations.commands')}</TabsTrigger>
         </TabsList>
 
@@ -129,6 +134,10 @@ export function ReservationDetail(): React.JSX.Element {
             />
           </TabsContent>
         )}
+
+        <TabsContent value="history">
+          <ReservationHistoryTab reservationId={id ?? ''} timezone={timezone} />
+        </TabsContent>
 
         <TabsContent value="commands">
           <ReservationCommandsTab reservationId={id ?? ''} timezone={timezone} />

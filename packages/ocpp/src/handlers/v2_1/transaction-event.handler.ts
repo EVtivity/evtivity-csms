@@ -60,37 +60,51 @@ export async function handleTransactionEvent(
   const response: TransactionEventResponse = {};
 
   // Per OCPP 2.1 spec, include idTokenInfo when the request contains an idToken.
-  // Stations may suspend charging when idTokenInfo is missing.
+  // Stations may suspend charging when idTokenInfo is missing. We mirror the
+  // Authorize handler's column-driven status so a card revoked or expired
+  // mid-session sends the station an explicit Blocked/Expired and lets it
+  // abort, rather than a stale Accepted from a hardcoded response.
   if (request.idToken != null) {
     const { idToken, type: tokenType } = request.idToken;
     let groupIdToken: { idToken: string; type: string } | undefined;
+    let status: TransactionEventResponse['idTokenInfo'] extends infer T
+      ? T extends { status: infer S }
+        ? S
+        : never
+      : never = 'Accepted';
 
-    // Look up token in DB. If found and active, include groupIdToken per OCPP spec.
     try {
       const [token] = await db
-        .select({ isActive: driverTokens.isActive })
+        .select({
+          isActive: driverTokens.isActive,
+          expiresAt: driverTokens.expiresAt,
+          revokedAt: driverTokens.revokedAt,
+        })
         .from(driverTokens)
         .where(and(eq(driverTokens.idToken, idToken), eq(driverTokens.tokenType, tokenType)));
-      if (token != null && token.isActive) {
+
+      if (token != null) {
+        const now = new Date();
+        if (!token.isActive || token.revokedAt != null) {
+          status = 'Blocked';
+        } else if (token.expiresAt != null && token.expiresAt.getTime() <= now.getTime()) {
+          status = 'Expired';
+        } else {
+          groupIdToken = { idToken, type: tokenType };
+        }
+      } else {
+        // No row in driver_tokens. For Central/Local types this is expected
+        // (CSMS-issued or station-local tokens). Accept without group.
         groupIdToken = { idToken, type: tokenType };
       }
     } catch {
-      // DB unavailable: accept without groupIdToken
+      // DB unavailable: accept without groupIdToken (fail-open mirrors authorize)
     }
 
     response.idTokenInfo = {
-      status: 'Accepted',
+      status,
       ...(groupIdToken != null ? { groupIdToken } : {}),
     };
-  }
-
-  // Include transactionLimit for DirectPayment and prepaid sessions.
-  // Stations use this to enforce spending or energy caps.
-  if (request.eventType === 'Started' && request.idToken != null) {
-    const isPrepaid = request.idToken.idToken.toUpperCase().includes('PREPAID');
-    if (request.idToken.type === 'DirectPayment' || isPrepaid) {
-      response.transactionLimit = { maxCost: 50.0, maxEnergy: 20000 };
-    }
   }
 
   return response as unknown as Record<string, unknown>;

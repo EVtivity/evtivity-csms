@@ -98,6 +98,8 @@ export const DRIVER_SUPPORT_EVENTS = [
   'supportCase.Resolved',
 ] as const;
 
+export const DRIVER_TOKEN_EVENTS = ['token.Added', 'token.Removed', 'token.Deactivated'] as const;
+
 export const DRIVER_MFA_EVENTS = ['mfa.VerificationCode'] as const;
 
 // All driver-facing event types (for backward compat)
@@ -107,6 +109,7 @@ export const DRIVER_EVENT_TYPES = [
   ...DRIVER_PAYMENT_EVENTS,
   ...DRIVER_RESERVATION_EVENTS,
   ...DRIVER_SUPPORT_EVENTS,
+  ...DRIVER_TOKEN_EVENTS,
   ...DRIVER_MFA_EVENTS,
 ] as const;
 
@@ -521,6 +524,38 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'code', description: 'Six-digit verification code' },
     { name: 'firstName', description: 'Recipient first name' },
     { name: 'email', description: 'Recipient email address' },
+  ],
+  'token.Added': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'email', description: 'Driver email address' },
+    { name: 'idToken', description: 'Token identifier (e.g. RFID UID)' },
+    { name: 'tokenType', description: 'OCPP token type (e.g. ISO14443)' },
+    { name: 'addedBy', description: 'Who added the token (driver, operator, system)' },
+  ],
+  'token.Removed': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'email', description: 'Driver email address' },
+    { name: 'idToken', description: 'Token identifier (e.g. RFID UID)' },
+    { name: 'tokenType', description: 'OCPP token type (e.g. ISO14443)' },
+    { name: 'removedBy', description: 'Who removed the token (driver, operator, system)' },
+  ],
+  'token.Deactivated': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'email', description: 'Driver email address' },
+    { name: 'idToken', description: 'Token identifier (e.g. RFID UID)' },
+    { name: 'tokenType', description: 'OCPP token type (e.g. ISO14443)' },
+    { name: 'reason', description: 'Optional reason supplied by the operator' },
+  ],
+  'token.Reactivated': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'email', description: 'Driver email address' },
+    { name: 'idToken', description: 'Token identifier (e.g. RFID UID)' },
+    { name: 'tokenType', description: 'OCPP token type (e.g. ISO14443)' },
+    { name: 'reactivatedBy', description: 'Who reactivated (driver, operator, system)' },
   ],
   'operator.UserCreated': [
     { name: 'firstName', description: 'User first name' },

@@ -11,6 +11,7 @@ import {
   sites,
   drivers,
   driverTokens,
+  vehicles,
   transactionEvents,
   transactionEventTypeEnum,
   paymentRecords,
@@ -183,6 +184,22 @@ const sessionDetail = z
       .nullable()
       .describe(
         'Driver token used to authorize this session, null when no registered token was matched',
+      ),
+    vehicle: z
+      .object({
+        id: z.string().describe('Vehicle ID (nanoid prefixed veh_)'),
+        make: z.string().nullable().describe('Vehicle make'),
+        model: z.string().nullable().describe('Vehicle model'),
+        year: z.string().nullable().describe('Vehicle year'),
+      })
+      .passthrough()
+      .nullable()
+      .describe('Vehicle linked to this session, null when no vehicle is associated'),
+    metadata: z
+      .record(z.unknown())
+      .nullable()
+      .describe(
+        'Session metadata jsonb. May include reservationTokenMismatch when reservation.token_id did not match the session token.',
       ),
     paymentRecord: paymentRecordItem
       .nullable()
@@ -426,6 +443,11 @@ export function sessionRoutes(app: FastifyInstance): void {
           tokenId: driverTokens.id,
           tokenIdToken: driverTokens.idToken,
           tokenType: driverTokens.tokenType,
+          vehicleId: vehicles.id,
+          vehicleMake: vehicles.make,
+          vehicleModel: vehicles.model,
+          vehicleYear: vehicles.year,
+          metadata: chargingSessions.metadata,
           paymentId: paymentRecords.id,
           paymentStatus: paymentRecords.status,
           paymentSource: paymentRecords.paymentSource,
@@ -447,6 +469,7 @@ export function sessionRoutes(app: FastifyInstance): void {
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
         .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
         .leftJoin(driverTokens, eq(chargingSessions.tokenId, driverTokens.id))
+        .leftJoin(vehicles, eq(chargingSessions.vehicleId, vehicles.id))
         .leftJoin(paymentRecords, eq(paymentRecords.sessionId, chargingSessions.id))
         .leftJoin(guestSessions, eq(guestSessions.chargingSessionId, chargingSessions.id))
         .where(eq(chargingSessions.id, id));
@@ -482,6 +505,10 @@ export function sessionRoutes(app: FastifyInstance): void {
         tokenId,
         tokenIdToken,
         tokenType,
+        vehicleId,
+        vehicleMake,
+        vehicleModel,
+        vehicleYear,
         ...session
       } = row;
 
@@ -490,6 +517,10 @@ export function sessionRoutes(app: FastifyInstance): void {
         token:
           tokenId != null
             ? { id: tokenId, idToken: tokenIdToken ?? '', tokenType: tokenType ?? '' }
+            : null,
+        vehicle:
+          vehicleId != null
+            ? { id: vehicleId, make: vehicleMake, model: vehicleModel, year: vehicleYear }
             : null,
         paymentRecord:
           paymentId != null

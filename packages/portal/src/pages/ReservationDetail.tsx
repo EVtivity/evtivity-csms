@@ -6,6 +6,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
+import { CopyableId } from '@/components/copyable-id';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -129,7 +130,7 @@ export function ReservationDetail(): React.JSX.Element {
         </Button>
         <div className="flex-1">
           <h1 className="text-2xl font-bold">{t('reservationDetail.title')}</h1>
-          <p className="text-xs text-muted-foreground">#{reservation.id.slice(-8)}</p>
+          <CopyableId id={reservation.id} />
         </div>
         <Badge variant={statusVariant(reservation.status)}>
           {t(`reservations.${reservation.status}`)}

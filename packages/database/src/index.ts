@@ -13,6 +13,12 @@ export {
 } from './lib/reservation-setting.js';
 export type { ReservationSettings } from './lib/reservation-setting.js';
 export { isSupportEnabled } from './lib/support-setting.js';
+export { writeReservationAudit, reservationDiffChanged } from './lib/reservation-audit.js';
+export type {
+  ReservationAuditAction,
+  ReservationAuditActor,
+  WriteReservationAuditArgs,
+} from './lib/reservation-audit.js';
 export { isFleetEnabled } from './lib/fleet-setting.js';
 export { isGuestChargingEnabled } from './lib/guest-setting.js';
 export { getIdlingGracePeriodMinutes } from './lib/idling-setting.js';

@@ -52,7 +52,17 @@ vi.mock('@evtivity/database', () => ({
     insert: vi.fn(() => makeChain()),
     update: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
+    transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        select: vi.fn(() => makeChain()),
+        insert: vi.fn(() => makeChain()),
+        update: vi.fn(() => makeChain()),
+        delete: vi.fn(() => makeChain()),
+      };
+      return fn(tx);
+    }),
   },
+  client: {},
   driverTokens: {
     id: 'id',
     driverId: 'driverId',
@@ -68,6 +78,33 @@ vi.mock('@evtivity/database', () => ({
     lastName: 'lastName',
     email: 'email',
   },
+  users: {
+    id: 'id',
+    firstName: 'firstName',
+    lastName: 'lastName',
+    email: 'email',
+  },
+  tokenAuditLog: {
+    id: 'id',
+    tokenId: 'tokenId',
+    idTokenSnapshot: 'idTokenSnapshot',
+    tokenTypeSnapshot: 'tokenTypeSnapshot',
+    driverIdSnapshot: 'driverIdSnapshot',
+    action: 'action',
+    actor: 'actor',
+    actorUserId: 'actorUserId',
+    actorDriverId: 'actorDriverId',
+    notes: 'notes',
+    createdAt: 'createdAt',
+  },
+  stationLocalAuthEntries: {
+    stationId: 'stationId',
+    driverTokenId: 'driverTokenId',
+  },
+  stationLocalAuthVersions: {
+    stationId: 'stationId',
+    lastModifiedAt: 'lastModifiedAt',
+  },
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -77,6 +114,26 @@ vi.mock('drizzle-orm', () => ({
   ilike: vi.fn(),
   sql: vi.fn(),
   desc: vi.fn(),
+  inArray: vi.fn(),
+}));
+
+vi.mock('@evtivity/lib', () => ({
+  dispatchDriverNotification: vi.fn().mockResolvedValue(undefined),
+  createLogger: vi.fn(() => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  })),
+}));
+
+vi.mock('../lib/pubsub.js', () => ({
+  getPubSub: vi.fn(() => ({
+    publish: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn().mockResolvedValue({ unsubscribe: vi.fn() }),
+    close: vi.fn().mockResolvedValue(undefined),
+  })),
+  setPubSub: vi.fn(),
 }));
 
 import {
@@ -139,8 +196,9 @@ describe('getToken', () => {
 
 describe('createToken', () => {
   it('returns created token', async () => {
-    const token = { id: 't1', idToken: 'NEW_TOKEN', tokenType: 'ISO14443' };
-    // dup check (empty), then insert returning
+    const token = { id: 't1', idToken: 'NEW_TOKEN', tokenType: 'ISO14443', driverId: null };
+    // dup check (empty), insert returning, writeAudit insert (no result needed),
+    // publishTokenChanged is async pubsub call (no DB)
     setupDbResults([], [token]);
 
     const result = await createToken({ idToken: 'NEW_TOKEN', tokenType: 'ISO14443' });
@@ -157,7 +215,7 @@ describe('createToken', () => {
   });
 
   it('allows the same idToken under a different tokenType', async () => {
-    const token = { id: 't2', idToken: 'SAME_UID', tokenType: 'ISO15693' };
+    const token = { id: 't2', idToken: 'SAME_UID', tokenType: 'ISO15693', driverId: null };
     // dup check on (SAME_UID, ISO15693) returns empty, then insert returning
     setupDbResults([], [token]);
 
@@ -197,7 +255,8 @@ describe('updateToken', () => {
 
   it('skips dup check when idToken/tokenType unchanged', async () => {
     const token = { id: 't1', idToken: 'OLD', tokenType: 'ISO14443', isActive: false };
-    setupDbResults([token]);
+    // select current, then update returning (no dup check because idToken/tokenType not in payload)
+    setupDbResults([token], [token]);
 
     const result = await updateToken('t1', { isActive: false });
 
@@ -227,30 +286,45 @@ describe('deleteToken', () => {
 describe('exportTokensCsv', () => {
   it('returns CSV string with header and data rows', async () => {
     const rows = [
-      { idToken: 'TOK1', tokenType: 'ISO14443', driverEmail: 'a@b.com', isActive: true },
-      { idToken: 'TOK2', tokenType: 'ISO15693', driverEmail: null, isActive: false },
+      {
+        idToken: 'TOK1',
+        tokenType: 'ISO14443',
+        driverEmail: 'a@b.com',
+        isActive: true,
+        expiresAt: null,
+      },
+      {
+        idToken: 'TOK2',
+        tokenType: 'ISO15693',
+        driverEmail: null,
+        isActive: false,
+        expiresAt: null,
+      },
     ];
     setupDbResults(rows);
 
     const csv = await exportTokensCsv();
 
     const lines = csv.split('\n');
-    expect(lines[0]).toBe('idToken,tokenType,driverEmail,isActive');
-    expect(lines[1]).toBe('TOK1,ISO14443,a@b.com,true');
-    expect(lines[2]).toBe('TOK2,ISO15693,,false');
+    expect(lines[0]).toBe('idToken,tokenType,driverEmail,isActive,expiresAt');
+    expect(lines[1]).toBe('TOK1,ISO14443,a@b.com,true,');
+    expect(lines[2]).toBe('TOK2,ISO15693,,false,');
   });
 });
 
 describe('importTokensCsv', () => {
   it('imports valid rows and returns count', async () => {
-    // Each row: dup check (empty), then driver lookup if email present
-    const driverRow = { id: 'driver-1' };
-    setupDbResults(
-      [], // dup check row 1
-      [driverRow], // driver lookup row 1
-      [], // dup check row 2
-      [], // batch insert result
-    );
+    // Inside the transaction:
+    //  1. tx.select drivers by email (one row with email 'a@b.com')
+    //  2. tx.select existing (idToken, tokenType) (empty)
+    //  3. tx.insert(driverTokens).values(...).returning() (returns the 2 inserted rows)
+    //  4. tx.insert(tokenAuditLog).values(...) (audit, no result needed)
+    const driverRow = { id: 'driver-1', email: 'a@b.com' };
+    const insertedRows = [
+      { id: 't1', idToken: 'T1', tokenType: 'ISO14443', driverId: 'driver-1' },
+      { id: 't2', idToken: 'T2', tokenType: 'ISO15693', driverId: null },
+    ];
+    setupDbResults([driverRow], [], insertedRows, []);
 
     const result = await importTokensCsv([
       { idToken: 'T1', tokenType: 'ISO14443', driverEmail: 'a@b.com' },
@@ -276,10 +350,10 @@ describe('importTokensCsv', () => {
   });
 
   it('returns error when driver email is not found', async () => {
-    setupDbResults(
-      [], // dup check row 1
-      [], // driver lookup returns nothing
-    );
+    // Inside the transaction:
+    //  1. tx.select drivers by email returns empty
+    //  No rows are prepared (driver email unresolved), so existing check + inserts skipped
+    setupDbResults([]);
 
     const result = await importTokensCsv([
       { idToken: 'T1', tokenType: 'ISO14443', driverEmail: 'unknown@example.com' },
@@ -292,24 +366,27 @@ describe('importTokensCsv', () => {
   });
 
   it('flags rows that collide with existing tokens', async () => {
-    setupDbResults(
-      [{ id: 'existing' }], // dup check row 1 hits
-    );
+    // No driverEmail provided, so driver lookup is skipped.
+    // Inside the transaction:
+    //  1. tx.select existing returns the conflicting token
+    //  prepared has 1 row, but conflict means toInsert is empty -> no insert call
+    setupDbResults([{ idToken: 'EXISTS', tokenType: 'ISO14443' }]);
 
     const result = await importTokensCsv([{ idToken: 'EXISTS', tokenType: 'ISO14443' }]);
 
     expect(result.imported).toBe(0);
     expect(result.errors).toHaveLength(1);
-    expect(result.errors[0]).toContain('Row 1');
     expect(result.errors[0]).toContain('already exists');
   });
 
   it('flags duplicate rows within the same batch', async () => {
-    setupDbResults(
-      [], // dup check row 1
-      [], // dup check row 2 (would-be duplicate caught by seenInBatch before this)
-      [], // insert
-    );
+    // The second DUPE row is caught by seenInBatch BEFORE the transaction, so
+    // only 1 row enters the transaction. No driverEmail -> no driver lookup.
+    //  1. tx.select existing (empty)
+    //  2. tx.insert returning -> 1 inserted row
+    //  3. tx.insert audit
+    const insertedRows = [{ id: 't1', idToken: 'DUPE', tokenType: 'ISO14443', driverId: null }];
+    setupDbResults([], insertedRows, []);
 
     const result = await importTokensCsv([
       { idToken: 'DUPE', tokenType: 'ISO14443' },

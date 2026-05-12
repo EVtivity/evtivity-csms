@@ -8,8 +8,21 @@ import { Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api, ApiError } from '@/lib/api';
+
+// Driver-facing OCPP IdToken types. Mirrors PORTAL_TOKEN_TYPES on the API
+// route. Central and NoAuthorization are excluded because they don't
+// correspond to anything a driver would have on a physical card.
+const PORTAL_TOKEN_TYPES = [
+  'ISO14443',
+  'ISO15693',
+  'KeyCode',
+  'Local',
+  'MacAddress',
+  'eMAID',
+] as const;
 
 interface DriverToken {
   id: string;
@@ -22,6 +35,7 @@ export function AccountRfidCards(): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [newToken, setNewToken] = useState('');
+  const [newTokenType, setNewTokenType] = useState<(typeof PORTAL_TOKEN_TYPES)[number]>('ISO14443');
   const [msg, setMsg] = useState('');
   const [msgType, setMsgType] = useState<'success' | 'error'>('error');
   const [confirmToken, setConfirmToken] = useState<DriverToken | null>(null);
@@ -33,10 +47,12 @@ export function AccountRfidCards(): React.JSX.Element {
   });
 
   const addMutation = useMutation({
-    mutationFn: (idToken: string) => api.post<DriverToken>('/v1/portal/tokens', { idToken }),
+    mutationFn: (body: { idToken: string; tokenType: (typeof PORTAL_TOKEN_TYPES)[number] }) =>
+      api.post<DriverToken>('/v1/portal/tokens', body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['portal-tokens'] });
       setNewToken('');
+      setNewTokenType('ISO14443');
       setMsgType('success');
       setMsg(t('rfid.cardAdded'));
     },
@@ -79,33 +95,52 @@ export function AccountRfidCards(): React.JSX.Element {
       )}
 
       <div className="space-y-4">
-        {tokens?.map((token) => (
-          <div key={token.id} className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-sm">{token.idToken}</span>
-              <Badge variant="outline">{token.tokenType}</Badge>
+        {/* Active cards rendered first, then inactive so the most-recently-used
+            cards stay at the top. Inactive rows visually dimmed with an
+            Inactive badge so the driver sees their Remove click took effect. */}
+        {tokens
+          ?.slice()
+          .sort((a, b) => (a.isActive === b.isActive ? 0 : a.isActive ? -1 : 1))
+          .map((token) => (
+            <div
+              key={token.id}
+              className={`flex items-center justify-between ${token.isActive ? '' : 'opacity-60'}`}
+            >
+              <div className="flex items-center gap-2">
+                <span className={`text-sm ${token.isActive ? '' : 'line-through'}`}>
+                  {token.idToken}
+                </span>
+                <Badge variant="outline">{token.tokenType}</Badge>
+                {!token.isActive && <Badge variant="secondary">{t('rfid.inactiveBadge')}</Badge>}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setConfirmToken(token);
+                  }}
+                  className={`text-xs font-medium ${
+                    token.isActive ? 'text-success' : 'text-muted-foreground'
+                  }`}
+                >
+                  {token.isActive ? t('rfid.active') : t('rfid.inactive')}
+                </button>
+                {token.isActive && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      setDeleteToken(token);
+                    }}
+                    className="text-muted-foreground hover:text-destructive"
+                    aria-label={t('rfid.removeCard')}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  setConfirmToken(token);
-                }}
-                className={`text-xs font-medium ${token.isActive ? 'text-success' : 'text-muted-foreground'}`}
-              >
-                {token.isActive ? t('rfid.active') : t('rfid.inactive')}
-              </button>
-              <button
-                onClick={() => {
-                  setDeleteToken(token);
-                }}
-                className="text-muted-foreground hover:text-destructive transition-colors"
-                aria-label={t('rfid.removeCard')}
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        ))}
+          ))}
       </div>
 
       {msg !== '' && (
@@ -118,24 +153,45 @@ export function AccountRfidCards(): React.JSX.Element {
         onSubmit={(e) => {
           e.preventDefault();
           if (newToken.trim() !== '') {
-            addMutation.mutate(newToken.trim());
+            addMutation.mutate({ idToken: newToken.trim(), tokenType: newTokenType });
           }
         }}
-        className="flex gap-2"
+        className="space-y-2"
       >
-        <Input
-          value={newToken}
-          onChange={(e) => {
-            setNewToken(e.target.value);
-            setMsg('');
-          }}
-          placeholder={t('rfid.cardNumber')}
-          maxLength={20}
-          className="flex-1"
-        />
-        <Button type="submit" disabled={addMutation.isPending || newToken.trim() === ''}>
-          {t('rfid.addCard')}
-        </Button>
+        <div className="flex gap-2">
+          <Input
+            value={newToken}
+            onChange={(e) => {
+              setNewToken(e.target.value);
+              setMsg('');
+            }}
+            placeholder={t('rfid.cardNumber')}
+            maxLength={64}
+            className="flex-1"
+          />
+          <Select
+            className="h-12 w-32"
+            value={newTokenType}
+            onChange={(e) => {
+              setNewTokenType(e.target.value as (typeof PORTAL_TOKEN_TYPES)[number]);
+              setMsg('');
+            }}
+            aria-label={t('rfid.tokenType')}
+          >
+            {PORTAL_TOKEN_TYPES.map((tt) => (
+              <option key={tt} value={tt}>
+                {tt}
+              </option>
+            ))}
+          </Select>
+          <Button
+            type="submit"
+            className="h-12"
+            disabled={addMutation.isPending || newToken.trim() === ''}
+          >
+            {t('rfid.addCard')}
+          </Button>
+        </div>
       </form>
 
       <ConfirmDialog
@@ -168,7 +224,7 @@ export function AccountRfidCards(): React.JSX.Element {
           if (!open) setDeleteToken(null);
         }}
         title={t('rfid.confirmRemoveTitle')}
-        description={t('rfid.confirmRemoveDescription')}
+        description={t('rfid.confirmRemoveSoftDeleteDescription')}
         confirmLabel={t('rfid.removeCard')}
         variant="destructive"
         onConfirm={() => {

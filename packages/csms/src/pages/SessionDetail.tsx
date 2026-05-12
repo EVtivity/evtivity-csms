@@ -62,6 +62,13 @@ interface SessionDetailData {
   paymentRecord: PaymentRecord | null;
   guestSession: GuestSessionInfo | null;
   token: { id: string; idToken: string; tokenType: string } | null;
+  vehicle: {
+    id: string;
+    make: string | null;
+    model: string | null;
+    year: string | null;
+  } | null;
+  metadata: Record<string, unknown> | null;
 }
 
 export function SessionDetail(): React.JSX.Element {
@@ -109,6 +116,15 @@ export function SessionDetail(): React.JSX.Element {
   const payment = session.paymentRecord;
   const canRefund =
     payment != null && (payment.status === 'captured' || payment.status === 'partially_refunded');
+  const tokenMismatch =
+    session.metadata != null &&
+    typeof session.metadata === 'object' &&
+    'reservationTokenMismatch' in session.metadata
+      ? (session.metadata['reservationTokenMismatch'] as {
+          expected: string | null;
+          actual: string | null;
+        })
+      : null;
 
   return (
     <div className="space-y-6">
@@ -128,6 +144,11 @@ export function SessionDetail(): React.JSX.Element {
             ? t('status.idle')
             : session.status}
         </Badge>
+        {tokenMismatch != null && (
+          <Badge variant="warning" title={t('sessions.reservationTokenMismatchTooltip')}>
+            {t('sessions.reservationTokenMismatch')}
+          </Badge>
+        )}
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>

@@ -20,6 +20,7 @@ import {
   getSampledMeasurands,
   getAlignedMeasurands,
   getTxEndedMeasurands,
+  writeReservationAudit,
 } from '@evtivity/database';
 import {
   calculateSessionCost,
@@ -94,6 +95,35 @@ export function registerProjections(
   const instanceId = options?.instanceId ?? null;
   const sql = postgres(databaseUrl);
   const logger = createLogger('event-projections');
+
+  // Write a `session_failed` reservation audit row when a charging session
+  // that was linked to a reservation ends in a non-success state. Covers the
+  // four fault paths that bypass the normal TransactionEvent.Ended flow:
+  // stale-session sweep, EVConnectTimeout on Started, payment-gate eager
+  // cleanup, and the Ended-handler timeout/faulted branch. No-op when the
+  // session has no reservation_id. Best-effort; audit failure does not roll
+  // back the underlying session state change.
+  async function auditLinkedReservationFault(sessionId: string, reason: string): Promise<void> {
+    try {
+      const rows = await sql<{ reservation_id: string | null }[]>`
+        SELECT reservation_id FROM charging_sessions WHERE id = ${sessionId} LIMIT 1
+      `;
+      const reservationId = rows[0]?.reservation_id ?? null;
+      if (reservationId == null) return;
+      await writeReservationAudit(
+        {
+          reservationId,
+          action: 'session_failed',
+          actor: 'system',
+          notes: `session ${sessionId}: ${reason}`,
+        },
+        undefined,
+        logger,
+      );
+    } catch (err) {
+      logger.warn({ err, sessionId }, 'Failed to write session_failed reservation audit');
+    }
+  }
 
   const CACHE_MAX_SIZE = 5000;
   const CACHE_TTL_MS = 300_000; // 5 minutes
@@ -1320,13 +1350,17 @@ export function registerProjections(
         // Close stale active sessions on the same EVSE (if any).
         // A new transaction starting means any previous session on this EVSE ended
         // without a proper Ended event (e.g., station rebooted, connection lost).
-        await sql`
+        const stale = await sql`
           UPDATE charging_sessions
           SET status = 'faulted', stopped_reason = 'StaleSession', ended_at = ${timestamp}, updated_at = now()
           WHERE station_id = ${stationUuid} AND status = 'active'
             AND id != ${sessionId}
             AND evse_id = (SELECT evse_id FROM charging_sessions WHERE id = ${sessionId})
+          RETURNING id
         `;
+        for (const r of stale) {
+          await auditLinkedReservationFault(r['id'] as string, 'faulted: StaleSession');
+        }
 
         // Set connector to 'ev_connected' on transaction start (cable connected).
         // Only applies to OCPP 2.1 where the Started event carries
@@ -1367,6 +1401,7 @@ export function registerProjections(
             { stationId, transactionId, sessionId },
             'Session marked failed: EVConnectTimeout on Started',
           );
+          await auditLinkedReservationFault(sessionId, 'failed: EVConnectTimeout');
         }
 
         try {
@@ -1407,53 +1442,58 @@ export function registerProjections(
             await sql`SELECT driver_id FROM charging_sessions WHERE id = ${sessionId}`;
           driverUuid = sessionRows[0]?.driver_id as string | null;
 
-          if (driverUuid == null) {
-            const idTokenValue = payload.idToken as string | null;
+          const idTokenValue = payload.idToken as string | null;
 
-            // Token resolution chain: driver_tokens -> ocpi_external_tokens -> guest_sessions
-            // Match on id_token only. The (id_token, token_type) pair is unique at the
-            // storage layer (migration 0021), and OCPP 1.6 has no token type concept (the
-            // handler hardcodes ISO14443) so id_token alone is sufficient to identify the
-            // owning row.
-            if (idTokenValue != null) {
-              const tokenRows = await sql`
-                SELECT id, driver_id FROM driver_tokens
-                WHERE id_token = ${idTokenValue} AND is_active = true
-                LIMIT 1
+          // Always look up the token row when an idToken is present, so the
+          // session gets linked to the matching driver_tokens entry even when
+          // driver_id was pre-set by the API (e.g. portal-authenticated start).
+          // The link is what powers the "Token" row on the session detail.
+          let tokenLookup: { id: string; driverId: string | null } | null = null;
+          if (idTokenValue != null) {
+            const tokenRows = await sql`
+              SELECT id, driver_id FROM driver_tokens
+              WHERE id_token = ${idTokenValue} AND is_active = true
+              LIMIT 1
+            `;
+            const r = tokenRows[0];
+            if (r != null) {
+              tokenLookup = {
+                id: r.id as string,
+                driverId: (r.driver_id as string | null) ?? null,
+              };
+              await sql`
+                UPDATE charging_sessions
+                SET token_id = ${tokenLookup.id}, updated_at = now()
+                WHERE id = ${sessionId}
               `;
-              const tokenRow = tokenRows[0];
-              driverUuid = (tokenRow?.driver_id as string | null) ?? null;
-              const tokenIdValue = (tokenRow?.id as string | null) ?? null;
-              if (tokenIdValue != null) {
-                // Record the token link regardless of whether the token has an
-                // owning driver. An unassigned operator-issued card still gets
-                // its session attributed to the right token row.
-                await sql`
-                  UPDATE charging_sessions
-                  SET driver_id = COALESCE(${driverUuid}, driver_id),
-                      token_id = ${tokenIdValue},
-                      updated_at = now()
-                  WHERE id = ${sessionId}
+            }
+          }
+
+          if (driverUuid == null) {
+            // Token resolution chain: driver_tokens -> ocpi_external_tokens -> guest_sessions
+            if (tokenLookup?.driverId != null) {
+              driverUuid = tokenLookup.driverId;
+              await sql`
+                UPDATE charging_sessions SET driver_id = ${driverUuid}, updated_at = now()
+                WHERE id = ${sessionId}
+              `;
+            } else if (idTokenValue != null) {
+              // Token not in driver_tokens. Check if it is a roaming token.
+              try {
+                const externalRows = await sql`
+                  SELECT 1 FROM ocpi_external_tokens
+                  WHERE uid = ${idTokenValue} AND is_valid = true
+                  LIMIT 1
                 `;
-              }
-              if (driverUuid == null) {
-                // Token not in driver_tokens. Check if it is a roaming token.
-                try {
-                  const externalRows = await sql`
-                    SELECT 1 FROM ocpi_external_tokens
-                    WHERE uid = ${idTokenValue} AND is_valid = true
-                    LIMIT 1
+                if (externalRows.length > 0) {
+                  isRoamingSession = true;
+                  await sql`
+                    UPDATE charging_sessions SET is_roaming = true, updated_at = now()
+                    WHERE id = ${sessionId}
                   `;
-                  if (externalRows.length > 0) {
-                    isRoamingSession = true;
-                    await sql`
-                      UPDATE charging_sessions SET is_roaming = true, updated_at = now()
-                      WHERE id = ${sessionId}
-                    `;
-                  }
-                } catch {
-                  // OCPI tables may not exist in test/dev environments
                 }
+              } catch {
+                // OCPI tables may not exist in test/dev environments
               }
             }
 
@@ -1470,6 +1510,28 @@ export function registerProjections(
                 guestStatus = guest.status as string;
                 guestEmail = (guest.guest_email as string | null) ?? null;
               }
+            }
+          }
+
+          // Auto-link the driver's most recent vehicle to this session so the
+          // portal session detail page shows estimated miles without prompting.
+          // The driver can override later via PATCH /v1/portal/sessions/:id/vehicle.
+          if (driverUuid != null) {
+            const vehicleRows = await sql`
+              SELECT vehicle_id FROM charging_sessions
+              WHERE driver_id = ${driverUuid}
+                AND vehicle_id IS NOT NULL
+                AND id != ${sessionId}
+              ORDER BY started_at DESC NULLS LAST, created_at DESC
+              LIMIT 1
+            `;
+            const lastVehicleId = vehicleRows[0]?.vehicle_id as string | undefined;
+            if (lastVehicleId != null) {
+              await sql`
+                UPDATE charging_sessions
+                SET vehicle_id = ${lastVehicleId}, updated_at = now()
+                WHERE id = ${sessionId}
+              `;
             }
           }
 
@@ -1501,22 +1563,74 @@ export function registerProjections(
         if (ocppReservationId != null) {
           try {
             const reservationRows = await sql`
-              SELECT id FROM reservations
+              SELECT id, token_id FROM reservations
               WHERE reservation_id = ${ocppReservationId}
                 AND station_id = ${stationUuid}
                 AND status = 'active'
               LIMIT 1
             `;
             const reservationUuid = reservationRows[0]?.id as string | undefined;
+            const reservationTokenId = reservationRows[0]?.token_id as string | null | undefined;
             if (reservationUuid != null) {
               await sql`
                 UPDATE charging_sessions SET reservation_id = ${reservationUuid}, updated_at = now()
                 WHERE id = ${sessionId}
               `;
-              await sql`
+              // Conditional UPDATE -- only one writer flips active→in_use. Audit
+              // the transition iff we won the race (RETURNING is empty when
+              // the row was already in_use/cancelled/expired).
+              const usedRows = await sql`
                 UPDATE reservations SET status = 'in_use', updated_at = now()
                 WHERE id = ${reservationUuid} AND status = 'active'
+                RETURNING id, driver_id
               `;
+              if (usedRows.length > 0) {
+                await writeReservationAudit({
+                  reservationId: reservationUuid,
+                  action: 'used',
+                  actor: 'system',
+                  driverIdBefore: (usedRows[0]?.driver_id as string | null) ?? null,
+                  driverIdAfter: (usedRows[0]?.driver_id as string | null) ?? null,
+                  statusBefore: 'active',
+                  statusAfter: 'in_use',
+                  notes: `session ${sessionId}`,
+                });
+              }
+
+              // If the reservation was bound to a specific token, verify the
+              // session was started with that token. We log + persist a metadata
+              // marker rather than blocking the session: the OCPP transaction
+              // is already underway and tearing it down here would just leave
+              // the EV charging without a billable session record.
+              if (reservationTokenId != null) {
+                const sessionRow = await sql`
+                  SELECT token_id FROM charging_sessions WHERE id = ${sessionId} LIMIT 1
+                `;
+                const actualTokenId =
+                  (sessionRow[0]?.token_id as string | null | undefined) ?? null;
+                if (actualTokenId !== reservationTokenId) {
+                  logger.warn(
+                    {
+                      sessionId,
+                      reservationUuid,
+                      expectedTokenId: reservationTokenId,
+                      actualTokenId,
+                    },
+                    'Reservation fulfilled by different token than reserved',
+                  );
+                  await sql`
+                    UPDATE charging_sessions
+                    SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                      'reservationTokenMismatch', jsonb_build_object(
+                        'expected', ${reservationTokenId},
+                        'actual', ${actualTokenId}
+                      )
+                    ),
+                    updated_at = now()
+                    WHERE id = ${sessionId}
+                  `;
+                }
+              }
             }
           } catch {
             // Non-critical: reservation linking failure should not break session creation
@@ -1779,6 +1893,19 @@ export function registerProjections(
             UPDATE charging_sessions SET status = 'failed', updated_at = now()
             WHERE id = ${sessionId}
           `;
+        }
+
+        // If this session was linked to a reservation and it ended in a
+        // non-success state, write a follow-up audit row so the reservation
+        // timeline shows the real outcome instead of leaving the prior `used`
+        // transition as the last word. Reservation status stays `in_use` --
+        // the driver did attempt to consume the reservation -- but the audit
+        // log records why the attempt didn't produce a real charging session.
+        if (endStatus === 'faulted' || isTimeoutEnd) {
+          const failureReason = hasPaymentFailure
+            ? `faulted (payment failure)${stoppedReason != null ? `: ${stoppedReason}` : ''}`
+            : `failed (timeout)${stoppedReason != null ? `: ${stoppedReason}` : ''}`;
+          await auditLinkedReservationFault(sessionId, failureReason);
         }
 
         try {
@@ -2600,12 +2727,31 @@ export function registerProjections(
 
     if (updateStatus === 'Expired') {
       // Expired reservations stay on the dedicated 'expired' status path,
-      // which has its own no-show fee handling in the worker.
-      await sql`
+      // which has its own no-show fee handling in the worker. Conditional
+      // UPDATE so we only audit on the actual transition.
+      const expired = await sql<Array<{ id: string; driver_id: string | null }>>`
         UPDATE reservations
         SET status = 'expired', updated_at = now()
         WHERE reservation_id = ${reservationOcppId}
+          AND status IN ('active', 'scheduled', 'in_use')
+        RETURNING id, driver_id
       `;
+      const expiredRow = expired[0];
+      if (expiredRow != null) {
+        await writeReservationAudit(
+          {
+            reservationId: expiredRow.id,
+            action: 'expired',
+            actor: 'system',
+            driverIdBefore: expiredRow.driver_id,
+            driverIdAfter: expiredRow.driver_id,
+            statusAfter: 'expired',
+            notes: 'station-reported expiry',
+          },
+          undefined,
+          logger,
+        );
+      }
       return;
     }
 
@@ -2618,7 +2764,7 @@ export function registerProjections(
       const stationUuid = await resolveStationUuid(event.aggregateId);
       if (stationUuid == null) return;
 
-      const cancelled = await sql<Array<{ driver_id: string | null }>>`
+      const cancelled = await sql<Array<{ id: string; driver_id: string | null }>>`
         UPDATE reservations
         SET status = 'cancelled',
             cancelled_by = 'system',
@@ -2628,8 +2774,25 @@ export function registerProjections(
         WHERE reservation_id = ${reservationOcppId}
           AND station_id = ${stationUuid}
           AND status IN ('active', 'scheduled')
-        RETURNING driver_id
+        RETURNING id, driver_id
       `;
+
+      const cancelledRow = cancelled[0];
+      if (cancelledRow != null) {
+        await writeReservationAudit(
+          {
+            reservationId: cancelledRow.id,
+            action: 'cancelled',
+            actor: 'system',
+            driverIdBefore: cancelledRow.driver_id,
+            driverIdAfter: cancelledRow.driver_id,
+            statusAfter: 'cancelled',
+            notes: 'station-reported removal',
+          },
+          undefined,
+          logger,
+        );
+      }
 
       const driverId = cancelled[0]?.driver_id ?? null;
       if (driverId != null) {
@@ -2811,13 +2974,14 @@ export function registerProjections(
       if (!eagerCleanup) return;
 
       try {
-        await sql`
+        const eager = await sql`
           UPDATE charging_sessions
           SET status = 'faulted',
               stopped_reason = ${reason},
               ended_at = now(),
               updated_at = now()
           WHERE id = ${sessionId} AND status = 'active'
+          RETURNING id
         `;
         await sql`
           UPDATE session_tariff_segments
@@ -2825,6 +2989,9 @@ export function registerProjections(
               duration_minutes = EXTRACT(EPOCH FROM (now() - started_at)) / 60
           WHERE session_id = ${sessionId} AND ended_at IS NULL
         `;
+        if (eager.length > 0) {
+          await auditLinkedReservationFault(sessionId, `faulted: ${reason}`);
+        }
       } catch (err) {
         logger.error({ err, sessionId, reason }, 'Failed to mark session faulted');
       }

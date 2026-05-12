@@ -15,8 +15,8 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "generate": "node --import tsx ../../node_modules/drizzle-kit/bin.cjs generate",
-    "migrate": "node --import tsx ../../node_modules/drizzle-kit/bin.cjs migrate",
+    "generate": "node --import tsx ../../node_modules/drizzle-kit/bin.cjs generate && node ../../scripts/check-migrations.mjs --fix-last",
+    "migrate": "node --import tsx ../../node_modules/drizzle-kit/bin.cjs migrate && node ../../scripts/verify-migrations-applied.mjs",
     "seed": "node --env-file=../../.env --import=tsx/esm src/seed.ts",
     "seed:admin": "node --import=tsx/esm src/seed-admin.ts",
     "seed:dev": "node --env-file=../../.env --import=tsx/esm src/seed-dev-stations.ts",

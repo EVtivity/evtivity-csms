@@ -137,7 +137,14 @@
     "battery": "电池电量",
     "collectingData": "正在收集数据...",
     "fromReservation": "来自预约",
-    "fromReservationHint": "查看启动此会话的预约"
+    "fromReservationHint": "查看启动此会话的预约",
+    "tapToSetVehicle": "点击设置车辆",
+    "changeVehicle": "更改车辆",
+    "changeVehicleDescription": "选择本次充电使用的车辆。",
+    "noVehiclesAdd": "您还没有添加车辆。请在账户中添加一辆以估算里程。",
+    "goToAccount": "前往账户",
+    "clearVehicle": "清除车辆",
+    "vehicleUpdateFailed": "更新车辆失败。"
   },
   "payments": {
     "title": "支付方式",
@@ -695,16 +702,22 @@
     "cardRemoved": "RFID 卡已删除。",
     "removeFailed": "删除信用卡失败。",
     "confirmRemoveTitle": "删除 RFID 卡",
-    "confirmRemoveDescription": "确定要删除此 RFID 卡吗？此操作无法撤消。"
+    "confirmRemoveDescription": "确定要删除此 RFID 卡吗？此操作无法撤消。",
+    "confirmRemoveSoftDeleteDescription": "此 RFID 卡将被停用，不再用于授权充电。您的历史会话将被保留。",
+    "tokenType": "令牌类型",
+    "inactiveBadge": "未启用"
   },
   "vehicles": {
     "addVehicle": "添加车辆",
     "make": "品牌",
     "model": "型号",
     "year": "年份",
+    "yearPlaceholder": "YYYY",
+    "yearFormat": "年份必须为 4 位数字",
     "delete": "删除车辆",
     "noVehicles": "未添加车辆。",
-    "helper": "用于根据用电量估算里程。"
+    "helper": "用于根据用电量估算里程。",
+    "addFailed": "添加车辆失败，请重试。"
   },
   "notifications": {
     "title": "通知",

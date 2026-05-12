@@ -110,16 +110,88 @@ export const driverTokens = pgTable(
     id: text('id')
       .primaryKey()
       .$defaultFn(() => createId('driverToken')),
-    driverId: text('driver_id').references(() => drivers.id, { onDelete: 'set null' }),
+    driverId: text('driver_id').references(() => drivers.id, { onDelete: 'cascade' }),
     idToken: varchar('id_token', { length: 255 }).notNull(),
     tokenType: varchar('token_type', { length: 20 }).notNull(),
     isActive: boolean('is_active').notNull().default(true),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    revokedReason: varchar('revoked_reason', { length: 100 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('idx_driver_tokens_id_token').on(table.idToken),
     index('idx_driver_tokens_driver_id').on(table.driverId),
+    index('idx_driver_tokens_expires_at').on(table.expiresAt),
+  ],
+);
+
+export const tokenAuditActorEnum = pgEnum('token_audit_actor', ['operator', 'driver', 'system']);
+
+export const tokenAuditActionEnum = pgEnum('token_audit_action', [
+  'created',
+  'updated',
+  'activated',
+  'deactivated',
+  'revoked',
+  'deleted',
+  'imported',
+]);
+
+export const tokenAuditLog = pgTable(
+  'token_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    tokenId: text('token_id'),
+    idTokenSnapshot: varchar('id_token_snapshot', { length: 255 }).notNull(),
+    tokenTypeSnapshot: varchar('token_type_snapshot', { length: 20 }).notNull(),
+    driverIdSnapshot: text('driver_id_snapshot'),
+    action: tokenAuditActionEnum('action').notNull(),
+    actor: tokenAuditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_token_audit_token_id').on(table.tokenId),
+    index('idx_token_audit_created_at').on(table.createdAt),
+  ],
+);
+
+export const authorizeOutcomeEnum = pgEnum('authorize_outcome', [
+  'accepted',
+  'invalid',
+  'blocked',
+  'expired',
+  'no_credit',
+  'concurrent_tx',
+  'unknown',
+  'db_error',
+]);
+
+export const authorizeAttempts = pgTable(
+  'authorize_attempts',
+  {
+    id: serial('id').primaryKey(),
+    stationId: text('station_id'),
+    idToken: varchar('id_token', { length: 255 }).notNull(),
+    tokenType: varchar('token_type', { length: 20 }),
+    matchedTokenId: text('matched_token_id'),
+    matchedDriverId: text('matched_driver_id'),
+    outcome: authorizeOutcomeEnum('outcome').notNull(),
+    ocppVersion: varchar('ocpp_version', { length: 10 }),
+    reason: varchar('reason', { length: 200 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_authorize_attempts_station_id').on(table.stationId),
+    index('idx_authorize_attempts_id_token').on(table.idToken),
+    index('idx_authorize_attempts_outcome').on(table.outcome),
+    index('idx_authorize_attempts_created_at').on(table.createdAt),
+    index('idx_authorize_attempts_matched_token_id').on(table.matchedTokenId),
+    index('idx_authorize_attempts_matched_driver_id').on(table.matchedDriverId),
   ],
 );
 

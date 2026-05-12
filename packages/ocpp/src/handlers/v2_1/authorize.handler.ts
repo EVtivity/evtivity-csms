@@ -7,6 +7,7 @@ import {
   driverTokens,
   ocpiExternalTokens,
   chargingStations,
+  chargingSessions,
   sites,
   isRoamingEnabled,
 } from '@evtivity/database';
@@ -14,17 +15,16 @@ import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { AuthorizeRequest } from '../../generated/v2_1/types/messages/AuthorizeRequest.js';
 import type { AuthorizeResponse } from '../../generated/v2_1/types/messages/AuthorizeResponse.js';
 import type { Logger } from '@evtivity/lib';
+import { logAuthorizeAttempt, parseOcpiValidThru } from '../authorize-log.js';
 
-// These types accept by default when the token is not found in driver_tokens.
-// Central/Local tokens may be generated on the fly (e.g., remote start) and never stored.
-// NoAuthorization means no token validation is needed.
-// If a token of these types IS found and is inactive, it is still blocked.
+// Tokens of these types may be generated on the fly (portal remote start) and
+// are accepted when not present in driver_tokens. Inactive matches still block.
 const ACCEPT_WHEN_NOT_FOUND = new Set(['Central', 'Local', 'NoAuthorization']);
 
-// These token types are accepted unconditionally without any DB lookup.
-// MasterPass: admin token that authorizes stopping any/all transactions (OCPP 2.1 spec).
-// eMAID: ISO 15118 contract certificate identifier, validated externally.
-// DirectPayment: payment terminal handles authorization (prepaid/credit card at station).
+// Token types accepted unconditionally without DB lookup.
+// MasterPass: stop-any-transaction admin token (OCPP 2.1 spec).
+// eMAID: ISO 15118 contract certificate identifier validated externally.
+// DirectPayment: payment terminal handles authorization.
 const ACCEPT_WITHOUT_LOOKUP = new Set(['MasterPass', 'eMAID', 'DirectPayment']);
 
 export async function handleAuthorize(ctx: HandlerContext): Promise<Record<string, unknown>> {
@@ -37,14 +37,10 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     eventType: 'ocpp.Authorize',
     aggregateType: 'Driver',
     aggregateId: idToken,
-    payload: {
-      idToken,
-      tokenType,
-      stationId: ctx.stationId,
-    },
+    payload: { idToken, tokenType, stationId: ctx.stationId },
   });
 
-  // Check free-vend: accept any token at free-vend sites
+  // Free-vend short-circuit
   try {
     const [fvStation] = await db
       .select({ freeVendEnabled: sites.freeVendEnabled })
@@ -56,119 +52,218 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
         { stationId: ctx.stationId, idToken, tokenType },
         'Free vend site, accepting',
       );
+      void logAuthorizeAttempt(
+        {
+          stationId: ctx.stationId,
+          idToken,
+          tokenType,
+          outcome: 'accepted',
+          ocppVersion: 'ocpp2.1',
+          reason: 'free_vend',
+        },
+        ctx.logger,
+      );
       const fvResponse: AuthorizeResponse = { idTokenInfo: { status: 'Accepted' } };
       return fvResponse as unknown as Record<string, unknown>;
     }
   } catch {
-    // Non-critical: fall through to normal token validation
+    // Non-critical
   }
 
   let status: AuthorizeResponse['idTokenInfo']['status'] = 'Accepted';
+  let outcome:
+    | 'accepted'
+    | 'invalid'
+    | 'blocked'
+    | 'expired'
+    | 'concurrent_tx'
+    | 'unknown'
+    | 'db_error' = 'accepted';
+  let matchedTokenId: string | null = null;
+  let matchedDriverId: string | null = null;
+  let logReason: string | null = null;
+
   let groupIdToken: AuthorizeResponse['idTokenInfo']['groupIdToken'] | undefined;
   let certificateStatus: AuthorizeResponse['certificateStatus'] | undefined;
-  let cacheExpiryDateTime: string | undefined;
 
-  // Accept unconditionally for special token types that don't require DB validation
   if (ACCEPT_WITHOUT_LOOKUP.has(tokenType)) {
     ctx.logger.info(
       { stationId: ctx.stationId, idToken, tokenType },
       `Token type ${tokenType} accepted without lookup`,
     );
-    // Return groupIdToken per OCPP spec for accepted tokens
     groupIdToken = { idToken, type: tokenType };
+    logReason = 'no_lookup_type';
   } else if (tokenType !== 'NoAuthorization') {
     try {
       const [token] = await db
-        .select({ isActive: driverTokens.isActive })
+        .select({
+          id: driverTokens.id,
+          driverId: driverTokens.driverId,
+          isActive: driverTokens.isActive,
+          expiresAt: driverTokens.expiresAt,
+          revokedAt: driverTokens.revokedAt,
+        })
         .from(driverTokens)
         .where(and(eq(driverTokens.idToken, idToken), eq(driverTokens.tokenType, tokenType)));
 
       if (token == null && !ACCEPT_WHEN_NOT_FOUND.has(tokenType)) {
-        // Fallback: check OCPI external tokens from roaming partners (only when roaming is enabled)
-        let externalToken: { isValid: boolean } | undefined;
+        // OCPI 2.2.1+: gate on `is_valid` AND `whitelist != NEVER` AND any
+        // `valid_thru` in tokenData JSONB still being in the future. Any of
+        // those failing produces Blocked / Expired.
+        let externalToken: { isValid: boolean; whitelist: string; tokenData: unknown } | undefined;
         if (await isRoamingEnabled()) {
           try {
             [externalToken] = await db
-              .select({ isValid: ocpiExternalTokens.isValid })
+              .select({
+                isValid: ocpiExternalTokens.isValid,
+                whitelist: ocpiExternalTokens.whitelist,
+                tokenData: ocpiExternalTokens.tokenData,
+              })
               .from(ocpiExternalTokens)
               .where(eq(ocpiExternalTokens.uid, idToken))
               .limit(1);
           } catch {
-            // OCPI tables may not exist in test/dev environments
+            // OCPI tables may not exist
           }
         }
-
         if (externalToken != null) {
-          status = externalToken.isValid ? 'Accepted' : 'Blocked';
+          const validThru = parseOcpiValidThru(externalToken.tokenData);
+          const expiredByValidThru = validThru != null && validThru.getTime() <= Date.now();
+          const allowed =
+            externalToken.isValid && externalToken.whitelist !== 'NEVER' && !expiredByValidThru;
+          if (expiredByValidThru) {
+            status = 'Expired';
+            outcome = 'expired';
+            logReason = 'ocpi_external_valid_thru_expired';
+          } else {
+            status = allowed ? 'Accepted' : 'Blocked';
+            outcome = allowed ? 'accepted' : 'blocked';
+            logReason = allowed
+              ? 'ocpi_external'
+              : `ocpi_external_${externalToken.whitelist.toLowerCase()}`;
+          }
           ctx.logger.info(
-            { stationId: ctx.stationId, idToken, tokenType },
-            `OCPI external token ${status === 'Accepted' ? 'accepted' : 'blocked'}`,
+            {
+              stationId: ctx.stationId,
+              idToken,
+              tokenType,
+              whitelist: externalToken.whitelist,
+              validThru,
+            },
+            `OCPI external token ${status}`,
           );
         } else {
           status = 'Invalid';
+          outcome = 'unknown';
+          logReason = 'token_not_found';
           ctx.logger.info({ stationId: ctx.stationId, idToken, tokenType }, 'Token not found');
         }
-      } else if (token != null && !token.isActive) {
-        status = 'Blocked';
-        ctx.logger.info({ stationId: ctx.stationId, idToken, tokenType }, 'Token is blocked');
       } else if (token != null) {
-        // Token found and active. Return groupIdToken per OCPP spec.
+        const now = new Date();
+        if (!token.isActive || token.revokedAt != null) {
+          status = 'Blocked';
+          outcome = 'blocked';
+          matchedTokenId = token.id;
+          matchedDriverId = token.driverId;
+          logReason = 'inactive_or_revoked';
+          ctx.logger.info(
+            { stationId: ctx.stationId, idToken, tokenType },
+            'Token blocked (inactive/revoked)',
+          );
+        } else if (token.expiresAt != null && token.expiresAt.getTime() <= now.getTime()) {
+          status = 'Expired';
+          outcome = 'expired';
+          matchedTokenId = token.id;
+          matchedDriverId = token.driverId;
+          logReason = 'expired_at';
+          ctx.logger.info({ stationId: ctx.stationId, idToken, tokenType }, 'Token expired');
+        } else {
+          matchedTokenId = token.id;
+          matchedDriverId = token.driverId;
+          groupIdToken = { idToken, type: tokenType };
+          logReason = 'active';
+        }
+      } else {
+        // ACCEPT_WHEN_NOT_FOUND, no row -> accept
         groupIdToken = { idToken, type: tokenType };
+        logReason = 'accept_when_not_found';
       }
-    } catch {
-      // Database unavailable; accept by default
-      ctx.logger.warn(
-        { stationId: ctx.stationId, idToken, tokenType },
+    } catch (err) {
+      ctx.logger.error(
+        { stationId: ctx.stationId, idToken, tokenType, err },
         'Token lookup failed, accepting by default',
       );
+      status = 'Accepted';
+      outcome = 'db_error';
+      logReason = 'db_unreachable';
+    }
+  } else {
+    logReason = 'no_authorization';
+  }
+
+  // Concurrent-tx check: a token already mid-transaction must not start a
+  // second one. Only check matched driver_tokens rows -- OCPI/guest/no-lookup
+  // paths don't write `charging_sessions.token_id` so the join would be moot.
+  if (status === 'Accepted' && matchedTokenId != null) {
+    try {
+      const [activeSession] = await db
+        .select({ id: chargingSessions.id })
+        .from(chargingSessions)
+        .where(
+          and(eq(chargingSessions.tokenId, matchedTokenId), eq(chargingSessions.status, 'active')),
+        )
+        .limit(1);
+      if (activeSession != null) {
+        status = 'ConcurrentTx';
+        outcome = 'concurrent_tx';
+        logReason = `concurrent_session ${activeSession.id}`;
+        groupIdToken = undefined;
+        ctx.logger.info(
+          { stationId: ctx.stationId, idToken, tokenType, conflictingSessionId: activeSession.id },
+          'Token rejected: concurrent transaction',
+        );
+      }
+    } catch (err) {
+      ctx.logger.warn({ err, idToken }, 'Concurrent-tx lookup failed');
     }
   }
 
-  // For eMAID tokens, include certificateStatus in the response.
-  // Check if the request contains certificate hash data or a certificate.
   if (tokenType === 'eMAID') {
     const hasHashData =
       request.iso15118CertificateHashData != null && request.iso15118CertificateHashData.length > 0;
     const hasCertificate = request.certificate != null;
-
     if (hasHashData || hasCertificate) {
-      // Check for known revoked certificate identifiers (test support)
-      const isRevoked = idToken.toUpperCase().includes('REVOKED');
-      if (isRevoked) {
-        certificateStatus = 'CertificateRevoked';
-        status = 'Invalid';
-      } else {
-        certificateStatus = 'Accepted';
-      }
+      certificateStatus = 'Accepted';
     }
   }
 
-  // For prepaid-style tokens, include cacheExpiryDateTime so stations cache the result.
-  // Tokens containing "PREPAID" or "NOCREDIT" get a 24-hour cache window.
-  if (idToken.toUpperCase().includes('PREPAID') || idToken.toUpperCase().includes('NOCREDIT')) {
-    const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    cacheExpiryDateTime = expiry.toISOString();
-    // NOCREDIT tokens should return NoCredit status
-    if (idToken.toUpperCase().includes('NOCREDIT')) {
-      status = 'NoCredit';
-    }
-  }
-
-  // Per OCPP 2.1 I08.FR.01: include driver tariff in AuthorizeResponse when available
   let tariff: Record<string, unknown> | undefined;
   if (status === 'Accepted' && tokenType !== 'NoAuthorization') {
     try {
       tariff = await resolveDriverTariff(idToken, tokenType, ctx.stationId, ctx.logger);
     } catch {
-      // Non-critical: tariff is optional
+      // Non-critical
     }
   }
+
+  void logAuthorizeAttempt(
+    {
+      stationId: ctx.stationId,
+      idToken,
+      tokenType,
+      matchedTokenId,
+      matchedDriverId,
+      outcome,
+      ocppVersion: 'ocpp2.1',
+      reason: logReason,
+    },
+    ctx.logger,
+  );
 
   const response: AuthorizeResponse = {
     idTokenInfo: {
       status,
       ...(groupIdToken != null ? { groupIdToken } : {}),
-      ...(cacheExpiryDateTime != null ? { cacheExpiryDateTime } : {}),
     },
     ...(certificateStatus != null ? { certificateStatus } : {}),
   };
@@ -180,17 +275,12 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
   return result;
 }
 
-/**
- * Resolve the driver's active tariff and convert to OCPP 2.1 TariffType format.
- * Resolution order: driver-specific group, fleet group, station group, site group, default group.
- */
 async function resolveDriverTariff(
   idToken: string,
   tokenType: string,
   stationId: string,
   logger: Logger,
 ): Promise<Record<string, unknown> | undefined> {
-  // Find the driver from the token
   const [tokenRow] = await db
     .select({ driverId: driverTokens.driverId })
     .from(driverTokens)
@@ -198,8 +288,6 @@ async function resolveDriverTariff(
 
   const driverId = tokenRow?.driverId;
 
-  // Resolve pricing group: driver > fleet > station > site > default
-  // Use raw SQL to avoid importing all pricing tables
   const rows = await db.execute<{
     id: string;
     currency: string;
@@ -214,7 +302,6 @@ async function resolveDriverTariff(
       ${
         driverId != null
           ? sql`
-      -- Driver-specific group (highest priority = 1)
       SELECT pg.id AS group_id, 1 AS group_priority FROM pricing_groups pg
       JOIN pricing_group_drivers pgd ON pgd.pricing_group_id = pg.id
       WHERE pgd.driver_id = ${driverId}
@@ -222,19 +309,16 @@ async function resolveDriverTariff(
       `
           : sql``
       }
-      -- Station group (priority 2)
       SELECT pg.id AS group_id, 2 AS group_priority FROM pricing_groups pg
       JOIN pricing_group_stations pgs ON pgs.pricing_group_id = pg.id
       JOIN charging_stations cs ON cs.id = pgs.station_id
       WHERE cs.station_id = ${stationId}
       UNION ALL
-      -- Site group (priority 3)
       SELECT pg.id AS group_id, 3 AS group_priority FROM pricing_groups pg
       JOIN pricing_group_sites pgsi ON pgsi.pricing_group_id = pg.id
       JOIN charging_stations cs ON cs.site_id = pgsi.site_id
       WHERE cs.station_id = ${stationId}
       UNION ALL
-      -- Default group (lowest priority 4)
       SELECT pg.id AS group_id, 4 AS group_priority FROM pricing_groups pg
       WHERE pg.is_default = true
     )
@@ -273,21 +357,18 @@ async function resolveDriverTariff(
       ...(taxRates != null ? { taxRates } : {}),
     };
   }
-
   if (pricePerMinute != null && pricePerMinute > 0) {
     tariff['chargingTime'] = {
       prices: [{ priceMinute: pricePerMinute }],
       ...(taxRates != null ? { taxRates } : {}),
     };
   }
-
   if (idleFeePerMinute != null && idleFeePerMinute > 0) {
     tariff['idleTime'] = {
       prices: [{ priceMinute: idleFeePerMinute }],
       ...(taxRates != null ? { taxRates } : {}),
     };
   }
-
   if (pricePerSession != null && pricePerSession > 0) {
     tariff['fixedFee'] = {
       prices: [{ priceFixed: pricePerSession }],

@@ -104,6 +104,10 @@ vi.mock('@evtivity/database', () => ({
   loadAllocationLog: {},
   guestSessions: {},
   vendors: {},
+  tokenAuditLog: {},
+  stationLocalAuthEntries: {},
+  stationLocalAuthVersions: {},
+  client: {},
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -116,6 +120,24 @@ vi.mock('drizzle-orm', () => ({
   asc: vi.fn(),
   gte: vi.fn(),
   count: vi.fn(),
+  inArray: vi.fn(),
+}));
+
+vi.mock('@evtivity/lib', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@evtivity/lib')>();
+  return {
+    ...actual,
+    dispatchDriverNotification: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+vi.mock('../lib/pubsub.js', () => ({
+  getPubSub: vi.fn(() => ({
+    publish: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn().mockResolvedValue({ unsubscribe: vi.fn() }),
+    close: vi.fn().mockResolvedValue(undefined),
+  })),
+  setPubSub: vi.fn(),
 }));
 
 import {
@@ -242,7 +264,8 @@ describe('Driver Service', () => {
   describe('createDriverToken', () => {
     it('creates and returns token', async () => {
       const token = { id: 't1', driverId: 'd1', idToken: 'ABC', tokenType: 'ISO14443' };
-      setupDbResults([token]);
+      // tokenService.createToken: dup-check (empty), then insert returning
+      setupDbResults([], [token]);
 
       const result = await createDriverToken('d1', { idToken: 'ABC', tokenType: 'ISO14443' });
 
@@ -253,7 +276,11 @@ describe('Driver Service', () => {
   describe('deactivateDriverToken', () => {
     it('returns deactivated token when found', async () => {
       const token = { id: 't1', isActive: false };
-      setupDbResults([token]);
+      // tokenService.updateToken: select current row, then update returning
+      setupDbResults(
+        [{ id: 't1', idToken: 'ABC', tokenType: 'ISO14443', driverId: 'd1', isActive: true }],
+        [token],
+      );
 
       const result = await deactivateDriverToken('t1');
 

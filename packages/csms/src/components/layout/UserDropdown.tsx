@@ -9,8 +9,7 @@ import { useAuth } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 
 const languages = [
-  { code: 'en', label: 'English (US)', flag: '\u{1F1FA}\u{1F1F8}' },
-  { code: 'en-GB', label: 'English (UK)', flag: '\u{1F1EC}\u{1F1E7}' },
+  { code: 'en', label: 'English', flag: '\u{1F1FA}\u{1F1F8}' },
   { code: 'de', label: 'Deutsch', flag: '\u{1F1E9}\u{1F1EA}' },
   { code: 'es', label: 'Espanol', flag: '\u{1F1EA}\u{1F1F8}' },
   { code: 'ko', label: '\uD55C\uAD6D\uC5B4', flag: '\u{1F1F0}\u{1F1F7}' },

@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { client } from '@evtivity/database';
+import { client, writeReservationAudit } from '@evtivity/database';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import type { Logger } from 'pino';
 import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
@@ -72,6 +72,20 @@ export async function reservationExpiryCheckHandler(log: Logger): Promise<void> 
   `;
 
   for (const row of expired) {
+    // Audit the expired transition. The conditional UPDATE above (status =
+    // 'active' AND expires_at < now()) guarantees exactly one row per
+    // reservation here, so the audit row is never duplicated even if the
+    // cron job overlaps with itself.
+    await writeReservationAudit({
+      reservationId: row.id,
+      action: 'expired',
+      actor: 'system',
+      driverIdBefore: row.driver_id,
+      driverIdAfter: row.driver_id,
+      statusBefore: 'active',
+      statusAfter: 'expired',
+    });
+
     if (row.driver_id != null) {
       void dispatchDriverNotification(
         client,

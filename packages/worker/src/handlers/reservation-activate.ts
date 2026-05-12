@@ -6,7 +6,14 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Job } from 'bullmq';
 import { eq, and } from 'drizzle-orm';
-import { client, db, reservations, chargingStations, evses } from '@evtivity/database';
+import {
+  client,
+  db,
+  reservations,
+  chargingStations,
+  evses,
+  writeReservationAudit,
+} from '@evtivity/database';
 import type { PubSubClient } from '@evtivity/lib';
 import { createLogger, dispatchDriverNotification } from '@evtivity/lib';
 
@@ -57,10 +64,23 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
 
   // Check if already expired
   if (reservation.expiresAt <= new Date()) {
-    await db
+    const expiredRows = await db
       .update(reservations)
       .set({ status: 'expired', updatedAt: new Date() })
-      .where(eq(reservations.id, reservationDbId));
+      .where(and(eq(reservations.id, reservationDbId), eq(reservations.status, 'scheduled')))
+      .returning({ id: reservations.id });
+    if (expiredRows.length > 0) {
+      await writeReservationAudit({
+        reservationId: reservationDbId,
+        action: 'expired',
+        actor: 'system',
+        driverIdBefore: reservation.driverId,
+        driverIdAfter: reservation.driverId,
+        statusBefore: 'scheduled',
+        statusAfter: 'expired',
+        notes: 'expired before scheduled activation',
+      });
+    }
     log.info({ reservationDbId }, 'Scheduled reservation expired before activation');
     return;
   }
@@ -86,6 +106,19 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
       { reservationDbId, stationId: reservation.stationOcppId },
       'Station offline, cancelling scheduled reservation',
     );
+
+    if (cancelled.length > 0) {
+      await writeReservationAudit({
+        reservationId: reservationDbId,
+        action: 'cancelled',
+        actor: 'system',
+        driverIdBefore: reservation.driverId,
+        driverIdAfter: reservation.driverId,
+        statusBefore: 'scheduled',
+        statusAfter: 'cancelled',
+        notes: 'station_offline_at_activation',
+      });
+    }
 
     const driverId = cancelled[0]?.driverId ?? null;
     if (driverId != null) {
@@ -170,6 +203,19 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
     );
     return;
   }
+
+  // Conditional UPDATE guarantees exactly one writer wins, so audit fires
+  // exactly once per scheduled→active transition.
+  await writeReservationAudit({
+    reservationId: reservationDbId,
+    action: 'updated',
+    actor: 'system',
+    driverIdBefore: reservation.driverId,
+    driverIdAfter: reservation.driverId,
+    statusBefore: 'scheduled',
+    statusAfter: 'active',
+    notes: 'scheduled activation',
+  });
 
   await pubsub.publish('ocpp_commands', notification);
 

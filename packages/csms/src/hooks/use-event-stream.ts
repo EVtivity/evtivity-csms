@@ -161,6 +161,28 @@ function getQueryKeysForEvent(event: CsmsEvent): string[][] {
       // `progress`). No need to push the more specific keys.
       keys.push(['firmware-campaigns']);
       break;
+
+    case 'localAuthList.changed':
+      // Bumped by tokenService when a token's is_active changes. Key shape
+      // MUST be ['local-auth-list', stationId] -- that's the prefix the
+      // StationLocalAuthList component uses for its useQuery
+      // (['local-auth-list', stationId, page]). TanStack invalidates by
+      // prefix from index 0, so the first element must match.
+      if (stationId != null) {
+        keys.push(['local-auth-list', stationId]);
+      }
+      break;
+
+    case 'token.changed':
+      keys.push(['tokens']);
+      // AuthorizeLogView (global page + TokenDetail tab + StationDetail tab +
+      // DriverDetail tab) reads `/v1/authorize-attempts`. A token mutation
+      // doesn't insert new attempts, but it changes the outcome the next
+      // attempt will produce (e.g. just-revoked token now blocks), so refresh
+      // any open authorize-log views to show recent attempts in the right
+      // context.
+      keys.push(['authorize-attempts']);
+      break;
   }
 
   return keys;

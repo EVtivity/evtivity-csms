@@ -18,6 +18,7 @@ import { StationSecurity } from '@/components/StationSecurity';
 import { StationDisplayMessages } from '@/components/StationDisplayMessages';
 import { StationCertificates } from '@/components/StationCertificates';
 import { StationLocalAuthList } from '@/components/StationLocalAuthList';
+import { AuthorizeLogView } from '@/components/AuthorizeLogView';
 import { MeterValuesTable } from '@/components/MeterValuesTable';
 import { StationEventsTab } from '@/components/StationEventsTab';
 import { StationConfigurationsTab } from '@/components/StationConfigurationsTab';
@@ -32,6 +33,7 @@ import { StationQrTab } from '@/components/station/StationQrTab';
 import { StationPricingTab } from '@/components/station/StationPricingTab';
 import { StationReservationsTab } from '@/components/station/StationReservationsTab';
 import { api } from '@/lib/api';
+import { useHasPermission } from '@/lib/auth';
 
 interface Site {
   id: string;
@@ -87,6 +89,7 @@ export function StationDetail(): React.JSX.Element {
   const queryClient = useQueryClient();
   const [detailsTab, setDetailsTab] = useTab('info');
   const { t } = useTranslation();
+  const canReadAuthorizeLog = useHasPermission('drivers:read');
 
   const { data: sitesResponse } = useQuery({
     queryKey: ['sites'],
@@ -238,6 +241,9 @@ export function StationDetail(): React.JSX.Element {
           <TabsTrigger value="qr">{t('stations.qrCodes')}</TabsTrigger>
           <TabsTrigger value="pricing">{t('stations.pricing')}</TabsTrigger>
           <TabsTrigger value="local-auth">{t('stations.localAuthList')}</TabsTrigger>
+          {canReadAuthorizeLog && (
+            <TabsTrigger value="authorize-log">{t('tokens.authorizeLog')}</TabsTrigger>
+          )}
           {reservationEnabled && (
             <TabsTrigger value="reservations">{t('reservations.title')}</TabsTrigger>
           )}
@@ -358,6 +364,16 @@ export function StationDetail(): React.JSX.Element {
             timezone={siteTimezone}
           />
         </TabsContent>
+
+        {canReadAuthorizeLog && (
+          <TabsContent value="authorize-log">
+            <AuthorizeLogView
+              fixedFilters={{ stationId: station.stationId }}
+              hideStationColumn
+              queryKey={`authorize-attempts-station-${station.id}`}
+            />
+          </TabsContent>
+        )}
 
         {reservationEnabled && (
           <TabsContent value="reservations" className="space-y-6">

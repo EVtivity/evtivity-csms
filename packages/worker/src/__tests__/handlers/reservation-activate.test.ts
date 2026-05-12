@@ -38,6 +38,8 @@ vi.mock('@evtivity/database', () => ({
   db: {
     select: vi.fn(() => makeChain()),
     update: vi.fn(() => makeChain()),
+    insert: vi.fn(() => makeChain()),
+    execute: vi.fn(() => Promise.resolve([])),
   },
   reservations: {
     id: 'reservations.id',
@@ -46,6 +48,15 @@ vi.mock('@evtivity/database', () => ({
   },
   chargingStations: {},
   evses: {},
+  writeReservationAudit: vi.fn().mockResolvedValue(undefined),
+  reservationDiffChanged: vi.fn().mockReturnValue(false),
+  getReservationSettings: vi.fn().mockResolvedValue({
+    enabled: true,
+    bufferMinutes: 0,
+    cancellationWindowMinutes: 0,
+    cancellationFeeCents: 0,
+    maxHours: 0,
+  }),
 }));
 
 vi.mock('drizzle-orm', () => ({

@@ -3,8 +3,9 @@
 
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Leaf } from 'lucide-react';
+import { Leaf, AlertTriangle } from 'lucide-react';
 import { CopyableId } from '@/components/copyable-id';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { Pagination } from '@/components/ui/pagination';
 import { Badge } from '@/components/ui/badge';
@@ -48,6 +49,13 @@ interface SessionOverview {
   co2AvoidedKg: number | null;
   transactionId: string | null;
   token: { id: string; idToken: string; tokenType: string } | null;
+  vehicle: {
+    id: string;
+    make: string | null;
+    model: string | null;
+    year: string | null;
+  } | null;
+  metadata: Record<string, unknown> | null;
 }
 
 export interface SessionDetailsTabProps {
@@ -90,8 +98,36 @@ export function SessionDetailsTab({
     `/v1/sessions/${sessionId}/transaction-events`,
   );
 
+  // reservationTokenMismatch is written by the TransactionEvent.Started
+  // projection when reservation.token_id doesn't match the session's matched
+  // token. Don't abort the session (the EV is already charging), but operators
+  // need to see it.
+  const reservationMismatch =
+    session.metadata != null && typeof session.metadata === 'object'
+      ? (session.metadata['reservationTokenMismatch'] as
+          | { expected?: string | null; actual?: string | null }
+          | undefined)
+      : undefined;
+
   return (
     <div className="space-y-6">
+      {reservationMismatch != null && (
+        <Alert variant="warning">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>{t('sessions.reservationTokenMismatchTitle')}</AlertTitle>
+          <AlertDescription>
+            {t('sessions.reservationTokenMismatchDescription')}
+            <div className="mt-2 text-xs font-mono">
+              <div>
+                {t('sessions.expectedToken')}: {reservationMismatch.expected ?? '--'}
+              </div>
+              <div>
+                {t('sessions.actualToken')}: {reservationMismatch.actual ?? '--'}
+              </div>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
       {/* Overview */}
       <Card>
         <CardHeader>
@@ -110,12 +146,24 @@ export function SessionDetailsTab({
               {session.freeVend === true ? (
                 <span className="text-muted-foreground">{t('sessions.freeVend')}</span>
               ) : session.driverName != null ? (
-                <Link
-                  to={`/drivers/${session.driverId ?? ''}`}
-                  className="text-primary hover:underline"
-                >
-                  {session.driverName}
-                </Link>
+                <div className="space-y-1">
+                  <Link
+                    to={`/drivers/${session.driverId ?? ''}`}
+                    className="text-primary hover:underline block"
+                  >
+                    {session.driverName}
+                  </Link>
+                  {session.vehicle != null && (
+                    <div className="text-xs text-muted-foreground">
+                      {[session.vehicle.make, session.vehicle.model]
+                        .filter((v) => v != null && v !== '')
+                        .join(' ')}
+                      {session.vehicle.year != null && session.vehicle.year !== ''
+                        ? ` (${session.vehicle.year})`
+                        : ''}
+                    </div>
+                  )}
+                </div>
               ) : (
                 '--'
               )}

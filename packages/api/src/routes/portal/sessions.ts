@@ -13,6 +13,8 @@ import {
   drivers,
   driverTokens,
   meterValues,
+  vehicles,
+  vehicleEfficiencyLookup,
 } from '@evtivity/database';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { ID_PARAMS } from '../../lib/id-validation.js';
@@ -106,6 +108,20 @@ const portalSessionDetail = portalSessionListItem
       .passthrough()
       .nullable()
       .describe('RFID/token used to authorize this session, null when not from a registered token'),
+    vehicle: z
+      .object({
+        id: z.string().describe('Vehicle ID'),
+        make: z.string().nullable().describe('Vehicle make'),
+        model: z.string().nullable().describe('Vehicle model'),
+        year: z.string().nullable().describe('Vehicle year'),
+        efficiencyMiPerKwh: z
+          .number()
+          .min(0)
+          .describe('Resolved efficiency for this vehicle make/model (mi/kWh)'),
+      })
+      .passthrough()
+      .nullable()
+      .describe('Vehicle linked to this session for distance estimation'),
   })
   .passthrough();
 
@@ -414,11 +430,16 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           reservationId: chargingSessions.reservationId,
           tokenIdToken: driverTokens.idToken,
           tokenType: driverTokens.tokenType,
+          vehicleId: chargingSessions.vehicleId,
+          vehicleMake: vehicles.make,
+          vehicleModel: vehicles.model,
+          vehicleYear: vehicles.year,
         })
         .from(chargingSessions)
         .leftJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
         .leftJoin(driverTokens, eq(chargingSessions.tokenId, driverTokens.id))
+        .leftJoin(vehicles, eq(chargingSessions.vehicleId, vehicles.id))
         .where(eq(chargingSessions.id, id));
 
       if (session == null) {
@@ -431,7 +452,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const [payment, latestPower, latestSoc] = await Promise.all([
+      const [payment, latestPower, latestSoc, vehicleEfficiency] = await Promise.all([
         db
           .select()
           .from(paymentRecords)
@@ -453,16 +474,127 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           .orderBy(desc(meterValues.timestamp))
           .limit(1)
           .then((r) => r[0]),
+        session.vehicleId != null && session.vehicleMake != null && session.vehicleModel != null
+          ? db
+              .select({ efficiencyMiPerKwh: vehicleEfficiencyLookup.efficiencyMiPerKwh })
+              .from(vehicleEfficiencyLookup)
+              .where(
+                and(
+                  sql`LOWER(${vehicleEfficiencyLookup.make}) = LOWER(${session.vehicleMake})`,
+                  sql`LOWER(${vehicleEfficiencyLookup.model}) = LOWER(${session.vehicleModel})`,
+                ),
+              )
+              .limit(1)
+              .then((r) => r[0])
+          : Promise.resolve(undefined),
       ]);
 
-      const { tokenIdToken, tokenType, ...sessionRest } = session;
+      const DEFAULT_EFFICIENCY = 3.5;
+      const {
+        tokenIdToken,
+        tokenType,
+        vehicleId,
+        vehicleMake,
+        vehicleModel,
+        vehicleYear,
+        ...sessionRest
+      } = session;
       return {
         ...sessionRest,
         currentPowerW: latestPower != null ? parseFloat(latestPower.value) : null,
         batteryPercent: latestSoc != null ? parseFloat(latestSoc.value) : null,
         payment: payment ?? null,
         token: tokenIdToken != null ? { idToken: tokenIdToken, tokenType: tokenType ?? '' } : null,
+        vehicle:
+          vehicleId != null
+            ? {
+                id: vehicleId,
+                make: vehicleMake,
+                model: vehicleModel,
+                year: vehicleYear,
+                efficiencyMiPerKwh:
+                  vehicleEfficiency != null
+                    ? Number(vehicleEfficiency.efficiencyMiPerKwh)
+                    : DEFAULT_EFFICIENCY,
+              }
+            : null,
       };
+    },
+  );
+
+  app.patch(
+    '/portal/sessions/:id/vehicle',
+    {
+      onRequest: [app.authenticateDriver],
+      schema: {
+        tags: ['Portal Sessions'],
+        summary: 'Set or clear the vehicle linked to a session',
+        operationId: 'portalSetSessionVehicle',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(sessionParams),
+        body: zodSchema(
+          z.object({
+            vehicleId: ID_PARAMS.vehicleId
+              .nullable()
+              .describe('Vehicle ID to link, or null to unlink'),
+          }),
+        ),
+        response: {
+          200: itemResponse(
+            z
+              .object({
+                vehicleId: z.string().nullable().describe('Linked vehicle ID after update'),
+              })
+              .passthrough(),
+          ),
+          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN]),
+          404: errorWith('Not found', [
+            ERROR_CODES.SESSION_NOT_FOUND,
+            ERROR_CODES.VEHICLE_NOT_FOUND,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { driverId } = request.user as DriverJwtPayload;
+      const { id } = request.params as z.infer<typeof sessionParams>;
+      const { vehicleId } = request.body as { vehicleId: string | null };
+
+      const [session] = await db
+        .select({ driverId: chargingSessions.driverId })
+        .from(chargingSessions)
+        .where(eq(chargingSessions.id, id));
+
+      if (session == null) {
+        await reply.status(404).send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
+        return;
+      }
+      if (session.driverId !== driverId) {
+        await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+        return;
+      }
+
+      if (vehicleId != null) {
+        const [vehicle] = await db
+          .select({ driverId: vehicles.driverId })
+          .from(vehicles)
+          .where(eq(vehicles.id, vehicleId));
+        if (vehicle == null) {
+          await reply.status(404).send({ error: 'Vehicle not found', code: 'VEHICLE_NOT_FOUND' });
+          return;
+        }
+        if (vehicle.driverId !== driverId) {
+          await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+          return;
+        }
+      }
+
+      await db
+        .update(chargingSessions)
+        .set({ vehicleId, updatedAt: new Date() })
+        .where(eq(chargingSessions.id, id));
+
+      return { vehicleId };
     },
   );
 

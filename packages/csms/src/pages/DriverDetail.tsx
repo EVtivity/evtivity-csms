@@ -21,6 +21,7 @@ import { DriverDetailsTab } from '@/components/driver/DriverDetailsTab';
 import { DriverPaymentMethodsTab } from '@/components/driver/DriverPaymentMethodsTab';
 import { DriverPricingTab } from '@/components/driver/DriverPricingTab';
 import { DriverReservationsTab } from '@/components/driver/DriverReservationsTab';
+import { AuthorizeLogView } from '@/components/AuthorizeLogView';
 
 interface Driver {
   id: string;
@@ -76,7 +77,7 @@ export function DriverDetail(): React.JSX.Element {
     page: sessionsPage,
     totalPages: sessionsTotalPages,
     setPage: setSessionsPage,
-  } = usePaginatedQuery<Session>('driver-sessions', `/v1/drivers/${id ?? ''}/sessions`);
+  } = usePaginatedQuery<Session>(`driver-sessions-${id ?? ''}`, `/v1/drivers/${id ?? ''}/sessions`);
 
   const { data: driverVehicles } = useQuery({
     queryKey: ['drivers', id, 'vehicles'],
@@ -117,6 +118,7 @@ export function DriverDetail(): React.JSX.Element {
           {reservationEnabled && (
             <TabsTrigger value="reservations">{t('reservations.title')}</TabsTrigger>
           )}
+          <TabsTrigger value="authorize-log">{t('tokens.authorizeLog')}</TabsTrigger>
           <TabsTrigger value="pricing">{t('drivers.pricing')}</TabsTrigger>
         </TabsList>
 
@@ -197,6 +199,13 @@ export function DriverDetail(): React.JSX.Element {
             <DriverReservationsTab driverId={id ?? ''} timezone={timezone} />
           </TabsContent>
         )}
+
+        <TabsContent value="authorize-log">
+          <AuthorizeLogView
+            fixedFilters={{ matchedDriverId: id ?? '' }}
+            queryKey={`authorize-attempts-driver-${id ?? ''}`}
+          />
+        </TabsContent>
 
         <DriverPricingTab driverId={id ?? ''} />
       </Tabs>

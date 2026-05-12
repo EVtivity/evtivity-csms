@@ -111,6 +111,9 @@ const TokenCreate = lazy(() =>
 const TokenDetail = lazy(() =>
   import('@/pages/TokenDetail').then((m) => ({ default: m.TokenDetail })),
 );
+const AuthorizeLog = lazy(() =>
+  import('@/pages/AuthorizeLog').then((m) => ({ default: m.AuthorizeLog })),
+);
 const Settings = lazy(() => import('@/pages/Settings').then((m) => ({ default: m.Settings })));
 const NotificationRules = lazy(() =>
   import('@/pages/NotificationRules').then((m) => ({ default: m.NotificationRules })),
@@ -312,6 +315,7 @@ export function App(): React.JSX.Element {
                   <Route path="fleets/:id/pricing/add" element={<FleetAssignPricing />} />
                   <Route path="tokens" element={<Tokens />} />
                   <Route path="tokens/new" element={<TokenCreate />} />
+                  <Route path="tokens/authorize-log" element={<AuthorizeLog />} />
                   <Route path="tokens/:id" element={<TokenDetail />} />
                   <Route
                     path="users"

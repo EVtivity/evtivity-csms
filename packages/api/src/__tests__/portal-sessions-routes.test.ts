@@ -73,6 +73,8 @@ vi.mock('@evtivity/database', () => ({
   meterValues: {},
   drivers: {},
   driverTokens: {},
+  vehicles: {},
+  vehicleEfficiencyLookup: {},
 }));
 
 vi.mock('drizzle-orm', () => {

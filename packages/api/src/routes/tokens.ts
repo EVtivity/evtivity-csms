@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
@@ -20,6 +20,20 @@ import type { PaginatedResponse } from '../lib/pagination.js';
 import { paginatedResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
+import type { JwtPayload } from '../plugins/auth.js';
+
+// OCPP 2.1 IdTokenEnumType. Canonical list shared by operator + portal.
+export const OCPP_TOKEN_TYPES = [
+  'Central',
+  'eMAID',
+  'ISO14443',
+  'ISO15693',
+  'KeyCode',
+  'Local',
+  'MacAddress',
+  'NoAuthorization',
+] as const;
+const tokenTypeSchema = z.enum(OCPP_TOKEN_TYPES);
 
 const tokenItem = z
   .object({
@@ -28,6 +42,9 @@ const tokenItem = z
     idToken: z.string().describe('Token identifier (e.g. RFID UID)'),
     tokenType: z.string().describe('OCPP IdToken type (ISO14443, ISO15693, Central, eMAID, etc.)'),
     isActive: z.boolean().describe('Whether the token can be used to authorize charging'),
+    expiresAt: z.coerce.date().nullable().describe('Optional expiration timestamp'),
+    revokedAt: z.coerce.date().nullable().describe('Timestamp the token was last deactivated'),
+    revokedReason: z.string().nullable().describe('Optional operator-supplied reason'),
     createdAt: z.coerce.date().describe('Timestamp when the token was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the token was last updated'),
     driverFirstName: z
@@ -44,8 +61,11 @@ const tokenCreated = z
     id: z.string().describe('Token ID'),
     driverId: z.string().nullable().describe('Assigned driver ID, null if unassigned'),
     idToken: z.string().describe('Token identifier (e.g. RFID UID)'),
-    tokenType: z.string().describe('OCPP IdToken type (ISO14443, ISO15693, Central, eMAID, etc.)'),
+    tokenType: z.string().describe('OCPP IdToken type'),
     isActive: z.boolean().describe('Whether the token can be used to authorize charging'),
+    expiresAt: z.coerce.date().nullable().describe('Optional expiration timestamp'),
+    revokedAt: z.coerce.date().nullable().describe('Timestamp the token was last deactivated'),
+    revokedReason: z.string().nullable().describe('Optional operator-supplied reason'),
     createdAt: z.coerce.date().describe('Timestamp when the token was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the token was last updated'),
   })
@@ -70,25 +90,13 @@ const tokenSessionItem = z
       .nullable()
       .describe('Driver full name, null for guest or unassigned sessions'),
     transactionId: z.string().nullable().describe('OCPP transaction ID, null if not yet assigned'),
-    status: z.string().describe('Session status (active, completed, failed, faulted, etc.)'),
+    status: z.string().describe('Session status'),
     startedAt: z.coerce.date().describe('Timestamp when the session started'),
-    endedAt: z.coerce
-      .date()
-      .nullable()
-      .describe('Timestamp when the session ended, null if still active'),
-    energyDeliveredWh: z.coerce
-      .number()
-      .nullable()
-      .describe('Energy delivered in watt-hours, null if not yet measured'),
-    currentCostCents: z
-      .number()
-      .nullable()
-      .describe('Current accumulated cost in cents, null if free or not yet calculated'),
-    finalCostCents: z
-      .number()
-      .nullable()
-      .describe('Final cost in cents after session ended, null if session still active'),
-    currency: z.string().nullable().describe('ISO 4217 currency code, null if session has no cost'),
+    endedAt: z.coerce.date().nullable().describe('Timestamp when the session ended'),
+    energyDeliveredWh: z.coerce.number().nullable().describe('Energy delivered in Wh'),
+    currentCostCents: z.number().nullable().describe('Current accumulated cost in cents'),
+    finalCostCents: z.number().nullable().describe('Final cost in cents'),
+    currency: z.string().nullable().describe('ISO 4217 currency code'),
   })
   .passthrough();
 
@@ -98,32 +106,43 @@ const tokenParams = z.object({
 
 const createTokenBody = z.object({
   driverId: ID_PARAMS.driverId.optional().describe('Driver ID to assign this token to'),
-  idToken: z.string().max(255).describe('Token identifier (e.g. RFID card UID)'),
-  tokenType: z
-    .string()
-    .max(20)
-    .describe('OCPP IdToken type (e.g. ISO14443, ISO15693, Central, eMAID)'),
+  idToken: z.string().min(1).max(255).describe('Token identifier'),
+  tokenType: tokenTypeSchema.describe('OCPP IdToken type'),
+  expiresAt: z.coerce.date().nullable().optional().describe('Optional expiration timestamp'),
 });
 
 const updateTokenBody = z.object({
-  idToken: z.string().max(255).optional().describe('Token identifier (e.g. RFID card UID)'),
-  tokenType: z
-    .string()
-    .max(20)
-    .optional()
-    .describe('OCPP IdToken type (e.g. ISO14443, ISO15693, Central, eMAID)'),
+  idToken: z.string().min(1).max(255).optional().describe('Token identifier'),
+  tokenType: tokenTypeSchema.optional().describe('OCPP IdToken type'),
   driverId: ID_PARAMS.driverId
     .nullable()
     .optional()
     .describe('Driver ID to assign this token to, or null to unassign'),
   isActive: z.boolean().optional().describe('Whether the token is active'),
+  expiresAt: z.coerce
+    .date()
+    .nullable()
+    .optional()
+    .describe('Optional expiration timestamp; null clears expiry'),
+  revokedReason: z
+    .string()
+    .max(100)
+    .nullable()
+    .optional()
+    .describe('Optional reason recorded when the token is deactivated'),
+});
+
+const bulkActiveBody = z.object({
+  ids: z.array(ID_PARAMS.driverTokenId).min(1).max(500).describe('Token IDs to update'),
+  isActive: z.boolean().describe('New active state to apply to every token in ids'),
 });
 
 const importTokenRow = z.object({
   idToken: z.string().min(1).max(255),
-  tokenType: z.string().min(1).max(20),
+  tokenType: tokenTypeSchema,
   driverEmail: z.string().email().max(255).optional(),
   isActive: z.boolean().optional(),
+  expiresAt: z.string().max(50).optional(),
 });
 
 const importTokenBody = z.object({
@@ -222,8 +241,88 @@ export function tokenRoutes(app: FastifyInstance): void {
       },
     },
     async (request) => {
+      const { userId } = request.user as JwtPayload;
       const { rows } = request.body as z.infer<typeof importTokenBody>;
-      return tokenService.importTokensCsv(rows);
+      return tokenService.importTokensCsv(rows, { type: 'operator', userId });
+    },
+  );
+
+  app.post(
+    '/tokens/bulk-active',
+    {
+      onRequest: [authorize('drivers:write')],
+      schema: {
+        tags: ['Tokens'],
+        summary: 'Bulk activate or deactivate tokens',
+        operationId: 'bulkSetTokensActive',
+        security: [{ bearerAuth: [] }],
+        body: zodSchema(bulkActiveBody),
+        response: {
+          200: itemResponse(
+            z
+              .object({ updated: z.number().int().min(0).describe('Number of tokens updated') })
+              .passthrough(),
+          ),
+        },
+      },
+    },
+    async (request) => {
+      const { userId } = request.user as JwtPayload;
+      const { ids, isActive } = request.body as z.infer<typeof bulkActiveBody>;
+      return tokenService.bulkSetActive(ids, isActive, { type: 'operator', userId });
+    },
+  );
+
+  app.get(
+    '/tokens/:id/audit',
+    {
+      onRequest: [authorize('drivers:read')],
+      schema: {
+        tags: ['Tokens'],
+        summary: 'List audit log entries for a token',
+        operationId: 'listTokenAudit',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(tokenParams),
+        querystring: zodSchema(paginationQuery),
+        response: {
+          200: paginatedResponse(
+            z
+              .object({
+                id: z.number().describe('Audit row identifier'),
+                tokenId: z.string().nullable().describe('Token ID'),
+                idToken: z.string().describe('Token value snapshot'),
+                tokenType: z.string().describe('Token type snapshot'),
+                driverId: z.string().nullable().describe('Driver ID snapshot'),
+                action: z.string().describe('Audit action'),
+                actor: z.string().describe('Actor kind: operator, driver, system'),
+                actorUserId: z.string().nullable().describe('Operator user ID'),
+                actorUserName: z
+                  .string()
+                  .nullable()
+                  .describe('Operator display name (first + last, or email fallback)'),
+                actorDriverId: z.string().nullable().describe('Driver actor ID'),
+                actorDriverName: z
+                  .string()
+                  .nullable()
+                  .describe('Driver actor display name (first + last, or email fallback)'),
+                notes: z.string().nullable().describe('Optional note'),
+                createdAt: z.coerce.date().describe('Audit timestamp'),
+              })
+              .passthrough(),
+          ),
+          404: errorWith('Token not found', [ERROR_CODES.TOKEN_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof tokenParams>;
+      const { page, limit } = request.query as z.infer<typeof paginationQuery>;
+      const token = await tokenService.getToken(id);
+      if (token == null) {
+        await reply.status(404).send({ error: 'Token not found', code: 'TOKEN_NOT_FOUND' });
+        return;
+      }
+      return tokenService.listTokenAuditLog(id, { page, limit });
     },
   );
 
@@ -233,7 +332,7 @@ export function tokenRoutes(app: FastifyInstance): void {
       onRequest: [authorize('drivers:read')],
       schema: {
         tags: ['Tokens'],
-        summary: 'List charging sessions for a token',
+        summary: 'List charging sessions authorized by this token',
         operationId: 'listTokenSessions',
         security: [{ bearerAuth: [] }],
         params: zodSchema(tokenParams),
@@ -255,11 +354,10 @@ export function tokenRoutes(app: FastifyInstance): void {
         return;
       }
 
-      if (token.driverId == null) {
-        return { data: [], total: 0 } satisfies PaginatedResponse<unknown>;
-      }
-
-      const where = eq(chargingSessions.driverId, token.driverId);
+      // Filter by token_id directly (the FK on charging_sessions). This shows
+      // sessions where the OCPP authorize matched THIS card, not every session
+      // by the same driver.
+      const where = eq(chargingSessions.tokenId, id);
 
       const [data, countRows] = await Promise.all([
         db
@@ -345,9 +443,10 @@ export function tokenRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      const { userId } = request.user as JwtPayload;
       const body = request.body as z.infer<typeof createTokenBody>;
       try {
-        const token = await tokenService.createToken(body);
+        const token = await tokenService.createToken(body, { type: 'operator', userId });
         await reply.status(201).send(token);
       } catch (err) {
         if (err instanceof tokenService.DuplicateTokenError) {
@@ -380,10 +479,11 @@ export function tokenRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      const { userId } = request.user as JwtPayload;
       const { id } = request.params as z.infer<typeof tokenParams>;
       const body = request.body as z.infer<typeof updateTokenBody>;
       try {
-        const token = await tokenService.updateToken(id, body);
+        const token = await tokenService.updateToken(id, body, { type: 'operator', userId });
         if (token == null) {
           await reply.status(404).send({ error: 'Token not found', code: 'TOKEN_NOT_FOUND' });
           return;
@@ -414,12 +514,30 @@ export function tokenRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(tokenCreated),
           404: errorWith('Token not found', [ERROR_CODES.TOKEN_NOT_FOUND]),
+          409: errorWith('Token is currently in use by an active charging session', [
+            ERROR_CODES.TOKEN_IN_USE,
+          ]),
         },
       },
     },
     async (request, reply) => {
+      const { userId } = request.user as JwtPayload;
       const { id } = request.params as z.infer<typeof tokenParams>;
-      const token = await tokenService.deleteToken(id);
+
+      const [activeSession] = await db
+        .select({ id: chargingSessions.id })
+        .from(chargingSessions)
+        .where(and(eq(chargingSessions.tokenId, id), eq(chargingSessions.status, 'active')))
+        .limit(1);
+      if (activeSession != null) {
+        await reply.status(409).send({
+          error: 'Token is currently in use by an active charging session',
+          code: 'TOKEN_IN_USE',
+        });
+        return;
+      }
+
+      const token = await tokenService.deleteToken(id, { type: 'operator', userId });
       if (token == null) {
         await reply.status(404).send({ error: 'Token not found', code: 'TOKEN_NOT_FOUND' });
         return;
