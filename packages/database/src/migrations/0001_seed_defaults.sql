@@ -261,10 +261,10 @@ INSERT INTO vendors (id, name)
 VALUES ('vnd_000000000001', 'EVtivity')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO charging_stations (id, station_id, vendor_id, site_id, model, ocpp_protocol, security_profile)
+INSERT INTO charging_stations (id, station_id, vendor_id, site_id, model, ocpp_protocol, security_profile, is_simulator)
 VALUES
-  ('sta_000000000001', 'CS-0001', 'vnd_000000000001', 'sit_000000000001', 'EVtivity AC', 'ocpp1.6', 0),
-  ('sta_000000000002', 'CS-0002', 'vnd_000000000001', 'sit_000000000001', 'EVtivity DC', 'ocpp2.1', 0)
+  ('sta_000000000001', 'CS-0001', 'vnd_000000000001', 'sit_000000000001', 'EVtivity AC', 'ocpp1.6', 0, true),
+  ('sta_000000000002', 'CS-0002', 'vnd_000000000001', 'sit_000000000001', 'EVtivity DC', 'ocpp2.1', 0, true)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO evses (id, station_id, evse_id)
