@@ -5,12 +5,6 @@ import { randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
 import type { PubSubClient } from '@evtivity/lib';
 
-interface CsmsStation {
-  stationId: string;
-  securityProfile: number;
-  ocppProtocol: 'ocpp1.6' | 'ocpp2.1';
-}
-
 interface DriverToken {
   idToken: string;
   tokenType: string;
@@ -477,12 +471,6 @@ export class ChaosOrchestrator {
   private readonly pubsub: PubSubClient;
   private readonly actionIntervalMs: number;
   private readonly stationLimit: number;
-  private readonly serverUrl: string;
-  private readonly tlsServerUrl: string;
-  private readonly password: string;
-  private readonly clientCert: string | null;
-  private readonly clientKey: string | null;
-  private readonly caCert: string | null;
   private actionTimer: ReturnType<typeof setInterval> | null = null;
   private stationIds: string[] = [];
   private tokens: DriverToken[] = [];
@@ -497,34 +485,23 @@ export class ChaosOrchestrator {
     options?: {
       actionIntervalMs?: number;
       stationLimit?: number;
-      serverUrl?: string;
-      tlsServerUrl?: string;
-      password?: string;
-      clientCert?: string;
-      clientKey?: string;
-      caCert?: string;
     },
   ) {
     this.sql = sql;
     this.pubsub = pubsub;
     this.actionIntervalMs = options?.actionIntervalMs ?? 1000;
     this.stationLimit = options?.stationLimit ?? 0;
-    this.serverUrl = options?.serverUrl ?? 'ws://localhost:7103';
-    this.tlsServerUrl = options?.tlsServerUrl ?? 'wss://localhost:8443';
-    this.password = options?.password ?? 'password';
-    this.clientCert = options?.clientCert ?? null;
-    this.clientKey = options?.clientKey ?? null;
-    this.caCert = options?.caCert ?? null;
   }
 
   async start(): Promise<void> {
-    // Load CSMS stations
-    const stationRows = await this.sql<
-      Array<{ station_id: string; security_profile: number; ocpp_protocol: string }>
-    >`
-      SELECT station_id, security_profile, ocpp_protocol
-      FROM charging_stations
-      WHERE is_simulator = true
+    // css_stations rows are owned by the seed scripts (db:seed, db:seed:dev)
+    // and migration 0001. The orchestrator just reads them to populate its
+    // in-memory action targets -- no INSERT mirroring here.
+    const stationRows = await this.sql<Array<{ station_id: string; ocpp_protocol: string }>>`
+      SELECT cs.station_id, cs.ocpp_protocol
+      FROM charging_stations cs
+      INNER JOIN css_stations css ON css.station_id = cs.station_id
+      WHERE cs.is_simulator = true AND css.enabled = true
     `;
 
     let stations = [...stationRows];
@@ -539,19 +516,17 @@ export class ChaosOrchestrator {
       `
     ).map((r) => ({ idToken: r.id_token, tokenType: r.token_type }));
 
+    for (const station of stations) {
+      this.stationIds.push(station.station_id);
+      this.stationProtocols.set(
+        station.station_id,
+        station.ocpp_protocol === 'ocpp1.6' ? 'ocpp1.6' : 'ocpp2.1',
+      );
+    }
+
     console.log(
       `[chaos] Loaded ${String(stations.length)} stations and ${String(this.tokens.length)} tokens`,
     );
-
-    // Create CSS station records directly in the database
-    for (const station of stations) {
-      const csmsStation: CsmsStation = {
-        stationId: station.station_id,
-        securityProfile: station.security_profile,
-        ocppProtocol: station.ocpp_protocol === 'ocpp1.6' ? 'ocpp1.6' : 'ocpp2.1',
-      };
-      await this.createCssStation(csmsStation);
-    }
 
     // Start action timer
     this.actionTimer = setInterval(() => void this.dispatchRandomAction(), this.actionIntervalMs);
@@ -564,62 +539,6 @@ export class ChaosOrchestrator {
     if (this.actionTimer != null) {
       clearInterval(this.actionTimer);
       this.actionTimer = null;
-    }
-  }
-
-  private async createCssStation(station: CsmsStation): Promise<void> {
-    const requiresTls = station.securityProfile >= 2;
-    const targetUrl = requiresTls ? this.tlsServerUrl : this.serverUrl;
-
-    try {
-      // Insert directly into css_stations (ON CONFLICT skip for idempotency)
-      const isSp3 = station.securityProfile === 3;
-      await this.sql`
-        INSERT INTO css_stations (
-          id, station_id, target_url,
-          password, client_cert, client_key, ca_cert,
-          source_type, enabled
-        ) VALUES (
-          ${'css_' + randomUUID().replace(/-/g, '').slice(0, 12)},
-          ${station.stationId},
-          ${targetUrl},
-          ${isSp3 ? null : this.password},
-          ${isSp3 ? this.clientCert : null},
-          ${isSp3 ? this.clientKey : null},
-          ${requiresTls ? this.caCert : null},
-          ${'chaos'},
-          ${true}
-        ) ON CONFLICT (station_id) DO NOTHING
-      `;
-
-      // Get the css_station ID (may already exist)
-      const rows = await this.sql<Array<{ id: string }>>`
-        SELECT id FROM css_stations WHERE station_id = ${station.stationId} LIMIT 1
-      `;
-      const cssStationId = rows[0]?.id;
-      if (cssStationId == null) return;
-
-      // Insert default EVSE (ON CONFLICT skip)
-      await this.sql`
-        INSERT INTO css_evses (
-          id, css_station_id, evse_id, connector_id, connector_type, max_power_w, phases, voltage
-        ) VALUES (
-          ${'cev_' + randomUUID().replace(/-/g, '').slice(0, 12)},
-          ${cssStationId},
-          ${1},
-          ${1},
-          ${'ac_type2'},
-          ${22000},
-          ${3},
-          ${230}
-        ) ON CONFLICT (css_station_id, evse_id, connector_id) DO NOTHING
-      `;
-
-      this.stationIds.push(station.stationId);
-      this.stationProtocols.set(station.stationId, station.ocppProtocol);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.log(`[chaos] Failed to create station ${station.stationId}: ${message}`);
     }
   }
 

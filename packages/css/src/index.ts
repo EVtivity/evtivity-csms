@@ -2,9 +2,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { createServer } from 'node:http';
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { RedisPubSubClient } from '@evtivity/lib';
 import { SimulatorManager } from './simulator-manager.js';
@@ -17,9 +14,6 @@ const mode = config.CSS_MODE;
 const healthPort = config.CSS_HEALTH_PORT;
 const actionIntervalMs = config.CSS_ACTION_INTERVAL_MS;
 const stationLimit = config.CSS_STATION_LIMIT;
-const serverUrl = config.OCPP_SERVER_URL;
-const tlsServerUrl = config.OCPP_TLS_SERVER_URL;
-const password = config.CSS_STATION_PASSWORD;
 
 const sql = postgres(databaseUrl);
 const pubsub = new RedisPubSubClient(redisUrl);
@@ -58,38 +52,13 @@ async function main(): Promise<void> {
   await manager.start();
   console.log(`[css] SimulatorManager started. Mode: ${mode}`);
 
-  // Resolve SP3 client certs from either env vars (CDK / ECS, PEM content
-  // injected from Secrets Manager) or files on disk (Helm volume mount, or
-  // local test certs).
-  const testCertsDir = resolve(dirname(fileURLToPath(import.meta.url)), '../test-certs');
-  const clientCertPath = config.CSS_CLIENT_CERT ?? resolve(testCertsDir, 'client.pem');
-  const clientKeyPath = config.CSS_CLIENT_KEY ?? resolve(testCertsDir, 'client-key.pem');
-  const caCertPath = config.CSS_CA_CERT ?? resolve(testCertsDir, 'ca.pem');
-  let sp3ClientCert: string | undefined;
-  let sp3ClientKey: string | undefined;
-  let sp3CaCert: string | undefined;
-  if (config.CSS_CLIENT_CERT_PEM != null && config.CSS_CLIENT_CERT_PEM !== '') {
-    sp3ClientCert = config.CSS_CLIENT_CERT_PEM;
-    sp3ClientKey = config.CSS_CLIENT_KEY_PEM;
-    sp3CaCert = config.CSS_CA_PEM;
-  } else if (existsSync(clientCertPath)) {
-    sp3ClientCert = readFileSync(clientCertPath, 'utf-8');
-    sp3ClientKey = readFileSync(clientKeyPath, 'utf-8');
-    sp3CaCert = readFileSync(caCertPath, 'utf-8');
-  }
-
-  // Chaos mode: orchestrator reads CSMS stations and writes directly to css_* tables + Redis
+  // Chaos mode: orchestrator dispatches random actions against simulators
+  // whose css_stations rows were already seeded by the database migrations.
   let chaos: ChaosOrchestrator | null = null;
   if (mode === 'chaos') {
     chaos = new ChaosOrchestrator(sql, pubsub, {
       actionIntervalMs,
       stationLimit,
-      serverUrl,
-      tlsServerUrl,
-      password,
-      ...(sp3ClientCert != null ? { clientCert: sp3ClientCert } : {}),
-      ...(sp3ClientKey != null ? { clientKey: sp3ClientKey } : {}),
-      ...(sp3CaCert != null ? { caCert: sp3CaCert } : {}),
     });
     await chaos.start();
     console.log('[css] ChaosOrchestrator started');

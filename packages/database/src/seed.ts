@@ -65,6 +65,8 @@ import {
   userPermissions,
   userSiteAssignments,
   stationMessageTemplates,
+  cssStations,
+  cssEvses,
 } from './schema/index.js';
 import argon2 from 'argon2';
 import {
@@ -1338,6 +1340,36 @@ async function seed(): Promise<void> {
     .values(stationRows)
     .returning({ id: chargingStations.id });
   console.log(`  ${String(createdStations.length)} charging stations created.`);
+
+  // Pair every is_simulator=true row with a css_stations row so
+  // SimulatorManager boots them on its 5s poll. Replaces the runtime mirror
+  // that used to live in ChaosOrchestrator.start(). target_url uses the
+  // docker-compose service hostname; db:seed is a dev-only workflow so this
+  // is the only environment that matters. SP3 rows are inserted disabled
+  // because client cert PEMs aren't available here; enable + paste certs
+  // through the dashboard when testing those flows.
+  const simulatorRows = stationRows.filter((s) => s.isSimulator);
+  if (simulatorRows.length > 0) {
+    const cssStationRows = simulatorRows.map((s) => ({
+      stationId: s.stationId,
+      targetUrl: s.securityProfile >= 2 ? 'wss://ocpp:8443' : 'ws://ocpp:7103',
+      password: s.securityProfile === 3 ? null : 'password',
+      sourceType: 'seed',
+      enabled: s.securityProfile !== 3,
+    }));
+    const createdCssStations = await db
+      .insert(cssStations)
+      .values(cssStationRows)
+      .returning({ id: cssStations.id });
+    await db.insert(cssEvses).values(
+      createdCssStations.map((row) => ({
+        cssStationId: row.id,
+        evseId: 1,
+        connectorId: 1,
+      })),
+    );
+    console.log(`  ${String(createdCssStations.length)} css_stations rows seeded for simulators.`);
+  }
 
   // ------ Site Power Limits (first 8 sites) ------
   const strategies: Array<'equal_share' | 'priority_based'> = ['equal_share', 'priority_based'];
