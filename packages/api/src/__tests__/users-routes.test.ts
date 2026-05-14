@@ -71,6 +71,8 @@ vi.mock('@evtivity/database', () => ({
   client: vi.fn(() => Promise.resolve([])),
   users: {},
   roles: {},
+  sites: {},
+  refreshTokens: {},
   userTokens: {},
   userSiteAssignments: {},
   userPermissions: {},
@@ -161,6 +163,8 @@ vi.mock('../services/refresh-token.service.js', () => ({
     .mockResolvedValue({ rawToken: 'mock-refresh-token', expiresAt: new Date() }),
   validateAndRotateRefreshToken: vi.fn().mockResolvedValue(null),
   revokeRefreshToken: vi.fn().mockResolvedValue(undefined),
+  revokeAllUserRefreshTokens: vi.fn().mockResolvedValue(undefined),
+  revokeAllUserSessions: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../middleware/rbac.js', () => ({
@@ -418,8 +422,13 @@ describe('User routes', () => {
   });
 
   it('POST /v1/users creates a new user and sends invite email', async () => {
-    // 1: insert user returning row, 2: insert token
+    // 1: duplicate-email pre-check (no duplicate)
+    // 2: roleId pre-check (role exists)
+    // 3: insert user returning row
+    // 4: insert token
     setupDbResults(
+      [],
+      [{ id: VALID_ROLE_ID }],
       [
         {
           id: VALID_USER_ID,

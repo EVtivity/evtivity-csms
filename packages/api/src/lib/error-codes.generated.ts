@@ -82,6 +82,7 @@ export const ERROR_CODES = {
   INVALID_REFRESH_TOKEN: 'INVALID_REFRESH_TOKEN',
   INVALID_REGION_CODE: 'INVALID_REGION_CODE',
   INVALID_RESTRICTIONS: 'INVALID_RESTRICTIONS',
+  INVALID_SITE_IDS: 'INVALID_SITE_IDS',
   INVALID_TOKEN: 'INVALID_TOKEN',
   INVOICE_CREATION_FAILED: 'INVOICE_CREATION_FAILED',
   INVOICE_NOT_FOUND: 'INVOICE_NOT_FOUND',
@@ -98,7 +99,9 @@ export const ERROR_CODES = {
   MESSAGE_TIMEOUT: 'MESSAGE_TIMEOUT',
   MFA_CHALLENGE_EXHAUSTED: 'MFA_CHALLENGE_EXHAUSTED',
   MFA_CODE_INVALID: 'MFA_CODE_INVALID',
+  MFA_METHOD_DISABLED: 'MFA_METHOD_DISABLED',
   MFA_NOT_CONFIGURED: 'MFA_NOT_CONFIGURED',
+  MFA_REQUIRED: 'MFA_REQUIRED',
   MFA_TOKEN_EXPIRED: 'MFA_TOKEN_EXPIRED',
   MFA_TOKEN_INVALID: 'MFA_TOKEN_INVALID',
   MFA_TOTP_NO_RESEND: 'MFA_TOTP_NO_RESEND',
@@ -170,6 +173,7 @@ export const ERROR_CODES = {
   RESERVATION_WINDOW_TOO_SHORT: 'RESERVATION_WINDOW_TOO_SHORT',
   RESET_NOT_REQUIRED: 'RESET_NOT_REQUIRED',
   ROAMING_DISABLED: 'ROAMING_DISABLED',
+  ROLE_NOT_FOUND: 'ROLE_NOT_FOUND',
   ROTATION_FAILED: 'ROTATION_FAILED',
   RULE_NOT_FOUND: 'RULE_NOT_FOUND',
   S3_CONNECTION_FAILED: 'S3_CONNECTION_FAILED',
@@ -293,6 +297,7 @@ export type ErrorCode =
   | 'INVALID_REFRESH_TOKEN'
   | 'INVALID_REGION_CODE'
   | 'INVALID_RESTRICTIONS'
+  | 'INVALID_SITE_IDS'
   | 'INVALID_TOKEN'
   | 'INVOICE_CREATION_FAILED'
   | 'INVOICE_NOT_FOUND'
@@ -309,7 +314,9 @@ export type ErrorCode =
   | 'MESSAGE_TIMEOUT'
   | 'MFA_CHALLENGE_EXHAUSTED'
   | 'MFA_CODE_INVALID'
+  | 'MFA_METHOD_DISABLED'
   | 'MFA_NOT_CONFIGURED'
+  | 'MFA_REQUIRED'
   | 'MFA_TOKEN_EXPIRED'
   | 'MFA_TOKEN_INVALID'
   | 'MFA_TOTP_NO_RESEND'
@@ -381,6 +388,7 @@ export type ErrorCode =
   | 'RESERVATION_WINDOW_TOO_SHORT'
   | 'RESET_NOT_REQUIRED'
   | 'ROAMING_DISABLED'
+  | 'ROLE_NOT_FOUND'
   | 'ROTATION_FAILED'
   | 'RULE_NOT_FOUND'
   | 'S3_CONNECTION_FAILED'
@@ -511,6 +519,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   INVALID_REFRESH_TOKEN: 'Invalid refresh token',
   INVALID_REGION_CODE: 'Invalid region code',
   INVALID_RESTRICTIONS: 'Invalid tariff restrictions',
+  INVALID_SITE_IDS: 'One or more siteIds do not exist',
   INVALID_TOKEN: 'Invalid or expired reset link',
   INVOICE_CREATION_FAILED: 'Failed to create invoice',
   INVOICE_NOT_FOUND: 'Invoice not found',
@@ -527,7 +536,9 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   MESSAGE_TIMEOUT: 'Display message command timed out',
   MFA_CHALLENGE_EXHAUSTED: 'Too many failed attempts. Request a new code.',
   MFA_CODE_INVALID: 'Invalid verification code',
+  MFA_METHOD_DISABLED: 'MFA method is disabled',
   MFA_NOT_CONFIGURED: 'MFA not configured',
+  MFA_REQUIRED: 'MFA verification required',
   MFA_TOKEN_EXPIRED: 'Invalid or expired MFA token',
   MFA_TOKEN_INVALID: 'Invalid MFA token',
   MFA_TOTP_NO_RESEND: 'Cannot resend TOTP codes',
@@ -601,6 +612,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   RESERVATION_WINDOW_TOO_SHORT: 'Reservation must end at least 60 seconds after it starts',
   RESET_NOT_REQUIRED: 'Password reset is not required',
   ROAMING_DISABLED: 'Roaming is disabled',
+  ROLE_NOT_FOUND: 'Role does not exist',
   ROTATION_FAILED: 'Credential rotation failed',
   RULE_NOT_FOUND: 'Rule not found',
   S3_CONNECTION_FAILED: 'S3 connection test failed',

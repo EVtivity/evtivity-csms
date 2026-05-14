@@ -16,11 +16,19 @@ export interface JwtPayload {
   isApiKey?: boolean;
   apiKeyName?: string;
   apiKeyPermissions?: string[];
+  /**
+   * Set on the short-lived JWT issued during the MFA challenge step. Tokens
+   * carrying this flag are only valid for /auth/mfa/verify and
+   * /auth/mfa/resend; `app.authenticate` rejects them on every other route.
+   */
+  mfaPending?: boolean;
 }
 
 export interface DriverJwtPayload {
   driverId: string;
   type: 'driver';
+  /** Same as JwtPayload.mfaPending but for the driver portal flow. */
+  mfaPending?: boolean;
 }
 
 // Cache user isActive status to avoid a DB query on every request.
@@ -68,6 +76,12 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
       await request.jwtVerify();
       // Check if operator user is still active (catches deactivated users with valid JWTs)
       const jwtUser = request.user as unknown as Record<string, unknown>;
+      // Reject MFA-pending tokens on regular routes. The mfaPending JWT issued
+      // during the login flow is only valid for /auth/mfa/verify and /auth/mfa/resend.
+      if (jwtUser['mfaPending'] === true) {
+        await reply.status(401).send({ error: 'MFA verification required', code: 'MFA_REQUIRED' });
+        return;
+      }
       if ('userId' in jwtUser && typeof jwtUser['userId'] === 'string') {
         if (!(await isUserActive(jwtUser['userId']))) {
           await reply
@@ -88,6 +102,13 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
           const csmsToken = unsigned.valid ? unsigned.value : rawCsmsToken;
           const payload = app.jwt.verify<JwtPayload>(csmsToken);
           (request as unknown as Record<string, unknown>)['user'] = payload;
+          // Reject MFA-pending tokens on regular routes.
+          if ((payload as unknown as Record<string, unknown>)['mfaPending'] === true) {
+            await reply
+              .status(401)
+              .send({ error: 'MFA verification required', code: 'MFA_REQUIRED' });
+            return;
+          }
           // Check if user is still active (catches deactivated users with valid JWTs)
           if ('userId' in payload && !(await isUserActive(payload.userId))) {
             await reply
@@ -193,6 +214,12 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
         await reply
           .status(403)
           .send({ error: 'Forbidden: driver token required', code: 'FORBIDDEN_DRIVER_TOKEN' });
+        return;
+      }
+      // Reject MFA-pending tokens on regular routes. The mfaPending JWT issued
+      // during the driver login flow is only valid for portal MFA verify/resend.
+      if (payload['mfaPending'] === true) {
+        await reply.status(401).send({ error: 'MFA verification required', code: 'MFA_REQUIRED' });
         return;
       }
       // Check if driver account is still active

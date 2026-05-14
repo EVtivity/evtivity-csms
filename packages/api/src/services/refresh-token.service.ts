@@ -83,6 +83,30 @@ export async function revokeRefreshToken(rawToken: string): Promise<void> {
     .where(and(eq(refreshTokens.tokenHash, tokenHash), isNull(refreshTokens.revokedAt)));
 }
 
+/**
+ * Revoke ONLY session refresh tokens for a user, leaving API keys intact.
+ * Use this on security events that invalidate sessions (password change,
+ * role change, MFA enable/disable) but should not affect long-lived API
+ * keys -- those are separately-managed credentials with their own
+ * lifecycle and re-derive permissions from the user on every request.
+ */
+export async function revokeAllUserSessions(userId: string): Promise<void> {
+  await db
+    .update(refreshTokens)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(refreshTokens.userId, userId),
+        eq(refreshTokens.type, 'session'),
+        isNull(refreshTokens.revokedAt),
+      ),
+    );
+}
+
+/**
+ * Revoke ALL refresh tokens for a user, including API keys. Use only when
+ * the user account itself is being invalidated (deactivation or delete).
+ */
 export async function revokeAllUserRefreshTokens(userId: string): Promise<void> {
   await db
     .update(refreshTokens)

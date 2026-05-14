@@ -20,6 +20,7 @@ import {
 import {
   users,
   roles,
+  sites,
   userTokens,
   userSiteAssignments,
   userNotificationPreferences,
@@ -49,6 +50,7 @@ import {
   validateAndRotateRefreshToken,
   revokeRefreshToken,
   revokeAllUserRefreshTokens,
+  revokeAllUserSessions,
 } from '../services/refresh-token.service.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -60,6 +62,7 @@ import {
   itemResponse,
   arrayResponse,
   errorWith,
+  errorResponse,
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize, invalidatePermissionCache } from '../middleware/rbac.js';
@@ -87,6 +90,16 @@ const OCPP_TEMPLATES_DIR =
   resolve(currentDir, '..', '..', '..', 'ocpp', 'src', 'templates');
 const ALL_TEMPLATES_DIRS = [OCPP_TEMPLATES_DIR, TEMPLATES_DIR];
 
+// Lazily computed argon2 hash of random data, used to equalize timing on
+// authentication endpoints when the lookup returns no user. Running
+// argon2.verify against this on the no-user branch hides whether the email
+// exists, mitigating email-enumeration timing attacks.
+let dummyPasswordHashPromise: Promise<string> | null = null;
+async function getDummyPasswordHash(): Promise<string> {
+  dummyPasswordHashPromise ??= argon2.hash(crypto.randomBytes(32).toString('hex'));
+  return dummyPasswordHashPromise;
+}
+
 const loginBody = z.object({
   email: z.string().email(),
   password: z.string().min(1),
@@ -97,7 +110,10 @@ const loginBody = z.object({
 });
 
 const createUserBody = z.object({
-  email: z.string().email(),
+  email: z
+    .string()
+    .email()
+    .transform((s) => s.trim().toLowerCase()),
   firstName: z.string().max(100).optional(),
   lastName: z.string().max(100).optional(),
   phone: z.string().max(50).optional().describe('Mobile phone number'),
@@ -344,9 +360,12 @@ export function userRoutes(app: FastifyInstance): void {
         }
       }
 
-      const [user] = await db.select().from(users).where(eq(users.email, email));
+      const [user] = await db.select().from(users).where(ilike(users.email, email));
 
       if (user == null) {
+        // Equalize timing with the user-exists branch so email enumeration
+        // via response-time analysis fails.
+        await argon2.verify(await getDummyPasswordHash(), password).catch(() => false);
         await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
         return;
       }
@@ -370,7 +389,7 @@ export function userRoutes(app: FastifyInstance): void {
       // MFA check
       if (user.mfaEnabled && user.mfaMethod != null) {
         const mfaToken = app.jwt.sign(
-          { userId: user.id, roleId: user.roleId, mfaPending: true } as unknown as JwtPayload,
+          { userId: user.id, roleId: user.roleId, mfaPending: true },
           { expiresIn: '3m' },
         );
 
@@ -547,7 +566,7 @@ export function userRoutes(app: FastifyInstance): void {
           language: users.language,
         })
         .from(users)
-        .where(eq(users.email, email));
+        .where(ilike(users.email, email));
 
       if (user != null) {
         // Revoke existing password_reset tokens
@@ -769,9 +788,11 @@ export function userRoutes(app: FastifyInstance): void {
         typeof forceChangePasswordBody
       >;
 
-      const [user] = await db.select().from(users).where(eq(users.email, email));
+      const [user] = await db.select().from(users).where(ilike(users.email, email));
 
       if (user == null) {
+        // Equalize timing with the user-exists branch (see login handler).
+        await argon2.verify(await getDummyPasswordHash(), currentPassword).catch(() => false);
         await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
         return;
       }
@@ -806,6 +827,24 @@ export function userRoutes(app: FastifyInstance): void {
         .update(users)
         .set({ passwordHash, mustResetPassword: false, updatedAt: new Date() })
         .where(eq(users.id, user.id));
+
+      // Revoke any existing sessions before issuing the new one. Mirrors
+      // /users/me/change-password and the admin reset-password handler so
+      // forced-reset password changes terminate other devices' sessions.
+      await revokeAllUserSessions(user.id);
+
+      await writeAudit(
+        { table: userAuditLog, idColumn: 'user_id' },
+        {
+          entityId: user.id,
+          entityIdSnapshot: user.id,
+          action: 'password_reset',
+          ...getAuditActor(request),
+          notes: 'User changed own password (forced reset)',
+        },
+        db,
+        request.log,
+      );
 
       const [role] = await db
         .select({ id: roles.id, name: roles.name })
@@ -968,11 +1007,59 @@ export function userRoutes(app: FastifyInstance): void {
         operationId: 'createUser',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createUserBody),
-        response: { 201: itemResponse(userCreated) },
+        response: {
+          201: itemResponse(userCreated),
+          400: errorResponse,
+          409: errorWith('Email already in use', [ERROR_CODES.DUPLICATE_EMAIL]),
+        },
       },
     },
     async (request, reply) => {
       const body = request.body as z.infer<typeof createUserBody>;
+
+      // Pre-check the unique email constraint (case-insensitive) so we return
+      // a clean 409 instead of letting Postgres raise a 500. Body email is
+      // already lowercased + trimmed by the Zod transform on createUserBody.
+      const [existing] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(ilike(users.email, body.email))
+        .limit(1);
+      if (existing != null) {
+        await reply.status(409).send({ error: 'Email already in use', code: 'DUPLICATE_EMAIL' });
+        return;
+      }
+
+      // Pre-validate roleId so a bad FK returns a clean 400 instead of a
+      // Postgres FK violation surfaced as 500.
+      const [role] = await db
+        .select({ id: roles.id })
+        .from(roles)
+        .where(eq(roles.id, body.roleId))
+        .limit(1);
+      if (role == null) {
+        await reply.status(400).send({ error: 'Role does not exist', code: 'ROLE_NOT_FOUND' });
+        return;
+      }
+
+      // Pre-validate site assignments so a bad siteId returns a clean 400
+      // instead of a Postgres FK violation surfaced as 500. Dedupe the
+      // input first so duplicates don't trip the (userId, siteId) UNIQUE
+      // constraint on insert.
+      const createSiteIds =
+        body.hasAllSiteAccess || body.siteIds == null ? [] : [...new Set(body.siteIds)];
+      if (createSiteIds.length > 0) {
+        const found = await db
+          .select({ id: sites.id })
+          .from(sites)
+          .where(inArray(sites.id, createSiteIds));
+        if (found.length !== createSiteIds.length) {
+          await reply
+            .status(400)
+            .send({ error: 'One or more siteIds do not exist', code: 'INVALID_SITE_IDS' });
+          return;
+        }
+      }
 
       // Generate unknown random password — user must set via email link
       const passwordHash = await argon2.hash(crypto.randomBytes(32).toString('hex'));
@@ -1004,9 +1091,9 @@ export function userRoutes(app: FastifyInstance): void {
       // Site access: set hasAllSiteAccess or insert site assignments
       if (body.hasAllSiteAccess) {
         await db.update(users).set({ hasAllSiteAccess: true }).where(eq(users.id, user.id));
-      } else if (body.siteIds != null && body.siteIds.length > 0) {
+      } else if (createSiteIds.length > 0) {
         await db.insert(userSiteAssignments).values(
-          body.siteIds.map((siteId) => ({
+          createSiteIds.map((siteId) => ({
             userId: user.id,
             siteId,
           })),
@@ -1144,6 +1231,7 @@ export function userRoutes(app: FastifyInstance): void {
         body: zodSchema(updateUserBody),
         response: {
           200: itemResponse(userItem),
+          400: errorResponse,
           403: errorWith('Self edit forbidden', [ERROR_CODES.SELF_EDIT_FORBIDDEN]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
         },
@@ -1171,6 +1259,20 @@ export function userRoutes(app: FastifyInstance): void {
         }
       }
 
+      // Pre-validate roleId FK so a bad role returns a clean 400 instead
+      // of a Postgres FK violation surfaced as 500.
+      if (body.roleId !== undefined) {
+        const [role] = await db
+          .select({ id: roles.id })
+          .from(roles)
+          .where(eq(roles.id, body.roleId))
+          .limit(1);
+        if (role == null) {
+          await reply.status(400).send({ error: 'Role does not exist', code: 'ROLE_NOT_FOUND' });
+          return;
+        }
+      }
+
       const fields: Record<string, unknown> = { updatedAt: new Date() };
       if (body.firstName !== undefined) fields['firstName'] = body.firstName;
       if (body.lastName !== undefined) fields['lastName'] = body.lastName;
@@ -1194,13 +1296,29 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Update site assignments if provided
+      // Update site assignments if provided. Pre-validate so a bad siteId
+      // returns a clean 400 instead of a Postgres FK violation surfaced
+      // as 500. Dedupe the input so duplicates don't trip the
+      // (userId, siteId) UNIQUE constraint on insert.
       if (body.siteIds !== undefined) {
+        const patchSiteIds = [...new Set(body.siteIds)];
+        if (patchSiteIds.length > 0) {
+          const found = await db
+            .select({ id: sites.id })
+            .from(sites)
+            .where(inArray(sites.id, patchSiteIds));
+          if (found.length !== patchSiteIds.length) {
+            await reply
+              .status(400)
+              .send({ error: 'One or more siteIds do not exist', code: 'INVALID_SITE_IDS' });
+            return;
+          }
+        }
         await db.delete(userSiteAssignments).where(eq(userSiteAssignments.userId, id));
 
-        if (body.siteIds.length > 0) {
+        if (patchSiteIds.length > 0) {
           await db.insert(userSiteAssignments).values(
-            body.siteIds.map((siteId) => ({
+            patchSiteIds.map((siteId) => ({
               userId: id,
               siteId,
             })),
@@ -1211,6 +1329,14 @@ export function userRoutes(app: FastifyInstance): void {
       // Invalidate site access cache when site access fields change
       if (body.hasAllSiteAccess !== undefined || body.siteIds !== undefined) {
         invalidateSiteAccessCache(id);
+      }
+
+      // Deactivation: revoke all sessions and clear the isActive cache so
+      // the user is locked out immediately rather than after the 30s cache
+      // window plus the JWT lifetime.
+      if (body.isActive === false) {
+        await revokeAllUserRefreshTokens(id);
+        invalidateUserActiveCache(id);
       }
 
       // Reset permissions to new role defaults when roleId changes
@@ -1235,6 +1361,7 @@ export function userRoutes(app: FastifyInstance): void {
             .onConflictDoNothing();
         }
         invalidatePermissionCache(id);
+        await revokeAllUserSessions(id);
       }
 
       // Re-fetch site assignments and permissions for the response
@@ -1321,6 +1448,8 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
+      await revokeAllUserSessions(updated.id);
+
       const actor = getAuditActor(request);
       await writeAudit(
         { table: userAuditLog, idColumn: 'user_id' },
@@ -1329,6 +1458,7 @@ export function userRoutes(app: FastifyInstance): void {
           entityIdSnapshot: updated.id,
           action: 'password_reset',
           ...actor,
+          notes: 'Password reset by admin',
         },
         db,
         request.log,
@@ -1341,7 +1471,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.post(
     '/users/me/change-password',
     {
-      onRequest: [authorize('users:write')],
+      onRequest: [app.authenticate],
       schema: {
         tags: ['Users'],
         summary: 'Change the current user password',
@@ -1389,6 +1519,8 @@ export function userRoutes(app: FastifyInstance): void {
         .set({ passwordHash, mustResetPassword: false, updatedAt: new Date() })
         .where(eq(users.id, userId));
 
+      await revokeAllUserSessions(userId);
+
       const actor = getAuditActor(request);
       await writeAudit(
         { table: userAuditLog, idColumn: 'user_id' },
@@ -1419,12 +1551,24 @@ export function userRoutes(app: FastifyInstance): void {
         params: zodSchema(userParams),
         response: {
           204: { type: 'null' as const },
+          403: errorWith('Self edit forbidden', [ERROR_CODES.SELF_EDIT_FORBIDDEN]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
         },
       },
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof userParams>;
+      const { userId: actorUserId } = request.user as JwtPayload;
+
+      // Mirror the PATCH self-edit block: an admin shouldn't be able to
+      // deactivate themselves and lock the system out (or at minimum lock
+      // their own account).
+      if (id === actorUserId) {
+        await reply
+          .status(403)
+          .send({ error: 'Cannot deactivate your own account', code: 'SELF_EDIT_FORBIDDEN' });
+        return;
+      }
 
       const [user] = await db.select().from(users).where(eq(users.id, id));
       if (user == null) {
@@ -1439,6 +1583,7 @@ export function userRoutes(app: FastifyInstance): void {
 
       invalidateUserActiveCache(id);
       invalidatePermissionCache(id);
+      invalidateSiteAccessCache(id);
       await revokeAllUserRefreshTokens(id);
 
       const actor = getAuditActor(request);
@@ -1473,6 +1618,7 @@ export function userRoutes(app: FastifyInstance): void {
         params: zodSchema(userParams),
         response: {
           200: successResponse,
+          403: errorWith('Account disabled', [ERROR_CODES.ACCOUNT_DISABLED]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
         },
       },
@@ -1487,12 +1633,18 @@ export function userRoutes(app: FastifyInstance): void {
           phone: users.phone,
           firstName: users.firstName,
           lastName: users.lastName,
+          isActive: users.isActive,
         })
         .from(users)
         .where(eq(users.id, id));
 
       if (user == null) {
         await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
+        return;
+      }
+      if (!user.isActive) {
+        // No point sending a setup email to an account that can't log in.
+        await reply.status(403).send({ error: 'Account disabled', code: 'ACCOUNT_DISABLED' });
         return;
       }
 
@@ -1588,6 +1740,7 @@ export function userRoutes(app: FastifyInstance): void {
             ERROR_CODES.TOTP_NOT_CONFIGURED,
           ]),
           401: errorWith('Unauthorized', [ERROR_CODES.UNAUTHORIZED]),
+          403: errorWith('Account disabled', [ERROR_CODES.ACCOUNT_DISABLED]),
         },
       },
       config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
@@ -1624,6 +1777,10 @@ export function userRoutes(app: FastifyInstance): void {
         await reply.status(400).send({ error: 'MFA not configured', code: 'MFA_NOT_CONFIGURED' });
         return;
       }
+      if (!user.isActive) {
+        await reply.status(403).send({ error: 'Account disabled', code: 'ACCOUNT_DISABLED' });
+        return;
+      }
 
       let verified = false;
       if (user.mfaMethod === 'totp') {
@@ -1632,8 +1789,16 @@ export function userRoutes(app: FastifyInstance): void {
           return;
         }
         const encKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
-        const secret = decryptString(user.totpSecretEnc, encKey);
-        verified = verifyTotpCode(secret, code);
+        try {
+          const secret = decryptString(user.totpSecretEnc, encKey);
+          verified = verifyTotpCode(secret, code);
+        } catch (err: unknown) {
+          // Stored TOTP secret cannot be decrypted (e.g. SETTINGS_ENCRYPTION_KEY
+          // rotated, ciphertext corrupted). Surface as a clean MFA failure
+          // rather than a 500, but log the underlying error for ops.
+          request.log.warn({ err, userId: payload.userId }, 'TOTP secret decrypt failed');
+          verified = false;
+        }
       } else if (challengeId != null) {
         verified = await verifyMfaChallenge(client, challengeId, code);
       }
@@ -1830,7 +1995,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.post(
     '/users/me/mfa/setup',
     {
-      onRequest: [authorize('users:write')],
+      onRequest: [app.authenticate],
       schema: {
         tags: ['Users'],
         summary: 'Start MFA setup',
@@ -1842,12 +2007,25 @@ export function userRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(mfaSetupResponse),
           400: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
+          403: errorResponse,
         },
       },
     },
     async (request, reply) => {
       const { userId } = request.user as { userId: string; roleId: string };
       const { method } = request.body as z.infer<typeof mfaSetupBody>;
+
+      const mfaConfig = await getMfaConfig();
+      const methodEnabled =
+        (method === 'email' && mfaConfig.emailEnabled) ||
+        (method === 'totp' && mfaConfig.totpEnabled) ||
+        (method === 'sms' && mfaConfig.smsEnabled);
+      if (!methodEnabled) {
+        await reply
+          .status(403)
+          .send({ error: 'MFA method is disabled', code: 'MFA_METHOD_DISABLED' });
+        return;
+      }
 
       const [user] = await db
         .select({ email: users.email, firstName: users.firstName, language: users.language })
@@ -1898,7 +2076,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.post(
     '/users/me/mfa/confirm',
     {
-      onRequest: [authorize('users:write')],
+      onRequest: [app.authenticate],
       schema: {
         tags: ['Users'],
         summary: 'Confirm MFA setup with verification code',
@@ -1910,12 +2088,25 @@ export function userRoutes(app: FastifyInstance): void {
         response: {
           200: successResponse,
           400: errorWith('Totp not configured', [ERROR_CODES.TOTP_NOT_CONFIGURED]),
+          403: errorResponse,
         },
       },
     },
     async (request, reply) => {
       const { userId } = request.user as { userId: string; roleId: string };
       const { method, code, challengeId } = request.body as z.infer<typeof mfaConfirmBody>;
+
+      const mfaConfig = await getMfaConfig();
+      const methodEnabled =
+        (method === 'email' && mfaConfig.emailEnabled) ||
+        (method === 'totp' && mfaConfig.totpEnabled) ||
+        (method === 'sms' && mfaConfig.smsEnabled);
+      if (!methodEnabled) {
+        await reply
+          .status(403)
+          .send({ error: 'MFA method is disabled', code: 'MFA_METHOD_DISABLED' });
+        return;
+      }
 
       let verified = false;
       if (method === 'totp') {
@@ -1928,8 +2119,16 @@ export function userRoutes(app: FastifyInstance): void {
           return;
         }
         const encKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
-        const secret = decryptString(user.totpSecretEnc, encKey);
-        verified = verifyTotpCode(secret, code);
+        try {
+          const secret = decryptString(user.totpSecretEnc, encKey);
+          verified = verifyTotpCode(secret, code);
+        } catch (err: unknown) {
+          // Stored TOTP secret cannot be decrypted (e.g. SETTINGS_ENCRYPTION_KEY
+          // rotated, ciphertext corrupted). Surface as a clean MFA failure
+          // rather than a 500, but log the underlying error for ops.
+          request.log.warn({ err, userId }, 'TOTP secret decrypt failed');
+          verified = false;
+        }
       } else if (challengeId != null) {
         verified = await verifyMfaChallenge(client, challengeId, code);
       }
@@ -1945,6 +2144,8 @@ export function userRoutes(app: FastifyInstance): void {
         .update(users)
         .set({ mfaEnabled: true, mfaMethod: method, updatedAt: new Date() })
         .where(eq(users.id, userId));
+
+      await revokeAllUserSessions(userId);
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -1971,7 +2172,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.delete(
     '/users/me/mfa',
     {
-      onRequest: [authorize('users:write')],
+      onRequest: [app.authenticate],
       schema: {
         tags: ['Users'],
         summary: 'Disable MFA',
@@ -1991,7 +2192,11 @@ export function userRoutes(app: FastifyInstance): void {
       const { password } = request.body as z.infer<typeof mfaDisableBody>;
 
       const [user] = await db
-        .select({ passwordHash: users.passwordHash })
+        .select({
+          passwordHash: users.passwordHash,
+          mfaEnabled: users.mfaEnabled,
+          mfaMethod: users.mfaMethod,
+        })
         .from(users)
         .where(eq(users.id, userId));
 
@@ -2016,6 +2221,8 @@ export function userRoutes(app: FastifyInstance): void {
         })
         .where(eq(users.id, userId));
 
+      await revokeAllUserSessions(userId);
+
       const actor = getAuditActor(request);
       await writeAudit(
         { table: userAuditLog, idColumn: 'user_id' },
@@ -2024,6 +2231,8 @@ export function userRoutes(app: FastifyInstance): void {
           entityIdSnapshot: userId,
           action: 'mfa_disabled',
           ...actor,
+          before: { mfaEnabled: user.mfaEnabled, mfaMethod: user.mfaMethod },
+          after: { mfaEnabled: false, mfaMethod: null },
         },
         db,
         request.log,
@@ -2087,7 +2296,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.put(
     '/users/me/notification-preferences',
     {
-      onRequest: [authorize('users:write')],
+      onRequest: [app.authenticate],
       schema: {
         tags: ['Users'],
         summary: 'Update operator notification preferences',
@@ -2187,7 +2396,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.put(
     '/users/me/chatbot-ai-config',
     {
-      onRequest: [authorize('users:write')],
+      onRequest: [app.authenticate],
       schema: {
         tags: ['Users'],
         summary: 'Create or update personal AI configuration',
@@ -2239,7 +2448,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.delete(
     '/users/me/chatbot-ai-config',
     {
-      onRequest: [authorize('users:write')],
+      onRequest: [app.authenticate],
       schema: {
         tags: ['Users'],
         summary: 'Delete personal AI configuration',
@@ -2348,7 +2557,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.put(
     '/users/me/support-ai-config',
     {
-      onRequest: [authorize('users:write')],
+      onRequest: [app.authenticate],
       schema: {
         tags: ['Users'],
         summary: 'Create or update personal support AI configuration',
@@ -2407,7 +2616,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.delete(
     '/users/me/support-ai-config',
     {
-      onRequest: [authorize('users:write')],
+      onRequest: [app.authenticate],
       schema: {
         tags: ['Users'],
         summary: 'Delete personal support AI configuration',
