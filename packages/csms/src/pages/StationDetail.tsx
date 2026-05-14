@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { ConnectorStatus } from '@/components/charts/ConnectorStatus';
 import { StationCommands } from '@/components/StationCommands';
 import { OcppMessageLog } from '@/components/OcppMessageLog';
@@ -247,6 +248,7 @@ export function StationDetail(): React.JSX.Element {
           {reservationEnabled && (
             <TabsTrigger value="reservations">{t('reservations.title')}</TabsTrigger>
           )}
+          <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="info" className="space-y-6">
@@ -391,6 +393,10 @@ export function StationDetail(): React.JSX.Element {
             />
           </TabsContent>
         )}
+
+        <TabsContent value="history">
+          <EntityHistoryTab entityType="station" entityId={station.id} />
+        </TabsContent>
       </Tabs>
     </div>
   );

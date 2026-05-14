@@ -4,7 +4,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import * as fleetService from '../services/fleet.service.js';
-import { writePricingAudit } from '@evtivity/database';
+import { db, writeAudit, fleetAuditLog, pricingAssignmentAuditLog } from '@evtivity/database';
+import { getAuditActor } from '../lib/audit-actor.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -342,6 +343,21 @@ export function fleetRoutes(app: FastifyInstance): void {
         name,
         ...(description != null ? { description } : {}),
       });
+      if (fleet != null) {
+        const actor = getAuditActor(request);
+        await writeAudit(
+          { table: fleetAuditLog, idColumn: 'fleet_id' },
+          {
+            entityId: fleet.id,
+            entityIdSnapshot: fleet.id,
+            action: 'created',
+            ...actor,
+            after: fleet,
+          },
+          db,
+          request.log,
+        );
+      }
       await reply.status(201).send(fleet);
     },
   );
@@ -366,6 +382,7 @@ export function fleetRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const { name, description } = request.body as z.infer<typeof updateFleetBody>;
+      const before = await fleetService.getFleet(id);
       const fleet = await fleetService.updateFleet(id, {
         ...(name != null ? { name } : {}),
         ...(description != null ? { description } : {}),
@@ -374,6 +391,20 @@ export function fleetRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
         return;
       }
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: fleetAuditLog, idColumn: 'fleet_id' },
+        {
+          entityId: fleet.id,
+          entityIdSnapshot: fleet.id,
+          action: 'updated',
+          ...actor,
+          before: before ?? null,
+          after: fleet,
+        },
+        db,
+        request.log,
+      );
       return fleet;
     },
   );
@@ -401,6 +432,19 @@ export function fleetRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
         return;
       }
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: fleetAuditLog, idColumn: 'fleet_id' },
+        {
+          entityId: null,
+          entityIdSnapshot: fleet.id,
+          action: 'deleted',
+          ...actor,
+          before: fleet,
+        },
+        db,
+        request.log,
+      );
       return fleet;
     },
   );
@@ -446,6 +490,19 @@ export function fleetRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const body = request.body as z.infer<typeof addDriverBody>;
       const record = await fleetService.addDriverToFleet(id, body.driverId);
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: fleetAuditLog, idColumn: 'fleet_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'member_added',
+          ...actor,
+          after: { driverId: body.driverId },
+        },
+        db,
+        request.log,
+      );
       await reply.status(201).send(record);
     },
   );
@@ -475,6 +532,19 @@ export function fleetRoutes(app: FastifyInstance): void {
           .send({ error: 'Driver not found in fleet', code: 'DRIVER_NOT_FOUND' });
         return;
       }
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: fleetAuditLog, idColumn: 'fleet_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'member_removed',
+          ...actor,
+          before: { driverId },
+        },
+        db,
+        request.log,
+      );
       return record;
     },
   );
@@ -518,6 +588,19 @@ export function fleetRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const body = request.body as z.infer<typeof addStationBody>;
       const record = await fleetService.addStationToFleet(id, body.stationId);
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: fleetAuditLog, idColumn: 'fleet_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'station_added',
+          ...actor,
+          after: { stationId: body.stationId },
+        },
+        db,
+        request.log,
+      );
       await reply.status(201).send(record);
     },
   );
@@ -547,6 +630,19 @@ export function fleetRoutes(app: FastifyInstance): void {
           .send({ error: 'Station not found in fleet', code: 'STATION_NOT_FOUND' });
         return;
       }
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: fleetAuditLog, idColumn: 'fleet_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'station_removed',
+          ...actor,
+          before: { stationId },
+        },
+        db,
+        request.log,
+      );
       return record;
     },
   );
@@ -710,17 +806,33 @@ export function fleetRoutes(app: FastifyInstance): void {
       const body = request.body as z.infer<typeof addPricingGroupBody>;
       const previous = await fleetService.getFleetPricingGroup(id);
       const record = await fleetService.addPricingGroupToFleet(id, body.pricingGroupId);
-      await writePricingAudit(
+      await writeAudit(
+        { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
         {
-          entityType: 'pricing_assignment',
           entityId: id,
+          entityIdSnapshot: id,
           action: previous == null ? 'created' : 'updated',
+          actor: 'operator',
           actorUserId: userId,
           before:
             previous == null ? null : { scope: 'fleet', fleetId: id, pricingGroupId: previous.id },
           after: { scope: 'fleet', fleetId: id, pricingGroupId: body.pricingGroupId },
         },
-        undefined,
+        db,
+        request.log,
+      );
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: fleetAuditLog, idColumn: 'fleet_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'pricing_assignment_changed',
+          ...actor,
+          before: previous == null ? null : { pricingGroupId: previous.id },
+          after: { pricingGroupId: body.pricingGroupId },
+        },
+        db,
         request.log,
       );
       await reply.status(201).send(record);
@@ -753,15 +865,30 @@ export function fleetRoutes(app: FastifyInstance): void {
           .send({ error: 'Pricing group not found for fleet', code: 'NOT_FOUND' });
         return;
       }
-      await writePricingAudit(
+      await writeAudit(
+        { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
         {
-          entityType: 'pricing_assignment',
           entityId: id,
+          entityIdSnapshot: id,
           action: 'deleted',
+          actor: 'operator',
           actorUserId: userId,
           before: { scope: 'fleet', fleetId: id, pricingGroupId },
         },
-        undefined,
+        db,
+        request.log,
+      );
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: fleetAuditLog, idColumn: 'fleet_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'pricing_assignment_changed',
+          ...actor,
+          before: { pricingGroupId },
+        },
+        db,
         request.log,
       );
       return record;

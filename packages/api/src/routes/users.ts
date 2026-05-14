@@ -9,7 +9,14 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { eq, and, or, isNull, ilike, sql, inArray } from 'drizzle-orm';
 import argon2 from 'argon2';
-import { db, client, getRecaptchaConfig, getMfaConfig } from '@evtivity/database';
+import {
+  db,
+  client,
+  getRecaptchaConfig,
+  getMfaConfig,
+  writeAudit,
+  userAuditLog,
+} from '@evtivity/database';
 import {
   users,
   roles,
@@ -19,6 +26,7 @@ import {
   chatbotAiConfigs,
   userPermissions,
 } from '@evtivity/database';
+import { getAuditActor } from '../lib/audit-actor.js';
 import {
   getNotificationSettings,
   sendEmail,
@@ -1052,6 +1060,24 @@ export function userRoutes(app: FastifyInstance): void {
         ALL_TEMPLATES_DIRS,
       );
 
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: userAuditLog, idColumn: 'user_id' },
+        {
+          entityId: user.id,
+          entityIdSnapshot: user.id,
+          action: 'created',
+          ...actor,
+          after: {
+            ...user,
+            hasAllSiteAccess: body.hasAllSiteAccess,
+            siteIds: body.hasAllSiteAccess ? [] : (body.siteIds ?? []),
+          },
+        },
+        db,
+        request.log,
+      );
+
       await reply.status(201).send({
         ...user,
         hasAllSiteAccess: body.hasAllSiteAccess,
@@ -1156,6 +1182,7 @@ export function userRoutes(app: FastifyInstance): void {
       if (body.themePreference !== undefined) fields['themePreference'] = body.themePreference;
       if (body.hasAllSiteAccess !== undefined) fields['hasAllSiteAccess'] = body.hasAllSiteAccess;
 
+      const [before] = await db.select(userSelect).from(users).where(eq(users.id, id));
       const [updated] = await db
         .update(users)
         .set(fields)
@@ -1222,6 +1249,27 @@ export function userRoutes(app: FastifyInstance): void {
           .where(eq(userPermissions.userId, id)),
       ]);
 
+      const actor = getAuditActor(request);
+      let action: string = 'updated';
+      if (body.roleId !== undefined && before != null && body.roleId !== before.roleId) {
+        action = 'role_changed';
+      } else if (body.hasAllSiteAccess !== undefined || body.siteIds !== undefined) {
+        action = 'site_access_changed';
+      }
+      await writeAudit(
+        { table: userAuditLog, idColumn: 'user_id' },
+        {
+          entityId: updated.id,
+          entityIdSnapshot: updated.id,
+          action,
+          ...actor,
+          before: before ?? null,
+          after: { ...updated, siteIds: assignments.map((a) => a.siteId) },
+        },
+        db,
+        request.log,
+      );
+
       return {
         ...updated,
         siteIds: assignments.map((a) => a.siteId),
@@ -1272,6 +1320,19 @@ export function userRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
         return;
       }
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: userAuditLog, idColumn: 'user_id' },
+        {
+          entityId: updated.id,
+          entityIdSnapshot: updated.id,
+          action: 'password_reset',
+          ...actor,
+        },
+        db,
+        request.log,
+      );
 
       return { success: true };
     },
@@ -1328,6 +1389,20 @@ export function userRoutes(app: FastifyInstance): void {
         .set({ passwordHash, mustResetPassword: false, updatedAt: new Date() })
         .where(eq(users.id, userId));
 
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: userAuditLog, idColumn: 'user_id' },
+        {
+          entityId: userId,
+          entityIdSnapshot: userId,
+          action: 'password_reset',
+          ...actor,
+          notes: 'User changed own password',
+        },
+        db,
+        request.log,
+      );
+
       return { success: true };
     },
   );
@@ -1365,6 +1440,20 @@ export function userRoutes(app: FastifyInstance): void {
       invalidateUserActiveCache(id);
       invalidatePermissionCache(id);
       await revokeAllUserRefreshTokens(id);
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: userAuditLog, idColumn: 'user_id' },
+        {
+          entityId: user.id,
+          entityIdSnapshot: user.id,
+          action: 'deleted',
+          ...actor,
+          before: user,
+        },
+        db,
+        request.log,
+      );
 
       await reply.status(204).send();
     },
@@ -1857,6 +1946,20 @@ export function userRoutes(app: FastifyInstance): void {
         .set({ mfaEnabled: true, mfaMethod: method, updatedAt: new Date() })
         .where(eq(users.id, userId));
 
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: userAuditLog, idColumn: 'user_id' },
+        {
+          entityId: userId,
+          entityIdSnapshot: userId,
+          action: 'mfa_enabled',
+          ...actor,
+          after: { mfaMethod: method },
+        },
+        db,
+        request.log,
+      );
+
       return { success: true };
     },
   );
@@ -1912,6 +2015,19 @@ export function userRoutes(app: FastifyInstance): void {
           updatedAt: new Date(),
         })
         .where(eq(users.id, userId));
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: userAuditLog, idColumn: 'user_id' },
+        {
+          entityId: userId,
+          entityIdSnapshot: userId,
+          action: 'mfa_disabled',
+          ...actor,
+        },
+        db,
+        request.log,
+      );
 
       return { success: true };
     },
@@ -2483,6 +2599,12 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Capture before-permissions for the audit row
+      const beforePermRows = await db
+        .select({ permission: userPermissions.permission })
+        .from(userPermissions)
+        .where(eq(userPermissions.userId, id));
+
       // Replace all permissions
       await db.delete(userPermissions).where(eq(userPermissions.userId, id));
       if (permissions.length > 0) {
@@ -2492,6 +2614,21 @@ export function userRoutes(app: FastifyInstance): void {
           .onConflictDoNothing();
       }
       invalidatePermissionCache(id);
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: userAuditLog, idColumn: 'user_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'permissions_changed',
+          ...actor,
+          before: { permissions: beforePermRows.map((r) => r.permission) },
+          after: { permissions },
+        },
+        db,
+        request.log,
+      );
 
       return permissions;
     },

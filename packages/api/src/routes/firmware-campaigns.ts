@@ -14,7 +14,10 @@ import {
   chargingStations,
   sites,
   vendors,
+  writeAudit,
+  firmwareCampaignAuditLog,
 } from '@evtivity/database';
+import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -337,6 +340,22 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         })
         .returning();
 
+      if (campaign != null) {
+        const actor = getAuditActor(request);
+        await writeAudit(
+          { table: firmwareCampaignAuditLog, idColumn: 'campaign_id' },
+          {
+            entityId: campaign.id,
+            entityIdSnapshot: campaign.id,
+            action: 'created',
+            ...actor,
+            after: campaign,
+          },
+          db,
+          request.log,
+        );
+      }
+
       return reply.status(201).send(campaign);
     },
   );
@@ -385,6 +404,23 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         .where(eq(firmwareCampaigns.id, id))
         .returning();
 
+      if (updated != null) {
+        const actor = getAuditActor(request);
+        await writeAudit(
+          { table: firmwareCampaignAuditLog, idColumn: 'campaign_id' },
+          {
+            entityId: updated.id,
+            entityIdSnapshot: updated.id,
+            action: 'updated',
+            ...actor,
+            before: campaign,
+            after: updated,
+          },
+          db,
+          request.log,
+        );
+      }
+
       return updated;
     },
   );
@@ -426,6 +462,21 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
       }
 
       await db.delete(firmwareCampaigns).where(eq(firmwareCampaigns.id, id));
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: firmwareCampaignAuditLog, idColumn: 'campaign_id' },
+        {
+          entityId: null,
+          entityIdSnapshot: id,
+          action: 'deleted',
+          ...actor,
+          before: campaign,
+        },
+        db,
+        request.log,
+      );
+
       return reply.status(204).send();
     },
   );
@@ -594,6 +645,20 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         .set({ status: 'active', updatedAt: new Date() })
         .where(eq(firmwareCampaigns.id, id));
 
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: firmwareCampaignAuditLog, idColumn: 'campaign_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'started',
+          ...actor,
+          notes: `Started against ${String(targets.length)} station(s)`,
+        },
+        db,
+        request.log,
+      );
+
       // Dispatch UpdateFirmware to each station. Pre-insert firmware_updates
       // with campaign_id so the Station -> Firmware History view can resolve
       // the campaign version via JOIN, and so the FirmwareStatusNotification
@@ -696,6 +761,19 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         .update(firmwareCampaigns)
         .set({ status: 'cancelled', updatedAt: new Date() })
         .where(eq(firmwareCampaigns.id, id));
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: firmwareCampaignAuditLog, idColumn: 'campaign_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'cancelled',
+          ...actor,
+        },
+        db,
+        request.log,
+      );
 
       return { success: true };
     },

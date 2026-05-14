@@ -95,7 +95,11 @@ vi.mock('@evtivity/database', () => ({
   pricingHolidays: { date: 'date' },
   chargingSessions: { tariffId: 'tariffId' },
   sessionTariffSegments: { tariffId: 'tariffId' },
-  writePricingAudit: vi.fn().mockResolvedValue(undefined),
+  pricingGroupAuditLog: {},
+  tariffAuditLog: {},
+  holidayAuditLog: {},
+  pricingAssignmentAuditLog: {},
+  writeAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('drizzle-orm', () => ({

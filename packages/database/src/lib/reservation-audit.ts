@@ -1,8 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { reservationAuditLog } from '../schema/reservations.js';
+import { reservationAuditLog } from '../schema/audit.js';
 import { db as defaultDb } from '../config.js';
+import { writeAudit } from './audit.js';
 
 // Structural type covering both the pool-scoped db and a transaction handle.
 // Both expose `insert(...)`; only the pool has `$client`. Typing the helper
@@ -44,11 +45,11 @@ export interface WriteReservationAuditArgs {
  * reservation (api, worker, ocpp) calls this so the audit log is the single
  * source of truth for reservation lifecycle events.
  *
- * Audit insert failures are logged via the optional logger and otherwise
- * swallowed -- the mutation that triggered the audit has already committed,
- * so propagating would surface a 5xx on a successful business operation.
- * Operators monitoring stderr/pino logs see the warn so disk-full or
- * schema-drift on reservation_audit_log doesn't go unnoticed.
+ * Thin wrapper over `writeAudit`. The legacy per-field columns
+ * (driver_id_before / _after, token_id_before / _after, ...) were collapsed
+ * into the unified `before` / `after` JSONB columns by migration 0035. We
+ * still accept the same caller shape for ergonomics and pack the fields into
+ * the JSONB here.
  *
  * The optional db arg accepts a transaction-scoped Drizzle instance; default
  * uses the shared connection pool from @evtivity/database.
@@ -58,33 +59,54 @@ export async function writeReservationAudit(
   db: AuditDb = defaultDb,
   logger?: { warn: (obj: unknown, msg?: string) => void },
 ): Promise<void> {
-  try {
-    await db.insert(reservationAuditLog).values({
-      reservationId: args.reservationId,
+  const hasBefore =
+    args.driverIdBefore !== undefined ||
+    args.tokenIdBefore !== undefined ||
+    args.evseIdBefore !== undefined ||
+    args.statusBefore !== undefined ||
+    args.expiresAtBefore !== undefined;
+  const hasAfter =
+    args.driverIdAfter !== undefined ||
+    args.tokenIdAfter !== undefined ||
+    args.evseIdAfter !== undefined ||
+    args.statusAfter !== undefined ||
+    args.expiresAtAfter !== undefined;
+
+  const before = hasBefore
+    ? {
+        driverId: args.driverIdBefore ?? null,
+        tokenId: args.tokenIdBefore ?? null,
+        evseId: args.evseIdBefore ?? null,
+        status: args.statusBefore ?? null,
+        expiresAt: args.expiresAtBefore ?? null,
+      }
+    : null;
+  const after = hasAfter
+    ? {
+        driverId: args.driverIdAfter ?? null,
+        tokenId: args.tokenIdAfter ?? null,
+        evseId: args.evseIdAfter ?? null,
+        status: args.statusAfter ?? null,
+        expiresAt: args.expiresAtAfter ?? null,
+      }
+    : null;
+
+  await writeAudit(
+    { table: reservationAuditLog, idColumn: 'reservation_id' },
+    {
+      entityId: args.reservationId,
+      entityIdSnapshot: args.reservationId,
       action: args.action,
       actor: args.actor,
       actorUserId: args.actorUserId ?? null,
       actorDriverId: args.actorDriverId ?? null,
-      driverIdBefore: args.driverIdBefore ?? null,
-      driverIdAfter: args.driverIdAfter ?? null,
-      tokenIdBefore: args.tokenIdBefore ?? null,
-      tokenIdAfter: args.tokenIdAfter ?? null,
-      evseIdBefore: args.evseIdBefore ?? null,
-      evseIdAfter: args.evseIdAfter ?? null,
-      statusBefore: args.statusBefore ?? null,
-      statusAfter: args.statusAfter ?? null,
-      expiresAtBefore: args.expiresAtBefore ?? null,
-      expiresAtAfter: args.expiresAtAfter ?? null,
+      before,
+      after,
       notes: args.notes ?? null,
-    });
-  } catch (err) {
-    if (logger != null) {
-      logger.warn(
-        { err, reservationId: args.reservationId, action: args.action },
-        'reservation audit insert failed (mutation already committed)',
-      );
-    }
-  }
+    },
+    db,
+    logger,
+  );
 }
 
 /**

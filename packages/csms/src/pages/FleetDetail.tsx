@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
 import { CopyableId } from '@/components/copyable-id';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { FleetDetailsTab } from '@/components/fleet/FleetDetailsTab';
 import { FleetSessionsTab } from '@/components/fleet/FleetSessionsTab';
 import { FleetStationsTab } from '@/components/fleet/FleetStationsTab';
@@ -65,6 +66,7 @@ export function FleetDetail(): React.JSX.Element {
           <TabsTrigger value="drivers">{t('fleets.drivers')}</TabsTrigger>
           <TabsTrigger value="pricing">{t('fleets.pricing')}</TabsTrigger>
           <TabsTrigger value="reservations">{t('fleets.bulkReservations')}</TabsTrigger>
+          <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="details" className="space-y-6">
@@ -93,6 +95,10 @@ export function FleetDetail(): React.JSX.Element {
 
         <TabsContent value="reservations" className="space-y-6">
           <FleetReservationsTab fleetId={fleetId} />
+        </TabsContent>
+
+        <TabsContent value="history">
+          <EntityHistoryTab entityType="fleet" entityId={fleetId} />
         </TabsContent>
       </Tabs>
     </div>

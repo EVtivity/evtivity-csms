@@ -1,16 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import {
-  pgTable,
-  pgEnum,
-  text,
-  serial,
-  integer,
-  timestamp,
-  varchar,
-  index,
-} from 'drizzle-orm/pg-core';
+import { pgTable, pgEnum, text, integer, timestamp, index } from 'drizzle-orm/pg-core';
 import { createId } from '../lib/id.js';
 import { chargingStations, evses, connectors } from './assets.js';
 import { drivers, driverTokens } from './drivers.js';
@@ -80,45 +71,7 @@ export const reservations = pgTable(
   ],
 );
 
-export const reservationAuditActionEnum = pgEnum('reservation_audit_action', [
-  'created',
-  'updated',
-  'cancelled',
-  'expired',
-  'used',
-  'session_failed',
-]);
-
-export const reservationAuditActorEnum = pgEnum('reservation_audit_actor', [
-  'operator',
-  'driver',
-  'system',
-]);
-
-export const reservationAuditLog = pgTable(
-  'reservation_audit_log',
-  {
-    id: serial('id').primaryKey(),
-    reservationId: text('reservation_id'),
-    action: reservationAuditActionEnum('action').notNull(),
-    actor: reservationAuditActorEnum('actor').notNull(),
-    actorUserId: text('actor_user_id'),
-    actorDriverId: text('actor_driver_id'),
-    driverIdBefore: text('driver_id_before'),
-    driverIdAfter: text('driver_id_after'),
-    tokenIdBefore: text('token_id_before'),
-    tokenIdAfter: text('token_id_after'),
-    evseIdBefore: text('evse_id_before'),
-    evseIdAfter: text('evse_id_after'),
-    statusBefore: varchar('status_before', { length: 30 }),
-    statusAfter: varchar('status_after', { length: 30 }),
-    expiresAtBefore: timestamp('expires_at_before', { withTimezone: true }),
-    expiresAtAfter: timestamp('expires_at_after', { withTimezone: true }),
-    notes: text('notes'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index('idx_reservation_audit_reservation_id').on(table.reservationId),
-    index('idx_reservation_audit_created_at').on(table.createdAt),
-  ],
-);
+// reservationAuditLog moved to schema/audit.ts as part of the unified
+// per-entity audit scheme (migration 0035). Re-exported here for backward
+// compatibility with importers that still reach into schema/reservations.
+export { reservationAuditLog, reservationAuditActionEnum } from './audit.js';

@@ -95,6 +95,7 @@ import { circuitRoutes } from './routes/circuits.js';
 import { unmanagedLoadRoutes } from './routes/unmanaged-loads.js';
 import { assistantRoutes } from './routes/assistant.js';
 import { octtRoutes } from './routes/octt.js';
+import { auditRoutes } from './routes/audit.js';
 
 function csrfTokensMatch(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -213,6 +214,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(unmanagedLoadRoutes);
       await v1.register(assistantRoutes);
       await v1.register(octtRoutes);
+      await v1.register(auditRoutes);
     },
     { prefix: '/v1' },
   );

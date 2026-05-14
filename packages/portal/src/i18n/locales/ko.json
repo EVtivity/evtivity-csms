@@ -651,7 +651,8 @@
     "PAYMENT_METHOD_IN_USE": "결제 수단이 활성 충전 세션에서 사용 중입니다",
     "PAYMENT_PREAUTH_FAILED": "결제 승인이 거부되었습니다",
     "PAYMENT_RECORD_NOT_RECOVERABLE": "결제 기록이 복구 가능한 상태가 아닙니다",
-    "STRIPE_TOP_UP_FAILED": "Stripe가 추가 결제 인텐트를 거부했습니다"
+    "STRIPE_TOP_UP_FAILED": "Stripe가 추가 결제 인텐트를 거부했습니다",
+    "AUDIT_ENTITY_TYPE_INVALID": "알 수 없는 감사 엔터티 유형입니다"
   },
   "validation": {
     "required": "필수 항목입니다",

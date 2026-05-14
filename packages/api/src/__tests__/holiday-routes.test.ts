@@ -81,7 +81,8 @@ vi.mock('@evtivity/database', () => ({
     delete: vi.fn(() => makeChain()),
   },
   pricingHolidays: { id: 'id', date: 'date' },
-  writePricingAudit: vi.fn().mockResolvedValue(undefined),
+  holidayAuditLog: {},
+  writeAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('drizzle-orm', () => ({

@@ -11,6 +11,7 @@ import { CopyableId } from '@/components/copyable-id';
 import { CreateButton } from '@/components/create-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { SiteLayout } from '@/components/layout/SiteLayout';
 import { LoadManagement } from '@/components/load-management/LoadManagement';
 import { StationsTable } from '@/components/StationsTable';
@@ -187,6 +188,7 @@ export function SiteDetail(): React.JSX.Element {
             <TabsTrigger value="reservations">{t('reservations.title')}</TabsTrigger>
           )}
           <TabsTrigger value="free-vend">{t('sites.freeVend')}</TabsTrigger>
+          <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>
         </TabsList>
 
         <SiteDetailsTab
@@ -326,6 +328,10 @@ export function SiteDetail(): React.JSX.Element {
         )}
 
         <SiteFreeVendTab site={site} siteId={id ?? ''} />
+
+        <TabsContent value="history">
+          <EntityHistoryTab entityType="site" entityId={id ?? ''} />
+        </TabsContent>
       </Tabs>
     </div>
   );

@@ -3,16 +3,17 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, or, ne, count, desc, sql } from 'drizzle-orm';
+import { eq, and, ne, count, sql } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import {
   pricingGroups,
   tariffs,
   pricingHolidays,
-  pricingAuditLog,
+  pricingGroupAuditLog,
+  tariffAuditLog,
   chargingSessions,
   sessionTariffSegments,
-  writePricingAudit,
+  writeAudit,
 } from '@evtivity/database';
 import {
   tariffRestrictionsSchema,
@@ -340,15 +341,17 @@ export function pricingRoutes(app: FastifyInstance): void {
       const { userId } = request.user as { userId: string };
       const [group] = await db.insert(pricingGroups).values(body).returning();
       if (group != null) {
-        await writePricingAudit(
+        await writeAudit(
+          { table: pricingGroupAuditLog, idColumn: 'pricing_group_id' },
           {
-            entityType: 'pricing_group',
             entityId: group.id,
+            entityIdSnapshot: group.id,
             action: 'created',
+            actor: 'operator',
             actorUserId: userId,
             after: group,
           },
-          undefined,
+          db,
           request.log,
         );
         await publishPricingChanged({ pricingGroupId: group.id, action: 'group.created' });
@@ -392,16 +395,18 @@ export function pricingRoutes(app: FastifyInstance): void {
         .set({ ...body, updatedAt: new Date() })
         .where(eq(pricingGroups.id, id))
         .returning();
-      await writePricingAudit(
+      await writeAudit(
+        { table: pricingGroupAuditLog, idColumn: 'pricing_group_id' },
         {
-          entityType: 'pricing_group',
           entityId: id,
+          entityIdSnapshot: id,
           action: 'updated',
+          actor: 'operator',
           actorUserId: userId,
           before: existing,
           after: updated,
         },
-        undefined,
+        db,
         request.log,
       );
       await publishPricingChanged({ pricingGroupId: id, action: 'group.updated' });
@@ -459,28 +464,32 @@ export function pricingRoutes(app: FastifyInstance): void {
       // Audit the cascading deletes too so the pricing audit log shows every
       // tariff that disappeared with the group, not just the group itself.
       for (const t of groupTariffs) {
-        await writePricingAudit(
+        await writeAudit(
+          { table: tariffAuditLog, idColumn: 'tariff_id' },
           {
-            entityType: 'tariff',
             entityId: t.id,
+            entityIdSnapshot: t.id,
             action: 'deleted',
+            actor: 'operator',
             actorUserId: userId,
             before: t,
             notes: `cascade from pricing_group ${id}`,
           },
-          undefined,
+          db,
           request.log,
         );
       }
-      await writePricingAudit(
+      await writeAudit(
+        { table: pricingGroupAuditLog, idColumn: 'pricing_group_id' },
         {
-          entityType: 'pricing_group',
           entityId: id,
+          entityIdSnapshot: id,
           action: 'deleted',
+          actor: 'operator',
           actorUserId: userId,
           before: group,
         },
-        undefined,
+        db,
         request.log,
       );
       await publishPricingChanged({ pricingGroupId: id, action: 'group.deleted' });
@@ -661,15 +670,17 @@ export function pricingRoutes(app: FastifyInstance): void {
         .returning();
       if (tariff != null) {
         const { userId } = request.user as { userId: string };
-        await writePricingAudit(
+        await writeAudit(
+          { table: tariffAuditLog, idColumn: 'tariff_id' },
           {
-            entityType: 'tariff',
             entityId: tariff.id,
+            entityIdSnapshot: tariff.id,
             action: 'created',
+            actor: 'operator',
             actorUserId: userId,
             after: tariff,
           },
-          undefined,
+          db,
           request.log,
         );
         await publishPricingChanged({
@@ -803,16 +814,18 @@ export function pricingRoutes(app: FastifyInstance): void {
         .where(eq(tariffs.id, tariffId))
         .returning();
       const { userId } = request.user as { userId: string };
-      await writePricingAudit(
+      await writeAudit(
+        { table: tariffAuditLog, idColumn: 'tariff_id' },
         {
-          entityType: 'tariff',
           entityId: tariffId,
+          entityIdSnapshot: tariffId,
           action: 'updated',
+          actor: 'operator',
           actorUserId: userId,
           before: existing,
           after: updated,
         },
-        undefined,
+        db,
         request.log,
       );
       await publishPricingChanged({
@@ -878,15 +891,17 @@ export function pricingRoutes(app: FastifyInstance): void {
 
       await db.delete(tariffs).where(eq(tariffs.id, tariffId));
       const { userId } = request.user as { userId: string };
-      await writePricingAudit(
+      await writeAudit(
+        { table: tariffAuditLog, idColumn: 'tariff_id' },
         {
-          entityType: 'tariff',
           entityId: tariffId,
+          entityIdSnapshot: tariffId,
           action: 'deleted',
+          actor: 'operator',
           actorUserId: userId,
           before: tariff,
         },
-        undefined,
+        db,
         request.log,
       );
       await publishPricingChanged({
@@ -1107,51 +1122,125 @@ export function pricingRoutes(app: FastifyInstance): void {
       >;
       const offset = (page - 1) * limit;
 
-      const conditions = [];
-      if (entityType != null) conditions.push(eq(pricingAuditLog.entityType, entityType));
-      if (entityId != null) conditions.push(eq(pricingAuditLog.entityId, entityId));
-      if (pricingGroupId != null) {
-        // Match the group itself OR any tariff that ever belonged to it
-        // (tariff rows may already be deleted, so we also union audit rows
-        // whose `before` JSONB carries pricing_group_id = pricingGroupId).
-        const tariffIdsInGroup = sql<string[]>`
+      // The old single-table pricing_audit_log was split into 4 per-entity
+      // tables in migration 0035. The endpoint preserves the unified shape
+      // (entity_type + entity_id) by UNION ALL'ing across all four.
+      const branches: Array<{ entityType: string; tableName: string; idCol: string }> = [
+        {
+          entityType: 'pricing_group',
+          tableName: 'pricing_group_audit_log',
+          idCol: 'pricing_group_id',
+        },
+        { entityType: 'tariff', tableName: 'tariff_audit_log', idCol: 'tariff_id' },
+        { entityType: 'holiday', tableName: 'holiday_audit_log', idCol: 'holiday_id' },
+        {
+          entityType: 'pricing_assignment',
+          tableName: 'pricing_assignment_audit_log',
+          idCol: 'pricing_assignment_id',
+        },
+      ];
+
+      // Build the pricingGroupId filter expression once, used inside the
+      // pricing_group and tariff branches below.
+      const tariffIdsInGroup =
+        pricingGroupId != null
+          ? sql`
           ARRAY(
             SELECT id FROM tariffs WHERE pricing_group_id = ${pricingGroupId}
             UNION
-            SELECT entity_id FROM pricing_audit_log
-            WHERE entity_type = 'tariff'
-              AND (
-                (before->>'pricingGroupId' = ${pricingGroupId})
-                OR (after->>'pricingGroupId' = ${pricingGroupId})
-              )
+            SELECT tariff_id_snapshot FROM tariff_audit_log
+            WHERE (before->>'pricingGroupId' = ${pricingGroupId})
+               OR (after->>'pricingGroupId' = ${pricingGroupId})
           )
+        `
+          : null;
+
+      function buildBranch(
+        branch: { entityType: string; tableName: string; idCol: string },
+        projection: 'data' | 'count',
+      ): ReturnType<typeof sql> | null {
+        if (entityType != null && entityType !== branch.entityType) return null;
+        const conds: ReturnType<typeof sql>[] = [];
+        const snapshotCol = `${branch.idCol}_snapshot`;
+        if (entityId != null) {
+          conds.push(
+            sql`(${sql.identifier(branch.idCol)} = ${entityId} OR ${sql.identifier(snapshotCol)} = ${entityId})`,
+          );
+        }
+        if (pricingGroupId != null) {
+          if (branch.entityType === 'pricing_group') {
+            conds.push(
+              sql`(${sql.identifier(branch.idCol)} = ${pricingGroupId} OR ${sql.identifier(snapshotCol)} = ${pricingGroupId})`,
+            );
+          } else if (branch.entityType === 'tariff' && tariffIdsInGroup != null) {
+            conds.push(sql`${sql.identifier(snapshotCol)} = ANY(${tariffIdsInGroup})`);
+          } else {
+            // pricingGroupId filter does not apply to holiday or
+            // pricing_assignment branches; exclude them entirely.
+            return null;
+          }
+        }
+        const whereClause = conds.length > 0 ? sql`WHERE ${sql.join(conds, sql` AND `)}` : sql``;
+        if (projection === 'count') {
+          return sql`SELECT 1 AS one FROM ${sql.identifier(branch.tableName)} ${whereClause}`;
+        }
+        return sql`
+          SELECT id,
+                 ${branch.entityType}::text AS entity_type,
+                 ${sql.identifier(snapshotCol)} AS entity_id,
+                 action::text AS action,
+                 actor_user_id,
+                 before,
+                 after,
+                 notes,
+                 created_at
+          FROM ${sql.identifier(branch.tableName)}
+          ${whereClause}
         `;
-        const groupOrTariffMatch = or(
-          and(
-            eq(pricingAuditLog.entityType, 'pricing_group'),
-            eq(pricingAuditLog.entityId, pricingGroupId),
-          ),
-          and(
-            eq(pricingAuditLog.entityType, 'tariff'),
-            sql`${pricingAuditLog.entityId} = ANY(${tariffIdsInGroup})`,
-          ),
-        );
-        if (groupOrTariffMatch != null) conditions.push(groupOrTariffMatch);
       }
-      const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-      const [data, countRows] = await Promise.all([
-        db
-          .select()
-          .from(pricingAuditLog)
-          .where(where)
-          .orderBy(desc(pricingAuditLog.createdAt))
-          .limit(limit)
-          .offset(offset),
-        db.select({ count: count() }).from(pricingAuditLog).where(where),
-      ]);
+      const dataBranches = branches
+        .map((b) => buildBranch(b, 'data'))
+        .filter((b): b is ReturnType<typeof sql> => b != null);
+      const countBranches = branches
+        .map((b) => buildBranch(b, 'count'))
+        .filter((b): b is ReturnType<typeof sql> => b != null);
 
-      return { data, total: countRows[0]?.count ?? 0 };
+      if (dataBranches.length === 0) {
+        return { data: [], total: 0 };
+      }
+
+      const dataSql = sql`
+        ${sql.join(dataBranches, sql` UNION ALL `)}
+        ORDER BY created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+      const countSql = sql`SELECT COUNT(*)::int AS total FROM (${sql.join(countBranches, sql` UNION ALL `)}) sub`;
+
+      const [rowsRes, countRes] = await Promise.all([db.execute(dataSql), db.execute(countSql)]);
+      const data = (rowsRes as unknown as Array<Record<string, unknown>>).map((r) => {
+        const created = r['created_at'];
+        const createdStr =
+          created instanceof Date
+            ? created
+            : typeof created === 'string' || typeof created === 'number'
+              ? new Date(created)
+              : new Date();
+        return {
+          id: Number(r['id']),
+          entityType: (r['entity_type'] as string | null) ?? '',
+          entityId: (r['entity_id'] as string | null) ?? '',
+          action: (r['action'] as string | null) ?? '',
+          actorUserId: (r['actor_user_id'] as string | null) ?? null,
+          before: r['before'] ?? null,
+          after: r['after'] ?? null,
+          notes: (r['notes'] as string | null) ?? null,
+          createdAt: createdStr,
+        };
+      });
+      const total = (countRes as unknown as Array<{ total: number }>)[0]?.total ?? 0;
+
+      return { data, total };
     },
   );
 }

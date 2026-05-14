@@ -14,6 +14,7 @@ import { FirmwareCampaignHistoryTab } from '@/components/firmware-campaign/Campa
 import { FirmwareCampaignMatchingStationsTab } from '@/components/firmware-campaign/MatchingStationsTab';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { useTab } from '@/hooks/use-tab';
 import { api } from '@/lib/api';
 
@@ -78,6 +79,7 @@ export function FirmwareCampaignDetail(): React.JSX.Element {
               {matchingTotal?.total ?? 0}
             </span>
           </TabsTrigger>
+          <TabsTrigger value="audit-history">{t('audit.history')}</TabsTrigger>
         </TabsList>
         <TabsContent value="details" className="space-y-6">
           <FirmwareCampaignDetailsTab campaign={campaign} />
@@ -87,6 +89,9 @@ export function FirmwareCampaignDetail(): React.JSX.Element {
         </TabsContent>
         <TabsContent value="matching" className="space-y-6">
           <FirmwareCampaignMatchingStationsTab campaignId={campaignId} />
+        </TabsContent>
+        <TabsContent value="audit-history">
+          <EntityHistoryTab entityType="firmware_campaign" entityId={campaignId} />
         </TabsContent>
       </Tabs>
     </div>

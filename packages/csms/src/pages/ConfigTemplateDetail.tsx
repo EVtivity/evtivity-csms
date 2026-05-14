@@ -11,6 +11,7 @@ import type { TemplateDetail } from '@/components/config-template/DetailsTab';
 import { ConfigTemplatePushHistoryTab } from '@/components/config-template/PushHistoryTab';
 import { ConfigTemplateMatchingStationsTab } from '@/components/config-template/MatchingStationsTab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { useTab } from '@/hooks/use-tab';
 import { api } from '@/lib/api';
 
@@ -66,6 +67,7 @@ export function ConfigTemplateDetail(): React.JSX.Element {
               {matchingTotal?.total ?? 0}
             </span>
           </TabsTrigger>
+          <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>
         </TabsList>
         <TabsContent value="details" className="space-y-6">
           <ConfigTemplateDetailsTab template={template} />
@@ -75,6 +77,9 @@ export function ConfigTemplateDetail(): React.JSX.Element {
         </TabsContent>
         <TabsContent value="matching" className="space-y-6">
           <ConfigTemplateMatchingStationsTab templateId={templateId} />
+        </TabsContent>
+        <TabsContent value="history">
+          <EntityHistoryTab entityType="config_template" entityId={templateId} />
         </TabsContent>
       </Tabs>
     </div>

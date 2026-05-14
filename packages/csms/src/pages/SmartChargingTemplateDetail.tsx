@@ -21,6 +21,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { MatchingStationsCard } from '@/components/MatchingStationsCard';
+import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { CopyableId } from '@/components/copyable-id';
 import {
   Table,
@@ -1056,6 +1057,11 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
           duplicateMutation.mutate();
         }}
       />
+
+      <div className="space-y-2">
+        <h2 className="text-xl font-semibold">{t('audit.history')}</h2>
+        <EntityHistoryTab entityType="smart_charging_template" entityId={id ?? ''} />
+      </div>
     </div>
   );
 }

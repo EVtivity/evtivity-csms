@@ -74,6 +74,24 @@ vi.mock('@evtivity/database', () => ({
   tokenAuditLog: {},
   stationLocalAuthEntries: {},
   stationLocalAuthVersions: {},
+  writeAudit: vi.fn().mockResolvedValue(undefined),
+  siteAuditLog: {},
+  stationAuditLog: {},
+  driverAuditLog: {},
+  fleetAuditLog: {},
+  userAuditLog: {},
+  vehicleAuditLog: {},
+  supportCaseAuditLog: {},
+  ocpiPartnerAuditLog: {},
+  certificateAuditLog: {},
+  roleAuditLog: {},
+  apiKeyAuditLog: {},
+  settingAuditLog: {},
+  smartChargingTemplateAuditLog: {},
+  configTemplateAuditLog: {},
+  firmwareCampaignAuditLog: {},
+  stationImageAuditLog: {},
+  localAuthListAuditLog: {},
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -370,7 +388,8 @@ describe('Driver routes (operator)', () => {
         phone: '+15559876543',
         isActive: false,
       });
-      setupDbResults([updated]);
+      // 1: before SELECT, 2: UPDATE returning
+      setupDbResults([updated], [updated]);
 
       const res = await app.inject({
         method: 'PATCH',
@@ -396,7 +415,7 @@ describe('Driver routes (operator)', () => {
 
     it('returns 200 with only firstName', async () => {
       const updated = makeDriver({ firstName: 'Updated' });
-      setupDbResults([updated]);
+      setupDbResults([updated], [updated]);
 
       const res = await app.inject({
         method: 'PATCH',
@@ -411,7 +430,7 @@ describe('Driver routes (operator)', () => {
 
     it('returns 200 with only lastName', async () => {
       const updated = makeDriver({ lastName: 'Updated' });
-      setupDbResults([updated]);
+      setupDbResults([updated], [updated]);
 
       const res = await app.inject({
         method: 'PATCH',
@@ -426,7 +445,7 @@ describe('Driver routes (operator)', () => {
 
     it('returns 200 with only email', async () => {
       const updated = makeDriver({ email: 'new@example.com' });
-      setupDbResults([updated]);
+      setupDbResults([updated], [updated]);
 
       const res = await app.inject({
         method: 'PATCH',
@@ -441,7 +460,7 @@ describe('Driver routes (operator)', () => {
 
     it('returns 200 with only phone', async () => {
       const updated = makeDriver({ phone: '+15550000000' });
-      setupDbResults([updated]);
+      setupDbResults([updated], [updated]);
 
       const res = await app.inject({
         method: 'PATCH',
@@ -456,7 +475,7 @@ describe('Driver routes (operator)', () => {
 
     it('returns 200 with only isActive', async () => {
       const updated = makeDriver({ isActive: false });
-      setupDbResults([updated]);
+      setupDbResults([updated], [updated]);
 
       const res = await app.inject({
         method: 'PATCH',
@@ -708,7 +727,7 @@ describe('Driver routes (operator)', () => {
 
     it('returns 200 on success', async () => {
       const updated = makeVehicle({ make: 'BMW' });
-      setupDbResults([updated]);
+      setupDbResults([updated], [updated]);
 
       const res = await app.inject({
         method: 'PATCH',

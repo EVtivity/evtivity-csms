@@ -651,7 +651,8 @@
     "PAYMENT_METHOD_IN_USE": "Payment method is in use by an active charging session",
     "PAYMENT_PREAUTH_FAILED": "Payment authorization declined",
     "PAYMENT_RECORD_NOT_RECOVERABLE": "Payment record is not in a recoverable state",
-    "STRIPE_TOP_UP_FAILED": "Stripe rejected the top-up payment intent"
+    "STRIPE_TOP_UP_FAILED": "Stripe rejected the top-up payment intent",
+    "AUDIT_ENTITY_TYPE_INVALID": "Unknown audit entity type"
   },
   "validation": {
     "required": "This field is required",

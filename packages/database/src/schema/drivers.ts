@@ -127,38 +127,10 @@ export const driverTokens = pgTable(
   ],
 );
 
-export const tokenAuditActorEnum = pgEnum('token_audit_actor', ['operator', 'driver', 'system']);
-
-export const tokenAuditActionEnum = pgEnum('token_audit_action', [
-  'created',
-  'updated',
-  'activated',
-  'deactivated',
-  'revoked',
-  'deleted',
-  'imported',
-]);
-
-export const tokenAuditLog = pgTable(
-  'token_audit_log',
-  {
-    id: serial('id').primaryKey(),
-    tokenId: text('token_id'),
-    idTokenSnapshot: varchar('id_token_snapshot', { length: 255 }).notNull(),
-    tokenTypeSnapshot: varchar('token_type_snapshot', { length: 20 }).notNull(),
-    driverIdSnapshot: text('driver_id_snapshot'),
-    action: tokenAuditActionEnum('action').notNull(),
-    actor: tokenAuditActorEnum('actor').notNull(),
-    actorUserId: text('actor_user_id'),
-    actorDriverId: text('actor_driver_id'),
-    notes: text('notes'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index('idx_token_audit_token_id').on(table.tokenId),
-    index('idx_token_audit_created_at').on(table.createdAt),
-  ],
-);
+// tokenAuditLog moved to schema/audit.ts as part of the unified per-entity
+// audit scheme (migration 0035). Re-exported here for backward compatibility
+// with importers that still reach into schema/drivers.
+export { tokenAuditLog, tokenAuditActionEnum } from './audit.js';
 
 export const authorizeOutcomeEnum = pgEnum('authorize_outcome', [
   'accepted',

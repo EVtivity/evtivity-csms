@@ -120,6 +120,11 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
         { name: 'AI Assistant', description: 'AI-powered operator assistant' },
         { name: 'CSS Management', description: 'Charging station simulator management' },
         { name: 'OCTT', description: 'OCPP conformance test runner' },
+        {
+          name: 'Audit',
+          description:
+            'Per-entity and cross-entity audit logs of every operator-initiated mutation',
+        },
       ],
       components: {
         securitySchemes: {

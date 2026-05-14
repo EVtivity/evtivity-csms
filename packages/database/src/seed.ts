@@ -494,6 +494,7 @@ async function seed(): Promise<void> {
     'security.mfa.emailEnabled': true,
     'security.mfa.totpEnabled': true,
     'security.mfa.smsEnabled': false,
+    'audit.retentionDays': 1095,
     'reservation.enabled': true,
     'reservation.bufferMinutes': 0,
     'reservation.cancellationWindowMinutes': 0,

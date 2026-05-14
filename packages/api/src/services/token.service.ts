@@ -10,6 +10,7 @@ import {
   tokenAuditLog,
   stationLocalAuthEntries,
   stationLocalAuthVersions,
+  writeAudit,
 } from '@evtivity/database';
 import { dispatchDriverNotification, createLogger } from '@evtivity/lib';
 import { getPubSub } from '../lib/pubsub.js';
@@ -152,27 +153,38 @@ function actorLabel(actor: TokenActor): string {
   return 'system';
 }
 
-async function writeAudit(args: {
-  tokenId: string | null;
+interface TokenSnapshot {
   idToken: string;
   tokenType: string;
   driverId: string | null;
+}
+
+async function writeTokenAudit(args: {
+  tokenId: string | null;
+  entityIdSnapshot: string;
   action: 'created' | 'updated' | 'activated' | 'deactivated' | 'revoked' | 'deleted' | 'imported';
   actor: TokenActor;
+  before?: TokenSnapshot | null;
+  after?: TokenSnapshot | null;
   notes?: string | null;
 }): Promise<void> {
   const { actor, actorUserId, actorDriverId } = actorColumns(args.actor);
-  await db.insert(tokenAuditLog).values({
-    tokenId: args.tokenId,
-    idTokenSnapshot: args.idToken,
-    tokenTypeSnapshot: args.tokenType,
-    driverIdSnapshot: args.driverId,
-    action: args.action,
-    actor,
-    actorUserId,
-    actorDriverId,
-    notes: args.notes ?? null,
-  });
+  await writeAudit(
+    { table: tokenAuditLog, idColumn: 'token_id' },
+    {
+      entityId: args.tokenId,
+      entityIdSnapshot: args.entityIdSnapshot,
+      action: args.action,
+      actor,
+      actorUserId,
+      actorDriverId,
+      before: args.before ?? null,
+      after: args.after ?? null,
+      notes: args.notes ?? null,
+    },
+    db,
+    logger,
+  );
 }
 
 async function notifyDriver(
@@ -295,13 +307,16 @@ export async function createToken(
   }
   if (token == null) return null;
 
-  await writeAudit({
+  await writeTokenAudit({
     tokenId: token.id,
-    idToken: token.idToken,
-    tokenType: token.tokenType,
-    driverId: token.driverId,
+    entityIdSnapshot: token.id,
     action: 'created',
     actor,
+    after: {
+      idToken: token.idToken,
+      tokenType: token.tokenType,
+      driverId: token.driverId,
+    },
   });
   await notifyDriver(token.driverId, 'token.Added', {
     idToken: token.idToken,
@@ -363,15 +378,26 @@ export async function updateToken(
     .returning();
   if (token == null) return null;
 
+  const beforeSnapshot: TokenSnapshot = {
+    idToken: current.idToken,
+    tokenType: current.tokenType,
+    driverId: current.driverId,
+  };
+  const afterSnapshot: TokenSnapshot = {
+    idToken: token.idToken,
+    tokenType: token.tokenType,
+    driverId: token.driverId,
+  };
+
   // Audit + side effects driven by what actually changed.
   if (data.isActive === false && current.isActive) {
-    await writeAudit({
+    await writeTokenAudit({
       tokenId: token.id,
-      idToken: token.idToken,
-      tokenType: token.tokenType,
-      driverId: token.driverId,
+      entityIdSnapshot: token.id,
       action: 'deactivated',
       actor,
+      before: beforeSnapshot,
+      after: afterSnapshot,
       notes: data.revokedReason ?? null,
     });
     await notifyDriver(token.driverId, 'token.Deactivated', {
@@ -381,13 +407,13 @@ export async function updateToken(
     });
     await bumpStationsHoldingToken(token.id);
   } else if (data.isActive === true && !current.isActive) {
-    await writeAudit({
+    await writeTokenAudit({
       tokenId: token.id,
-      idToken: token.idToken,
-      tokenType: token.tokenType,
-      driverId: token.driverId,
+      entityIdSnapshot: token.id,
       action: 'activated',
       actor,
+      before: beforeSnapshot,
+      after: afterSnapshot,
     });
     // Reactivation is its own template -- the driver removed (or operator
     // deactivated) this card, then it came back. Sending token.Added would
@@ -400,13 +426,13 @@ export async function updateToken(
     });
     await bumpStationsHoldingToken(token.id);
   } else {
-    await writeAudit({
+    await writeTokenAudit({
       tokenId: token.id,
-      idToken: token.idToken,
-      tokenType: token.tokenType,
-      driverId: token.driverId,
+      entityIdSnapshot: token.id,
       action: 'updated',
       actor,
+      before: beforeSnapshot,
+      after: afterSnapshot,
     });
   }
   await publishTokenChanged(token.id);
@@ -416,13 +442,16 @@ export async function updateToken(
 export async function deleteToken(id: string, actor: TokenActor = { type: 'system' }) {
   const [token] = await db.delete(driverTokens).where(eq(driverTokens.id, id)).returning();
   if (token == null) return null;
-  await writeAudit({
+  await writeTokenAudit({
     tokenId: null,
-    idToken: token.idToken,
-    tokenType: token.tokenType,
-    driverId: token.driverId,
+    entityIdSnapshot: token.id,
     action: 'deleted',
     actor,
+    before: {
+      idToken: token.idToken,
+      tokenType: token.tokenType,
+      driverId: token.driverId,
+    },
   });
   await notifyDriver(token.driverId, 'token.Removed', {
     idToken: token.idToken,
@@ -463,13 +492,17 @@ export async function bulkSetActive(
   await db.insert(tokenAuditLog).values(
     updated.map((t) => ({
       tokenId: t.id,
-      idTokenSnapshot: t.idToken,
-      tokenTypeSnapshot: t.tokenType,
-      driverIdSnapshot: t.driverId,
+      tokenIdSnapshot: t.id,
       action,
       actor: actorKind,
       actorUserId,
       actorDriverId,
+      after: {
+        idToken: t.idToken,
+        tokenType: t.tokenType,
+        driverId: t.driverId,
+        isActive,
+      },
       notes: null,
     })),
   );
@@ -551,14 +584,14 @@ export async function listTokenAuditLog(
   const offset = (page - 1) * limit;
   const where = eq(tokenAuditLog.tokenId, tokenId);
 
-  const [data, countRows] = await Promise.all([
+  const [rows, countRows] = await Promise.all([
     db
       .select({
         id: tokenAuditLog.id,
         tokenId: tokenAuditLog.tokenId,
-        idToken: tokenAuditLog.idTokenSnapshot,
-        tokenType: tokenAuditLog.tokenTypeSnapshot,
-        driverId: tokenAuditLog.driverIdSnapshot,
+        tokenIdSnapshot: tokenAuditLog.tokenIdSnapshot,
+        before: tokenAuditLog.before,
+        after: tokenAuditLog.after,
         action: tokenAuditLog.action,
         actor: tokenAuditLog.actor,
         actorUserId: tokenAuditLog.actorUserId,
@@ -594,6 +627,33 @@ export async function listTokenAuditLog(
       .from(tokenAuditLog)
       .where(where),
   ]);
+
+  // Project the unified JSONB shape (after/before) back to the legacy
+  // per-field response so the History card on the Token detail page keeps
+  // working unchanged. Prefer `after` for the snapshot (created/imported
+  // rows leave `before` null); fall back to `before` for deleted rows.
+  const data = rows.map((row) => {
+    const snapshot = (row.after ?? row.before ?? {}) as {
+      idToken?: string;
+      tokenType?: string;
+      driverId?: string | null;
+    };
+    return {
+      id: row.id,
+      tokenId: row.tokenId,
+      idToken: snapshot.idToken ?? '',
+      tokenType: snapshot.tokenType ?? '',
+      driverId: snapshot.driverId ?? null,
+      action: row.action,
+      actor: row.actor,
+      actorUserId: row.actorUserId,
+      actorUserName: row.actorUserName,
+      actorDriverId: row.actorDriverId,
+      actorDriverName: row.actorDriverName,
+      notes: row.notes,
+      createdAt: row.createdAt,
+    };
+  });
 
   return { data, total: countRows[0]?.count ?? 0 };
 }
@@ -786,13 +846,16 @@ export async function importTokensCsv(
       await tx.insert(tokenAuditLog).values(
         insertedRows.map((t) => ({
           tokenId: t.id,
-          idTokenSnapshot: t.idToken,
-          tokenTypeSnapshot: t.tokenType,
-          driverIdSnapshot: t.driverId,
+          tokenIdSnapshot: t.id,
           action: 'imported' as const,
           actor: actorKind,
           actorUserId,
           actorDriverId,
+          after: {
+            idToken: t.idToken,
+            tokenType: t.tokenType,
+            driverId: t.driverId,
+          },
           notes: null,
         })),
       );

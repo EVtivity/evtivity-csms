@@ -5,8 +5,9 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, asc } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, writeAudit, stationImageAuditLog } from '@evtivity/database';
 import { stationImages } from '@evtivity/database';
+import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import {
   successResponse,
@@ -238,6 +239,22 @@ export function stationImageRoutes(app: FastifyInstance): void {
         })
         .returning();
 
+      if (image != null) {
+        const actor = getAuditActor(request);
+        await writeAudit(
+          { table: stationImageAuditLog, idColumn: 'station_image_id' },
+          {
+            entityId: String(image.id),
+            entityIdSnapshot: String(image.id),
+            action: 'uploaded',
+            ...actor,
+            after: image,
+          },
+          db,
+          request.log,
+        );
+      }
+
       await reply.status(201).send(image);
     },
   );
@@ -300,6 +317,10 @@ export function stationImageRoutes(app: FastifyInstance): void {
         return existing;
       }
 
+      const [before] = await db
+        .select()
+        .from(stationImages)
+        .where(and(eq(stationImages.id, imageId), eq(stationImages.stationId, id)));
       const [updated] = await db
         .update(stationImages)
         .set(updates)
@@ -310,6 +331,21 @@ export function stationImageRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Image not found', code: 'IMAGE_NOT_FOUND' });
         return;
       }
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: stationImageAuditLog, idColumn: 'station_image_id' },
+        {
+          entityId: String(updated.id),
+          entityIdSnapshot: String(updated.id),
+          action: 'updated',
+          ...actor,
+          before: before ?? null,
+          after: updated,
+        },
+        db,
+        request.log,
+      );
 
       return updated;
     },
@@ -361,6 +397,20 @@ export function stationImageRoutes(app: FastifyInstance): void {
       }
 
       await db.delete(stationImages).where(eq(stationImages.id, imageId));
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: stationImageAuditLog, idColumn: 'station_image_id' },
+        {
+          entityId: null,
+          entityIdSnapshot: String(image.id),
+          action: 'deleted',
+          ...actor,
+          before: image,
+        },
+        db,
+        request.log,
+      );
 
       return { success: true as const };
     },
@@ -514,6 +564,19 @@ export function stationImageRoutes(app: FastifyInstance): void {
         .update(stationImages)
         .set({ isMainImage: true })
         .where(eq(stationImages.id, imageId));
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: stationImageAuditLog, idColumn: 'station_image_id' },
+        {
+          entityId: String(image.id),
+          entityIdSnapshot: String(image.id),
+          action: 'set_main',
+          ...actor,
+        },
+        db,
+        request.log,
+      );
 
       return { success: true as const };
     },

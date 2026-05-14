@@ -4,7 +4,15 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc, count, sql as dsql } from 'drizzle-orm';
-import { db, pkiCaCertificates, pkiCsrRequests, stationCertificates } from '@evtivity/database';
+import {
+  db,
+  pkiCaCertificates,
+  pkiCsrRequests,
+  stationCertificates,
+  writeAudit,
+  certificateAuditLog,
+} from '@evtivity/database';
+import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { getPubSub } from '../lib/pubsub.js';
@@ -241,6 +249,22 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         })
         .returning();
 
+      if (row != null) {
+        const actor = getAuditActor(request);
+        await writeAudit(
+          { table: certificateAuditLog, idColumn: 'certificate_id' },
+          {
+            entityId: String(row.id),
+            entityIdSnapshot: String(row.id),
+            action: 'ca_certificate_added',
+            ...actor,
+            after: row,
+          },
+          db,
+          request.log,
+        );
+      }
+
       return row;
     },
   );
@@ -275,6 +299,19 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
           .send({ error: 'CA certificate not found', code: 'CA_CERT_NOT_FOUND' });
         return;
       }
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: certificateAuditLog, idColumn: 'certificate_id' },
+        {
+          entityId: null,
+          entityIdSnapshot: String(deleted.id),
+          action: 'ca_certificate_deleted',
+          ...actor,
+        },
+        db,
+        request.log,
+      );
 
       return { success: true };
     },
@@ -392,6 +429,20 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         }
       }
 
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: certificateAuditLog, idColumn: 'certificate_id' },
+        {
+          entityId: String(id),
+          entityIdSnapshot: String(id),
+          action: 'csr_signed',
+          ...actor,
+          after: { certificateType: csrRow.certificateType },
+        },
+        db,
+        request.log,
+      );
+
       return { success: true };
     },
   );
@@ -431,6 +482,19 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Pending CSR not found', code: 'CSR_NOT_FOUND' });
         return;
       }
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: certificateAuditLog, idColumn: 'certificate_id' },
+        {
+          entityId: String(updated.id),
+          entityIdSnapshot: String(updated.id),
+          action: 'csr_rejected',
+          ...actor,
+        },
+        db,
+        request.log,
+      );
 
       return { success: true };
     },
@@ -498,10 +562,23 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         response: { 200: successResponse },
       },
     },
-    async () => {
+    async (request) => {
       // Dispatch a command to the OCPP server to refresh root certificates
       const payload = JSON.stringify({ action: 'refreshRootCertificates' });
       await getPubSub().publish('pnc_commands', payload);
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: certificateAuditLog, idColumn: 'certificate_id' },
+        {
+          entityId: null,
+          entityIdSnapshot: 'root_refresh',
+          action: 'root_certificates_refreshed',
+          ...actor,
+        },
+        db,
+        request.log,
+      );
 
       return { success: true };
     },

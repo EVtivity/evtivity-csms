@@ -146,7 +146,8 @@
     "collapseSidebar": "Contraer barra lateral",
     "expandSidebar": "Expandir barra lateral",
     "openMenu": "Abrir menu",
-    "closeMenu": "Cerrar menu"
+    "closeMenu": "Cerrar menu",
+    "audit": "Auditoría"
   },
   "roaming": {
     "partners": {
@@ -1967,7 +1968,6 @@
     "noHistory": "Sin entradas de auditoria.",
     "actor": "Actor",
     "changes": "Cambios",
-    "status": "Estado",
     "token": "Token",
     "evse": "EVSE"
   },
@@ -2181,7 +2181,8 @@
     "PAYMENT_METHOD_IN_USE": "El método de pago está en uso por una sesión de carga activa",
     "PAYMENT_PREAUTH_FAILED": "Autorización de pago rechazada",
     "PAYMENT_RECORD_NOT_RECOVERABLE": "El registro de pago no está en un estado recuperable",
-    "STRIPE_TOP_UP_FAILED": "Stripe rechazó la intención de pago de recarga"
+    "STRIPE_TOP_UP_FAILED": "Stripe rechazó la intención de pago de recarga",
+    "AUDIT_ENTITY_TYPE_INVALID": "Tipo de entidad de auditoría desconocido"
   },
   "logs": {
     "title": "Registros",
@@ -2795,5 +2796,25 @@
     "varReservationExpiresAt": "Hora de expiración de la reserva",
     "settingsSaved": "Ajustes guardados.",
     "settingsSaveFailed": "Error al guardar los ajustes."
+  },
+  "audit": {
+    "title": "Registro de auditoría",
+    "subtitle": "Cada mutación iniciada por un operador en el sistema. Filtra por entidad, actor, acción o rango de tiempo.",
+    "when": "Cuándo",
+    "action": "Acción",
+    "actor": "Actor",
+    "actorId": "ID del actor",
+    "notes": "Notas",
+    "entityType": "Tipo de entidad",
+    "entityId": "ID de entidad",
+    "from": "Desde",
+    "to": "Hasta",
+    "all": "Todos",
+    "actionPlaceholder": "p. ej. created",
+    "entityIdPlaceholder": "sta_... / sit_... / etc",
+    "loadFailed": "Error al cargar el registro de auditoría",
+    "noEntries": "Ningún registro de auditoría coincide con estos filtros",
+    "history": "Historial",
+    "actorType": "Tipo"
   }
 }

@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/table';
 import { MessageThread } from '@/components/support/MessageThread';
 import { CaseInfoSidebar } from '@/components/support/CaseInfoSidebar';
+import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
@@ -546,6 +547,11 @@ export function SupportCaseDetail(): React.JSX.Element {
           setRemoveSessionId(null);
         }}
       />
+
+      <div className="space-y-2">
+        <h2 className="text-xl font-semibold">{t('audit.history')}</h2>
+        <EntityHistoryTab entityType="support_case" entityId={id ?? ''} />
+      </div>
     </div>
   );
 }

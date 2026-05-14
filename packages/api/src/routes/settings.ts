@@ -9,6 +9,8 @@ import {
   getReservationSettings,
   isReservationEnabled,
   isSupportEnabled,
+  writeAudit,
+  settingAuditLog,
 } from '@evtivity/database';
 import { settings } from '@evtivity/database';
 import { encryptString } from '@evtivity/lib';
@@ -19,6 +21,20 @@ import { clearS3ConfigCache } from '../services/s3.service.js';
 import { DEFAULT_CONTENT } from './default-content.js';
 import { authorize } from '../middleware/rbac.js';
 import { config as apiConfig } from '../lib/config.js';
+import { getAuditActor } from '../lib/audit-actor.js';
+
+// Mask the value of any encrypted setting before it lands in setting_audit_log.
+// Encrypted ciphertext is still sensitive (anyone with both the audit log and
+// the encryption key can decrypt) and bloats the audit table.
+function redactSensitiveSetting<T extends { key: string; value: unknown } | undefined>(
+  row: T,
+): T extends undefined ? null : { key: string; value: unknown } {
+  if (row == null) return null as never;
+  if (row.key.endsWith('Enc') || row.key.endsWith('SecretKey')) {
+    return { key: row.key, value: '<redacted>' } as never;
+  }
+  return { key: row.key, value: row.value } as never;
+}
 
 const settingParams = z.object({
   key: z.string().min(1).describe('Setting key'),
@@ -232,6 +248,7 @@ export function settingsRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { key } = request.params as z.infer<typeof settingParams>;
       const { value } = request.body as z.infer<typeof updateSettingBody>;
+      const [before] = await db.select().from(settings).where(eq(settings.key, key));
       const [row] = await db
         .update(settings)
         .set({ value, updatedAt: new Date() })
@@ -241,6 +258,20 @@ export function settingsRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Setting not found', code: 'SETTING_NOT_FOUND' });
         return;
       }
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: settingAuditLog, idColumn: 'setting_key' },
+        {
+          entityId: row.key,
+          entityIdSnapshot: row.key,
+          action: 'updated',
+          ...actor,
+          before: redactSensitiveSetting(before),
+          after: redactSensitiveSetting(row),
+        },
+        db,
+        request.log,
+      );
       return { key: row.key, value: row.value };
     },
   );
@@ -262,6 +293,7 @@ export function settingsRoutes(app: FastifyInstance): void {
     async (request) => {
       const { key } = request.params as z.infer<typeof settingParams>;
       const { value } = request.body as z.infer<typeof updateSettingBody>;
+      const [before] = await db.select().from(settings).where(eq(settings.key, key));
       const rows = await db
         .insert(settings)
         .values({ key, value })
@@ -274,6 +306,20 @@ export function settingsRoutes(app: FastifyInstance): void {
       if (row == null) {
         throw new Error('Insert with onConflictDoUpdate returned no rows');
       }
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: settingAuditLog, idColumn: 'setting_key' },
+        {
+          entityId: row.key,
+          entityIdSnapshot: row.key,
+          action: 'updated',
+          ...actor,
+          before: redactSensitiveSetting(before),
+          after: redactSensitiveSetting(row),
+        },
+        db,
+        request.log,
+      );
       return { key: row.key, value: row.value };
     },
   );
@@ -301,6 +347,20 @@ export function settingsRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Setting not found', code: 'SETTING_NOT_FOUND' });
         return;
       }
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: settingAuditLog, idColumn: 'setting_key' },
+        {
+          entityId: null,
+          entityIdSnapshot: row.key,
+          action: 'deleted',
+          ...actor,
+          before: redactSensitiveSetting(row),
+          after: null,
+        },
+        db,
+        request.log,
+      );
       return { key: row.key, value: row.value };
     },
   );

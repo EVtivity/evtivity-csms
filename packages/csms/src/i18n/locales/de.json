@@ -146,7 +146,8 @@
     "collapseSidebar": "Seitenleiste einklappen",
     "expandSidebar": "Seitenleiste ausklappen",
     "openMenu": "Menü öffnen",
-    "closeMenu": "Menü schließen"
+    "closeMenu": "Menü schließen",
+    "audit": "Audit"
   },
   "roaming": {
     "partners": {
@@ -1936,7 +1937,6 @@
     "noHistory": "Keine Audit-Einträge.",
     "actor": "Akteur",
     "changes": "Änderungen",
-    "status": "Status",
     "token": "Token",
     "evse": "EVSE"
   },
@@ -2150,7 +2150,8 @@
     "PAYMENT_METHOD_IN_USE": "Zahlungsmethode wird von einer aktiven Ladesitzung verwendet",
     "PAYMENT_PREAUTH_FAILED": "Zahlungsautorisierung abgelehnt",
     "PAYMENT_RECORD_NOT_RECOVERABLE": "Zahlungseintrag befindet sich nicht in einem wiederherstellbaren Zustand",
-    "STRIPE_TOP_UP_FAILED": "Stripe hat die Top-up-Zahlungsabsicht abgelehnt"
+    "STRIPE_TOP_UP_FAILED": "Stripe hat die Top-up-Zahlungsabsicht abgelehnt",
+    "AUDIT_ENTITY_TYPE_INVALID": "Unbekannter Audit-Entitätstyp"
   },
   "logs": {
     "title": "Protokolle",
@@ -2764,5 +2765,25 @@
     "varReservationExpiresAt": "Ablaufzeit der Reservierung",
     "settingsSaved": "Einstellungen gespeichert.",
     "settingsSaveFailed": "Speichern der Einstellungen fehlgeschlagen."
+  },
+  "audit": {
+    "title": "Auditprotokoll",
+    "subtitle": "Jede vom Operator ausgelöste Änderung im System. Filtere nach Entität, Akteur, Aktion oder Zeitraum.",
+    "when": "Zeit",
+    "action": "Aktion",
+    "actor": "Akteur",
+    "actorId": "Akteur-ID",
+    "notes": "Notizen",
+    "entityType": "Entitätstyp",
+    "entityId": "Entitäts-ID",
+    "from": "Von",
+    "to": "Bis",
+    "all": "Alle",
+    "actionPlaceholder": "z.B. created",
+    "entityIdPlaceholder": "sta_... / sit_... / usw.",
+    "loadFailed": "Auditprotokoll konnte nicht geladen werden",
+    "noEntries": "Keine Audit-Einträge entsprechen diesen Filtern",
+    "history": "Verlauf",
+    "actorType": "Typ"
   }
 }

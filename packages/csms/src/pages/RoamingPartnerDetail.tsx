@@ -17,6 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { getErrorMessage } from '@/lib/error-message';
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
@@ -271,6 +272,11 @@ export function RoamingPartnerDetail(): React.JSX.Element {
         }}
         isPending={disconnectMutation.isPending}
       />
+
+      <div className="space-y-2">
+        <h2 className="text-xl font-semibold">{t('audit.history')}</h2>
+        <EntityHistoryTab entityType="ocpi_partner" entityId={id ?? ''} />
+      </div>
     </div>
   );
 }

@@ -12,7 +12,10 @@ import {
   ocpiPartnerEndpoints,
   ocpiCredentialsTokens,
   ocpiSyncLog,
+  writeAudit,
+  ocpiPartnerAuditLog,
 } from '@evtivity/database';
+import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -278,6 +281,20 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         isActive: true,
       });
 
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' },
+        {
+          entityId: partner.id,
+          entityIdSnapshot: partner.id,
+          action: 'created',
+          ...actor,
+          after: partner,
+        },
+        db,
+        request.log,
+      );
+
       await reply.status(201).send({
         partner,
         registrationToken,
@@ -332,11 +349,29 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
       if (body.status != null) updateData['status'] = body.status;
       if (body.versionUrl != null) updateData['versionUrl'] = body.versionUrl;
 
+      const [before] = await db.select().from(ocpiPartners).where(eq(ocpiPartners.id, id));
       const [updated] = await db
         .update(ocpiPartners)
         .set(updateData)
         .where(eq(ocpiPartners.id, id))
         .returning();
+
+      if (updated != null) {
+        const actor = getAuditActor(request);
+        await writeAudit(
+          { table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' },
+          {
+            entityId: updated.id,
+            entityIdSnapshot: updated.id,
+            action: 'updated',
+            ...actor,
+            before: before ?? null,
+            after: updated,
+          },
+          db,
+          request.log,
+        );
+      }
 
       return updated;
     },
@@ -385,6 +420,19 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         .where(
           and(eq(ocpiCredentialsTokens.partnerId, id), eq(ocpiCredentialsTokens.isActive, true)),
         );
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'disconnected',
+          ...actor,
+        },
+        db,
+        request.log,
+      );
 
       return { success: true };
     },
@@ -439,6 +487,19 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         JSON.stringify({ partnerId: id, versionUrl: partner.versionUrl }),
       );
 
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'registered',
+          ...actor,
+        },
+        db,
+        request.log,
+      );
+
       return { success: true };
     },
   );
@@ -487,6 +548,20 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
 
       const pubsub = getPubSub();
       await pubsub.publish('ocpi_sync', JSON.stringify({ partnerId: id, module }));
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'sync_triggered',
+          ...actor,
+          notes: `Module: ${module}`,
+        },
+        db,
+        request.log,
+      );
 
       return { success: true };
     },

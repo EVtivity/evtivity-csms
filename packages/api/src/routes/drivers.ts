@@ -15,8 +15,12 @@ import {
   pricingGroupDrivers,
   pricingGroups,
   reservations,
-  writePricingAudit,
+  writeAudit,
+  driverAuditLog,
+  vehicleAuditLog,
+  pricingAssignmentAuditLog,
 } from '@evtivity/database';
+import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -355,6 +359,21 @@ export function driverRoutes(app: FastifyInstance): void {
       }
 
       const [driver] = await db.insert(drivers).values(body).returning();
+      if (driver != null) {
+        const actor = getAuditActor(request);
+        await writeAudit(
+          { table: driverAuditLog, idColumn: 'driver_id' },
+          {
+            entityId: driver.id,
+            entityIdSnapshot: driver.id,
+            action: 'created',
+            ...actor,
+            after: driver,
+          },
+          db,
+          request.log,
+        );
+      }
       await reply.status(201).send(driver);
     },
   );
@@ -388,12 +407,32 @@ export function driverRoutes(app: FastifyInstance): void {
       if (body.isActive !== undefined) fields['isActive'] = body.isActive;
       if (body.timezone !== undefined) fields['timezone'] = body.timezone;
 
+      const [before] = await db.select().from(drivers).where(eq(drivers.id, id));
       const [updated] = await db.update(drivers).set(fields).where(eq(drivers.id, id)).returning();
 
       if (updated == null) {
         await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
         return;
       }
+
+      const actor = getAuditActor(request);
+      let action: string = 'updated';
+      if (before != null && body.isActive !== undefined && body.isActive !== before.isActive) {
+        action = body.isActive ? 'activated' : 'deactivated';
+      }
+      await writeAudit(
+        { table: driverAuditLog, idColumn: 'driver_id' },
+        {
+          entityId: updated.id,
+          entityIdSnapshot: updated.id,
+          action,
+          ...actor,
+          before: before ?? null,
+          after: updated,
+        },
+        db,
+        request.log,
+      );
 
       return updated;
     },
@@ -529,6 +568,21 @@ export function driverRoutes(app: FastifyInstance): void {
         .insert(vehicles)
         .values({ driverId: id, ...body })
         .returning();
+      if (vehicle != null) {
+        const actor = getAuditActor(request);
+        await writeAudit(
+          { table: vehicleAuditLog, idColumn: 'vehicle_id' },
+          {
+            entityId: vehicle.id,
+            entityIdSnapshot: vehicle.id,
+            action: 'created',
+            ...actor,
+            after: vehicle,
+          },
+          db,
+          request.log,
+        );
+      }
       await reply.status(201).send(vehicle);
     },
   );
@@ -561,6 +615,10 @@ export function driverRoutes(app: FastifyInstance): void {
       if (body.vin !== undefined) fields['vin'] = body.vin;
       if (body.licensePlate !== undefined) fields['licensePlate'] = body.licensePlate;
 
+      const [before] = await db
+        .select()
+        .from(vehicles)
+        .where(and(eq(vehicles.id, vehicleId), eq(vehicles.driverId, id)));
       const [updated] = await db
         .update(vehicles)
         .set(fields)
@@ -571,6 +629,21 @@ export function driverRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Vehicle not found', code: 'VEHICLE_NOT_FOUND' });
         return;
       }
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: vehicleAuditLog, idColumn: 'vehicle_id' },
+        {
+          entityId: updated.id,
+          entityIdSnapshot: updated.id,
+          action: 'updated',
+          ...actor,
+          before: before ?? null,
+          after: updated,
+        },
+        db,
+        request.log,
+      );
 
       return updated;
     },
@@ -605,6 +678,20 @@ export function driverRoutes(app: FastifyInstance): void {
         return;
       }
 
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: vehicleAuditLog, idColumn: 'vehicle_id' },
+        {
+          entityId: null,
+          entityIdSnapshot: deleted.id,
+          action: 'deleted',
+          ...actor,
+          before: deleted,
+        },
+        db,
+        request.log,
+      );
+
       await reply.status(204).send();
     },
   );
@@ -638,6 +725,20 @@ export function driverRoutes(app: FastifyInstance): void {
         .update(drivers)
         .set({ isActive: false, updatedAt: new Date() })
         .where(eq(drivers.id, id));
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: driverAuditLog, idColumn: 'driver_id' },
+        {
+          entityId: driver.id,
+          entityIdSnapshot: driver.id,
+          action: 'deleted',
+          ...actor,
+          before: driver,
+        },
+        db,
+        request.log,
+      );
 
       await reply.status(204).send();
     },
@@ -844,11 +945,13 @@ export function driverRoutes(app: FastifyInstance): void {
           set: { pricingGroupId: body.pricingGroupId, createdAt: new Date() },
         })
         .returning();
-      await writePricingAudit(
+      await writeAudit(
+        { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
         {
-          entityType: 'pricing_assignment',
           entityId: id,
+          entityIdSnapshot: id,
           action: previous == null ? 'created' : 'updated',
+          actor: 'operator',
           actorUserId: userId,
           before:
             previous == null
@@ -856,7 +959,21 @@ export function driverRoutes(app: FastifyInstance): void {
               : { scope: 'driver', driverId: id, pricingGroupId: previous.pricingGroupId },
           after: { scope: 'driver', driverId: id, pricingGroupId: body.pricingGroupId },
         },
-        undefined,
+        db,
+        request.log,
+      );
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: driverAuditLog, idColumn: 'driver_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'pricing_assignment_changed',
+          ...actor,
+          before: previous == null ? null : { pricingGroupId: previous.pricingGroupId },
+          after: { pricingGroupId: body.pricingGroupId },
+        },
+        db,
         request.log,
       );
       await reply.status(201).send(record);
@@ -897,15 +1014,30 @@ export function driverRoutes(app: FastifyInstance): void {
           .send({ error: 'Pricing group not found for driver', code: 'NOT_FOUND' });
         return;
       }
-      await writePricingAudit(
+      await writeAudit(
+        { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
         {
-          entityType: 'pricing_assignment',
           entityId: id,
+          entityIdSnapshot: id,
           action: 'deleted',
+          actor: 'operator',
           actorUserId: userId,
           before: { scope: 'driver', driverId: id, pricingGroupId },
         },
-        undefined,
+        db,
+        request.log,
+      );
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: driverAuditLog, idColumn: 'driver_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'pricing_assignment_changed',
+          ...actor,
+          before: { pricingGroupId },
+        },
+        db,
         request.log,
       );
       return record;

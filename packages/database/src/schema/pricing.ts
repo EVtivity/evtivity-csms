@@ -3,7 +3,6 @@
 
 import {
   pgTable,
-  pgEnum,
   text,
   serial,
   integer,
@@ -156,44 +155,11 @@ export const pricingHolidays = pgTable(
   (table) => [unique('uq_pricing_holidays_date').on(table.date)],
 );
 
-// sessionId FK to charging_sessions is defined in migration SQL (0017) to avoid circular imports.
-export const pricingAuditEntityEnum = pgEnum('pricing_audit_entity', [
-  'pricing_group',
-  'tariff',
-  'holiday',
-  'pricing_assignment',
-]);
-
-export const pricingAuditActionEnum = pgEnum('pricing_audit_action', [
-  'created',
-  'updated',
-  'deleted',
-]);
-
-// Append-only audit trail for every CRUD on pricing groups, tariffs, and
-// holidays. Stores before/after JSONB snapshots so disputes can be resolved
-// against the exact tariff that applied at any point in time, and so that an
-// accidental edit can be reverted without DB forensics. No FK to the entity
-// itself -- audit rows survive hard delete and the entity_id is preserved as
-// a snapshot identifier only.
-export const pricingAuditLog = pgTable(
-  'pricing_audit_log',
-  {
-    id: serial('id').primaryKey(),
-    entityType: pricingAuditEntityEnum('entity_type').notNull(),
-    entityId: text('entity_id').notNull(),
-    action: pricingAuditActionEnum('action').notNull(),
-    actorUserId: text('actor_user_id'),
-    before: jsonb('before'),
-    after: jsonb('after'),
-    notes: text('notes'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index('idx_pricing_audit_entity').on(table.entityType, table.entityId),
-    index('idx_pricing_audit_created_at').on(table.createdAt),
-  ],
-);
+// The pricing_audit_log discriminated table was retired in migration 0035.
+// Per-entity audit tables live in schema/audit.ts now and are accessed via
+// AUDIT_TABLES. Use writeAudit() with the entity-specific table reference
+// (pricingGroupAuditLog, tariffAuditLog, holidayAuditLog,
+// pricingAssignmentAuditLog).
 
 // tariff_id references tariffs(id) with the drizzle default ON DELETE NO ACTION
 // (the FK was created that way in migration 0000). This is intentional: a tariff

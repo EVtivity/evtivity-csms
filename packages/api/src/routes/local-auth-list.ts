@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc, count, notInArray, ilike, or, isNull, inArray } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, writeAudit, localAuthListAuditLog } from '@evtivity/database';
 import {
   chargingStations,
   driverTokens,
@@ -12,6 +12,7 @@ import {
   stationLocalAuthVersions,
   stationLocalAuthEntries,
 } from '@evtivity/database';
+import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -482,6 +483,20 @@ export function localAuthListRoutes(app: FastifyInstance): void {
         .set({ pushedAt: new Date() })
         .where(eq(stationLocalAuthEntries.stationId, stationId));
 
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: localAuthListAuditLog, idColumn: 'station_id' },
+        {
+          entityId: stationId,
+          entityIdSnapshot: stationId,
+          action: 'pushed',
+          ...actor,
+          notes: `Pushed ${String(trackedEntries.length)} entries (version ${String(newVersion)})`,
+        },
+        db,
+        request.log,
+      );
+
       return {
         status: 'Accepted',
         entriesCount: trackedEntries.length,
@@ -563,6 +578,20 @@ export function localAuthListRoutes(app: FastifyInstance): void {
         .set({ lastModifiedAt: new Date(), updatedAt: new Date() })
         .where(eq(stationLocalAuthVersions.stationId, stationId));
 
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: localAuthListAuditLog, idColumn: 'station_id' },
+        {
+          entityId: stationId,
+          entityIdSnapshot: stationId,
+          action: 'tokens_added',
+          ...actor,
+          after: { tokenIds: requestedTokens.map((t) => t.id) },
+        },
+        db,
+        request.log,
+      );
+
       return {
         status: 'ok',
         count: requestedTokens.length,
@@ -637,6 +666,20 @@ export function localAuthListRoutes(app: FastifyInstance): void {
         .update(stationLocalAuthVersions)
         .set({ lastModifiedAt: new Date(), updatedAt: new Date() })
         .where(eq(stationLocalAuthVersions.stationId, stationId));
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: localAuthListAuditLog, idColumn: 'station_id' },
+        {
+          entityId: stationId,
+          entityIdSnapshot: stationId,
+          action: 'tokens_removed',
+          ...actor,
+          before: { entryIds: entriesToRemove.map((e) => e.id) },
+        },
+        db,
+        request.log,
+      );
 
       return {
         status: 'ok',

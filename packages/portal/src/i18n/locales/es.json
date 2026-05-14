@@ -651,7 +651,8 @@
     "PAYMENT_METHOD_IN_USE": "El método de pago está en uso por una sesión de carga activa",
     "PAYMENT_PREAUTH_FAILED": "Autorización de pago rechazada",
     "PAYMENT_RECORD_NOT_RECOVERABLE": "El registro de pago no está en un estado recuperable",
-    "STRIPE_TOP_UP_FAILED": "Stripe rechazó la intención de pago de recarga"
+    "STRIPE_TOP_UP_FAILED": "Stripe rechazó la intención de pago de recarga",
+    "AUDIT_ENTITY_TYPE_INVALID": "Tipo de entidad de auditoría desconocido"
   },
   "validation": {
     "required": "Este campo es obligatorio",

@@ -11,6 +11,7 @@ import { CreateButton } from '@/components/create-button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { SessionsTable, type Session } from '@/components/SessionsTable';
 import { TokensTable } from '@/components/TokensTable';
 import { VehiclesTable, type Vehicle } from '@/components/VehiclesTable';
@@ -120,6 +121,7 @@ export function DriverDetail(): React.JSX.Element {
           )}
           <TabsTrigger value="authorize-log">{t('tokens.authorizeLog')}</TabsTrigger>
           <TabsTrigger value="pricing">{t('drivers.pricing')}</TabsTrigger>
+          <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>
         </TabsList>
 
         <DriverDetailsTab driver={driver} timezone={timezone} />
@@ -208,6 +210,10 @@ export function DriverDetail(): React.JSX.Element {
         </TabsContent>
 
         <DriverPricingTab driverId={id ?? ''} />
+
+        <TabsContent value="history">
+          <EntityHistoryTab entityType="driver" entityId={id ?? ''} />
+        </TabsContent>
       </Tabs>
     </div>
   );

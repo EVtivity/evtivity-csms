@@ -552,7 +552,11 @@ export function reservationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const [data, countRows] = await Promise.all([
+      // The legacy per-field columns were collapsed into before/after JSONB
+      // in migration 0035. Project the JSONB values back to the legacy
+      // response shape so the CSMS reservation history UI keeps working
+      // unchanged.
+      const [rows, countRows] = await Promise.all([
         db
           .select({
             id: reservationAuditLog.id,
@@ -577,16 +581,8 @@ export function reservationRoutes(app: FastifyInstance): void {
                 )
               ELSE NULL
             END`,
-            driverIdBefore: reservationAuditLog.driverIdBefore,
-            driverIdAfter: reservationAuditLog.driverIdAfter,
-            tokenIdBefore: reservationAuditLog.tokenIdBefore,
-            tokenIdAfter: reservationAuditLog.tokenIdAfter,
-            evseIdBefore: reservationAuditLog.evseIdBefore,
-            evseIdAfter: reservationAuditLog.evseIdAfter,
-            statusBefore: reservationAuditLog.statusBefore,
-            statusAfter: reservationAuditLog.statusAfter,
-            expiresAtBefore: reservationAuditLog.expiresAtBefore,
-            expiresAtAfter: reservationAuditLog.expiresAtAfter,
+            before: reservationAuditLog.before,
+            after: reservationAuditLog.after,
             notes: reservationAuditLog.notes,
             createdAt: reservationAuditLog.createdAt,
           })
@@ -602,6 +598,51 @@ export function reservationRoutes(app: FastifyInstance): void {
           .from(reservationAuditLog)
           .where(eq(reservationAuditLog.reservationId, id)),
       ]);
+
+      const data = rows.map((row) => {
+        const before = (row.before ?? {}) as {
+          driverId?: string | null;
+          tokenId?: string | null;
+          evseId?: string | null;
+          status?: string | null;
+          expiresAt?: string | Date | null;
+        };
+        const after = (row.after ?? {}) as {
+          driverId?: string | null;
+          tokenId?: string | null;
+          evseId?: string | null;
+          status?: string | null;
+          expiresAt?: string | Date | null;
+        };
+        const parseDate = (v: string | Date | null | undefined): Date | null => {
+          if (v == null) return null;
+          if (v instanceof Date) return v;
+          const d = new Date(v);
+          return Number.isNaN(d.getTime()) ? null : d;
+        };
+        return {
+          id: row.id,
+          reservationId: row.reservationId,
+          action: row.action,
+          actor: row.actor,
+          actorUserId: row.actorUserId,
+          actorUserName: row.actorUserName,
+          actorDriverId: row.actorDriverId,
+          actorDriverName: row.actorDriverName,
+          driverIdBefore: before.driverId ?? null,
+          driverIdAfter: after.driverId ?? null,
+          tokenIdBefore: before.tokenId ?? null,
+          tokenIdAfter: after.tokenId ?? null,
+          evseIdBefore: before.evseId ?? null,
+          evseIdAfter: after.evseId ?? null,
+          statusBefore: before.status ?? null,
+          statusAfter: after.status ?? null,
+          expiresAtBefore: parseDate(before.expiresAt),
+          expiresAtAfter: parseDate(after.expiresAt),
+          notes: row.notes,
+          createdAt: row.createdAt,
+        };
+      });
 
       return { data, total: countRows[0]?.count ?? 0 };
     },

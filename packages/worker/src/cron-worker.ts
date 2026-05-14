@@ -21,6 +21,7 @@ import { offlineCommandCleanupHandler } from './handlers/offline-command-cleanup
 import { certificateExpirationCheckHandler } from './handlers/certificate-expiration-check.js';
 import { stationMessageChargingRefreshHandler } from './handlers/station-message-charging-refresh.js';
 import { paymentCaptureRetryHandler } from './handlers/payment-capture-retry.js';
+import { auditRetentionPruneHandler } from './handlers/audit-retention-prune.js';
 
 const log = createLogger('cron-worker');
 
@@ -42,6 +43,7 @@ const JOB_HANDLERS = new Map<string, JobHandlerFn>([
   ['certificate-expiration-check', certificateExpirationCheckHandler],
   ['station-message-charging-refresh', stationMessageChargingRefreshHandler],
   ['payment-capture-retry', paymentCaptureRetryHandler],
+  ['audit-retention-prune', auditRetentionPruneHandler],
 ]);
 
 export function createCronWorker(connection: ConnectionOptions): Worker {

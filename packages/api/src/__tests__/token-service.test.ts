@@ -105,6 +105,7 @@ vi.mock('@evtivity/database', () => ({
     stationId: 'stationId',
     lastModifiedAt: 'lastModifiedAt',
   },
+  writeAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('drizzle-orm', () => ({

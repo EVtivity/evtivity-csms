@@ -146,7 +146,8 @@
     "collapseSidebar": "摺疊側邊欄",
     "expandSidebar": "展開側邊欄",
     "openMenu": "開啟選單",
-    "closeMenu": "關閉選單"
+    "closeMenu": "關閉選單",
+    "audit": "稽核"
   },
   "roaming": {
     "partners": {
@@ -1951,7 +1952,6 @@
     "noHistory": "暫無稽核記錄。",
     "actor": "操作者",
     "changes": "變更",
-    "status": "狀態",
     "token": "權杖",
     "evse": "EVSE"
   },
@@ -2165,7 +2165,8 @@
     "PAYMENT_METHOD_IN_USE": "支付方式正被活躍充電工作階段使用",
     "PAYMENT_PREAUTH_FAILED": "支付授權被拒絕",
     "PAYMENT_RECORD_NOT_RECOVERABLE": "支付紀錄不處於可恢復狀態",
-    "STRIPE_TOP_UP_FAILED": "Stripe 拒絕了補足支付意圖"
+    "STRIPE_TOP_UP_FAILED": "Stripe 拒絕了補足支付意圖",
+    "AUDIT_ENTITY_TYPE_INVALID": "未知的稽核實體類型"
   },
   "logs": {
     "title": "日誌",
@@ -2779,5 +2780,25 @@
     "varReservationExpiresAt": "預訂到期時間",
     "settingsSaved": "設定已儲存。",
     "settingsSaveFailed": "儲存設定失敗。"
+  },
+  "audit": {
+    "title": "稽核日誌",
+    "subtitle": "系統中每一次由維運人員發起的變更。可依實體、執行者、動作或時間範圍篩選。",
+    "when": "時間",
+    "action": "動作",
+    "actor": "執行者",
+    "actorId": "執行者 ID",
+    "notes": "備註",
+    "entityType": "實體類型",
+    "entityId": "實體 ID",
+    "from": "開始",
+    "to": "結束",
+    "all": "全部",
+    "actionPlaceholder": "例如:created",
+    "entityIdPlaceholder": "sta_... / sit_... / 等",
+    "loadFailed": "載入稽核日誌失敗",
+    "noEntries": "沒有符合篩選條件的稽核記錄",
+    "history": "歷史",
+    "actorType": "類型"
   }
 }

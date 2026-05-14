@@ -104,6 +104,24 @@ vi.mock('@evtivity/database', () => ({
   connectors: {},
   siteLoadManagement: {},
   displayMessages: {},
+  writeAudit: vi.fn().mockResolvedValue(undefined),
+  siteAuditLog: {},
+  stationAuditLog: {},
+  driverAuditLog: {},
+  fleetAuditLog: {},
+  userAuditLog: {},
+  vehicleAuditLog: {},
+  supportCaseAuditLog: {},
+  ocpiPartnerAuditLog: {},
+  certificateAuditLog: {},
+  roleAuditLog: {},
+  apiKeyAuditLog: {},
+  settingAuditLog: {},
+  smartChargingTemplateAuditLog: {},
+  configTemplateAuditLog: {},
+  firmwareCampaignAuditLog: {},
+  stationImageAuditLog: {},
+  localAuthListAuditLog: {},
 }));
 
 vi.mock('drizzle-orm', () => {
@@ -361,7 +379,8 @@ describe('Site routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      setupDbResults([updated]);
+      // 1: before SELECT, 2: UPDATE returning
+      setupDbResults([updated], [updated]);
 
       const response = await app.inject({
         method: 'PATCH',
@@ -375,7 +394,8 @@ describe('Site routes - handler logic', () => {
     });
 
     it('returns 404 when site not found', async () => {
-      setupDbResults([]);
+      // 1: before SELECT (empty), 2: UPDATE returning (empty)
+      setupDbResults([], []);
 
       const response = await app.inject({
         method: 'PATCH',

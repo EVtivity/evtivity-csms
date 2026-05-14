@@ -15,8 +15,9 @@ import { authorize } from '../middleware/rbac.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { createApiKey, listApiKeys, revokeApiKey } from '../services/api-key.service.js';
 import { PERMISSIONS, isSubsetOf } from '@evtivity/lib';
-import { db, userPermissions, refreshTokens } from '@evtivity/database';
+import { db, userPermissions, refreshTokens, writeAudit, apiKeyAuditLog } from '@evtivity/database';
 import { eq, and, isNull } from 'drizzle-orm';
+import { getAuditActor } from '../lib/audit-actor.js';
 
 const createApiKeyBody = z.object({
   name: z.string().min(1).max(255).describe('Display name for the API key'),
@@ -183,6 +184,26 @@ export function apiKeyRoutes(app: FastifyInstance): void {
         permissions: body.permissions,
       });
 
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: apiKeyAuditLog, idColumn: 'api_key_id' },
+        {
+          entityId: String(result.id),
+          entityIdSnapshot: String(result.id),
+          action: 'created',
+          ...actor,
+          after: {
+            id: result.id,
+            name: result.name,
+            expiresAt: result.expiresAt,
+            createdAt: result.createdAt,
+            permissions: body.permissions,
+          },
+        },
+        db,
+        request.log,
+      );
+
       await reply.status(201).send({
         id: result.id,
         name: result.name,
@@ -219,6 +240,18 @@ export function apiKeyRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'API key not found', code: 'API_KEY_NOT_FOUND' });
         return;
       }
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: apiKeyAuditLog, idColumn: 'api_key_id' },
+        {
+          entityId: String(id),
+          entityIdSnapshot: String(id),
+          action: 'revoked',
+          ...actor,
+        },
+        db,
+        request.log,
+      );
       return { success: true as const };
     },
   );

@@ -19,6 +19,7 @@ import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PermissionEditor } from '@/components/PermissionEditor';
+import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
@@ -507,6 +508,11 @@ export function UserDetail(): React.JSX.Element {
           </form>
         </CardContent>
       </Card>
+
+      <div className="space-y-2">
+        <h2 className="text-xl font-semibold">{t('audit.history')}</h2>
+        <EntityHistoryTab entityType="user" entityId={id ?? ''} />
+      </div>
     </div>
   );
 }

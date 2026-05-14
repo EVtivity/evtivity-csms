@@ -115,6 +115,24 @@ vi.mock('@evtivity/database', () => {
     pricingGroups: {},
     guestSessions: {},
     configTemplates: {},
+    writeAudit: vi.fn().mockResolvedValue(undefined),
+    siteAuditLog: {},
+    stationAuditLog: {},
+    driverAuditLog: {},
+    fleetAuditLog: {},
+    userAuditLog: {},
+    vehicleAuditLog: {},
+    supportCaseAuditLog: {},
+    ocpiPartnerAuditLog: {},
+    certificateAuditLog: {},
+    roleAuditLog: {},
+    apiKeyAuditLog: {},
+    settingAuditLog: {},
+    smartChargingTemplateAuditLog: {},
+    configTemplateAuditLog: {},
+    firmwareCampaignAuditLog: {},
+    stationImageAuditLog: {},
+    localAuthListAuditLog: {},
   };
 });
 
@@ -428,7 +446,8 @@ describe('Station routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      setupDbResults([updated]);
+      // 1: before SELECT, 2: UPDATE returning
+      setupDbResults([updated], [updated]);
 
       const response = await app.inject({
         method: 'PATCH',
@@ -442,7 +461,8 @@ describe('Station routes - handler logic', () => {
     });
 
     it('returns 404 when station not found', async () => {
-      setupDbResults([]);
+      // 1: before SELECT (empty), 2: UPDATE returning (empty)
+      setupDbResults([], []);
 
       const response = await app.inject({
         method: 'PATCH',
@@ -493,7 +513,8 @@ describe('Station routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      setupDbResults([station]);
+      // 1: before SELECT, 2: UPDATE returning
+      setupDbResults([station], [station]);
 
       const response = await app.inject({
         method: 'DELETE',
@@ -1295,8 +1316,8 @@ describe('Station routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      // First call: check existing hasPassword (SP2 requires password), second: update returning
-      setupDbResults([{ hasPassword: true }], [updated]);
+      // 1: check existing hasPassword (SP2 requires password), 2: before SELECT, 3: UPDATE returning
+      setupDbResults([{ hasPassword: true }], [updated], [updated]);
 
       const response = await app.inject({
         method: 'PATCH',
@@ -1329,8 +1350,8 @@ describe('Station routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      // No hasPassword check needed because password is in body; skip to update returning
-      setupDbResults([updated]);
+      // No hasPassword check (password in body). 1: before SELECT, 2: UPDATE returning
+      setupDbResults([updated], [updated]);
 
       const response = await app.inject({
         method: 'PATCH',
@@ -1362,7 +1383,8 @@ describe('Station routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      setupDbResults([updated]);
+      // 1: before SELECT, 2: UPDATE returning
+      setupDbResults([updated], [updated]);
 
       const response = await app.inject({
         method: 'PATCH',

@@ -13,7 +13,10 @@ import {
   stationConfigurations,
   sites,
   vendors,
+  writeAudit,
+  configTemplateAuditLog,
 } from '@evtivity/database';
+import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -393,6 +396,22 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         })
         .returning();
 
+      if (template != null) {
+        const actor = getAuditActor(request);
+        await writeAudit(
+          { table: configTemplateAuditLog, idColumn: 'template_id' },
+          {
+            entityId: template.id,
+            entityIdSnapshot: template.id,
+            action: 'created',
+            ...actor,
+            after: template,
+          },
+          db,
+          request.log,
+        );
+      }
+
       return reply.status(201).send(template);
     },
   );
@@ -419,10 +438,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof templateParams>;
       const body = request.body as z.infer<typeof updateTemplateBody>;
 
-      const [existing] = await db
-        .select({ id: configTemplates.id })
-        .from(configTemplates)
-        .where(eq(configTemplates.id, id));
+      const [existing] = await db.select().from(configTemplates).where(eq(configTemplates.id, id));
       if (existing == null) {
         await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
         return;
@@ -433,6 +449,23 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         .set({ ...body, updatedAt: new Date() })
         .where(eq(configTemplates.id, id))
         .returning();
+
+      if (updated != null) {
+        const actor = getAuditActor(request);
+        await writeAudit(
+          { table: configTemplateAuditLog, idColumn: 'template_id' },
+          {
+            entityId: updated.id,
+            entityIdSnapshot: updated.id,
+            action: 'updated',
+            ...actor,
+            before: existing,
+            after: updated,
+          },
+          db,
+          request.log,
+        );
+      }
 
       return updated;
     },
@@ -475,6 +508,23 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         })
         .returning();
 
+      if (duplicate != null) {
+        const actor = getAuditActor(request);
+        await writeAudit(
+          { table: configTemplateAuditLog, idColumn: 'template_id' },
+          {
+            entityId: duplicate.id,
+            entityIdSnapshot: duplicate.id,
+            action: 'created',
+            ...actor,
+            after: duplicate,
+            notes: `Duplicated from ${id}`,
+          },
+          db,
+          request.log,
+        );
+      }
+
       return reply.status(201).send(duplicate);
     },
   );
@@ -499,16 +549,28 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof templateParams>;
 
-      const [existing] = await db
-        .select({ id: configTemplates.id })
-        .from(configTemplates)
-        .where(eq(configTemplates.id, id));
+      const [existing] = await db.select().from(configTemplates).where(eq(configTemplates.id, id));
       if (existing == null) {
         await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
         return;
       }
 
       await db.delete(configTemplates).where(eq(configTemplates.id, id));
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: configTemplateAuditLog, idColumn: 'template_id' },
+        {
+          entityId: null,
+          entityIdSnapshot: id,
+          action: 'deleted',
+          ...actor,
+          before: existing,
+        },
+        db,
+        request.log,
+      );
+
       return reply.status(204).send();
     },
   );
@@ -689,6 +751,20 @@ export function configTemplateRoutes(app: FastifyInstance): void {
 
       // Process in background
       void processConfigPush(pushId, targetStations, variables, ocppVersion);
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: configTemplateAuditLog, idColumn: 'template_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'pushed',
+          ...actor,
+          notes: `Pushed to ${String(targetStations.length)} station(s)`,
+        },
+        db,
+        request.log,
+      );
 
       return { success: true, pushId };
     },

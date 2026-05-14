@@ -146,7 +146,8 @@
     "collapseSidebar": "折叠侧边栏",
     "expandSidebar": "展开侧边栏",
     "openMenu": "打开菜单",
-    "closeMenu": "关闭菜单"
+    "closeMenu": "关闭菜单",
+    "audit": "审计"
   },
   "roaming": {
     "partners": {
@@ -1962,7 +1963,6 @@
     "noHistory": "暂无审计记录。",
     "actor": "操作者",
     "changes": "变更",
-    "status": "状态",
     "token": "令牌",
     "evse": "EVSE"
   },
@@ -2176,7 +2176,8 @@
     "PAYMENT_METHOD_IN_USE": "支付方式正被活跃充电会话使用",
     "PAYMENT_PREAUTH_FAILED": "支付授权被拒绝",
     "PAYMENT_RECORD_NOT_RECOVERABLE": "支付记录不处于可恢复状态",
-    "STRIPE_TOP_UP_FAILED": "Stripe 拒绝了补足支付意图"
+    "STRIPE_TOP_UP_FAILED": "Stripe 拒绝了补足支付意图",
+    "AUDIT_ENTITY_TYPE_INVALID": "未知的审计实体类型"
   },
   "logs": {
     "title": "日志",
@@ -2790,5 +2791,25 @@
     "varReservationExpiresAt": "预订到期时间",
     "settingsSaved": "设置已保存。",
     "settingsSaveFailed": "保存设置失败。"
+  },
+  "audit": {
+    "title": "审计日志",
+    "subtitle": "系统中每一次由运营人员发起的更改。可按实体、行为者、动作或时间范围筛选。",
+    "when": "时间",
+    "action": "动作",
+    "actor": "行为者",
+    "actorId": "行为者 ID",
+    "notes": "备注",
+    "entityType": "实体类型",
+    "entityId": "实体 ID",
+    "from": "开始",
+    "to": "结束",
+    "all": "全部",
+    "actionPlaceholder": "例如:created",
+    "entityIdPlaceholder": "sta_... / sit_... / 等",
+    "loadFailed": "加载审计日志失败",
+    "noEntries": "没有符合筛选条件的审计记录",
+    "history": "历史",
+    "actorType": "类型"
   }
 }

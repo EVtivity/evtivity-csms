@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { PricingGroupDetailsTab } from '@/components/pricing/PricingGroupDetailsTab';
 import { PricingGroupTariffsTab } from '@/components/pricing/PricingGroupTariffsTab';
 import { PricingGroupScheduleTab } from '@/components/pricing/PricingGroupScheduleTab';
-import { PricingAuditLogView } from '@/components/PricingAuditLogView';
+import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { api } from '@/lib/api';
 import { useUserTimezone } from '@/lib/timezone';
 import type { PricingGroup } from '@/lib/types';
@@ -75,10 +75,7 @@ export function PricingGroupDetail(): React.JSX.Element {
         </TabsContent>
 
         <TabsContent value="history" className="space-y-6">
-          <PricingAuditLogView
-            fixedFilters={{ pricingGroupId: id ?? '' }}
-            queryKey={`pricing-audit-group-${id ?? ''}`}
-          />
+          <EntityHistoryTab entityType="pricing_group" entityId={id ?? ''} />
         </TabsContent>
       </Tabs>
     </div>

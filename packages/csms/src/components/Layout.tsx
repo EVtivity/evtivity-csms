@@ -19,6 +19,7 @@ import {
   MessageSquare,
   Bell,
   ScrollText,
+  History,
   CalendarClock,
   FileBarChart,
   Globe,
@@ -137,6 +138,7 @@ const navItems = [
     requiredPermission: 'notifications:read',
   },
   { to: '/logs', labelKey: 'nav.logs' as const, icon: ScrollText, requiredPermission: 'logs:read' },
+  { to: '/audit', labelKey: 'nav.audit' as const, icon: History, requiredPermission: 'audit:read' },
   { to: '/settings', labelKey: 'nav.settings' as const, icon: Settings, requiredPermission: null },
 ];
 

@@ -22,6 +22,7 @@ export const ERROR_CODES = {
   API_KEY_NOT_FOUND: 'API_KEY_NOT_FOUND',
   API_KEY_RATE_LIMITED: 'API_KEY_RATE_LIMITED',
   ATTACHMENT_NOT_FOUND: 'ATTACHMENT_NOT_FOUND',
+  AUDIT_ENTITY_TYPE_INVALID: 'AUDIT_ENTITY_TYPE_INVALID',
   CA_CERT_NOT_FOUND: 'CA_CERT_NOT_FOUND',
   CAMPAIGN_NOT_FOUND: 'CAMPAIGN_NOT_FOUND',
   CASE_NOT_FOUND: 'CASE_NOT_FOUND',
@@ -232,6 +233,7 @@ export type ErrorCode =
   | 'API_KEY_NOT_FOUND'
   | 'API_KEY_RATE_LIMITED'
   | 'ATTACHMENT_NOT_FOUND'
+  | 'AUDIT_ENTITY_TYPE_INVALID'
   | 'CA_CERT_NOT_FOUND'
   | 'CAMPAIGN_NOT_FOUND'
   | 'CASE_NOT_FOUND'
@@ -449,6 +451,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   API_KEY_NOT_FOUND: 'API key not found',
   API_KEY_RATE_LIMITED: 'API key rate limit exceeded',
   ATTACHMENT_NOT_FOUND: 'Attachment not found',
+  AUDIT_ENTITY_TYPE_INVALID: 'Unknown audit entity type',
   CA_CERT_NOT_FOUND: 'CA certificate not found',
   CAMPAIGN_NOT_FOUND: 'Campaign not found',
   CASE_NOT_FOUND: 'Case not found',
@@ -627,8 +630,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   SUPPORT_AI_NOT_CONFIGURED: 'Support AI is not configured',
   SUPPORT_CASE_NOT_FOUND: 'Support case not found',
   SUPPORT_DISABLED: 'Support is disabled',
-  TARIFF_CURRENCY_MISMATCH:
-    'All tariffs in a pricing group must use the same currency. Existing tariffs use a different currency.',
+  TARIFF_CURRENCY_MISMATCH: 'All tariffs in a pricing group must use the same currency',
   TARIFF_IN_USE: 'Tariff is referenced by charging sessions and cannot be deleted',
   TARIFF_NOT_FOUND: 'Tariff not found',
   TARIFF_OVERLAP: 'Tariff overlaps with an existing tariff',

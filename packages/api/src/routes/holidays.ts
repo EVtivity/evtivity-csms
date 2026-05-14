@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { db } from '@evtivity/database';
-import { pricingHolidays, writePricingAudit } from '@evtivity/database';
+import { pricingHolidays, holidayAuditLog, writeAudit } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
@@ -97,15 +97,17 @@ export function holidayRoutes(app: FastifyInstance): void {
         const [holiday] = await db.insert(pricingHolidays).values(body).returning();
         if (holiday != null) {
           const { userId } = request.user as { userId: string };
-          await writePricingAudit(
+          await writeAudit(
+            { table: holidayAuditLog, idColumn: 'holiday_id' },
             {
-              entityType: 'holiday',
               entityId: String(holiday.id),
+              entityIdSnapshot: String(holiday.id),
               action: 'created',
+              actor: 'operator',
               actorUserId: userId,
               after: holiday,
             },
-            undefined,
+            db,
             request.log,
           );
         }
@@ -155,15 +157,17 @@ export function holidayRoutes(app: FastifyInstance): void {
       }
       await db.delete(pricingHolidays).where(eq(pricingHolidays.id, id));
       const { userId } = request.user as { userId: string };
-      await writePricingAudit(
+      await writeAudit(
+        { table: holidayAuditLog, idColumn: 'holiday_id' },
         {
-          entityType: 'holiday',
           entityId: String(id),
+          entityIdSnapshot: String(id),
           action: 'deleted',
+          actor: 'operator',
           actorUserId: userId,
           before: existing,
         },
-        undefined,
+        db,
         request.log,
       );
       await publishHolidayChanged();
@@ -194,16 +198,18 @@ export function holidayRoutes(app: FastifyInstance): void {
       if (result.length > 0) {
         const { userId } = request.user as { userId: string };
         for (const h of result) {
-          await writePricingAudit(
+          await writeAudit(
+            { table: holidayAuditLog, idColumn: 'holiday_id' },
             {
-              entityType: 'holiday',
               entityId: String(h.id),
+              entityIdSnapshot: String(h.id),
               action: 'created',
+              actor: 'operator',
               actorUserId: userId,
               after: h,
               notes: 'bulk import',
             },
-            undefined,
+            db,
             request.log,
           );
         }

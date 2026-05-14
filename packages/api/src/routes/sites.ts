@@ -4,7 +4,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, or, ilike, sql, gte, and, desc, count, inArray, isNotNull } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, writeAudit, siteAuditLog, configTemplateAuditLog } from '@evtivity/database';
+import { getAuditActor } from '../lib/audit-actor.js';
 import {
   sites,
   chargingStations,
@@ -20,7 +21,7 @@ import {
   pricingGroups,
   configTemplates,
   carbonIntensityFactors,
-  writePricingAudit,
+  pricingAssignmentAuditLog,
 } from '@evtivity/database';
 import { isValidTimezone } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -696,6 +697,21 @@ export function siteRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const body = request.body as z.infer<typeof createSiteBody>;
       const [site] = await db.insert(sites).values(body).returning();
+      if (site != null) {
+        const actor = getAuditActor(request);
+        await writeAudit(
+          { table: siteAuditLog, idColumn: 'site_id' },
+          {
+            entityId: site.id,
+            entityIdSnapshot: site.id,
+            action: 'created',
+            ...actor,
+            after: site,
+          },
+          db,
+          request.log,
+        );
+      }
       await reply.status(201).send(site);
     },
   );
@@ -726,6 +742,7 @@ export function siteRoutes(app: FastifyInstance): void {
         return;
       }
       const body = request.body as z.infer<typeof updateSiteBody>;
+      const [before] = await db.select().from(sites).where(eq(sites.id, id));
       const [site] = await db
         .update(sites)
         .set({ ...body, updatedAt: new Date() })
@@ -735,6 +752,20 @@ export function siteRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: siteAuditLog, idColumn: 'site_id' },
+        {
+          entityId: site.id,
+          entityIdSnapshot: site.id,
+          action: 'updated',
+          ...actor,
+          before: before ?? null,
+          after: site,
+        },
+        db,
+        request.log,
+      );
       return site;
     },
   );
@@ -784,6 +815,19 @@ export function siteRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: siteAuditLog, idColumn: 'site_id' },
+        {
+          entityId: null,
+          entityIdSnapshot: site.id,
+          action: 'deleted',
+          ...actor,
+          before: site,
+        },
+        db,
+        request.log,
+      );
       return site;
     },
   );
@@ -1735,11 +1779,13 @@ export function siteRoutes(app: FastifyInstance): void {
           set: { pricingGroupId: body.pricingGroupId, createdAt: new Date() },
         })
         .returning();
-      await writePricingAudit(
+      await writeAudit(
+        { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
         {
-          entityType: 'pricing_assignment',
           entityId: id,
+          entityIdSnapshot: id,
           action: previous == null ? 'created' : 'updated',
+          actor: 'operator',
           actorUserId: userId,
           before:
             previous == null
@@ -1747,7 +1793,7 @@ export function siteRoutes(app: FastifyInstance): void {
               : { scope: 'site', siteId: id, pricingGroupId: previous.pricingGroupId },
           after: { scope: 'site', siteId: id, pricingGroupId: body.pricingGroupId },
         },
-        undefined,
+        db,
         request.log,
       );
       await reply.status(201).send(record);
@@ -1793,15 +1839,17 @@ export function siteRoutes(app: FastifyInstance): void {
           .send({ error: 'Pricing group not found for site', code: 'NOT_FOUND' });
         return;
       }
-      await writePricingAudit(
+      await writeAudit(
+        { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
         {
-          entityType: 'pricing_assignment',
           entityId: id,
+          entityIdSnapshot: id,
           action: 'deleted',
+          actor: 'operator',
           actorUserId: userId,
           before: { scope: 'site', siteId: id, pricingGroupId },
         },
-        undefined,
+        db,
         request.log,
       );
       return record;
@@ -1865,11 +1913,28 @@ export function siteRoutes(app: FastifyInstance): void {
         return;
       }
 
+      const actor = getAuditActor(request);
+
       if (!enabled) {
-        await db
+        const [updated] = await db
           .update(sites)
           .set({ freeVendEnabled: false, updatedAt: new Date() })
-          .where(eq(sites.id, id));
+          .where(eq(sites.id, id))
+          .returning();
+        await writeAudit(
+          { table: siteAuditLog, idColumn: 'site_id' },
+          {
+            entityId: site.id,
+            entityIdSnapshot: site.id,
+            action: 'updated',
+            ...actor,
+            before: site,
+            after: updated ?? site,
+            notes: 'free-vend disabled',
+          },
+          db,
+          request.log,
+        );
         return { success: true };
       }
 
@@ -1889,6 +1954,21 @@ export function siteRoutes(app: FastifyInstance): void {
           })
           .returning();
         templateId21 = template?.id ?? null;
+        if (template != null) {
+          await writeAudit(
+            { table: configTemplateAuditLog, idColumn: 'template_id' },
+            {
+              entityId: template.id,
+              entityIdSnapshot: template.id,
+              action: 'created',
+              ...actor,
+              after: template,
+              notes: `auto-created for free-vend on site ${site.id}`,
+            },
+            db,
+            request.log,
+          );
+        }
       }
 
       // Create OCPP 1.6 template if not yet created
@@ -1920,10 +2000,25 @@ export function siteRoutes(app: FastifyInstance): void {
           })
           .returning();
         templateId16 = template?.id ?? null;
+        if (template != null) {
+          await writeAudit(
+            { table: configTemplateAuditLog, idColumn: 'template_id' },
+            {
+              entityId: template.id,
+              entityIdSnapshot: template.id,
+              action: 'created',
+              ...actor,
+              after: template,
+              notes: `auto-created for free-vend on site ${site.id}`,
+            },
+            db,
+            request.log,
+          );
+        }
       }
 
       // Update site with template IDs and enable free vend
-      await db
+      const [updated] = await db
         .update(sites)
         .set({
           freeVendEnabled: true,
@@ -1931,7 +2026,23 @@ export function siteRoutes(app: FastifyInstance): void {
           freeVendTemplateId16: templateId16,
           updatedAt: new Date(),
         })
-        .where(eq(sites.id, id));
+        .where(eq(sites.id, id))
+        .returning();
+
+      await writeAudit(
+        { table: siteAuditLog, idColumn: 'site_id' },
+        {
+          entityId: site.id,
+          entityIdSnapshot: site.id,
+          action: 'updated',
+          ...actor,
+          before: site,
+          after: updated ?? site,
+          notes: 'free-vend enabled',
+        },
+        db,
+        request.log,
+      );
 
       // Push templates to online stations at this site
       const pushId21 =
@@ -2044,7 +2155,7 @@ export function siteRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
-      const [site] = await db.select({ id: sites.id }).from(sites).where(eq(sites.id, id)).limit(1);
+      const [site] = await db.select().from(sites).where(eq(sites.id, id)).limit(1);
       if (site == null) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
@@ -2062,10 +2173,26 @@ export function siteRoutes(app: FastifyInstance): void {
           return;
         }
       }
-      await db
+      const [updated] = await db
         .update(sites)
         .set({ carbonRegionCode: regionCode, updatedAt: new Date() })
-        .where(eq(sites.id, id));
+        .where(eq(sites.id, id))
+        .returning();
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: siteAuditLog, idColumn: 'site_id' },
+        {
+          entityId: site.id,
+          entityIdSnapshot: site.id,
+          action: 'updated',
+          ...actor,
+          before: site,
+          after: updated ?? site,
+          notes: 'carbon-region updated',
+        },
+        db,
+        request.log,
+      );
       return { success: true };
     },
   );

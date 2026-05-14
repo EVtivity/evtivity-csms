@@ -69,6 +69,24 @@ vi.mock('@evtivity/database', () => ({
     }),
   },
   settings: {},
+  writeAudit: vi.fn().mockResolvedValue(undefined),
+  siteAuditLog: {},
+  stationAuditLog: {},
+  driverAuditLog: {},
+  fleetAuditLog: {},
+  userAuditLog: {},
+  vehicleAuditLog: {},
+  supportCaseAuditLog: {},
+  ocpiPartnerAuditLog: {},
+  certificateAuditLog: {},
+  roleAuditLog: {},
+  apiKeyAuditLog: {},
+  settingAuditLog: {},
+  smartChargingTemplateAuditLog: {},
+  configTemplateAuditLog: {},
+  firmwareCampaignAuditLog: {},
+  stationImageAuditLog: {},
+  localAuthListAuditLog: {},
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -286,7 +304,11 @@ describe('Settings routes - full coverage', () => {
     });
 
     it('updates a setting and returns the updated row', async () => {
-      setupDbResults([{ key: 'smtp.host', value: '"new-host"' }]);
+      // 1: before SELECT, 2: UPDATE returning
+      setupDbResults(
+        [{ key: 'smtp.host', value: 'old-host' }],
+        [{ key: 'smtp.host', value: '"new-host"' }],
+      );
       const res = await app.inject({
         method: 'PATCH',
         url: '/settings/smtp.host',
@@ -313,7 +335,11 @@ describe('Settings routes - full coverage', () => {
     });
 
     it('handles non-string value (object)', async () => {
-      setupDbResults([{ key: 'app.config', value: '{"debug":true}' }]);
+      // 1: before SELECT, 2: UPDATE returning
+      setupDbResults(
+        [{ key: 'app.config', value: '{}' }],
+        [{ key: 'app.config', value: '{"debug":true}' }],
+      );
       const res = await app.inject({
         method: 'PATCH',
         url: '/settings/app.config',
@@ -338,7 +364,8 @@ describe('Settings routes - full coverage', () => {
     });
 
     it('upserts a setting and returns the row', async () => {
-      setupDbResults([{ key: 'new.key', value: '"hello"' }]);
+      // 1: before SELECT, 2: INSERT...returning
+      setupDbResults([], [{ key: 'new.key', value: '"hello"' }]);
       const res = await app.inject({
         method: 'PUT',
         url: '/settings/new.key',

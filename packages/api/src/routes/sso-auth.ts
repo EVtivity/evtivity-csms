@@ -4,7 +4,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { SAML } from '@node-saml/node-saml';
 import { eq, ilike } from 'drizzle-orm';
-import { db, getSsoConfig, users, roles } from '@evtivity/database';
+import { db, getSsoConfig, users, roles, writeAudit, userAuditLog } from '@evtivity/database';
 import { generateId } from '@evtivity/lib';
 import { setAuthCookies } from '../lib/csms-cookies.js';
 import { createRefreshToken } from '../services/refresh-token.service.js';
@@ -185,17 +185,37 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
       }
 
       const newUserId = generateId('user');
-      await db.insert(users).values({
-        id: newUserId,
-        email,
-        firstName,
-        lastName,
-        passwordHash: '', // SSO users have no password
-        roleId: defaultRole.id,
-        isActive: true,
-        hasAllSiteAccess: false,
-        lastLoginAt: new Date(),
-      });
+      const [newUser] = await db
+        .insert(users)
+        .values({
+          id: newUserId,
+          email,
+          firstName,
+          lastName,
+          passwordHash: '', // SSO users have no password
+          roleId: defaultRole.id,
+          isActive: true,
+          hasAllSiteAccess: false,
+          lastLoginAt: new Date(),
+        })
+        .returning();
+
+      if (newUser != null) {
+        await writeAudit(
+          { table: userAuditLog, idColumn: 'user_id' },
+          {
+            entityId: newUser.id,
+            entityIdSnapshot: newUser.id,
+            action: 'created',
+            actor: 'system',
+            actorLabel: `sso:${config.issuer}`.slice(0, 100),
+            after: newUser,
+            notes: 'auto-provisioned via SSO',
+          },
+          db,
+          request.log,
+        );
+      }
 
       const token = app.jwt.sign(
         { userId: newUserId, roleId: defaultRole.id },

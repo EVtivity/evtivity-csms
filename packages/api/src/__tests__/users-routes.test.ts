@@ -76,6 +76,24 @@ vi.mock('@evtivity/database', () => ({
   userPermissions: {},
   getRecaptchaConfig: vi.fn().mockResolvedValue(null),
   getMfaConfig: vi.fn().mockResolvedValue(null),
+  writeAudit: vi.fn().mockResolvedValue(undefined),
+  siteAuditLog: {},
+  stationAuditLog: {},
+  driverAuditLog: {},
+  fleetAuditLog: {},
+  userAuditLog: {},
+  vehicleAuditLog: {},
+  supportCaseAuditLog: {},
+  ocpiPartnerAuditLog: {},
+  certificateAuditLog: {},
+  roleAuditLog: {},
+  apiKeyAuditLog: {},
+  settingAuditLog: {},
+  smartChargingTemplateAuditLog: {},
+  configTemplateAuditLog: {},
+  firmwareCampaignAuditLog: {},
+  stationImageAuditLog: {},
+  localAuthListAuditLog: {},
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -477,24 +495,26 @@ describe('User routes', () => {
 
   it('PATCH /v1/users/:id updates a user', async () => {
     const otherId = 'usr_000000000002';
+    const userRow = {
+      id: otherId,
+      email: 'user@example.com',
+      firstName: 'Updated',
+      lastName: 'User',
+      phone: null,
+      roleId: VALID_ROLE_ID,
+      isActive: true,
+      mustResetPassword: false,
+      language: 'en',
+      timezone: 'America/New_York',
+      themePreference: 'light',
+      lastLoginAt: null,
+      createdAt: '2025-01-01T00:00:00Z',
+    };
     setupDbResults(
-      [
-        {
-          id: otherId,
-          email: 'user@example.com',
-          firstName: 'Updated',
-          lastName: 'User',
-          phone: null,
-          roleId: VALID_ROLE_ID,
-          isActive: true,
-          mustResetPassword: false,
-          language: 'en',
-          timezone: 'America/New_York',
-          themePreference: 'light',
-          lastLoginAt: null,
-          createdAt: '2025-01-01T00:00:00Z',
-        },
-      ],
+      // before SELECT
+      [userRow],
+      // update returning
+      [userRow],
       // site assignments
       [],
       // permissions
@@ -548,27 +568,28 @@ describe('User routes', () => {
   });
 
   it('PATCH /v1/users/:id allows self-edit of name, language, timezone, theme', async () => {
+    const userRow = {
+      id: VALID_USER_ID,
+      email: 'test@test.com',
+      firstName: 'NewFirst',
+      lastName: 'NewLast',
+      phone: null,
+      roleId: 'rol_1',
+      isActive: true,
+      language: 'es',
+      timezone: 'Europe/Madrid',
+      themePreference: 'dark',
+      hasAllSiteAccess: false,
+      lastLoginAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      mustResetPassword: false,
+    };
     setupDbResults(
+      // before SELECT
+      [userRow],
       // update returning
-      [
-        {
-          id: VALID_USER_ID,
-          email: 'test@test.com',
-          firstName: 'NewFirst',
-          lastName: 'NewLast',
-          phone: null,
-          roleId: 'rol_1',
-          isActive: true,
-          language: 'es',
-          timezone: 'Europe/Madrid',
-          themePreference: 'dark',
-          hasAllSiteAccess: false,
-          lastLoginAt: null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          mustResetPassword: false,
-        },
-      ],
+      [userRow],
       // site assignments
       [],
       // permissions

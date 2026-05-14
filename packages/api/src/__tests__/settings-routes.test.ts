@@ -67,6 +67,24 @@ vi.mock('@evtivity/database', () => ({
     }),
   },
   settings: {},
+  writeAudit: vi.fn().mockResolvedValue(undefined),
+  siteAuditLog: {},
+  stationAuditLog: {},
+  driverAuditLog: {},
+  fleetAuditLog: {},
+  userAuditLog: {},
+  vehicleAuditLog: {},
+  supportCaseAuditLog: {},
+  ocpiPartnerAuditLog: {},
+  certificateAuditLog: {},
+  roleAuditLog: {},
+  apiKeyAuditLog: {},
+  settingAuditLog: {},
+  smartChargingTemplateAuditLog: {},
+  configTemplateAuditLog: {},
+  firmwareCampaignAuditLog: {},
+  stationImageAuditLog: {},
+  localAuthListAuditLog: {},
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -213,7 +231,11 @@ describe('Settings routes', () => {
   });
 
   it('PATCH /v1/settings/:key updates a setting', async () => {
-    setupDbResults([{ key: 'smtp.host', value: '"newhost"' }]);
+    // 1: before SELECT, 2: UPDATE returning
+    setupDbResults(
+      [{ key: 'smtp.host', value: 'oldhost' }],
+      [{ key: 'smtp.host', value: '"newhost"' }],
+    );
     const response = await app.inject({
       method: 'PATCH',
       url: '/settings/smtp.host',
@@ -239,7 +261,8 @@ describe('Settings routes', () => {
   });
 
   it('PUT /v1/settings/:key upserts a setting', async () => {
-    setupDbResults([{ key: 'new.setting', value: '"hello"' }]);
+    // 1: before SELECT, 2: INSERT...returning
+    setupDbResults([], [{ key: 'new.setting', value: '"hello"' }]);
     const response = await app.inject({
       method: 'PUT',
       url: '/settings/new.setting',

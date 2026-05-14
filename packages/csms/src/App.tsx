@@ -227,6 +227,7 @@ const ConformanceDetail = lazy(() =>
 const Certificates = lazy(() =>
   import('@/pages/Certificates').then((m) => ({ default: m.Certificates })),
 );
+const Audit = lazy(() => import('@/pages/Audit').then((m) => ({ default: m.Audit })));
 const PrivacyPolicy = lazy(() =>
   import('@/pages/PrivacyPolicy').then((m) => ({ default: m.PrivacyPolicy })),
 );
@@ -387,6 +388,7 @@ export function App(): React.JSX.Element {
                   <Route path="certificates" element={<Certificates />} />
                   <Route path="notifications" element={<NotificationRules />} />
                   <Route path="logs" element={<AccessLogs />} />
+                  <Route path="audit" element={<Audit />} />
                   <Route
                     path="settings"
                     element={

@@ -6,7 +6,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { hash } from 'argon2';
 import { eq, or, ilike, and, sql, gte, desc, count, inArray, isNotNull, isNull } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, writeAudit, stationAuditLog } from '@evtivity/database';
+import { getAuditActor } from '../lib/audit-actor.js';
 import {
   chargingStations,
   evses,
@@ -33,7 +34,7 @@ import {
   chargingProfileTemplates,
   configTemplates,
   guestSessions,
-  writePricingAudit,
+  pricingAssignmentAuditLog,
 } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -1040,6 +1041,22 @@ export function stationRoutes(app: FastifyInstance): void {
         return created;
       });
 
+      if (station != null) {
+        const actor = getAuditActor(request);
+        await writeAudit(
+          { table: stationAuditLog, idColumn: 'station_id' },
+          {
+            entityId: station.id,
+            entityIdSnapshot: station.id,
+            action: 'created',
+            ...actor,
+            after: station,
+          },
+          db,
+          request.log,
+        );
+      }
+
       await reply.status(201).send({ ...station, hasPassword: basicAuthPasswordHash != null });
     },
   );
@@ -1131,6 +1148,11 @@ export function stationRoutes(app: FastifyInstance): void {
         }
       }
 
+      const [beforeStation] = await db
+        .select()
+        .from(chargingStations)
+        .where(eq(chargingStations.id, id));
+
       // Run the chargingStations UPDATE and any css_stations sync atomically so
       // a failure in pairing rolls the parent update back instead of leaving
       // the two tables out of sync.
@@ -1187,6 +1209,36 @@ export function stationRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
+
+      const actor = getAuditActor(request);
+      // Determine the most specific action verb
+      let action: string = 'updated';
+      if (
+        beforeStation != null &&
+        body.availability != null &&
+        body.availability !== beforeStation.availability
+      ) {
+        action = 'availability_changed';
+      } else if (
+        beforeStation != null &&
+        body.isSimulator != null &&
+        body.isSimulator !== beforeStation.isSimulator
+      ) {
+        action = 'simulator_toggled';
+      }
+      await writeAudit(
+        { table: stationAuditLog, idColumn: 'station_id' },
+        {
+          entityId: station.id,
+          entityIdSnapshot: station.id,
+          action,
+          ...actor,
+          before: beforeStation ?? null,
+          after: station,
+        },
+        db,
+        request.log,
+      );
 
       // Push security profile change to station via OCPP SetVariables (if online and profile changed)
       if (body.securityProfile != null && station.isOnline) {
@@ -1266,6 +1318,10 @@ export function stationRoutes(app: FastifyInstance): void {
           return;
         }
       }
+      const [beforeStation] = await db
+        .select()
+        .from(chargingStations)
+        .where(eq(chargingStations.id, id));
       const [station] = await db
         .update(chargingStations)
         .set({ onboardingStatus: 'blocked', updatedAt: new Date() })
@@ -1275,6 +1331,20 @@ export function stationRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: stationAuditLog, idColumn: 'station_id' },
+        {
+          entityId: station.id,
+          entityIdSnapshot: station.id,
+          action: 'deleted',
+          ...actor,
+          before: beforeStation ?? null,
+          after: station,
+        },
+        db,
+        request.log,
+      );
       return {
         ...station,
         hasPassword: station.basicAuthPasswordHash != null,
@@ -2836,6 +2906,20 @@ export function stationRoutes(app: FastifyInstance): void {
         metadata: { changedBy: 'operator' },
       });
 
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: stationAuditLog, idColumn: 'station_id' },
+        {
+          entityId: station.id,
+          entityIdSnapshot: station.id,
+          action: 'updated',
+          ...actor,
+          notes: 'Station credentials set',
+        },
+        db,
+        request.log,
+      );
+
       // Push password to station via OCPP SetVariables (if online)
       if (station.isOnline) {
         const commandPayload = {
@@ -3001,6 +3085,20 @@ export function stationRoutes(app: FastifyInstance): void {
         payload: { type: 'OnIdle' },
       };
       await getPubSub().publish('ocpp_commands', JSON.stringify(resetPayload));
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: stationAuditLog, idColumn: 'station_id' },
+        {
+          entityId: station.id,
+          entityIdSnapshot: station.id,
+          action: 'command_dispatched',
+          ...actor,
+          notes: 'Credentials rotated via SetVariables',
+        },
+        db,
+        request.log,
+      );
 
       return { success: true };
     },
@@ -3215,6 +3313,21 @@ export function stationRoutes(app: FastifyInstance): void {
       });
 
       await getPubSub().publish('ocpp_commands', commandPayload);
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: stationAuditLog, idColumn: 'station_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'certificate_installed',
+          ...actor,
+          notes: `Install certificate type ${body.certificateType}`,
+        },
+        db,
+        request.log,
+      );
+
       return { success: true };
     },
   );
@@ -3266,6 +3379,21 @@ export function stationRoutes(app: FastifyInstance): void {
       });
 
       await getPubSub().publish('ocpp_commands', commandPayload);
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: stationAuditLog, idColumn: 'station_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'command_dispatched',
+          ...actor,
+          notes: 'DeleteCertificate dispatched',
+        },
+        db,
+        request.log,
+      );
+
       return { success: true };
     },
   );
@@ -3317,6 +3445,21 @@ export function stationRoutes(app: FastifyInstance): void {
       });
 
       await getPubSub().publish('ocpp_commands', commandPayload);
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: stationAuditLog, idColumn: 'station_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'command_dispatched',
+          ...actor,
+          notes: 'GetInstalledCertificateIds dispatched',
+        },
+        db,
+        request.log,
+      );
+
       return { success: true };
     },
   );
@@ -3399,11 +3542,13 @@ export function stationRoutes(app: FastifyInstance): void {
           set: { pricingGroupId: body.pricingGroupId, createdAt: new Date() },
         })
         .returning();
-      await writePricingAudit(
+      await writeAudit(
+        { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
         {
-          entityType: 'pricing_assignment',
           entityId: id,
+          entityIdSnapshot: id,
           action: previous == null ? 'created' : 'updated',
+          actor: 'operator',
           actorUserId: userId,
           before:
             previous == null
@@ -3411,7 +3556,7 @@ export function stationRoutes(app: FastifyInstance): void {
               : { scope: 'station', stationId: id, pricingGroupId: previous.pricingGroupId },
           after: { scope: 'station', stationId: id, pricingGroupId: body.pricingGroupId },
         },
-        undefined,
+        db,
         request.log,
       );
       await reply.status(201).send(record);
@@ -3456,15 +3601,17 @@ export function stationRoutes(app: FastifyInstance): void {
           .send({ error: 'Pricing group not found for station', code: 'NOT_FOUND' });
         return;
       }
-      await writePricingAudit(
+      await writeAudit(
+        { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
         {
-          entityType: 'pricing_assignment',
           entityId: id,
+          entityIdSnapshot: id,
           action: 'deleted',
+          actor: 'operator',
           actorUserId: userId,
           before: { scope: 'station', stationId: id, pricingGroupId },
         },
-        undefined,
+        db,
         request.log,
       );
       return record;
@@ -3522,6 +3669,22 @@ export function stationRoutes(app: FastifyInstance): void {
         .update(chargingStations)
         .set({ onboardingStatus: 'accepted', updatedAt: new Date() })
         .where(eq(chargingStations.id, id));
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: stationAuditLog, idColumn: 'station_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'updated',
+          ...actor,
+          before: { onboardingStatus: 'pending' },
+          after: { onboardingStatus: 'accepted' },
+          notes: 'Station approved',
+        },
+        db,
+        request.log,
+      );
 
       const pubsub = getPubSub();
       await pubsub.publish(
@@ -3594,6 +3757,22 @@ export function stationRoutes(app: FastifyInstance): void {
         .set({ onboardingStatus: 'pending', updatedAt: new Date() })
         .where(eq(chargingStations.id, id));
 
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: stationAuditLog, idColumn: 'station_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'updated',
+          ...actor,
+          before: { onboardingStatus: 'blocked' },
+          after: { onboardingStatus: 'pending' },
+          notes: 'Station unblocked',
+        },
+        db,
+        request.log,
+      );
+
       const pubsub = getPubSub();
       await pubsub.publish(
         'csms_events',
@@ -3649,6 +3828,22 @@ export function stationRoutes(app: FastifyInstance): void {
         .update(chargingStations)
         .set({ onboardingStatus: 'blocked', updatedAt: new Date() })
         .where(eq(chargingStations.id, id));
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: stationAuditLog, idColumn: 'station_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'updated',
+          ...actor,
+          before: { onboardingStatus: 'pending' },
+          after: { onboardingStatus: 'blocked' },
+          notes: 'Station rejected',
+        },
+        db,
+        request.log,
+      );
 
       const pubsub = getPubSub();
       await pubsub.publish(
@@ -4586,6 +4781,22 @@ export function stationRoutes(app: FastifyInstance): void {
         ).catch(() => {});
       }
 
+      if (status === 'Accepted') {
+        const actor = getAuditActor(request);
+        await writeAudit(
+          { table: stationAuditLog, idColumn: 'station_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'configuration_pushed',
+            ...actor,
+            notes: `Charging profile template ${body.templateId} pushed`,
+          },
+          db,
+          request.log,
+        );
+      }
+
       return {
         success: status === 'Accepted',
         status,
@@ -4791,6 +5002,22 @@ export function stationRoutes(app: FastifyInstance): void {
         }
       } catch {
         // Non-critical
+      }
+
+      if (!hasFailure) {
+        const actor = getAuditActor(request);
+        await writeAudit(
+          { table: stationAuditLog, idColumn: 'station_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'configuration_pushed',
+            ...actor,
+            notes: `Config template ${body.templateId} pushed`,
+          },
+          db,
+          request.log,
+        );
       }
 
       return { success: !hasFailure, results };

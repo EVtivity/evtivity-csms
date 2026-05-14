@@ -647,7 +647,8 @@
     "PAYMENT_METHOD_IN_USE": "Zahlungsmethode wird von einer aktiven Ladesitzung verwendet",
     "PAYMENT_PREAUTH_FAILED": "Zahlungsautorisierung abgelehnt",
     "PAYMENT_RECORD_NOT_RECOVERABLE": "Zahlungseintrag befindet sich nicht in einem wiederherstellbaren Zustand",
-    "STRIPE_TOP_UP_FAILED": "Stripe hat die Top-up-Zahlungsabsicht abgelehnt"
+    "STRIPE_TOP_UP_FAILED": "Stripe hat die Top-up-Zahlungsabsicht abgelehnt",
+    "AUDIT_ENTITY_TYPE_INVALID": "Unbekannter Audit-Entitätstyp"
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",

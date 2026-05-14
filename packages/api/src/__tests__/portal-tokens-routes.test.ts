@@ -73,6 +73,7 @@ vi.mock('@evtivity/database', () => ({
   tokenAuditLog: {},
   stationLocalAuthEntries: {},
   stationLocalAuthVersions: {},
+  writeAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('drizzle-orm', () => ({

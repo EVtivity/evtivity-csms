@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc, sql, count, ilike, or, inArray } from 'drizzle-orm';
-import { db, client } from '@evtivity/database';
+import { db, client, writeAudit, supportCaseAuditLog } from '@evtivity/database';
 import {
   supportCases,
   supportCaseMessages,
@@ -22,6 +22,7 @@ import {
   chargingStations,
   paymentRecords,
 } from '@evtivity/database';
+import { getAuditActor } from '../lib/audit-actor.js';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import { handleSupportAiAssist } from '../services/ai/support-assist.service.js';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -796,6 +797,34 @@ export function supportCaseRoutes(app: FastifyInstance): void {
 
       void notifyCsmsEvent('supportCase.created', newCase.id);
 
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: supportCaseAuditLog, idColumn: 'support_case_id' },
+        {
+          entityId: newCase.id,
+          entityIdSnapshot: newCase.id,
+          action: 'created',
+          ...actor,
+          after: newCase,
+        },
+        db,
+        request.log,
+      );
+      if (body.sessionIds != null && body.sessionIds.length > 0) {
+        await writeAudit(
+          { table: supportCaseAuditLog, idColumn: 'support_case_id' },
+          {
+            entityId: newCase.id,
+            entityIdSnapshot: newCase.id,
+            action: 'sessions_linked',
+            ...actor,
+            after: { sessionIds: body.sessionIds },
+          },
+          db,
+          request.log,
+        );
+      }
+
       return newCase;
     },
   );
@@ -934,6 +963,96 @@ export function supportCaseRoutes(app: FastifyInstance): void {
 
       void notifyCsmsEvent('supportCase.updated', id);
 
+      const actor = getAuditActor(request);
+      if (body.status != null && body.status !== existing.status) {
+        await writeAudit(
+          { table: supportCaseAuditLog, idColumn: 'support_case_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'status_changed',
+            ...actor,
+            before: { status: existing.status },
+            after: { status: body.status },
+          },
+          db,
+          request.log,
+        );
+      }
+      if (body.priority != null && body.priority !== existing.priority) {
+        await writeAudit(
+          { table: supportCaseAuditLog, idColumn: 'support_case_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'priority_changed',
+            ...actor,
+            before: { priority: existing.priority },
+            after: { priority: body.priority },
+          },
+          db,
+          request.log,
+        );
+      }
+      if (body.category != null && body.category !== existing.category) {
+        await writeAudit(
+          { table: supportCaseAuditLog, idColumn: 'support_case_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'category_changed',
+            ...actor,
+            before: { category: existing.category },
+            after: { category: body.category },
+          },
+          db,
+          request.log,
+        );
+      }
+      if (body.assignedTo !== undefined && body.assignedTo !== existing.assignedTo) {
+        await writeAudit(
+          { table: supportCaseAuditLog, idColumn: 'support_case_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'assigned',
+            ...actor,
+            before: { assignedTo: existing.assignedTo },
+            after: { assignedTo: body.assignedTo },
+          },
+          db,
+          request.log,
+        );
+      }
+      if (body.addSessionIds != null && body.addSessionIds.length > 0) {
+        await writeAudit(
+          { table: supportCaseAuditLog, idColumn: 'support_case_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'sessions_linked',
+            ...actor,
+            after: { sessionIds: body.addSessionIds },
+          },
+          db,
+          request.log,
+        );
+      }
+      if (body.removeSessionIds != null && body.removeSessionIds.length > 0) {
+        await writeAudit(
+          { table: supportCaseAuditLog, idColumn: 'support_case_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'sessions_unlinked',
+            ...actor,
+            before: { sessionIds: body.removeSessionIds },
+          },
+          db,
+          request.log,
+        );
+      }
+
       return updated;
     },
   );
@@ -1006,6 +1125,20 @@ export function supportCaseRoutes(app: FastifyInstance): void {
       }
 
       void notifyCsmsEvent('supportCase.newMessage', id);
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: supportCaseAuditLog, idColumn: 'support_case_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'message_added',
+          ...actor,
+          after: { messageId: message?.id, isInternal: body.isInternal },
+        },
+        db,
+        request.log,
+      );
 
       return message;
     },
@@ -1143,6 +1276,20 @@ export function supportCaseRoutes(app: FastifyInstance): void {
           s3Bucket: body.s3Bucket,
         })
         .returning();
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: supportCaseAuditLog, idColumn: 'support_case_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'attachment_added',
+          ...actor,
+          after: { messageId, fileName: body.fileName, fileSize: body.fileSize },
+        },
+        db,
+        request.log,
+      );
 
       return attachment;
     },
@@ -1452,6 +1599,24 @@ export function supportCaseRoutes(app: FastifyInstance): void {
       }
 
       void notifyCsmsEvent('supportCase.updated', id);
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: supportCaseAuditLog, idColumn: 'support_case_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'refund_issued',
+          ...actor,
+          after: {
+            sessionId: body.sessionId,
+            amountCents: refundAmount,
+            currency: record.currency,
+          },
+        },
+        db,
+        request.log,
+      );
 
       return updatedPayment;
     },

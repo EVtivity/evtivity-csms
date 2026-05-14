@@ -146,7 +146,8 @@
     "collapseSidebar": "Collapse sidebar",
     "expandSidebar": "Expand sidebar",
     "openMenu": "Open menu",
-    "closeMenu": "Close menu"
+    "closeMenu": "Close menu",
+    "audit": "Audit"
   },
   "roaming": {
     "partners": {
@@ -1970,7 +1971,6 @@
     "noHistory": "No audit entries.",
     "actor": "Actor",
     "changes": "Changes",
-    "status": "Status",
     "token": "Token",
     "evse": "EVSE"
   },
@@ -2184,7 +2184,8 @@
     "PAYMENT_METHOD_IN_USE": "Payment method is in use by an active charging session",
     "PAYMENT_PREAUTH_FAILED": "Payment authorization declined",
     "PAYMENT_RECORD_NOT_RECOVERABLE": "Payment record is not in a recoverable state",
-    "STRIPE_TOP_UP_FAILED": "Stripe rejected the top-up payment intent"
+    "STRIPE_TOP_UP_FAILED": "Stripe rejected the top-up payment intent",
+    "AUDIT_ENTITY_TYPE_INVALID": "Unknown audit entity type"
   },
   "logs": {
     "title": "Logs",
@@ -2798,5 +2799,25 @@
     "varReservationExpiresAt": "Reservation expiry time",
     "settingsSaved": "Settings saved.",
     "settingsSaveFailed": "Failed to save settings."
+  },
+  "audit": {
+    "title": "Audit Log",
+    "subtitle": "Every operator-initiated mutation across the system. Filter by entity, actor, action, or time range.",
+    "when": "When",
+    "action": "Action",
+    "actor": "Actor",
+    "actorId": "Actor id",
+    "notes": "Notes",
+    "entityType": "Entity type",
+    "entityId": "Entity id",
+    "from": "From",
+    "to": "To",
+    "all": "All",
+    "actionPlaceholder": "e.g. created",
+    "entityIdPlaceholder": "sta_... / sit_... / etc",
+    "loadFailed": "Failed to load audit log",
+    "noEntries": "No audit entries match these filters",
+    "history": "History",
+    "actorType": "Type"
   }
 }

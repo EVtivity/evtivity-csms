@@ -113,6 +113,24 @@ vi.mock('@evtivity/database', () => {
     eventAlerts: {},
     chargingProfileTemplates: {},
     configTemplates: {},
+    writeAudit: vi.fn().mockResolvedValue(undefined),
+    siteAuditLog: {},
+    stationAuditLog: {},
+    driverAuditLog: {},
+    fleetAuditLog: {},
+    userAuditLog: {},
+    vehicleAuditLog: {},
+    supportCaseAuditLog: {},
+    ocpiPartnerAuditLog: {},
+    certificateAuditLog: {},
+    roleAuditLog: {},
+    apiKeyAuditLog: {},
+    settingAuditLog: {},
+    smartChargingTemplateAuditLog: {},
+    configTemplateAuditLog: {},
+    firmwareCampaignAuditLog: {},
+    stationImageAuditLog: {},
+    localAuthListAuditLog: {},
   };
 });
 
@@ -212,31 +230,32 @@ describe('PATCH /v1/stations/:id isSimulator toggle pairs css_stations', () => {
   });
 
   it('calls enableCssPair when isSimulator flips false -> true', async () => {
+    const updated = {
+      id: VALID_STATION_ID,
+      stationId: STATION_OCPP_ID,
+      siteId: null,
+      vendorId: null,
+      model: 'TestModel',
+      serialNumber: 'SN1',
+      firmwareVersion: '1.0',
+      availability: 'available',
+      onboardingStatus: 'accepted',
+      isOnline: false,
+      isSimulator: true,
+      loadPriority: 0,
+      securityProfile: 1,
+      ocppProtocol: 'ocpp2.1',
+      hasPassword: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
     setupDbResults(
       // ocpp_protocol heal-check: row already has a protocol so no heal write
       [{ ocppProtocol: 'ocpp2.1' }],
+      // before SELECT for audit
+      [updated],
       // update().returning() result
-      [
-        {
-          id: VALID_STATION_ID,
-          stationId: STATION_OCPP_ID,
-          siteId: null,
-          vendorId: null,
-          model: 'TestModel',
-          serialNumber: 'SN1',
-          firmwareVersion: '1.0',
-          availability: 'available',
-          onboardingStatus: 'accepted',
-          isOnline: false,
-          isSimulator: true,
-          loadPriority: 0,
-          securityProfile: 1,
-          ocppProtocol: 'ocpp2.1',
-          hasPassword: false,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ],
+      [updated],
     );
 
     const res = await app.inject({
@@ -258,27 +277,27 @@ describe('PATCH /v1/stations/:id isSimulator toggle pairs css_stations', () => {
   });
 
   it('calls disableCssPair when isSimulator flips true -> false', async () => {
-    setupDbResults([
-      {
-        id: VALID_STATION_ID,
-        stationId: STATION_OCPP_ID,
-        siteId: null,
-        vendorId: null,
-        model: 'TestModel',
-        serialNumber: 'SN1',
-        firmwareVersion: '1.0',
-        availability: 'available',
-        onboardingStatus: 'accepted',
-        isOnline: false,
-        isSimulator: false,
-        loadPriority: 0,
-        securityProfile: 1,
-        ocppProtocol: 'ocpp2.1',
-        hasPassword: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-    ]);
+    const updated = {
+      id: VALID_STATION_ID,
+      stationId: STATION_OCPP_ID,
+      siteId: null,
+      vendorId: null,
+      model: 'TestModel',
+      serialNumber: 'SN1',
+      firmwareVersion: '1.0',
+      availability: 'available',
+      onboardingStatus: 'accepted',
+      isOnline: false,
+      isSimulator: false,
+      loadPriority: 0,
+      securityProfile: 1,
+      ocppProtocol: 'ocpp2.1',
+      hasPassword: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    // 1: before SELECT, 2: UPDATE returning
+    setupDbResults([updated], [updated]);
 
     const res = await app.inject({
       method: 'PATCH',
@@ -296,27 +315,27 @@ describe('PATCH /v1/stations/:id isSimulator toggle pairs css_stations', () => {
   });
 
   it('skips css pairing when isSimulator is omitted', async () => {
-    setupDbResults([
-      {
-        id: VALID_STATION_ID,
-        stationId: STATION_OCPP_ID,
-        siteId: null,
-        vendorId: null,
-        model: 'NewModel',
-        serialNumber: 'SN1',
-        firmwareVersion: '1.0',
-        availability: 'available',
-        onboardingStatus: 'accepted',
-        isOnline: false,
-        isSimulator: false,
-        loadPriority: 0,
-        securityProfile: 1,
-        ocppProtocol: 'ocpp2.1',
-        hasPassword: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-    ]);
+    const updated = {
+      id: VALID_STATION_ID,
+      stationId: STATION_OCPP_ID,
+      siteId: null,
+      vendorId: null,
+      model: 'NewModel',
+      serialNumber: 'SN1',
+      firmwareVersion: '1.0',
+      availability: 'available',
+      onboardingStatus: 'accepted',
+      isOnline: false,
+      isSimulator: false,
+      loadPriority: 0,
+      securityProfile: 1,
+      ocppProtocol: 'ocpp2.1',
+      hasPassword: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    // 1: before SELECT, 2: UPDATE returning
+    setupDbResults([updated], [updated]);
 
     const res = await app.inject({
       method: 'PATCH',

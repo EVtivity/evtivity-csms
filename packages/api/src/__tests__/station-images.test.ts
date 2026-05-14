@@ -81,6 +81,24 @@ vi.mock('@evtivity/database', () => ({
   },
   stationImages: {},
   chargingStations: {},
+  writeAudit: vi.fn().mockResolvedValue(undefined),
+  siteAuditLog: {},
+  stationAuditLog: {},
+  driverAuditLog: {},
+  fleetAuditLog: {},
+  userAuditLog: {},
+  vehicleAuditLog: {},
+  supportCaseAuditLog: {},
+  ocpiPartnerAuditLog: {},
+  certificateAuditLog: {},
+  roleAuditLog: {},
+  apiKeyAuditLog: {},
+  settingAuditLog: {},
+  smartChargingTemplateAuditLog: {},
+  configTemplateAuditLog: {},
+  firmwareCampaignAuditLog: {},
+  stationImageAuditLog: {},
+  localAuthListAuditLog: {},
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -345,8 +363,8 @@ describe('Station image routes', () => {
         updatedAt: '2026-01-02T00:00:00Z',
       };
 
-      // 1. update returning
-      setupDbResults([updatedImage]);
+      // 1: before SELECT, 2: UPDATE returning
+      setupDbResults([updatedImage], [updatedImage]);
 
       const response = await app.inject({
         method: 'PATCH',

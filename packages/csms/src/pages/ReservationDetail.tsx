@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ReservationDetailsTab } from '@/components/reservation/ReservationDetailsTab';
 import { ReservationSessionTab } from '@/components/reservation/ReservationSessionTab';
 import { ReservationCommandsTab } from '@/components/reservation/ReservationCommandsTab';
-import { ReservationHistoryTab } from '@/components/reservation/ReservationHistoryTab';
+import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { useTab } from '@/hooks/use-tab';
 import { api } from '@/lib/api';
 import { useUserTimezone } from '@/lib/timezone';
@@ -136,7 +136,7 @@ export function ReservationDetail(): React.JSX.Element {
         )}
 
         <TabsContent value="history">
-          <ReservationHistoryTab reservationId={id ?? ''} timezone={timezone} />
+          <EntityHistoryTab entityType="reservation" entityId={id ?? ''} />
         </TabsContent>
 
         <TabsContent value="commands">
