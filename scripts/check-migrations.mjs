@@ -71,7 +71,9 @@ for (let i = 0; i < entries.length; i++) {
   seenTag.add(e.tag);
 
   if (e.idx !== lastIdx + 1) {
-    errors.push(`Non-sequential idx at position ${i}: expected ${lastIdx + 1}, got ${e.idx} (${e.tag})`);
+    errors.push(
+      `Non-sequential idx at position ${i}: expected ${lastIdx + 1}, got ${e.idx} (${e.tag})`,
+    );
   }
   lastIdx = e.idx;
 

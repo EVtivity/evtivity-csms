@@ -5,12 +5,22 @@ import { describe, it, expect, vi } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../server/middleware/pipeline.js';
 
-// Mock isPncEnabled to return true for certificate handler tests
+// Mock isPncEnabled to return true for certificate handler tests, and stub
+// the Drizzle `db.select(...).from(...).where(...)` chain to return [] so
+// the TransactionEvent handler's driver_tokens lookup hits the "no row"
+// branch deterministically (otherwise it tries a real postgres query and
+// the catch block silently swallows the error, omitting groupIdToken).
 vi.mock('@evtivity/database', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
+  const select = vi.fn(() => ({
+    from: vi.fn(() => ({
+      where: vi.fn().mockResolvedValue([]),
+    })),
+  }));
   return {
     ...actual,
     isPncEnabled: vi.fn().mockResolvedValue(true),
+    db: { select },
   };
 });
 

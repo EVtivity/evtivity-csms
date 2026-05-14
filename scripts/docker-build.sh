@@ -12,6 +12,22 @@ set -euo pipefail
 
 unset DOCKER_HOST DOCKER_TLS_VERIFY DOCKER_CERT_PATH MINIKUBE_ACTIVE_DOCKERD
 
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Require .env so host-side seed scripts see the same vars as the
+# docker-compose containers (especially SETTINGS_ENCRYPTION_KEY -- without
+# alignment, the seed writes *Enc settings with one key and the API
+# container decrypts with another). Copy .env.example to .env first.
+if [ ! -f "$REPO_ROOT/.env" ]; then
+  echo "Error: .env not found at $REPO_ROOT/.env" >&2
+  echo "Copy the template: cp .env.example .env" >&2
+  exit 1
+fi
+set -a
+# shellcheck disable=SC1091
+. "$REPO_ROOT/.env"
+set +a
+
 # Collect profile flags based on user choices
 PROFILES=()
 
