@@ -22,16 +22,20 @@ export async function enqueueLoadManagementJobs(loadQueue: Queue): Promise<void>
     .from(siteLoadManagement)
     .where(eq(siteLoadManagement.isEnabled, true));
 
-  for (const site of sites) {
-    await loadQueue.add(
-      'load-management',
-      { siteId: site.siteId },
-      {
-        jobId: `load-management-${site.siteId}`,
-        attempts: 1,
-      },
-    );
-  }
+  // Per-site enqueue calls are independent — Promise.all bounds the
+  // coordinator's wall time by Redis round-trip latency, not by it.
+  await Promise.all(
+    sites.map((site) =>
+      loadQueue.add(
+        'load-management',
+        { siteId: site.siteId },
+        {
+          jobId: `load-management-${site.siteId}`,
+          attempts: 1,
+        },
+      ),
+    ),
+  );
 }
 
 /**

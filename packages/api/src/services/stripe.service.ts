@@ -3,7 +3,7 @@
 
 import crypto from 'node:crypto';
 import Stripe from 'stripe';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { sitePaymentConfigs, settings } from '@evtivity/database';
 import { decryptString } from '@evtivity/lib';
@@ -54,12 +54,12 @@ async function getPlatformStripeSettings(): Promise<{
     'stripe.platformFeePercent',
   ];
 
-  const rows = await db.select().from(settings);
+  // Push the key filter to Postgres instead of selecting every settings
+  // row and discarding most of them in JS.
+  const rows = await db.select().from(settings).where(inArray(settings.key, keys));
   const settingsMap = new Map<string, unknown>();
   for (const row of rows) {
-    if (keys.includes(row.key)) {
-      settingsMap.set(row.key, row.value);
-    }
+    settingsMap.set(row.key, row.value);
   }
 
   const secretKeyEnc = settingsMap.get('stripe.secretKeyEnc') as string | undefined;

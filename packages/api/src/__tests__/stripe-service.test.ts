@@ -103,6 +103,7 @@ vi.mock('@evtivity/database', () => ({
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
+  inArray: vi.fn(),
 }));
 
 vi.mock('@evtivity/lib', () => ({

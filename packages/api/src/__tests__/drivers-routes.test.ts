@@ -96,6 +96,7 @@ vi.mock('@evtivity/database', () => ({
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
+  ne: vi.fn(),
   and: vi.fn(),
   or: vi.fn(),
   ilike: vi.fn(),
@@ -388,8 +389,8 @@ describe('Driver routes (operator)', () => {
         phone: '+15559876543',
         isActive: false,
       });
-      // 1: before SELECT, 2: UPDATE returning
-      setupDbResults([updated], [updated]);
+      // 1: email-collision pre-check (no collision), 2: before SELECT, 3: UPDATE returning
+      setupDbResults([], [updated], [updated]);
 
       const res = await app.inject({
         method: 'PATCH',
@@ -445,7 +446,8 @@ describe('Driver routes (operator)', () => {
 
     it('returns 200 with only email', async () => {
       const updated = makeDriver({ email: 'new@example.com' });
-      setupDbResults([updated], [updated]);
+      // 1: email-collision pre-check (no collision), 2: before SELECT, 3: UPDATE returning
+      setupDbResults([], [updated], [updated]);
 
       const res = await app.inject({
         method: 'PATCH',

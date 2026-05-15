@@ -17,8 +17,13 @@ const PRIVATE_RANGES = [
 export function isPrivateUrl(urlString: string): boolean {
   try {
     const parsed = new URL(urlString);
+    // Reject anything that is not a real network protocol. file:// reads
+    // local files, gopher:// / dict:// can hit internal services, ftp://
+    // is not a webhook target, etc. Only http(s) is acceptable for an
+    // outbound webhook delivery.
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return true;
     const hostname = parsed.hostname;
-    if (hostname === 'localhost' || hostname === '::1') return true;
+    if (hostname === '' || hostname === 'localhost' || hostname === '::1') return true;
     if (isIP(hostname)) {
       return PRIVATE_RANGES.some((r) => r.test(hostname));
     }

@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, or, ilike, sql, desc, asc } from 'drizzle-orm';
+import { eq, ne, and, or, ilike, sql, desc, asc } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import {
   drivers,
@@ -28,6 +28,7 @@ import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
 import * as tokenService from '../services/token.service.js';
+import { OCPP_TOKEN_TYPES } from './tokens.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import {
   paginatedResponse,
@@ -151,9 +152,8 @@ const updateDriverBody = z.object({
 const createTokenBody = z.object({
   idToken: z.string().max(255).describe('Token identifier (e.g. RFID card UID)'),
   tokenType: z
-    .string()
-    .max(20)
-    .describe('OCPP IdToken type (e.g. ISO14443, ISO15693, Central, eMAID)'),
+    .enum(OCPP_TOKEN_TYPES)
+    .describe('OCPP IdToken type (one of the OCPP 2.1 IdTokenEnumType values)'),
 });
 
 const driverSessionItem = z
@@ -250,6 +250,30 @@ const driverListQuery = paginationQuery.extend({
   status: z.enum(['active', 'inactive']).optional().describe('Filter by driver status'),
 });
 
+// Safe column projection used by every operator-facing read of `drivers`.
+// Excludes `passwordHash` and `totpSecretEnc` so neither leaves the database
+// in an API response (the response Zod schema uses .passthrough() so an
+// unfiltered select() would expose both fields to anyone with drivers:read).
+const driverSafeSelect = {
+  id: drivers.id,
+  firstName: drivers.firstName,
+  lastName: drivers.lastName,
+  email: drivers.email,
+  phone: drivers.phone,
+  registrationSource: drivers.registrationSource,
+  language: drivers.language,
+  timezone: drivers.timezone,
+  themePreference: drivers.themePreference,
+  distanceUnit: drivers.distanceUnit,
+  mfaEnabled: drivers.mfaEnabled,
+  mfaMethod: drivers.mfaMethod,
+  isActive: drivers.isActive,
+  emailVerified: drivers.emailVerified,
+  lastNotificationReadAt: drivers.lastNotificationReadAt,
+  createdAt: drivers.createdAt,
+  updatedAt: drivers.updatedAt,
+} as const;
+
 export function driverRoutes(app: FastifyInstance): void {
   app.get(
     '/drivers',
@@ -288,7 +312,14 @@ export function driverRoutes(app: FastifyInstance): void {
       const where = conditions.length > 0 ? and(...conditions) : undefined;
 
       const [data, countRows] = await Promise.all([
-        db.select().from(drivers).where(where).limit(limit).offset(offset),
+        db
+          .select(driverSafeSelect)
+          .from(drivers)
+          .where(where)
+          // Stable ordering so pagination doesn't shuffle rows between pages.
+          .orderBy(desc(drivers.createdAt), asc(drivers.id))
+          .limit(limit)
+          .offset(offset),
         db
           .select({ count: sql<number>`count(*)::int` })
           .from(drivers)
@@ -319,7 +350,7 @@ export function driverRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof driverParams>;
-      const [driver] = await db.select().from(drivers).where(eq(drivers.id, id));
+      const [driver] = await db.select(driverSafeSelect).from(drivers).where(eq(drivers.id, id));
       if (driver == null) {
         await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
         return;
@@ -347,19 +378,20 @@ export function driverRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const body = request.body as z.infer<typeof createDriverBody>;
 
-      // Check for duplicate email
+      // Check for duplicate email. Use ilike so jane@x.com and Jane@x.com
+      // are treated as the same account and the second create is rejected.
       if (body.email != null) {
         const [existing] = await db
           .select({ id: drivers.id })
           .from(drivers)
-          .where(eq(drivers.email, body.email));
+          .where(ilike(drivers.email, body.email));
         if (existing != null) {
           await reply.status(409).send({ error: 'Email already in use', code: 'DUPLICATE_EMAIL' });
           return;
         }
       }
 
-      const [driver] = await db.insert(drivers).values(body).returning();
+      const [driver] = await db.insert(drivers).values(body).returning(driverSafeSelect);
       if (driver != null) {
         const actor = getAuditActor(request);
         await writeAudit(
@@ -393,12 +425,28 @@ export function driverRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(driverItem),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
+          409: errorWith('Email already in use', [ERROR_CODES.DUPLICATE_EMAIL]),
         },
       },
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof driverParams>;
       const body = request.body as z.infer<typeof updateDriverBody>;
+
+      // Reject email changes that would collide with another driver. The
+      // POST handler already enforces ilike uniqueness; without the same
+      // guard here, a PATCH could create two drivers with the same email
+      // and break portal login (which selects by email).
+      if (body.email !== undefined) {
+        const [collision] = await db
+          .select({ id: drivers.id })
+          .from(drivers)
+          .where(and(ilike(drivers.email, body.email), ne(drivers.id, id)));
+        if (collision != null) {
+          await reply.status(409).send({ error: 'Email already in use', code: 'DUPLICATE_EMAIL' });
+          return;
+        }
+      }
 
       const fields: Record<string, unknown> = { updatedAt: new Date() };
       if (body.firstName !== undefined) fields['firstName'] = body.firstName;
@@ -408,8 +456,16 @@ export function driverRoutes(app: FastifyInstance): void {
       if (body.isActive !== undefined) fields['isActive'] = body.isActive;
       if (body.timezone !== undefined) fields['timezone'] = body.timezone;
 
+      // before is used only for the audit row — writeAudit's redactor masks
+      // sensitive fields, so it's safe to fetch the full row here. The
+      // returned `updated` row goes back to the operator, so we project it
+      // through driverSafeSelect to keep passwordHash/totpSecretEnc internal.
       const [before] = await db.select().from(drivers).where(eq(drivers.id, id));
-      const [updated] = await db.update(drivers).set(fields).where(eq(drivers.id, id)).returning();
+      const [updated] = await db
+        .update(drivers)
+        .set(fields)
+        .where(eq(drivers.id, id))
+        .returning(driverSafeSelect);
 
       if (updated == null) {
         await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
@@ -454,7 +510,11 @@ export function driverRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { id } = request.params as z.infer<typeof driverParams>;
-      return db.select().from(driverTokens).where(eq(driverTokens.driverId, id));
+      return db
+        .select()
+        .from(driverTokens)
+        .where(eq(driverTokens.driverId, id))
+        .orderBy(desc(driverTokens.createdAt), asc(driverTokens.id));
     },
   );
 
@@ -514,7 +574,11 @@ export function driverRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { id } = request.params as z.infer<typeof driverParams>;
-      return db.select().from(vehicles).where(eq(vehicles.driverId, id));
+      return db
+        .select()
+        .from(vehicles)
+        .where(eq(vehicles.driverId, id))
+        .orderBy(desc(vehicles.createdAt), asc(vehicles.id));
     },
   );
 
@@ -834,15 +898,13 @@ export function driverRoutes(app: FastifyInstance): void {
       const { page, limit } = request.query as z.infer<typeof sessionsQuery>;
       const offset = (page - 1) * limit;
 
-      const [driver] = await db.select().from(drivers).where(eq(drivers.id, id));
-      if (driver == null) {
-        await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
-        return;
-      }
-
       const where = eq(chargingSessions.driverId, id);
 
-      const [data, countRows] = await Promise.all([
+      // Run the existence check in parallel with the data + count queries.
+      // The existence check selects only id (not the full row, which would
+      // pull passwordHash and totpSecretEnc unnecessarily).
+      const [driverRows, data, countRows] = await Promise.all([
+        db.select({ id: drivers.id }).from(drivers).where(eq(drivers.id, id)),
         db
           .select({
             id: chargingSessions.id,
@@ -876,6 +938,11 @@ export function driverRoutes(app: FastifyInstance): void {
           .where(where),
       ]);
 
+      if (driverRows[0] == null) {
+        await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+        return;
+      }
+
       return { data, total: countRows[0]?.count ?? 0 } satisfies PaginatedResponse<
         (typeof data)[number]
       >;
@@ -906,14 +973,10 @@ export function driverRoutes(app: FastifyInstance): void {
       const { page, limit } = request.query as z.infer<typeof paginationQuery>;
       const offset = (page - 1) * limit;
 
-      const [driver] = await db.select().from(drivers).where(eq(drivers.id, id));
-      if (driver == null) {
-        await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
-        return;
-      }
-
       const where = eq(reservations.driverId, id);
-      const [data, countRows] = await Promise.all([
+      // Existence check runs in parallel with data + count.
+      const [driverRows, data, countRows] = await Promise.all([
+        db.select({ id: drivers.id }).from(drivers).where(eq(drivers.id, id)),
         db
           .select({
             id: reservations.id,
@@ -943,6 +1006,11 @@ export function driverRoutes(app: FastifyInstance): void {
           .from(reservations)
           .where(where),
       ]);
+
+      if (driverRows[0] == null) {
+        await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+        return;
+      }
 
       return { data, total: countRows[0]?.count ?? 0 } satisfies PaginatedResponse<
         (typeof data)[number]
@@ -994,17 +1062,34 @@ export function driverRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(driverParams),
         body: zodSchema(addDriverPricingGroupBody),
-        response: { 201: itemResponse(driverPricingGroupRecordItem) },
+        response: {
+          201: itemResponse(driverPricingGroupRecordItem),
+          404: errorWith('Pricing group not found', [ERROR_CODES.PRICING_GROUP_NOT_FOUND]),
+        },
       },
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof driverParams>;
       const { userId } = request.user as JwtPayload;
       const body = request.body as z.infer<typeof addDriverPricingGroupBody>;
-      const [previous] = await db
-        .select()
-        .from(pricingGroupDrivers)
-        .where(eq(pricingGroupDrivers.driverId, id));
+      // Pre-check pricing group existence so a typo'd id returns a clean
+      // 404 instead of a 500 from the FK violation. Run the previous-row
+      // lookup in parallel — the typo case is rare so wasting one query
+      // there is cheaper than the round-trip it saves on the success path.
+      const [pgRows, previousRows] = await Promise.all([
+        db
+          .select({ id: pricingGroups.id })
+          .from(pricingGroups)
+          .where(eq(pricingGroups.id, body.pricingGroupId)),
+        db.select().from(pricingGroupDrivers).where(eq(pricingGroupDrivers.driverId, id)),
+      ]);
+      if (pgRows[0] == null) {
+        await reply
+          .status(404)
+          .send({ error: 'Pricing group not found', code: 'PRICING_GROUP_NOT_FOUND' });
+        return;
+      }
+      const previous = previousRows[0];
       const [record] = await db
         .insert(pricingGroupDrivers)
         .values({ driverId: id, pricingGroupId: body.pricingGroupId })
@@ -1013,37 +1098,42 @@ export function driverRoutes(app: FastifyInstance): void {
           set: { pricingGroupId: body.pricingGroupId, createdAt: new Date() },
         })
         .returning();
-      await writeAudit(
-        { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
-        {
-          entityId: id,
-          entityIdSnapshot: id,
-          action: previous == null ? 'created' : 'updated',
-          actor: 'operator',
-          actorUserId: userId,
-          before:
-            previous == null
-              ? null
-              : { scope: 'driver', driverId: id, pricingGroupId: previous.pricingGroupId },
-          after: { scope: 'driver', driverId: id, pricingGroupId: body.pricingGroupId },
-        },
-        db,
-        request.log,
-      );
       const actor = getAuditActor(request);
-      await writeAudit(
-        { table: driverAuditLog, idColumn: 'driver_id' },
-        {
-          entityId: id,
-          entityIdSnapshot: id,
-          action: 'pricing_assignment_changed',
-          ...actor,
-          before: previous == null ? null : { pricingGroupId: previous.pricingGroupId },
-          after: { pricingGroupId: body.pricingGroupId },
-        },
-        db,
-        request.log,
-      );
+      // Two independent audit rows for two different tables — write in
+      // parallel. Both calls swallow errors internally so the response is
+      // never blocked by an audit failure.
+      await Promise.all([
+        writeAudit(
+          { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: previous == null ? 'created' : 'updated',
+            actor: 'operator',
+            actorUserId: userId,
+            before:
+              previous == null
+                ? null
+                : { scope: 'driver', driverId: id, pricingGroupId: previous.pricingGroupId },
+            after: { scope: 'driver', driverId: id, pricingGroupId: body.pricingGroupId },
+          },
+          db,
+          request.log,
+        ),
+        writeAudit(
+          { table: driverAuditLog, idColumn: 'driver_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'pricing_assignment_changed',
+            ...actor,
+            before: previous == null ? null : { pricingGroupId: previous.pricingGroupId },
+            after: { pricingGroupId: body.pricingGroupId },
+          },
+          db,
+          request.log,
+        ),
+      ]);
       await reply.status(201).send(record);
     },
   );

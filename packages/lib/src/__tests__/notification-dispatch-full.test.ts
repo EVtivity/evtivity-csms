@@ -811,16 +811,19 @@ describe('notification-dispatch (full coverage)', () => {
         energy: 42,
       });
 
-      expect(mockFetch).toHaveBeenCalledWith('https://hook.example.com', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          subject: 'Sub',
-          body: 'Body text',
-          stationId: 'CS-001',
-          energy: 42,
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://hook.example.com',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subject: 'Sub',
+            body: 'Body text',
+            stationId: 'CS-001',
+            energy: 42,
+          }),
         }),
-      });
+      );
     });
   });
 
@@ -1020,6 +1023,8 @@ describe('notification-dispatch (full coverage)', () => {
       const nowValue = realNow() + 260 * 60 * 1000;
       vi.spyOn(Date, 'now').mockImplementation(() => nowValue);
 
+      // After the fan-out optimization, mocks are consumed in Promise.all
+      // order: drivers, prefs, company, notification settings.
       setupSqlResults(
         [{ is_enabled: true }],
         [
@@ -1031,9 +1036,8 @@ describe('notification-dispatch (full coverage)', () => {
             language: 'en',
           },
         ],
-        [{ key: 'company.name', value: 'SmtpCo' }],
         [{ email_enabled: true, sms_enabled: false }],
-        // notification settings with SMTP configured
+        [{ key: 'company.name', value: 'SmtpCo' }],
         [
           { key: 'smtp.host', value: 'smtp.example.com' },
           { key: 'smtp.port', value: '587' },
@@ -1070,8 +1074,8 @@ describe('notification-dispatch (full coverage)', () => {
             language: 'en',
           },
         ],
-        [{ key: 'company.name', value: 'FailCo' }],
         [{ email_enabled: true, sms_enabled: false }],
+        [{ key: 'company.name', value: 'FailCo' }],
         [
           { key: 'smtp.host', value: 'smtp.example.com' },
           { key: 'smtp.port', value: '587' },
@@ -1108,8 +1112,8 @@ describe('notification-dispatch (full coverage)', () => {
             language: 'en',
           },
         ],
-        [{ key: 'company.name', value: 'SmsCo' }],
         [{ email_enabled: false, sms_enabled: true }],
+        [{ key: 'company.name', value: 'SmsCo' }],
         [
           { key: 'twilio.accountSid', value: 'AC123' },
           { key: 'twilio.authToken', value: '' },
@@ -1396,8 +1400,8 @@ describe('notification-dispatch (full coverage)', () => {
             language: 'en',
           },
         ],
-        [{ key: 'company.name', value: 'WrapCo' }],
         [{ email_enabled: true, sms_enabled: false }],
+        [{ key: 'company.name', value: 'WrapCo' }],
         [
           { key: 'smtp.host', value: 'smtp.example.com' },
           { key: 'smtp.port', value: '587' },
@@ -1501,8 +1505,8 @@ describe('notification-dispatch (full coverage)', () => {
             language: 'en',
           },
         ],
-        [{ key: 'company.name', value: 'BothCo' }],
         [{ email_enabled: true, sms_enabled: true }],
+        [{ key: 'company.name', value: 'BothCo' }],
         // SMTP and Twilio both configured
         [
           { key: 'smtp.host', value: 'smtp.example.com' },

@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, ilike } from 'drizzle-orm';
 import argon2 from 'argon2';
 import { db, client, getRecaptchaConfig } from '@evtivity/database';
 import { drivers, userTokens } from '@evtivity/database';
@@ -233,10 +233,11 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       const recaptchaOk = await checkRecaptcha(body.recaptchaToken, reply);
       if (!recaptchaOk) return;
 
+      // Use ilike so jane@x.com cannot register again as Jane@x.com.
       const [existing] = await db
         .select({ id: drivers.id })
         .from(drivers)
-        .where(eq(drivers.email, body.email));
+        .where(ilike(drivers.email, body.email));
 
       if (existing != null) {
         await reply.status(409).send({ error: 'Email already registered', code: 'EMAIL_EXISTS' });
@@ -336,12 +337,15 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       const recaptchaOk = await checkRecaptcha(recaptchaToken, reply);
       if (!recaptchaOk) return;
 
+      // Use ilike so a driver who registered as Jane@x.com can log in
+      // typing jane@x.com. The register path already uses ilike for the
+      // duplicate check, so login must match for the round-trip to work.
       const [driver] = await db
         .select()
         .from(drivers)
         .where(
           and(
-            eq(drivers.email, email),
+            ilike(drivers.email, email),
             eq(drivers.registrationSource, 'portal'),
             eq(drivers.isActive, true),
           ),
@@ -761,6 +765,8 @@ export function portalAuthRoutes(app: FastifyInstance): void {
     async (request) => {
       const { email } = request.body as z.infer<typeof forgotPasswordBody>;
 
+      // Match register/login path: ilike so a driver who registered with
+      // Jane@x.com can recover via jane@x.com.
       const [driver] = await db
         .select({
           id: drivers.id,
@@ -773,7 +779,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         .from(drivers)
         .where(
           and(
-            eq(drivers.email, email),
+            ilike(drivers.email, email),
             eq(drivers.registrationSource, 'portal'),
             eq(drivers.isActive, true),
           ),

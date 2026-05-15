@@ -74,19 +74,20 @@ export function webhookRoutes(app: FastifyInstance): void {
       app.log.info({ type: event.type, id: event.id }, 'Stripe webhook received');
 
       // Deduplicate: reject events we have already processed.
-      // Stripe may replay webhooks on timeout or network errors.
-      const [existing] = await db
-        .select({ eventId: webhookEvents.eventId })
-        .from(webhookEvents)
-        .where(eq(webhookEvents.eventId, event.id));
-      if (existing != null) {
+      // Stripe may replay webhooks on timeout or network errors. Use a
+      // single INSERT ... ON CONFLICT DO NOTHING + RETURNING to avoid the
+      // SELECT-then-INSERT race that would 500 the second concurrent
+      // delivery on the unique constraint.
+      const inserted = await db
+        .insert(webhookEvents)
+        .values({ eventId: event.id, eventType: event.type })
+        .onConflictDoNothing()
+        .returning({ eventId: webhookEvents.eventId });
+      if (inserted.length === 0) {
         app.log.info({ eventId: event.id }, 'Duplicate webhook event, skipping');
         await reply.status(200).send({ received: true });
         return;
       }
-
-      // Record the event before processing to prevent races
-      await db.insert(webhookEvents).values({ eventId: event.id, eventType: event.type });
 
       switch (event.type) {
         case 'payment_intent.payment_failed': {

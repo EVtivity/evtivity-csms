@@ -123,6 +123,58 @@ export function wrapEmailHtml(
 const CACHE_TTL_MS = 5 * 60 * 1000;
 let settingsCache: { settings: NotificationSettings; expiresAt: number } | null = null;
 
+interface CompanySettings {
+  companyName: string;
+  companyCurrency: string;
+  companyContactEmail: string;
+  companySupportEmail: string;
+  companySupportPhone: string;
+  companyStreet: string;
+  companyCity: string;
+  companyState: string;
+  companyZip: string;
+  companyCountry: string;
+}
+
+let companyCache: { settings: CompanySettings; expiresAt: number } | null = null;
+
+let systemTimezoneCache: { value: string; expiresAt: number } | null = null;
+
+export async function getSystemTimezoneCached(sql: postgres.Sql): Promise<string> {
+  if (systemTimezoneCache != null && systemTimezoneCache.expiresAt > Date.now()) {
+    return systemTimezoneCache.value;
+  }
+  const rows = await sql`SELECT value FROM settings WHERE key = 'system.timezone' LIMIT 1`;
+  const value = (rows[0]?.value as string | undefined) ?? 'America/New_York';
+  systemTimezoneCache = { value, expiresAt: Date.now() + CACHE_TTL_MS };
+  return value;
+}
+
+export async function getCompanySettings(sql: postgres.Sql): Promise<CompanySettings> {
+  if (companyCache != null && companyCache.expiresAt > Date.now()) {
+    return companyCache.settings;
+  }
+  const rows = await sql`SELECT key, value FROM settings WHERE key LIKE 'company.%'`;
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    if (typeof row.value === 'string') map.set(row.key as string, row.value);
+  }
+  const settings: CompanySettings = {
+    companyName: map.get('company.name') ?? 'EVtivity',
+    companyCurrency: map.get('company.currency') ?? 'USD',
+    companyContactEmail: map.get('company.contactEmail') ?? '',
+    companySupportEmail: map.get('company.supportEmail') ?? '',
+    companySupportPhone: map.get('company.supportPhone') ?? '',
+    companyStreet: map.get('company.street') ?? '',
+    companyCity: map.get('company.city') ?? '',
+    companyState: map.get('company.state') ?? '',
+    companyZip: map.get('company.zip') ?? '',
+    companyCountry: map.get('company.country') ?? '',
+  };
+  companyCache = { settings, expiresAt: Date.now() + CACHE_TTL_MS };
+  return settings;
+}
+
 function getEncryptionKey(): string | null {
   const key = process.env['SETTINGS_ENCRYPTION_KEY'];
   if (key == null || key === '') return null;
@@ -453,11 +505,19 @@ export async function sendWebhook(
     logger.warn({ url }, 'Blocked webhook to private/internal URL');
     return false;
   }
+  // Cap each delivery at 10s. Without an AbortController the fetch can hang
+  // indefinitely on a slow or stalled webhook endpoint and starve subsequent
+  // dispatches in the same dispatcher chain.
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, 10_000);
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subject, body, ...variables }),
+      signal: controller.signal,
     });
     if (!response.ok) {
       const text = await response.text();
@@ -468,6 +528,8 @@ export async function sendWebhook(
   } catch (err) {
     logger.error({ err, url }, 'Failed to send webhook');
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -503,9 +565,21 @@ export async function dispatchDriverNotification(
       return;
     }
 
-    const driverRows = await sql`
-      SELECT first_name, last_name, email, phone, language, timezone FROM drivers WHERE id = ${driverId}
-    `;
+    // Driver row, notification preferences, company settings, and SMTP/Twilio
+    // settings are independent — fan them out so dispatch latency is bounded
+    // by the slowest single query instead of the sum.
+    const [driverRows, prefRows, company, notificationSettings] = await Promise.all([
+      sql`
+        SELECT first_name, last_name, email, phone, language, timezone FROM drivers WHERE id = ${driverId}
+      `,
+      sql`
+        SELECT email_enabled, sms_enabled
+        FROM driver_notification_preferences
+        WHERE driver_id = ${driverId}
+      `,
+      getCompanySettings(sql),
+      getNotificationSettings(sql),
+    ]);
     const driver = driverRows[0];
     if (driver == null) return;
 
@@ -516,28 +590,11 @@ export async function dispatchDriverNotification(
     const language = (driver.language as string | undefined) ?? 'en';
     const timezone = (driver.timezone as string | undefined) ?? 'America/New_York';
 
-    // Resolve company settings
-    const companyRows = await sql`
-      SELECT key, value FROM settings WHERE key LIKE 'company.%'
-    `;
-    const companyMap = new Map<string, string>();
-    for (const row of companyRows) {
-      if (typeof row.value === 'string') companyMap.set(row.key as string, row.value);
-    }
-    const companyName = companyMap.get('company.name') ?? 'EVtivity';
+    const companyName = company.companyName;
 
     // Merge driver info into variables so all driver templates can use them
     const enrichedVariables: Record<string, unknown> = {
-      companyName,
-      companyCurrency: companyMap.get('company.currency') ?? 'USD',
-      companyContactEmail: companyMap.get('company.contactEmail') ?? '',
-      companySupportEmail: companyMap.get('company.supportEmail') ?? '',
-      companySupportPhone: companyMap.get('company.supportPhone') ?? '',
-      companyStreet: companyMap.get('company.street') ?? '',
-      companyCity: companyMap.get('company.city') ?? '',
-      companyState: companyMap.get('company.state') ?? '',
-      companyZip: companyMap.get('company.zip') ?? '',
-      companyCountry: companyMap.get('company.country') ?? '',
+      ...company,
       firstName,
       lastName,
       email: email ?? '',
@@ -546,17 +603,9 @@ export async function dispatchDriverNotification(
 
     const formattedVariables = formatDateVariables(enrichedVariables, timezone);
 
-    // Check driver notification preferences
-    const prefRows = await sql`
-      SELECT email_enabled, sms_enabled
-      FROM driver_notification_preferences
-      WHERE driver_id = ${driverId}
-    `;
     const prefs = prefRows[0];
     const emailEnabled = prefs != null ? (prefs.email_enabled as boolean) : true;
     const smsEnabled = prefs != null ? (prefs.sms_enabled as boolean) : true;
-
-    const notificationSettings = await getNotificationSettings(sql);
 
     // Send email (only when SMTP is configured)
     if (emailEnabled && email != null && email !== '' && notificationSettings.smtp != null) {
@@ -681,15 +730,14 @@ export async function dispatchSystemNotification(
       return;
     }
 
-    // Resolve company settings
-    const companyRows = await sql`
-      SELECT key, value FROM settings WHERE key LIKE 'company.%'
-    `;
-    const companyMap = new Map<string, string>();
-    for (const row of companyRows) {
-      if (typeof row.value === 'string') companyMap.set(row.key as string, row.value);
-    }
-    const companyName = companyMap.get('company.name') ?? 'EVtivity';
+    // Company settings and SMTP/Twilio config are independent — fan them
+    // out so cold-cache dispatch isn't bottlenecked by sequential awaits
+    // (matches the pattern in dispatchDriverNotification).
+    const [company, notificationSettings] = await Promise.all([
+      getCompanySettings(sql),
+      getNotificationSettings(sql),
+    ]);
+    const companyName = company.companyName;
 
     const email = recipient.email ?? undefined;
     const phone = recipient.phone ?? undefined;
@@ -697,16 +745,7 @@ export async function dispatchSystemNotification(
     const timezone = recipient.timezone ?? 'America/New_York';
 
     const enrichedVariables: Record<string, unknown> = {
-      companyName,
-      companyCurrency: companyMap.get('company.currency') ?? 'USD',
-      companyContactEmail: companyMap.get('company.contactEmail') ?? '',
-      companySupportEmail: companyMap.get('company.supportEmail') ?? '',
-      companySupportPhone: companyMap.get('company.supportPhone') ?? '',
-      companyStreet: companyMap.get('company.street') ?? '',
-      companyCity: companyMap.get('company.city') ?? '',
-      companyState: companyMap.get('company.state') ?? '',
-      companyZip: companyMap.get('company.zip') ?? '',
-      companyCountry: companyMap.get('company.country') ?? '',
+      ...company,
       firstName: recipient.firstName ?? '',
       lastName: recipient.lastName ?? '',
       email: email ?? '',
@@ -714,8 +753,6 @@ export async function dispatchSystemNotification(
     };
 
     const formattedVariables = formatDateVariables(enrichedVariables, timezone);
-
-    const notificationSettings = await getNotificationSettings(sql);
 
     // Send email (only when SMTP is configured)
     if (email != null && email !== '' && notificationSettings.smtp != null) {

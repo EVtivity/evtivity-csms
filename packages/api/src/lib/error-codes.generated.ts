@@ -176,6 +176,7 @@ export const ERROR_CODES = {
   ROAMING_DISABLED: 'ROAMING_DISABLED',
   ROLE_NOT_FOUND: 'ROLE_NOT_FOUND',
   ROTATION_FAILED: 'ROTATION_FAILED',
+  ROTATION_NOT_APPLICABLE: 'ROTATION_NOT_APPLICABLE',
   RULE_NOT_FOUND: 'RULE_NOT_FOUND',
   S3_CONNECTION_FAILED: 'S3_CONNECTION_FAILED',
   S3_NOT_CONFIGURED: 'S3_NOT_CONFIGURED',
@@ -220,6 +221,7 @@ export const ERROR_CODES = {
   USER_NOT_FOUND: 'USER_NOT_FOUND',
   VALIDATION_ERROR: 'VALIDATION_ERROR',
   VEHICLE_NOT_FOUND: 'VEHICLE_NOT_FOUND',
+  VENDOR_NOT_FOUND: 'VENDOR_NOT_FOUND',
   WEAK_PASSWORD: 'WEAK_PASSWORD',
   WEBHOOK_NOT_CONFIGURED: 'WEBHOOK_NOT_CONFIGURED',
   WEBHOOK_SIGNATURE_INVALID: 'WEBHOOK_SIGNATURE_INVALID',
@@ -392,6 +394,7 @@ export type ErrorCode =
   | 'ROAMING_DISABLED'
   | 'ROLE_NOT_FOUND'
   | 'ROTATION_FAILED'
+  | 'ROTATION_NOT_APPLICABLE'
   | 'RULE_NOT_FOUND'
   | 'S3_CONNECTION_FAILED'
   | 'S3_NOT_CONFIGURED'
@@ -436,6 +439,7 @@ export type ErrorCode =
   | 'USER_NOT_FOUND'
   | 'VALIDATION_ERROR'
   | 'VEHICLE_NOT_FOUND'
+  | 'VENDOR_NOT_FOUND'
   | 'WEAK_PASSWORD'
   | 'WEBHOOK_NOT_CONFIGURED'
   | 'WEBHOOK_SIGNATURE_INVALID'
@@ -617,6 +621,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   ROAMING_DISABLED: 'Roaming is disabled',
   ROLE_NOT_FOUND: 'Role does not exist',
   ROTATION_FAILED: 'Credential rotation failed',
+  ROTATION_NOT_APPLICABLE: 'Credential rotation only applies to security profiles 1 and 2',
   RULE_NOT_FOUND: 'Rule not found',
   S3_CONNECTION_FAILED: 'S3 connection test failed',
   S3_NOT_CONFIGURED: 'S3 not configured',
@@ -661,6 +666,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   USER_NOT_FOUND: 'User not found',
   VALIDATION_ERROR: 'Voltage must be one of: 120, 208, 240, 277, 480',
   VEHICLE_NOT_FOUND: 'Vehicle not found',
+  VENDOR_NOT_FOUND: 'Vendor not found',
   WEAK_PASSWORD: 'Password does not meet complexity requirements',
   WEBHOOK_NOT_CONFIGURED: 'Webhook not configured',
   WEBHOOK_SIGNATURE_INVALID: 'Invalid signature',

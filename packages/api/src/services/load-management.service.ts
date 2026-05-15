@@ -121,15 +121,62 @@ export async function getSitePowerStatus(siteId: string): Promise<{
 
   const stationDbIds = stationRows.map((s) => s.id);
 
-  // Get max power for each station from its connectors
-  const connectorRows = await db
-    .select({
-      stationId: evses.stationId,
-      maxPowerKw: connectors.maxPowerKw,
-    })
-    .from(connectors)
-    .innerJoin(evses, eq(connectors.evseId, evses.id))
-    .where(inArray(evses.stationId, stationDbIds));
+  // The remaining four queries all depend only on stationDbIds, not on
+  // each other — fan them out in parallel so the per-cycle latency is
+  // bounded by the slowest single query instead of the sum. Power
+  // readings are read once and partitioned in JS into overall vs
+  // per-phase below; previously this was two separate SELECTs against
+  // the same measurand which doubled the meter_values index pressure.
+  const [connectorRows, activeSessions, allPowerValues, chargingNeedsRows] = await Promise.all([
+    db
+      .select({
+        stationId: evses.stationId,
+        maxPowerKw: connectors.maxPowerKw,
+      })
+      .from(connectors)
+      .innerJoin(evses, eq(connectors.evseId, evses.id))
+      .where(inArray(evses.stationId, stationDbIds)),
+    db
+      .select({
+        stationId: chargingSessions.stationId,
+      })
+      .from(chargingSessions)
+      .where(
+        and(
+          eq(chargingSessions.status, 'active'),
+          inArray(chargingSessions.stationId, stationDbIds),
+        ),
+      ),
+    db
+      .select({
+        stationId: meterValues.stationId,
+        value: meterValues.value,
+        unit: meterValues.unit,
+        phase: meterValues.phase,
+      })
+      .from(meterValues)
+      .where(
+        and(
+          eq(meterValues.measurand, 'Power.Active.Import'),
+          gte(meterValues.timestamp, since),
+          inArray(meterValues.stationId, stationDbIds),
+        ),
+      )
+      .orderBy(desc(meterValues.timestamp)),
+    db
+      .select({
+        stationId: evChargingNeeds.stationId,
+        departureTime: evChargingNeeds.departureTime,
+      })
+      .from(evChargingNeeds)
+      .where(inArray(evChargingNeeds.stationId, stationDbIds)),
+  ]);
+  // Partition the single power query in JS: rows without a phase populate
+  // the overall most-recent map, rows with a phase populate the per-phase
+  // map. desc(timestamp) ordering above guarantees first-row-wins per
+  // (station, [phase]) bucket.
+  const powerValues = allPowerValues.filter((r) => r.phase == null);
+  const phasePowerValues = allPowerValues.filter((r) => r.phase != null);
 
   // Sum max power per station
   const stationMaxPower = new Map<string, number>();
@@ -141,34 +188,7 @@ export async function getSitePowerStatus(siteId: string): Promise<{
     );
   }
 
-  // Get active sessions per station
-  const activeSessions = await db
-    .select({
-      stationId: chargingSessions.stationId,
-    })
-    .from(chargingSessions)
-    .where(
-      and(eq(chargingSessions.status, 'active'), inArray(chargingSessions.stationId, stationDbIds)),
-    );
-
   const activeStationIds = new Set(activeSessions.map((s) => s.stationId));
-
-  // Get latest power meter values per station (last 60 seconds)
-  const powerValues = await db
-    .select({
-      stationId: meterValues.stationId,
-      value: meterValues.value,
-      unit: meterValues.unit,
-    })
-    .from(meterValues)
-    .where(
-      and(
-        eq(meterValues.measurand, 'Power.Active.Import'),
-        gte(meterValues.timestamp, since),
-        inArray(meterValues.stationId, stationDbIds),
-      ),
-    )
-    .orderBy(desc(meterValues.timestamp));
 
   // Take the most recent power reading per station
   const stationPower = new Map<string, number>();
@@ -181,25 +201,6 @@ export async function getSitePowerStatus(siteId: string): Promise<{
     }
     stationPower.set(row.stationId, kw);
   }
-
-  // Get per-phase power meter values (last 60 seconds)
-  const phasePowerValues = await db
-    .select({
-      stationId: meterValues.stationId,
-      value: meterValues.value,
-      unit: meterValues.unit,
-      phase: meterValues.phase,
-    })
-    .from(meterValues)
-    .where(
-      and(
-        eq(meterValues.measurand, 'Power.Active.Import'),
-        gte(meterValues.timestamp, since),
-        inArray(meterValues.stationId, stationDbIds),
-        sql`${meterValues.phase} IS NOT NULL`,
-      ),
-    )
-    .orderBy(desc(meterValues.timestamp));
 
   // Take the most recent per-phase reading per station
   const stationPhasePower = new Map<string, PhaseLoad>();
@@ -221,15 +222,6 @@ export async function getSitePowerStatus(siteId: string): Promise<{
     existing[phase as 'L1' | 'L2' | 'L3'] = kw;
     stationPhasePower.set(row.stationId, existing);
   }
-
-  // Get EV charging needs (departure times) for priority-aware allocation
-  const chargingNeedsRows = await db
-    .select({
-      stationId: evChargingNeeds.stationId,
-      departureTime: evChargingNeeds.departureTime,
-    })
-    .from(evChargingNeeds)
-    .where(inArray(evChargingNeeds.stationId, stationDbIds));
 
   // Map earliest departure time per station
   const stationDeparture = new Map<string, Date>();
@@ -877,11 +869,19 @@ export async function applyAllocations(
     })),
   });
 
-  // Dispatch SetChargingProfile to each station
-  for (const allocation of allocations) {
-    const allocatedWatts = Math.round(allocation.allocatedKw * 1000);
-    await dispatchSetChargingProfile(pubsub, allocation.stationId, allocatedWatts, log);
-  }
+  // Dispatch SetChargingProfile to each station in parallel — each call is
+  // an independent pub/sub publish, so serializing them adds (N * publish
+  // latency) of needless delay at the end of every 10s control cycle.
+  await Promise.all(
+    allocations.map((allocation) =>
+      dispatchSetChargingProfile(
+        pubsub,
+        allocation.stationId,
+        Math.round(allocation.allocatedKw * 1000),
+        log,
+      ),
+    ),
+  );
 
   await broadcastLoadUpdate(pubsub, siteId);
 }

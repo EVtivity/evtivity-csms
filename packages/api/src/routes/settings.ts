@@ -23,14 +23,30 @@ import { authorize } from '../middleware/rbac.js';
 import { config as apiConfig } from '../lib/config.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 
-// Mask the value of any encrypted setting before it lands in setting_audit_log.
-// Encrypted ciphertext is still sensitive (anyone with both the audit log and
-// the encryption key can decrypt) and bloats the audit table.
+// A handful of legacy credential keys are stored plaintext (no Enc suffix
+// and not in the encryptedKeyMap). Treat them as sensitive everywhere so
+// they don't leak via GET /v1/settings or settings audit rows.
+const PLAINTEXT_SENSITIVE_KEYS = new Set([
+  'smtp.password',
+  'twilio.authToken',
+  'ftp.password',
+  'googleMaps.apiKey',
+]);
+
+function isSensitiveSettingKey(key: string): boolean {
+  return key.endsWith('Enc') || key.endsWith('SecretKey') || PLAINTEXT_SENSITIVE_KEYS.has(key);
+}
+
+// Mask the value of any encrypted or plaintext-credential setting before it
+// lands in setting_audit_log or any GET response. Encrypted ciphertext is
+// still sensitive (anyone with both the audit log and the encryption key
+// can decrypt) and bloats the audit table; plaintext credentials would
+// otherwise leak verbatim to anyone with settings.system:read.
 function redactSensitiveSetting<T extends { key: string; value: unknown } | undefined>(
   row: T,
 ): T extends undefined ? null : { key: string; value: unknown } {
   if (row == null) return null as never;
-  if (row.key.endsWith('Enc') || row.key.endsWith('SecretKey')) {
+  if (isSensitiveSettingKey(row.key)) {
     return { key: row.key, value: '<redacted>' } as never;
   }
   return { key: row.key, value: row.value } as never;
@@ -195,7 +211,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       const rows = await db.select().from(settings);
       const result: Record<string, unknown> = {};
       for (const row of rows) {
-        result[row.key] = row.value;
+        result[row.key] = isSensitiveSettingKey(row.key) ? '<redacted>' : row.value;
       }
       return result;
     },
@@ -224,7 +240,10 @@ export function settingsRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Setting not found', code: 'SETTING_NOT_FOUND' });
         return;
       }
-      return { key: row.key, value: row.value };
+      return {
+        key: row.key,
+        value: isSensitiveSettingKey(row.key) ? '<redacted>' : row.value,
+      };
     },
   );
 

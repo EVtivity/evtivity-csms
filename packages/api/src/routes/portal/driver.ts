@@ -64,7 +64,10 @@ const updateProfileBody = z.object({
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
   phone: z.string().max(50).optional(),
-  language: z.string().max(10).optional(),
+  // Restrict to the locales the portal/CSMS bundle ships translations for
+  // (frontend/i18n.md). An arbitrary string would persist and then break
+  // the i18n loader on the next session.
+  language: z.enum(['en', 'de', 'es', 'ko', 'zh', 'zh-TW']).optional(),
   timezone: z.string().max(50).optional(),
   themePreference: z.enum(['light', 'dark']).optional(),
   distanceUnit: z.enum(['miles', 'km']).optional(),

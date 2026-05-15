@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, desc } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { db, siteLoadManagement, chargingStations, loadAllocationLog } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
@@ -356,13 +356,16 @@ export function loadManagementRoutes(app: FastifyInstance): void {
         return reply.status(404).send({ error: 'Station not found', code: 'NOT_FOUND' });
       }
 
+      // Bind the station to the URL site so an operator with access to
+      // siteA can't bump load-priority on a station that lives at siteB
+      // by passing PATCH /sites/<siteA>/stations/<stationB>/load-priority.
       const [updated] = await db
         .update(chargingStations)
         .set({
           loadPriority: body.loadPriority,
           updatedAt: new Date(),
         })
-        .where(eq(chargingStations.id, stationId))
+        .where(and(eq(chargingStations.id, stationId), eq(chargingStations.siteId, id)))
         .returning();
 
       if (updated == null) {

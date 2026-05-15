@@ -394,14 +394,24 @@ describe('notification-dispatch', () => {
 
     it('skips when driver not found', async () => {
       const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+      // Dispatcher fans driver, prefs, company, settings in Promise.all
+      // after the event-settings check. Cached helpers (company,
+      // settings) may skip the DB on warm runs, so the call count is
+      // unstable across test ordering. Cap at the post-fan total (1
+      // event + up to 4 fan = 5) and assert no further work happens
+      // after the missing-driver early return (no template lookup, no
+      // INSERT — both would push the count past 5).
       setupSqlResults(
-        [{ is_enabled: true }], // enabled
-        [], // driver not found
+        [{ is_enabled: true }], // event-settings check
+        [], // drivers SELECT — empty, triggers early return
+        [], // prefs SELECT (parallel)
+        [], // company.* SELECT (parallel, may be cached)
+        [], // smtp/twilio settings SELECT (parallel, may be cached)
       );
 
       await dispatchDriverNotification(sql as never, 'session.Started', 'driver-1', {});
 
-      expect(sqlCalls.length).toBe(2);
+      expect(sqlCalls.length).toBeLessThanOrEqual(5);
     });
 
     it('handles dispatch errors gracefully', async () => {

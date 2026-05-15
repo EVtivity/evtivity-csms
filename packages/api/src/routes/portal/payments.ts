@@ -97,26 +97,31 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
       if (needsBackfill.length > 0) {
         const stripeConfig = await getStripeConfig(null);
         if (stripeConfig != null) {
-          for (const row of needsBackfill) {
-            try {
-              const pm = await retrievePaymentMethod(stripeConfig, row.stripePaymentMethodId);
-              const brand = pm.card?.brand ?? null;
-              const last4 = pm.card?.last4 ?? null;
-              if (brand != null || last4 != null) {
-                await db
-                  .update(driverPaymentMethods)
-                  .set({ cardBrand: brand, cardLast4: last4, updatedAt: new Date() })
-                  .where(eq(driverPaymentMethods.id, row.id));
-                row.cardBrand = brand;
-                row.cardLast4 = last4;
+          // Backfill in parallel — each row is a separate Stripe round-trip
+          // and they don't depend on each other. Sequential awaits added up
+          // to (rows * ~200ms) of GET-list latency for legacy drivers.
+          await Promise.all(
+            needsBackfill.map(async (row) => {
+              try {
+                const pm = await retrievePaymentMethod(stripeConfig, row.stripePaymentMethodId);
+                const brand = pm.card?.brand ?? null;
+                const last4 = pm.card?.last4 ?? null;
+                if (brand != null || last4 != null) {
+                  await db
+                    .update(driverPaymentMethods)
+                    .set({ cardBrand: brand, cardLast4: last4, updatedAt: new Date() })
+                    .where(eq(driverPaymentMethods.id, row.id));
+                  row.cardBrand = brand;
+                  row.cardLast4 = last4;
+                }
+              } catch (err: unknown) {
+                request.log.warn(
+                  { err, paymentMethodId: row.stripePaymentMethodId },
+                  'Failed to backfill card details from Stripe',
+                );
               }
-            } catch (err: unknown) {
-              request.log.warn(
-                { err, paymentMethodId: row.stripePaymentMethodId },
-                'Failed to backfill card details from Stripe',
-              );
-            }
-          }
+            }),
+          );
         }
       }
       return rows;

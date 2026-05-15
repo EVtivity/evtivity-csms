@@ -1236,10 +1236,10 @@ describe('Station routes - handler logic', () => {
           status: 'available',
         },
       ];
-      // 1: find evse, 2: update connector (loop), 3: select updated connectors
+      // 1: find evse, 2: update connector returning id (loop), 3: select updated connectors
       setupDbResults(
         [evse],
-        [], // update result
+        [{ id: 'con_000000000001' }], // update returning rows (must be non-empty)
         updatedConnectors, // select result
       );
 
@@ -1415,7 +1415,9 @@ describe('Station routes - handler logic', () => {
     });
 
     it('returns 409 when station is offline', async () => {
-      setupDbResults([{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: false }]);
+      setupDbResults([
+        { id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: false, securityProfile: 1 },
+      ]);
 
       const response = await app.inject({
         method: 'POST',
@@ -1429,7 +1431,9 @@ describe('Station routes - handler logic', () => {
 
     it('returns 502 when command times out', async () => {
       vi.useFakeTimers();
-      setupDbResults([{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }]);
+      setupDbResults([
+        { id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true, securityProfile: 1 },
+      ]);
 
       // Subscribe callback never fires a matching commandId, so it will timeout.
       mockSubscribe.mockImplementationOnce(async (_channel: string, _cb: (raw: string) => void) => {
@@ -1452,7 +1456,7 @@ describe('Station routes - handler logic', () => {
 
     it('returns success when OCPP command succeeds', async () => {
       setupDbResults(
-        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }],
+        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true, securityProfile: 1 }],
         [], // update password hash
         [], // insert connection log
       );

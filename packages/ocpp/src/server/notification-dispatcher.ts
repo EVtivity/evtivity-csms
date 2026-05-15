@@ -8,6 +8,8 @@ import { createLogger } from '@evtivity/lib';
 import type { DomainEvent, PubSubClient } from '@evtivity/lib';
 import {
   getNotificationSettings,
+  getCompanySettings,
+  getSystemTimezoneCached,
   resolveRecipients,
   renderTemplate,
   sendEmail,
@@ -125,30 +127,15 @@ export async function dispatchOcppNotification(
 
     const notificationSettings = await getNotificationSettings(sql);
 
-    const companyRows = await sql`
-      SELECT key, value FROM settings WHERE key LIKE 'company.%'
-    `;
-    const companyMap = new Map<string, string>();
-    for (const row of companyRows) {
-      if (typeof row.value === 'string') companyMap.set(row.key as string, row.value);
-    }
-    const companyName = companyMap.get('company.name') ?? 'EVtivity';
-
-    const systemTzRows =
-      await sql`SELECT value FROM settings WHERE key = 'system.timezone' LIMIT 1`;
-    const systemTimezone = (systemTzRows[0]?.value as string | undefined) ?? 'America/New_York';
+    // Both cached, 5-minute TTL — these used to be uncached SELECTs on
+    // every projected event (200+ events/sec at peak).
+    const [company, systemTimezone] = await Promise.all([
+      getCompanySettings(sql),
+      getSystemTimezoneCached(sql),
+    ]);
 
     const variables: Record<string, unknown> = {
-      companyName,
-      companyCurrency: companyMap.get('company.currency') ?? 'USD',
-      companyContactEmail: companyMap.get('company.contactEmail') ?? '',
-      companySupportEmail: companyMap.get('company.supportEmail') ?? '',
-      companySupportPhone: companyMap.get('company.supportPhone') ?? '',
-      companyStreet: companyMap.get('company.street') ?? '',
-      companyCity: companyMap.get('company.city') ?? '',
-      companyState: companyMap.get('company.state') ?? '',
-      companyZip: companyMap.get('company.zip') ?? '',
-      companyCountry: companyMap.get('company.country') ?? '',
+      ...company,
       ...event.payload,
       eventType: event.eventType,
       stationId: event.aggregateId,
@@ -188,7 +175,7 @@ export async function dispatchOcppNotification(
             rendered.html != null
               ? wrapEmailHtml(
                   rendered.html,
-                  companyName,
+                  company.companyName,
                   notificationSettings.emailWrapperTemplate,
                   formattedVariables,
                 )

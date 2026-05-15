@@ -937,7 +937,10 @@ export function stationRoutes(app: FastifyInstance): void {
         body: zodSchema(createStationBody),
         response: {
           201: itemResponse(stationCreated),
-          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+          404: errorWith('Resource not found', [
+            ERROR_CODES.SITE_NOT_FOUND,
+            ERROR_CODES.VENDOR_NOT_FOUND,
+          ]),
           409: errorWith('Station id exists', [ERROR_CODES.STATION_ID_EXISTS]),
         },
       },
@@ -953,13 +956,23 @@ export function stationRoutes(app: FastifyInstance): void {
         }
       }
 
-      // Pre-check station_id uniqueness so the client gets a friendly 409
-      // instead of a 500 from a Postgres unique violation.
-      const [existing] = await db
-        .select({ id: chargingStations.id })
-        .from(chargingStations)
-        .where(eq(chargingStations.stationId, body.stationId));
-      if (existing != null) {
+      // Pre-check vendor existence (orphan vendorId would trip FK with a 500
+      // instead of a clean 404) and stationId uniqueness in parallel — they
+      // hit different tables and have no dependency on each other.
+      const [vendorRows, existingRows] = await Promise.all([
+        body.vendorId != null
+          ? db.select({ id: vendors.id }).from(vendors).where(eq(vendors.id, body.vendorId))
+          : Promise.resolve([] as Array<{ id: string }>),
+        db
+          .select({ id: chargingStations.id })
+          .from(chargingStations)
+          .where(eq(chargingStations.stationId, body.stationId)),
+      ]);
+      if (body.vendorId != null && vendorRows[0] == null) {
+        await reply.status(404).send({ error: 'Vendor not found', code: 'VENDOR_NOT_FOUND' });
+        return;
+      }
+      if (existingRows[0] != null) {
         await reply.status(409).send({
           error: 'A station with this ID already exists',
           code: 'STATION_ID_EXISTS',
@@ -974,72 +987,92 @@ export function stationRoutes(app: FastifyInstance): void {
       // atomically. Without the transaction, a failure inside enableCssPair
       // leaves an orphan charging_stations row, which then trips the unique
       // constraint on retry and the operator gets a confusing duplicate error.
-      const station = await db.transaction(async (tx) => {
-        const [created] = await tx
-          .insert(chargingStations)
-          .values({
-            ...insertFields,
-            ...(basicAuthPasswordHash != null ? { basicAuthPasswordHash } : {}),
-          })
-          .returning({
-            id: chargingStations.id,
-            stationId: chargingStations.stationId,
-            siteId: chargingStations.siteId,
-            vendorId: chargingStations.vendorId,
-            model: chargingStations.model,
-            serialNumber: chargingStations.serialNumber,
-            firmwareVersion: chargingStations.firmwareVersion,
-            availability: chargingStations.availability,
-            onboardingStatus: chargingStations.onboardingStatus,
-            isOnline: chargingStations.isOnline,
-            isSimulator: chargingStations.isSimulator,
-            loadPriority: chargingStations.loadPriority,
-            securityProfile: chargingStations.securityProfile,
-            ocppProtocol: chargingStations.ocppProtocol,
-            createdAt: chargingStations.createdAt,
-            updatedAt: chargingStations.updatedAt,
+      // The pre-check above is racy: two concurrent POSTs can both pass it,
+      // then one wins the INSERT and the other hits the unique constraint.
+      // Catch SQLSTATE 23505 here and return 409 instead of leaking a 500.
+      let station;
+      try {
+        station = await db.transaction(async (tx) => {
+          const [created] = await tx
+            .insert(chargingStations)
+            .values({
+              ...insertFields,
+              ...(basicAuthPasswordHash != null ? { basicAuthPasswordHash } : {}),
+            })
+            .returning({
+              id: chargingStations.id,
+              stationId: chargingStations.stationId,
+              siteId: chargingStations.siteId,
+              vendorId: chargingStations.vendorId,
+              model: chargingStations.model,
+              serialNumber: chargingStations.serialNumber,
+              firmwareVersion: chargingStations.firmwareVersion,
+              availability: chargingStations.availability,
+              onboardingStatus: chargingStations.onboardingStatus,
+              isOnline: chargingStations.isOnline,
+              isSimulator: chargingStations.isSimulator,
+              loadPriority: chargingStations.loadPriority,
+              securityProfile: chargingStations.securityProfile,
+              ocppProtocol: chargingStations.ocppProtocol,
+              createdAt: chargingStations.createdAt,
+              updatedAt: chargingStations.updatedAt,
+            });
+
+          if (created != null && created.isSimulator) {
+            await enableCssPair(
+              {
+                stationId: created.stationId,
+                ocppProtocol: created.ocppProtocol === 'ocpp2.1' ? 'ocpp2.1' : 'ocpp1.6',
+                securityProfile: created.securityProfile,
+                serverUrl: process.env['OCPP_SERVER_URL'] ?? 'ws://ocpp:8080',
+                tlsServerUrl: process.env['OCPP_TLS_SERVER_URL'] ?? 'wss://ocpp:8443',
+                password: password ?? null,
+              },
+              tx,
+            );
+          }
+
+          // Auto-create an empty config template owned by this station. Cascade
+          // delete is wired on the FK so removing the station also removes the
+          // template.
+          if (created != null) {
+            const tplOcppVersion = created.ocppProtocol === 'ocpp2.1' ? '2.1' : '1.6';
+            const tplFilter: {
+              stationId: string;
+              siteId?: string;
+              vendorId?: string;
+              model?: string;
+            } = { stationId: created.id };
+            if (created.siteId != null) tplFilter.siteId = created.siteId;
+            if (created.vendorId != null) tplFilter.vendorId = created.vendorId;
+            if (created.model != null) tplFilter.model = created.model;
+            await tx.insert(configTemplates).values({
+              name: `${created.stationId} - Configurations`,
+              description: `Auto generated. ${created.stationId} configurations (OCPP ${tplOcppVersion})`,
+              ocppVersion: tplOcppVersion,
+              variables: [],
+              stationId: created.id,
+              targetFilter: tplFilter,
+            });
+          }
+
+          return created;
+        });
+      } catch (err) {
+        if (
+          err != null &&
+          typeof err === 'object' &&
+          'code' in err &&
+          (err as { code?: string }).code === '23505'
+        ) {
+          await reply.status(409).send({
+            error: 'A station with this ID already exists',
+            code: 'STATION_ID_EXISTS',
           });
-
-        if (created != null && created.isSimulator) {
-          await enableCssPair(
-            {
-              stationId: created.stationId,
-              ocppProtocol: created.ocppProtocol === 'ocpp2.1' ? 'ocpp2.1' : 'ocpp1.6',
-              securityProfile: created.securityProfile,
-              serverUrl: process.env['OCPP_SERVER_URL'] ?? 'ws://ocpp:8080',
-              tlsServerUrl: process.env['OCPP_TLS_SERVER_URL'] ?? 'wss://ocpp:8443',
-              password: password ?? null,
-            },
-            tx,
-          );
+          return;
         }
-
-        // Auto-create an empty config template owned by this station. Cascade
-        // delete is wired on the FK so removing the station also removes the
-        // template.
-        if (created != null) {
-          const tplOcppVersion = created.ocppProtocol === 'ocpp2.1' ? '2.1' : '1.6';
-          const tplFilter: {
-            stationId: string;
-            siteId?: string;
-            vendorId?: string;
-            model?: string;
-          } = { stationId: created.id };
-          if (created.siteId != null) tplFilter.siteId = created.siteId;
-          if (created.vendorId != null) tplFilter.vendorId = created.vendorId;
-          if (created.model != null) tplFilter.model = created.model;
-          await tx.insert(configTemplates).values({
-            name: `${created.stationId} - Configurations`,
-            description: `Auto generated. ${created.stationId} configurations (OCPP ${tplOcppVersion})`,
-            ocppVersion: tplOcppVersion,
-            variables: [],
-            stationId: created.id,
-            targetFilter: tplFilter,
-          });
-        }
-
-        return created;
-      });
+        throw err;
+      }
 
       if (station != null) {
         const actor = getAuditActor(request);
@@ -1304,24 +1337,23 @@ export function stationRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof stationParams>;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null) {
-        const [current] = await db
-          .select({ siteId: chargingStations.siteId })
-          .from(chargingStations)
-          .where(eq(chargingStations.id, id));
-        if (current == null) {
-          await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
-          return;
-        }
-        if (current.siteId != null && !siteIds.includes(current.siteId)) {
-          await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
-          return;
-        }
-      }
+      // One SELECT serves both site-access check and audit before-snapshot.
       const [beforeStation] = await db
         .select()
         .from(chargingStations)
         .where(eq(chargingStations.id, id));
+      if (beforeStation == null) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
+      if (
+        siteIds != null &&
+        beforeStation.siteId != null &&
+        !siteIds.includes(beforeStation.siteId)
+      ) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
       const [station] = await db
         .update(chargingStations)
         .set({ onboardingStatus: 'blocked', updatedAt: new Date() })
@@ -1339,7 +1371,7 @@ export function stationRoutes(app: FastifyInstance): void {
           entityIdSnapshot: station.id,
           action: 'deleted',
           ...actor,
-          before: beforeStation ?? null,
+          before: beforeStation,
           after: station,
         },
         db,
@@ -1470,7 +1502,10 @@ export function stationRoutes(app: FastifyInstance): void {
             .describe('Maximum current output in amps'),
         }),
       )
-      .min(1),
+      .min(1)
+      .refine((arr) => new Set(arr.map((c) => c.connectorId)).size === arr.length, {
+        message: 'Connector IDs within an EVSE must be unique',
+      }),
   });
 
   // POST /stations/:id/evses - Add an EVSE with connectors
@@ -1527,11 +1562,28 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Insert EVSE
-      const [evse] = await db
-        .insert(evses)
-        .values({ stationId: id, evseId: body.evseId })
-        .returning();
+      // The pre-check above is racy: two concurrent POSTs with the same
+      // (stationId, evseId) can both pass it, then one wins the INSERT and
+      // the other hits the unique constraint. Catch SQLSTATE 23505 here and
+      // return 409 instead of leaking a 500.
+      let evse;
+      try {
+        [evse] = await db.insert(evses).values({ stationId: id, evseId: body.evseId }).returning();
+      } catch (err) {
+        if (
+          err != null &&
+          typeof err === 'object' &&
+          'code' in err &&
+          (err as { code?: string }).code === '23505'
+        ) {
+          await reply.status(409).send({
+            error: `EVSE ID ${String(body.evseId)} already exists on this station`,
+            code: 'DUPLICATE_EVSE_ID',
+          });
+          return;
+        }
+        throw err;
+      }
       if (evse == null) {
         await reply.status(500).send({ error: 'Failed to create EVSE', code: 'INTERNAL_ERROR' });
         return;
@@ -1596,6 +1648,7 @@ export function stationRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(evseResponse),
           404: errorWith('Resource not found', [
+            ERROR_CODES.CONNECTOR_NOT_FOUND,
             ERROR_CODES.EVSE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
           ]),
@@ -1621,17 +1674,26 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Update each connector
+      // Update each connector. Use returning() so we can detect a missing
+      // connector and 404 instead of silently no-op'ing the request.
       for (const c of body.connectors) {
         const updates: Record<string, unknown> = { updatedAt: new Date() };
         if (c.connectorType != null) updates['connectorType'] = c.connectorType;
         if (c.maxPowerKw != null) updates['maxPowerKw'] = String(c.maxPowerKw);
         if (c.maxCurrentAmps != null) updates['maxCurrentAmps'] = c.maxCurrentAmps;
 
-        await db
+        const updated = await db
           .update(connectors)
           .set(updates)
-          .where(and(eq(connectors.evseId, evse.id), eq(connectors.connectorId, c.connectorId)));
+          .where(and(eq(connectors.evseId, evse.id), eq(connectors.connectorId, c.connectorId)))
+          .returning({ id: connectors.id });
+        if (updated.length === 0) {
+          await reply.status(404).send({
+            error: `Connector ${String(c.connectorId)} not found on this EVSE`,
+            code: 'CONNECTOR_NOT_FOUND',
+          });
+          return;
+        }
       }
 
       // Return updated EVSE with connectors
@@ -1943,17 +2005,36 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const [connector] = await db
-        .insert(connectors)
-        .values({
-          evseId: evse.id,
-          connectorId: body.connectorId,
-          connectorType: body.connectorType,
-          maxPowerKw: String(body.maxPowerKw),
-          maxCurrentAmps: body.maxCurrentAmps,
-          status: 'unavailable',
-        })
-        .returning();
+      // Pre-check is racy across concurrent requests; catch the unique
+      // violation and return a clean 409 instead of leaking a 500.
+      let connector;
+      try {
+        [connector] = await db
+          .insert(connectors)
+          .values({
+            evseId: evse.id,
+            connectorId: body.connectorId,
+            connectorType: body.connectorType,
+            maxPowerKw: String(body.maxPowerKw),
+            maxCurrentAmps: body.maxCurrentAmps,
+            status: 'unavailable',
+          })
+          .returning();
+      } catch (err) {
+        if (
+          err != null &&
+          typeof err === 'object' &&
+          'code' in err &&
+          (err as { code?: string }).code === '23505'
+        ) {
+          await reply.status(409).send({
+            error: `Connector ID ${String(body.connectorId)} already exists on this EVSE`,
+            code: 'DUPLICATE_CONNECTOR_ID',
+          });
+          return;
+        }
+        throw err;
+      }
       if (connector == null) {
         await reply
           .status(500)
@@ -2012,7 +2093,10 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Reject if any connector is in use
+      // Reject if any connector is in use. List must match the per-connector
+      // delete handler below; both 'idle' and 'discharging' indicate an active
+      // transaction (paused charge, V2G discharge) so deleting would orphan
+      // the session.
       const activeStatuses = [
         'occupied',
         'charging',
@@ -2020,6 +2104,8 @@ export function stationRoutes(app: FastifyInstance): void {
         'ev_connected',
         'suspended_ev',
         'suspended_evse',
+        'idle',
+        'discharging',
       ];
       const [inUse] = await db
         .select({ id: connectors.id })
@@ -2609,33 +2695,34 @@ export function stationRoutes(app: FastifyInstance): void {
         LEFT JOIN outage_minutes USING (evse_id)
       `);
 
-      const [sessionStats] = await db
-        .select({
-          totalSessions: count(),
-          completedSessions: sql<number>`count(*) filter (where ${chargingSessions.status} = 'completed')`,
-          faultedSessions: sql<number>`count(*) filter (where ${chargingSessions.status} = 'faulted')`,
-          totalEnergyWh: sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric), 0)`,
-          avgDurationMinutes: sql<number>`coalesce(avg(extract(epoch from (${chargingSessions.endedAt} - ${chargingSessions.startedAt})) / 60) filter (where ${chargingSessions.endedAt} is not null), 0)`,
-        })
-        .from(chargingSessions)
-        .where(and(eq(chargingSessions.stationId, id), gte(chargingSessions.startedAt, since)));
-
-      const [utilizationStats] = await db
-        .select({
-          sessionHours: sql<number>`coalesce(sum(extract(epoch from (coalesce(${chargingSessions.endedAt}, now()) - ${chargingSessions.startedAt})) / 3600), 0)`,
-          portCount: sql<number>`(select count(*) from evses where station_id = ${id})`,
-        })
-        .from(chargingSessions)
-        .where(and(eq(chargingSessions.stationId, id), gte(chargingSessions.startedAt, since)));
-
-      const [financialStats] = await db
-        .select({
-          totalRevenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
-          avgRevenueCentsPerSession: sql<number>`coalesce(avg(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
-          totalTransactions: sql<number>`count(*) filter (where coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null)`,
-        })
-        .from(chargingSessions)
-        .where(and(eq(chargingSessions.stationId, id), gte(chargingSessions.startedAt, since)));
+      // Three independent aggregations against the same WHERE — run in parallel.
+      const [[sessionStats], [utilizationStats], [financialStats]] = await Promise.all([
+        db
+          .select({
+            totalSessions: count(),
+            completedSessions: sql<number>`count(*) filter (where ${chargingSessions.status} = 'completed')`,
+            faultedSessions: sql<number>`count(*) filter (where ${chargingSessions.status} = 'faulted')`,
+            totalEnergyWh: sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric), 0)`,
+            avgDurationMinutes: sql<number>`coalesce(avg(extract(epoch from (${chargingSessions.endedAt} - ${chargingSessions.startedAt})) / 60) filter (where ${chargingSessions.endedAt} is not null), 0)`,
+          })
+          .from(chargingSessions)
+          .where(and(eq(chargingSessions.stationId, id), gte(chargingSessions.startedAt, since))),
+        db
+          .select({
+            sessionHours: sql<number>`coalesce(sum(extract(epoch from (coalesce(${chargingSessions.endedAt}, now()) - ${chargingSessions.startedAt})) / 3600), 0)`,
+            portCount: sql<number>`(select count(*) from evses where station_id = ${id})`,
+          })
+          .from(chargingSessions)
+          .where(and(eq(chargingSessions.stationId, id), gte(chargingSessions.startedAt, since))),
+        db
+          .select({
+            totalRevenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
+            avgRevenueCentsPerSession: sql<number>`coalesce(avg(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
+            totalTransactions: sql<number>`count(*) filter (where coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null)`,
+          })
+          .from(chargingSessions)
+          .where(and(eq(chargingSessions.stationId, id), gte(chargingSessions.startedAt, since))),
+      ]);
 
       const totalPortHours = (utilizationStats?.portCount ?? 1) * (periodMinutes / 60);
       const utilization =
@@ -2826,7 +2913,7 @@ export function stationRoutes(app: FastifyInstance): void {
       }
       const where = and(...conditions);
 
-      const [rows, countRows] = await Promise.all([
+      const [rows, countRows, actionRows] = await Promise.all([
         db
           .select()
           .from(ocppMessageLogs)
@@ -2838,14 +2925,12 @@ export function stationRoutes(app: FastifyInstance): void {
           .select({ count: sql<number>`count(*)::int` })
           .from(ocppMessageLogs)
           .where(where),
+        db
+          .selectDistinct({ action: ocppMessageLogs.action })
+          .from(ocppMessageLogs)
+          .where(eq(ocppMessageLogs.stationId, id))
+          .orderBy(ocppMessageLogs.action),
       ]);
-
-      // Get distinct actions for filter dropdown
-      const actionRows = await db
-        .selectDistinct({ action: ocppMessageLogs.action })
-        .from(ocppMessageLogs)
-        .where(eq(ocppMessageLogs.stationId, id))
-        .orderBy(ocppMessageLogs.action);
 
       return {
         data: rows,
@@ -2967,6 +3052,9 @@ export function stationRoutes(app: FastifyInstance): void {
         params: zodSchema(stationParams),
         response: {
           200: successResponse,
+          400: errorWith('Rotation not applicable for this security profile', [
+            ERROR_CODES.ROTATION_NOT_APPLICABLE,
+          ]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
           409: errorWith('Station offline', [ERROR_CODES.STATION_OFFLINE]),
           502: errorWith('Station rejected the command', [ERROR_CODES.STATION_REJECTED]),
@@ -2987,12 +3075,25 @@ export function stationRoutes(app: FastifyInstance): void {
           id: chargingStations.id,
           stationId: chargingStations.stationId,
           isOnline: chargingStations.isOnline,
+          securityProfile: chargingStations.securityProfile,
         })
         .from(chargingStations)
         .where(eq(chargingStations.id, id));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
+
+      // BasicAuth password rotation only applies to SP1 (BasicAuth) and SP2
+      // (BasicAuth + TLS). SP0 has no auth and SP3 uses mTLS client certs, so
+      // pushing SecurityCtrlr.BasicAuthPassword to those profiles is a no-op
+      // that the station will reject. Reject up-front with a clear error.
+      if (station.securityProfile !== 1 && station.securityProfile !== 2) {
+        await reply.status(400).send({
+          error: 'Credential rotation only applies to security profiles 1 and 2',
+          code: 'ROTATION_NOT_APPLICABLE',
+        });
         return;
       }
 
