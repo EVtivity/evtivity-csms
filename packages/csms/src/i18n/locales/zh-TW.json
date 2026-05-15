@@ -2013,6 +2013,7 @@
     "DUPLICATE_API_KEY_NAME": "已存在相同名稱的 API 金鑰",
     "DUPLICATE_CONNECTOR_ID": "此 EVSE 上已存在連接器 ID ...",
     "DUPLICATE_EMAIL": "電子郵件已被使用",
+    "DUPLICATE_SITE_NAME": "已存在同名站點",
     "DUPLICATE_EVSE_ID": "此充電站上已存在 EVSE ID ...",
     "DUPLICATE_HOLIDAY": "此日期已存在假日紀錄",
     "DUPLICATE_PARTNER": "已存在相同國家代碼與 party ID 的合作夥伴",

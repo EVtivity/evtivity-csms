@@ -478,6 +478,7 @@
     "DUPLICATE_API_KEY_NAME": "Ein API-Schlüssel mit diesem Namen existiert bereits",
     "DUPLICATE_CONNECTOR_ID": "Stecker-ID ... existiert bereits an dieser EVSE",
     "DUPLICATE_EMAIL": "E-Mail-Adresse wird bereits verwendet",
+    "DUPLICATE_SITE_NAME": "Ein Standort mit diesem Namen existiert bereits",
     "DUPLICATE_EVSE_ID": "EVSE-ID ... existiert bereits an dieser Ladestation",
     "DUPLICATE_HOLIDAY": "Für dieses Datum existiert bereits ein Feiertag",
     "DUPLICATE_PARTNER": "Partner mit diesem Ländercode und dieser Party-ID existiert bereits",

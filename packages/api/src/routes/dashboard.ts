@@ -4,14 +4,13 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { sql, eq, and, gte, lte, count, inArray } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, getSystemTimezone } from '@evtivity/database';
 import {
   chargingStations,
   chargingSessions,
   connectors,
   evses,
   sites,
-  settings,
   paymentRecords,
   ocppServerHealth,
 } from '@evtivity/database';
@@ -515,11 +514,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
         request.query as { days?: string; from?: string; to?: string },
       );
 
-      const [tzRow] = await db
-        .select({ value: settings.value })
-        .from(settings)
-        .where(eq(settings.key, 'system.timezone'));
-      const tz = typeof tzRow?.value === 'string' ? tzRow.value : 'America/New_York';
+      const tz = await getSystemTimezone();
 
       const conditions = [gte(chargingSessions.startedAt, since)];
       if (until) conditions.push(lte(chargingSessions.startedAt, until));
@@ -569,11 +564,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
         request.query as { days?: string; from?: string; to?: string },
       );
 
-      const [tzRow] = await db
-        .select({ value: settings.value })
-        .from(settings)
-        .where(eq(settings.key, 'system.timezone'));
-      const tz = typeof tzRow?.value === 'string' ? tzRow.value : 'America/New_York';
+      const tz = await getSystemTimezone();
 
       const conditions = [gte(chargingSessions.startedAt, since)];
       if (until) conditions.push(lte(chargingSessions.startedAt, until));
@@ -719,11 +710,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
         request.query as { days?: string; from?: string; to?: string },
       );
 
-      const [tzRow] = await db
-        .select({ value: settings.value })
-        .from(settings)
-        .where(eq(settings.key, 'system.timezone'));
-      const tz = typeof tzRow?.value === 'string' ? tzRow.value : 'America/New_York';
+      const tz = await getSystemTimezone();
 
       const conditions = [gte(chargingSessions.startedAt, since)];
       if (until) conditions.push(lte(chargingSessions.startedAt, until));
@@ -833,11 +820,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
         request.query as { days?: string; from?: string; to?: string },
       );
 
-      const [tzRow] = await db
-        .select({ value: settings.value })
-        .from(settings)
-        .where(eq(settings.key, 'system.timezone'));
-      const tz = typeof tzRow?.value === 'string' ? tzRow.value : 'America/New_York';
+      const tz = await getSystemTimezone();
 
       const conditions = [
         gte(chargingSessions.startedAt, since),

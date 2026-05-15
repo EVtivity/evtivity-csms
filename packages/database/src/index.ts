@@ -25,6 +25,7 @@ export { isFleetEnabled } from './lib/fleet-setting.js';
 export { isGuestChargingEnabled } from './lib/guest-setting.js';
 export { getIdlingGracePeriodMinutes } from './lib/idling-setting.js';
 export { getStaleSessionTimeoutHours } from './lib/session-settings.js';
+export { getSystemTimezone } from './lib/system-settings.js';
 export {
   getRecaptchaConfig,
   getMfaConfig,

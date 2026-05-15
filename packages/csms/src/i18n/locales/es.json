@@ -2029,6 +2029,7 @@
     "DUPLICATE_API_KEY_NAME": "Ya existe una clave de API con este nombre",
     "DUPLICATE_CONNECTOR_ID": "El ID de conector ... ya existe en este EVSE",
     "DUPLICATE_EMAIL": "El correo electronico ya esta en uso",
+    "DUPLICATE_SITE_NAME": "Ya existe un sitio con este nombre",
     "DUPLICATE_EVSE_ID": "El ID de EVSE ... ya existe en esta estacion",
     "DUPLICATE_HOLIDAY": "Ya existe un dia festivo para esta fecha",
     "DUPLICATE_PARTNER": "Ya existe un socio con este codigo de pais e ID de parte",

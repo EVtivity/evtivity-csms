@@ -34,6 +34,7 @@ import {
   itemResponse,
   arrayResponse,
   errorWith,
+  errorResponse,
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import {
@@ -96,7 +97,12 @@ const sitePricingGroupParams = z.object({
 });
 
 const createSiteBody = z.object({
-  name: z.string().min(1).max(255),
+  name: z
+    .string()
+    .min(1)
+    .max(255)
+    .transform((s) => s.trim())
+    .pipe(z.string().min(1, 'Name is required')),
   address: z.string().max(500).optional(),
   city: z.string().max(255).optional(),
   state: z.string().max(100).optional(),
@@ -118,7 +124,13 @@ const createSiteBody = z.object({
 });
 
 const updateSiteBody = z.object({
-  name: z.string().min(1).max(255).optional(),
+  name: z
+    .string()
+    .min(1)
+    .max(255)
+    .transform((s) => s.trim())
+    .pipe(z.string().min(1, 'Name is required'))
+    .optional(),
   address: z.string().max(500).optional(),
   city: z.string().max(255).optional(),
   state: z.string().max(100).optional(),
@@ -638,7 +650,7 @@ export function siteRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { rows, updateExisting } = request.body as z.infer<typeof importSiteBody>;
-      return importSitesCsv(rows, updateExisting);
+      return importSitesCsv(rows, updateExisting, getAuditActor(request));
     },
   );
 
@@ -691,11 +703,29 @@ export function siteRoutes(app: FastifyInstance): void {
         operationId: 'createSite',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createSiteBody),
-        response: { 201: itemResponse(siteBase) },
+        response: {
+          201: itemResponse(siteBase),
+          409: errorResponse,
+        },
       },
     },
     async (request, reply) => {
       const body = request.body as z.infer<typeof createSiteBody>;
+
+      // Pre-check the unique name constraint (case-insensitive) so duplicate
+      // names return a clean 409 instead of a Postgres unique-violation 500.
+      const [existing] = await db
+        .select({ id: sites.id })
+        .from(sites)
+        .where(ilike(sites.name, body.name))
+        .limit(1);
+      if (existing != null) {
+        await reply
+          .status(409)
+          .send({ error: 'A site with this name already exists', code: 'DUPLICATE_SITE_NAME' });
+        return;
+      }
+
       const [site] = await db.insert(sites).values(body).returning();
       if (site != null) {
         const actor = getAuditActor(request);
@@ -730,6 +760,7 @@ export function siteRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(siteBase),
           404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+          409: errorResponse,
         },
       },
     },
@@ -743,6 +774,24 @@ export function siteRoutes(app: FastifyInstance): void {
       }
       const body = request.body as z.infer<typeof updateSiteBody>;
       const [before] = await db.select().from(sites).where(eq(sites.id, id));
+
+      // If the name is actually changing, pre-check the unique constraint
+      // (case-insensitive) so duplicates return a clean 409 instead of a
+      // Postgres unique-violation 500.
+      if (body.name != null && before != null && body.name.trim() !== before.name) {
+        const [existing] = await db
+          .select({ id: sites.id })
+          .from(sites)
+          .where(and(ilike(sites.name, body.name), sql`${sites.id} <> ${id}`))
+          .limit(1);
+        if (existing != null) {
+          await reply
+            .status(409)
+            .send({ error: 'A site with this name already exists', code: 'DUPLICATE_SITE_NAME' });
+          return;
+        }
+      }
+
       const [site] = await db
         .update(sites)
         .set({ ...body, updatedAt: new Date() })
@@ -1938,113 +1987,118 @@ export function siteRoutes(app: FastifyInstance): void {
         return { success: true };
       }
 
-      // Create OCPP 2.1 template if not yet created
-      let templateId21 = site.freeVendTemplateId21;
-      if (templateId21 == null) {
-        const [template] = await db
-          .insert(configTemplates)
-          .values({
-            name: `Free Vend - ${site.name} (OCPP 2.1)`,
-            ocppVersion: '2.1',
-            variables: [
-              { component: 'AuthCtrlr', variable: 'Enabled', value: 'false' },
-              { component: 'TxCtrlr', variable: 'TxStartPoint', value: 'EVConnected' },
-            ],
-            targetFilter: { siteId: site.id },
-          })
-          .returning();
-        templateId21 = template?.id ?? null;
-        if (template != null) {
-          await writeAudit(
-            { table: configTemplateAuditLog, idColumn: 'template_id' },
-            {
-              entityId: template.id,
-              entityIdSnapshot: template.id,
-              action: 'created',
-              ...actor,
-              after: template,
-              notes: `auto-created for free-vend on site ${site.id}`,
-            },
-            db,
-            request.log,
-          );
+      // Atomic: create both templates AND mark the site as free-vend enabled
+      // in one transaction so a partial failure can't orphan a template or
+      // double-create on retry.
+      const { templateId21, templateId16 } = await db.transaction(async (tx) => {
+        let id21 = site.freeVendTemplateId21;
+        if (id21 == null) {
+          const [template] = await tx
+            .insert(configTemplates)
+            .values({
+              name: `Free Vend - ${site.name} (OCPP 2.1)`,
+              ocppVersion: '2.1',
+              variables: [
+                { component: 'AuthCtrlr', variable: 'Enabled', value: 'false' },
+                { component: 'TxCtrlr', variable: 'TxStartPoint', value: 'EVConnected' },
+              ],
+              targetFilter: { siteId: site.id },
+            })
+            .returning();
+          id21 = template?.id ?? null;
+          if (template != null) {
+            await writeAudit(
+              { table: configTemplateAuditLog, idColumn: 'template_id' },
+              {
+                entityId: template.id,
+                entityIdSnapshot: template.id,
+                action: 'created',
+                ...actor,
+                after: template,
+                notes: `auto-created for free-vend on site ${site.id}`,
+              },
+              tx,
+              request.log,
+            );
+          }
         }
-      }
 
-      // Create OCPP 1.6 template if not yet created
-      let templateId16 = site.freeVendTemplateId16;
-      if (templateId16 == null) {
-        const [template] = await db
-          .insert(configTemplates)
-          .values({
-            name: `Free Vend - ${site.name} (OCPP 1.6)`,
-            ocppVersion: '1.6',
-            variables: [
+        let id16 = site.freeVendTemplateId16;
+        if (id16 == null) {
+          const [template] = await tx
+            .insert(configTemplates)
+            .values({
+              name: `Free Vend - ${site.name} (OCPP 1.6)`,
+              ocppVersion: '1.6',
+              variables: [
+                {
+                  component: 'AllowOfflineTxForUnknownId',
+                  variable: 'AllowOfflineTxForUnknownId',
+                  value: 'true',
+                },
+                {
+                  component: 'LocalPreAuthorize',
+                  variable: 'LocalPreAuthorize',
+                  value: 'true',
+                },
+                {
+                  component: 'LocalAuthorizeOffline',
+                  variable: 'LocalAuthorizeOffline',
+                  value: 'true',
+                },
+              ],
+              targetFilter: { siteId: site.id },
+            })
+            .returning();
+          id16 = template?.id ?? null;
+          if (template != null) {
+            await writeAudit(
+              { table: configTemplateAuditLog, idColumn: 'template_id' },
               {
-                component: 'AllowOfflineTxForUnknownId',
-                variable: 'AllowOfflineTxForUnknownId',
-                value: 'true',
+                entityId: template.id,
+                entityIdSnapshot: template.id,
+                action: 'created',
+                ...actor,
+                after: template,
+                notes: `auto-created for free-vend on site ${site.id}`,
               },
-              {
-                component: 'LocalPreAuthorize',
-                variable: 'LocalPreAuthorize',
-                value: 'true',
-              },
-              {
-                component: 'LocalAuthorizeOffline',
-                variable: 'LocalAuthorizeOffline',
-                value: 'true',
-              },
-            ],
-            targetFilter: { siteId: site.id },
-          })
-          .returning();
-        templateId16 = template?.id ?? null;
-        if (template != null) {
-          await writeAudit(
-            { table: configTemplateAuditLog, idColumn: 'template_id' },
-            {
-              entityId: template.id,
-              entityIdSnapshot: template.id,
-              action: 'created',
-              ...actor,
-              after: template,
-              notes: `auto-created for free-vend on site ${site.id}`,
-            },
-            db,
-            request.log,
-          );
+              tx,
+              request.log,
+            );
+          }
         }
-      }
 
-      // Update site with template IDs and enable free vend
-      const [updated] = await db
-        .update(sites)
-        .set({
-          freeVendEnabled: true,
-          freeVendTemplateId21: templateId21,
-          freeVendTemplateId16: templateId16,
-          updatedAt: new Date(),
-        })
-        .where(eq(sites.id, id))
-        .returning();
+        const [updated] = await tx
+          .update(sites)
+          .set({
+            freeVendEnabled: true,
+            freeVendTemplateId21: id21,
+            freeVendTemplateId16: id16,
+            updatedAt: new Date(),
+          })
+          .where(eq(sites.id, id))
+          .returning();
 
-      await writeAudit(
-        { table: siteAuditLog, idColumn: 'site_id' },
-        {
-          entityId: site.id,
-          entityIdSnapshot: site.id,
-          action: 'updated',
-          ...actor,
-          before: site,
-          after: updated ?? site,
-          notes: 'free-vend enabled',
-        },
-        db,
-        request.log,
-      );
+        await writeAudit(
+          { table: siteAuditLog, idColumn: 'site_id' },
+          {
+            entityId: site.id,
+            entityIdSnapshot: site.id,
+            action: 'updated',
+            ...actor,
+            before: site,
+            after: updated ?? site,
+            notes: 'free-vend enabled',
+          },
+          tx,
+          request.log,
+        );
 
-      // Push templates to online stations at this site
+        return { templateId21: id21, templateId16: id16 };
+      });
+
+      // Push templates to online stations at this site (outside the
+      // transaction since pushTemplateToSiteStations dispatches OCPP commands).
       const pushId21 =
         templateId21 != null ? await pushTemplateToSiteStations(templateId21, id) : '';
       const pushId16 =

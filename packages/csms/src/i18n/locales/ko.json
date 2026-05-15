@@ -2013,6 +2013,7 @@
     "DUPLICATE_API_KEY_NAME": "이 이름의 API 키가 이미 존재합니다",
     "DUPLICATE_CONNECTOR_ID": "커넥터 ID ...이(가) 이 EVSE에 이미 존재합니다",
     "DUPLICATE_EMAIL": "이미 사용 중인 이메일입니다",
+    "DUPLICATE_SITE_NAME": "이 이름의 사이트가 이미 존재합니다",
     "DUPLICATE_EVSE_ID": "EVSE ID ...이(가) 이 충전소에 이미 존재합니다",
     "DUPLICATE_HOLIDAY": "이 날짜의 공휴일이 이미 존재합니다",
     "DUPLICATE_PARTNER": "이 국가 코드와 파티 ID의 파트너가 이미 존재합니다",

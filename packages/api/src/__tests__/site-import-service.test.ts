@@ -269,15 +269,17 @@ describe('importSitesCsv', () => {
 
   it('upserts site when updateExisting is true', async () => {
     const now = new Date();
-    // Transaction flow with updateExisting=true:
-    // 1. tx.insert (site upsert) -> returns site with same createdAt/updatedAt (new)
-    // 2. tx.insert (station upsert) -> returns station with same createdAt/updatedAt (new)
-    // 3. tx.select (EVSE lookup) -> not found
-    // 4. tx.insert (EVSE create) -> returns EVSE
-    // 5. tx.select (connector lookup) -> not found
-    // 6. tx.insert (connector create) -> returns connector
+    // Transaction flow with updateExisting=true (post case-insensitive fix):
+    // 1. tx.select (ilike duplicate-name pre-check) -> not found, so site is new
+    // 2. tx.insert (site insert) -> returns new site
+    // 3. tx.insert (station upsert) -> returns station
+    // 4. tx.select (EVSE lookup) -> not found
+    // 5. tx.insert (EVSE create) -> returns EVSE
+    // 6. tx.select (connector lookup) -> not found
+    // 7. tx.insert (connector create) -> returns connector
     setupDbResults(
-      [{ id: 'site-1', createdAt: now, updatedAt: now }], // site upsert (created)
+      [], // ilike duplicate check: not found
+      [{ id: 'site-1', createdAt: now, updatedAt: now }], // site insert (created)
       [{ id: 'station-1', createdAt: now, updatedAt: now }], // station upsert (created)
       [], // EVSE lookup: not found
       [{ id: 'evse-1' }], // EVSE insert

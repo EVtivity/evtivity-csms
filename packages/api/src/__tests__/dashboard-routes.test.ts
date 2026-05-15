@@ -69,10 +69,12 @@ vi.mock('@evtivity/database', () => ({
   chargingStations: {},
   chargingSessions: {},
   connectors: {},
+  evses: {},
   sites: {},
   settings: {},
   paymentRecords: {},
   ocppServerHealth: {},
+  getSystemTimezone: vi.fn().mockResolvedValue('America/New_York'),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -215,14 +217,11 @@ describe('Dashboard routes', () => {
 
   it('GET /v1/dashboard/energy-history returns energy data per day', async () => {
     // First query: timezone setting
-    // Second query: energy data
-    setupDbResults(
-      [{ value: 'America/New_York' }],
-      [
-        { date: '2025-01-01', energyWh: 1000 },
-        { date: '2025-01-02', energyWh: 2000 },
-      ],
-    );
+    // Timezone now comes from cached getSystemTimezone (mocked above).
+    setupDbResults([
+      { date: '2025-01-01', energyWh: 1000 },
+      { date: '2025-01-02', energyWh: 2000 },
+    ]);
     const response = await app.inject({
       method: 'GET',
       url: '/dashboard/energy-history',
@@ -237,13 +236,10 @@ describe('Dashboard routes', () => {
   });
 
   it('GET /v1/dashboard/session-history returns session counts per day', async () => {
-    setupDbResults(
-      [{ value: 'UTC' }],
-      [
-        { date: '2025-01-01', count: 10 },
-        { date: '2025-01-02', count: 15 },
-      ],
-    );
+    setupDbResults([
+      { date: '2025-01-01', count: 10 },
+      { date: '2025-01-02', count: 15 },
+    ]);
     const response = await app.inject({
       method: 'GET',
       url: '/dashboard/session-history',
@@ -293,13 +289,10 @@ describe('Dashboard routes', () => {
   });
 
   it('GET /v1/dashboard/peak-usage returns hourly usage data', async () => {
-    setupDbResults(
-      [{ value: 'UTC' }],
-      [
-        { hour: 9, dayOfWeek: 1, count: 5 },
-        { hour: 17, dayOfWeek: 5, count: 10 },
-      ],
-    );
+    setupDbResults([
+      { hour: 9, dayOfWeek: 1, count: 5 },
+      { hour: 17, dayOfWeek: 5, count: 10 },
+    ]);
     const response = await app.inject({
       method: 'GET',
       url: '/dashboard/peak-usage',
@@ -337,13 +330,10 @@ describe('Dashboard routes', () => {
   });
 
   it('GET /v1/dashboard/revenue-history returns daily revenue data', async () => {
-    setupDbResults(
-      [{ value: 'UTC' }],
-      [
-        { date: '2025-01-01', revenueCents: 5000, sessionCount: 10 },
-        { date: '2025-01-02', revenueCents: 7000, sessionCount: 14 },
-      ],
-    );
+    setupDbResults([
+      { date: '2025-01-01', revenueCents: 5000, sessionCount: 10 },
+      { date: '2025-01-02', revenueCents: 7000, sessionCount: 14 },
+    ]);
     const response = await app.inject({
       method: 'GET',
       url: '/dashboard/revenue-history',

@@ -260,6 +260,20 @@
       "when": 1778700000018,
       "tag": "0036_seed_vehicle_efficiency_lookup",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1778700000019,
+      "tag": "0037_seed_dashboard_snapshot_cron",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1778700000020,
+      "tag": "0038_seed_missing_cron_jobs",
+      "breakpoints": true
     }
   ]
 }

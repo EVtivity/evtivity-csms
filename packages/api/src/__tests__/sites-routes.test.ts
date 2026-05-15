@@ -335,7 +335,9 @@ describe('Site routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      setupDbResults([site]);
+      // First query: ilike duplicate-name pre-check (no match -> [])
+      // Second query: insert returning the new site
+      setupDbResults([], [site]);
 
       const response = await app.inject({
         method: 'POST',

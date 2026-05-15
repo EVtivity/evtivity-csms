@@ -2032,6 +2032,7 @@
     "DUPLICATE_API_KEY_NAME": "An API key with this name already exists",
     "DUPLICATE_CONNECTOR_ID": "Connector ID ... already exists on this EVSE",
     "DUPLICATE_EMAIL": "Email already in use",
+    "DUPLICATE_SITE_NAME": "A site with this name already exists",
     "DUPLICATE_EVSE_ID": "EVSE ID ... already exists on this station",
     "DUPLICATE_HOLIDAY": "A holiday already exists for this date",
     "DUPLICATE_PARTNER": "Partner with this country code and party ID already exists",

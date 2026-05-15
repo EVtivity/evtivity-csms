@@ -3,7 +3,23 @@
 
 import { eq, or, ilike, and, asc, inArray } from 'drizzle-orm';
 import { db } from '@evtivity/database';
-import { sites, chargingStations, evses, connectors, vendors } from '@evtivity/database';
+import {
+  sites,
+  chargingStations,
+  evses,
+  connectors,
+  vendors,
+  writeAudit,
+  siteAuditLog,
+} from '@evtivity/database';
+
+interface ImportActor {
+  actor: 'operator' | 'driver' | 'api_key' | 'system' | 'ocpp';
+  actorUserId?: string | null;
+  actorDriverId?: string | null;
+  actorApiKeyId?: string | null;
+  actorLabel?: string | null;
+}
 
 const VALID_CONNECTOR_TYPES = ['CCS2', 'CHAdeMO', 'Type2', 'Type1', 'GBT', 'Tesla', 'NACS'];
 
@@ -111,6 +127,7 @@ export function exportSitesTemplateCsv(): string {
 export async function importSitesCsv(
   rows: ImportRow[],
   updateExisting: boolean,
+  actor?: ImportActor,
 ): Promise<ImportResult> {
   const result: ImportResult = {
     sitesCreated: 0,
@@ -169,40 +186,55 @@ export async function importSitesCsv(
     const vendorIdByName = new Map<string, string>();
 
     for (const [siteName, siteRows] of siteGroups) {
-      // Upsert or insert site
-      if (updateExisting) {
-        const [site] = await tx
-          .insert(sites)
-          .values({ name: siteName })
-          .onConflictDoUpdate({
-            target: sites.name,
-            set: { updatedAt: new Date() },
-          })
-          .returning({ id: sites.id, createdAt: sites.createdAt, updatedAt: sites.updatedAt });
-        if (site != null) {
-          siteIdByName.set(siteName, site.id);
-          if (site.createdAt.getTime() === site.updatedAt.getTime()) {
-            result.sitesCreated++;
-          } else {
-            result.sitesUpdated++;
+      // Case-insensitive existing-site lookup so the import enforces the
+      // same uniqueness semantics as POST /v1/sites (which uses ilike).
+      const [existing] = await tx.select().from(sites).where(ilike(sites.name, siteName)).limit(1);
+
+      if (existing != null) {
+        siteIdByName.set(siteName, existing.id);
+        if (updateExisting) {
+          const [updated] = await tx
+            .update(sites)
+            .set({ updatedAt: new Date() })
+            .where(eq(sites.id, existing.id))
+            .returning();
+          result.sitesUpdated++;
+          if (actor != null && updated != null) {
+            await writeAudit(
+              { table: siteAuditLog, idColumn: 'site_id' },
+              {
+                entityId: existing.id,
+                entityIdSnapshot: existing.id,
+                action: 'updated',
+                ...actor,
+                before: existing,
+                after: updated,
+                notes: 'CSV import',
+              },
+              tx,
+            );
           }
+        } else {
+          result.errors.push(`Site "${siteName}" already exists, skipped`);
         }
       } else {
-        const [existing] = await tx
-          .select({ id: sites.id })
-          .from(sites)
-          .where(eq(sites.name, siteName));
-        if (existing != null) {
-          siteIdByName.set(siteName, existing.id);
-          result.errors.push(`Site "${siteName}" already exists, skipped`);
-        } else {
-          const [site] = await tx
-            .insert(sites)
-            .values({ name: siteName })
-            .returning({ id: sites.id });
-          if (site != null) {
-            siteIdByName.set(siteName, site.id);
-            result.sitesCreated++;
+        const [site] = await tx.insert(sites).values({ name: siteName }).returning();
+        if (site != null) {
+          siteIdByName.set(siteName, site.id);
+          result.sitesCreated++;
+          if (actor != null) {
+            await writeAudit(
+              { table: siteAuditLog, idColumn: 'site_id' },
+              {
+                entityId: site.id,
+                entityIdSnapshot: site.id,
+                action: 'created',
+                ...actor,
+                after: site,
+                notes: 'CSV import',
+              },
+              tx,
+            );
           }
         }
       }

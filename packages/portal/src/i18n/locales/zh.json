@@ -482,6 +482,7 @@
     "DUPLICATE_API_KEY_NAME": "已存在同名的 API 密钥",
     "DUPLICATE_CONNECTOR_ID": "连接器 ID ... 在该 EVSE 上已存在",
     "DUPLICATE_EMAIL": "邮箱已被使用",
+    "DUPLICATE_SITE_NAME": "已存在同名站点",
     "DUPLICATE_EVSE_ID": "EVSE ID ... 在该充电站上已存在",
     "DUPLICATE_HOLIDAY": "该日期的节假日已存在",
     "DUPLICATE_PARTNER": "已存在具有相同国家代码和合作方 ID 的合作伙伴",
