@@ -148,7 +148,7 @@ export function CaseInfoSidebar({
   return (
     <div className="space-y-4">
       <Card>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 pt-6">
           <div>
             <Label htmlFor="case-status-select">{t('common.status')}</Label>
             <Select
@@ -215,11 +215,13 @@ export function CaseInfoSidebar({
             </Select>
           </div>
 
-          <SaveButton
-            isPending={updateMutation.isPending}
-            type="button"
-            onClick={handleSidebarUpdate}
-          />
+          <div className="flex justify-end">
+            <SaveButton
+              isPending={updateMutation.isPending}
+              type="button"
+              onClick={handleSidebarUpdate}
+            />
+          </div>
 
           {updateMutation.isError && (
             <p className="text-sm text-destructive">{getErrorMessage(updateMutation.error, t)}</p>

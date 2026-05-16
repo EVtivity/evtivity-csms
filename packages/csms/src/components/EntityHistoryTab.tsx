@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
   TableBody,
@@ -69,6 +69,8 @@ interface Props {
   pageSize?: number;
   /** Entity-specific columns inserted between Actor and Notes. */
   extraColumns?: AuditExtraColumn[];
+  /** When provided, renders a CardHeader/CardTitle above the audit table. Use when the History card stands alone (not inside a Tabs panel that already labels it). */
+  title?: string;
 }
 
 function actorBadge(actor: AuditEntry['actor']): React.ReactNode {
@@ -98,6 +100,7 @@ export function EntityHistoryTab({
   entityId,
   pageSize = 20,
   extraColumns = [],
+  title,
 }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
@@ -119,6 +122,11 @@ export function EntityHistoryTab({
 
   return (
     <Card>
+      {title != null && (
+        <CardHeader>
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
+      )}
       <CardContent className="p-0">
         {isLoading ? (
           <p className="p-6 text-center text-sm text-muted-foreground">{t('common.loading')}</p>

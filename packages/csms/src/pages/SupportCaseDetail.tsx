@@ -204,11 +204,9 @@ export function SupportCaseDetail(): React.JSX.Element {
   const refundMutation = useMutation({
     mutationFn: (data: { sessionId: string; amountCents?: number }) =>
       api.post(`/v1/support-cases/${id ?? ''}/refund`, data),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['support-cases', id] });
-      if (refundSession != null) {
-        void queryClient.invalidateQueries({ queryKey: ['session-payment', refundSession.id] });
-      }
+      void queryClient.invalidateQueries({ queryKey: ['session-payment', variables.sessionId] });
       setRefundSession(null);
       setRefundAmount('');
     },
@@ -488,6 +486,12 @@ export function SupportCaseDetail(): React.JSX.Element {
               void queryClient.invalidateQueries({ queryKey: ['support-cases', id] });
             }}
           />
+
+          <EntityHistoryTab
+            entityType="support_case"
+            entityId={id ?? ''}
+            title={t('audit.history')}
+          />
         </div>
 
         {/* Sidebar controls */}
@@ -543,11 +547,6 @@ export function SupportCaseDetail(): React.JSX.Element {
           setRemoveSessionId(null);
         }}
       />
-
-      <div className="space-y-2">
-        <h2 className="text-xl font-semibold">{t('audit.history')}</h2>
-        <EntityHistoryTab entityType="support_case" entityId={id ?? ''} />
-      </div>
     </div>
   );
 }
