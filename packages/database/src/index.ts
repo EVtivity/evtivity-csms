@@ -37,6 +37,7 @@ export {
   isStationMessageEnabled,
   getStationMessagePricingFormat,
   getStationMessageRefreshSeconds,
+  getStationMessageEventTtlSeconds,
   getStationMessageBrandLine,
   clearStationMessageSettingsCache,
 } from './lib/station-message-settings.js';

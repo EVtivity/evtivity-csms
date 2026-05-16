@@ -25,6 +25,10 @@ const STATION_MESSAGE_STATES = [
   'discharging',
   'faulted',
   'unavailable',
+  'payment_failed',
+  'payment_required',
+  'guest_unauthorized',
+  'unauthorized',
 ] as const satisfies readonly StationMessageState[];
 
 const stateEnum = z.enum(STATION_MESSAGE_STATES);

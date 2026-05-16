@@ -37,6 +37,7 @@
     "stationMessage.enabled": false,
     "stationMessage.pricingFormat": "compact",
     "stationMessage.charging.refreshSeconds": 30,
+    "stationMessage.eventMessageTtlSeconds": 30,
     "stationMessage.brandLine": "",
     "idling.gracePeriodMinutes": 30,
     "session.staleTimeoutHours": 24,

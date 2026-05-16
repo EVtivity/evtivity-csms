@@ -20,6 +20,10 @@ import {
 // an endDateTime so the station auto-clears the message after the TTL. On
 // OCPP 1.6 (no native SetDisplayMessage) the helper falls back to a
 // DataTransfer with the same vendor channel that pricing-display uses.
+// Either path can opt into a defensive in-process clear by passing
+// `autoClearMs` - the helper schedules a follow-up ClearDisplayMessage /
+// DataTransfer-clear after the delay, so 1.6 stations and any 2.1 firmware
+// that ignores endDateTime still get the message removed on time.
 
 export interface OneShotStationMessageOptions {
   /** Display slot id. Default 9010 (outside the 9000-9005 state range). */
@@ -27,10 +31,96 @@ export interface OneShotStationMessageOptions {
   /** OCPP 2.1 MessagePriorityEnum. Default AlwaysFront so it overrides the
    *  station's state-bound message immediately. */
   priority?: 'AlwaysFront' | 'InFront' | 'NormalCycle';
-  /** TTL in seconds before the message auto-clears. Default 60. */
+  /** TTL in seconds for the OCPP 2.1 endDateTime field. Default 30. The
+   *  station SHOULD auto-clear at this time per OCPP 2.1, but real
+   *  firmwares sometimes ignore endDateTime - pair with autoClearMs for a
+   *  defensive in-process ClearDisplayMessage. */
   ttlSeconds?: number;
-  /** OCPP 1.6 DataTransfer messageId. Default 'OneShotMessage'. */
+  /** OCPP 1.6 DataTransfer messageId for the SET. Default 'OneShotMessage'. */
   dataTransferMessageId?: string;
+  /** When set, schedules a follow-up ClearDisplayMessage (2.1) /
+   *  DataTransfer-clear (1.6) after this many milliseconds. Use to
+   *  guarantee clearing on OCPP 1.6 (no native TTL) and as defense on 2.1
+   *  stations that ignore endDateTime. Typically set to ttlSeconds*1000. */
+  autoClearMs?: number;
+  /** OCPP 1.6 DataTransfer messageId for the CLEAR scheduled via autoClearMs.
+   *  Default 'ClearOneShotMessage'. */
+  dataTransferClearMessageId?: string;
+}
+
+export interface ClearStationMessageOptions {
+  /** Display slot id to clear. Default 9010. */
+  slotId?: number;
+  /** OCPP 1.6 DataTransfer messageId for the CLEAR. Default
+   *  'ClearOneShotMessage'. */
+  dataTransferMessageId?: string;
+}
+
+/**
+ * Publishes a ClearDisplayMessage (OCPP 2.1) or vendor DataTransfer (OCPP 1.6)
+ * for a single display slot. Returns `true` when a command was published,
+ * `false` when skipped or on swallowed error. Standalone helper so any
+ * caller (the auto-clear path below, an operator-triggered clear button,
+ * a status-change projection that wants to clear the slot, etc.) can use
+ * the same dispatch shape.
+ */
+export async function clearStationMessage(
+  pubsub: PubSubClient,
+  sql: Sql,
+  args: {
+    stationOcppId: string;
+    /** Internal UUID of the station; used to look up ocpp_protocol. */
+    stationDbId: string;
+  },
+  options: ClearStationMessageOptions = {},
+): Promise<boolean> {
+  const { slotId = 9010, dataTransferMessageId = 'ClearOneShotMessage' } = options;
+
+  let protocol: string | null = null;
+  try {
+    const rows =
+      await sql`SELECT ocpp_protocol FROM charging_stations WHERE id = ${args.stationDbId}`;
+    protocol = (rows[0]?.['ocpp_protocol'] as string | null | undefined) ?? null;
+  } catch {
+    return false;
+  }
+  if (protocol == null) return false;
+
+  try {
+    if (protocol.startsWith('ocpp2')) {
+      await pubsub.publish(
+        'ocpp_commands',
+        JSON.stringify({
+          commandId: crypto.randomUUID(),
+          stationId: args.stationOcppId,
+          action: 'ClearDisplayMessage',
+          payload: { id: slotId },
+          version: protocol,
+        }),
+      );
+      return true;
+    }
+    if (protocol === 'ocpp1.6') {
+      await pubsub.publish(
+        'ocpp_commands',
+        JSON.stringify({
+          commandId: crypto.randomUUID(),
+          stationId: args.stationOcppId,
+          action: 'DataTransfer',
+          payload: {
+            vendorId: 'com.evtivity',
+            messageId: dataTransferMessageId,
+            data: JSON.stringify({ slotId }),
+          },
+          version: 'ocpp1.6',
+        }),
+      );
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
 }
 
 /**
@@ -58,8 +148,10 @@ export async function dispatchOneShotStationMessage(
   const {
     slotId = 9010,
     priority = 'AlwaysFront',
-    ttlSeconds = 60,
+    ttlSeconds = 30,
     dataTransferMessageId = 'OneShotMessage',
+    autoClearMs,
+    dataTransferClearMessageId = 'ClearOneShotMessage',
   } = options;
 
   let protocol: string | null = null;
@@ -68,8 +160,6 @@ export async function dispatchOneShotStationMessage(
       await sql`SELECT ocpp_protocol FROM charging_stations WHERE id = ${args.stationDbId}`;
     protocol = (rows[0]?.['ocpp_protocol'] as string | null | undefined) ?? null;
   } catch {
-    // If we can't read the protocol, fall through to skip the dispatch
-    // instead of guessing.
     return false;
   }
   if (protocol == null) return false;
@@ -83,6 +173,7 @@ export async function dispatchOneShotStationMessage(
   if (content === '') return false;
 
   const endDateTime = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+  let published = false;
 
   try {
     if (protocol.startsWith('ocpp2')) {
@@ -103,9 +194,8 @@ export async function dispatchOneShotStationMessage(
           version: protocol,
         }),
       );
-      return true;
-    }
-    if (protocol === 'ocpp1.6') {
+      published = true;
+    } else if (protocol === 'ocpp1.6') {
       await pubsub.publish(
         'ocpp_commands',
         JSON.stringify({
@@ -120,13 +210,28 @@ export async function dispatchOneShotStationMessage(
           version: 'ocpp1.6',
         }),
       );
-      return true;
+      published = true;
     }
   } catch {
-    // Best-effort: log nothing here because callers may swallow log calls
-    // (e.g. test envs). Returning false signals the caller that delivery
-    // wasn't confirmed.
     return false;
   }
-  return false;
+
+  // Schedule the in-process clear when requested. setTimeout is fine here:
+  // if the process restarts before it fires the clear is lost, but the next
+  // state-message refresh / connector status change overwrites the slot
+  // anyway, and the OCPP 2.1 endDateTime is the primary clearing mechanism.
+  if (published && autoClearMs != null && autoClearMs > 0) {
+    const timer = setTimeout(() => {
+      void clearStationMessage(
+        pubsub,
+        sql,
+        { stationOcppId: args.stationOcppId, stationDbId: args.stationDbId },
+        { slotId, dataTransferMessageId: dataTransferClearMessageId },
+      );
+    }, autoClearMs);
+    // Don't keep the event loop alive just for the clear timer.
+    if (typeof timer.unref === 'function') timer.unref();
+  }
+
+  return published;
 }

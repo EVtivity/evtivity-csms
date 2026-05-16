@@ -430,6 +430,7 @@ async function seed(): Promise<void> {
     'stationMessage.enabled': false,
     'stationMessage.pricingFormat': 'compact',
     'stationMessage.charging.refreshSeconds': 30,
+    'stationMessage.eventMessageTtlSeconds': 30,
     'stationMessage.brandLine': '',
     'notifications.emailEnabled': true,
     'ftp.host': 'ftp',

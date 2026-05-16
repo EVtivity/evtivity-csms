@@ -1871,16 +1871,27 @@ export function registerProjections(
 
       const endStatus = hasPaymentFailure ? 'faulted' : 'completed';
       const meterStopVal = payload.meterStop != null ? Number(payload.meterStop) : null;
+      // Preserve a terminal status (faulted/failed) that the payment-gate
+      // eager-cleanup already set. The pre-fix UPDATE unconditionally flipped
+      // the session back to 'completed' for the MissingPaymentMethod path
+      // (no payment_records row -> hasPaymentFailure false), which then let
+      // the cost-calc block below apply pricePerSession against an
+      // already-stopped session.
       await sql`
         UPDATE charging_sessions
-        SET status = ${endStatus}, ended_at = ${timestamp}, stopped_reason = ${stoppedReason},
+        SET status = CASE
+              WHEN status IN ('faulted', 'failed') THEN status
+              ELSE ${endStatus}
+            END,
+            ended_at = ${timestamp},
+            stopped_reason = COALESCE(stopped_reason, ${stoppedReason}),
             meter_stop = COALESCE(${meterStopVal}, meter_stop),
             updated_at = now()
         WHERE transaction_id = ${transactionId}
       `;
 
       const sessionRows = await sql`
-        SELECT id, tariff_id, current_cost_cents, started_at, ended_at, energy_delivered_wh,
+        SELECT id, status, tariff_id, current_cost_cents, started_at, ended_at, energy_delivered_wh,
                currency, tariff_price_per_kwh, tariff_price_per_minute, tariff_price_per_session,
                tariff_idle_fee_price_per_minute, tariff_tax_rate,
                idle_started_at, idle_minutes, reservation_id
@@ -1950,9 +1961,16 @@ export function registerProjections(
           );
         }
 
-        // Compute final cost from snapshotted tariff rates
+        // Compute final cost from snapshotted tariff rates. Skip when the
+        // session was already faulted/failed by the payment gate (or any
+        // other pre-stop path): the driver never authorized payment, so
+        // charging them pricePerSession + tax produces a phantom row in
+        // Recent Sessions and a misleading $X.XX in the portal even though
+        // no Stripe capture ever runs.
+        const sessionStatus = sessionRow.status as string;
+        const skipCostCalc = sessionStatus === 'faulted' || sessionStatus === 'failed';
         const hasTariffSnapshot = sessionRow.tariff_id != null && sessionRow.currency != null;
-        if (hasTariffSnapshot) {
+        if (hasTariffSnapshot && !skipCostCalc) {
           const endedAt = new Date(sessionRow.ended_at as string);
           const energyWh = Number(sessionRow.energy_delivered_wh ?? 0);
 
@@ -3041,7 +3059,7 @@ export function registerProjections(
       try {
         const settingRows = await sql`
           SELECT key, value FROM settings
-          WHERE key IN ('company.name', 'company.supportPhone')
+          WHERE key IN ('company.name', 'company.supportPhone', 'stationMessage.eventMessageTtlSeconds')
         `;
         const settingsMap = new Map<string, unknown>();
         for (const row of settingRows) {
@@ -3049,16 +3067,29 @@ export function registerProjections(
         }
         const companyName = (settingsMap.get('company.name') as string | undefined) ?? 'EVtivity';
         const supportPhone = settingsMap.get('company.supportPhone') as string | undefined;
-        await dispatchOneShotStationMessage(pubsub, sql, {
-          stationOcppId: ocppStationId,
-          stationDbId,
-          state: stateByReason[reason],
-          context: {
-            companyName,
+        const ttlSetting = settingsMap.get('stationMessage.eventMessageTtlSeconds');
+        const ttlSeconds = typeof ttlSetting === 'number' && ttlSetting > 0 ? ttlSetting : 30;
+        await dispatchOneShotStationMessage(
+          pubsub,
+          sql,
+          {
             stationOcppId: ocppStationId,
-            ...(supportPhone != null && supportPhone !== '' ? { supportPhone } : {}),
+            stationDbId,
+            state: stateByReason[reason],
+            context: {
+              companyName,
+              stationOcppId: ocppStationId,
+              ...(supportPhone != null && supportPhone !== '' ? { supportPhone } : {}),
+            },
           },
-        });
+          {
+            ttlSeconds,
+            // Defensive in-process clear for OCPP 1.6 (no native endDateTime)
+            // and 2.1 firmwares that ignore endDateTime. Same window so the
+            // operator can tune one knob.
+            autoClearMs: ttlSeconds * 1000,
+          },
+        );
       } catch (err) {
         logger.warn({ err, reason }, 'Failed to publish payment-failure display message');
       }
@@ -3067,11 +3098,18 @@ export function registerProjections(
       if (!eagerCleanup) return;
 
       try {
+        // Zero out cost columns: the driver never authorized payment so we
+        // must not display or persist a session-fee charge. Without this,
+        // the cost calc on the Ended event (or MeterValues if a stray one
+        // arrives) applies pricePerSession + tax and the portal Recent
+        // Sessions list shows a phantom $0.81 next to a 0 kWh row.
         const eager = await sql`
           UPDATE charging_sessions
           SET status = 'faulted',
               stopped_reason = ${reason},
               ended_at = now(),
+              final_cost_cents = 0,
+              current_cost_cents = 0,
               updated_at = now()
           WHERE id = ${sessionId} AND status = 'active'
           RETURNING id
