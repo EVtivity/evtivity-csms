@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, X509Certificate } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { hash } from 'argon2';
@@ -3381,6 +3381,7 @@ export function stationRoutes(app: FastifyInstance): void {
         body: zodSchema(installCertBody),
         response: {
           200: successResponse,
+          400: errorWith('Invalid certificate', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
         },
       },
@@ -3393,6 +3394,23 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
       const body = request.body as z.infer<typeof installCertBody>;
+
+      // Validate operator-supplied PEM before sending to station. Skipping
+      // this guard lets a typo'd paste land in the OCPP command queue and
+      // the station either silently rejects it or faults out.
+      try {
+        const firstPemBlock = body.certificate.split('-----END CERTIFICATE-----')[0];
+        if (firstPemBlock == null || !firstPemBlock.includes('-----BEGIN CERTIFICATE-----')) {
+          throw new Error('No PEM certificate block found');
+        }
+        new X509Certificate(firstPemBlock + '-----END CERTIFICATE-----');
+      } catch {
+        await reply.status(400).send({
+          error: 'certificate is not a valid PEM-encoded certificate',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
 
       const stationRows = await db.execute(
         sql`SELECT station_id FROM charging_stations WHERE id = ${id}`,
@@ -4433,6 +4451,21 @@ export function stationRoutes(app: FastifyInstance): void {
           502: errorWith('Ocpp command failed', [ERROR_CODES.OCPP_COMMAND_FAILED]),
         },
       },
+      // Each refresh fires an OCPP GetChargingProfiles message at the
+      // station; without a per-user cap a stuck UI or a debugging script
+      // can spam the station and the OCPP message bus.
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: '1 minute',
+          keyGenerator: (request) => {
+            const userId = (request.user as unknown as Record<string, unknown> | undefined)?.[
+              'userId'
+            ];
+            return typeof userId === 'string' ? userId : request.ip;
+          },
+        },
+      },
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof stationParams>;
@@ -4490,9 +4523,18 @@ export function stationRoutes(app: FastifyInstance): void {
 
   // POST /stations/:id/charging-profiles/composite
   const compositeBody = z.object({
-    evseId: z.number().int().optional().describe('EVSE ID (defaults to 0)'),
-    duration: z.number().int().optional().describe('Duration in seconds (defaults to 86400)'),
-    chargingRateUnit: z.string().optional().describe('Charging rate unit (W or A)'),
+    evseId: z.number().int().min(0).optional().describe('EVSE ID (defaults to 0)'),
+    duration: z
+      .number()
+      .int()
+      .min(1)
+      // OCPP 2.1 GetCompositeSchedule duration is bounded in practice;
+      // cap at one year so a typo (e.g. milliseconds-instead-of-seconds)
+      // doesn't ask the station to compute a multi-decade schedule.
+      .max(31536000)
+      .optional()
+      .describe('Duration in seconds (1-31536000, defaults to 86400)'),
+    chargingRateUnit: z.enum(['W', 'A']).optional().describe('Charging rate unit (W or A)'),
   });
 
   // OCPP GetCompositeScheduleResponse passes through unchanged.

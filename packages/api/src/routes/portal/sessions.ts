@@ -146,28 +146,62 @@ const sessionParams = z.object({
   id: ID_PARAMS.sessionId.describe('Charging session ID'),
 });
 
+// The regex pins format. The refine pins range so requests like ?month=9999-99
+// or ?month=2024-13 are rejected at validation time instead of silently
+// producing nonsense date boundaries via Date.UTC overflow.
+const monthString = z
+  .string()
+  .regex(/^\d{4}-\d{2}$/)
+  .refine(
+    (s) => {
+      const m = Number(s.slice(5, 7));
+      return m >= 1 && m <= 12;
+    },
+    { message: 'Month must be 01-12' },
+  );
+
 const sessionListQuery = paginationQuery.extend({
-  month: z
-    .string()
-    .regex(/^\d{4}-\d{2}$/)
-    .optional()
-    .describe('Filter by month in YYYY-MM format'),
+  month: monthString.optional().describe('Filter by month in YYYY-MM format'),
 });
 
 const monthlySummaryQuery = z.object({
-  month: z
-    .string()
-    .regex(/^\d{4}-\d{2}$/)
-    .describe('Month in YYYY-MM format'),
+  month: monthString.describe('Month in YYYY-MM format'),
 });
 
 const monthlySummaryResponse = z
   .object({
-    totalCostCents: z.number().int().min(0).describe('Total cost across the month in cents'),
+    totalCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Total cost across the month in cents. When the driver charged in more than one currency this month, this is the sum within the most-used currency only — see costBreakdown for the per-currency split.',
+      ),
     totalEnergyWh: z.number().min(0).describe('Total energy delivered across the month in Wh'),
     totalCo2AvoidedKg: z.number().describe('Total CO2 avoided across the month in kg'),
     sessionCount: z.number().int().min(0).describe('Number of completed sessions in the month'),
-    currency: z.string().length(3).nullable().describe('ISO 4217 currency code'),
+    currency: z
+      .string()
+      .length(3)
+      .nullable()
+      .describe(
+        'ISO 4217 currency code matching totalCostCents (the most-used currency this month, or null if no sessions had a currency).',
+      ),
+    costBreakdown: z
+      .array(
+        z
+          .object({
+            currency: z.string().length(3).describe('ISO 4217 currency code'),
+            totalCostCents: z
+              .number()
+              .int()
+              .min(0)
+              .describe('Sum of finalCostCents in this currency'),
+            sessionCount: z.number().int().min(0).describe('Number of sessions in this currency'),
+          })
+          .passthrough(),
+      )
+      .describe('Per-currency split of the month, sorted by sessionCount descending.'),
   })
   .passthrough();
 
@@ -294,25 +328,52 @@ export function portalSessionRoutes(app: FastifyInstance): void {
       const { month } = request.query as z.infer<typeof monthlySummaryQuery>;
       const { start, end } = monthRange(month);
 
-      const [result] = await db
+      // Aggregate energy and CO2 globally (currency-independent) and split the
+      // cost by currency. Summing finalCostCents across mixed currencies would
+      // produce a nonsense total (e.g. 50 USD + 30 EUR = "80") and rendering
+      // it under any single currency symbol misleads the driver about what
+      // they actually paid. Most drivers charge in one currency so the
+      // breakdown is a single-entry array; cross-border drivers see each
+      // currency separately.
+      const [totals] = await db
         .select({
-          totalCostCents: sql<number>`COALESCE(SUM(${chargingSessions.finalCostCents}), 0)::int`,
           totalEnergyWh: sql<string>`COALESCE(SUM(${chargingSessions.energyDeliveredWh}::numeric), 0)::numeric`,
           totalCo2AvoidedKg: sql<string>`COALESCE(SUM(${chargingSessions.co2AvoidedKg}::numeric), 0)::numeric`,
-          sessionCount: sql<number>`count(*)::int`,
-          currency: sql<string | null>`MAX(${chargingSessions.currency})`,
         })
         .from(chargingSessions)
         .where(
           sql`${chargingSessions.driverId} = ${driverId} AND ${chargingSessions.status} = 'completed' AND ${chargingSessions.startedAt} >= ${start} AND ${chargingSessions.startedAt} < ${end}`,
         );
 
+      const breakdownRows = await db
+        .select({
+          currency: chargingSessions.currency,
+          totalCostCents: sql<number>`COALESCE(SUM(${chargingSessions.finalCostCents}), 0)::int`,
+          sessionCount: sql<number>`count(*)::int`,
+        })
+        .from(chargingSessions)
+        .where(
+          sql`${chargingSessions.driverId} = ${driverId} AND ${chargingSessions.status} = 'completed' AND ${chargingSessions.startedAt} >= ${start} AND ${chargingSessions.startedAt} < ${end}`,
+        )
+        .groupBy(chargingSessions.currency);
+
+      const costBreakdown = breakdownRows
+        .filter(
+          (r): r is { currency: string; totalCostCents: number; sessionCount: number } =>
+            r.currency != null,
+        )
+        .sort((a, b) => b.sessionCount - a.sessionCount);
+
+      const primary = costBreakdown[0];
+      const totalSessionCount = breakdownRows.reduce((acc, r) => acc + r.sessionCount, 0);
+
       return {
-        totalCostCents: result?.totalCostCents ?? 0,
-        totalEnergyWh: parseFloat(result?.totalEnergyWh ?? '0'),
-        totalCo2AvoidedKg: parseFloat(result?.totalCo2AvoidedKg ?? '0'),
-        sessionCount: result?.sessionCount ?? 0,
-        currency: result?.currency ?? null,
+        totalCostCents: primary?.totalCostCents ?? 0,
+        totalEnergyWh: parseFloat(totals?.totalEnergyWh ?? '0'),
+        totalCo2AvoidedKg: parseFloat(totals?.totalCo2AvoidedKg ?? '0'),
+        sessionCount: totalSessionCount,
+        currency: primary?.currency ?? null,
+        costBreakdown,
       };
     },
   );
@@ -453,8 +514,24 @@ export function portalSessionRoutes(app: FastifyInstance): void {
       }
 
       const [payment, latestPower, latestSoc, vehicleEfficiency] = await Promise.all([
+        // Only return display-safe fields. The full payment_records row
+        // contains stripe_customer_id, stripe_payment_method_id, and
+        // stripe_payment_intent_id which the portal does not need; surfacing
+        // them is the same defense-in-depth issue the payment-methods list
+        // was just fixed for.
         db
-          .select()
+          .select({
+            id: paymentRecords.id,
+            status: paymentRecords.status,
+            currency: paymentRecords.currency,
+            preAuthAmountCents: paymentRecords.preAuthAmountCents,
+            capturedAmountCents: paymentRecords.capturedAmountCents,
+            refundedAmountCents: paymentRecords.refundedAmountCents,
+            paymentSource: paymentRecords.paymentSource,
+            failureReason: paymentRecords.failureReason,
+            createdAt: paymentRecords.createdAt,
+            updatedAt: paymentRecords.updatedAt,
+          })
           .from(paymentRecords)
           .where(eq(paymentRecords.sessionId, id))
           .then((r) => r[0]),

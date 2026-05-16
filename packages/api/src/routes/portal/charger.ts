@@ -34,7 +34,11 @@ import { getS3Config, generateDownloadUrl } from '../../services/s3.service.js';
 import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../../lib/ocpp-command.js';
 import { applyReservationCancellation } from '../../lib/reservation-cancel.js';
 import { assertReservationsAllowed } from '../../lib/reservation-eligibility.js';
-import { isStationCheckRateLimited } from '../../lib/rate-limiters.js';
+import {
+  isStationCheckRateLimited,
+  getCachedConnectorStatus,
+  setCachedConnectorStatus,
+} from '../../lib/rate-limiters.js';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
 import { getStripeConfig, createPreAuthorization } from '../../services/stripe.service.js';
 import { isSimulatedCustomer } from '@evtivity/lib';
@@ -771,6 +775,10 @@ export function portalChargerRoutes(app: FastifyInstance): void {
   app.get(
     '/portal/chargers/map-config',
     {
+      // Unauthenticated. Cap traffic so a bot cannot pull the published
+      // Google Maps key fragment thousands of times per second to amplify
+      // quota consumption.
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
       schema: {
         tags: ['Portal Chargers'],
         summary: 'Get Google Maps configuration',
@@ -877,6 +885,10 @@ export function portalChargerRoutes(app: FastifyInstance): void {
   app.get(
     '/portal/chargers/location/:siteId',
     {
+      // Public route. Rate limit to keep bot enumeration of siteIds within
+      // reasonable bounds without blocking a real user opening a few
+      // location pages per minute.
+      config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
       schema: {
         tags: ['Portal Chargers'],
         summary: 'Get location detail for a site',
@@ -971,6 +983,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
   app.get(
     '/portal/chargers/location/:siteId/images',
     {
+      config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
       schema: {
         tags: ['Portal Chargers'],
         summary: 'Get driver-visible images for a site',
@@ -1004,6 +1017,10 @@ export function portalChargerRoutes(app: FastifyInstance): void {
   app.get(
     '/portal/chargers/location/:siteId/images/:imageId/download-url',
     {
+      // Stricter limit on the presigned-URL endpoint than the image-list
+      // endpoint because each call issues a new S3 signature operation and
+      // could be used to enumerate imageIds.
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
       schema: {
         tags: ['Portal Chargers'],
         summary: 'Get presigned download URL for a driver-visible image',
@@ -1020,7 +1037,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           ),
           404: errorWith('Resource not found', [
             ERROR_CODES.IMAGE_NOT_FOUND,
-            ERROR_CODES.S3_NOT_CONFIGURED,
+            ERROR_CODES.STORAGE_NOT_CONFIGURED,
           ]),
         },
       },
@@ -1052,7 +1069,9 @@ export function portalChargerRoutes(app: FastifyInstance): void {
 
       const s3 = await getS3Config();
       if (s3 == null) {
-        await reply.status(404).send({ error: 'S3 not configured', code: 'S3_NOT_CONFIGURED' });
+        await reply
+          .status(404)
+          .send({ error: 'Attachment storage not configured', code: 'STORAGE_NOT_CONFIGURED' });
         return;
       }
 
@@ -1064,6 +1083,10 @@ export function portalChargerRoutes(app: FastifyInstance): void {
   app.get(
     '/portal/chargers/location/:siteId/popular-times',
     {
+      // Aggregation query over up to a year of sessions per call; tighter
+      // limit than the other location endpoints because each call is
+      // measurably more expensive on the database.
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
       schema: {
         tags: ['Portal Chargers'],
         summary: 'Get popular times for a site',
@@ -1350,7 +1373,17 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         return { connectorStatus: null, error: 'Station is offline' };
       }
 
-      // Rate limit per station
+      // Serve a recent cached status before charging the per-station rate
+      // limit so concurrent drivers at the same site share one TriggerMessage
+      // dispatch instead of locking each other out at 5 calls/min.
+      const cached = getCachedConnectorStatus(stationId, evseId);
+      if (cached != null) {
+        return { connectorStatus: cached.status, error: cached.error };
+      }
+
+      // Rate limit per station (OCPP-protection layer). Only counted when no
+      // cache is available, so well-behaved drivers riding the cache do not
+      // consume the budget.
       if (isStationCheckRateLimited(stationId)) {
         await reply
           .status(429)
@@ -1379,6 +1412,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         station.id,
         station.ocppProtocol ?? undefined,
       );
+
+      setCachedConnectorStatus(stationId, evseId, {
+        status: result.status,
+        ...(result.error !== undefined ? { error: result.error } : {}),
+      });
 
       return { connectorStatus: result.status, error: result.error };
     },

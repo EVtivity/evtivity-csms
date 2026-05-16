@@ -17,8 +17,6 @@ import { api } from '@/lib/api';
 
 interface PaymentMethod {
   id: number;
-  stripeCustomerId: string;
-  stripePaymentMethodId: string;
   cardBrand: string | null;
   cardLast4: string | null;
   isDefault: boolean;

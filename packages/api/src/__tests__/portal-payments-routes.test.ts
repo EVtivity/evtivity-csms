@@ -217,7 +217,7 @@ describe('Portal payment routes - handler logic', () => {
         headers: { authorization: `Bearer ${driverToken}` },
       });
       expect(response.statusCode).toBe(400);
-      expect(response.json().code).toBe('STRIPE_NOT_CONFIGURED');
+      expect(response.json().code).toBe('PAYMENT_PROVIDER_NOT_CONFIGURED');
     });
 
     it('creates setup intent with existing customer', async () => {
@@ -272,7 +272,7 @@ describe('Portal payment routes - handler logic', () => {
       expect(response.json().customerId).toBe('cus_new_456');
     });
 
-    it('returns 400 STRIPE_NOT_CONFIGURED when Stripe SDK throws', async () => {
+    it('returns 400 PAYMENT_PROVIDER_NOT_CONFIGURED when Stripe SDK throws', async () => {
       setupDbResults(
         [{ id: DRIVER_ID, email: 'john@example.com', firstName: 'John', lastName: 'Doe' }],
         [],
@@ -294,11 +294,13 @@ describe('Portal payment routes - handler logic', () => {
         headers: { authorization: `Bearer ${driverToken}` },
       });
       expect(response.statusCode).toBe(400);
-      expect(response.json().code).toBe('STRIPE_NOT_CONFIGURED');
-      expect(response.json().error).toContain('Invalid API Key provided');
+      expect(response.json().code).toBe('PAYMENT_PROVIDER_NOT_CONFIGURED');
+      // Error message is intentionally generic (no provider name or upstream
+      // detail) so the API does not leak Stripe internals to clients.
+      expect(response.json().error).toBe('Payment setup failed');
     });
 
-    it('returns 400 STRIPE_NOT_CONFIGURED when SetupIntent has empty client_secret', async () => {
+    it('returns 400 PAYMENT_PROVIDER_NOT_CONFIGURED when SetupIntent has empty client_secret', async () => {
       setupDbResults(
         [{ id: DRIVER_ID, email: 'john@example.com', firstName: 'John', lastName: 'Doe' }],
         [{ stripeCustomerId: 'cus_existing_123' }],
@@ -323,7 +325,7 @@ describe('Portal payment routes - handler logic', () => {
         headers: { authorization: `Bearer ${driverToken}` },
       });
       expect(response.statusCode).toBe(400);
-      expect(response.json().code).toBe('STRIPE_NOT_CONFIGURED');
+      expect(response.json().code).toBe('PAYMENT_PROVIDER_NOT_CONFIGURED');
     });
   });
 
@@ -362,7 +364,12 @@ describe('Portal payment routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      setupDbResults([], [savedMethod]);
+      // Query order in handler after the cross-driver-charge fix:
+      // (1) SELECT drivers.stripeCustomerId — must be set to bind the
+      //     authoritative customer to this driver.
+      // (2) SELECT existingMethods to derive isDefault.
+      // (3) INSERT and return the new row.
+      setupDbResults([{ stripeCustomerId: 'cus_test' }], [], [savedMethod]);
       const response = await app.inject({
         method: 'POST',
         url: '/portal/payment-methods',
@@ -376,6 +383,10 @@ describe('Portal payment routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(201);
       expect(response.json().isDefault).toBe(true);
+      // Response strips internal Stripe identifiers per the
+      // toPublicPaymentMethod helper.
+      expect(response.json().stripeCustomerId).toBeUndefined();
+      expect(response.json().stripePaymentMethodId).toBeUndefined();
     });
 
     it('saves payment method as non-default when others exist', async () => {
@@ -390,7 +401,7 @@ describe('Portal payment routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      setupDbResults([{ id: 'existing-pm' }], [savedMethod]);
+      setupDbResults([{ stripeCustomerId: 'cus_test' }], [{ id: 'existing-pm' }], [savedMethod]);
       const response = await app.inject({
         method: 'POST',
         url: '/portal/payment-methods',

@@ -262,7 +262,7 @@ describe('Station image routes', () => {
       });
       expect(response.statusCode).toBe(400);
       const body = JSON.parse(response.body);
-      expect(body.code).toBe('S3_NOT_CONFIGURED');
+      expect(body.code).toBe('STORAGE_NOT_CONFIGURED');
     });
   });
 
@@ -498,7 +498,7 @@ describe('Station image routes', () => {
       });
       expect(response.statusCode).toBe(400);
       const body = JSON.parse(response.body);
-      expect(body.code).toBe('S3_NOT_CONFIGURED');
+      expect(body.code).toBe('STORAGE_NOT_CONFIGURED');
     });
   });
 

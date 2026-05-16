@@ -491,8 +491,8 @@ export function settingsRoutes(app: FastifyInstance): void {
         response: {
           200: successResponse,
           400: errorWith('Bad request', [
-            ERROR_CODES.S3_CONNECTION_FAILED,
-            ERROR_CODES.S3_NOT_CONFIGURED,
+            ERROR_CODES.STORAGE_CONNECTION_FAILED,
+            ERROR_CODES.STORAGE_NOT_CONFIGURED,
           ]),
         },
       },
@@ -501,7 +501,9 @@ export function settingsRoutes(app: FastifyInstance): void {
       const { getS3Config: getConfig } = await import('../services/s3.service.js');
       const s3 = await getConfig();
       if (s3 == null) {
-        await reply.status(400).send({ error: 'S3 not configured', code: 'S3_NOT_CONFIGURED' });
+        await reply
+          .status(400)
+          .send({ error: 'S3 not configured', code: 'STORAGE_NOT_CONFIGURED' });
         return;
       }
 
@@ -511,7 +513,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         return { success: true };
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
-        await reply.status(400).send({ error: message, code: 'S3_CONNECTION_FAILED' });
+        await reply.status(400).send({ error: message, code: 'STORAGE_CONNECTION_FAILED' });
         return;
       }
     },

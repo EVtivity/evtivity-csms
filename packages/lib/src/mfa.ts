@@ -56,7 +56,14 @@ export async function verifyMfaChallenge(
   if (row == null) return false;
   if (row.used_at != null) return false;
   if (new Date() > row.expires_at) return false;
-  if (row.code_hash !== codeHash) return false;
+  // Constant-time compare so a remote attacker can't infer the SHA-256
+  // hex prefix from response timing. Both inputs are guaranteed to be
+  // 64-char hex strings (server-generated hash on insert; we just
+  // hashed the user-supplied code above), so byteLength always matches.
+  const stored = Buffer.from(row.code_hash, 'hex');
+  const supplied = Buffer.from(codeHash, 'hex');
+  if (stored.length !== supplied.length) return false;
+  if (!crypto.timingSafeEqual(stored, supplied)) return false;
 
   await client`
     UPDATE mfa_challenges SET used_at = NOW() WHERE id = ${challengeId}

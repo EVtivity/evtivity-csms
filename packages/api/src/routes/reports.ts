@@ -39,6 +39,7 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { queueReport } from '../services/report.service.js';
+import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 
 const reportItem = z
@@ -295,7 +296,10 @@ export function reportRoutes(app: FastifyInstance): void {
         operationId: 'generateReport',
         security: [{ bearerAuth: [] }],
         body: zodSchema(generateBody),
-        response: { 200: itemResponse(reportQueuedResponse) },
+        response: {
+          200: itemResponse(reportQueuedResponse),
+          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+        },
       },
       config: {
         rateLimit: {
@@ -308,15 +312,30 @@ export function reportRoutes(app: FastifyInstance): void {
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const body = request.body as z.infer<typeof generateBody>;
       const user = request.user as { userId: string };
+
+      // If the operator is restricted to specific sites, reject any
+      // filters.siteId that targets a site they can't access. Without
+      // this an operator with siteA-only access could pass
+      // { filters: { siteId: 'sit_B' } } and generate a cross-site
+      // report (reports themselves are unscoped per
+      // site-access-control.md, but the *filter parameter* must respect
+      // the caller's scope).
+      const siteIds = await getUserSiteIds(user.userId);
+      const filters = body.filters ?? {};
+      const requestedSite = typeof filters['siteId'] === 'string' ? filters['siteId'] : null;
+      if (siteIds != null && requestedSite != null && !siteIds.includes(requestedSite)) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
 
       const reportId = await queueReport({
         name: body.name,
         reportType: body.reportType,
         format: body.format,
-        filters: body.filters ?? {},
+        filters,
         userId: user.userId,
       });
 
@@ -390,12 +409,26 @@ export function reportRoutes(app: FastifyInstance): void {
         operationId: 'createReportSchedule',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createScheduleBody),
-        response: { 200: itemResponse(scheduleItem) },
+        response: {
+          200: itemResponse(scheduleItem),
+          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const body = request.body as z.infer<typeof createScheduleBody>;
       const user = request.user as { userId: string };
+
+      // Mirror the generate-report site-access guard so a restricted
+      // operator can't pre-load a schedule with a cross-site filter that
+      // the cron would later run on their behalf.
+      const siteIds = await getUserSiteIds(user.userId);
+      const filters = body.filters ?? {};
+      const requestedSite = typeof filters['siteId'] === 'string' ? filters['siteId'] : null;
+      if (siteIds != null && requestedSite != null && !siteIds.includes(requestedSite)) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
 
       const nextRunAt = computeInitialNextRunAt(body.frequency, body.dayOfWeek, body.dayOfMonth);
 
@@ -408,7 +441,7 @@ export function reportRoutes(app: FastifyInstance): void {
           frequency: body.frequency,
           dayOfWeek: body.dayOfWeek ?? null,
           dayOfMonth: body.dayOfMonth ?? null,
-          filters: body.filters ?? {},
+          filters,
           recipientEmails: body.recipientEmails ?? [],
           createdById: user.userId,
           nextRunAt,
@@ -432,7 +465,10 @@ export function reportRoutes(app: FastifyInstance): void {
         body: zodSchema(updateScheduleBody),
         response: {
           200: itemResponse(scheduleItem),
-          404: errorWith('Schedule not found', [ERROR_CODES.SCHEDULE_NOT_FOUND]),
+          404: errorWith('Resource not found', [
+            ERROR_CODES.SCHEDULE_NOT_FOUND,
+            ERROR_CODES.SITE_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -448,6 +484,20 @@ export function reportRoutes(app: FastifyInstance): void {
       if (existing == null) {
         await reply.status(404).send({ error: 'Schedule not found', code: 'SCHEDULE_NOT_FOUND' });
         return;
+      }
+
+      // Same site-access guard as create — without it a restricted
+      // operator could PATCH a schedule's filters to point at a site they
+      // can't access.
+      if (body.filters != null) {
+        const user = request.user as { userId: string };
+        const siteIds = await getUserSiteIds(user.userId);
+        const filters = body.filters;
+        const requestedSite = typeof filters['siteId'] === 'string' ? filters['siteId'] : null;
+        if (siteIds != null && requestedSite != null && !siteIds.includes(requestedSite)) {
+          await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+          return;
+        }
       }
 
       const updates: Record<string, unknown> = { updatedAt: sql`now()` };
@@ -525,7 +575,10 @@ export function reportRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         response: {
           200: itemResponse(reportQueuedResponse),
-          404: errorWith('Schedule not found', [ERROR_CODES.SCHEDULE_NOT_FOUND]),
+          404: errorWith('Resource not found', [
+            ERROR_CODES.SCHEDULE_NOT_FOUND,
+            ERROR_CODES.SITE_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -541,6 +594,18 @@ export function reportRoutes(app: FastifyInstance): void {
       }
 
       const filters = schedule.filters != null ? (schedule.filters as Record<string, unknown>) : {};
+
+      // Same site-access guard as the create/PATCH paths — even though
+      // the schedule was created with that check at the time, the
+      // creator's access may have changed (or run-now may be invoked by
+      // a different operator). Re-validate at run time.
+      const siteIds = await getUserSiteIds(user.userId);
+      const requestedSite = typeof filters['siteId'] === 'string' ? filters['siteId'] : null;
+      if (siteIds != null && requestedSite != null && !siteIds.includes(requestedSite)) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
+
       const reportId = await queueReport({
         name: schedule.name,
         reportType: schedule.reportType,

@@ -34,6 +34,66 @@ const mockFleetService = vi.hoisted(() => ({
 
 vi.mock('../services/fleet.service.js', () => mockFleetService);
 
+// Mock @evtivity/database so the FK pre-checks (POST drivers / stations /
+// pricing-groups) find their target rows. Each pre-check does
+// db.select(...).from(table).where(eq(table.id, ...)) and resolves with the
+// returned array; mockResolvedValue provides a thenable matching that shape.
+const mockDbResults = vi.hoisted(() => ({ findRow: true }));
+vi.mock('@evtivity/database', () => {
+  const buildChain = (): Record<string, unknown> => {
+    const chain: Record<string, unknown> = {};
+    const methods = [
+      'select',
+      'from',
+      'where',
+      'orderBy',
+      'limit',
+      'offset',
+      'innerJoin',
+      'leftJoin',
+      'groupBy',
+      'values',
+      'returning',
+      'set',
+      'onConflictDoUpdate',
+      'onConflictDoNothing',
+      'delete',
+      'insert',
+      'update',
+    ];
+    for (const m of methods) {
+      chain[m] = vi.fn(() => chain);
+    }
+    chain['then'] = (
+      onFulfilled?: (v: unknown) => unknown,
+      onRejected?: (r: unknown) => unknown,
+    ) => {
+      // FK pre-checks expect a single-row [{id}] result; return a stub row
+      // when findRow=true, empty array otherwise (covers the 404 path tests
+      // that may be added later).
+      const result = mockDbResults.findRow ? [{ id: 'mock-id' }] : [];
+      return Promise.resolve(result).then(onFulfilled, onRejected);
+    };
+    chain['catch'] = (onRejected?: (r: unknown) => unknown) =>
+      Promise.resolve([]).catch(onRejected);
+    return chain;
+  };
+  return {
+    db: {
+      select: vi.fn(() => buildChain()),
+      insert: vi.fn(() => buildChain()),
+      update: vi.fn(() => buildChain()),
+      delete: vi.fn(() => buildChain()),
+    },
+    drivers: {},
+    chargingStations: {},
+    pricingGroups: {},
+    fleetAuditLog: {},
+    pricingAssignmentAuditLog: {},
+    writeAudit: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
 vi.mock('../middleware/rbac.js', () => ({
   authorize:
     () =>

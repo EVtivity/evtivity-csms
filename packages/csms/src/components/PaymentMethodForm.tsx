@@ -166,7 +166,7 @@ export function PaymentMethodForm({
       const fallback =
         typeof body?.['error'] === 'string' ? body['error'] : t('payments.setupFailed');
       const message =
-        code === 'STRIPE_NOT_CONFIGURED' ? t('payments.stripeNotConfigured') : fallback;
+        code === 'PAYMENT_PROVIDER_NOT_CONFIGURED' ? t('payments.stripeNotConfigured') : fallback;
       setError(message);
     }
   }

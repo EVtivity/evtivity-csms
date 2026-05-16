@@ -23,7 +23,12 @@ import { getPubSub } from '../../lib/pubsub.js';
 import { successResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../../lib/ocpp-command.js';
-import { isStationCheckRateLimited, isGuestSessionRateLimited } from '../../lib/rate-limiters.js';
+import {
+  isStationCheckRateLimited,
+  isGuestSessionRateLimited,
+  getCachedConnectorStatus,
+  setCachedConnectorStatus,
+} from '../../lib/rate-limiters.js';
 import { getStripeConfig } from '../../services/stripe.service.js';
 import { resolveTariff, isTariffFree } from '../../services/tariff.service.js';
 import { isEvseInReservationBuffer } from '../../lib/reservation-buffer.js';
@@ -155,13 +160,12 @@ const guestStartBody = z.object({
 
 const sessionTokenParams = z.object({
   // Generated tokens are 20-char hex (10 random bytes) per the OCPP 1.6
-  // idTag maxLength constraint, but accept any string up to the DB column
-  // width so callers passing an unknown token get a clean 404 from the
-  // handler instead of a 400 from the validator.
+  // idTag maxLength constraint. Pin the validator to that exact format
+  // so a malformed token (typo, SQLi attempt, brute-force enumeration)
+  // fails fast at parse time without burning a DB lookup.
   sessionToken: z
     .string()
-    .min(1)
-    .max(64)
+    .regex(/^[0-9a-f]{20}$/, 'sessionToken must be 20 hex characters')
     .describe('Guest session token returned from the start endpoint (20-char hex)'),
 });
 
@@ -228,6 +232,14 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         return { connectorStatus: null, error: 'Station is offline' };
       }
 
+      // Cache lookup before rate-limit charge so concurrent drivers at a busy
+      // station share one TriggerMessage round-trip instead of locking each
+      // other out at the 5-per-minute station ceiling.
+      const cached = getCachedConnectorStatus(stationId, evseId);
+      if (cached != null) {
+        return { connectorStatus: cached.status, error: cached.error };
+      }
+
       if (isStationCheckRateLimited(stationId)) {
         await reply
           .status(429)
@@ -255,6 +267,11 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         station.id,
         station.ocppProtocol ?? undefined,
       );
+
+      setCachedConnectorStatus(stationId, evseId, {
+        status: result.status,
+        ...(result.error !== undefined ? { error: result.error } : {}),
+      });
 
       return { connectorStatus: result.status, error: result.error };
     },
@@ -606,17 +623,40 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         paymentIntentId = paymentIntent.id;
         stripeForRollback = config.stripe;
 
-        // Insert guest session with payment
-        await db.insert(guestSessions).values({
-          stationOcppId: station.stationId,
-          evseId: params.evseId,
-          stripePaymentIntentId: paymentIntent.id,
-          guestEmail: body.guestEmail,
-          preAuthAmountCents: config.preAuthAmountCents,
-          status: 'payment_authorized',
-          sessionToken,
-          expiresAt,
-        });
+        // Insert guest session with payment. If the DB write fails (FK
+        // violation, deadlock, network blip) we must cancel the Stripe
+        // pre-auth before bailing - otherwise the card is held against a
+        // session that doesn't exist anywhere in our system until the
+        // natural 7-day Stripe expiry releases it.
+        try {
+          await db.insert(guestSessions).values({
+            stationOcppId: station.stationId,
+            evseId: params.evseId,
+            stripePaymentIntentId: paymentIntent.id,
+            guestEmail: body.guestEmail,
+            preAuthAmountCents: config.preAuthAmountCents,
+            status: 'payment_authorized',
+            sessionToken,
+            expiresAt,
+          });
+        } catch (err: unknown) {
+          request.log.error(
+            { err, paymentIntentId, sessionToken },
+            'guest_sessions insert failed after PaymentIntent created; cancelling Stripe hold',
+          );
+          try {
+            await config.stripe.paymentIntents.cancel(paymentIntent.id);
+          } catch (cancelErr: unknown) {
+            request.log.warn(
+              { err: cancelErr, paymentIntentId },
+              'Failed to cancel guest PaymentIntent after DB insert failure',
+            );
+          }
+          // Re-throw so the global error handler maps it to 500 INTERNAL_ERROR
+          // - we explicitly cancelled the Stripe hold above so the cardholder
+          // is not stranded with an orphaned pre-auth.
+          throw err;
+        }
       }
 
       // Send RequestStartTransaction and wait for the station to ack so we can

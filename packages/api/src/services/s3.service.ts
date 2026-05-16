@@ -8,6 +8,7 @@ import {
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { like } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { settings } from '@evtivity/database';
 import { decryptString } from '@evtivity/lib';
@@ -43,12 +44,12 @@ export async function getS3Config(): Promise<S3Config | null> {
     return cachedConfig.config;
   }
 
-  const rows = await db.select().from(settings);
+  // Push the s3.* prefix filter to Postgres instead of selecting every
+  // settings row and discarding most of them in JS.
+  const rows = await db.select().from(settings).where(like(settings.key, 's3.%'));
   const map = new Map<string, unknown>();
   for (const row of rows) {
-    if (row.key.startsWith('s3.')) {
-      map.set(row.key, row.value);
-    }
+    map.set(row.key, row.value);
   }
 
   const bucket = map.get('s3.bucket') as string | undefined;
@@ -116,10 +117,20 @@ export function buildS3Key(
   return `support-cases/${caseId}/${String(messageId)}/${fileId}-${fileName}`;
 }
 
+// Strip any path separators or other shenanigans from the client-supplied
+// fileName before it becomes part of the S3 key. S3 treats keys as opaque
+// strings so a traversal attempt like '../../secret' is harmless to the
+// bucket itself, but the fileName is echoed back in API responses and
+// displayed in the portal UI - sanitising here keeps logs and stored
+// metadata clean.
+function sanitizeImageFileName(fileName: string): string {
+  return fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100) || 'image';
+}
+
 export function buildStationImageS3Key(
   stationId: string,
   fileId: string,
   fileName: string,
 ): string {
-  return `stations/${stationId}/${fileId}-${fileName}`;
+  return `stations/${stationId}/${fileId}-${sanitizeImageFileName(fileName)}`;
 }

@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { eq } from 'drizzle-orm';
+import { eq, like } from 'drizzle-orm';
 import { db, chatbotAiConfigs, settings, users } from '@evtivity/database';
 import { decryptString } from '@evtivity/lib';
 import type { ChatMessage, ChatOptions } from './types.js';
@@ -68,7 +68,10 @@ async function resolveConfig(userId: string): Promise<AssistantConfig> {
     };
   }
 
-  const systemRows = await db.select({ key: settings.key, value: settings.value }).from(settings);
+  const systemRows = await db
+    .select({ key: settings.key, value: settings.value })
+    .from(settings)
+    .where(like(settings.key, 'chatbotAi.%'));
   const get = (k: string) => systemRows.find((r) => r.key === k)?.value;
 
   if (get('chatbotAi.enabled') !== true) {

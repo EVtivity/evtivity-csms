@@ -16,6 +16,7 @@ import { arrayResponse, itemResponse, errorWith } from '../lib/response-schemas.
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { buildCsv } from '../services/report-generators/csv-builder.js';
 
 const carbonFactorItem = z
   .object({
@@ -181,20 +182,7 @@ export function carbonRoutes(app: FastifyInstance): void {
       const user = request.user as { userId: string };
       const userSiteIds = await getUserSiteIds(user.userId);
 
-      const dateConditions: string[] = [];
-      if (from != null) {
-        dateConditions.push(`cs.ended_at >= '${from}'::timestamptz`);
-      }
-      if (to != null) {
-        dateConditions.push(`cs.ended_at <= '${to}T23:59:59.999Z'::timestamptz`);
-      }
-      if (siteId != null) {
-        dateConditions.push(`st.site_id = '${siteId}'`);
-      }
-      if (userSiteIds != null && userSiteIds.length > 0) {
-        const ids = userSiteIds.map((id) => `'${id}'`).join(',');
-        dateConditions.push(`st.site_id IN (${ids})`);
-      } else if (userSiteIds != null && userSiteIds.length === 0) {
+      if (userSiteIds != null && userSiteIds.length === 0) {
         return {
           monthlySummary: [],
           siteBreakdown: [],
@@ -202,24 +190,46 @@ export function carbonRoutes(app: FastifyInstance): void {
         };
       }
 
-      const whereClause = dateConditions.length > 0 ? `AND ${dateConditions.join(' AND ')}` : '';
+      // Build the WHERE clause via parameterized sql fragments. The prior
+      // sql.raw() string-interpolated siteId, from, to into the query
+      // verbatim. siteId was a bare z.string() with no format check, so a
+      // crafted query value could break out of the literal and inject SQL.
+      const fragments = [sql`cs.status = 'completed' AND cs.co2_avoided_kg IS NOT NULL`];
+      if (from != null) {
+        fragments.push(sql`cs.ended_at >= ${from}::timestamptz`);
+      }
+      if (to != null) {
+        fragments.push(sql`cs.ended_at <= ${`${to}T23:59:59.999Z`}::timestamptz`);
+      }
+      if (siteId != null) {
+        fragments.push(sql`st.site_id = ${siteId}`);
+      }
+      if (userSiteIds != null) {
+        fragments.push(
+          sql`st.site_id IN (${sql.join(
+            userSiteIds.map((id) => sql`${id}`),
+            sql`, `,
+          )})`,
+        );
+      }
+      const whereClause = sql.join(fragments, sql` AND `);
 
-      const monthlyRows = await db.execute(
-        sql.raw(`
+      // Monthly summary and site breakdown share the WHERE clause but
+      // are independent aggregations - fetch in parallel to halve the
+      // wall-clock on the report page.
+      const [monthlyRows, siteRows] = await Promise.all([
+        db.execute(sql`
           SELECT to_char(cs.ended_at, 'YYYY-MM') AS month,
                  COALESCE(SUM(cs.co2_avoided_kg::numeric), 0) AS co2_avoided_kg,
                  COALESCE(SUM(cs.energy_delivered_wh::numeric), 0) AS energy_wh,
                  COUNT(*)::int AS session_count
           FROM charging_sessions cs
           JOIN charging_stations st ON st.id = cs.station_id
-          WHERE cs.status = 'completed' AND cs.co2_avoided_kg IS NOT NULL ${whereClause}
+          WHERE ${whereClause}
           GROUP BY to_char(cs.ended_at, 'YYYY-MM')
           ORDER BY month
         `),
-      );
-
-      const siteRows = await db.execute(
-        sql.raw(`
+        db.execute(sql`
           SELECT st.site_id, s.name AS site_name,
                  COALESCE(SUM(cs.co2_avoided_kg::numeric), 0) AS co2_avoided_kg,
                  COALESCE(SUM(cs.energy_delivered_wh::numeric), 0) AS energy_wh,
@@ -227,11 +237,11 @@ export function carbonRoutes(app: FastifyInstance): void {
           FROM charging_sessions cs
           JOIN charging_stations st ON st.id = cs.station_id
           JOIN sites s ON s.id = st.site_id
-          WHERE cs.status = 'completed' AND cs.co2_avoided_kg IS NOT NULL ${whereClause}
+          WHERE ${whereClause}
           GROUP BY st.site_id, s.name
           ORDER BY co2_avoided_kg DESC
         `),
-      );
+      ]);
 
       const monthlySummary = (monthlyRows as unknown as Record<string, unknown>[]).map((r) => ({
         month: r.month as string,
@@ -314,7 +324,6 @@ export function carbonRoutes(app: FastifyInstance): void {
 
       const filtered = rows.filter((r) => r.co2AvoidedKg != null);
 
-      const csvLines = ['Month,Site,CO2 Avoided (kg),Energy (kWh),Sessions'];
       const grouped = new Map<string, { co2: number; energy: number; count: number }>();
       for (const row of filtered) {
         const month =
@@ -328,16 +337,29 @@ export function carbonRoutes(app: FastifyInstance): void {
         grouped.set(key, existing);
       }
 
+      // Use the shared buildCsv helper so formula-trigger characters at
+      // the start of a site name (=, +, -, @, tab, CR) get prefixed with
+      // a single quote. Without this, a malicious site name like
+      // "=cmd|'/c calc'!A0" executes when an operator opens the export
+      // in Excel/Sheets.
+      const rowsForCsv: unknown[][] = [];
       for (const [key, data] of grouped) {
         const [month, site] = key.split('|');
-        csvLines.push(
-          `${month ?? ''},"${site ?? ''}",${data.co2.toFixed(2)},${(data.energy / 1000).toFixed(2)},${String(data.count)}`,
-        );
+        rowsForCsv.push([
+          month ?? '',
+          site ?? '',
+          data.co2.toFixed(2),
+          (data.energy / 1000).toFixed(2),
+          data.count,
+        ]);
       }
 
       void reply.header('Content-Type', 'text/csv');
       void reply.header('Content-Disposition', 'attachment; filename="sustainability-report.csv"');
-      return csvLines.join('\n');
+      return buildCsv(
+        ['Month', 'Site', 'CO2 Avoided (kg)', 'Energy (kWh)', 'Sessions'],
+        rowsForCsv,
+      );
     },
   );
 }

@@ -695,7 +695,7 @@ describe('Settings routes - full coverage', () => {
       expect(res.statusCode).toBe(400);
       const body = res.json();
       expect(body.error).toBe('S3 not configured');
-      expect(body.code).toBe('S3_NOT_CONFIGURED');
+      expect(body.code).toBe('STORAGE_NOT_CONFIGURED');
     });
 
     it('returns success when S3 connection works', async () => {
@@ -729,7 +729,7 @@ describe('Settings routes - full coverage', () => {
       expect(res.statusCode).toBe(400);
       const body = res.json();
       expect(body.error).toBe('Access Denied');
-      expect(body.code).toBe('S3_CONNECTION_FAILED');
+      expect(body.code).toBe('STORAGE_CONNECTION_FAILED');
     });
 
     it('returns 400 with "Unknown error" when S3 throws non-Error', async () => {
@@ -747,7 +747,7 @@ describe('Settings routes - full coverage', () => {
       expect(res.statusCode).toBe(400);
       const body = res.json();
       expect(body.error).toBe('Unknown error');
-      expect(body.code).toBe('S3_CONNECTION_FAILED');
+      expect(body.code).toBe('STORAGE_CONNECTION_FAILED');
     });
   });
 });

@@ -113,6 +113,8 @@ vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
   and: vi.fn(),
   desc: vi.fn(),
+  inArray: vi.fn(),
+  like: vi.fn(),
   sql: Object.assign(vi.fn(), { raw: vi.fn() }),
 }));
 
@@ -550,7 +552,9 @@ describe('Payment routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      setupDbResults([record]);
+      // First query joins session->station to derive siteId for the
+      // site-access guard; second query fetches the payment record.
+      setupDbResults([{ siteId: VALID_SITE_ID }], [record]);
 
       const response = await app.inject({
         method: 'GET',
@@ -953,7 +957,7 @@ describe('Payment routes - handler logic', () => {
       expect(response.json().code).toBe('DRIVER_NOT_FOUND');
     });
 
-    it('returns 400 STRIPE_NOT_CONFIGURED when Stripe is not configured', async () => {
+    it('returns 400 PAYMENT_PROVIDER_NOT_CONFIGURED when Stripe is not configured', async () => {
       const driver = {
         id: VALID_DRIVER_ID,
         email: 'test@example.com',
@@ -971,10 +975,10 @@ describe('Payment routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(400);
-      expect(response.json().code).toBe('STRIPE_NOT_CONFIGURED');
+      expect(response.json().code).toBe('PAYMENT_PROVIDER_NOT_CONFIGURED');
     });
 
-    it('returns 400 STRIPE_NOT_CONFIGURED when Stripe SDK throws (e.g. invalid key)', async () => {
+    it('returns 400 PAYMENT_PROVIDER_NOT_CONFIGURED when Stripe SDK throws (e.g. invalid key)', async () => {
       const driver = {
         id: VALID_DRIVER_ID,
         email: 'test@example.com',
@@ -992,11 +996,11 @@ describe('Payment routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(400);
-      expect(response.json().code).toBe('STRIPE_NOT_CONFIGURED');
+      expect(response.json().code).toBe('PAYMENT_PROVIDER_NOT_CONFIGURED');
       expect(response.json().error).toContain('Invalid API Key provided');
     });
 
-    it('returns 400 STRIPE_NOT_CONFIGURED when SetupIntent has empty client_secret', async () => {
+    it('returns 400 PAYMENT_PROVIDER_NOT_CONFIGURED when SetupIntent has empty client_secret', async () => {
       const driver = {
         id: VALID_DRIVER_ID,
         email: 'test@example.com',
@@ -1017,7 +1021,7 @@ describe('Payment routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(400);
-      expect(response.json().code).toBe('STRIPE_NOT_CONFIGURED');
+      expect(response.json().code).toBe('PAYMENT_PROVIDER_NOT_CONFIGURED');
     });
   });
 
@@ -1058,7 +1062,7 @@ describe('Payment routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(400);
-      expect(response.json().code).toBe('STRIPE_NOT_CONFIGURED');
+      expect(response.json().code).toBe('PAYMENT_PROVIDER_NOT_CONFIGURED');
     });
 
     it('returns 400 when Stripe connection fails', async () => {
@@ -1083,7 +1087,7 @@ describe('Payment routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(400);
-      expect(response.json().code).toBe('STRIPE_CONNECTION_FAILED');
+      expect(response.json().code).toBe('PAYMENT_PROVIDER_CONNECTION_FAILED');
     });
   });
 

@@ -107,6 +107,13 @@ vi.mock('../middleware/rbac.js', () => ({
     },
 }));
 
+// The generate/schedule routes call getUserSiteIds() to validate that
+// filters.siteId is in the operator's allowed sites. Stub it to null
+// (full access) so tests that don't pass filters.siteId proceed normally.
+vi.mock('../lib/site-access.js', () => ({
+  getUserSiteIds: vi.fn().mockResolvedValue(null),
+}));
+
 import { registerAuth } from '../plugins/auth.js';
 import { reportRoutes } from '../routes/reports.js';
 

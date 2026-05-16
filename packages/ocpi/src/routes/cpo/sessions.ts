@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import { desc, gte, lte, sql } from 'drizzle-orm';
+import { desc, eq, gte, lte, sql } from 'drizzle-orm';
 import { db, ocpiRoamingSessions, ocpiCdrs } from '@evtivity/database';
-import { ocpiSuccess } from '../../lib/ocpi-response.js';
+import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
 import { parsePaginationParams, setPaginationHeaders } from '../../lib/ocpi-pagination.js';
 import { ocpiAuthenticate } from '../../middleware/ocpi-auth.js';
 import type { OcpiVersion, OcpiSession } from '../../types/ocpi.js';
@@ -15,9 +15,18 @@ function registerCpoSessionRoutes(app: FastifyInstance, version: OcpiVersion): v
     `/ocpi/${version}/cpo/sessions`,
     { onRequest: [ocpiAuthenticate] },
     async (request, reply) => {
+      // Per-partner isolation: each OCPI partner must only see THEIR own
+      // roaming sessions. Without this filter any authenticated partner can
+      // enumerate every other partner's sessions, leaking competitor data
+      // and driver tokens across networks.
+      const partner = request.ocpiPartner;
+      if (partner?.partnerId == null) {
+        return ocpiError(OcpiStatusCode.CLIENT_ERROR, 'Not authenticated');
+      }
+
       const { offset, limit, dateFrom, dateTo } = parsePaginationParams(request);
 
-      const conditions = [];
+      const conditions = [eq(ocpiRoamingSessions.partnerId, partner.partnerId)];
       if (dateFrom != null) {
         conditions.push(gte(ocpiRoamingSessions.updatedAt, dateFrom));
       }
@@ -25,7 +34,7 @@ function registerCpoSessionRoutes(app: FastifyInstance, version: OcpiVersion): v
         conditions.push(lte(ocpiRoamingSessions.updatedAt, dateTo));
       }
 
-      const where = conditions.length > 0 ? sql.join(conditions, sql` AND `) : undefined;
+      const where = sql.join(conditions, sql` AND `);
 
       const [rows, countRows] = await Promise.all([
         db
@@ -57,9 +66,15 @@ function registerCpoCdrRoutes(app: FastifyInstance, version: OcpiVersion): void 
     `/ocpi/${version}/cpo/cdrs`,
     { onRequest: [ocpiAuthenticate] },
     async (request, reply) => {
+      // Per-partner isolation - see sessions endpoint above for rationale.
+      const partner = request.ocpiPartner;
+      if (partner?.partnerId == null) {
+        return ocpiError(OcpiStatusCode.CLIENT_ERROR, 'Not authenticated');
+      }
+
       const { offset, limit, dateFrom, dateTo } = parsePaginationParams(request);
 
-      const conditions = [];
+      const conditions = [eq(ocpiCdrs.partnerId, partner.partnerId)];
       if (dateFrom != null) {
         conditions.push(gte(ocpiCdrs.updatedAt, dateFrom));
       }
@@ -67,7 +82,7 @@ function registerCpoCdrRoutes(app: FastifyInstance, version: OcpiVersion): void 
         conditions.push(lte(ocpiCdrs.updatedAt, dateTo));
       }
 
-      const where = conditions.length > 0 ? sql.join(conditions, sql` AND `) : undefined;
+      const where = sql.join(conditions, sql` AND `);
 
       const [rows, countRows] = await Promise.all([
         db

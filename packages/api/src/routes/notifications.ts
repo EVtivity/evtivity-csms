@@ -726,7 +726,7 @@ export function notificationRoutes(app: FastifyInstance): void {
         if (host == null || host === '') {
           await reply
             .status(400)
-            .send({ error: 'SMTP not configured', code: 'SMTP_NOT_CONFIGURED' });
+            .send({ error: 'SMTP not configured', code: 'EMAIL_NOT_CONFIGURED' });
           return;
         }
 
@@ -773,7 +773,7 @@ export function notificationRoutes(app: FastifyInstance): void {
       if (accountSid == null || accountSid === '') {
         await reply
           .status(400)
-          .send({ error: 'Twilio not configured', code: 'TWILIO_NOT_CONFIGURED' });
+          .send({ error: 'Twilio not configured', code: 'SMS_NOT_CONFIGURED' });
         return;
       }
 

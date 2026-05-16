@@ -61,35 +61,41 @@ export async function stationMessageChargingRefreshHandler(log: Logger): Promise
 
   const pubsub = getPubSub();
   const now = Date.now();
-  let published = 0;
 
-  for (const session of activeSessions) {
+  // Filter to sessions whose station is past the per-station refresh
+  // window, then publish in parallel. Serial publish on N active sessions
+  // adds N x Redis-RTT to every cron tick; parallelizing brings it back
+  // to a single RTT regardless of fleet size.
+  const sessionsToPush = activeSessions.filter((session) => {
     const lastPushedAt = lastPushByStation.get(session.stationUuid);
-    if (lastPushedAt != null && now - lastPushedAt.getTime() < refreshSeconds * 1000) {
-      continue;
-    }
+    return lastPushedAt == null || now - lastPushedAt.getTime() >= refreshSeconds * 1000;
+  });
 
-    try {
-      await pubsub.publish(
-        STATION_MESSAGE_TRANSACTION_CHANNEL,
-        JSON.stringify({
-          sessionId: session.sessionId,
-          internalStationId: session.stationUuid,
-          stationOcppId: session.stationOcppId,
-          ocppProtocol: session.ocppProtocol,
-          eventType: 'updated',
-          chargingState: 'Charging',
+  const results = await Promise.allSettled(
+    sessionsToPush.map((session) =>
+      pubsub
+        .publish(
+          STATION_MESSAGE_TRANSACTION_CHANNEL,
+          JSON.stringify({
+            sessionId: session.sessionId,
+            internalStationId: session.stationUuid,
+            stationOcppId: session.stationOcppId,
+            ocppProtocol: session.ocppProtocol,
+            eventType: 'updated',
+            chargingState: 'Charging',
+          }),
+        )
+        .catch((err: unknown) => {
+          log.warn(
+            { sessionId: session.sessionId, error: err },
+            'Failed to publish station_message_transaction refresh event',
+          );
+          throw err;
         }),
-      );
-      published++;
-    } catch (err: unknown) {
-      log.warn(
-        { sessionId: session.sessionId, error: err },
-        'Failed to publish station_message_transaction refresh event',
-      );
-    }
-  }
+    ),
+  );
 
+  const published = results.filter((r) => r.status === 'fulfilled').length;
   if (published > 0) {
     log.info({ published }, 'Station message charging refresh published');
   }

@@ -48,6 +48,7 @@ vi.mock('@evtivity/database', () => ({
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((_col: unknown, val: unknown) => val),
+  and: vi.fn((...args: unknown[]) => args),
 }));
 
 import { handleAuthorize } from '../handlers/v1_6/authorize.handler.js';

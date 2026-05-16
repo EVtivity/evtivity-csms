@@ -296,26 +296,30 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const sessions = await db
-        .select({
-          id: supportCaseSessions.sessionId,
-          transactionId: chargingSessions.transactionId,
-        })
-        .from(supportCaseSessions)
-        .innerJoin(chargingSessions, eq(supportCaseSessions.sessionId, chargingSessions.id))
-        .where(eq(supportCaseSessions.caseId, id));
-
-      // Exclude internal messages
-      const messages = await db
-        .select({
-          id: supportCaseMessages.id,
-          senderType: supportCaseMessages.senderType,
-          body: supportCaseMessages.body,
-          createdAt: supportCaseMessages.createdAt,
-        })
-        .from(supportCaseMessages)
-        .where(and(eq(supportCaseMessages.caseId, id), eq(supportCaseMessages.isInternal, false)))
-        .orderBy(supportCaseMessages.createdAt);
+      // Sessions and messages are independent — fan in parallel so the
+      // portal detail page is bounded by the slower query (matches the
+      // operator detail endpoint's pattern).
+      const [sessions, messages] = await Promise.all([
+        db
+          .select({
+            id: supportCaseSessions.sessionId,
+            transactionId: chargingSessions.transactionId,
+          })
+          .from(supportCaseSessions)
+          .innerJoin(chargingSessions, eq(supportCaseSessions.sessionId, chargingSessions.id))
+          .where(eq(supportCaseSessions.caseId, id)),
+        // Exclude internal messages — drivers must not see operator notes.
+        db
+          .select({
+            id: supportCaseMessages.id,
+            senderType: supportCaseMessages.senderType,
+            body: supportCaseMessages.body,
+            createdAt: supportCaseMessages.createdAt,
+          })
+          .from(supportCaseMessages)
+          .where(and(eq(supportCaseMessages.caseId, id), eq(supportCaseMessages.isInternal, false)))
+          .orderBy(supportCaseMessages.createdAt),
+      ]);
 
       const messageIds = messages.map((m) => m.id);
       let attachments: Array<{
@@ -368,12 +372,30 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         operationId: 'portalCreateSupportCase',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createCaseBody),
-        response: { 200: itemResponse(portalSupportCaseItem) },
+        response: {
+          200: itemResponse(portalSupportCaseItem),
+          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { driverId } = request.user as DriverJwtPayload;
       const body = request.body as z.infer<typeof createCaseBody>;
+
+      // Reject sessionId that does not belong to this driver. Without this
+      // guard a driver can attach another driver's session to a case, polluting
+      // operator workflows and letting them appear in disputes for sessions
+      // they did not run.
+      if (body.sessionId != null) {
+        const [session] = await db
+          .select({ driverId: chargingSessions.driverId })
+          .from(chargingSessions)
+          .where(eq(chargingSessions.id, body.sessionId));
+        if (session == null || session.driverId !== driverId) {
+          await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+          return;
+        }
+      }
 
       const caseNumber = await getNextCaseNumber();
 
@@ -509,7 +531,7 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         body: zodSchema(requestUploadUrlBody),
         response: {
           200: itemResponse(uploadUrlResponse),
-          400: errorWith('S3 not configured', [ERROR_CODES.S3_NOT_CONFIGURED]),
+          400: errorWith('S3 not configured', [ERROR_CODES.STORAGE_NOT_CONFIGURED]),
           403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN]),
           404: errorWith('Message not found', [ERROR_CODES.MESSAGE_NOT_FOUND]),
         },
@@ -549,7 +571,9 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
 
       const s3 = await getS3Config();
       if (s3 == null) {
-        await reply.status(400).send({ error: 'S3 not configured', code: 'S3_NOT_CONFIGURED' });
+        await reply
+          .status(400)
+          .send({ error: 'Attachment storage not configured', code: 'STORAGE_NOT_CONFIGURED' });
         return;
       }
 
@@ -606,6 +630,22 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Reject s3Key values that do not belong to this case+message. The
+      // download endpoint hands back a presigned GET against the stored s3Key
+      // verbatim, so trusting an arbitrary client-supplied key here would let
+      // a driver insert a row whose s3Key points at another driver's file
+      // path and then retrieve it via the matching download URL.
+      const expectedPrefix = `support-cases/${id}/${String(messageId)}/`;
+      if (!body.s3Key.startsWith(expectedPrefix)) {
+        await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+        return;
+      }
+      const s3 = await getS3Config();
+      if (s3 == null || body.s3Bucket !== s3.bucket) {
+        await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+        return;
+      }
+
       const [attachment] = await db
         .insert(supportCaseAttachments)
         .values({
@@ -635,7 +675,7 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         params: zodSchema(attachmentIdParams),
         response: {
           200: itemResponse(downloadUrlResponse),
-          400: errorWith('S3 not configured', [ERROR_CODES.S3_NOT_CONFIGURED]),
+          400: errorWith('S3 not configured', [ERROR_CODES.STORAGE_NOT_CONFIGURED]),
           403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN]),
           404: errorWith('Message not found', [ERROR_CODES.MESSAGE_NOT_FOUND]),
         },
@@ -691,7 +731,9 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
 
       const s3 = await getS3Config();
       if (s3 == null) {
-        await reply.status(400).send({ error: 'S3 not configured', code: 'S3_NOT_CONFIGURED' });
+        await reply
+          .status(400)
+          .send({ error: 'Attachment storage not configured', code: 'STORAGE_NOT_CONFIGURED' });
         return;
       }
 

@@ -37,11 +37,21 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
         token_uid: string;
       };
 
+      // Per-partner isolation: a token's (country_code, party_id) names the
+      // eMSP that owns it. Without this guard any authenticated partner can
+      // GET another partner's token data by guessing the party identifier.
+      const partner = request.ocpiPartner;
+      if (partner?.partnerId == null) {
+        await reply.status(401).send(ocpiError(OcpiStatusCode.CLIENT_ERROR, 'Not authenticated'));
+        return;
+      }
+
       const [token] = await db
         .select()
         .from(ocpiExternalTokens)
         .where(
           and(
+            eq(ocpiExternalTokens.partnerId, partner.partnerId),
             eq(ocpiExternalTokens.countryCode, country_code),
             eq(ocpiExternalTokens.partyId, party_id),
             eq(ocpiExternalTokens.uid, token_uid),

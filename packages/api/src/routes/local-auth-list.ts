@@ -541,17 +541,22 @@ export function localAuthListRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Fetch the requested tokens
-      const tokens = await db
-        .select({
-          id: driverTokens.id,
-          idToken: driverTokens.idToken,
-          tokenType: driverTokens.tokenType,
-        })
-        .from(driverTokens)
-        .where(and(eq(driverTokens.isActive, true)));
+      // Fetch only the requested tokens. The prior pattern selected every
+      // active driver token in the system and JS-filtered down to the
+      // small requested set, which transferred N thousand rows for an
+      // operation that touches a handful.
+      const requestedTokens =
+        tokenIds.length === 0
+          ? []
+          : await db
+              .select({
+                id: driverTokens.id,
+                idToken: driverTokens.idToken,
+                tokenType: driverTokens.tokenType,
+              })
+              .from(driverTokens)
+              .where(and(eq(driverTokens.isActive, true), inArray(driverTokens.id, tokenIds)));
 
-      const requestedTokens = tokens.filter((t) => tokenIds.includes(t.id));
       if (requestedTokens.length === 0) {
         await reply.status(400).send({ error: 'No valid tokens found', code: 'NO_VALID_TOKENS' });
         return;
@@ -635,30 +640,37 @@ export function localAuthListRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Fetch entries to remove
-      const entries = await db
-        .select()
-        .from(stationLocalAuthEntries)
-        .where(and(eq(stationLocalAuthEntries.stationId, stationId)));
+      // Fetch only the requested entries scoped to this station - the
+      // prior pattern loaded every entry on the station (could be 10k+)
+      // and JS-filtered for the small id set the caller asked about.
+      const entriesToRemove =
+        entryIds.length === 0
+          ? []
+          : await db
+              .select({ id: stationLocalAuthEntries.id })
+              .from(stationLocalAuthEntries)
+              .where(
+                and(
+                  eq(stationLocalAuthEntries.stationId, stationId),
+                  inArray(stationLocalAuthEntries.id, entryIds),
+                ),
+              );
 
-      const entriesToRemove = entries.filter((e) => entryIds.includes(e.id));
       if (entriesToRemove.length === 0) {
         await reply.status(400).send({ error: 'No valid entries found', code: 'NO_VALID_ENTRIES' });
         return;
       }
 
-      // Delete entries from tracking
+      // Delete entries from tracking in a single statement instead of N.
       const removeIds = entriesToRemove.map((e) => e.id);
-      for (const id of removeIds) {
-        await db
-          .delete(stationLocalAuthEntries)
-          .where(
-            and(
-              eq(stationLocalAuthEntries.id, id),
-              eq(stationLocalAuthEntries.stationId, stationId),
-            ),
-          );
-      }
+      await db
+        .delete(stationLocalAuthEntries)
+        .where(
+          and(
+            eq(stationLocalAuthEntries.stationId, stationId),
+            inArray(stationLocalAuthEntries.id, removeIds),
+          ),
+        );
 
       // Mark list as modified
       await getOrCreateVersionRow(stationId);

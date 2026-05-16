@@ -138,51 +138,42 @@ export async function pullLocations(partnerId: string): Promise<SyncResult> {
     const client = createOcpiClient(token, partner.countryCode, partner.partyId);
     const locations = await client.getPaginated<OcpiLocation>(url);
 
+    // Upsert each location in a single round-trip using the
+    // (partner_id, country_code, party_id, location_id) unique constraint
+    // instead of doing a separate SELECT+INSERT/UPDATE per row. A 1000-row
+    // pull dropped from ~2000 DB round-trips to ~1000.
     let count = 0;
     for (const location of locations) {
-      const countryCode = location.country_code;
-      const partyId = location.party_id;
-      const locationId = location.id;
       const evseCount = String(Array.isArray(location.evses) ? location.evses.length : 0);
-
-      const [existing] = await db
-        .select({ id: ocpiExternalLocations.id })
-        .from(ocpiExternalLocations)
-        .where(
-          and(
-            eq(ocpiExternalLocations.partnerId, partnerId),
-            eq(ocpiExternalLocations.countryCode, countryCode),
-            eq(ocpiExternalLocations.partyId, partyId),
-            eq(ocpiExternalLocations.locationId, locationId),
-          ),
-        )
-        .limit(1);
-
-      if (existing != null) {
-        await db
-          .update(ocpiExternalLocations)
-          .set({
+      await db
+        .insert(ocpiExternalLocations)
+        .values({
+          partnerId,
+          countryCode: location.country_code,
+          partyId: location.party_id,
+          locationId: location.id,
+          name: location.name,
+          latitude: location.coordinates.latitude,
+          longitude: location.coordinates.longitude,
+          evseCount,
+          locationData: location,
+        })
+        .onConflictDoUpdate({
+          target: [
+            ocpiExternalLocations.partnerId,
+            ocpiExternalLocations.countryCode,
+            ocpiExternalLocations.partyId,
+            ocpiExternalLocations.locationId,
+          ],
+          set: {
             name: location.name ?? null,
             latitude: location.coordinates.latitude,
             longitude: location.coordinates.longitude,
             evseCount,
             locationData: location,
             updatedAt: new Date(),
-          })
-          .where(eq(ocpiExternalLocations.id, existing.id));
-      } else {
-        await db.insert(ocpiExternalLocations).values({
-          partnerId,
-          countryCode,
-          partyId,
-          locationId,
-          name: location.name,
-          latitude: location.coordinates.latitude,
-          longitude: location.coordinates.longitude,
-          evseCount,
-          locationData: location,
+          },
         });
-      }
       count++;
     }
 
@@ -219,44 +210,33 @@ export async function pullTariffs(partnerId: string): Promise<SyncResult> {
     const client = createOcpiClient(token, partner.countryCode, partner.partyId);
     const tariffs = await client.getPaginated<OcpiTariff>(url);
 
+    // Upsert via unique constraint - halves DB round-trips per tariff vs
+    // the prior SELECT+INSERT/UPDATE pattern.
     let count = 0;
     for (const tariff of tariffs) {
-      const countryCode = tariff.country_code;
-      const partyId = tariff.party_id;
-      const tariffId = tariff.id;
-
-      const [existing] = await db
-        .select({ id: ocpiExternalTariffs.id })
-        .from(ocpiExternalTariffs)
-        .where(
-          and(
-            eq(ocpiExternalTariffs.partnerId, partnerId),
-            eq(ocpiExternalTariffs.countryCode, countryCode),
-            eq(ocpiExternalTariffs.partyId, partyId),
-            eq(ocpiExternalTariffs.tariffId, tariffId),
-          ),
-        )
-        .limit(1);
-
-      if (existing != null) {
-        await db
-          .update(ocpiExternalTariffs)
-          .set({
+      await db
+        .insert(ocpiExternalTariffs)
+        .values({
+          partnerId,
+          countryCode: tariff.country_code,
+          partyId: tariff.party_id,
+          tariffId: tariff.id,
+          currency: tariff.currency,
+          tariffData: tariff,
+        })
+        .onConflictDoUpdate({
+          target: [
+            ocpiExternalTariffs.partnerId,
+            ocpiExternalTariffs.countryCode,
+            ocpiExternalTariffs.partyId,
+            ocpiExternalTariffs.tariffId,
+          ],
+          set: {
             currency: tariff.currency,
             tariffData: tariff,
             updatedAt: new Date(),
-          })
-          .where(eq(ocpiExternalTariffs.id, existing.id));
-      } else {
-        await db.insert(ocpiExternalTariffs).values({
-          partnerId,
-          countryCode,
-          partyId,
-          tariffId,
-          currency: tariff.currency,
-          tariffData: tariff,
+          },
         });
-      }
       count++;
     }
 

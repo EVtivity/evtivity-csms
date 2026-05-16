@@ -2551,7 +2551,10 @@ export function userRoutes(app: FastifyInstance): void {
     topP: z.number().min(0).max(1).optional().describe('Top-p sampling (0-1)'),
     topK: z.number().int().min(1).optional().describe('Top-k sampling'),
     systemPrompt: z.string().optional().describe('Custom system prompt for support AI'),
-    tone: z.string().optional().describe('Response tone (e.g. professional, friendly, concise)'),
+    tone: z
+      .enum(['professional', 'friendly', 'formal'])
+      .optional()
+      .describe('Response tone — one of professional, friendly, formal'),
   });
 
   app.put(

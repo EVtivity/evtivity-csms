@@ -29,8 +29,6 @@ const paymentMethodItem = z
   .object({
     id: z.string().describe('Driver payment method ID'),
     driverId: z.string().describe('Owning driver ID'),
-    stripeCustomerId: z.string().max(255).describe('Stripe Customer ID'),
-    stripePaymentMethodId: z.string().max(255).describe('Stripe PaymentMethod ID'),
     cardBrand: z
       .string()
       .max(20)
@@ -68,6 +66,38 @@ const savePaymentMethodBody = z.object({
   cardLast4: z.string().max(4).optional(),
 });
 
+// Strip Stripe-internal identifiers before returning to the driver. The portal
+// UI only needs display fields; leaking the customer / payment-method IDs to
+// the client is unnecessary attack surface, especially given those IDs are
+// the inputs the previous cross-driver-charge bug abused.
+function toPublicPaymentMethod(row: {
+  id: number;
+  driverId: string;
+  cardBrand: string | null;
+  cardLast4: string | null;
+  isDefault: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}): {
+  id: number;
+  driverId: string;
+  cardBrand: string | null;
+  cardLast4: string | null;
+  isDefault: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+} {
+  return {
+    id: row.id,
+    driverId: row.driverId,
+    cardBrand: row.cardBrand,
+    cardLast4: row.cardLast4,
+    isDefault: row.isDefault,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 export function portalPaymentRoutes(app: FastifyInstance): void {
   app.get(
     '/portal/payment-methods',
@@ -83,7 +113,9 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { driverId } = request.user as DriverJwtPayload;
-      const rows = await db
+      // Internal fields needed for backfill / Stripe lookups, not surfaced
+      // to the driver in the response.
+      const internalRows = await db
         .select()
         .from(driverPaymentMethods)
         .where(eq(driverPaymentMethods.driverId, driverId));
@@ -91,7 +123,7 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
       // Backfill cardBrand/cardLast4 from Stripe for legacy rows where the
       // frontend stored null (the SetupIntent.payment_method was a string ID,
       // not the expanded object). One-time per row, then never again.
-      const needsBackfill = rows.filter(
+      const needsBackfill = internalRows.filter(
         (r) => r.cardLast4 == null && !isSimulatedCustomer(r.stripeCustomerId),
       );
       if (needsBackfill.length > 0) {
@@ -124,7 +156,18 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
           );
         }
       }
-      return rows;
+      // Strip Stripe-internal identifiers (customer / payment method IDs)
+      // before returning. The driver only needs the display fields; leaking
+      // Stripe IDs to the portal client is needless attack surface.
+      return internalRows.map((row) => ({
+        id: row.id,
+        driverId: row.driverId,
+        cardBrand: row.cardBrand,
+        cardLast4: row.cardLast4,
+        isDefault: row.isDefault,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      }));
     },
   );
 
@@ -141,7 +184,7 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         response: {
           200: itemResponse(setupIntentResponse),
-          400: errorWith('Stripe not configured', [ERROR_CODES.STRIPE_NOT_CONFIGURED]),
+          400: errorWith('Stripe not configured', [ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED]),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
         },
       },
@@ -155,6 +198,7 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
           email: drivers.email,
           firstName: drivers.firstName,
           lastName: drivers.lastName,
+          stripeCustomerId: drivers.stripeCustomerId,
         })
         .from(drivers)
         .where(eq(drivers.id, driverId));
@@ -167,36 +211,46 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
       const config = await getStripeConfig(null);
       if (config == null) {
         await reply.status(400).send({
-          error: 'No Stripe configuration available',
-          code: 'STRIPE_NOT_CONFIGURED',
+          error: 'Payment provider not configured',
+          code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
         });
         return;
       }
 
-      const [existingMethod] = await db
-        .select({ stripeCustomerId: driverPaymentMethods.stripeCustomerId })
-        .from(driverPaymentMethods)
-        .where(eq(driverPaymentMethods.driverId, driverId))
-        .limit(1);
-
       try {
         let customerId: string;
-        if (existingMethod != null) {
-          customerId = existingMethod.stripeCustomerId;
+        if (driver.stripeCustomerId != null) {
+          customerId = driver.stripeCustomerId;
         } else {
-          const customer = await createCustomer(
-            config,
-            driver.email ?? '',
-            `${driver.firstName} ${driver.lastName}`,
-          );
-          customerId = customer.id;
+          // Fall back to a customer ID from an existing PM row to handle the
+          // legacy case where a driver onboarded before drivers.stripeCustomerId
+          // existed. Persist it so future setup-intent calls have it directly.
+          const [existingMethod] = await db
+            .select({ stripeCustomerId: driverPaymentMethods.stripeCustomerId })
+            .from(driverPaymentMethods)
+            .where(eq(driverPaymentMethods.driverId, driverId))
+            .limit(1);
+          if (existingMethod != null) {
+            customerId = existingMethod.stripeCustomerId;
+          } else {
+            const customer = await createCustomer(
+              config,
+              driver.email ?? '',
+              `${driver.firstName} ${driver.lastName}`,
+            );
+            customerId = customer.id;
+          }
+          await db
+            .update(drivers)
+            .set({ stripeCustomerId: customerId, updatedAt: new Date() })
+            .where(eq(drivers.id, driverId));
         }
 
         const setupIntent = await createSetupIntent(config, customerId);
         if (setupIntent.client_secret == null || setupIntent.client_secret === '') {
           await reply.status(400).send({
-            error: 'Stripe returned an empty client secret',
-            code: 'STRIPE_NOT_CONFIGURED',
+            error: 'Payment setup failed',
+            code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
           });
           return;
         }
@@ -206,11 +260,13 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
           publishableKey: config.publishableKey,
         };
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Stripe call failed';
+        const message = err instanceof Error ? err.message : 'unknown error';
+        // Log the full error server-side; surface a generic message to the
+        // client so we do not leak provider names or upstream API behavior.
         request.log.warn({ err: message }, 'Stripe setup-intent failed');
         await reply.status(400).send({
-          error: `Stripe is configured but the API rejected the request: ${message}`,
-          code: 'STRIPE_NOT_CONFIGURED',
+          error: 'Payment setup failed',
+          code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
         });
         return;
       }
@@ -227,12 +283,66 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
         operationId: 'portalSavePaymentMethod',
         security: [{ bearerAuth: [] }],
         body: zodSchema(savePaymentMethodBody),
-        response: { 201: itemResponse(paymentMethodItem) },
+        response: {
+          201: itemResponse(paymentMethodItem),
+          400: errorWith('Stripe not configured', [ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED]),
+          403: errorResponse,
+          404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
+        },
       },
     },
     async (request, reply) => {
       const { driverId } = request.user as DriverJwtPayload;
       const body = request.body as z.infer<typeof savePaymentMethodBody>;
+
+      // Bind the saved PM to the Stripe customer we created for this driver
+      // in /setup-intent. Without this, a driver could submit another driver's
+      // (stripeCustomerId, stripePaymentMethodId) pair — the pre-auth code in
+      // event-projections.ts then reads `stripe_customer_id` + `stripe_payment_method_id`
+      // directly from the poisoned row and charges the victim's card.
+      const [driver] = await db
+        .select({ stripeCustomerId: drivers.stripeCustomerId })
+        .from(drivers)
+        .where(eq(drivers.id, driverId));
+
+      if (driver == null) {
+        await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+        return;
+      }
+
+      let authoritativeCustomerId = driver.stripeCustomerId;
+      if (authoritativeCustomerId == null) {
+        // Legacy backfill: if a driver has prior PMs but no drivers.stripeCustomerId
+        // (saved before the column existed), pin the first PM's customer ID.
+        const [existing] = await db
+          .select({ stripeCustomerId: driverPaymentMethods.stripeCustomerId })
+          .from(driverPaymentMethods)
+          .where(eq(driverPaymentMethods.driverId, driverId))
+          .limit(1);
+        if (existing != null) {
+          authoritativeCustomerId = existing.stripeCustomerId;
+          await db
+            .update(drivers)
+            .set({ stripeCustomerId: authoritativeCustomerId, updatedAt: new Date() })
+            .where(eq(drivers.id, driverId));
+        }
+      }
+
+      if (authoritativeCustomerId == null) {
+        // No prior customer and no setup-intent run. Refuse — the client must
+        // initialize payment setup before saving a method. Error text stays
+        // generic so it does not leak Stripe internals or endpoint names.
+        await reply.status(400).send({
+          error: 'Payment setup not initialized',
+          code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+        });
+        return;
+      }
+
+      if (body.stripeCustomerId !== authoritativeCustomerId) {
+        await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+        return;
+      }
 
       const existingMethods = await db
         .select({ id: driverPaymentMethods.id })
@@ -244,21 +354,34 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
       // Resolve cardBrand/cardLast4 server-side from Stripe. The client cannot
       // reliably send these because stripe.confirmCardSetup() returns
       // SetupIntent.payment_method as a string ID, not the expanded object.
+      // The retrievePaymentMethod call also doubles as the second-layer check
+      // that the PM is actually attached to this driver's Stripe customer.
       let cardBrand: string | null = body.cardBrand ?? null;
       let cardLast4: string | null = body.cardLast4 ?? null;
-      if (!isSimulatedCustomer(body.stripeCustomerId)) {
+      if (!isSimulatedCustomer(authoritativeCustomerId)) {
         try {
           const stripeConfig = await getStripeConfig(null);
           if (stripeConfig != null) {
             const pm = await retrievePaymentMethod(stripeConfig, body.stripePaymentMethodId);
+            const attachedCustomer =
+              typeof pm.customer === 'string' ? pm.customer : pm.customer?.id;
+            if (attachedCustomer !== authoritativeCustomerId) {
+              await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+              return;
+            }
             cardBrand = pm.card?.brand ?? cardBrand;
             cardLast4 = pm.card?.last4 ?? cardLast4;
           }
         } catch (err: unknown) {
           request.log.warn(
             { err, paymentMethodId: body.stripePaymentMethodId },
-            'Failed to fetch card details from Stripe; storing client-supplied values',
+            'Failed to fetch card details from Stripe; refusing save without verification',
           );
+          await reply.status(400).send({
+            error: 'Could not verify payment method',
+            code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+          });
+          return;
         }
       }
 
@@ -266,7 +389,7 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
         .insert(driverPaymentMethods)
         .values({
           driverId,
-          stripeCustomerId: body.stripeCustomerId,
+          stripeCustomerId: authoritativeCustomerId,
           stripePaymentMethodId: body.stripePaymentMethodId,
           cardBrand,
           cardLast4,
@@ -274,7 +397,10 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
         })
         .returning();
 
-      await reply.status(201).send(method);
+      if (method == null) {
+        throw new Error('Failed to save payment method');
+      }
+      await reply.status(201).send(toPublicPaymentMethod(method));
     },
   );
 
@@ -342,8 +468,15 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
         if (config != null) {
           await detachPaymentMethod(config, method.stripePaymentMethodId);
         }
-      } catch {
-        // Stripe not configured or payment method already detached
+      } catch (err) {
+        // Best-effort: a missing Stripe config or already-detached method is
+        // expected; transient Stripe errors leave an orphaned PaymentMethod
+        // we don't want to retry inline. Log so operators can clean up via
+        // Stripe dashboard.
+        request.log.warn(
+          { err, pmId, stripePaymentMethodId: method.stripePaymentMethodId },
+          'Failed to detach payment method from Stripe; deleting local row anyway',
+        );
       }
 
       await db.delete(driverPaymentMethods).where(eq(driverPaymentMethods.id, pmId));
@@ -385,18 +518,32 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Single atomic UPDATE so two concurrent set-default calls cannot both
+      // win. With two separate statements, racing requests can interleave
+      // their false-then-true sequence and leave multiple methods with
+      // is_default=true. CASE inside one UPDATE locks all of the driver's
+      // rows together and the last-committed transaction wins entirely.
       await db
         .update(driverPaymentMethods)
-        .set({ isDefault: false, updatedAt: new Date() })
+        .set({
+          isDefault: sql`(${driverPaymentMethods.id} = ${pmId})`,
+          updatedAt: new Date(),
+        })
         .where(eq(driverPaymentMethods.driverId, driverId));
 
       const [updated] = await db
-        .update(driverPaymentMethods)
-        .set({ isDefault: true, updatedAt: new Date() })
-        .where(eq(driverPaymentMethods.id, pmId))
-        .returning();
+        .select()
+        .from(driverPaymentMethods)
+        .where(eq(driverPaymentMethods.id, pmId));
 
-      return updated;
+      if (updated == null) {
+        await reply.status(404).send({
+          error: 'Payment method not found',
+          code: 'PAYMENT_METHOD_NOT_FOUND',
+        });
+        return;
+      }
+      return toPublicPaymentMethod(updated);
     },
   );
 }

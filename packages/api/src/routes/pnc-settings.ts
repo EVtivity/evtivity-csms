@@ -3,6 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { inArray } from 'drizzle-orm';
 import { db, settings } from '@evtivity/database';
 import { encryptString, isPrivateUrl } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -74,15 +75,18 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
       },
     },
     async () => {
-      const allRows = await db.select().from(settings);
+      // Push the PNC_KEYS filter to Postgres instead of selecting every
+      // settings row and discarding the rest in JS.
+      const rows = await db
+        .select()
+        .from(settings)
+        .where(inArray(settings.key, [...PNC_KEYS]));
       const result: Record<string, unknown> = {};
-      for (const row of allRows) {
-        if (PNC_KEYS.includes(row.key)) {
-          if (row.key === 'pnc.hubject.clientSecretEnc') {
-            result[row.key] = row.value != null && row.value !== '' ? '********' : '';
-          } else {
-            result[row.key] = row.value;
-          }
+      for (const row of rows) {
+        if (row.key === 'pnc.hubject.clientSecretEnc') {
+          result[row.key] = row.value != null && row.value !== '' ? '********' : '';
+        } else {
+          result[row.key] = row.value;
         }
       }
       return result;
@@ -180,12 +184,13 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
     },
     async (_request, reply) => {
       try {
-        const allRows = await db.select().from(settings);
+        const rows = await db
+          .select()
+          .from(settings)
+          .where(inArray(settings.key, [...PNC_KEYS]));
         const settingsMap = new Map<string, unknown>();
-        for (const row of allRows) {
-          if (PNC_KEYS.includes(row.key)) {
-            settingsMap.set(row.key, row.value);
-          }
+        for (const row of rows) {
+          settingsMap.set(row.key, row.value);
         }
 
         const providerType =

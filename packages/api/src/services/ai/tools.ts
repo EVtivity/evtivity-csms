@@ -23799,9 +23799,6 @@ export function getToolsForCategories(tags: string[]): ExtendedToolDefinition[] 
 /** Flat array of all tools for lookup by name. */
 const ALL_TOOLS: ExtendedToolDefinition[] = Object.values(TOOLS_BY_CATEGORY).flat();
 
-/** For backward compatibility. */
-export const TOOL_DEFINITIONS = ALL_TOOLS;
-
 export function buildToolRequest(
   toolName: string,
   args: Record<string, unknown>,

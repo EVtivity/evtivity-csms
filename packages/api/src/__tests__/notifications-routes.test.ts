@@ -333,7 +333,7 @@ describe('Notification routes', () => {
     });
     expect(response.statusCode).toBe(400);
     const body = JSON.parse(response.body);
-    expect(body.code).toBe('SMTP_NOT_CONFIGURED');
+    expect(body.code).toBe('EMAIL_NOT_CONFIGURED');
   });
 
   it('POST /v1/notifications/test sms returns 400 when Twilio not configured', async () => {
@@ -347,7 +347,7 @@ describe('Notification routes', () => {
     });
     expect(response.statusCode).toBe(400);
     const body = JSON.parse(response.body);
-    expect(body.code).toBe('TWILIO_NOT_CONFIGURED');
+    expect(body.code).toBe('SMS_NOT_CONFIGURED');
   });
 
   it('GET /v1/driver-event-settings returns all driver event settings', async () => {

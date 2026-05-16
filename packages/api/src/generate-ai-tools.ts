@@ -10,7 +10,6 @@
  * Output structure:
  * - TOOL_CATEGORIES: compact summary for the category selection step
  * - TOOLS_BY_CATEGORY: full tool definitions grouped by tag
- * - TOOL_DEFINITIONS: flat array of all tools (for buildToolRequest lookup)
  */
 import crypto from 'node:crypto';
 import { writeFileSync } from 'node:fs';
@@ -35,7 +34,6 @@ writeFileSync(
     'export interface ToolCategory { tag: string; description: string; toolCount: number; toolNames: string[]; }',
     'export const TOOL_CATEGORIES: ToolCategory[] = [];',
     'export function getToolsForCategories(_tags: string[]): ExtendedToolDefinition[] { return []; }',
-    'export const TOOL_DEFINITIONS: ExtendedToolDefinition[] = [];',
     'export function buildToolRequest(_n: string, _a: Record<string, unknown>): { method: string; url: string; query: Record<string, string>; body?: Record<string, unknown> } { throw new Error("stub"); }',
     '',
   ].join('\n'),
@@ -283,9 +281,6 @@ async function generate(): Promise<void> {
     '',
     '/** Flat array of all tools for lookup by name. */',
     'const ALL_TOOLS: ExtendedToolDefinition[] = Object.values(TOOLS_BY_CATEGORY).flat();',
-    '',
-    '/** For backward compatibility. */',
-    'export const TOOL_DEFINITIONS = ALL_TOOLS;',
     '',
     'export function buildToolRequest(',
     '  toolName: string,',

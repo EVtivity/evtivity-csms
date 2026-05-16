@@ -37,41 +37,52 @@ export async function executeToolLoop(
       toolCalls: response.toolCalls,
     });
 
-    for (const toolCall of response.toolCalls) {
-      try {
-        const toolRequest = buildToolRequest(toolCall.name, toolCall.arguments);
-
-        const injectResult = await app.inject({
-          method: toolRequest.method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
-          url: toolRequest.url,
-          query: toolRequest.query,
-          headers: { authorization: authHeader },
-          ...(toolRequest.body != null ? { payload: toolRequest.body } : {}),
-        });
-
-        apiCallsMade++;
-
-        let resultBody: unknown;
+    const toolResults = await Promise.all(
+      response.toolCalls.map(async (toolCall) => {
         try {
-          resultBody = JSON.parse(injectResult.body);
-        } catch {
-          resultBody = { error: 'Failed to parse response', statusCode: injectResult.statusCode };
-        }
+          const toolRequest = buildToolRequest(toolCall.name, toolCall.arguments);
 
-        messages.push({
-          role: 'tool_result',
-          content: JSON.stringify(resultBody),
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-        });
-      } catch (err) {
-        messages.push({
-          role: 'tool_result',
-          content: JSON.stringify({ error: String(err) }),
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-        });
-      }
+          const injectResult = await app.inject({
+            method: toolRequest.method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+            url: toolRequest.url,
+            query: toolRequest.query,
+            headers: { authorization: authHeader },
+            ...(toolRequest.body != null ? { payload: toolRequest.body } : {}),
+          });
+
+          let resultBody: unknown;
+          try {
+            resultBody = JSON.parse(injectResult.body);
+          } catch {
+            resultBody = { error: 'Failed to parse response', statusCode: injectResult.statusCode };
+          }
+
+          return {
+            counted: true,
+            message: {
+              role: 'tool_result' as const,
+              content: JSON.stringify(resultBody),
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+            },
+          };
+        } catch (err) {
+          return {
+            counted: false,
+            message: {
+              role: 'tool_result' as const,
+              content: JSON.stringify({ error: String(err) }),
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+            },
+          };
+        }
+      }),
+    );
+
+    for (const { counted, message } of toolResults) {
+      if (counted) apiCallsMade++;
+      messages.push(message);
     }
 
     response = await provider.chat(messages, tools, systemPrompt, chatOptions);

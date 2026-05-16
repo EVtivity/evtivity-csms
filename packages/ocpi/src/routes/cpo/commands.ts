@@ -15,6 +15,7 @@ import {
   ocpiExternalTokens,
   ocpiRoamingSessions,
 } from '@evtivity/database';
+import { isPrivateUrl } from '@evtivity/lib';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
 import { ocpiAuthenticate } from '../../middleware/ocpi-auth.js';
 import { getCommandCallbackService } from '../../services/command-callback.service.js';
@@ -29,6 +30,16 @@ import type {
 } from '../../types/ocpi.js';
 
 const COMMAND_TIMEOUT = 30;
+
+/**
+ * Reject response_url values that point at our own internal network. A
+ * malicious partner could otherwise use the OCPI command callback channel
+ * as an SSRF probe (we POST the OCPP result back to whatever URL they
+ * supplied). Returns true when the URL is safe to call back.
+ */
+function isAcceptableResponseUrl(url: string): boolean {
+  return !isPrivateUrl(url);
+}
 
 async function resolveSiteId(locationId: string): Promise<string | null> {
   // Check if there's a publish entry with a custom OCPI location ID
@@ -178,6 +189,10 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
       }
     }
 
+    if (!isAcceptableResponseUrl(body.response_url)) {
+      return ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'response_url is not allowed');
+    }
+
     // Dispatch OCPP command
     const callbackService = getCommandCallbackService();
     const commandId = callbackService.generateCommandId();
@@ -258,6 +273,10 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
     if (chargingSession == null) {
       const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
       return ocpiSuccess(response);
+    }
+
+    if (!isAcceptableResponseUrl(body.response_url)) {
+      return ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'response_url is not allowed');
     }
 
     // Dispatch OCPP command
@@ -346,6 +365,10 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
       }
     }
 
+    if (!isAcceptableResponseUrl(body.response_url)) {
+      return ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'response_url is not allowed');
+    }
+
     // Dispatch OCPP command
     const callbackService = getCommandCallbackService();
     const commandId = callbackService.generateCommandId();
@@ -406,6 +429,10 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
       if (reservation == null) {
         const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
         return ocpiSuccess(response);
+      }
+
+      if (!isAcceptableResponseUrl(body.response_url)) {
+        return ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'response_url is not allowed');
       }
 
       // Dispatch OCPP command
@@ -475,6 +502,10 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
       if (Number.isNaN(evseNum) || Number.isNaN(connectorNum)) {
         const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
         return ocpiSuccess(response);
+      }
+
+      if (!isAcceptableResponseUrl(body.response_url)) {
+        return ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'response_url is not allowed');
       }
 
       // Dispatch OCPP command

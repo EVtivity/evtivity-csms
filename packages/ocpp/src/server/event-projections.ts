@@ -2102,11 +2102,20 @@ export function registerProjections(
           if (carbonRow != null) {
             const intensity = Number(carbonRow.carbon_intensity_kg_per_kwh);
             const sessionEnergyWh = Number(sessionRow.energy_delivered_wh ?? 0);
-            const co2Avoided = calculateCo2AvoidedKg(sessionEnergyWh, intensity);
-            await sql`
-              UPDATE charging_sessions SET co2_avoided_kg = ${co2Avoided}, updated_at = now()
-              WHERE id = ${sessionId}
-            `;
+            // Skip the calc on edge cases (zero/negative energy on faulted
+            // sessions, missing intensity factor) - a negative co2_avoided
+            // value would otherwise polute dashboards.
+            if (sessionEnergyWh > 0 && Number.isFinite(intensity) && intensity > 0) {
+              const co2Avoided = calculateCo2AvoidedKg(sessionEnergyWh, intensity);
+              // Idempotency guard: TransactionEvent Ended can fire more than
+              // once for a session (station retry, projection retry); the
+              // co2 value must not be overwritten if it was already
+              // computed against the same intensity factor.
+              await sql`
+                UPDATE charging_sessions SET co2_avoided_kg = ${co2Avoided}, updated_at = now()
+                WHERE id = ${sessionId} AND co2_avoided_kg IS NULL
+              `;
+            }
           }
         } catch (carbonErr: unknown) {
           logger.warn({ err: carbonErr, sessionId }, 'Failed to compute CO2 avoided');
@@ -3098,13 +3107,24 @@ export function registerProjections(
 
       const stripeCustomerId = pm.stripe_customer_id as string;
 
-      // Load platform currency and pre-auth amount (used by both simulated and real paths)
-      const platformSettingsRows = await sql`
+      // Platform settings and site-level overrides are independent reads -
+      // fetch them in parallel so the pre-auth gate doesn't pay both round-trips
+      // serially on every charging start.
+      const [platformSettingsRows, siteConfigRows] = await Promise.all([
+        sql`
           SELECT key, value FROM settings WHERE key IN (
             'stripe.currency',
             'stripe.preAuthAmountCents'
           )
-        `;
+        `,
+        siteId != null
+          ? sql`
+              SELECT id, currency, pre_auth_amount_cents, stripe_connected_account_id
+              FROM site_payment_configs
+              WHERE site_id = ${siteId} AND is_enabled = true
+            `
+          : Promise.resolve([] as Array<Record<string, unknown>>),
+      ]);
       const platformMap = new Map<string, unknown>();
       for (const row of platformSettingsRows) {
         platformMap.set(row.key as string, row.value);
@@ -3113,22 +3133,14 @@ export function registerProjections(
       let platformPreAuthCents =
         (platformMap.get('stripe.preAuthAmountCents') as number | undefined) ?? 5000;
 
-      // Load site-level payment config (overrides + connected account) in one query
       let connectedAccountId: string | null = null;
       let siteConfigId: string | null = null;
-      if (siteId != null) {
-        const siteConfigRows = await sql`
-            SELECT id, currency, pre_auth_amount_cents, stripe_connected_account_id
-            FROM site_payment_configs
-            WHERE site_id = ${siteId} AND is_enabled = true
-          `;
-        const sc = siteConfigRows[0];
-        if (sc != null) {
-          platformCurrency = sc.currency as string;
-          platformPreAuthCents = sc.pre_auth_amount_cents as number;
-          connectedAccountId = (sc.stripe_connected_account_id as string | null) ?? null;
-          siteConfigId = sc.id as string;
-        }
+      const sc = siteConfigRows[0];
+      if (sc != null) {
+        platformCurrency = sc.currency as string;
+        platformPreAuthCents = sc.pre_auth_amount_cents as number;
+        connectedAccountId = (sc.stripe_connected_account_id as string | null) ?? null;
+        siteConfigId = sc.id as string;
       }
 
       // Currency consistency: the session was snapshotted with the tariff's
@@ -3642,6 +3654,17 @@ export function registerProjections(
                       ? origIntent.on_behalf_of
                       : origIntent.on_behalf_of.id,
                 };
+                // Carry the same platform-fee rate onto the top-up. Without
+                // this the entire delta flows to the connected account and
+                // the platform earns nothing on the overage portion.
+                if (
+                  origIntent.application_fee_amount != null &&
+                  origIntent.application_fee_amount > 0 &&
+                  origIntent.amount > 0
+                ) {
+                  const feeRate = origIntent.application_fee_amount / origIntent.amount;
+                  topUpParams['application_fee_amount'] = Math.round(deltaCents * feeRate);
+                }
               }
               const topUp = await stripe.paymentIntents.create(
                 topUpParams as unknown as import('stripe').default.PaymentIntentCreateParams,

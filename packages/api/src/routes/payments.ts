@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, sql, and, inArray } from 'drizzle-orm';
+import { eq, desc, sql, and, inArray, like } from 'drizzle-orm';
 import { db, client } from '@evtivity/database';
 import {
   sitePaymentConfigs,
@@ -530,12 +530,13 @@ export function paymentRoutes(app: FastifyInstance): void {
       },
     },
     async () => {
-      const rows = await db.select().from(settings);
+      // Push the stripe.* prefix filter to Postgres so the admin Settings
+      // page doesn't drag the entire settings table over the wire just to
+      // pick four keys.
+      const rows = await db.select().from(settings).where(like(settings.key, 'stripe.%'));
       const map = new Map<string, unknown>();
       for (const row of rows) {
-        if (row.key.startsWith('stripe.')) {
-          map.set(row.key, row.value);
-        }
+        map.set(row.key, row.value);
       }
       return {
         publishableKey: map.get('stripe.publishableKey') ?? null,
@@ -613,8 +614,8 @@ export function paymentRoutes(app: FastifyInstance): void {
         response: {
           200: successResponse,
           400: errorWith('Bad request', [
-            ERROR_CODES.STRIPE_CONNECTION_FAILED,
-            ERROR_CODES.STRIPE_NOT_CONFIGURED,
+            ERROR_CODES.PAYMENT_PROVIDER_CONNECTION_FAILED,
+            ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
           ]),
         },
       },
@@ -624,7 +625,7 @@ export function paymentRoutes(app: FastifyInstance): void {
       if (config == null) {
         await reply.status(400).send({
           error: 'Stripe is not configured',
-          code: 'STRIPE_NOT_CONFIGURED',
+          code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
         });
         return;
       }
@@ -636,7 +637,7 @@ export function paymentRoutes(app: FastifyInstance): void {
         const message = err instanceof Error ? err.message : 'Connection failed';
         await reply.status(400).send({
           error: message,
-          code: 'STRIPE_CONNECTION_FAILED',
+          code: 'PAYMENT_PROVIDER_CONNECTION_FAILED',
         });
         return;
       }
@@ -704,7 +705,7 @@ export function paymentRoutes(app: FastifyInstance): void {
         params: zodSchema(driverIdParams),
         response: {
           200: itemResponse(setupIntentResponse),
-          400: errorWith('Stripe not configured', [ERROR_CODES.STRIPE_NOT_CONFIGURED]),
+          400: errorWith('Stripe not configured', [ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED]),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
         },
       },
@@ -731,13 +732,13 @@ export function paymentRoutes(app: FastifyInstance): void {
       if (config == null) {
         await reply.status(400).send({
           error: 'No Stripe configuration available',
-          code: 'STRIPE_NOT_CONFIGURED',
+          code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
         });
         return;
       }
 
       // Find or create Stripe customer. Wrap the SDK calls so an invalid or
-      // stale API key surfaces as STRIPE_NOT_CONFIGURED instead of a 500.
+      // stale API key surfaces as PAYMENT_PROVIDER_NOT_CONFIGURED instead of a 500.
       const [existingMethod] = await db
         .select({ stripeCustomerId: driverPaymentMethods.stripeCustomerId })
         .from(driverPaymentMethods)
@@ -761,7 +762,7 @@ export function paymentRoutes(app: FastifyInstance): void {
         if (setupIntent.client_secret == null || setupIntent.client_secret === '') {
           await reply.status(400).send({
             error: 'Stripe returned an empty client secret',
-            code: 'STRIPE_NOT_CONFIGURED',
+            code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
           });
           return;
         }
@@ -775,7 +776,7 @@ export function paymentRoutes(app: FastifyInstance): void {
         request.log.warn({ err: message }, 'Stripe setup-intent failed');
         await reply.status(400).send({
           error: `Stripe is configured but the API rejected the request: ${message}`,
-          code: 'STRIPE_NOT_CONFIGURED',
+          code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
         });
         return;
       }
@@ -985,7 +986,7 @@ export function paymentRoutes(app: FastifyInstance): void {
       if (config == null) {
         await reply.status(400).send({
           error: 'No Stripe configuration available',
-          code: 'STRIPE_NOT_CONFIGURED',
+          code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
         });
         return;
       }
@@ -1057,7 +1058,7 @@ export function paymentRoutes(app: FastifyInstance): void {
           200: itemResponse(paymentRecordItem),
           400: errorWith('Bad request', [
             ERROR_CODES.MISSING_PAYMENT_INTENT,
-            ERROR_CODES.STRIPE_NOT_CONFIGURED,
+            ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
           ]),
           404: errorWith('No pre auth', [ERROR_CODES.NO_PRE_AUTH]),
         },
@@ -1108,7 +1109,7 @@ export function paymentRoutes(app: FastifyInstance): void {
       if (config == null) {
         await reply.status(400).send({
           error: 'No Stripe configuration available',
-          code: 'STRIPE_NOT_CONFIGURED',
+          code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
         });
         return;
       }
@@ -1166,7 +1167,7 @@ export function paymentRoutes(app: FastifyInstance): void {
           400: errorWith('Bad request', [
             ERROR_CODES.MISSING_PAYMENT_INTENT,
             ERROR_CODES.NO_CAPTURED_PAYMENT,
-            ERROR_CODES.STRIPE_NOT_CONFIGURED,
+            ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
           ]),
           404: errorWith('Payment not found', [ERROR_CODES.PAYMENT_NOT_FOUND]),
           409: errorWith('Refund exceeds remaining', [ERROR_CODES.REFUND_EXCEEDS_REMAINING]),
@@ -1251,7 +1252,7 @@ export function paymentRoutes(app: FastifyInstance): void {
         if (config == null) {
           await reply.status(400).send({
             error: 'No Stripe configuration available',
-            code: 'STRIPE_NOT_CONFIGURED',
+            code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
           });
           return null;
         }
@@ -1289,24 +1290,28 @@ export function paymentRoutes(app: FastifyInstance): void {
 
       if (updated == null) return;
 
-      // Driver notification: payment refunded
+      // Driver notification: payment refunded. Fire-and-forget so a slow
+      // SMTP/Twilio call doesn't delay the refund response, but capture the
+      // promise rejection (the surrounding try/catch only saw synchronous
+      // throws and silently dropped async failures, which masked SMTP misconfig).
       if (updated.driverId != null) {
-        try {
-          void dispatchDriverNotification(
-            client,
-            'payment.Refunded',
-            updated.driverId,
-            {
-              amountCents: body.amountCents ?? updated.capturedAmountCents ?? 0,
-              currency: updated.currency,
-              transactionId: updated.sessionId,
-            },
-            ALL_TEMPLATES_DIRS,
-            getPubSub(),
+        dispatchDriverNotification(
+          client,
+          'payment.Refunded',
+          updated.driverId,
+          {
+            amountCents: body.amountCents ?? updated.capturedAmountCents ?? 0,
+            currency: updated.currency,
+            transactionId: updated.sessionId,
+          },
+          ALL_TEMPLATES_DIRS,
+          getPubSub(),
+        ).catch((err: unknown) => {
+          request.log.warn(
+            { err, paymentRecordId: updated.id, driverId: updated.driverId },
+            'Failed to dispatch payment.Refunded notification',
           );
-        } catch {
-          // Non-critical: do not block refund response
-        }
+        });
       }
 
       return updated;
@@ -1331,6 +1336,23 @@ export function paymentRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof sessionIdParams>;
+      const { userId } = request.user as JwtPayload;
+
+      const [sessionRow] = await db
+        .select({ siteId: chargingStations.siteId })
+        .from(chargingSessions)
+        .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
+        .where(eq(chargingSessions.id, id));
+
+      const siteIds = await getUserSiteIds(userId);
+      if (siteIds != null && sessionRow?.siteId != null && !siteIds.includes(sessionRow.siteId)) {
+        await reply.status(404).send({
+          error: 'No payment record for this session',
+          code: 'PAYMENT_NOT_FOUND',
+        });
+        return;
+      }
+
       const [record] = await db
         .select()
         .from(paymentRecords)
@@ -1364,10 +1386,10 @@ export function paymentRoutes(app: FastifyInstance): void {
           404: errorWith('Payment not found', [ERROR_CODES.PAYMENT_NOT_FOUND]),
           409: errorWith('Payment record cannot be recovered or Stripe not configured', [
             ERROR_CODES.PAYMENT_RECORD_NOT_RECOVERABLE,
-            ERROR_CODES.STRIPE_NOT_CONFIGURED,
+            ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
           ]),
           502: errorWith('Stripe rejected the top-up payment intent', [
-            ERROR_CODES.STRIPE_TOP_UP_FAILED,
+            ERROR_CODES.PAYMENT_TOP_UP_FAILED,
           ]),
         },
       },
@@ -1432,7 +1454,7 @@ export function paymentRoutes(app: FastifyInstance): void {
       if (config == null) {
         await reply.status(409).send({
           error: 'Stripe not configured',
-          code: 'STRIPE_NOT_CONFIGURED',
+          code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
         });
         return;
       }
@@ -1471,6 +1493,17 @@ export function paymentRoutes(app: FastifyInstance): void {
                 ? origIntent.on_behalf_of
                 : origIntent.on_behalf_of.id,
           };
+          // Carry the same platform-fee rate onto the top-up. Without this
+          // the entire delta flows to the connected account and the platform
+          // gets nothing on the overage portion of the session.
+          if (
+            origIntent.application_fee_amount != null &&
+            origIntent.application_fee_amount > 0 &&
+            origIntent.amount > 0
+          ) {
+            const feeRate = origIntent.application_fee_amount / origIntent.amount;
+            params['application_fee_amount'] = Math.round(shortfall * feeRate);
+          }
         }
         const topUp = await config.stripe.paymentIntents.create(
           params as unknown as Parameters<typeof config.stripe.paymentIntents.create>[0],
@@ -1481,7 +1514,7 @@ export function paymentRoutes(app: FastifyInstance): void {
         const message = err instanceof Error ? err.message.slice(0, 400) : 'Top-up failed';
         await reply.status(502).send({
           error: `Stripe rejected top-up: ${message}`,
-          code: 'STRIPE_TOP_UP_FAILED',
+          code: 'PAYMENT_TOP_UP_FAILED',
         });
         return;
       }
@@ -1580,16 +1613,47 @@ export function paymentRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { page, limit } = request.query as z.infer<typeof paginationQuery>;
+      const { userId } = request.user as JwtPayload;
       const offset = (page - 1) * limit;
+
+      // Site-access enforcement: payment records carry sensitive data
+      // (Stripe PI IDs, customer IDs, captured amounts) and must be filtered
+      // to the operator's allowed sites. Walk the session->station join to
+      // derive each record's siteId.
+      const siteIds = await getUserSiteIds(userId);
+      if (siteIds != null && siteIds.length === 0) {
+        return { data: [], total: 0 } satisfies PaginatedResponse<
+          typeof paymentRecords.$inferSelect
+        >;
+      }
+
+      const conditions =
+        siteIds != null
+          ? [
+              inArray(
+                paymentRecords.sessionId,
+                db
+                  .select({ id: chargingSessions.id })
+                  .from(chargingSessions)
+                  .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
+                  .where(inArray(chargingStations.siteId, siteIds)),
+              ),
+            ]
+          : [];
+      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
       const [data, countRows] = await Promise.all([
         db
           .select()
           .from(paymentRecords)
-          .orderBy(desc(paymentRecords.createdAt))
+          .where(whereClause)
+          .orderBy(desc(paymentRecords.createdAt), desc(paymentRecords.id))
           .limit(limit)
           .offset(offset),
-        db.select({ count: sql<number>`count(*)::int` }).from(paymentRecords),
+        db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(paymentRecords)
+          .where(whereClause),
       ]);
 
       return { data, total: countRows[0]?.count ?? 0 } satisfies PaginatedResponse<

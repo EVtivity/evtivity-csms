@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc, count, sql as dsql } from 'drizzle-orm';
@@ -11,6 +12,7 @@ import {
   stationCertificates,
   writeAudit,
   certificateAuditLog,
+  isPncEnabled,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -178,6 +180,24 @@ const signCsrBody = z.object({
 const idParams = z.object({ id: z.coerce.number().int().min(1).describe('Resource ID') });
 
 export function pncCertificateRoutes(app: FastifyInstance): void {
+  // Gate the entire PnC certificate API on the pnc.enabled feature flag.
+  // Per .claude/rules/features/pnc.md, certificate routes return 403
+  // PNC_DISABLED when the feature is off (settings routes are exempt and
+  // registered separately in pnc-settings.ts). Without this gate, an
+  // operator with certificates:write can still manage CA certs and CSRs
+  // even after PnC has been disabled.
+  app.addHook('preHandler', async (request, reply) => {
+    if (!request.url.startsWith('/v1/pnc/')) return;
+    if (request.url.startsWith('/v1/pnc/settings')) return;
+    const enabled = await isPncEnabled();
+    if (!enabled) {
+      await reply.status(403).send({
+        error: 'Plug and Charge is disabled',
+        code: 'PNC_DISABLED',
+      });
+    }
+  });
+
   // --- CA Certificates ---
 
   app.get(
@@ -351,7 +371,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
           .select()
           .from(pkiCsrRequests)
           .where(where)
-          .orderBy(desc(pkiCsrRequests.createdAt))
+          .orderBy(desc(pkiCsrRequests.createdAt), desc(pkiCsrRequests.id))
           .limit(query.limit)
           .offset(offset),
         db.select({ count: count() }).from(pkiCsrRequests).where(where),
@@ -378,6 +398,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         body: zodSchema(signCsrBody),
         response: {
           200: successResponse,
+          400: errorWith('Invalid signed certificate', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Csr not found', [ERROR_CODES.CSR_NOT_FOUND]),
         },
       },
@@ -385,6 +406,25 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof idParams>;
       const body = request.body as z.infer<typeof signCsrBody>;
+
+      // Validate the operator-supplied PEM before storing it or pushing it
+      // to the station. Without this guard a malformed paste lands in
+      // pki_csr_requests, status flips to 'signed', and we publish a
+      // CertificateSigned OCPP command with garbage that the station
+      // either silently rejects or treats as a fault.
+      try {
+        const firstPemBlock = body.signedCertificateChain.split('-----END CERTIFICATE-----')[0];
+        if (firstPemBlock == null || !firstPemBlock.includes('-----BEGIN CERTIFICATE-----')) {
+          throw new Error('No PEM certificate block found');
+        }
+        new crypto.X509Certificate(firstPemBlock + '-----END CERTIFICATE-----');
+      } catch {
+        await reply.status(400).send({
+          error: 'signedCertificateChain is not a valid PEM-encoded certificate',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
 
       const [csrRow] = await db
         .select()
@@ -560,6 +600,22 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         operationId: 'refreshPncRootCertificates',
         security: [{ bearerAuth: [] }],
         response: { 200: successResponse },
+      },
+      // Each refresh fans out to the configured PKI provider (e.g., a
+      // metered Hubject endpoint). Without a per-user rate limit a stuck
+      // operator UI or a quick double-click can rapid-fire requests and
+      // burn through the upstream quota.
+      config: {
+        rateLimit: {
+          max: 3,
+          timeWindow: '1 minute',
+          keyGenerator: (request) => {
+            const userId = (request.user as unknown as Record<string, unknown> | undefined)?.[
+              'userId'
+            ];
+            return typeof userId === 'string' ? userId : request.ip;
+          },
+        },
       },
     },
     async (request) => {

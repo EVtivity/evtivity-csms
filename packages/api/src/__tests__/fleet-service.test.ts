@@ -28,6 +28,7 @@ function makeChain() {
     'returning',
     'set',
     'onConflictDoUpdate',
+    'onConflictDoNothing',
     'delete',
   ];
   for (const m of methods) {

@@ -8,7 +8,7 @@ import {
   sites,
   chargingStations,
   paymentRecords,
-  settings,
+  getSystemTimezone,
 } from '@evtivity/database';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
@@ -27,14 +27,6 @@ function parseFilters(raw: Record<string, unknown>): Filters {
     dateTo: typeof raw['dateTo'] === 'string' ? raw['dateTo'] : undefined,
     siteId: typeof raw['siteId'] === 'string' ? raw['siteId'] : undefined,
   };
-}
-
-async function getTimezone(): Promise<string> {
-  const [row] = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, 'system.timezone'));
-  return typeof row?.value === 'string' ? row.value : 'America/New_York';
 }
 
 function buildDateConditions(filters: Filters) {
@@ -75,18 +67,31 @@ async function queryRevenueByDay(filters: Filters, tz: string): Promise<RevenueB
     sql`coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null`,
   ];
 
-  const rows = await db
+  // Without joining stations + filtering siteId, the per-day breakdown
+  // sums revenue across ALL sites even when the report is scoped to one
+  // — a cross-site data leak in the report output. Mirror the siteId
+  // filter from queryRevenueBySite below.
+  const baseQuery = db
     .select({
       date: sql<string>`date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz})::date::text`,
       revenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
       sessionCount: count(),
     })
-    .from(chargingSessions)
+    .from(chargingSessions);
+
+  if (filters.siteId) {
+    conditions.push(eq(chargingStations.siteId, filters.siteId));
+    return baseQuery
+      .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .groupBy(sql`1`)
+      .orderBy(sql`1`);
+  }
+
+  return baseQuery
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .groupBy(sql`1`)
     .orderBy(sql`1`);
-
-  return rows;
 }
 
 async function queryRevenueBySite(filters: Filters): Promise<RevenueBySite[]> {
@@ -116,17 +121,27 @@ async function queryRevenueBySite(filters: Filters): Promise<RevenueBySite[]> {
   return rows;
 }
 
-async function queryPaymentBreakdown(): Promise<PaymentBreakdown[]> {
-  const rows = await db
+async function queryPaymentBreakdown(filters: Filters): Promise<PaymentBreakdown[]> {
+  // Without joining sessions+stations and filtering siteId, the payment
+  // breakdown reports global counts even when the report is scoped to
+  // one site — same cross-site leak pattern as the day/site queries.
+  const baseQuery = db
     .select({
       status: paymentRecords.status,
       count: count(),
       totalCents: sql<number>`coalesce(sum(${paymentRecords.capturedAmountCents}), 0)`,
     })
-    .from(paymentRecords)
-    .groupBy(paymentRecords.status);
+    .from(paymentRecords);
 
-  return rows;
+  if (filters.siteId) {
+    return baseQuery
+      .innerJoin(chargingSessions, eq(paymentRecords.sessionId, chargingSessions.id))
+      .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+      .where(eq(chargingStations.siteId, filters.siteId))
+      .groupBy(paymentRecords.status);
+  }
+
+  return baseQuery.groupBy(paymentRecords.status);
 }
 
 function formatCents(cents: number): string {
@@ -138,12 +153,12 @@ export async function generateRevenueReport(
   format: string,
 ): Promise<ReportGeneratorResult> {
   const filters = parseFilters(rawFilters);
-  const tz = await getTimezone();
+  const tz = await getSystemTimezone();
 
   const [byDay, bySite, payments] = await Promise.all([
     queryRevenueByDay(filters, tz),
     queryRevenueBySite(filters),
-    queryPaymentBreakdown(),
+    queryPaymentBreakdown(filters),
   ]);
 
   const totalRevenueCents = bySite.reduce((sum, r) => sum + parseFloat(String(r.revenueCents)), 0);

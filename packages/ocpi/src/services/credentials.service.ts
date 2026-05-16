@@ -104,11 +104,21 @@ async function deactivateTokens(
     );
 }
 
-async function deactivateTokenById(tokenId: number): Promise<void> {
-  await db
+/**
+ * Atomically claim a registration token: flip isActive=false and return
+ * whether THIS call won the race. Two concurrent registrations using the
+ * same one-time token both pass the read-only middleware check; without an
+ * atomic claim they would each create a partner row and issue duplicate
+ * outbound tokens. Postgres serializes the conditional UPDATE so only one
+ * caller sees a returning row.
+ */
+async function claimRegistrationToken(tokenId: number): Promise<boolean> {
+  const claimed = await db
     .update(ocpiCredentialsTokens)
     .set({ isActive: false })
-    .where(eq(ocpiCredentialsTokens.id, tokenId));
+    .where(and(eq(ocpiCredentialsTokens.id, tokenId), eq(ocpiCredentialsTokens.isActive, true)))
+    .returning({ id: ocpiCredentialsTokens.id });
+  return claimed.length > 0;
 }
 
 async function fetchPartnerEndpoints(
@@ -172,6 +182,17 @@ export async function handleRegistration(
   const partnerRole = credentials.roles[0];
   if (partnerRole == null) {
     throw new Error('No roles provided in credentials');
+  }
+
+  // Claim the registration token up front so a concurrent duplicate
+  // submission cannot also create a partner / issue tokens. The middleware
+  // only validates the token; without this guard two parallel POSTs both
+  // pass and both run the full registration flow.
+  const claimed = await claimRegistrationToken(registrationTokenId);
+  if (!claimed) {
+    const err = new Error('Registration token already used');
+    (err as Error & { code: string }).code = 'TOKEN_ALREADY_USED';
+    throw err;
   }
 
   // Fetch partner version and endpoints
@@ -262,8 +283,8 @@ export async function handleRegistration(
   await deactivateTokens(partnerId, 'issued');
   const newToken = await generateAndStoreToken(partnerId, 'issued');
 
-  // Deactivate the registration token
-  await deactivateTokenById(registrationTokenId);
+  // Registration token already deactivated atomically at the top of this
+  // function via claimRegistrationToken().
 
   return buildOurCredentials(newToken);
 }

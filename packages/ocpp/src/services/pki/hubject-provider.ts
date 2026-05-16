@@ -12,6 +12,24 @@ import type {
 
 const logger = createLogger('hubject-provider');
 
+// Hubject endpoints and OCSP responders can hang under load. Without a
+// timeout the OCPP handler thread that initiated the certificate flow
+// blocks indefinitely, the station's response promise eventually rejects
+// with a timeout, and a slow upstream pins worker capacity.
+const HUBJECT_TIMEOUT_MS = 30_000;
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, HUBJECT_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 interface HubjectConfig {
   baseUrl: string;
   clientId: string;
@@ -43,7 +61,7 @@ export class HubjectProvider implements PkiProvider {
       client_secret: this.config.clientSecret,
     });
 
-    const response = await fetch(this.config.tokenUrl, {
+    const response = await fetchWithTimeout(this.config.tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString(),
@@ -76,7 +94,7 @@ export class HubjectProvider implements PkiProvider {
     const headers = await this.authHeaders();
     const url = `${this.config.baseUrl}/.well-known/est/simpleenroll`;
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers,
       body: csr,
@@ -100,7 +118,7 @@ export class HubjectProvider implements PkiProvider {
     const token = await this.getAccessToken();
     const url = `${this.config.baseUrl}/ccp/getSignedContractData`;
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -131,7 +149,7 @@ export class HubjectProvider implements PkiProvider {
       }),
     ).toString('base64');
 
-    const response = await fetch(ocspRequestData.responderURL, {
+    const response = await fetchWithTimeout(ocspRequestData.responderURL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/ocsp-request' },
       body: Buffer.from(ocspRequest, 'base64'),
@@ -153,7 +171,7 @@ export class HubjectProvider implements PkiProvider {
     const headers = await this.authHeaders();
     const url = `${this.config.baseUrl}/.well-known/est/cacerts`;
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'GET',
       headers,
     });

@@ -74,6 +74,7 @@ export const DRIVER_ACCOUNT_EVENTS = [
   'driver.ForgotPassword',
   'driver.PasswordChanged',
   'driver.AccountVerification',
+  'driver.MfaDisabled',
 ] as const;
 
 export const DRIVER_PAYMENT_EVENTS = [
@@ -401,6 +402,10 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'resetUrl', description: 'Password reset URL' },
   ],
   'driver.PasswordChanged': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+  ],
+  'driver.MfaDisabled': [
     { name: 'firstName', description: 'Driver first name' },
     { name: 'lastName', description: 'Driver last name' },
   ],

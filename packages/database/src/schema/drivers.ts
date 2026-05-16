@@ -51,6 +51,7 @@ export const drivers = pgTable(
     isActive: boolean('is_active').notNull().default(true),
     emailVerified: boolean('email_verified').notNull().default(false),
     lastNotificationReadAt: timestamp('last_notification_read_at', { withTimezone: true }),
+    stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -208,6 +209,7 @@ export const fleetDrivers = pgTable(
   (table) => [
     index('idx_fleet_drivers_fleet_id').on(table.fleetId),
     index('idx_fleet_drivers_driver_id').on(table.driverId),
+    unique('uq_fleet_drivers_fleet_driver').on(table.fleetId, table.driverId),
   ],
 );
 
@@ -226,6 +228,7 @@ export const fleetStations = pgTable(
   (table) => [
     index('idx_fleet_stations_fleet_id').on(table.fleetId),
     index('idx_fleet_stations_station_id').on(table.stationId),
+    unique('uq_fleet_stations_fleet_station').on(table.fleetId, table.stationId),
   ],
 );
 

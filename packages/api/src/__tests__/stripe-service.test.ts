@@ -60,6 +60,12 @@ const { mockDecryptString, mockStripeInstance, mockConstructEvent } = vi.hoisted
       create: vi.fn().mockResolvedValue({ id: 'pi_test', status: 'requires_capture' }),
       capture: vi.fn().mockResolvedValue({ id: 'pi_test', status: 'succeeded' }),
       cancel: vi.fn().mockResolvedValue({ id: 'pi_test', status: 'canceled' }),
+      retrieve: vi.fn().mockResolvedValue({
+        id: 'pi_test',
+        amount: 5000,
+        application_fee_amount: null,
+        transfer_data: null,
+      }),
     },
     refunds: {
       create: vi.fn().mockResolvedValue({ id: 're_test' }),

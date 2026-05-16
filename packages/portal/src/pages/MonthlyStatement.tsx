@@ -59,7 +59,15 @@ export function MonthlyStatement(): React.JSX.Element {
       api.get<StatementResponse>(`/v1/portal/sessions/monthly-statement?month=${month}`),
   });
 
-  const efficiency = 3.5;
+  // Activity.tsx looks up the driver's vehicle efficiency from the API so that
+  // the distance column reflects the driver's actual car. The statement used to
+  // hardcode 3.5 mi/kWh here, so the same energy figure rendered different
+  // miles on the two pages for any driver whose vehicle is not exactly 3.5.
+  const { data: efficiencyData } = useQuery({
+    queryKey: ['portal-vehicle-efficiency'],
+    queryFn: () => api.get<{ efficiencyMiPerKwh: number }>('/v1/portal/vehicles/efficiency'),
+  });
+  const efficiency = efficiencyData?.efficiencyMiPerKwh ?? 3.5;
   const hasCo2Data = data?.sessions.some((s) => s.co2AvoidedKg != null) === true;
 
   return (

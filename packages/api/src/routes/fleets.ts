@@ -4,7 +4,16 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import * as fleetService from '../services/fleet.service.js';
-import { db, writeAudit, fleetAuditLog, pricingAssignmentAuditLog } from '@evtivity/database';
+import {
+  db,
+  writeAudit,
+  fleetAuditLog,
+  pricingAssignmentAuditLog,
+  drivers,
+  chargingStations,
+  pricingGroups,
+} from '@evtivity/database';
+import { eq } from 'drizzle-orm';
 import { getAuditActor } from '../lib/audit-actor.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -483,13 +492,36 @@ export function fleetRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
         body: zodSchema(addDriverBody),
-        response: { 201: itemResponse(fleetDriverRecordItem) },
+        response: {
+          201: itemResponse(fleetDriverRecordItem),
+          404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
+          409: errorWith('Driver already in fleet', [ERROR_CODES.DRIVER_ALREADY_IN_FLEET]),
+        },
       },
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const body = request.body as z.infer<typeof addDriverBody>;
+      // Pre-check driver existence — without this, an invalid driverId
+      // hits the FK constraint and 500s (ON CONFLICT DO NOTHING in the
+      // service only catches the uniqueness conflict, not FK violations).
+      const [driver] = await db
+        .select({ id: drivers.id })
+        .from(drivers)
+        .where(eq(drivers.id, body.driverId));
+      if (driver == null) {
+        await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+        return;
+      }
       const record = await fleetService.addDriverToFleet(id, body.driverId);
+      // Service returns null when the unique (fleet_id, driver_id)
+      // constraint trips, i.e. the driver is already in this fleet.
+      if (record == null) {
+        await reply
+          .status(409)
+          .send({ error: 'Driver is already in this fleet', code: 'DRIVER_ALREADY_IN_FLEET' });
+        return;
+      }
       const actor = getAuditActor(request);
       await writeAudit(
         { table: fleetAuditLog, idColumn: 'fleet_id' },
@@ -581,13 +613,34 @@ export function fleetRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
         body: zodSchema(addStationBody),
-        response: { 201: itemResponse(fleetStationRecordItem) },
+        response: {
+          201: itemResponse(fleetStationRecordItem),
+          404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+          409: errorWith('Station already in fleet', [ERROR_CODES.STATION_ALREADY_IN_FLEET]),
+        },
       },
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const body = request.body as z.infer<typeof addStationBody>;
+      // Pre-check station existence (FK violations bypass ON CONFLICT and
+      // would otherwise leak as a 500).
+      const [station] = await db
+        .select({ id: chargingStations.id })
+        .from(chargingStations)
+        .where(eq(chargingStations.id, body.stationId));
+      if (station == null) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
       const record = await fleetService.addStationToFleet(id, body.stationId);
+      // null = (fleet_id, station_id) unique tripped — already in fleet.
+      if (record == null) {
+        await reply
+          .status(409)
+          .send({ error: 'Station is already in this fleet', code: 'STATION_ALREADY_IN_FLEET' });
+        return;
+      }
       const actor = getAuditActor(request);
       await writeAudit(
         { table: fleetAuditLog, idColumn: 'fleet_id' },
@@ -797,13 +850,28 @@ export function fleetRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
         body: zodSchema(addPricingGroupBody),
-        response: { 201: itemResponse(fleetPricingGroupRecordItem) },
+        response: {
+          201: itemResponse(fleetPricingGroupRecordItem),
+          404: errorWith('Pricing group not found', [ERROR_CODES.PRICING_GROUP_NOT_FOUND]),
+        },
       },
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const { userId } = request.user as JwtPayload;
       const body = request.body as z.infer<typeof addPricingGroupBody>;
+      // Pre-check pricing group existence — without this a typo'd id
+      // trips the FK and 500s. Same pattern as drivers.ts pricing route.
+      const [pgExists] = await db
+        .select({ id: pricingGroups.id })
+        .from(pricingGroups)
+        .where(eq(pricingGroups.id, body.pricingGroupId));
+      if (pgExists == null) {
+        await reply
+          .status(404)
+          .send({ error: 'Pricing group not found', code: 'PRICING_GROUP_NOT_FOUND' });
+        return;
+      }
       const previous = await fleetService.getFleetPricingGroup(id);
       const record = await fleetService.addPricingGroupToFleet(id, body.pricingGroupId);
       await writeAudit(

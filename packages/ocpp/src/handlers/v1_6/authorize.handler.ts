@@ -128,11 +128,20 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
         }
       }
 
-      // Guest sessions
+      // Guest sessions. Match on (sessionToken, stationOcppId) so a token
+      // generated for one charger can't be replayed at a different station
+      // - an attacker who learned the token from a URL/log/screenshot
+      // would otherwise get accepted at any station that issues
+      // Authorize against it.
       const [guest] = await db
         .select({ status: guestSessions.status })
         .from(guestSessions)
-        .where(eq(guestSessions.sessionToken, idTag))
+        .where(
+          and(
+            eq(guestSessions.sessionToken, idTag),
+            eq(guestSessions.stationOcppId, ctx.stationId),
+          ),
+        )
         .limit(1);
       if (guest != null) {
         if (guest.status === 'payment_authorized') {

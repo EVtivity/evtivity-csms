@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql, and, gte, lte, eq, count } from 'drizzle-orm';
-import { db, chargingSessions, chargingStations, sites, settings } from '@evtivity/database';
+import {
+  db,
+  chargingSessions,
+  chargingStations,
+  sites,
+  getSystemTimezone,
+} from '@evtivity/database';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
@@ -20,14 +26,6 @@ function parseFilters(raw: Record<string, unknown>): Filters {
     dateTo: typeof raw['dateTo'] === 'string' ? raw['dateTo'] : undefined,
     siteId: typeof raw['siteId'] === 'string' ? raw['siteId'] : undefined,
   };
-}
-
-async function getTimezone(): Promise<string> {
-  const [row] = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, 'system.timezone'));
-  return typeof row?.value === 'string' ? row.value : 'America/New_York';
 }
 
 function buildDateConditions(filters: Filters) {
@@ -65,19 +63,31 @@ interface EnergyBySite {
 
 async function queryEnergyByDay(filters: Filters, tz: string): Promise<EnergyByDay[]> {
   const conditions = buildDateConditions(filters);
-
-  const rows = await db
+  // Without joining stations + filtering siteId, the per-day breakdown
+  // aggregates energy across ALL sites even when the report is scoped
+  // to one — a cross-site data leak in the report output. Mirror the
+  // siteId filter from queryEnergyByStation below.
+  const baseQuery = db
     .select({
       date: sql<string>`date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz})::date::text`,
       energyKwh: sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric / 1000), 0)`,
       sessionCount: count(),
     })
-    .from(chargingSessions)
+    .from(chargingSessions);
+
+  if (filters.siteId) {
+    conditions.push(eq(chargingStations.siteId, filters.siteId));
+    return baseQuery
+      .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .groupBy(sql`1`)
+      .orderBy(sql`1`);
+  }
+
+  return baseQuery
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .groupBy(sql`1`)
     .orderBy(sql`1`);
-
-  return rows;
 }
 
 async function queryEnergyByStation(filters: Filters): Promise<EnergyByStation[]> {
@@ -131,7 +141,7 @@ export async function generateEnergyReport(
   format: string,
 ): Promise<ReportGeneratorResult> {
   const filters = parseFilters(rawFilters);
-  const tz = await getTimezone();
+  const tz = await getSystemTimezone();
 
   const [byDay, byStation, bySite] = await Promise.all([
     queryEnergyByDay(filters, tz),

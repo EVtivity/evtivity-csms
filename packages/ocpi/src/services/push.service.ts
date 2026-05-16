@@ -206,24 +206,27 @@ async function pushLocationUpdate(siteId: string): Promise<void> {
 
   for (const partnerId of partnerIds) {
     try {
-      const url = await getPartnerEndpoint(partnerId, 'locations', 'RECEIVER');
+      // Endpoint, outbound token, and partner identity are independent
+      // lookups - fetch in parallel rather than three sequential RTTs
+      // before the outbound HTTP push can fire.
+      const [url, token, partnerRows] = await Promise.all([
+        getPartnerEndpoint(partnerId, 'locations', 'RECEIVER'),
+        getPartnerToken(partnerId),
+        db
+          .select({ countryCode: ocpiPartners.countryCode, partyId: ocpiPartners.partyId })
+          .from(ocpiPartners)
+          .where(eq(ocpiPartners.id, partnerId))
+          .limit(1),
+      ]);
       if (url == null) continue;
-
-      const token = await getPartnerToken(partnerId);
       if (token == null) {
         logger.debug({ partnerId }, 'No outbound token for partner, skipping push');
         continue;
       }
+      const partner = partnerRows[0];
+      if (partner == null) continue;
 
-      const partner = await db
-        .select({ countryCode: ocpiPartners.countryCode, partyId: ocpiPartners.partyId })
-        .from(ocpiPartners)
-        .where(eq(ocpiPartners.id, partnerId))
-        .limit(1);
-
-      if (partner[0] == null) continue;
-
-      const client = createOcpiClient(token, partner[0].countryCode, partner[0].partyId);
+      const client = createOcpiClient(token, partner.countryCode, partner.partyId);
       await client.put(`${url}/${countryCode}/${partyId}/${locationId}`, location);
       await logSync(partnerId, 'locations', 'push_update', 'completed', 1);
     } catch (err) {
@@ -250,23 +253,23 @@ async function pushSessionUpdate(sessionId: string): Promise<void> {
   const partnerId = roamingSession.partnerId;
 
   try {
-    const url = await getPartnerEndpoint(partnerId, 'sessions', 'RECEIVER');
+    const [url, token, partnerRows] = await Promise.all([
+      getPartnerEndpoint(partnerId, 'sessions', 'RECEIVER'),
+      getPartnerToken(partnerId),
+      db
+        .select({ countryCode: ocpiPartners.countryCode, partyId: ocpiPartners.partyId })
+        .from(ocpiPartners)
+        .where(eq(ocpiPartners.id, partnerId))
+        .limit(1),
+    ]);
     if (url == null) return;
-
-    const token = await getPartnerToken(partnerId);
     if (token == null) return;
-
-    const partner = await db
-      .select({ countryCode: ocpiPartners.countryCode, partyId: ocpiPartners.partyId })
-      .from(ocpiPartners)
-      .where(eq(ocpiPartners.id, partnerId))
-      .limit(1);
-
-    if (partner[0] == null) return;
+    const partner = partnerRows[0];
+    if (partner == null) return;
 
     const countryCode = getCountryCode();
     const partyId = getPartyId();
-    const client = createOcpiClient(token, partner[0].countryCode, partner[0].partyId);
+    const client = createOcpiClient(token, partner.countryCode, partner.partyId);
     await client.put(
       `${url}/${countryCode}/${partyId}/${roamingSession.ocpiSessionId}`,
       sessionData,
@@ -302,21 +305,21 @@ async function pushTariffUpdate(tariffId: string): Promise<void> {
 
     for (const partner of partners) {
       try {
-        const url = await getPartnerEndpoint(partner.id, 'tariffs', 'RECEIVER');
+        const [url, token, partnerInfoRows] = await Promise.all([
+          getPartnerEndpoint(partner.id, 'tariffs', 'RECEIVER'),
+          getPartnerToken(partner.id),
+          db
+            .select({ countryCode: ocpiPartners.countryCode, partyId: ocpiPartners.partyId })
+            .from(ocpiPartners)
+            .where(eq(ocpiPartners.id, partner.id))
+            .limit(1),
+        ]);
         if (url == null) continue;
-
-        const token = await getPartnerToken(partner.id);
         if (token == null) continue;
+        const partnerInfo = partnerInfoRows[0];
+        if (partnerInfo == null) continue;
 
-        const partnerInfo = await db
-          .select({ countryCode: ocpiPartners.countryCode, partyId: ocpiPartners.partyId })
-          .from(ocpiPartners)
-          .where(eq(ocpiPartners.id, partner.id))
-          .limit(1);
-
-        if (partnerInfo[0] == null) continue;
-
-        const client = createOcpiClient(token, partnerInfo[0].countryCode, partnerInfo[0].partyId);
+        const client = createOcpiClient(token, partnerInfo.countryCode, partnerInfo.partyId);
         await client.put(`${url}/${countryCode}/${partyId}/${mapping.ocpiTariffId}`, tariffData);
         await logSync(partner.id, 'tariffs', 'push_update', 'completed', 1);
       } catch (err) {

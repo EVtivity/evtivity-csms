@@ -104,7 +104,12 @@ export async function processChargingProfilePush(
                   ),
                 );
             } else {
-              const response = result.response as { status?: string } | undefined;
+              const response = result.response as
+                | {
+                    status?: string;
+                    statusInfo?: { reasonCode?: string; additionalInfo?: string };
+                  }
+                | undefined;
               if (response?.status === 'Accepted') {
                 // Auto-refresh station_reported rows on OCPP 2.1 stations
                 // so the CSMS mirror reflects the new on-station profile
@@ -131,11 +136,23 @@ export async function processChargingProfilePush(
                     ),
                   );
               } else {
+                // Surface the station's actual rejection reason from
+                // SetChargingProfileResponse.statusInfo per OCPP 2.1, not
+                // just the bare status enum value. Without this the push
+                // history records "Rejected" with no diagnostic detail.
+                const reasonCode = response?.statusInfo?.reasonCode;
+                const additionalInfo = response?.statusInfo?.additionalInfo;
+                const errorInfo =
+                  reasonCode != null && reasonCode !== ''
+                    ? additionalInfo != null && additionalInfo !== ''
+                      ? `${reasonCode}: ${additionalInfo}`
+                      : reasonCode
+                    : (response?.status ?? 'Unknown');
                 await db
                   .update(chargingProfilePushStations)
                   .set({
                     status: 'rejected',
-                    errorInfo: response?.status ?? 'Unknown',
+                    errorInfo,
                     updatedAt: new Date(),
                   })
                   .where(

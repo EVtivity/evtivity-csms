@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 const stationCheckRateLimit = new Map<string, number[]>();
-const CHECK_RATE_LIMIT = 5; // max requests per minute per station
+const CHECK_RATE_LIMIT = 5; // max TriggerMessage dispatches per minute per station
 const CHECK_RATE_WINDOW = 60_000; // 1 minute
 
 export function isStationCheckRateLimited(stationId: string): boolean {
@@ -19,6 +19,51 @@ export function isStationCheckRateLimited(stationId: string): boolean {
   recent.push(now);
   stationCheckRateLimit.set(stationId, recent);
   return false;
+}
+
+// Short-lived cache of the last connector status check per (stationId, evseId).
+// Without this, the per-station rate limit becomes a denial of service at busy
+// sites: once 5 drivers request a status refresh in 60s every subsequent
+// driver gets 429 and cannot complete the pre-start flow. With this cache,
+// drivers within the window get the most recent freshly-pulled status instead
+// of being locked out.
+interface CachedStatus {
+  status: string | null;
+  error?: string;
+  cachedAt: number;
+}
+const statusCheckCache = new Map<string, CachedStatus>();
+const STATUS_CACHE_TTL_MS = 30_000;
+
+function statusCacheKey(stationId: string, evseId: number): string {
+  return `${stationId}:${String(evseId)}`;
+}
+
+export function getCachedConnectorStatus(
+  stationId: string,
+  evseId: number,
+): { status: string | null; error?: string } | null {
+  const key = statusCacheKey(stationId, evseId);
+  const cached = statusCheckCache.get(key);
+  if (cached == null) return null;
+  if (Date.now() - cached.cachedAt > STATUS_CACHE_TTL_MS) {
+    statusCheckCache.delete(key);
+    return null;
+  }
+  return cached.error !== undefined
+    ? { status: cached.status, error: cached.error }
+    : { status: cached.status };
+}
+
+export function setCachedConnectorStatus(
+  stationId: string,
+  evseId: number,
+  result: { status: string | null; error?: string },
+): void {
+  const key = statusCacheKey(stationId, evseId);
+  const value: CachedStatus = { status: result.status, cachedAt: Date.now() };
+  if (result.error !== undefined) value.error = result.error;
+  statusCheckCache.set(key, value);
 }
 
 // Per-API-key rate limiter: 60 requests per minute per key

@@ -179,54 +179,125 @@ const targetFilterSchema = z
   .nullable();
 
 const schedulePeriodSchema = z.object({
-  startPeriod: z.number(),
-  limit: z.number(),
-  numberPhases: z.number().optional(),
-});
-
-const createTemplateBody = z.object({
-  name: z.string().min(1).describe('Template name'),
-  description: z.string().optional().describe('Template description'),
-  ocppVersion: z.enum(['2.1', '1.6']).default('2.1').describe('OCPP version'),
-  profileId: z.number().int().default(100).describe('OCPP charging profile ID'),
-  profilePurpose: z.enum(TEMPLATE_PROFILE_PURPOSES).describe('Charging profile purpose'),
-  profileKind: z.enum(['Absolute', 'Recurring']).describe('Charging profile kind'),
-  recurrencyKind: z
-    .enum(['Daily', 'Weekly'])
+  startPeriod: z
+    .number()
+    .int()
+    .min(0)
+    .describe('Seconds from the start of the schedule. Must be a non-negative integer.'),
+  limit: z
+    .number()
+    .describe(
+      'Charging rate limit. Negative values are permitted only for V2G discharge profiles per OCPP 2.1.',
+    ),
+  numberPhases: z
+    .number()
+    .int()
+    .min(1)
+    .max(3)
     .optional()
-    .describe('Recurrency kind (required if Recurring)'),
-  stackLevel: z.number().int().min(0).default(0).describe('Stack level'),
-  evseId: z.number().int().min(0).default(0).describe('EVSE ID (0 for station-wide)'),
-  chargingRateUnit: z.enum(['W', 'A']).default('W').describe('Charging rate unit'),
-  schedulePeriods: z
-    .array(schedulePeriodSchema)
-    .min(1, 'At least one schedule period is required')
-    .describe('Charging schedule periods'),
-  startSchedule: z.string().datetime().optional().describe('Schedule start time (ISO 8601)'),
-  duration: z.number().int().optional().describe('Schedule duration in seconds'),
-  validFrom: z.string().datetime().optional().describe('Profile validity start (ISO 8601)'),
-  validTo: z.string().datetime().optional().describe('Profile validity end (ISO 8601)'),
-  targetFilter: targetFilterSchema.describe('Filter to select target stations'),
+    .describe('Number of phases (1-3). Optional.'),
 });
 
-const updateTemplateBody = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
-  ocppVersion: z.enum(['2.1', '1.6']).optional(),
-  profileId: z.number().int().optional(),
-  profilePurpose: z.enum(TEMPLATE_PROFILE_PURPOSES).optional(),
-  profileKind: z.enum(['Absolute', 'Recurring']).optional(),
-  recurrencyKind: z.enum(['Daily', 'Weekly']).optional().nullable(),
-  stackLevel: z.number().int().min(0).optional(),
-  evseId: z.number().int().min(0).optional(),
-  chargingRateUnit: z.enum(['W', 'A']).optional(),
-  schedulePeriods: z.array(schedulePeriodSchema).min(1).optional(),
-  startSchedule: z.string().datetime().optional().nullable(),
-  duration: z.number().int().optional().nullable(),
-  validFrom: z.string().datetime().optional().nullable(),
-  validTo: z.string().datetime().optional().nullable(),
-  targetFilter: targetFilterSchema,
-});
+const createTemplateBody = z
+  .object({
+    name: z.string().min(1).describe('Template name'),
+    description: z.string().optional().describe('Template description'),
+    ocppVersion: z.enum(['2.1', '1.6']).default('2.1').describe('OCPP version'),
+    profileId: z.number().int().default(100).describe('OCPP charging profile ID'),
+    profilePurpose: z.enum(TEMPLATE_PROFILE_PURPOSES).describe('Charging profile purpose'),
+    profileKind: z.enum(['Absolute', 'Recurring']).describe('Charging profile kind'),
+    recurrencyKind: z
+      .enum(['Daily', 'Weekly'])
+      .optional()
+      .describe('Recurrency kind (required if Recurring)'),
+    stackLevel: z.number().int().min(0).default(0).describe('Stack level'),
+    evseId: z.number().int().min(0).default(0).describe('EVSE ID (0 for station-wide)'),
+    chargingRateUnit: z.enum(['W', 'A']).default('W').describe('Charging rate unit'),
+    schedulePeriods: z
+      .array(schedulePeriodSchema)
+      .min(1, 'At least one schedule period is required')
+      .refine(
+        (periods) => {
+          // OCPP 2.1 chargingSchedulePeriod requires startPeriod values to be
+          // strictly ascending so the station can resolve which period is
+          // active at any wall-clock offset. Without this guard, overlapping
+          // or out-of-order periods reach the station and either get rejected
+          // or produce ambiguous behaviour.
+          for (let i = 1; i < periods.length; i++) {
+            const current = periods[i];
+            const previous = periods[i - 1];
+            if (current == null || previous == null) return false;
+            if (current.startPeriod <= previous.startPeriod) return false;
+          }
+          return true;
+        },
+        { message: 'schedulePeriods must be ordered by strictly increasing startPeriod' },
+      )
+      .describe('Charging schedule periods (ordered by ascending startPeriod)'),
+    startSchedule: z.string().datetime().optional().describe('Schedule start time (ISO 8601)'),
+    duration: z.number().int().optional().describe('Schedule duration in seconds'),
+    validFrom: z.string().datetime().optional().describe('Profile validity start (ISO 8601)'),
+    validTo: z.string().datetime().optional().describe('Profile validity end (ISO 8601)'),
+    targetFilter: targetFilterSchema.describe('Filter to select target stations'),
+  })
+  .refine(
+    (data) => {
+      // Reject obviously-broken validity windows on input so the station
+      // never receives a profile that is "valid from 2026-12-01 until
+      // 2025-01-01" - stations either reject it cryptically or honour it
+      // never, with no operator-visible signal.
+      if (data.validFrom != null && data.validTo != null) {
+        return new Date(data.validFrom).getTime() < new Date(data.validTo).getTime();
+      }
+      return true;
+    },
+    { message: 'validFrom must be strictly before validTo' },
+  )
+  .refine(
+    (data) => {
+      // OCPP 2.1 ChargingProfile spec: Recurring profiles MUST carry a
+      // startSchedule anchor so the station knows when each cycle begins.
+      // Without this guard the station receives a Recurring profile with
+      // no anchor and either rejects it or treats it as Absolute.
+      if (data.profileKind === 'Recurring') {
+        return data.startSchedule != null && data.startSchedule !== '';
+      }
+      return true;
+    },
+    {
+      message: 'startSchedule is required when profileKind is Recurring',
+      path: ['startSchedule'],
+    },
+  );
+
+const updateTemplateBody = z
+  .object({
+    name: z.string().min(1).optional(),
+    description: z.string().optional(),
+    ocppVersion: z.enum(['2.1', '1.6']).optional(),
+    profileId: z.number().int().optional(),
+    profilePurpose: z.enum(TEMPLATE_PROFILE_PURPOSES).optional(),
+    profileKind: z.enum(['Absolute', 'Recurring']).optional(),
+    recurrencyKind: z.enum(['Daily', 'Weekly']).optional().nullable(),
+    stackLevel: z.number().int().min(0).optional(),
+    evseId: z.number().int().min(0).optional(),
+    chargingRateUnit: z.enum(['W', 'A']).optional(),
+    schedulePeriods: z.array(schedulePeriodSchema).min(1).optional(),
+    startSchedule: z.string().datetime().optional().nullable(),
+    duration: z.number().int().optional().nullable(),
+    validFrom: z.string().datetime().optional().nullable(),
+    validTo: z.string().datetime().optional().nullable(),
+    targetFilter: targetFilterSchema,
+  })
+  .refine(
+    (data) => {
+      if (data.validFrom != null && data.validTo != null) {
+        return new Date(data.validFrom).getTime() < new Date(data.validTo).getTime();
+      }
+      return true;
+    },
+    { message: 'validFrom must be strictly before validTo' },
+  );
 
 export function smartChargingRoutes(app: FastifyInstance): void {
   // Filter options for target filter dropdowns
@@ -901,8 +972,16 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         })),
       );
 
-      // Process in background
-      void processChargingProfilePush(pushId, targetStations, template, ocppVersion);
+      // Process in background. processChargingProfilePush has its own
+      // try/catch and best-effort completion update, but attach an explicit
+      // .catch() here so an unexpected rejection (OOM, downstream throw)
+      // surfaces in logs instead of becoming an unhandledRejection that
+      // could crash the worker.
+      processChargingProfilePush(pushId, targetStations, template, ocppVersion).catch(
+        (err: unknown) => {
+          request.log.error({ err, pushId }, 'Charging profile push failed unexpectedly');
+        },
+      );
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -1130,15 +1209,37 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Get status counts
-      const statusCounts = await db
-        .select({
-          status: chargingProfilePushStations.status,
-          count: count(),
-        })
-        .from(chargingProfilePushStations)
-        .where(eq(chargingProfilePushStations.pushId, pushId))
-        .groupBy(chargingProfilePushStations.status);
+      // Status counts and per-station rows hit the same table with no
+      // inter-dependency - fetch in parallel to halve the wall-clock on
+      // this detail view (polled every 3s while a push is active).
+      const [statusCounts, stationRows] = await Promise.all([
+        db
+          .select({
+            status: chargingProfilePushStations.status,
+            count: count(),
+          })
+          .from(chargingProfilePushStations)
+          .where(eq(chargingProfilePushStations.pushId, pushId))
+          .groupBy(chargingProfilePushStations.status),
+        db
+          .select({
+            id: chargingProfilePushStations.id,
+            stationId: chargingProfilePushStations.stationId,
+            stationName: chargingStations.stationId,
+            status: chargingProfilePushStations.status,
+            errorInfo: chargingProfilePushStations.errorInfo,
+            updatedAt: chargingProfilePushStations.updatedAt,
+          })
+          .from(chargingProfilePushStations)
+          .innerJoin(
+            chargingStations,
+            eq(chargingProfilePushStations.stationId, chargingStations.id),
+          )
+          .where(eq(chargingProfilePushStations.pushId, pushId))
+          .orderBy(asc(chargingStations.stationId))
+          .limit(limit)
+          .offset(offset),
+      ]);
 
       const counts: Record<string, number> = {
         acceptedCount: 0,
@@ -1149,22 +1250,6 @@ export function smartChargingRoutes(app: FastifyInstance): void {
       for (const row of statusCounts) {
         counts[`${row.status}Count`] = row.count;
       }
-
-      const stationRows = await db
-        .select({
-          id: chargingProfilePushStations.id,
-          stationId: chargingProfilePushStations.stationId,
-          stationName: chargingStations.stationId,
-          status: chargingProfilePushStations.status,
-          errorInfo: chargingProfilePushStations.errorInfo,
-          updatedAt: chargingProfilePushStations.updatedAt,
-        })
-        .from(chargingProfilePushStations)
-        .innerJoin(chargingStations, eq(chargingProfilePushStations.stationId, chargingStations.id))
-        .where(eq(chargingProfilePushStations.pushId, pushId))
-        .orderBy(asc(chargingStations.stationId))
-        .limit(limit)
-        .offset(offset);
 
       return { ...push, ...counts, stations: stationRows, stationsTotal: push.stationCount };
     },

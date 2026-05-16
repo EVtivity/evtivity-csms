@@ -83,7 +83,7 @@ vi.mock('drizzle-orm', () => ({
   or: vi.fn(),
   ilike: vi.fn(),
   like: vi.fn(),
-  sql: Object.assign(vi.fn(), { raw: vi.fn() }),
+  sql: Object.assign(vi.fn(), { raw: vi.fn(), join: vi.fn(), empty: vi.fn() }),
   desc: vi.fn(),
   count: vi.fn(),
   asc: vi.fn(),

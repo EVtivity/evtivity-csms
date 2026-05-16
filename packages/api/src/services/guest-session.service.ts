@@ -109,10 +109,28 @@ async function finalizeGuestPayment(sessionId: string, logger: FastifyBaseLogger
     .select({
       id: paymentRecords.id,
       stripePaymentIntentId: paymentRecords.stripePaymentIntentId,
+      status: paymentRecords.status,
     })
     .from(paymentRecords)
     .where(eq(paymentRecords.sessionId, sessionId))
     .limit(1);
+
+  // Idempotency guard: if the payment is already in a terminal state, a prior
+  // job already finalized it. A duplicate BullMQ delivery (jobId retention
+  // expired between the original and a late re-enqueue) would otherwise call
+  // Stripe again and log a misleading capture failure when Stripe rejects the
+  // already-captured intent. Stripe's idempotency key on capture still prevents
+  // double-charging; this just short-circuits before the noisy network call.
+  if (
+    pr != null &&
+    (pr.status === 'captured' || pr.status === 'cancelled' || pr.status === 'failed')
+  ) {
+    logger.info(
+      { guestSessionId: guest.id, paymentRecordId: pr.id, status: pr.status },
+      'Skipping guest payment finalization, already terminal',
+    );
+    return;
+  }
 
   // No payment record means free session: mark completed, send receipt, and return
   if (pr?.stripePaymentIntentId == null) {

@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, sql, count, inArray } from 'drizzle-orm';
+import { eq, and, asc, desc, sql, count, inArray } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import {
   reservations,
@@ -543,7 +543,9 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
           .leftJoin(reservations, eq(reservations.fleetReservationId, fleetReservations.id))
           .where(where)
           .groupBy(fleetReservations.id)
-          .orderBy(desc(fleetReservations.createdAt))
+          // Secondary sort on id keeps pagination stable when two
+          // reservations share createdAt (otherwise rows shuffle pages).
+          .orderBy(desc(fleetReservations.createdAt), asc(fleetReservations.id))
           .limit(limit)
           .offset(offset),
         db.select({ count: count() }).from(fleetReservations).where(where),

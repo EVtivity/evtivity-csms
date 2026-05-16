@@ -7,6 +7,24 @@ import type { OcpiResponseEnvelope } from './ocpi-response.js';
 
 const logger = createLogger('ocpi-client');
 
+// Hard cap on outbound OCPI HTTP calls. Without a timeout, fetch() inherits
+// the platform default which on Node is effectively forever - one slow or
+// unresponsive partner endpoint would pin a Fastify worker indefinitely and
+// cascade into pool exhaustion across pull/push/credentials flows.
+const REQUEST_TIMEOUT_MS = 30_000;
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface OcpiClientOptions {
   token: string;
   fromCountryCode: string;
@@ -47,7 +65,7 @@ export class OcpiClient {
 
   async get<T>(url: string, correlationId?: string): Promise<OcpiResponseEnvelope<T>> {
     logger.debug({ url }, 'OCPI GET');
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'GET',
       headers: this.buildHeaders(correlationId),
     });
@@ -60,7 +78,7 @@ export class OcpiClient {
     correlationId?: string,
   ): Promise<OcpiResponseEnvelope<T>> {
     logger.debug({ url }, 'OCPI POST');
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: this.buildHeaders(correlationId),
       body: JSON.stringify(body),
@@ -74,7 +92,7 @@ export class OcpiClient {
     correlationId?: string,
   ): Promise<OcpiResponseEnvelope<T>> {
     logger.debug({ url }, 'OCPI PUT');
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'PUT',
       headers: this.buildHeaders(correlationId),
       body: JSON.stringify(body),
@@ -88,7 +106,7 @@ export class OcpiClient {
     correlationId?: string,
   ): Promise<OcpiResponseEnvelope<T>> {
     logger.debug({ url }, 'OCPI PATCH');
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'PATCH',
       headers: this.buildHeaders(correlationId),
       body: JSON.stringify(body),
@@ -98,7 +116,7 @@ export class OcpiClient {
 
   async delete<T>(url: string, correlationId?: string): Promise<OcpiResponseEnvelope<T>> {
     logger.debug({ url }, 'OCPI DELETE');
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'DELETE',
       headers: this.buildHeaders(correlationId),
     });
@@ -133,7 +151,7 @@ export class OcpiClient {
     let nextUrl: string | null = url;
 
     while (nextUrl != null) {
-      const response = await fetch(nextUrl, {
+      const response = await fetchWithTimeout(nextUrl, {
         method: 'GET',
         headers: this.buildHeaders(correlationId),
       });

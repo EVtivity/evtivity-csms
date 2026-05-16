@@ -182,11 +182,24 @@ export class OcpiCommandCallbackService {
         logger.warn({ partnerId }, 'No outbound token for partner callback');
       }
 
-      const response = await fetch(responseUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(commandResult),
-      });
+      // Cap the partner callback at 30s. Without a timeout the catch never
+      // fires, the entry stays held in this.pending forever, and the worker
+      // accumulates one stuck await per slow partner callback.
+      const controller = new AbortController();
+      const timer = setTimeout(() => {
+        controller.abort();
+      }, 30_000);
+      let response: Response;
+      try {
+        response = await fetch(responseUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(commandResult),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
 
       if (!response.ok) {
         logger.warn(

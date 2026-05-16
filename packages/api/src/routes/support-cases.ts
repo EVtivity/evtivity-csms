@@ -591,34 +591,37 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const sessions = await db
-        .select({
-          id: supportCaseSessions.sessionId,
-          transactionId: chargingSessions.transactionId,
-          stationName: chargingStations.stationId,
-          driverName: sql<
-            string | null
-          >`CASE WHEN ${drivers.firstName} IS NOT NULL THEN COALESCE(${drivers.firstName}, '') || ' ' || COALESCE(${drivers.lastName}, '') ELSE NULL END`,
-          status: chargingSessions.status,
-        })
-        .from(supportCaseSessions)
-        .innerJoin(chargingSessions, eq(supportCaseSessions.sessionId, chargingSessions.id))
-        .leftJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-        .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
-        .where(eq(supportCaseSessions.caseId, id));
-
-      const messages = await db
-        .select({
-          id: supportCaseMessages.id,
-          senderType: supportCaseMessages.senderType,
-          senderId: supportCaseMessages.senderId,
-          body: supportCaseMessages.body,
-          isInternal: supportCaseMessages.isInternal,
-          createdAt: supportCaseMessages.createdAt,
-        })
-        .from(supportCaseMessages)
-        .where(eq(supportCaseMessages.caseId, id))
-        .orderBy(supportCaseMessages.createdAt);
+      // Sessions and messages are independent — fan them in parallel so
+      // the detail GET is bounded by the slower query, not the sum.
+      const [sessions, messages] = await Promise.all([
+        db
+          .select({
+            id: supportCaseSessions.sessionId,
+            transactionId: chargingSessions.transactionId,
+            stationName: chargingStations.stationId,
+            driverName: sql<
+              string | null
+            >`CASE WHEN ${drivers.firstName} IS NOT NULL THEN COALESCE(${drivers.firstName}, '') || ' ' || COALESCE(${drivers.lastName}, '') ELSE NULL END`,
+            status: chargingSessions.status,
+          })
+          .from(supportCaseSessions)
+          .innerJoin(chargingSessions, eq(supportCaseSessions.sessionId, chargingSessions.id))
+          .leftJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+          .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
+          .where(eq(supportCaseSessions.caseId, id)),
+        db
+          .select({
+            id: supportCaseMessages.id,
+            senderType: supportCaseMessages.senderType,
+            senderId: supportCaseMessages.senderId,
+            body: supportCaseMessages.body,
+            isInternal: supportCaseMessages.isInternal,
+            createdAt: supportCaseMessages.createdAt,
+          })
+          .from(supportCaseMessages)
+          .where(eq(supportCaseMessages.caseId, id))
+          .orderBy(supportCaseMessages.createdAt),
+      ]);
 
       const messageIds = messages.map((m) => m.id);
       let attachments: Array<{
@@ -1158,7 +1161,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         body: zodSchema(requestUploadUrlBody),
         response: {
           200: itemResponse(uploadUrlResponse),
-          400: errorWith('S3 not configured', [ERROR_CODES.S3_NOT_CONFIGURED]),
+          400: errorWith('S3 not configured', [ERROR_CODES.STORAGE_NOT_CONFIGURED]),
           404: errorWith('Message not found', [ERROR_CODES.MESSAGE_NOT_FOUND]),
         },
       },
@@ -1200,7 +1203,9 @@ export function supportCaseRoutes(app: FastifyInstance): void {
 
       const s3 = await getS3Config();
       if (s3 == null) {
-        await reply.status(400).send({ error: 'S3 not configured', code: 'S3_NOT_CONFIGURED' });
+        await reply
+          .status(400)
+          .send({ error: 'S3 not configured', code: 'STORAGE_NOT_CONFIGURED' });
         return;
       }
 
@@ -1308,7 +1313,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         params: zodSchema(attachmentIdParams),
         response: {
           200: itemResponse(downloadUrlResponse),
-          400: errorWith('S3 not configured', [ERROR_CODES.S3_NOT_CONFIGURED]),
+          400: errorWith('S3 not configured', [ERROR_CODES.STORAGE_NOT_CONFIGURED]),
           404: errorWith('Resource not found', [ERROR_CODES.NOT_FOUND]),
         },
       },
@@ -1351,7 +1356,9 @@ export function supportCaseRoutes(app: FastifyInstance): void {
 
       const s3 = await getS3Config();
       if (s3 == null) {
-        await reply.status(400).send({ error: 'S3 not configured', code: 'S3_NOT_CONFIGURED' });
+        await reply
+          .status(400)
+          .send({ error: 'S3 not configured', code: 'STORAGE_NOT_CONFIGURED' });
         return;
       }
 
@@ -1451,7 +1458,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
             ERROR_CODES.NO_CAPTURED_PAYMENT,
             ERROR_CODES.REFUND_EXCEEDS_REMAINING,
             ERROR_CODES.SESSION_NOT_LINKED,
-            ERROR_CODES.STRIPE_NOT_CONFIGURED,
+            ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
           ]),
           404: errorWith('Resource not found', [ERROR_CODES.NOT_FOUND]),
         },
@@ -1533,7 +1540,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
       if (config == null) {
         await reply.status(400).send({
           error: 'No Stripe configuration available',
-          code: 'STRIPE_NOT_CONFIGURED',
+          code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
         });
         return;
       }

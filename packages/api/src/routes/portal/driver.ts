@@ -23,7 +23,12 @@ import { zodSchema } from '../../lib/zod-schema.js';
 import { validatePasswordComplexity } from '../../lib/password-validation.js';
 import { ALL_TEMPLATES_DIRS } from '../../lib/template-dirs.js';
 import { getPubSub } from '../../lib/pubsub.js';
-import { successResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
+import {
+  successResponse,
+  itemResponse,
+  errorWith,
+  errorResponse,
+} from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
 import { config as apiConfig } from '../../lib/config.js';
@@ -47,7 +52,7 @@ const portalDriverProfile = z
       .nullable()
       .describe('Preferred IANA timezone (e.g. America/Los_Angeles)'),
     themePreference: z.enum(['light', 'dark']).describe('Preferred UI theme'),
-    distanceUnit: z.enum(['mi', 'km']).describe('Preferred distance unit (miles or kilometers)'),
+    distanceUnit: z.enum(['miles', 'km']).describe('Preferred distance unit (miles or kilometers)'),
     isActive: z.boolean().describe('Whether the driver account is active'),
     createdAt: z.coerce.date().describe('Timestamp the driver account was created'),
   })
@@ -358,6 +363,7 @@ export function portalDriverRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(mfaSetupResponse),
           400: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
+          409: errorResponse,
         },
       },
     },
@@ -371,11 +377,23 @@ export function portalDriverRoutes(app: FastifyInstance): void {
           phone: drivers.phone,
           firstName: drivers.firstName,
           language: drivers.language,
+          mfaEnabled: drivers.mfaEnabled,
         })
         .from(drivers)
         .where(eq(drivers.id, driverId));
       if (driver == null) {
         await reply.status(400).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+        return;
+      }
+
+      // Block re-setup when MFA is already enabled. Overwriting `totpSecretEnc`
+      // here without a follow-up confirm would replace the live secret that
+      // the driver's authenticator app still trusts, locking them out at next
+      // login. Force them through disable (password-gated) first.
+      if (driver.mfaEnabled) {
+        await reply
+          .status(409)
+          .send({ error: 'MFA is already enabled', code: 'MFA_ALREADY_ENABLED' });
         return;
       }
 
@@ -524,6 +542,19 @@ export function portalDriverRoutes(app: FastifyInstance): void {
           updatedAt: new Date(),
         })
         .where(eq(drivers.id, driverId));
+
+      // Notify the driver out-of-band. If MFA was disabled by an attacker with
+      // a stolen session, the legitimate owner sees the email/SMS/push and can
+      // re-enable 2FA and rotate their password before the attacker uses
+      // password-only access on future logins.
+      void dispatchDriverNotification(
+        client,
+        'driver.MfaDisabled',
+        driverId,
+        {},
+        ALL_TEMPLATES_DIRS,
+        getPubSub(),
+      );
 
       return { success: true };
     },

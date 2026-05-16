@@ -105,7 +105,9 @@ export async function getFleetDrivers(fleetId: string, page: number, limit: numb
       .from(fleetDrivers)
       .innerJoin(drivers, eq(fleetDrivers.driverId, drivers.id))
       .where(eq(fleetDrivers.fleetId, fleetId))
-      .orderBy(drivers.firstName)
+      // Secondary sort on id keeps pagination stable when two drivers
+      // share a first name (without it, rows can shuffle between pages).
+      .orderBy(drivers.firstName, drivers.id)
       .limit(limit)
       .offset(offset),
     db
@@ -118,8 +120,15 @@ export async function getFleetDrivers(fleetId: string, page: number, limit: numb
 }
 
 export async function addDriverToFleet(fleetId: string, driverId: string) {
-  const [record] = await db.insert(fleetDrivers).values({ fleetId, driverId }).returning();
-  return record;
+  // Schema enforces (fleet_id, driver_id) uniqueness. ON CONFLICT DO NOTHING
+  // means a duplicate add returns no row instead of erroring; the caller
+  // surfaces that as a clean 409 instead of a 500 from the unique violation.
+  const [record] = await db
+    .insert(fleetDrivers)
+    .values({ fleetId, driverId })
+    .onConflictDoNothing()
+    .returning();
+  return record ?? null;
 }
 
 export async function removeDriverFromFleet(fleetId: string, driverId: string) {
@@ -140,33 +149,44 @@ export async function getFleetStations(fleetId: string) {
     ELSE 'unavailable'
   END`;
 
-  return db
-    .select({
-      id: chargingStations.id,
-      stationId: chargingStations.stationId,
-      siteId: chargingStations.siteId,
-      model: chargingStations.model,
-      securityProfile: chargingStations.securityProfile,
-      ocppProtocol: chargingStations.ocppProtocol,
-      status: derivedStatus,
-      connectorCount: sql<number>`COUNT(${connectors.id})::int`,
-      connectorTypes: sql<
-        string[]
-      >`array_agg(DISTINCT ${connectors.connectorType}) FILTER (WHERE ${connectors.connectorType} IS NOT NULL)`,
-      isOnline: chargingStations.isOnline,
-      lastHeartbeat: chargingStations.lastHeartbeat,
-    })
-    .from(fleetStations)
-    .innerJoin(chargingStations, eq(fleetStations.stationId, chargingStations.id))
-    .leftJoin(evses, eq(evses.stationId, chargingStations.id))
-    .leftJoin(connectors, eq(connectors.evseId, evses.id))
-    .where(eq(fleetStations.fleetId, fleetId))
-    .groupBy(chargingStations.id);
+  return (
+    db
+      .select({
+        id: chargingStations.id,
+        stationId: chargingStations.stationId,
+        siteId: chargingStations.siteId,
+        model: chargingStations.model,
+        securityProfile: chargingStations.securityProfile,
+        ocppProtocol: chargingStations.ocppProtocol,
+        status: derivedStatus,
+        connectorCount: sql<number>`COUNT(${connectors.id})::int`,
+        connectorTypes: sql<
+          string[]
+        >`array_agg(DISTINCT ${connectors.connectorType}) FILTER (WHERE ${connectors.connectorType} IS NOT NULL)`,
+        isOnline: chargingStations.isOnline,
+        lastHeartbeat: chargingStations.lastHeartbeat,
+      })
+      .from(fleetStations)
+      .innerJoin(chargingStations, eq(fleetStations.stationId, chargingStations.id))
+      .leftJoin(evses, eq(evses.stationId, chargingStations.id))
+      .leftJoin(connectors, eq(connectors.evseId, evses.id))
+      .where(eq(fleetStations.fleetId, fleetId))
+      .groupBy(chargingStations.id)
+      // Stable ordering — UI displays this list and rows would otherwise
+      // shuffle between requests. Matches the getFleetDrivers pattern.
+      .orderBy(chargingStations.stationId, chargingStations.id)
+  );
 }
 
 export async function addStationToFleet(fleetId: string, stationId: string) {
-  const [record] = await db.insert(fleetStations).values({ fleetId, stationId }).returning();
-  return record;
+  // Same idempotency guard as addDriverToFleet — schema unique on
+  // (fleet_id, station_id), so a duplicate add returns no row.
+  const [record] = await db
+    .insert(fleetStations)
+    .values({ fleetId, stationId })
+    .onConflictDoNothing()
+    .returning();
+  return record ?? null;
 }
 
 export async function removeStationFromFleet(fleetId: string, stationId: string) {
@@ -286,32 +306,34 @@ export async function getFleetMetrics(fleetId: string, months: number) {
 
   const driverFilter = sql`${chargingSessions.driverId} IN (select driver_id from fleet_drivers where fleet_id = ${fleetId})`;
 
-  const [sessionStats] = await db
-    .select({
-      totalSessions: count(),
-      completedSessions: sql<number>`count(*) filter (where ${chargingSessions.status} = 'completed')`,
-      faultedSessions: sql<number>`count(*) filter (where ${chargingSessions.status} = 'faulted')`,
-      totalEnergyWh: sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric), 0)`,
-      avgDurationMinutes: sql<number>`coalesce(avg(extract(epoch from (${chargingSessions.endedAt} - ${chargingSessions.startedAt})) / 60) filter (where ${chargingSessions.endedAt} is not null), 0)`,
-      activeDrivers: sql<number>`count(distinct ${chargingSessions.driverId})`,
-    })
-    .from(chargingSessions)
-    .where(and(driverFilter, gte(chargingSessions.startedAt, since)));
-
-  const [driverStats] = await db
-    .select({
-      totalDrivers: count(),
-    })
-    .from(fleetDrivers)
-    .where(eq(fleetDrivers.fleetId, fleetId));
-
-  const [vehicleStats] = await db
-    .select({
-      totalVehicles: sql<number>`count(*)::int`,
-    })
-    .from(fleetDrivers)
-    .innerJoin(vehicles, eq(vehicles.driverId, fleetDrivers.driverId))
-    .where(eq(fleetDrivers.fleetId, fleetId));
+  // Three independent aggregations — fan them in parallel so the metrics
+  // endpoint is bounded by the slowest query, not the sum.
+  const [[sessionStats], [driverStats], [vehicleStats]] = await Promise.all([
+    db
+      .select({
+        totalSessions: count(),
+        completedSessions: sql<number>`count(*) filter (where ${chargingSessions.status} = 'completed')`,
+        faultedSessions: sql<number>`count(*) filter (where ${chargingSessions.status} = 'faulted')`,
+        totalEnergyWh: sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric), 0)`,
+        avgDurationMinutes: sql<number>`coalesce(avg(extract(epoch from (${chargingSessions.endedAt} - ${chargingSessions.startedAt})) / 60) filter (where ${chargingSessions.endedAt} is not null), 0)`,
+        activeDrivers: sql<number>`count(distinct ${chargingSessions.driverId})`,
+      })
+      .from(chargingSessions)
+      .where(and(driverFilter, gte(chargingSessions.startedAt, since))),
+    db
+      .select({
+        totalDrivers: count(),
+      })
+      .from(fleetDrivers)
+      .where(eq(fleetDrivers.fleetId, fleetId)),
+    db
+      .select({
+        totalVehicles: sql<number>`count(*)::int`,
+      })
+      .from(fleetDrivers)
+      .innerJoin(vehicles, eq(vehicles.driverId, fleetDrivers.driverId))
+      .where(eq(fleetDrivers.fleetId, fleetId)),
+  ]);
 
   const total = sessionStats?.totalSessions ?? 0;
   const completed = sessionStats?.completedSessions ?? 0;

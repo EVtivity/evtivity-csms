@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql as dsql, eq } from 'drizzle-orm';
+import { sql as dsql, eq, and } from 'drizzle-orm';
 import { db, driverTokens, drivers, guestSessions } from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { StartTransaction } from '../../generated/v1_6/types/messages/StartTransaction.js';
@@ -130,11 +130,19 @@ export async function handleStartTransaction(
         }
       }
       if (!resolved) {
-        // Fall back to guest_sessions: idTag may be a CSMS-issued sessionToken.
+        // Fall back to guest_sessions: idTag may be a CSMS-issued
+        // sessionToken. Scope the match to this station so a token
+        // generated for charger A can't be replayed at charger B via a
+        // station that skips Authorize and goes straight to StartTransaction.
         const [guest] = await db
           .select({ status: guestSessions.status })
           .from(guestSessions)
-          .where(eq(guestSessions.sessionToken, request.idTag))
+          .where(
+            and(
+              eq(guestSessions.sessionToken, request.idTag),
+              eq(guestSessions.stationOcppId, ctx.stationId),
+            ),
+          )
           .limit(1);
         if (guest == null) {
           idTagStatus = 'Invalid';

@@ -28,6 +28,7 @@ import {
   createRefreshToken,
   validateAndRotateRefreshToken,
   revokeRefreshToken,
+  revokeAllDriverRefreshTokens,
 } from '../../services/refresh-token.service.js';
 import { config as apiConfig } from '../../lib/config.js';
 import {
@@ -46,7 +47,7 @@ const portalDriverItem = z
     language: z.string().max(10).nullable(),
     timezone: z.string().max(50).nullable(),
     themePreference: z.enum(['light', 'dark']),
-    distanceUnit: z.enum(['mi', 'km']),
+    distanceUnit: z.enum(['miles', 'km']),
     isActive: z.boolean(),
     emailVerified: z.boolean(),
     createdAt: z.coerce.date(),
@@ -613,8 +614,17 @@ export function portalAuthRoutes(app: FastifyInstance): void {
           return;
         }
         const encKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
-        const secret = decryptString(driver.totpSecretEnc, encKey);
-        verified = verifyTotpCode(secret, code);
+        try {
+          const secret = decryptString(driver.totpSecretEnc, encKey);
+          verified = verifyTotpCode(secret, code);
+        } catch (err: unknown) {
+          // Corrupted ciphertext or rotated SETTINGS_ENCRYPTION_KEY would
+          // crash the request with a raw 500. Return a clean 400 so the
+          // driver sees a comprehensible error and root cause is logged.
+          request.log.warn({ err, driverId: driver.id }, 'TOTP secret decrypt failed');
+          await reply.status(400).send({ error: 'TOTP not set up', code: 'TOTP_NOT_CONFIGURED' });
+          return;
+        }
       } else if (challengeId != null) {
         verified = await verifyMfaChallenge(client, challengeId, code);
       }
@@ -906,6 +916,12 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         .update(userTokens)
         .set({ revokedAt: new Date() })
         .where(eq(userTokens.id, tokenRow.id));
+
+      // Forgot-password is the recovery path after credential compromise.
+      // Revoke every outstanding refresh token so an attacker holding a
+      // stolen portal_refresh cookie cannot keep using the account after
+      // the legitimate driver completes the reset.
+      await revokeAllDriverRefreshTokens(tokenRow.driverId);
 
       return { success: true };
     },

@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, asc } from 'drizzle-orm';
+import { eq, and, asc, desc } from 'drizzle-orm';
 import { db, writeAudit, stationImageAuditLog } from '@evtivity/database';
 import { stationImages } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
@@ -35,9 +35,24 @@ const imageIdParams = z.object({
   imageId: z.coerce.number().int().min(1).describe('Image ID'),
 });
 
+// Restrict uploads to image MIME types so the bucket can't be used as
+// a dumping ground for executables/documents. The frontend only sends
+// images; this is a server-side guard against a hostile caller.
+const ALLOWED_IMAGE_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml',
+] as const;
+
 const uploadUrlBody = z.object({
   fileName: z.string().min(1).max(255),
-  contentType: z.string().min(1).max(100).describe('MIME type of the file'),
+  contentType: z
+    .enum(ALLOWED_IMAGE_MIME_TYPES)
+    .describe(
+      'MIME type of the file (image/jpeg, image/png, image/gif, image/webp, image/svg+xml)',
+    ),
   fileSize: z
     .number()
     .int()
@@ -145,7 +160,7 @@ export function stationImageRoutes(app: FastifyInstance): void {
         body: zodSchema(uploadUrlBody),
         response: {
           200: itemResponse(uploadUrlResponse),
-          400: errorWith('S3 not configured', [ERROR_CODES.S3_NOT_CONFIGURED]),
+          400: errorWith('S3 not configured', [ERROR_CODES.STORAGE_NOT_CONFIGURED]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
         },
       },
@@ -162,7 +177,9 @@ export function stationImageRoutes(app: FastifyInstance): void {
 
       const s3 = await getS3Config();
       if (s3 == null) {
-        await reply.status(400).send({ error: 'S3 not configured', code: 'S3_NOT_CONFIGURED' });
+        await reply
+          .status(400)
+          .send({ error: 'S3 not configured', code: 'STORAGE_NOT_CONFIGURED' });
         return;
       }
 
@@ -213,12 +230,14 @@ export function stationImageRoutes(app: FastifyInstance): void {
           .where(and(eq(stationImages.stationId, id), eq(stationImages.isMainImage, true)));
       }
 
-      // Get next sort order
+      // Get next sort order - asc() was returning the MINIMUM existing
+      // sort order, so every new image landed on the same low value
+      // instead of being appended to the end of the list.
       const [maxSort] = await db
         .select({ maxOrder: stationImages.sortOrder })
         .from(stationImages)
         .where(eq(stationImages.stationId, id))
-        .orderBy(asc(stationImages.sortOrder))
+        .orderBy(desc(stationImages.sortOrder))
         .limit(1);
 
       const [image] = await db
@@ -435,7 +454,7 @@ export function stationImageRoutes(app: FastifyInstance): void {
               })
               .passthrough(),
           ),
-          400: errorWith('S3 not configured', [ERROR_CODES.S3_NOT_CONFIGURED]),
+          400: errorWith('S3 not configured', [ERROR_CODES.STORAGE_NOT_CONFIGURED]),
           404: errorWith('Resource not found', [
             ERROR_CODES.IMAGE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
@@ -464,7 +483,9 @@ export function stationImageRoutes(app: FastifyInstance): void {
 
       const s3 = await getS3Config();
       if (s3 == null) {
-        await reply.status(400).send({ error: 'S3 not configured', code: 'S3_NOT_CONFIGURED' });
+        await reply
+          .status(400)
+          .send({ error: 'S3 not configured', code: 'STORAGE_NOT_CONFIGURED' });
         return;
       }
 

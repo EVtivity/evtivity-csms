@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { eq, like } from 'drizzle-orm';
 import { db, chatbotAiConfigs, settings, users } from '@evtivity/database';
 import { decryptString } from '@evtivity/lib';
 import type { ChatMessage, ChatOptions } from './types.js';
@@ -62,8 +62,13 @@ export async function resolveSupportAiConfig(userId: string): Promise<SupportAiC
     };
   }
 
-  // Fall back to system support AI settings
-  const systemRows = await db.select({ key: settings.key, value: settings.value }).from(settings);
+  // Fall back to system support AI settings. Push the supportAi.* prefix
+  // filter to Postgres so we don't transfer the entire settings table on
+  // every AI assist request.
+  const systemRows = await db
+    .select({ key: settings.key, value: settings.value })
+    .from(settings)
+    .where(like(settings.key, 'supportAi.%'));
   const get = (k: string) => systemRows.find((r) => r.key === k)?.value;
 
   if (get('supportAi.enabled') !== true) {

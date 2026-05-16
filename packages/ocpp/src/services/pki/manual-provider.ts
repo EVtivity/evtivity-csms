@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import postgres from 'postgres';
+import { client } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import type {
   PkiProvider,
@@ -13,15 +13,19 @@ import type {
 
 const logger = createLogger('manual-pki-provider');
 
+// OCSP responders can hang under load or attack. Without a timeout the
+// OCPP handler thread that initiated GetCertificateStatus blocks
+// indefinitely, the station's response promise rejects with a timeout,
+// and the offending OCSP host can pin worker capacity.
+const OCSP_TIMEOUT_MS = 15_000;
+
 export class ManualProvider implements PkiProvider {
-  private sql: postgres.Sql;
-
-  constructor(databaseUrl: string) {
-    this.sql = postgres(databaseUrl);
-  }
-
+  // Reuse the shared connection pool from @evtivity/database instead of
+  // spinning up a new postgres() connection per provider instance - the
+  // provider factory caches by config hash with a 60s TTL and a fresh
+  // connection would leak on every cache miss.
   async signCsr(csr: string, certificateType: string): Promise<SignCsrResult> {
-    await this.sql`
+    await client`
       INSERT INTO pki_csr_requests (csr, certificate_type, status)
       VALUES (${csr}, ${certificateType}, 'pending')
     `;
@@ -39,18 +43,34 @@ export class ManualProvider implements PkiProvider {
   }
 
   async getOcspStatus(ocspRequestData: OcspRequestData): Promise<OcspResult> {
-    const response = await fetch(ocspRequestData.responderURL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/ocsp-request' },
-      body: Buffer.from(
-        JSON.stringify({
-          hashAlgorithm: ocspRequestData.hashAlgorithm,
-          issuerNameHash: ocspRequestData.issuerNameHash,
-          issuerKeyHash: ocspRequestData.issuerKeyHash,
-          serialNumber: ocspRequestData.serialNumber,
-        }),
-      ),
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+    }, OCSP_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(ocspRequestData.responderURL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/ocsp-request' },
+        body: Buffer.from(
+          JSON.stringify({
+            hashAlgorithm: ocspRequestData.hashAlgorithm,
+            issuerNameHash: ocspRequestData.issuerNameHash,
+            issuerKeyHash: ocspRequestData.issuerKeyHash,
+            serialNumber: ocspRequestData.serialNumber,
+          }),
+        ),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      logger.error(
+        { err, url: ocspRequestData.responderURL },
+        'OCSP request failed (network or timeout)',
+      );
+      return { status: 'Failed', ocspResult: '' };
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!response.ok) {
       logger.error(
@@ -65,7 +85,7 @@ export class ManualProvider implements PkiProvider {
   }
 
   async getRootCertificates(type: string): Promise<string[]> {
-    const rows = await this.sql`
+    const rows = await client`
       SELECT certificate FROM pki_ca_certificates
       WHERE certificate_type = ${type} AND status = 'active'
       ORDER BY created_at DESC

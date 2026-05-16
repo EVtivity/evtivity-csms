@@ -78,46 +78,58 @@ export async function reconcilePayments(
       (r) => r.stripePaymentIntentId != null && r.stripePaymentIntentId !== '',
     );
 
-    for (const record of recordsWithIntent) {
-      const intentId = record.stripePaymentIntentId as string;
+    // Each Stripe API call is ~100-200ms over the network. Sequential
+    // awaits on a 200-record batch take 20-40s; parallel fetches finish
+    // in ~200ms total. Stripe rate-limits at 100 reqs/sec by default,
+    // well above one batch worth of intents.
+    const intentResults = await Promise.all(
+      recordsWithIntent.map(async (record) => {
+        const intentId = record.stripePaymentIntentId as string;
+        try {
+          const intent = await config.stripe.paymentIntents.retrieve(intentId);
+          return { record, intentId, intent, error: null as string | null };
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          return { record, intentId, intent: null, error: message };
+        }
+      }),
+    );
+
+    for (const { record, intentId, intent, error } of intentResults) {
       result.checked++;
 
-      try {
-        const intent = await config.stripe.paymentIntents.retrieve(intentId);
+      if (error != null || intent == null) {
+        result.errors.push('Failed to retrieve ' + intentId + ': ' + (error ?? 'unknown'));
+        continue;
+      }
 
-        // Compare status
-        const expectedLocalStatus = mapStripeStatusToLocal(intent.status);
-        if (expectedLocalStatus != null && record.status !== expectedLocalStatus) {
+      const expectedLocalStatus = mapStripeStatusToLocal(intent.status);
+      if (expectedLocalStatus != null && record.status !== expectedLocalStatus) {
+        result.discrepancies.push({
+          paymentRecordId: record.id,
+          stripePaymentIntentId: intentId,
+          field: 'status',
+          localValue: record.status,
+          stripeValue: intent.status + ' (expected local: ' + expectedLocalStatus + ')',
+        });
+        continue;
+      }
+
+      if (record.status === 'captured' && record.capturedAmountCents != null) {
+        const stripeAmount = intent.amount_received;
+        if (stripeAmount !== record.capturedAmountCents) {
           result.discrepancies.push({
             paymentRecordId: record.id,
             stripePaymentIntentId: intentId,
-            field: 'status',
-            localValue: record.status,
-            stripeValue: intent.status + ' (expected local: ' + expectedLocalStatus + ')',
+            field: 'capturedAmountCents',
+            localValue: String(record.capturedAmountCents),
+            stripeValue: String(stripeAmount),
           });
           continue;
         }
-
-        // Compare captured amount
-        if (record.status === 'captured' && record.capturedAmountCents != null) {
-          const stripeAmount = intent.amount_received;
-          if (stripeAmount !== record.capturedAmountCents) {
-            result.discrepancies.push({
-              paymentRecordId: record.id,
-              stripePaymentIntentId: intentId,
-              field: 'capturedAmountCents',
-              localValue: String(record.capturedAmountCents),
-              stripeValue: String(stripeAmount),
-            });
-            continue;
-          }
-        }
-
-        result.matched++;
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        result.errors.push('Failed to retrieve ' + intentId + ': ' + message);
       }
+
+      result.matched++;
     }
   }
 

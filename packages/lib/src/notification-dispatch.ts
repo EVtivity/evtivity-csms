@@ -318,6 +318,7 @@ const FRIENDLY_SUBJECTS: Record<string, string> = {
   'driver.Welcome': '{{{companyName}}} - Welcome',
   'driver.ForgotPassword': '{{{companyName}}} - Reset your password',
   'driver.PasswordChanged': '{{{companyName}}} - Password changed',
+  'driver.MfaDisabled': '{{{companyName}}} - Two-factor authentication disabled',
   'driver.AccountVerification': '{{{companyName}}} - Verify your account',
   'payment.Complete': '{{{companyName}}} - Payment confirmation',
   'payment.Refunded': '{{{companyName}}} - Refund processed',
