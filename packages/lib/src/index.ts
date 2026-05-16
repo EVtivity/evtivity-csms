@@ -110,6 +110,8 @@ export { renderStationMessage, clearStationMessageCache } from './station-messag
 export type { StationMessageState, StationMessageContext } from './station-message.js';
 
 export { STATION_MESSAGE_DEFAULTS } from './station-message-defaults.js';
+export { dispatchOneShotStationMessage } from './station-message-dispatch.js';
+export type { OneShotStationMessageOptions } from './station-message-dispatch.js';
 
 export {
   PERMISSIONS,

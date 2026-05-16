@@ -4,6 +4,8 @@
 import Handlebars from 'handlebars';
 
 export type StationMessageState =
+  // State-bound slots (9000-9005) shown by the station based on its current
+  // MessageState. Pushed by the connector-status / transaction-event listeners.
   | 'available'
   | 'occupied'
   | 'reserved'
@@ -11,7 +13,15 @@ export type StationMessageState =
   | 'suspended'
   | 'discharging'
   | 'faulted'
-  | 'unavailable';
+  | 'unavailable'
+  // Event-bound one-shot messages (slot 9010) dispatched on demand by
+  // server-side flows (e.g. payment gate stopping a session). Not bound to a
+  // MessageState, render via dispatchOneShotStationMessage and auto-clear
+  // after a short TTL.
+  | 'payment_failed'
+  | 'payment_required'
+  | 'guest_unauthorized'
+  | 'unauthorized';
 
 export interface StationMessageContext {
   companyName: string;

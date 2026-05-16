@@ -32,12 +32,14 @@ import {
   isSimulatedCustomer,
   shouldSimulatePaymentFailure,
   isTariffFree,
+  dispatchOneShotStationMessage,
 } from '@evtivity/lib';
 import type {
   TariffInput,
   TariffRestrictions,
   TariffWithRestrictions,
   TariffSegment,
+  StationMessageState,
 } from '@evtivity/lib';
 import crypto from 'node:crypto';
 import {
@@ -3022,6 +3024,43 @@ export function registerProjections(
         );
       } catch (err) {
         logger.error({ err }, 'Failed to publish RequestStopTransaction');
+      }
+
+      // Push a one-shot driver-facing message to the station screen so the
+      // physical UX matches the email/SMS notification fan-out. The template
+      // body is operator-editable in Settings -> Integration -> Station
+      // Messages, rendered with the standard StationMessageContext, and
+      // dispatched via dispatchOneShotStationMessage so any future
+      // event-driven station message can reuse the same path.
+      const stateByReason: Record<typeof reason, StationMessageState> = {
+        PaymentFailed: 'payment_failed',
+        MissingPaymentMethod: 'payment_required',
+        GuestPaymentNotAuthorized: 'guest_unauthorized',
+        AnonymousSession: 'unauthorized',
+      };
+      try {
+        const settingRows = await sql`
+          SELECT key, value FROM settings
+          WHERE key IN ('company.name', 'company.supportPhone')
+        `;
+        const settingsMap = new Map<string, unknown>();
+        for (const row of settingRows) {
+          settingsMap.set(row['key'] as string, row['value']);
+        }
+        const companyName = (settingsMap.get('company.name') as string | undefined) ?? 'EVtivity';
+        const supportPhone = settingsMap.get('company.supportPhone') as string | undefined;
+        await dispatchOneShotStationMessage(pubsub, sql, {
+          stationOcppId: ocppStationId,
+          stationDbId,
+          state: stateByReason[reason],
+          context: {
+            companyName,
+            stationOcppId: ocppStationId,
+            ...(supportPhone != null && supportPhone !== '' ? { supportPhone } : {}),
+          },
+        });
+      } catch (err) {
+        logger.warn({ err, reason }, 'Failed to publish payment-failure display message');
       }
 
       const eagerCleanup = reason === 'PaymentFailed' || reason === 'MissingPaymentMethod';

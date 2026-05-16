@@ -25,7 +25,11 @@ type StationMessageState =
   | 'suspended'
   | 'discharging'
   | 'faulted'
-  | 'unavailable';
+  | 'unavailable'
+  | 'payment_failed'
+  | 'payment_required'
+  | 'guest_unauthorized'
+  | 'unauthorized';
 
 interface TemplateRow {
   state: StationMessageState;
@@ -57,6 +61,10 @@ const ALL: ReadonlySet<StationMessageState> = new Set([
   'discharging',
   'faulted',
   'unavailable',
+  'payment_failed',
+  'payment_required',
+  'guest_unauthorized',
+  'unauthorized',
 ]);
 
 const VARIABLES: VariableDef[] = [
@@ -114,6 +122,12 @@ const STATES: StationMessageState[] = [
   'discharging',
   'faulted',
   'unavailable',
+  // Event-driven one-shot messages. Not bound to a MessageState slot; pushed
+  // by server-side flows (e.g. payment gate stopping a session) with TTL.
+  'payment_failed',
+  'payment_required',
+  'guest_unauthorized',
+  'unauthorized',
 ];
 
 const STATE_LABEL_KEY: Record<StationMessageState, string> = {
@@ -125,6 +139,10 @@ const STATE_LABEL_KEY: Record<StationMessageState, string> = {
   discharging: 'messages.stateDischarging',
   faulted: 'messages.stateFaulted',
   unavailable: 'messages.stateUnavailable',
+  payment_failed: 'messages.statePaymentFailed',
+  payment_required: 'messages.statePaymentRequired',
+  guest_unauthorized: 'messages.stateGuestUnauthorized',
+  unauthorized: 'messages.stateUnauthorized',
 };
 
 interface StationMessageSettingsProps {
