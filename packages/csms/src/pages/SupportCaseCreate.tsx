@@ -28,6 +28,13 @@ interface User {
   lastName: string | null;
 }
 
+interface SessionResult {
+  id: string;
+  transactionId: string | null;
+  stationName: string | null;
+  startedAt: string | null;
+}
+
 const CATEGORY_OPTIONS = [
   'billing_dispute',
   'charging_failure',
@@ -50,9 +57,7 @@ export function SupportCaseCreate(): React.JSX.Element {
   const [priority, setPriority] = useState<string>('medium');
   const [selectedDriver, setSelectedDriver] = useState<{ id: string; name: string } | null>(null);
   const [assignedTo, setAssignedTo] = useState('');
-  const [selectedSessions, setSelectedSessions] = useState<
-    Array<{ id: string; transactionId: string }>
-  >([]);
+  const [selectedSessions, setSelectedSessions] = useState<SessionResult[]>([]);
   const [sessionSearchText, setSessionSearchText] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
@@ -64,7 +69,7 @@ export function SupportCaseCreate(): React.JSX.Element {
   const { data: sessionResults } = useQuery({
     queryKey: ['session-search-create', sessionSearchText],
     queryFn: () =>
-      api.get<{ data: Array<{ id: string; transactionId: string }> }>(
+      api.get<{ data: SessionResult[] }>(
         `/v1/sessions?search=${encodeURIComponent(sessionSearchText)}&limit=5`,
       ),
     enabled: sessionSearchText.length >= 2,
@@ -183,23 +188,33 @@ export function SupportCaseCreate(): React.JSX.Element {
               <Label>{t('supportCases.linkedSessions')}</Label>
               {selectedSessions.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-2">
-                  {selectedSessions.map((s) => (
-                    <span
-                      key={s.id}
-                      className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs"
-                    >
-                      {s.transactionId}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedSessions((prev) => prev.filter((p) => p.id !== s.id));
-                        }}
-                        className="text-muted-foreground hover:text-foreground"
+                  {selectedSessions.map((s) => {
+                    const label =
+                      s.transactionId != null && s.transactionId !== ''
+                        ? `#${s.transactionId}`
+                        : s.id;
+                    const subtitle = s.stationName ?? '';
+                    return (
+                      <span
+                        key={s.id}
+                        className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs"
                       >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </span>
-                  ))}
+                        <span className="font-medium">{label}</span>
+                        {subtitle !== '' && (
+                          <span className="text-muted-foreground">· {subtitle}</span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedSessions((prev) => prev.filter((p) => p.id !== s.id));
+                          }}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    );
+                  })}
                 </div>
               )}
               <div className="relative">
@@ -218,19 +233,37 @@ export function SupportCaseCreate(): React.JSX.Element {
                     <div className="absolute z-10 mt-1 w-full rounded-md border bg-popover shadow-md">
                       {sessionResults.data
                         .filter((s) => !selectedSessions.some((sel) => sel.id === s.id))
-                        .map((s) => (
-                          <button
-                            key={s.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedSessions((prev) => [...prev, s]);
-                              setSessionSearchText('');
-                            }}
-                            className="block w-full text-left px-3 py-1.5 text-xs hover:bg-accent"
-                          >
-                            {s.transactionId}
-                          </button>
-                        ))}
+                        .map((s) => {
+                          // Operators searching by session id (ses_*) need to
+                          // see which session each result refers to. Showing
+                          // only the integer transactionId is not enough to
+                          // disambiguate two results that share a station or
+                          // a similar timestamp.
+                          const primary =
+                            s.transactionId != null && s.transactionId !== ''
+                              ? `#${s.transactionId}`
+                              : s.id;
+                          const station = s.stationName ?? '';
+                          const startedLabel =
+                            s.startedAt != null ? new Date(s.startedAt).toLocaleString() : '';
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedSessions((prev) => [...prev, s]);
+                                setSessionSearchText('');
+                              }}
+                              className="block w-full text-left px-3 py-2 text-xs hover:bg-accent"
+                            >
+                              <div className="font-medium">{primary}</div>
+                              <div className="text-muted-foreground">
+                                {[station, startedLabel].filter((x) => x !== '').join(' · ')}
+                              </div>
+                              <div className="text-muted-foreground/70">{s.id}</div>
+                            </button>
+                          );
+                        })}
                     </div>
                   )}
               </div>

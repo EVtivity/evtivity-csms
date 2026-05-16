@@ -4,8 +4,10 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Trash2 } from 'lucide-react';
+import { Car, Trash2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { Combobox } from '@/components/ui/combobox';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api, ApiError } from '@/lib/api';
@@ -63,9 +65,9 @@ export function AccountVehicles(): React.JSX.Element {
   const addMutation = useMutation({
     mutationFn: (body: { make: string; model: string; year?: string }) =>
       api.post<Vehicle>('/v1/portal/vehicles', body),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['portal-vehicles'] });
-      void queryClient.invalidateQueries({ queryKey: ['portal-vehicle-efficiency'] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['portal-vehicles'] });
+      await queryClient.invalidateQueries({ queryKey: ['portal-vehicle-efficiency'] });
       setMake('');
       setModel('');
       setYear('');
@@ -86,9 +88,9 @@ export function AccountVehicles(): React.JSX.Element {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/v1/portal/vehicles/${id}`),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['portal-vehicles'] });
-      void queryClient.invalidateQueries({ queryKey: ['portal-vehicle-efficiency'] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['portal-vehicles'] });
+      await queryClient.invalidateQueries({ queryKey: ['portal-vehicle-efficiency'] });
     },
   });
 
@@ -118,25 +120,36 @@ export function AccountVehicles(): React.JSX.Element {
         <p className="text-center text-sm text-muted-foreground">{t('vehicles.noVehicles')}</p>
       )}
 
+      {/* Card list mirrors Payment Methods / RFID Cards: Car icon + name on the
+          left, year badge + trash on the right. */}
       <div className="space-y-2">
-        {vehicles?.map((v) => (
-          <div key={v.id} className="flex items-center justify-between gap-3">
-            <span className="text-sm">
-              {v.make ?? ''} {v.model ?? ''} {v.year != null ? `(${v.year})` : ''}
-            </span>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => {
-                setPendingDeleteId(v.id);
-              }}
-              aria-label={t('vehicles.delete')}
-            >
-              <Trash2 className="h-4 w-4 mr-1" />
-              {t('vehicles.delete')}
-            </Button>
-          </div>
-        ))}
+        {vehicles?.map((v) => {
+          const label = [v.make ?? '', v.model ?? ''].filter((s) => s !== '').join(' ');
+          return (
+            <Card key={v.id}>
+              <CardContent className="flex items-center justify-between gap-2 p-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Car className="h-5 w-5 shrink-0 text-muted-foreground" />
+                  <p className="truncate text-sm font-medium">{label === '' ? '--' : label}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {v.year != null && v.year !== '' && <Badge variant="outline">{v.year}</Badge>}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-12 w-12"
+                    onClick={() => {
+                      setPendingDeleteId(v.id);
+                    }}
+                    aria-label={t('vehicles.delete')}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       <ConfirmDialog
@@ -162,8 +175,11 @@ export function AccountVehicles(): React.JSX.Element {
         }}
       />
 
+      {/* Mobile-first form: each combobox + the submit button gets its own row
+          on phones (where three side-by-side selects truncate the visible
+          options to nothing), then collapses to a single row at sm+. */}
       <form onSubmit={handleSubmit} noValidate className="space-y-3">
-        <div className="grid grid-cols-3 gap-2">
+        <div className="flex flex-col gap-2 sm:grid sm:grid-cols-3">
           <Combobox
             aria-label={t('vehicles.make')}
             placeholder={t('vehicles.make')}

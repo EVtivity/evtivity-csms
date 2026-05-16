@@ -20,7 +20,7 @@ import {
   cssStations,
   cssEvses,
   drivers,
-  driverPaymentMethods,
+  driverTokens,
   chargingProfileTemplates,
   configTemplates,
 } from './schema/index.js';
@@ -257,29 +257,27 @@ if (existingDriver.length === 0) {
   console.log('  Dev driver already exists.');
 }
 
-// Default payment method for the dev driver. Uses Stripe placeholder IDs
-// (cus_dev_/pm_dev_) so the row shape is correct without requiring a live
-// Stripe call at seed time. Card 4242 4242 4242 4242 is the canonical Stripe
-// test card (Visa, last4 4242, always succeeds in test mode). Real Stripe
-// API calls (PaymentIntent, capture) will reject these placeholder IDs, but
-// the portal UI and reservation flow rely only on the row's existence.
-const existingPaymentMethod = await db
-  .select({ id: driverPaymentMethods.id })
-  .from(driverPaymentMethods)
-  .where(eq(driverPaymentMethods.driverId, devDriverId))
-  .limit(1);
-if (existingPaymentMethod.length === 0) {
-  await db.insert(driverPaymentMethods).values({
-    driverId: devDriverId,
-    stripeCustomerId: 'cus_dev_driver',
-    stripePaymentMethodId: 'pm_dev_driver_visa_4242',
-    cardBrand: 'visa',
-    cardLast4: '4242',
-    isDefault: true,
-  });
-  console.log('  Dev driver payment method created (Visa **** 4242).');
-} else {
-  console.log('  Dev driver payment method already exists.');
+// RFID tokens for the dev driver so OCPP authorize on a real station accepts
+// the dev driver's card without operator-side token CRUD. Idempotent via the
+// (idToken, tokenType) unique constraint.
+const DEV_RFID_TOKENS = ['F5E40B07', '66080B07'] as const;
+for (const idToken of DEV_RFID_TOKENS) {
+  const existing = await db
+    .select({ id: driverTokens.id })
+    .from(driverTokens)
+    .where(eq(driverTokens.idToken, idToken))
+    .limit(1);
+  if (existing.length === 0) {
+    await db.insert(driverTokens).values({
+      driverId: devDriverId,
+      idToken,
+      tokenType: 'ISO14443',
+      isActive: true,
+    });
+    console.log(`  Dev driver RFID token created (${idToken}).`);
+  } else {
+    console.log(`  Dev driver RFID token already exists (${idToken}).`);
+  }
 }
 
 // Smart charging template: restrict IoCharger stations to off-peak window
@@ -400,16 +398,17 @@ for (const def of blockAllDefs) {
       {
         component: 'SysConfigCtrlr',
         variable: 'QR0',
-        value: 'http://45.47.131.88:7101/charge/IOCHARGER-002/1',
+        value: 'http://72.228.35.193:7101/charge/IOCHARGER-002/1',
       },
       {
         component: 'SysConfigCtrlr',
         variable: 'QR1',
-        value: 'http://45.47.131.88:7101/charge/IOCHARGER-002/1',
+        value: 'http://72.228.35.193:7101/charge/IOCHARGER-002/1',
       },
       { component: 'SysConfigCtrlr', variable: 'connCode0', value: 'IOCHARGER-002' },
       { component: 'SysConfigCtrlr', variable: 'connCode1', value: 'IOCHARGER-002' },
       { component: 'SecurityCtrlr', variable: 'OrganizationName', value: 'EVtivity' },
+      { component: 'ISO15118Ctrlr', variable: 'PnCEnabled', value: 'false' },
       { component: 'TariffCostCtrlr', variable: 'Enabled', value: 'false' },
       {
         component: 'TariffCostCtrlr',
@@ -453,12 +452,12 @@ for (const def of blockAllDefs) {
       {
         component: '',
         variable: 'QR0',
-        value: 'http://45.47.131.88:7101/charge/IOCHARGER-001/1',
+        value: 'http://72.228.35.193:7101/charge/IOCHARGER-001/1',
       },
       {
         component: '',
         variable: 'QR1',
-        value: 'http://45.47.131.88:7101/charge/IOCHARGER-001/1',
+        value: 'http://72.228.35.193:7101/charge/IOCHARGER-001/1',
       },
       { component: '', variable: 'connCode0', value: 'IOCHARGER-001' },
       { component: '', variable: 'connCode1', value: 'IOCHARGER-001' },

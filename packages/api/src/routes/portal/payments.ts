@@ -217,6 +217,33 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Capture into locals so closures below don't need non-null assertions.
+      const resolvedConfig = config;
+      const resolvedDriver = driver;
+
+      // Returns true if the error looks like a Stripe "customer does not exist
+      // in this account" rejection. Triggers when the seed/legacy customer ID
+      // was created against a different Stripe key, or the customer was
+      // deleted in the Stripe dashboard. The recovery path mints a fresh
+      // customer and updates the persisted ID.
+      function isUnknownCustomerError(e: unknown): boolean {
+        const m = e instanceof Error ? e.message : String(e);
+        return /no such customer/i.test(m) || /resource_missing/i.test(m);
+      }
+
+      async function provisionCustomer(): Promise<string> {
+        const customer = await createCustomer(
+          resolvedConfig,
+          resolvedDriver.email ?? '',
+          `${resolvedDriver.firstName} ${resolvedDriver.lastName}`,
+        );
+        await db
+          .update(drivers)
+          .set({ stripeCustomerId: customer.id, updatedAt: new Date() })
+          .where(eq(drivers.id, driverId));
+        return customer.id;
+      }
+
       try {
         let customerId: string;
         if (driver.stripeCustomerId != null) {
@@ -232,21 +259,32 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
             .limit(1);
           if (existingMethod != null) {
             customerId = existingMethod.stripeCustomerId;
+            await db
+              .update(drivers)
+              .set({ stripeCustomerId: customerId, updatedAt: new Date() })
+              .where(eq(drivers.id, driverId));
           } else {
-            const customer = await createCustomer(
-              config,
-              driver.email ?? '',
-              `${driver.firstName} ${driver.lastName}`,
-            );
-            customerId = customer.id;
+            customerId = await provisionCustomer();
           }
-          await db
-            .update(drivers)
-            .set({ stripeCustomerId: customerId, updatedAt: new Date() })
-            .where(eq(drivers.id, driverId));
         }
 
-        const setupIntent = await createSetupIntent(config, customerId);
+        let setupIntent;
+        try {
+          setupIntent = await createSetupIntent(config, customerId);
+        } catch (err: unknown) {
+          if (!isUnknownCustomerError(err)) throw err;
+          // Stale customer reference. Mint a new one and retry once. This
+          // self-heals dev seeds that point at customers created under a
+          // different Stripe test account and accounts whose customer was
+          // deleted from the Stripe dashboard.
+          request.log.warn(
+            { err, oldCustomerId: customerId, driverId },
+            'Stripe rejected stored customerId; provisioning a fresh customer',
+          );
+          customerId = await provisionCustomer();
+          setupIntent = await createSetupIntent(config, customerId);
+        }
+
         if (setupIntent.client_secret == null || setupIntent.client_secret === '') {
           await reply.status(400).send({
             error: 'Payment setup failed',

@@ -164,9 +164,7 @@ export function PaymentMethods(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <PageHeader title={t('payments.title')}>
-        <Button onClick={() => void handleShowAdd()}>{t('payments.addCard')}</Button>
-      </PageHeader>
+      <PageHeader title={t('payments.title')} />
 
       {stripeError !== '' && <p className="text-sm text-destructive">{stripeError}</p>}
 
@@ -242,6 +240,15 @@ export function PaymentMethods(): React.JSX.Element {
             </Elements>
           </CardContent>
         </Card>
+      )}
+
+      {/* Action button sits at the bottom so the existing card list and any
+          error/notice render above it. Hidden while the inline add form is
+          open to avoid two simultaneous entry points. */}
+      {!showAdd && (
+        <Button className="w-full" onClick={() => void handleShowAdd()}>
+          {t('payments.addCard')}
+        </Button>
       )}
 
       <ConfirmDialog

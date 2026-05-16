@@ -48,7 +48,12 @@ export function fleetReservationStatusVariant(status: string): BadgeVariant {
   }
 }
 
-/** Session status -> badge variant. Handles idling override for active sessions. */
+/** Session status -> badge variant. Handles idling override for active sessions.
+ *
+ * The DB enum has both `faulted` (system-detected failure during charging) and
+ * `failed` (start-time failure such as pre-auth decline). Both must map to the
+ * destructive variant or the status column visually merges with surrounding
+ * `completed` (secondary) badges. */
 export function sessionStatusVariant(status: string, isIdling = false): BadgeVariant {
   if (status === 'active' && isIdling) return 'warning';
   switch (status) {
@@ -57,7 +62,10 @@ export function sessionStatusVariant(status: string, isIdling = false): BadgeVar
     case 'completed':
       return 'secondary';
     case 'faulted':
+    case 'failed':
       return 'destructive';
+    case 'invalid':
+      return 'warning';
     default:
       return 'outline';
   }
