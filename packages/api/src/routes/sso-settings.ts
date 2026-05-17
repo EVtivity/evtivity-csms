@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { like } from 'drizzle-orm';
 import { db, settings, clearSsoSettingsCache } from '@evtivity/database';
 import { encryptString } from '@evtivity/lib';
+import { decryptForRead } from '../lib/settings-crypto.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { successResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
@@ -62,13 +63,8 @@ export function ssoSettingsRoutes(app: FastifyInstance): void {
       const rows = await db.select().from(settings).where(like(settings.key, 'sso.%'));
       const result: Record<string, unknown> = {};
       for (const row of rows) {
-        if (SSO_KEYS.includes(row.key)) {
-          if (row.key === 'sso.certEnc') {
-            result[row.key] = row.value != null && row.value !== '' ? '********' : '';
-          } else {
-            result[row.key] = row.value;
-          }
-        }
+        if (!SSO_KEYS.includes(row.key)) continue;
+        result[row.key] = decryptForRead(row.key, row.value);
       }
       return result;
     },

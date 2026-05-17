@@ -308,31 +308,36 @@ async function pushTariffUpdate(tariffId: string): Promise<void> {
     const partners =
       targetPartnerId != null ? [{ id: targetPartnerId }] : await getConnectedPartners();
 
-    for (const partner of partners) {
-      try {
-        const [url, token, partnerInfoRows] = await Promise.all([
-          getPartnerEndpoint(partner.id, 'tariffs', 'RECEIVER'),
-          getPartnerToken(partner.id),
-          db
-            .select({ countryCode: ocpiPartners.countryCode, partyId: ocpiPartners.partyId })
-            .from(ocpiPartners)
-            .where(eq(ocpiPartners.id, partner.id))
-            .limit(1),
-        ]);
-        if (url == null) continue;
-        if (token == null) continue;
-        const partnerInfo = partnerInfoRows[0];
-        if (partnerInfo == null) continue;
+    // Per-partner pushes are independent; parallelize the same way
+    // pushLocationUpdate does. One slow / down partner no longer blocks
+    // the others.
+    await Promise.allSettled(
+      partners.map(async (partner) => {
+        try {
+          const [url, token, partnerInfoRows] = await Promise.all([
+            getPartnerEndpoint(partner.id, 'tariffs', 'RECEIVER'),
+            getPartnerToken(partner.id),
+            db
+              .select({ countryCode: ocpiPartners.countryCode, partyId: ocpiPartners.partyId })
+              .from(ocpiPartners)
+              .where(eq(ocpiPartners.id, partner.id))
+              .limit(1),
+          ]);
+          if (url == null) return;
+          if (token == null) return;
+          const partnerInfo = partnerInfoRows[0];
+          if (partnerInfo == null) return;
 
-        const client = createOcpiClient(token, partnerInfo.countryCode, partnerInfo.partyId);
-        await client.put(`${url}/${countryCode}/${partyId}/${mapping.ocpiTariffId}`, tariffData);
-        await logSync(partner.id, 'tariffs', 'push_update', 'completed', 1);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Push failed';
-        logger.error({ partnerId: partner.id, err }, 'Failed to push tariff update');
-        await logSync(partner.id, 'tariffs', 'push_update', 'failed', 0, message);
-      }
-    }
+          const client = createOcpiClient(token, partnerInfo.countryCode, partnerInfo.partyId);
+          await client.put(`${url}/${countryCode}/${partyId}/${mapping.ocpiTariffId}`, tariffData);
+          await logSync(partner.id, 'tariffs', 'push_update', 'completed', 1);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Push failed';
+          logger.error({ partnerId: partner.id, err }, 'Failed to push tariff update');
+          await logSync(partner.id, 'tariffs', 'push_update', 'failed', 0, message);
+        }
+      }),
+    );
   }
 }
 

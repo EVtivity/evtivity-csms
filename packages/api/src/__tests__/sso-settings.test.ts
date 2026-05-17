@@ -110,6 +110,9 @@ vi.mock('../middleware/rbac.js', () => ({
 
 vi.mock('@evtivity/lib', () => ({
   encryptString: vi.fn((value: string) => `encrypted:${value}`),
+  decryptString: vi.fn((value: string) =>
+    value.startsWith('encrypted:') ? value.slice('encrypted:'.length) : value,
+  ),
 }));
 
 process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
@@ -175,13 +178,13 @@ describe('SSO Settings routes', () => {
 
   // --- GET /sso/settings ---
 
-  it('GET /sso/settings returns masked cert value when cert is set', async () => {
+  it('GET /sso/settings returns decrypted cert value when cert is set', async () => {
     setupDbResults([
       { key: 'sso.enabled', value: true },
       { key: 'sso.provider', value: 'okta' },
       { key: 'sso.entryPoint', value: 'https://example.com/sso' },
       { key: 'sso.issuer', value: 'https://example.com' },
-      { key: 'sso.certEnc', value: 'encrypted-cert-data' },
+      { key: 'sso.certEnc', value: 'encrypted:CERT_PLAINTEXT' },
       { key: 'sso.autoProvision', value: false },
       { key: 'sso.defaultRoleId', value: 'rol_000000000001' },
       { key: 'sso.attributeMapping', value: '{"email":"email"}' },
@@ -193,7 +196,7 @@ describe('SSO Settings routes', () => {
     });
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
-    expect(body['sso.certEnc']).toBe('********');
+    expect(body['sso.certEnc']).toBe('CERT_PLAINTEXT');
     expect(body['sso.enabled']).toBe(true);
     expect(body['sso.provider']).toBe('okta');
   });

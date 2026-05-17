@@ -1747,6 +1747,7 @@
     "csrRequests": "CSR 請求",
     "uploadCaCert": "上傳CA證書",
     "refreshRootCerts": "從提供商重新整理",
+    "caCertificatesHelp": "使用從提供商重新整理從配置的PKI提供商(在設定-Plug & Charge中的Hubject或手動)拉取當前根CA集並更新信任儲存。使用上傳CA證書從PEM檔案手動新增根證書。重新整理每個操作員每分鐘限制3次呼叫。",
     "certificateType": "證書型別",
     "serialNumber": "序列號",
     "issuer": "頒發者",

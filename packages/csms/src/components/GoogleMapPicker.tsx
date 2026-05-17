@@ -38,8 +38,8 @@ export function GoogleMapPicker({
       const allSettings = await api.get<Record<string, unknown>>('/v1/settings');
       return {
         apiKey:
-          typeof allSettings['googleMaps.apiKey'] === 'string'
-            ? allSettings['googleMaps.apiKey']
+          typeof allSettings['googleMaps.apiKeyEnc'] === 'string'
+            ? allSettings['googleMaps.apiKeyEnc']
             : '',
         defaultLat:
           typeof allSettings['googleMaps.defaultLat'] === 'string'
@@ -71,12 +71,18 @@ export function GoogleMapPicker({
         const mapsLib = await importLibrary('maps');
         if (mapRef.current == null) return;
 
-        const lat = latitude !== '' ? Number(latitude) : Number(settings.defaultLat);
-        const lng = longitude !== '' ? Number(longitude) : Number(settings.defaultLng);
-        const zoom = latitude !== '' && longitude !== '' ? 15 : Number(settings.defaultZoom);
+        // Map view always uses the operator-configured default from
+        // Settings > Integrations > Google Maps. Auto-centering on an
+        // existing site marker (and forcing zoom 15) would override the
+        // configured regional view the operator deliberately set.
+        const centerLat = Number(settings.defaultLat);
+        const centerLng = Number(settings.defaultLng);
+        const zoom = Number(settings.defaultZoom);
+        const markerLat = latitude !== '' ? Number(latitude) : centerLat;
+        const markerLng = longitude !== '' ? Number(longitude) : centerLng;
 
         const map = new mapsLib.Map(mapRef.current, {
-          center: { lat, lng },
+          center: { lat: centerLat, lng: centerLng },
           zoom,
           mapId: 'evtivity-site-picker',
           gestureHandling: 'greedy',
@@ -87,7 +93,7 @@ export function GoogleMapPicker({
         const markerLib = await importLibrary('marker');
         const marker = new markerLib.AdvancedMarkerElement({
           map,
-          position: { lat, lng },
+          position: { lat: markerLat, lng: markerLng },
           gmpDraggable: true,
           title: 'Site location',
         });
@@ -119,15 +125,17 @@ export function GoogleMapPicker({
     })();
   }, [settings, latitude, longitude, onLocationChange]);
 
-  // Update marker when lat/lng props change externally
+  // Update marker when lat/lng props change externally (operator typed into
+  // the lat/lng input boxes). Move the marker only; do not pan the map --
+  // the view stays at the operator-configured default. If the marker drifts
+  // off-screen the operator can pan manually.
   useEffect(() => {
-    if (markerRef.current == null || mapInstanceRef.current == null) return;
+    if (markerRef.current == null) return;
     if (latitude === '' || longitude === '') return;
     const lat = Number(latitude);
     const lng = Number(longitude);
     if (Number.isNaN(lat) || Number.isNaN(lng)) return;
     markerRef.current.position = { lat, lng };
-    mapInstanceRef.current.panTo({ lat, lng });
   }, [latitude, longitude]);
 
   if (settings == null || settings.apiKey === '') {

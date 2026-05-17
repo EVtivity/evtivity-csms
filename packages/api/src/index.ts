@@ -25,6 +25,7 @@ import {
   startStationMessageRefreshListener,
   startStationMessageTransactionListener,
 } from './services/station-message.service.js';
+import { startCacheInvalidateListener } from './services/cache-invalidate-listener.js';
 
 async function start(): Promise<void> {
   const sentryConfig = await getSentryConfig();
@@ -71,12 +72,14 @@ async function start(): Promise<void> {
   const stationMessageTransactionSubscription = await startStationMessageTransactionListener(
     app.log,
   );
+  const cacheInvalidateSubscription = await startCacheInvalidateListener(app.log);
 
   app.addHook('onClose', async () => {
     stopMetricsCollector();
     await stopMetricsServer();
     await stationMessageSubscription.unsubscribe();
     await stationMessageTransactionSubscription.unsubscribe();
+    await cacheInvalidateSubscription.unsubscribe();
     await pubsub.close();
   });
 

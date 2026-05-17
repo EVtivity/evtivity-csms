@@ -136,8 +136,8 @@ export function SiteDetail(): React.JSX.Element {
   });
 
   const googleMapsApiKey =
-    settings != null && typeof settings['googleMaps.apiKey'] === 'string'
-      ? settings['googleMaps.apiKey']
+    settings != null && typeof settings['googleMaps.apiKeyEnc'] === 'string'
+      ? settings['googleMaps.apiKeyEnc']
       : '';
 
   const deleteMutation = useMutation({

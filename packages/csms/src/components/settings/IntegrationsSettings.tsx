@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select } from '@/components/ui/select';
 import { api } from '@/lib/api';
 import { ReservationSettings } from '@/components/settings/ReservationSettings';
+import { GoogleMapPicker } from '@/components/GoogleMapPicker';
 import { StationMessageSettings } from '@/components/settings/StationMessageSettings';
 
 interface IntegrationsSettingsProps {
@@ -110,7 +111,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     setPncProvider(s('pnc.provider') || 'manual');
     setPncHubjectBaseUrl(s('pnc.hubject.baseUrl'));
     setPncHubjectClientId(s('pnc.hubject.clientId'));
-    setPncHubjectClientSecret('');
+    setPncHubjectClientSecret(s('pnc.hubject.clientSecretEnc'));
     setPncHubjectTokenUrl(s('pnc.hubject.tokenUrl'));
     setPncWarningDays(s('pnc.expirationWarningDays') || '30');
     setPncCriticalDays(s('pnc.expirationCriticalDays') || '7');
@@ -125,12 +126,12 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     setFtpHost(s('ftp.host'));
     setFtpPort(s('ftp.port'));
     setFtpUsername(s('ftp.username'));
-    setFtpPassword(s('ftp.password'));
+    setFtpPassword(s('ftp.passwordEnc'));
     setFtpPath(s('ftp.path'));
     setS3Bucket(s('s3.bucket'));
     setS3Region(s('s3.region'));
-    setS3AccessKeyId('');
-    setS3SecretAccessKey('');
+    setS3AccessKeyId(s('s3.accessKeyIdEnc'));
+    setS3SecretAccessKey(s('s3.secretAccessKeyEnc'));
     setReservationEnabled(settings['reservation.enabled'] !== false);
     setSupportEnabled(settings['support.enabled'] !== false);
     setFleetEnabled(settings['fleet.enabled'] !== false);
@@ -140,7 +141,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     const sst = settings['session.staleTimeoutHours'];
     setStaleSessionTimeout(sst != null ? Number(sst).toString() : '24');
     setSplitBillingEnabled(settings['pricing.splitBillingEnabled'] !== false);
-    const mapsKey = settings['googleMaps.apiKey'];
+    const mapsKey = settings['googleMaps.apiKeyEnc'];
     setGoogleMapsApiKey(typeof mapsKey === 'string' ? mapsKey : '');
     const mapsLat = settings['googleMaps.defaultLat'];
     setGoogleMapsDefaultLat(
@@ -200,7 +201,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
         api.put('/v1/settings/ftp.host', { value: vals.host }),
         api.put('/v1/settings/ftp.port', { value: Number(vals.port) }),
         api.put('/v1/settings/ftp.username', { value: vals.username }),
-        api.put('/v1/settings/ftp.password', { value: vals.password }),
+        api.put('/v1/settings/ftp.passwordEnc', { value: vals.password }),
         api.put('/v1/settings/ftp.path', { value: vals.path }),
       ]),
     onSuccess: () => {
@@ -315,7 +316,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
       defaultZoom: string;
     }) =>
       Promise.all([
-        api.put('/v1/settings/googleMaps.apiKey', { value: vals.apiKey }),
+        api.put('/v1/settings/googleMaps.apiKeyEnc', { value: vals.apiKey }),
         api.put('/v1/settings/googleMaps.defaultLat', { value: vals.defaultLat }),
         api.put('/v1/settings/googleMaps.defaultLng', { value: vals.defaultLng }),
         api.put('/v1/settings/googleMaps.defaultZoom', { value: vals.defaultZoom }),
@@ -1084,70 +1085,83 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">{t('settings.googleMapsDescription')}</p>
 
-            <div className="grid gap-4 max-w-md">
-              <div className="grid gap-2">
-                <Label htmlFor="google-maps-api-key">{t('settings.googleMapsApiKey')}</Label>
-                <PasswordInput
-                  id="google-maps-api-key"
-                  placeholder={t('settings.googleMapsApiKeyPlaceholder')}
-                  value={googleMapsApiKey}
-                  onChange={(e) => {
-                    setGoogleMapsApiKey(e.target.value);
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t('settings.googleMapsApiKeyHint')}
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="grid gap-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="google-maps-lat">{t('settings.googleMapsDefaultLat')}</Label>
-                  <Input
-                    id="google-maps-lat"
-                    type="number"
-                    step="0.0001"
-                    min={-90}
-                    max={90}
-                    placeholder="39.8283"
-                    value={googleMapsDefaultLat}
+                  <Label htmlFor="google-maps-api-key">{t('settings.googleMapsApiKey')}</Label>
+                  <PasswordInput
+                    id="google-maps-api-key"
+                    placeholder={t('settings.googleMapsApiKeyPlaceholder')}
+                    value={googleMapsApiKey}
                     onChange={(e) => {
-                      setGoogleMapsDefaultLat(e.target.value);
+                      setGoogleMapsApiKey(e.target.value);
                     }}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings.googleMapsApiKeyHint')}
+                  </p>
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="google-maps-lat">{t('settings.googleMapsDefaultLat')}</Label>
+                    <Input
+                      id="google-maps-lat"
+                      type="number"
+                      step="0.0001"
+                      min={-90}
+                      max={90}
+                      placeholder="39.8283"
+                      value={googleMapsDefaultLat}
+                      onChange={(e) => {
+                        setGoogleMapsDefaultLat(e.target.value);
+                      }}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="google-maps-lng">{t('settings.googleMapsDefaultLng')}</Label>
+                    <Input
+                      id="google-maps-lng"
+                      type="number"
+                      step="0.0001"
+                      min={-180}
+                      max={180}
+                      placeholder="-98.5795"
+                      value={googleMapsDefaultLng}
+                      onChange={(e) => {
+                        setGoogleMapsDefaultLng(e.target.value);
+                      }}
+                    />
+                  </div>
+                </div>
+
                 <div className="grid gap-2">
-                  <Label htmlFor="google-maps-lng">{t('settings.googleMapsDefaultLng')}</Label>
+                  <Label htmlFor="google-maps-zoom">{t('settings.googleMapsDefaultZoom')}</Label>
                   <Input
-                    id="google-maps-lng"
+                    id="google-maps-zoom"
                     type="number"
-                    step="0.0001"
-                    min={-180}
-                    max={180}
-                    placeholder="-98.5795"
-                    value={googleMapsDefaultLng}
+                    min={1}
+                    max={20}
+                    placeholder="4"
+                    value={googleMapsDefaultZoom}
                     onChange={(e) => {
-                      setGoogleMapsDefaultLng(e.target.value);
+                      setGoogleMapsDefaultZoom(e.target.value);
                     }}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings.googleMapsZoomHint')}
+                  </p>
                 </div>
               </div>
 
-              <div className="grid gap-2">
-                <Label htmlFor="google-maps-zoom">{t('settings.googleMapsDefaultZoom')}</Label>
-                <Input
-                  id="google-maps-zoom"
-                  type="number"
-                  min={1}
-                  max={20}
-                  placeholder="4"
-                  value={googleMapsDefaultZoom}
-                  onChange={(e) => {
-                    setGoogleMapsDefaultZoom(e.target.value);
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">{t('settings.googleMapsZoomHint')}</p>
-              </div>
+              <GoogleMapPicker
+                latitude={googleMapsDefaultLat}
+                longitude={googleMapsDefaultLng}
+                onLocationChange={(lat, lng) => {
+                  setGoogleMapsDefaultLat(lat);
+                  setGoogleMapsDefaultLng(lng);
+                }}
+              />
             </div>
 
             <SaveButton
@@ -1265,16 +1279,16 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               </Button>
             </div>
             {s3Mutation.isSuccess && (
-              <p className="text-sm text-green-600">{t('settings.s3Saved')}</p>
+              <p className="text-sm text-success text-right">{t('settings.s3Saved')}</p>
             )}
             {s3Mutation.isError && (
-              <p className="text-sm text-destructive">{t('settings.s3SaveFailed')}</p>
+              <p className="text-sm text-destructive text-right">{t('settings.s3SaveFailed')}</p>
             )}
             {s3TestMutation.isSuccess && (
-              <p className="text-sm text-green-600">{t('settings.s3TestSuccess')}</p>
+              <p className="text-sm text-success text-right">{t('settings.s3TestSuccess')}</p>
             )}
             {s3TestMutation.isError && (
-              <p className="text-sm text-destructive">{t('settings.s3TestFailed')}</p>
+              <p className="text-sm text-destructive text-right">{t('settings.s3TestFailed')}</p>
             )}
 
             <div className="border-t pt-4">

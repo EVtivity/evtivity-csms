@@ -95,6 +95,7 @@ vi.mock('drizzle-orm', () => ({
   or: vi.fn(),
   like: vi.fn(),
   ilike: vi.fn(),
+  inArray: vi.fn(),
   sql: vi.fn(),
   desc: vi.fn(),
   count: vi.fn(),
@@ -634,8 +635,10 @@ describe('Settings routes - full coverage', () => {
       const original = mockConfig.SETTINGS_ENCRYPTION_KEY;
       mockConfig.SETTINGS_ENCRYPTION_KEY = 'test-encryption-key-32chars!!!!!';
 
-      // 4 upserts run in parallel via Promise.all
-      setupDbResults([], [], [], []);
+      // 1 SELECT for the before-snapshot, 4 upserts (bucket, region,
+      // accessKeyIdEnc, secretAccessKeyEnc), then 4 parallel audit inserts
+      // via Promise.allSettled.
+      setupDbResults([], [], [], [], [], [], [], [], []);
 
       const res = await app.inject({
         method: 'PUT',

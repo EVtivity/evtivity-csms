@@ -201,7 +201,7 @@ export async function getNotificationSettings(sql: postgres.Sql): Promise<Notifi
   const smtpUsername = map.get('smtp.username') as string | undefined;
   if (smtpHost != null && smtpHost !== '') {
     const encryptionKey = getEncryptionKey();
-    const rawPassword = map.get('smtp.password') as string | undefined;
+    const rawPassword = map.get('smtp.passwordEnc') as string | undefined;
     let password = '';
     if (rawPassword != null && rawPassword !== '' && encryptionKey != null) {
       try {
@@ -223,7 +223,7 @@ export async function getNotificationSettings(sql: postgres.Sql): Promise<Notifi
   const twilioSid = map.get('twilio.accountSid') as string | undefined;
   if (twilioSid != null && twilioSid !== '') {
     const encryptionKey = getEncryptionKey();
-    const rawToken = map.get('twilio.authToken') as string | undefined;
+    const rawToken = map.get('twilio.authTokenEnc') as string | undefined;
     let authToken = '';
     if (rawToken != null && rawToken !== '' && encryptionKey != null) {
       try {

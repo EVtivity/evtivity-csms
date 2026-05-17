@@ -672,55 +672,68 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
       //
       // retrieveDateTime is hoisted outside the loop on purpose: every
       // station in the campaign should see the same operator-intended download
-      // moment. initiatedAt is per-iteration so the per-station audit trail
-      // reflects when the row was actually created.
+      // moment. initiatedAt is shared too so the audit timestamps are
+      // consistent across the batch.
+      //
+      // The pre-insert is batched into one round-trip and the pub/sub
+      // publishes run with Promise.allSettled so a 100-station campaign no
+      // longer pays 200 sequential awaits in the request path.
       const pubsub = getPubSub();
       const retrieveDateTime = new Date();
-      for (const target of targets) {
-        const requestId = randomInt(1, 2_147_483_647);
+      const initiatedAt = new Date();
+      const dispatches = targets.map((target) => ({
+        target,
+        requestId: randomInt(1, 2_147_483_647),
+      }));
 
-        try {
-          await db.insert(firmwareUpdates).values({
+      try {
+        await db.insert(firmwareUpdates).values(
+          dispatches.map(({ target, requestId }) => ({
             stationId: target.id,
             requestId,
             firmwareUrl: campaign.firmwareUrl,
             retrieveDateTime,
             campaignId: id,
-            initiatedAt: new Date(),
-          });
-        } catch (err) {
-          // If the pre-insert fails the projection will still create a row,
-          // but without campaign_id -- which breaks the version JOIN and
-          // SSE auto-complete scoping. Log so we can diagnose; do not abort
-          // dispatch since the firmware update itself is still useful.
-          request.log.warn(
-            { err, stationId: target.id, campaignId: id, requestId },
-            'firmware-campaign: pre-insert of firmware_updates failed; campaign linkage will be missing for this station',
-          );
-        }
+            initiatedAt,
+          })),
+        );
+      } catch (err) {
+        // If the batch pre-insert fails the projection will still create rows
+        // when status notifications arrive, but without campaign_id -- which
+        // breaks the version JOIN and SSE auto-complete scoping. Log and
+        // continue: the firmware update itself is still useful.
+        request.log.warn(
+          { err, campaignId: id, stationCount: dispatches.length },
+          'firmware-campaign: batch pre-insert of firmware_updates failed; campaign linkage will be missing for this campaign',
+        );
+      }
 
-        const commandPayload = {
-          commandId: randomUUID(),
-          stationId: target.stationId,
-          action: 'UpdateFirmware',
-          payload: {
-            requestId,
-            firmware: {
-              location: campaign.firmwareUrl,
-              retrieveDateTime: retrieveDateTime.toISOString(),
+      const publishResults = await Promise.allSettled(
+        dispatches.map(({ target, requestId }) => {
+          const commandPayload = {
+            commandId: randomUUID(),
+            stationId: target.stationId,
+            action: 'UpdateFirmware',
+            payload: {
+              requestId,
+              firmware: {
+                location: campaign.firmwareUrl,
+                retrieveDateTime: retrieveDateTime.toISOString(),
+              },
             },
-          },
-        };
-
-        try {
-          await pubsub.publish('ocpp_commands', JSON.stringify(commandPayload));
-        } catch (err) {
+          };
+          return pubsub.publish('ocpp_commands', JSON.stringify(commandPayload));
+        }),
+      );
+      publishResults.forEach((result, idx) => {
+        if (result.status === 'rejected') {
+          const dispatch = dispatches[idx];
           request.log.warn(
-            { err, stationId: target.id, campaignId: id },
+            { err: result.reason, stationId: dispatch?.target.id, campaignId: id },
             'firmware-campaign: failed to publish ocpp_commands',
           );
         }
-      }
+      });
 
       return { success: true };
     },

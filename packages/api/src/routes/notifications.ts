@@ -746,7 +746,7 @@ export function notificationRoutes(app: FastifyInstance): void {
         }
 
         const encryptionKey = getEncryptionKey();
-        const rawPassword = settingsMap.get('smtp.password') as string | undefined;
+        const rawPassword = settingsMap.get('smtp.passwordEnc') as string | undefined;
         let password = '';
         if (rawPassword != null && rawPassword !== '' && encryptionKey != null) {
           try {
@@ -793,7 +793,7 @@ export function notificationRoutes(app: FastifyInstance): void {
       }
 
       const encryptionKey = getEncryptionKey();
-      const rawToken = settingsMap.get('twilio.authToken') as string | undefined;
+      const rawToken = settingsMap.get('twilio.authTokenEnc') as string | undefined;
       let authToken = '';
       if (rawToken != null && rawToken !== '' && encryptionKey != null) {
         try {

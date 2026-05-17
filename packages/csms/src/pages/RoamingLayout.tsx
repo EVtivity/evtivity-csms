@@ -11,6 +11,7 @@ const TABS = [
   { value: 'sessions', path: '/roaming/sessions', labelKey: 'nav.roamingSessions' as const },
   { value: 'cdrs', path: '/roaming/cdrs', labelKey: 'nav.roamingCdrs' as const },
   { value: 'tariffs', path: '/roaming/tariffs', labelKey: 'nav.roamingTariffs' as const },
+  { value: 'history', path: '/roaming/history', labelKey: 'audit.history' as const },
 ];
 
 export function RoamingLayout(): React.JSX.Element {
@@ -21,8 +22,8 @@ export function RoamingLayout(): React.JSX.Element {
   const activeTab = TABS.find((tab) => location.pathname.startsWith(tab.path))?.value ?? 'partners';
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl md:text-3xl font-bold">{t('nav.roaming')}</h1>
+    <div>
+      <h1 className="text-2xl md:text-3xl font-bold mb-6">{t('nav.roaming')}</h1>
       <Tabs
         value={activeTab}
         onValueChange={(value) => {
@@ -38,7 +39,9 @@ export function RoamingLayout(): React.JSX.Element {
           ))}
         </TabsList>
       </Tabs>
-      <Outlet />
+      <div className="mt-2">
+        <Outlet />
+      </div>
     </div>
   );
 }

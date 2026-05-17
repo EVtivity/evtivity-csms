@@ -65,7 +65,8 @@ export interface AuditExtraColumn {
 
 interface Props {
   entityType: string;
-  entityId: string;
+  /** When null, lists every audit row of `entityType` (uses /v1/audit?entityType=X). When set, lists rows for that specific entity (uses /v1/audit/:entityType/:entityId). */
+  entityId: string | null;
   pageSize?: number;
   /** Entity-specific columns inserted between Actor and Notes. */
   extraColumns?: AuditExtraColumn[];
@@ -108,12 +109,13 @@ export function EntityHistoryTab({
   // to suppress when the surrounding container already labels the section.
   const resolvedTitle = title ?? t('audit.history');
   const [page, setPage] = useState(1);
+  const auditUrl =
+    entityId == null
+      ? `/v1/audit?entityType=${encodeURIComponent(entityType)}&page=${String(page)}&limit=${String(pageSize)}`
+      : `/v1/audit/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}?page=${String(page)}&limit=${String(pageSize)}`;
   const { data, isLoading, error } = useQuery<AuditPage>({
-    queryKey: ['audit', entityType, entityId, page, pageSize],
-    queryFn: () =>
-      api.get<AuditPage>(
-        `/v1/audit/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}?page=${String(page)}&limit=${String(pageSize)}`,
-      ),
+    queryKey: ['audit', entityType, entityId ?? '__all__', page, pageSize],
+    queryFn: () => api.get<AuditPage>(auditUrl),
     // Refetch every time the History tab mounts so operators see new entries
     // without manually reloading the page.
     refetchOnMount: 'always',

@@ -95,12 +95,28 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
         return;
       }
 
-      // Upsert the token
+      // A partner may only PUT tokens into its OWN (country_code, party_id)
+      // namespace. Without this check, partner A authenticated with its own
+      // token could PUT a row addressed to partner B's namespace; the
+      // existing-row lookup below ignores partner_id, so partner A would
+      // end up owning (or overwriting) partner B's token rows. Block at the
+      // edge instead.
+      if (partner.countryCode !== country_code || partner.partyId !== party_id) {
+        await reply
+          .status(403)
+          .send(ocpiError(OcpiStatusCode.CLIENT_ERROR, 'Cannot PUT tokens for another partner'));
+        return;
+      }
+
+      // Upsert the token. The lookup is scoped by partner_id so an attacker
+      // who slipped a row past the namespace check above cannot subsequently
+      // hijack the update path either.
       const existing = await db
         .select({ id: ocpiExternalTokens.id })
         .from(ocpiExternalTokens)
         .where(
           and(
+            eq(ocpiExternalTokens.partnerId, partner.partnerId),
             eq(ocpiExternalTokens.countryCode, country_code),
             eq(ocpiExternalTokens.partyId, party_id),
             eq(ocpiExternalTokens.uid, token_uid),
@@ -147,11 +163,27 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
         token_uid: string;
       };
 
+      const partner = request.ocpiPartner;
+      if (partner?.partnerId == null) {
+        await reply.status(401).send(ocpiError(OcpiStatusCode.CLIENT_ERROR, 'Not authenticated'));
+        return;
+      }
+
+      // Same per-partner namespace guard as PUT above: an authenticated
+      // partner may only patch tokens it owns.
+      if (partner.countryCode !== country_code || partner.partyId !== party_id) {
+        await reply
+          .status(403)
+          .send(ocpiError(OcpiStatusCode.CLIENT_ERROR, 'Cannot PATCH tokens for another partner'));
+        return;
+      }
+
       const [existing] = await db
         .select()
         .from(ocpiExternalTokens)
         .where(
           and(
+            eq(ocpiExternalTokens.partnerId, partner.partnerId),
             eq(ocpiExternalTokens.countryCode, country_code),
             eq(ocpiExternalTokens.partyId, party_id),
             eq(ocpiExternalTokens.uid, token_uid),

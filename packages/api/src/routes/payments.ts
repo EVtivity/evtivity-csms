@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, sql, and, inArray, like } from 'drizzle-orm';
-import { db, client } from '@evtivity/database';
+import { db, client, writeAudit, settingAuditLog } from '@evtivity/database';
 import {
   sitePaymentConfigs,
   driverPaymentMethods,
@@ -15,7 +15,8 @@ import {
   drivers,
   chargingStations,
 } from '@evtivity/database';
-import { encryptString, dispatchDriverNotification } from '@evtivity/lib';
+import { getAuditActor } from '../lib/audit-actor.js';
+import { encryptString, decryptString, dispatchDriverNotification } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -63,6 +64,10 @@ const stripeSettingsResponse = z
       .unknown()
       .nullable()
       .describe('Stripe publishable API key for client-side Stripe.js'),
+    secretKey: z
+      .string()
+      .nullable()
+      .describe('Stripe secret API key (decrypted from storage; null when unset)'),
     currency: z.unknown().describe('Default ISO 4217 currency code'),
     preAuthAmountCents: z.unknown().describe('Default pre-authorization amount in cents'),
     platformFeePercent: z
@@ -538,8 +543,15 @@ export function paymentRoutes(app: FastifyInstance): void {
       for (const row of rows) {
         map.set(row.key, row.value);
       }
+      const rawSecret = map.get('stripe.secretKeyEnc');
+      const encryptionKey = getEncryptionKey();
+      let secretKey: string | null = null;
+      if (typeof rawSecret === 'string' && rawSecret !== '' && encryptionKey !== '') {
+        secretKey = decryptString(rawSecret, encryptionKey);
+      }
       return {
         publishableKey: map.get('stripe.publishableKey') ?? null,
+        secretKey,
         currency: map.get('stripe.currency') ?? 'USD',
         preAuthAmountCents: map.get('stripe.preAuthAmountCents') ?? 5000,
         platformFeePercent: Number(map.get('stripe.platformFeePercent') ?? 0),
@@ -585,6 +597,14 @@ export function paymentRoutes(app: FastifyInstance): void {
         pairs.push({ key: 'stripe.platformFeePercent', value: body.platformFeePercent });
       }
 
+      const keysToWrite = pairs.map((p) => p.key);
+      const beforeRows =
+        keysToWrite.length > 0
+          ? await db.select().from(settings).where(inArray(settings.key, keysToWrite))
+          : [];
+      const beforeMap = new Map<string, unknown>();
+      for (const row of beforeRows) beforeMap.set(row.key, row.value);
+
       for (const { key, value } of pairs) {
         await db
           .insert(settings)
@@ -596,6 +616,28 @@ export function paymentRoutes(app: FastifyInstance): void {
       }
 
       clearConfigCache();
+
+      const actor = getAuditActor(request);
+      await Promise.allSettled(
+        pairs
+          .filter(({ key, value }) => beforeMap.get(key) !== value)
+          .map(({ key, value }) =>
+            writeAudit(
+              { table: settingAuditLog, idColumn: 'setting_key' },
+              {
+                entityId: key,
+                entityIdSnapshot: key,
+                action: 'updated',
+                ...actor,
+                before: { key, value: beforeMap.get(key) },
+                after: { key, value },
+              },
+              db,
+              request.log,
+            ),
+          ),
+      );
+
       return { success: true };
     },
   );

@@ -4,7 +4,14 @@
 import { sql } from 'drizzle-orm';
 import { db, client, sites } from './index.js';
 
-async function seedSnapshots(): Promise<void> {
+/**
+ * Populate 14 days of dashboard_snapshots rows per site so the Historical
+ * and Trend modes have something to render in dev. Idempotent via the
+ * ON CONFLICT upsert on (site_id, snapshot_date). Exported for reuse by the
+ * main seed; module also runs standalone via `node seed-snapshots.js` at
+ * the bottom of this file.
+ */
+export async function seedDashboardSnapshots(): Promise<void> {
   const allSites = await db.select({ id: sites.id, name: sites.name }).from(sites);
   console.log(`Found ${String(allSites.length)} sites`);
 
@@ -86,17 +93,24 @@ async function seedSnapshots(): Promise<void> {
   }
 
   console.log('Done seeding dashboard snapshots');
-  await client.end();
 }
 
-seedSnapshots().catch((err: unknown) => {
-  console.error(err);
-  client
-    .end()
-    .then(() => {
-      process.exit(1);
-    })
-    .catch(() => {
-      process.exit(1);
+// Standalone CLI entry: run only when this file is invoked directly, not
+// when imported (the main seed imports `seedDashboardSnapshots` and manages
+// its own client lifecycle).
+const isMain = import.meta.url === `file://${process.argv[1] ?? ''}`;
+if (isMain) {
+  seedDashboardSnapshots()
+    .then(() => client.end())
+    .catch((err: unknown) => {
+      console.error(err);
+      client
+        .end()
+        .then(() => {
+          process.exit(1);
+        })
+        .catch(() => {
+          process.exit(1);
+        });
     });
-});
+}

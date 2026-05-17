@@ -106,6 +106,8 @@ vi.mock('@evtivity/database', () => {
     settings: {},
     drivers: {},
     chargingStations: {},
+    settingAuditLog: {},
+    writeAudit: vi.fn(async () => undefined),
   };
 });
 
@@ -360,8 +362,9 @@ describe('Payment routes - handler logic', () => {
 
   describe('PUT /v1/settings/stripe', () => {
     it('saves stripe settings and returns success', async () => {
-      // Each setting pair triggers an upsert
-      setupDbResults([], [], []);
+      // 1 SELECT for the before-snapshot, 3 upserts (publishableKey, currency,
+      // preAuthAmountCents), then 3 parallel audit inserts via Promise.allSettled.
+      setupDbResults([], [], [], [], [], [], []);
 
       const response = await app.inject({
         method: 'PUT',

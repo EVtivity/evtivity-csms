@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { state } from '../state.js';
+import { state, pushBounded } from '../state.js';
 
 // OCPI response envelope helpers
 
@@ -173,7 +173,7 @@ function registerEmspRoutes(app: FastifyInstance): void {
   const sessionHandler = (request: FastifyRequest): Record<string, unknown> => {
     const body = request.body as Record<string, unknown>;
     const sessionId = (request.params as Record<string, string>)['session_id'] ?? 'unknown';
-    state.receivedSessions.push({
+    pushBounded(state.receivedSessions, {
       sessionId,
       status: (body['status'] as string | undefined) ?? 'UNKNOWN',
       kwh: Number(body['kwh'] ?? 0),
@@ -209,7 +209,7 @@ function registerEmspRoutes(app: FastifyInstance): void {
     const body = request.body as Record<string, unknown>;
     const cdrId = (body['id'] as string | undefined) ?? 'unknown';
 
-    state.receivedCdrs.push({
+    pushBounded(state.receivedCdrs, {
       cdrId,
       totalEnergy: Number(body['total_energy'] ?? 0),
       totalCost: body['total_cost'] != null ? JSON.stringify(body['total_cost']) : null,
@@ -237,7 +237,7 @@ function registerEmspRoutes(app: FastifyInstance): void {
     const correlationId = request.headers['x-correlation-id'] as string | undefined;
     const result = (body['result'] as string | undefined) ?? 'UNKNOWN';
 
-    state.commandResults.push({
+    pushBounded(state.commandResults, {
       commandId: correlationId ?? 'unknown',
       result,
       receivedAt: new Date().toISOString(),
@@ -305,7 +305,7 @@ function registerCpoRoutes(app: FastifyInstance): void {
     const body = request.body as Record<string, unknown>;
     const { token_uid } = request.params as { token_uid: string };
 
-    state.receivedTokens.push({
+    pushBounded(state.receivedTokens, {
       uid: token_uid,
       contractId: (body['contract_id'] as string | undefined) ?? token_uid,
       isValid: (body['valid'] as boolean | undefined) ?? true,
@@ -333,7 +333,7 @@ function registerCpoRoutes(app: FastifyInstance): void {
     const { command } = request.params as { command: string };
     const responseUrl = (body['response_url'] as string | undefined) ?? '';
 
-    state.receivedCommands.push({
+    pushBounded(state.receivedCommands, {
       command,
       body,
       receivedAt: new Date().toISOString(),

@@ -149,8 +149,26 @@ export class OcpiClient {
   async getPaginated<T>(url: string, correlationId?: string): Promise<T[]> {
     const results: T[] = [];
     let nextUrl: string | null = url;
+    // A misbehaving partner endpoint that echoes the same pagination URL in
+    // rel="next" would otherwise spin forever and exhaust memory; the
+    // visited set caps each pull at one trip through each unique URL.
+    // The hard page cap is the second line of defense for the case where
+    // a partner is paginating correctly but the dataset is unreasonably
+    // large (e.g., a buggy partner exporting a tariff per location).
+    const visited = new Set<string>();
+    const MAX_PAGES = 1000;
+    let pageCount = 0;
 
     while (nextUrl != null) {
+      if (visited.has(nextUrl)) {
+        break;
+      }
+      if (pageCount >= MAX_PAGES) {
+        break;
+      }
+      visited.add(nextUrl);
+      pageCount++;
+
       const response = await fetchWithTimeout(nextUrl, {
         method: 'GET',
         headers: this.buildHeaders(correlationId),

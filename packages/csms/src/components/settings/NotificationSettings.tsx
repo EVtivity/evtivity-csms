@@ -97,10 +97,10 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
     setSmtpHost(s('smtp.host'));
     setSmtpPort(s('smtp.port') || '587');
     setSmtpUsername(s('smtp.username'));
-    setSmtpPassword(s('smtp.password'));
+    setSmtpPassword(s('smtp.passwordEnc'));
     setSmtpFrom(s('smtp.from'));
     setTwilioAccountSid(s('twilio.accountSid'));
-    setTwilioAuthToken(s('twilio.authToken'));
+    setTwilioAuthToken(s('twilio.authTokenEnc'));
     setTwilioFromNumber(s('twilio.fromNumber'));
     const wrapper = s('email.wrapperTemplate');
     setEmailWrapperTemplate(wrapper !== '' ? wrapper : DEFAULT_EMAIL_WRAPPER);
@@ -118,7 +118,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
         api.put('/v1/settings/smtp.host', { value: vals.host }),
         api.put('/v1/settings/smtp.port', { value: Number(vals.port) }),
         api.put('/v1/settings/smtp.username', { value: vals.username }),
-        api.put('/v1/settings/smtp.password', { value: vals.password }),
+        api.put('/v1/settings/smtp.passwordEnc', { value: vals.password }),
         api.put('/v1/settings/smtp.from', { value: vals.from }),
       ]),
     onSuccess: () => {
@@ -130,7 +130,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
     mutationFn: (vals: { accountSid: string; authToken: string; fromNumber: string }) =>
       Promise.all([
         api.put('/v1/settings/twilio.accountSid', { value: vals.accountSid }),
-        api.put('/v1/settings/twilio.authToken', { value: vals.authToken }),
+        api.put('/v1/settings/twilio.authTokenEnc', { value: vals.authToken }),
         api.put('/v1/settings/twilio.fromNumber', { value: vals.fromNumber }),
       ]),
     onSuccess: () => {

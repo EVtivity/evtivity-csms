@@ -21,6 +21,8 @@ import {
   getAlignedMeasurands,
   getTxEndedMeasurands,
   writeReservationAudit,
+  writeAudit,
+  firmwareCampaignAuditLog,
 } from '@evtivity/database';
 import {
   calculateSessionCost,
@@ -2835,22 +2837,22 @@ export function registerProjections(
     // update is silently skipped.
     let linkedCampaignId: string | null = null;
     if (fwRequestId != null) {
-      // 2.1 path: update by station + requestId
-      const updated = await sql<Array<{ campaign_id: string | null }>>`
-        UPDATE firmware_updates
-        SET status = ${status}, status_info = ${fwStatusInfo}, last_status_at = now(), updated_at = now()
-        WHERE station_id = ${stationUuid} AND request_id = ${fwRequestId}
+      // 2.1 path: single upsert keyed by (station, requestId) so two concurrent
+      // status notifications cannot race a UPDATE-miss + dual INSERT into a
+      // unique-constraint crash. firmware_url is only set on insert (left alone
+      // on conflict) so an orphan placeholder does not overwrite the real URL
+      // recorded by the command.UpdateFirmware projection.
+      const upserted = await sql<Array<{ campaign_id: string | null }>>`
+        INSERT INTO firmware_updates (station_id, request_id, firmware_url, status, status_info, initiated_at, last_status_at)
+        VALUES (${stationUuid}, ${fwRequestId}, 'unknown', ${status}, ${fwStatusInfo}, now(), now())
+        ON CONFLICT (station_id, request_id) WHERE request_id IS NOT NULL DO UPDATE
+        SET status = EXCLUDED.status,
+            status_info = EXCLUDED.status_info,
+            last_status_at = now(),
+            updated_at = now()
         RETURNING campaign_id
       `;
-      if (updated.length === 0) {
-        // No existing row (firmware started outside CSMS); insert as orphan.
-        await sql`
-          INSERT INTO firmware_updates (station_id, request_id, firmware_url, status, status_info, initiated_at, last_status_at)
-          VALUES (${stationUuid}, ${fwRequestId}, 'unknown', ${status}, ${fwStatusInfo}, now(), now())
-        `;
-      } else {
-        linkedCampaignId = updated[0]?.campaign_id ?? null;
-      }
+      linkedCampaignId = upserted[0]?.campaign_id ?? null;
     } else {
       // 1.6 path: no requestId, update most recent non-terminal row for this station
       const updated = await sql<Array<{ campaign_id: string | null }>>`
@@ -2928,6 +2930,22 @@ export function registerProjections(
           await notifyChange('firmwareCampaign.completed', stationUuid, null, null, {
             campaignId: linkedCampaignId,
           });
+          // Audit the auto-complete transition so operators can see when (and
+          // by what signal) the campaign closed. Manual cancel writes audit at
+          // the route layer; without this entry the completion is invisible to
+          // the audit trail.
+          await writeAudit(
+            { table: firmwareCampaignAuditLog, idColumn: 'campaign_id' },
+            {
+              entityId: linkedCampaignId,
+              entityIdSnapshot: linkedCampaignId,
+              action: 'completed',
+              actor: 'ocpp',
+              actorLabel: 'FirmwareStatusNotification auto-complete',
+              before: { status: 'active' },
+              after: { status: 'completed' },
+            },
+          );
         }
       }
     }

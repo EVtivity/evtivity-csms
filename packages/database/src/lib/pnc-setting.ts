@@ -28,3 +28,11 @@ export async function isPncEnabled(): Promise<boolean> {
     return cachedValue ?? false;
   }
 }
+
+/** Invalidate the cached pnc.enabled flag. Call after PUT /v1/pnc/settings
+ * so OCPP authorize handlers and other readers do not keep returning the
+ * stale value for up to 60 seconds after an operator flip. */
+export function clearPncSettingsCache(): void {
+  cachedValue = undefined;
+  cachedAt = 0;
+}

@@ -59,7 +59,6 @@ import {
   configTemplatePushes,
   configTemplatePushStations,
   driverFavoriteStations,
-  dashboardSnapshots,
   chargingProfileTemplates,
   carbonIntensityFactors,
   userPermissions,
@@ -436,15 +435,15 @@ async function seed(): Promise<void> {
     'ftp.host': 'ftp',
     'ftp.port': 21,
     'ftp.username': 'evtivity',
-    'ftp.password': 'evtivity',
+    'ftp.passwordEnc': 'evtivity',
     'ftp.path': '/logs',
     'smtp.host': 'localhost',
     'smtp.port': 1025,
     'smtp.username': '',
-    'smtp.password': '',
+    'smtp.passwordEnc': '',
     'smtp.from': 'noreply@evtivity.local',
     'twilio.accountSid': '',
-    'twilio.authToken': '',
+    'twilio.authTokenEnc': '',
     'twilio.fromNumber': '',
     's3.bucket': '',
     's3.region': '',
@@ -513,7 +512,7 @@ async function seed(): Promise<void> {
     'sentry.enabled': false,
     'sentry.dsn': '',
     'sentry.environment': 'production',
-    'googleMaps.apiKey': '',
+    'googleMaps.apiKeyEnc': '',
     'googleMaps.defaultLat': '39.8283',
     'googleMaps.defaultLng': '-98.5795',
     'googleMaps.defaultZoom': '4',
@@ -554,6 +553,13 @@ async function seed(): Promise<void> {
     'chatbotAi.apiKey': 'chatbotAi.apiKeyEnc',
     'supportAi.apiKey': 'supportAi.apiKeyEnc',
     'sso.cert': 'sso.certEnc',
+    // Operators editing seed.config.json keep the plaintext key names; the
+    // seed maps them to the *Enc db keys and the auto-encrypt loop below
+    // encrypts the value.
+    'smtp.password': 'smtp.passwordEnc',
+    'twilio.authToken': 'twilio.authTokenEnc',
+    'ftp.password': 'ftp.passwordEnc',
+    'googleMaps.apiKey': 'googleMaps.apiKeyEnc',
   };
 
   // Remap config file keys to their Enc DB counterparts
@@ -3246,62 +3252,12 @@ async function seed(): Promise<void> {
   }
 
   // ------ Dashboard Snapshots ------
-  const snapshotRows: Array<typeof dashboardSnapshots.$inferInsert> = [];
-  const today = new Date();
-  const snapshotDays = 14;
-  for (const site of createdSites) {
-    for (let i = 1; i <= snapshotDays; i++) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0] ?? '';
-      const seed = i + site.id.charCodeAt(0);
-      const jitter = (base: number, pct: number): number =>
-        Math.round(base * (1 + Math.sin(seed * i * 0.7) * pct));
-      const totalStations = jitter(20, 0.05);
-      const onlineStations = Math.max(1, totalStations - Math.floor(Math.sin(seed * i) * 2 + 1));
-      const onlinePercent = Math.round((onlineStations / totalStations) * 1000) / 10;
-      const uptimePercent = Math.round((95 + Math.sin(seed * i * 0.3) * 4) * 100) / 100;
-      const daySessions = jitter(50, 0.3);
-      const totalSessions = 5000 + daySessions * i;
-      const dayEnergyWh = jitter(150000, 0.25);
-      const totalEnergyWh = 15000000 + dayEnergyWh * i;
-      const dayRevenueCents = jitter(25000, 0.3);
-      const totalRevenueCents = 2500000 + dayRevenueCents * i;
-      const dayTransactions = jitter(45, 0.3);
-      const totalTransactions = 4500 + dayTransactions * i;
-      const totalPorts = totalStations * 2;
-      const stationsBelowThreshold = Math.max(0, Math.floor(Math.sin(seed * i * 0.5) * 3));
-      const avgRevPerSession =
-        totalSessions > 0 ? Math.round(totalRevenueCents / totalSessions) : 0;
-      snapshotRows.push({
-        siteId: site.id,
-        snapshotDate: dateStr,
-        totalStations,
-        onlineStations,
-        onlinePercent: String(onlinePercent),
-        uptimePercent: String(uptimePercent),
-        activeSessions: Math.floor(Math.random() * 5),
-        totalEnergyWh: String(totalEnergyWh),
-        dayEnergyWh: String(dayEnergyWh),
-        totalSessions,
-        daySessions,
-        connectedStations: onlineStations,
-        totalRevenueCents,
-        dayRevenueCents,
-        avgRevenueCentsPerSession: avgRevPerSession,
-        totalTransactions,
-        dayTransactions,
-        totalPorts,
-        stationsBelowThreshold,
-      });
-    }
-  }
-  if (snapshotRows.length > 0) {
-    await db.insert(dashboardSnapshots).values(snapshotRows);
-  }
-  console.log(
-    `  ${String(snapshotRows.length)} dashboard snapshots created (${String(snapshotDays)} days x ${String(createdSites.length)} sites).`,
-  );
+  // Delegate to the shared snapshot seeder so the inline and standalone
+  // paths can't drift (the inline copy previously omitted ping columns and
+  // had no ON CONFLICT). seedDashboardSnapshots handles every site that
+  // exists in the DB at call time, including the ones we just created.
+  const { seedDashboardSnapshots } = await import('./seed-snapshots.js');
+  await seedDashboardSnapshots();
 
   // ------ Carbon Intensity Factors ------
   const { seedCarbonIntensityFactors } = await import('./seed-carbon.js');
@@ -3399,7 +3355,7 @@ async function seed(): Promise<void> {
   console.log(
     '  2 OCPI simulator partners (NL/SIM token: ocpi-sim-reg-token, DE/CPO token: ocpi-cpo-sim-reg-token)',
   );
-  console.log(`  ${String(snapshotRows.length)} dashboard snapshots`);
+  console.log('  Dashboard snapshots seeded for the last 14 days (see seedDashboardSnapshots).');
 
   await client.end();
 }

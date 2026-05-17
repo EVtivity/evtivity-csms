@@ -111,37 +111,34 @@ export function AuthorizeLogView({
   return (
     <Card>
       <CardHeader>
-        {/* Title on the left, filters on the right, on the same row. The
-            shared layout keeps this component consistent across the four
-            pages that embed it (Driver / Token / Station / Authorize Log). */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle>{t('tokens.authorizeLog')}</CardTitle>
-          <div className="flex flex-wrap items-center gap-2">
-            {!hideIdTokenFilter && (
-              <SearchInput
-                value={idToken}
-                onDebouncedChange={setIdToken}
-                placeholder={t('tokens.filterIdToken')}
-              />
-            )}
-            <Select
-              className="h-9 w-auto"
-              aria-label={t('tokens.filterOutcome')}
-              value={outcome}
-              onChange={(e) => {
-                setOutcome(e.target.value);
-              }}
-            >
-              {OUTCOMES.map((o) => (
-                <option key={o} value={o}>
-                  {o === '' ? t('tokens.filterOutcome') : o}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </div>
+        <CardTitle>{t('tokens.authorizeLog')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {!hideIdTokenFilter ? (
+            <SearchInput
+              value={idToken}
+              onDebouncedChange={setIdToken}
+              placeholder={t('tokens.filterIdToken')}
+            />
+          ) : (
+            <span />
+          )}
+          <Select
+            className="h-9 w-auto"
+            aria-label={t('tokens.filterOutcome')}
+            value={outcome}
+            onChange={(e) => {
+              setOutcome(e.target.value);
+            }}
+          >
+            {OUTCOMES.map((o) => (
+              <option key={o} value={o}>
+                {o === '' ? t('tokens.filterOutcome') : o}
+              </option>
+            ))}
+          </Select>
+        </div>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>

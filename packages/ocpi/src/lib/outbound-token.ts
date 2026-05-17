@@ -3,8 +3,10 @@
 
 import { eq, and } from 'drizzle-orm';
 import { db, ocpiCredentialsTokens } from '@evtivity/database';
-import { decryptString } from '@evtivity/lib';
+import { createLogger, decryptString } from '@evtivity/lib';
 import { config } from './config.js';
+
+const logger = createLogger('ocpi-outbound-token');
 
 function getEncryptionKey(): string {
   return config.SETTINGS_ENCRYPTION_KEY;
@@ -27,5 +29,18 @@ export async function getOutboundToken(partnerId: string): Promise<string | null
     return null;
   }
 
-  return decryptString(row.outboundTokenEnc, getEncryptionKey());
+  // A corrupted ciphertext or a SETTINGS_ENCRYPTION_KEY rotation without
+  // re-encrypting the column would otherwise throw out of every push,
+  // pull, and command-callback path, taking the whole pipeline down for
+  // one bad partner. Log and return null so the caller can fail-fast on
+  // missing auth without crashing.
+  try {
+    return decryptString(row.outboundTokenEnc, getEncryptionKey());
+  } catch (err: unknown) {
+    logger.error(
+      { partnerId, err: err instanceof Error ? err.message : String(err) },
+      'Failed to decrypt outbound token; treating as missing',
+    );
+    return null;
+  }
 }

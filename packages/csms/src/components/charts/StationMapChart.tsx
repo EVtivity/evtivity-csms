@@ -40,8 +40,8 @@ export function StationMapChart({ info }: { info?: string }): React.JSX.Element 
       const allSettings = await api.get<Record<string, unknown>>('/v1/settings');
       return {
         apiKey:
-          typeof allSettings['googleMaps.apiKey'] === 'string'
-            ? allSettings['googleMaps.apiKey']
+          typeof allSettings['googleMaps.apiKeyEnc'] === 'string'
+            ? allSettings['googleMaps.apiKeyEnc']
             : '',
         defaultLat:
           typeof allSettings['googleMaps.defaultLat'] === 'string'
@@ -112,8 +112,6 @@ export function StationMapChart({ info }: { info?: string }): React.JSX.Element 
         }
         markersRef.current = [];
 
-        const bounds = new google.maps.LatLngBounds();
-
         for (const site of siteLocations) {
           const lat = Number(site.latitude);
           const lng = Number(site.longitude);
@@ -126,20 +124,10 @@ export function StationMapChart({ info }: { info?: string }): React.JSX.Element 
           });
 
           markersRef.current.push(marker);
-          bounds.extend({ lat, lng });
         }
-
-        if (markersRef.current.length > 1) {
-          map.fitBounds(bounds, 40);
-        } else if (markersRef.current.length === 1) {
-          const pos = markersRef.current[0]?.position;
-          if (pos != null) {
-            const posLat = typeof pos.lat === 'function' ? pos.lat() : pos.lat;
-            const posLng = typeof pos.lng === 'function' ? pos.lng() : pos.lng;
-            map.setCenter({ lat: posLat, lng: posLng });
-            map.setZoom(14);
-          }
-        }
+        // Map stays at the operator-configured default center/zoom from
+        // Settings > Integrations > Google Maps. Auto-fitting to markers
+        // would override the configured view every time a new site is added.
       } catch {
         // Markers failed but map is still usable
       }

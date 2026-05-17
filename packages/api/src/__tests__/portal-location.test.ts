@@ -131,6 +131,7 @@ vi.mock('../services/tariff.service.js', () => ({
 
 vi.mock('@evtivity/lib', () => ({
   dispatchDriverNotification: vi.fn(),
+  decryptString: vi.fn((value: string) => value),
   createLogger: vi.fn(() => ({
     info: vi.fn(),
     error: vi.fn(),
@@ -452,7 +453,7 @@ describe('Portal location routes', () => {
   describe('GET /portal/chargers/map-config', () => {
     it('returns map configuration', async () => {
       const settingsRows = [
-        { key: 'googleMaps.apiKey', value: 'test-api-key' },
+        { key: 'googleMaps.apiKeyEnc', value: 'test-api-key' },
         { key: 'googleMaps.defaultLat', value: '40.7128' },
         { key: 'googleMaps.defaultLng', value: '-74.006' },
         { key: 'googleMaps.defaultZoom', value: '14' },

@@ -88,17 +88,17 @@ function mapConnectorType(connectorType: string | null): OcpiConnectorType {
   return CONNECTOR_TYPE_MAP[connectorType] ?? 'IEC_62196_T2';
 }
 
+const DC_CONNECTOR_TYPES = new Set(['CCS2', 'CCS1', 'CHAdeMO', 'GBT', 'Tesla', 'NACS']);
+
 function inferConnectorFormat(connectorType: string | null): OcpiConnectorFormat {
   // DC connectors typically use cables; AC connectors often use sockets
   if (connectorType == null) return 'CABLE';
-  const dcTypes = new Set(['CCS2', 'CCS1', 'CHAdeMO', 'GBT', 'Tesla', 'NACS']);
-  return dcTypes.has(connectorType) ? 'CABLE' : 'SOCKET';
+  return DC_CONNECTOR_TYPES.has(connectorType) ? 'CABLE' : 'SOCKET';
 }
 
 function inferPowerType(connectorType: string | null): OcpiPowerType {
   if (connectorType == null) return 'AC_3_PHASE';
-  const dcTypes = new Set(['CCS2', 'CCS1', 'CHAdeMO', 'GBT', 'Tesla', 'NACS']);
-  return dcTypes.has(connectorType) ? 'DC' : 'AC_3_PHASE';
+  return DC_CONNECTOR_TYPES.has(connectorType) ? 'DC' : 'AC_3_PHASE';
 }
 
 function inferVoltageAndAmperage(

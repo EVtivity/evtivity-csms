@@ -100,6 +100,23 @@ function createState(): SimState {
 
 export const state: SimState = createState();
 
+// Cap each received-* array so long-running simulator instances do not
+// accumulate heap until OOM. A multi-hour integration test pushing
+// thousands of sessions / CDRs would otherwise grow the in-memory state
+// without bound. Operators that need to inspect older entries can scrape
+// /sim/state more frequently or bump OCPI_SIM_MAX_STORED_RECORDS.
+const MAX_STORED_RECORDS = Math.max(
+  10,
+  Number(process.env['OCPI_SIM_MAX_STORED_RECORDS'] ?? '500'),
+);
+
+export function pushBounded<T>(array: T[], item: T): void {
+  array.push(item);
+  while (array.length > MAX_STORED_RECORDS) {
+    array.shift();
+  }
+}
+
 export function findPartnerEndpoint(
   identifier: string,
   role: 'SENDER' | 'RECEIVER',

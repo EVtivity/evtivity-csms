@@ -9,6 +9,7 @@ import { refreshTokens, users, drivers, userPermissions } from '@evtivity/databa
 import { eq, and, isNull } from 'drizzle-orm';
 import { config } from '../lib/config.js';
 import { isApiKeyRateLimited } from '../lib/rate-limiters.js';
+import { getPubSub } from '../lib/pubsub.js';
 
 export interface JwtPayload {
   userId: string;
@@ -52,9 +53,21 @@ async function isUserActive(userId: string): Promise<boolean> {
   return isActive;
 }
 
-/** Clear cached isActive status for a user. Call after deactivation. */
-export function invalidateUserActiveCache(userId: string): void {
+/** Clear the in-process cache only. Used by the cache-invalidate pub/sub
+ *  listener so a broadcast invalidation does not re-publish. */
+export function clearUserActiveCacheLocal(userId: string): void {
   userActiveCache.delete(userId);
+}
+
+/** Clear cached isActive status for a user. Call after deactivation.
+ *  Also broadcasts to other API pods so they drop their local entry too. */
+export function invalidateUserActiveCache(userId: string): void {
+  clearUserActiveCacheLocal(userId);
+  void getPubSub()
+    .publish('cache_invalidate', JSON.stringify({ kind: 'active', userId }))
+    .catch(() => {
+      // Best-effort; falls back to TTL on other pods.
+    });
 }
 
 export async function registerAuth(app: FastifyInstance): Promise<void> {
@@ -134,6 +147,7 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
               name: refreshTokens.name,
               expiresAt: refreshTokens.expiresAt,
               permissions: refreshTokens.permissions,
+              lastUsedAt: refreshTokens.lastUsedAt,
             })
             .from(refreshTokens)
             .where(
@@ -187,14 +201,24 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
 
               (request as unknown as Record<string, unknown>)['user'] = payload;
 
-              // Fire-and-forget lastUsedAt update
-              db.update(refreshTokens)
-                .set({ lastUsedAt: new Date() })
-                .where(eq(refreshTokens.id, row.id))
-                .then(() => {})
-                .catch((err: unknown) => {
-                  app.log.warn({ err }, 'Failed to update API key lastUsedAt');
-                });
+              // Throttled fire-and-forget lastUsedAt update. A heavily used
+              // API key (e.g. a poller hitting once per second) would otherwise
+              // generate a row update on every single request, hammering WAL
+              // and replication. One-per-hour granularity is plenty for the
+              // "last used" badge in the UI and audit queries.
+              const LAST_USED_THROTTLE_MS = 3600_000;
+              const lastUsedStale =
+                row.lastUsedAt == null ||
+                Date.now() - row.lastUsedAt.getTime() > LAST_USED_THROTTLE_MS;
+              if (lastUsedStale) {
+                db.update(refreshTokens)
+                  .set({ lastUsedAt: new Date() })
+                  .where(eq(refreshTokens.id, row.id))
+                  .then(() => {})
+                  .catch((err: unknown) => {
+                    app.log.warn({ err }, 'Failed to update API key lastUsedAt');
+                  });
+              }
 
               return;
             }

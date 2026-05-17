@@ -5,7 +5,7 @@ export * from './schema/index.js';
 export { db, client } from './config.js';
 export { PgEventPersistence } from './event-persistence.js';
 export { isRoamingEnabled, clearRoamingCache } from './lib/roaming-setting.js';
-export { isPncEnabled } from './lib/pnc-setting.js';
+export { isPncEnabled, clearPncSettingsCache } from './lib/pnc-setting.js';
 export {
   isReservationEnabled,
   getReservationSettings,

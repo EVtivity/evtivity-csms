@@ -148,7 +148,7 @@ describe('notification-dispatch (full coverage)', () => {
         { key: 'smtp.host', value: 'mail.example.com' },
         { key: 'smtp.port', value: '465' },
         { key: 'smtp.username', value: 'admin' },
-        { key: 'smtp.password', value: encryptedPassword },
+        { key: 'smtp.passwordEnc', value: encryptedPassword },
         { key: 'smtp.from', value: 'noreply@example.com' },
       ]);
 
@@ -172,7 +172,7 @@ describe('notification-dispatch (full coverage)', () => {
 
       setupSqlResults([
         { key: 'smtp.host', value: 'mail.example.com' },
-        { key: 'smtp.password', value: 'invalid-encrypted-value' },
+        { key: 'smtp.passwordEnc', value: 'invalid-encrypted-value' },
       ]);
 
       const settings = await getNotificationSettings(sql as never);
@@ -209,7 +209,7 @@ describe('notification-dispatch (full coverage)', () => {
 
       setupSqlResults([
         { key: 'twilio.accountSid', value: 'AC12345' },
-        { key: 'twilio.authToken', value: encryptedToken },
+        { key: 'twilio.authTokenEnc', value: encryptedToken },
         { key: 'twilio.fromNumber', value: '+15551234567' },
       ]);
 
@@ -232,7 +232,7 @@ describe('notification-dispatch (full coverage)', () => {
 
       setupSqlResults([
         { key: 'twilio.accountSid', value: 'AC12345' },
-        { key: 'twilio.authToken', value: 'bad-encrypted-token' },
+        { key: 'twilio.authTokenEnc', value: 'bad-encrypted-token' },
       ]);
 
       const settings = await getNotificationSettings(sql as never);
@@ -252,7 +252,7 @@ describe('notification-dispatch (full coverage)', () => {
       // No SETTINGS_ENCRYPTION_KEY set
       setupSqlResults([
         { key: 'smtp.host', value: 'mail.example.com' },
-        { key: 'smtp.password', value: 'encrypted-value' },
+        { key: 'smtp.passwordEnc', value: 'encrypted-value' },
       ]);
 
       const settings = await getNotificationSettings(sql as never);
@@ -269,7 +269,7 @@ describe('notification-dispatch (full coverage)', () => {
 
       setupSqlResults([
         { key: 'twilio.accountSid', value: 'AC12345' },
-        { key: 'twilio.authToken', value: 'encrypted-value' },
+        { key: 'twilio.authTokenEnc', value: 'encrypted-value' },
       ]);
 
       const settings = await getNotificationSettings(sql as never);
@@ -1042,7 +1042,7 @@ describe('notification-dispatch (full coverage)', () => {
           { key: 'smtp.host', value: 'smtp.example.com' },
           { key: 'smtp.port', value: '587' },
           { key: 'smtp.username', value: 'user' },
-          { key: 'smtp.password', value: '' },
+          { key: 'smtp.passwordEnc', value: '' },
           { key: 'smtp.from', value: 'noreply@example.com' },
         ],
         [], // renderTemplate DB lookup for email
@@ -1080,7 +1080,7 @@ describe('notification-dispatch (full coverage)', () => {
           { key: 'smtp.host', value: 'smtp.example.com' },
           { key: 'smtp.port', value: '587' },
           { key: 'smtp.username', value: 'user' },
-          { key: 'smtp.password', value: '' },
+          { key: 'smtp.passwordEnc', value: '' },
           { key: 'smtp.from', value: 'noreply@example.com' },
         ],
         [], // renderTemplate DB lookup
@@ -1116,7 +1116,7 @@ describe('notification-dispatch (full coverage)', () => {
         [{ key: 'company.name', value: 'SmsCo' }],
         [
           { key: 'twilio.accountSid', value: 'AC123' },
-          { key: 'twilio.authToken', value: '' },
+          { key: 'twilio.authTokenEnc', value: '' },
           { key: 'twilio.fromNumber', value: '+1555000000' },
         ],
         [], // renderTemplate DB lookup for sms
@@ -1159,7 +1159,7 @@ describe('notification-dispatch (full coverage)', () => {
         [{ email_enabled: false, sms_enabled: true }],
         [
           { key: 'twilio.accountSid', value: 'AC123' },
-          { key: 'twilio.authToken', value: '' },
+          { key: 'twilio.authTokenEnc', value: '' },
           { key: 'twilio.fromNumber', value: '+1555000000' },
         ],
         [], // renderTemplate DB lookup for sms
@@ -1406,7 +1406,7 @@ describe('notification-dispatch (full coverage)', () => {
           { key: 'smtp.host', value: 'smtp.example.com' },
           { key: 'smtp.port', value: '587' },
           { key: 'smtp.username', value: '' },
-          { key: 'smtp.password', value: '' },
+          { key: 'smtp.passwordEnc', value: '' },
           { key: 'smtp.from', value: 'noreply@wrapco.com' },
         ],
         // DB template found with HTML body
@@ -1512,10 +1512,10 @@ describe('notification-dispatch (full coverage)', () => {
           { key: 'smtp.host', value: 'smtp.example.com' },
           { key: 'smtp.port', value: '587' },
           { key: 'smtp.username', value: 'user' },
-          { key: 'smtp.password', value: '' },
+          { key: 'smtp.passwordEnc', value: '' },
           { key: 'smtp.from', value: 'from@example.com' },
           { key: 'twilio.accountSid', value: 'AC999' },
-          { key: 'twilio.authToken', value: '' },
+          { key: 'twilio.authTokenEnc', value: '' },
           { key: 'twilio.fromNumber', value: '+1555000000' },
         ],
         [], // renderTemplate email DB lookup

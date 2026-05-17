@@ -32,6 +32,11 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
         ? settings['security.recaptcha.siteKey']
         : '',
     );
+    setSecretKey(
+      typeof settings['security.recaptcha.secretKeyEnc'] === 'string'
+        ? settings['security.recaptcha.secretKeyEnc']
+        : '',
+    );
     const th = settings['security.recaptcha.threshold'];
     if (typeof th === 'number') setThreshold(String(th));
   }, [settings]);

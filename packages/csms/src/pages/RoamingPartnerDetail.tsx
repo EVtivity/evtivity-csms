@@ -273,10 +273,7 @@ export function RoamingPartnerDetail(): React.JSX.Element {
         isPending={disconnectMutation.isPending}
       />
 
-      <div className="space-y-2">
-        <h2 className="text-xl font-semibold">{t('audit.history')}</h2>
-        <EntityHistoryTab entityType="ocpi_partner" entityId={id ?? ''} />
-      </div>
+      <EntityHistoryTab entityType="ocpi_partner" entityId={id ?? ''} />
     </div>
   );
 }

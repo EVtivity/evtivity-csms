@@ -4,12 +4,20 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { inArray } from 'drizzle-orm';
-import { db, settings } from '@evtivity/database';
+import {
+  db,
+  settings,
+  writeAudit,
+  settingAuditLog,
+  clearPncSettingsCache,
+} from '@evtivity/database';
 import { encryptString, isPrivateUrl } from '@evtivity/lib';
+import { decryptForRead } from '../lib/settings-crypto.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { successResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
+import { getAuditActor } from '../lib/audit-actor.js';
 import { config as apiConfig } from '../lib/config.js';
 
 const testProviderResponse = z
@@ -83,11 +91,7 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
         .where(inArray(settings.key, [...PNC_KEYS]));
       const result: Record<string, unknown> = {};
       for (const row of rows) {
-        if (row.key === 'pnc.hubject.clientSecretEnc') {
-          result[row.key] = row.value != null && row.value !== '' ? '********' : '';
-        } else {
-          result[row.key] = row.value;
-        }
+        result[row.key] = decryptForRead(row.key, row.value);
       }
       return result;
     },
@@ -96,7 +100,7 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
   app.put(
     '/pnc/settings',
     {
-      onRequest: [authorize('settings.security:write')],
+      onRequest: [authorize('settings.integrations:write')],
       schema: {
         tags: ['PnC'],
         summary: 'Update Plug and Charge settings',
@@ -152,6 +156,17 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
         updates.push({ key: 'pnc.expirationCriticalDays', value: body.expirationCriticalDays });
       }
 
+      // Snapshot prior values so the audit entries can carry an honest
+      // before/after. Settings page changes for PnC are operator-visible
+      // security configuration; missing audit was a compliance gap.
+      const keysToWrite = updates.map((u) => u.key);
+      const beforeRows =
+        keysToWrite.length > 0
+          ? await db.select().from(settings).where(inArray(settings.key, keysToWrite))
+          : [];
+      const beforeMap = new Map<string, unknown>();
+      for (const row of beforeRows) beforeMap.set(row.key, row.value);
+
       for (const update of updates) {
         await db
           .insert(settings)
@@ -162,6 +177,32 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
           });
       }
 
+      // Invalidate the in-process pnc.enabled cache so OCPP authorize
+      // handlers and other readers pick up the flip immediately instead of
+      // waiting up to 60 seconds for the TTL to expire.
+      clearPncSettingsCache();
+
+      const actor = getAuditActor(request);
+      await Promise.allSettled(
+        updates
+          .filter((update) => beforeMap.get(update.key) !== update.value)
+          .map((update) =>
+            writeAudit(
+              { table: settingAuditLog, idColumn: 'setting_key' },
+              {
+                entityId: update.key,
+                entityIdSnapshot: update.key,
+                action: 'updated',
+                ...actor,
+                before: { key: update.key, value: beforeMap.get(update.key) },
+                after: { key: update.key, value: update.value },
+              },
+              db,
+              request.log,
+            ),
+          ),
+      );
+
       return { success: true };
     },
   );
@@ -169,7 +210,7 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
   app.post(
     '/pnc/settings/test-provider',
     {
-      onRequest: [authorize('settings.security:write')],
+      onRequest: [authorize('settings.integrations:write')],
       schema: {
         tags: ['PnC'],
         summary: 'Test PnC provider connectivity',

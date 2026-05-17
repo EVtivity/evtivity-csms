@@ -21,6 +21,7 @@ interface PaymentSettingsProps {
 
 interface StripeSettings {
   publishableKey: string | null;
+  secretKey: string | null;
   currency: string;
   preAuthAmountCents: number;
   platformFeePercent: number;
@@ -128,6 +129,9 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
     if (stripeSettings == null) return;
     setStripePublishableKey(
       typeof stripeSettings.publishableKey === 'string' ? stripeSettings.publishableKey : '',
+    );
+    setStripeSecretKey(
+      typeof stripeSettings.secretKey === 'string' ? stripeSettings.secretKey : '',
     );
     setStripeCurrency(stripeSettings.currency);
     setStripePreAuthCents(String(stripeSettings.preAuthAmountCents));

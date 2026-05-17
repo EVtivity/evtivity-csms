@@ -69,7 +69,11 @@ export function FirmwareCampaignProgressDetail(): React.JSX.Element {
   const cancelMutation = useMutation({
     mutationFn: () => api.post(`/v1/firmware-campaigns/${campaignId}/cancel`, {}),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['firmware-campaigns', campaignId] });
+      // Invalidate by parent key so the campaigns list (queryKey
+      // ['firmware-campaigns', page]) also refetches. The cancel route does
+      // not publish an SSE event, so without this the list view shows the
+      // stale 'active' status until manual refresh.
+      void queryClient.invalidateQueries({ queryKey: ['firmware-campaigns'] });
       setCancelOpen(false);
     },
   });

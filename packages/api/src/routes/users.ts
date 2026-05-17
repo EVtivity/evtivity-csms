@@ -2248,6 +2248,10 @@ export function userRoutes(app: FastifyInstance): void {
     .object({
       configured: z.boolean().describe('Whether the user has saved a personal AI assistant config'),
       provider: z.string().nullable().describe('Selected AI provider (anthropic, openai, gemini)'),
+      apiKey: z
+        .string()
+        .nullable()
+        .describe('Provider API key (decrypted from storage; null when unset)'),
       model: z.string().nullable().describe('Model override applied for this user'),
       temperature: z.number().nullable().describe('Generation temperature (0-2)'),
       topP: z.number().nullable().describe('Nucleus sampling threshold (0-1)'),
@@ -2350,6 +2354,7 @@ export function userRoutes(app: FastifyInstance): void {
       const [row] = await db
         .select({
           provider: chatbotAiConfigs.provider,
+          apiKeyEnc: chatbotAiConfigs.apiKeyEnc,
           model: chatbotAiConfigs.model,
           temperature: chatbotAiConfigs.temperature,
           topP: chatbotAiConfigs.topP,
@@ -2363,6 +2368,7 @@ export function userRoutes(app: FastifyInstance): void {
         return {
           configured: false,
           provider: null,
+          apiKey: null,
           model: null,
           temperature: null,
           topP: null,
@@ -2371,9 +2377,16 @@ export function userRoutes(app: FastifyInstance): void {
         };
       }
 
+      const encKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
+      let apiKey: string | null = null;
+      if (row.apiKeyEnc !== '' && encKey !== '') {
+        apiKey = decryptString(row.apiKeyEnc, encKey);
+      }
+
       return {
         configured: true,
         provider: row.provider,
+        apiKey,
         model: row.model ?? null,
         temperature: row.temperature != null ? Number(row.temperature) : null,
         topP: row.topP != null ? Number(row.topP) : null,
@@ -2472,6 +2485,10 @@ export function userRoutes(app: FastifyInstance): void {
     .object({
       configured: z.boolean().describe('Whether the user has saved a personal support AI config'),
       provider: z.string().nullable().describe('Selected AI provider for support case drafting'),
+      apiKey: z
+        .string()
+        .nullable()
+        .describe('Provider API key (decrypted from storage; null when unset)'),
       model: z.string().nullable().describe('Model override applied for this user'),
       temperature: z.number().nullable().describe('Generation temperature (0-2)'),
       topP: z.number().nullable().describe('Nucleus sampling threshold (0-1)'),
@@ -2505,6 +2522,7 @@ export function userRoutes(app: FastifyInstance): void {
       const [row] = await db
         .select({
           supportAiProvider: chatbotAiConfigs.supportAiProvider,
+          supportAiApiKeyEnc: chatbotAiConfigs.supportAiApiKeyEnc,
           supportAiModel: chatbotAiConfigs.supportAiModel,
           supportAiTemperature: chatbotAiConfigs.supportAiTemperature,
           supportAiTopP: chatbotAiConfigs.supportAiTopP,
@@ -2519,6 +2537,7 @@ export function userRoutes(app: FastifyInstance): void {
         return {
           configured: false,
           provider: null,
+          apiKey: null,
           model: null,
           temperature: null,
           topP: null,
@@ -2528,9 +2547,16 @@ export function userRoutes(app: FastifyInstance): void {
         };
       }
 
+      const encKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
+      let apiKey: string | null = null;
+      if (row.supportAiApiKeyEnc != null && row.supportAiApiKeyEnc !== '' && encKey !== '') {
+        apiKey = decryptString(row.supportAiApiKeyEnc, encKey);
+      }
+
       return {
         configured: true,
         provider: row.supportAiProvider,
+        apiKey,
         model: row.supportAiModel ?? null,
         temperature: row.supportAiTemperature != null ? Number(row.supportAiTemperature) : null,
         topP: row.supportAiTopP != null ? Number(row.supportAiTopP) : null,

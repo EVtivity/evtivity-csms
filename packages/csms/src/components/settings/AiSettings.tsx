@@ -45,7 +45,8 @@ export function AiSettings({ settings }: AiSettingsProps): React.JSX.Element {
     setChatbotAiEnabled(settings['chatbotAi.enabled'] === true);
     const aip = settings['chatbotAi.provider'];
     setChatbotAiProvider(typeof aip === 'string' && aip !== '' ? aip : 'anthropic');
-    setChatbotAiApiKey('');
+    const aik = settings['chatbotAi.apiKeyEnc'];
+    setChatbotAiApiKey(typeof aik === 'string' ? aik : '');
     const aim = settings['chatbotAi.model'];
     setChatbotAiModel(typeof aim === 'string' ? aim : '');
     const ait = settings['chatbotAi.temperature'];
@@ -65,7 +66,8 @@ export function AiSettings({ settings }: AiSettingsProps): React.JSX.Element {
     setSupportAiEnabled(settings['supportAi.enabled'] === true);
     const saip = settings['supportAi.provider'];
     setSupportAiProvider(typeof saip === 'string' && saip !== '' ? saip : 'anthropic');
-    setSupportAiApiKey('');
+    const saik = settings['supportAi.apiKeyEnc'];
+    setSupportAiApiKey(typeof saik === 'string' ? saik : '');
     const saim = settings['supportAi.model'];
     setSupportAiModel(typeof saim === 'string' ? saim : '');
     const sait = settings['supportAi.temperature'];

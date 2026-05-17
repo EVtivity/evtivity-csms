@@ -3,6 +3,7 @@
 
 import { eq } from 'drizzle-orm';
 import { db, users, userSiteAssignments, chargingStations } from '@evtivity/database';
+import { getPubSub } from './pubsub.js';
 
 interface SiteAccessCache {
   siteIds: string[] | null;
@@ -49,12 +50,24 @@ export async function getUserSiteIds(userId: string): Promise<string[] | null> {
   return siteIds;
 }
 
+/** Clear the in-process cache only. Used by the cache-invalidate pub/sub
+ *  listener so a broadcast invalidation does not re-publish. */
+export function clearSiteAccessCacheLocal(userId: string): void {
+  cache.delete(userId);
+}
+
 /**
  * Invalidate the cached site access for a user.
  * Call this when site assignments are modified.
+ * Also broadcasts to other API pods so they drop their local entry too.
  */
 export function invalidateSiteAccessCache(userId: string): void {
-  cache.delete(userId);
+  clearSiteAccessCacheLocal(userId);
+  void getPubSub()
+    .publish('cache_invalidate', JSON.stringify({ kind: 'site', userId }))
+    .catch(() => {
+      // Best-effort; falls back to TTL on other pods.
+    });
 }
 
 /**

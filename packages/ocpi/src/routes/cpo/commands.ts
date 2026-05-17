@@ -63,17 +63,25 @@ async function resolveSiteId(locationId: string): Promise<string | null> {
   return site?.id ?? null;
 }
 
+// EVSE uid format is ${siteId}-${evseId}. Three command handlers below
+// duplicated the same parse-and-coerce; extracting it here keeps the
+// format owned by one place.
+function parseEvseUidTail(evseUid: string | undefined): number | undefined {
+  if (evseUid == null) return undefined;
+  const parts = evseUid.split('-');
+  const tail = parts[parts.length - 1];
+  if (tail == null) return undefined;
+  const num = Number(tail);
+  return Number.isFinite(num) ? num : undefined;
+}
+
 async function findStationForSite(
   siteId: string,
   evseUid?: string,
 ): Promise<{ stationId: string; evseDbId?: string } | null> {
   if (evseUid != null) {
-    // EVSE uid format: ${siteId}-${evseId}
-    const parts = evseUid.split('-');
-    const evseIdStr = parts[parts.length - 1];
-    if (evseIdStr == null) return null;
-    const evseIdNum = Number(evseIdStr);
-    if (Number.isNaN(evseIdNum)) return null;
+    const evseIdNum = parseEvseUidTail(evseUid);
+    if (evseIdNum == null) return null;
 
     // Find the EVSE and its station
     const results = await db
@@ -174,11 +182,8 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
       remoteStartId: Math.floor(Math.random() * 2_147_483_647),
     };
     if (station.evseDbId != null) {
-      // Find EVSE numeric ID for OCPP
-      const evseUidParts = body.evse_uid?.split('-');
-      const evseNum =
-        evseUidParts != null ? Number(evseUidParts[evseUidParts.length - 1]) : undefined;
-      if (evseNum != null && !Number.isNaN(evseNum)) {
+      const evseNum = parseEvseUidTail(body.evse_uid);
+      if (evseNum != null) {
         ocppPayload['evseId'] = evseNum;
       }
     }
@@ -357,10 +362,8 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
       idToken: { idToken: tokenUid, type: 'ISO14443' },
     };
     if (station.evseDbId != null) {
-      const evseUidParts = body.evse_uid?.split('-');
-      const evseNum =
-        evseUidParts != null ? Number(evseUidParts[evseUidParts.length - 1]) : undefined;
-      if (evseNum != null && !Number.isNaN(evseNum)) {
+      const evseNum = parseEvseUidTail(body.evse_uid);
+      if (evseNum != null) {
         ocppPayload['evseId'] = evseNum;
       }
     }
@@ -495,8 +498,7 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
       }
 
       // Parse EVSE and connector IDs
-      const evseUidParts = body.evse_uid.split('-');
-      const evseNum = Number(evseUidParts[evseUidParts.length - 1]);
+      const evseNum = parseEvseUidTail(body.evse_uid) ?? Number.NaN;
       const connectorNum = Number(body.connector_id);
 
       if (Number.isNaN(evseNum) || Number.isNaN(connectorNum)) {

@@ -65,5 +65,10 @@ export const firmwareCampaignStations = pgTable(
   (table) => [
     index('idx_firmware_campaign_stations_campaign').on(table.campaignId),
     index('idx_firmware_campaign_stations_station').on(table.stationId),
+    // Auto-complete EXISTS check in the FirmwareStatusNotification projection
+    // hits this table once per status notification across the lifetime of an
+    // active campaign. The composite index turns the scan into a covered
+    // range lookup.
+    index('idx_firmware_campaign_stations_campaign_status').on(table.campaignId, table.status),
   ],
 );

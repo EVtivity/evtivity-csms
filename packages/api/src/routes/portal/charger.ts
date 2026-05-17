@@ -6,6 +6,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, or, ilike, desc, asc, sql, gte, gt, isNull, count, inArray } from 'drizzle-orm';
 import { db, client } from '@evtivity/database';
+import { decryptString } from '@evtivity/lib';
+import { config as apiConfig } from '../../lib/config.js';
 import {
   chargingStations,
   evses,
@@ -793,7 +795,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .from(settings)
         .where(
           inArray(settings.key, [
-            'googleMaps.apiKey',
+            'googleMaps.apiKeyEnc',
             'googleMaps.defaultLat',
             'googleMaps.defaultLng',
             'googleMaps.defaultZoom',
@@ -802,8 +804,19 @@ export function portalChargerRoutes(app: FastifyInstance): void {
 
       const map = new Map(rows.map((r) => [r.key, r.value as string]));
 
+      const rawApiKey = map.get('googleMaps.apiKeyEnc') ?? '';
+      const encryptionKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
+      let apiKey = '';
+      if (rawApiKey !== '' && encryptionKey !== '') {
+        try {
+          apiKey = decryptString(rawApiKey, encryptionKey);
+        } catch {
+          // Empty apiKey makes the frontend render "Maps not configured".
+        }
+      }
+
       return {
-        apiKey: map.get('googleMaps.apiKey') ?? '',
+        apiKey,
         defaultLat: Number(map.get('googleMaps.defaultLat') ?? '37.7749'),
         defaultLng: Number(map.get('googleMaps.defaultLng') ?? '-122.4194'),
         defaultZoom: Number(map.get('googleMaps.defaultZoom') ?? '12'),

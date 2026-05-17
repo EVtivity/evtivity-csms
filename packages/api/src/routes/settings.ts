@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, like, or } from 'drizzle-orm';
+import { eq, like, or, inArray } from 'drizzle-orm';
 import {
   db,
   getReservationSettings,
@@ -22,35 +22,7 @@ import { DEFAULT_CONTENT } from './default-content.js';
 import { authorize } from '../middleware/rbac.js';
 import { config as apiConfig } from '../lib/config.js';
 import { getAuditActor } from '../lib/audit-actor.js';
-
-// A handful of legacy credential keys are stored plaintext (no Enc suffix
-// and not in the encryptedKeyMap). Treat them as sensitive everywhere so
-// they don't leak via GET /v1/settings or settings audit rows.
-const PLAINTEXT_SENSITIVE_KEYS = new Set([
-  'smtp.password',
-  'twilio.authToken',
-  'ftp.password',
-  'googleMaps.apiKey',
-]);
-
-function isSensitiveSettingKey(key: string): boolean {
-  return key.endsWith('Enc') || key.endsWith('SecretKey') || PLAINTEXT_SENSITIVE_KEYS.has(key);
-}
-
-// Mask the value of any encrypted or plaintext-credential setting before it
-// lands in setting_audit_log or any GET response. Encrypted ciphertext is
-// still sensitive (anyone with both the audit log and the encryption key
-// can decrypt) and bloats the audit table; plaintext credentials would
-// otherwise leak verbatim to anyone with settings.system:read.
-function redactSensitiveSetting<T extends { key: string; value: unknown } | undefined>(
-  row: T,
-): T extends undefined ? null : { key: string; value: unknown } {
-  if (row == null) return null as never;
-  if (isSensitiveSettingKey(row.key)) {
-    return { key: row.key, value: '<redacted>' } as never;
-  }
-  return { key: row.key, value: row.value } as never;
-}
+import { decryptForRead, encryptForWrite } from '../lib/settings-crypto.js';
 
 const settingParams = z.object({
   key: z.string().min(1).describe('Setting key'),
@@ -211,7 +183,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       const rows = await db.select().from(settings);
       const result: Record<string, unknown> = {};
       for (const row of rows) {
-        result[row.key] = isSensitiveSettingKey(row.key) ? '<redacted>' : row.value;
+        result[row.key] = decryptForRead(row.key, row.value);
       }
       return result;
     },
@@ -242,7 +214,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       }
       return {
         key: row.key,
-        value: isSensitiveSettingKey(row.key) ? '<redacted>' : row.value,
+        value: decryptForRead(row.key, row.value),
       };
     },
   );
@@ -267,10 +239,11 @@ export function settingsRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { key } = request.params as z.infer<typeof settingParams>;
       const { value } = request.body as z.infer<typeof updateSettingBody>;
+      const storedValue = encryptForWrite(key, value);
       const [before] = await db.select().from(settings).where(eq(settings.key, key));
       const [row] = await db
         .update(settings)
-        .set({ value, updatedAt: new Date() })
+        .set({ value: storedValue, updatedAt: new Date() })
         .where(eq(settings.key, key))
         .returning();
       if (row == null) {
@@ -285,13 +258,13 @@ export function settingsRoutes(app: FastifyInstance): void {
           entityIdSnapshot: row.key,
           action: 'updated',
           ...actor,
-          before: redactSensitiveSetting(before),
-          after: redactSensitiveSetting(row),
+          before,
+          after: row,
         },
         db,
         request.log,
       );
-      return { key: row.key, value: row.value };
+      return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
   );
 
@@ -312,13 +285,14 @@ export function settingsRoutes(app: FastifyInstance): void {
     async (request) => {
       const { key } = request.params as z.infer<typeof settingParams>;
       const { value } = request.body as z.infer<typeof updateSettingBody>;
+      const storedValue = encryptForWrite(key, value);
       const [before] = await db.select().from(settings).where(eq(settings.key, key));
       const rows = await db
         .insert(settings)
-        .values({ key, value })
+        .values({ key, value: storedValue })
         .onConflictDoUpdate({
           target: settings.key,
-          set: { value, updatedAt: new Date() },
+          set: { value: storedValue, updatedAt: new Date() },
         })
         .returning();
       const row = rows[0];
@@ -333,13 +307,13 @@ export function settingsRoutes(app: FastifyInstance): void {
           entityIdSnapshot: row.key,
           action: 'updated',
           ...actor,
-          before: redactSensitiveSetting(before),
-          after: redactSensitiveSetting(row),
+          before,
+          after: row,
         },
         db,
         request.log,
       );
-      return { key: row.key, value: row.value };
+      return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
   );
 
@@ -374,13 +348,13 @@ export function settingsRoutes(app: FastifyInstance): void {
           entityIdSnapshot: row.key,
           action: 'deleted',
           ...actor,
-          before: redactSensitiveSetting(row),
+          before: row,
           after: null,
         },
         db,
         request.log,
       );
-      return { key: row.key, value: row.value };
+      return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
   );
 
@@ -466,14 +440,42 @@ export function settingsRoutes(app: FastifyInstance): void {
             set: { value, updatedAt: new Date() },
           });
 
-      await Promise.all([
-        upsert('s3.bucket', body.bucket),
-        upsert('s3.region', body.region),
-        upsert('s3.accessKeyIdEnc', encryptString(body.accessKeyId, encryptionKey)),
-        upsert('s3.secretAccessKeyEnc', encryptString(body.secretAccessKey, encryptionKey)),
-      ]);
+      const written: Array<{ key: string; value: unknown }> = [
+        { key: 's3.bucket', value: body.bucket },
+        { key: 's3.region', value: body.region },
+        { key: 's3.accessKeyIdEnc', value: encryptString(body.accessKeyId, encryptionKey) },
+        { key: 's3.secretAccessKeyEnc', value: encryptString(body.secretAccessKey, encryptionKey) },
+      ];
 
+      const keysToWrite = written.map((w) => w.key);
+      const beforeRows = await db.select().from(settings).where(inArray(settings.key, keysToWrite));
+      const beforeMap = new Map<string, unknown>();
+      for (const row of beforeRows) beforeMap.set(row.key, row.value);
+
+      await Promise.all(written.map((w) => upsert(w.key, w.value)));
       clearS3ConfigCache();
+
+      const actor = getAuditActor(request);
+      await Promise.allSettled(
+        written
+          .filter(({ key, value }) => beforeMap.get(key) !== value)
+          .map(({ key, value }) =>
+            writeAudit(
+              { table: settingAuditLog, idColumn: 'setting_key' },
+              {
+                entityId: key,
+                entityIdSnapshot: key,
+                action: 'updated',
+                ...actor,
+                before: { key, value: beforeMap.get(key) },
+                after: { key, value },
+              },
+              db,
+              request.log,
+            ),
+          ),
+      );
+
       return { success: true };
     },
   );

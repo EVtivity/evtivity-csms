@@ -1997,6 +1997,7 @@ export function siteRoutes(app: FastifyInstance): void {
             .insert(configTemplates)
             .values({
               name: `Free Vend - ${site.name} (OCPP 2.1)`,
+              description: `Auto generated. Free Vend configuration for ${site.name} (OCPP 2.1).`,
               ocppVersion: '2.1',
               variables: [
                 { component: 'AuthCtrlr', variable: 'Enabled', value: 'false' },
@@ -2029,6 +2030,7 @@ export function siteRoutes(app: FastifyInstance): void {
             .insert(configTemplates)
             .values({
               name: `Free Vend - ${site.name} (OCPP 1.6)`,
+              description: `Auto generated. Free Vend configuration for ${site.name} (OCPP 1.6). OCPP 1.6 has no standard free-vend mechanism; these keys work with most stations but some vendors require vendor-specific keys (edit and re-push as needed).`,
               ocppVersion: '1.6',
               variables: [
                 {

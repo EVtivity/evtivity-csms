@@ -330,7 +330,7 @@ describe('notification-dispatch', () => {
         { key: 'smtp.host', value: 'smtp.test.com' },
         { key: 'smtp.port', value: '587' },
         { key: 'smtp.username', value: 'user' },
-        { key: 'smtp.password', value: '' },
+        { key: 'smtp.passwordEnc', value: '' },
         { key: 'smtp.from', value: 'from@test.com' },
       ]);
       const settings = await getNotificationSettings(sql as never);

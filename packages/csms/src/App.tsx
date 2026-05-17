@@ -165,6 +165,9 @@ const RoamingCdrs = lazy(() =>
 const RoamingTariffs = lazy(() =>
   import('@/pages/RoamingTariffs').then((m) => ({ default: m.RoamingTariffs })),
 );
+const RoamingHistory = lazy(() =>
+  import('@/pages/RoamingHistory').then((m) => ({ default: m.RoamingHistory })),
+);
 const RoamingTariffMappingCreate = lazy(() =>
   import('@/pages/RoamingTariffMappingCreate').then((m) => ({
     default: m.RoamingTariffMappingCreate,
@@ -360,6 +363,7 @@ export function App(): React.JSX.Element {
                     <Route path="sessions" element={<RoamingSessions />} />
                     <Route path="cdrs" element={<RoamingCdrs />} />
                     <Route path="tariffs" element={<RoamingTariffs />} />
+                    <Route path="history" element={<RoamingHistory />} />
                   </Route>
                   <Route path="roaming/partners/new" element={<RoamingPartnerCreate />} />
                   <Route path="roaming/partners/:id" element={<RoamingPartnerDetail />} />

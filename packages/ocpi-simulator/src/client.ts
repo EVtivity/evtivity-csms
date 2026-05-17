@@ -38,15 +38,33 @@ function requireToken(): string {
   return state.theirToken;
 }
 
+// Bound every outbound call so a slow / hung target CSMS does not stall the
+// simulator. The auto-session loop fires on a fixed interval; without a
+// timeout, a single unresponsive request piles up new pending requests
+// indefinitely and exhausts file descriptors / heap.
+const OUTBOUND_TIMEOUT_MS = 10_000;
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, OUTBOUND_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function ocpiGet<T>(url: string, token?: string): Promise<T> {
   const tok = token ?? requireToken();
-  const response = await fetch(url, { headers: buildHeaders(tok) });
+  const response = await fetchWithTimeout(url, { headers: buildHeaders(tok) });
   return parse<T>(response, url);
 }
 
 export async function ocpiPost<T>(url: string, body: unknown, token?: string): Promise<T> {
   const tok = token ?? requireToken();
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: buildHeaders(tok),
     body: JSON.stringify(body),
@@ -56,7 +74,7 @@ export async function ocpiPost<T>(url: string, body: unknown, token?: string): P
 
 export async function ocpiPut<T>(url: string, body: unknown, token?: string): Promise<T> {
   const tok = token ?? requireToken();
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: 'PUT',
     headers: buildHeaders(tok),
     body: JSON.stringify(body),

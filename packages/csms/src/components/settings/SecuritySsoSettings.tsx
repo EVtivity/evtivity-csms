@@ -99,6 +99,7 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
 
     const certVal = s['sso.certEnc'];
     setCertSet(typeof certVal === 'string' && certVal !== '' && certVal !== '""');
+    setCert(typeof certVal === 'string' && certVal !== '""' ? certVal : '');
 
     let mapping: Record<string, string> = {
       email: 'email',

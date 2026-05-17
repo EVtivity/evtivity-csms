@@ -316,6 +316,27 @@
       "when": 1778700000026,
       "tag": "0044_meter_values_dedup_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1778700000027,
+      "tag": "0045_firmware_status_enum_ocpp21_complete",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1778700000028,
+      "tag": "0046_firmware_campaign_stations_campaign_status_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1778700000029,
+      "tag": "0047_rename_plaintext_secrets_to_enc",
+      "breakpoints": true
     }
   ]
 }

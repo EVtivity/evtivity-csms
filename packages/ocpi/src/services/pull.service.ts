@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import {
   db,
   ocpiPartners,
@@ -120,17 +120,20 @@ export async function pullLocations(partnerId: string): Promise<SyncResult> {
   await logSync(partnerId, 'locations', 'pull_full', 'started', 0);
 
   try {
-    const url = await getPartnerEndpoint(partnerId, 'locations', 'SENDER');
+    // Endpoint URL, outbound token, and partner identity are independent
+    // lookups - fetch in parallel to collapse three sequential RTTs into
+    // one before the long-running paginated pull starts.
+    const [url, token, partner] = await Promise.all([
+      getPartnerEndpoint(partnerId, 'locations', 'SENDER'),
+      getPartnerToken(partnerId),
+      getPartnerInfo(partnerId),
+    ]);
     if (url == null) {
       throw new Error('Partner has no locations SENDER endpoint');
     }
-
-    const token = await getPartnerToken(partnerId);
     if (token == null) {
       throw new Error('No outbound token for partner');
     }
-
-    const partner = await getPartnerInfo(partnerId);
     if (partner == null) {
       throw new Error('Partner not found');
     }
@@ -192,17 +195,18 @@ export async function pullTariffs(partnerId: string): Promise<SyncResult> {
   await logSync(partnerId, 'tariffs', 'pull_full', 'started', 0);
 
   try {
-    const url = await getPartnerEndpoint(partnerId, 'tariffs', 'SENDER');
+    // Parallel lookups: same rationale as pullLocations.
+    const [url, token, partner] = await Promise.all([
+      getPartnerEndpoint(partnerId, 'tariffs', 'SENDER'),
+      getPartnerToken(partnerId),
+      getPartnerInfo(partnerId),
+    ]);
     if (url == null) {
       throw new Error('Partner has no tariffs SENDER endpoint');
     }
-
-    const token = await getPartnerToken(partnerId);
     if (token == null) {
       throw new Error('No outbound token for partner');
     }
-
-    const partner = await getPartnerInfo(partnerId);
     if (partner == null) {
       throw new Error('Partner not found');
     }
@@ -255,17 +259,18 @@ export async function pullCdrs(partnerId: string): Promise<SyncResult> {
   await logSync(partnerId, 'cdrs', 'pull_full', 'started', 0);
 
   try {
-    const url = await getPartnerEndpoint(partnerId, 'cdrs', 'SENDER');
+    // Parallel lookups: same rationale as pullLocations.
+    const [url, token, partner] = await Promise.all([
+      getPartnerEndpoint(partnerId, 'cdrs', 'SENDER'),
+      getPartnerToken(partnerId),
+      getPartnerInfo(partnerId),
+    ]);
     if (url == null) {
       throw new Error('Partner has no cdrs SENDER endpoint');
     }
-
-    const token = await getPartnerToken(partnerId);
     if (token == null) {
       throw new Error('No outbound token for partner');
     }
-
-    const partner = await getPartnerInfo(partnerId);
     if (partner == null) {
       throw new Error('Partner not found');
     }
@@ -273,15 +278,24 @@ export async function pullCdrs(partnerId: string): Promise<SyncResult> {
     const client = createOcpiClient(token, partner.countryCode, partner.partyId);
     const cdrs = await client.getPaginated<OcpiCdr>(url);
 
+    // Batch the existence check: one IN query instead of one per-CDR SELECT.
+    // CDRs are immutable, so skipping already-present rows in memory is
+    // exact. At 1000 pulled CDRs this trades 1000 round-trips for 1.
+    const cdrIds = cdrs.map((c) => c.id);
+    const existingIds = new Set<string>();
+    if (cdrIds.length > 0) {
+      const existingRows = await db
+        .select({ ocpiCdrId: ocpiCdrs.ocpiCdrId })
+        .from(ocpiCdrs)
+        .where(and(eq(ocpiCdrs.partnerId, partnerId), inArray(ocpiCdrs.ocpiCdrId, cdrIds)));
+      for (const r of existingRows) {
+        existingIds.add(r.ocpiCdrId);
+      }
+    }
+
     let count = 0;
     for (const cdr of cdrs) {
-      const [existing] = await db
-        .select({ id: ocpiCdrs.id })
-        .from(ocpiCdrs)
-        .where(and(eq(ocpiCdrs.partnerId, partnerId), eq(ocpiCdrs.ocpiCdrId, cdr.id)))
-        .limit(1);
-
-      if (existing != null) {
+      if (existingIds.has(cdr.id)) {
         // CDRs are immutable, skip if already exists
         continue;
       }

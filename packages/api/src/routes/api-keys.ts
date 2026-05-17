@@ -130,20 +130,29 @@ export function apiKeyRoutes(app: FastifyInstance): void {
           ? new Date(Date.now() + body.expiresInDays * 24 * 60 * 60 * 1000)
           : null;
 
-      // Check for duplicate name
-      const [existing] = await db
-        .select({ id: refreshTokens.id })
-        .from(refreshTokens)
-        .where(
-          and(
-            eq(refreshTokens.userId, userId),
-            eq(refreshTokens.type, 'api_key'),
-            eq(refreshTokens.name, body.name.trim()),
-            isNull(refreshTokens.revokedAt),
-          ),
-        )
-        .limit(1);
-      if (existing != null) {
+      // Duplicate-name check and creator-permissions lookup are independent;
+      // run them in parallel so POST /v1/api-keys pays one DB round-trip
+      // instead of two.
+      const [existingRows, creatorPermRows] = await Promise.all([
+        db
+          .select({ id: refreshTokens.id })
+          .from(refreshTokens)
+          .where(
+            and(
+              eq(refreshTokens.userId, userId),
+              eq(refreshTokens.type, 'api_key'),
+              eq(refreshTokens.name, body.name.trim()),
+              isNull(refreshTokens.revokedAt),
+            ),
+          )
+          .limit(1),
+        db
+          .select({ permission: userPermissions.permission })
+          .from(userPermissions)
+          .where(eq(userPermissions.userId, userId)),
+      ]);
+
+      if (existingRows[0] != null) {
         await reply.status(409).send({
           error: 'An API key with this name already exists',
           code: 'DUPLICATE_API_KEY_NAME',
@@ -162,11 +171,6 @@ export function apiKeyRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Validate permissions are a subset of the creator's permissions
-      const creatorPermRows = await db
-        .select({ permission: userPermissions.permission })
-        .from(userPermissions)
-        .where(eq(userPermissions.userId, userId));
       const creatorPerms = creatorPermRows.map((r) => r.permission);
 
       if (!isSubsetOf(body.permissions, creatorPerms)) {
@@ -280,9 +284,10 @@ export function apiKeyRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof idParams>;
       const body = request.body as z.infer<typeof updateApiKeyBody>;
 
-      // Verify ownership
+      // Verify ownership and capture the prior permission set so the audit
+      // entry can record before/after on the permission change.
       const [key] = await db
-        .select({ id: refreshTokens.id })
+        .select({ id: refreshTokens.id, permissions: refreshTokens.permissions })
         .from(refreshTokens)
         .where(
           and(
@@ -326,6 +331,21 @@ export function apiKeyRoutes(app: FastifyInstance): void {
         .update(refreshTokens)
         .set({ permissions: body.permissions })
         .where(eq(refreshTokens.id, id));
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: apiKeyAuditLog, idColumn: 'api_key_id' },
+        {
+          entityId: String(id),
+          entityIdSnapshot: String(id),
+          action: 'updated',
+          ...actor,
+          before: { id, permissions: key.permissions },
+          after: { id, permissions: body.permissions },
+        },
+        db,
+        request.log,
+      );
 
       return { success: true as const };
     },
