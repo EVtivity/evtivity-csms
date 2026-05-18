@@ -103,6 +103,14 @@ done
 
 echo ""
 
+echo "Type-checking workspaces (builds dist/ for codegen)..."
+if ! npm run typecheck; then
+  echo ""
+  echo "Typecheck failed. Fix errors before releasing."
+  exit 1
+fi
+echo ""
+
 echo "Regenerating AI assistant tools from OpenAPI spec..."
 if ! npm run codegen:ai-tools --workspace=@evtivity/api; then
   echo ""
