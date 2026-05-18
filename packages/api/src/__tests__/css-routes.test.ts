@@ -137,6 +137,15 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
+// CSS routes now gate every endpoint through isCssStationAccessible(), which
+// calls getUserSiteIds(). The full helper would query the mocked db chain and
+// throw off the dbResults sequencing these tests rely on. Stub the helper to
+// return null (full site access) so the access check short-circuits and the
+// tests exercise only the CSS-specific code path.
+vi.mock('../lib/site-access.js', () => ({
+  getUserSiteIds: vi.fn(async () => null),
+}));
+
 import { registerAuth } from '../plugins/auth.js';
 import { cssRoutes } from '../routes/css.js';
 import { ACTION_VERSIONS, HIGH_LEVEL_ACTIONS, STATION_MESSAGE_ACTIONS } from '../routes/css.js';

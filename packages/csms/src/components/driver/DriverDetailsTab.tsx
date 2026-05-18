@@ -97,7 +97,7 @@ export function DriverDetailsTab({ driver, timezone }: DriverDetailsTabProps): R
   return (
     <TabsContent value="details" className="space-y-6">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('common.details')}</CardTitle>
           {!editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
         </CardHeader>

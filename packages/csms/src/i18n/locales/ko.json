@@ -72,7 +72,9 @@
     "confirmDuplicateDescription": "이 템플릿의 사본이 생성됩니다. 계속하시겠습니까?",
     "duplicateSuccess": "템플릿이 복제되었습니다",
     "loadError": "데이터를 불러오지 못했습니다. 다시 시도해 주세요.",
-    "moreFilters": "추가 필터"
+    "moreFilters": "추가 필터",
+    "filters": "필터",
+    "clearAllFilters": "모두 지우기"
   },
   "status": {
     "online": "온라인",
@@ -152,6 +154,7 @@
   "roaming": {
     "partners": {
       "title": "로밍 파트너",
+      "subtitle": "네트워크 간 로밍 충전 세션을 위한 OCPI 파트너 연결을 관리합니다.",
       "partnerId": "파트너 ID",
       "partnerName": "파트너 이름",
       "addPartner": "파트너 생성",
@@ -181,8 +184,10 @@
       "action": "작업",
       "objects": "객체"
     },
+    "subtitle": "OCPI 로밍 파트너, 위치 게시, 세션, CDR 및 요금제 매핑을 구성합니다.",
     "locations": {
       "title": "위치 게시",
+      "subtitle": "OCPI를 통해 로밍 파트너에게 게시되는 사이트를 제어합니다.",
       "description": "OCPI를 통해 로밍 파트너에게 게시되는 사이트를 제어합니다.",
       "locationName": "위치 이름",
       "address": "주소",
@@ -194,6 +199,7 @@
     },
     "sessions": {
       "title": "로밍 세션",
+      "subtitle": "OCPI 네트워크를 통한 외부 파트너 토큰으로 구동되는 충전 세션입니다.",
       "partner": "파트너",
       "tokenUid": "토큰 UID",
       "energy": "에너지",
@@ -202,6 +208,7 @@
     },
     "cdrs": {
       "title": "충전 상세 기록",
+      "subtitle": "네트워크 간 청구를 위해 OCPI 파트너와 교환되는 로밍 CDR입니다.",
       "partner": "파트너",
       "cdrId": "CDR ID",
       "energy": "에너지",
@@ -214,6 +221,7 @@
     },
     "tariffs": {
       "title": "요금 매핑",
+      "subtitle": "내부 요금제를 로밍 파트너가 볼 수 있는 OCPI 형식 요금제에 매핑합니다.",
       "addMapping": "매핑 생성",
       "createMapping": "요금 매핑 생성",
       "mappingDetails": "요금 매핑 상세",
@@ -376,6 +384,9 @@
   },
   "sites": {
     "title": "사이트",
+    "subtitle": "충전 위치를 관리합니다. 도시, 주 또는 부하 관리로 필터링하여 사이트를 찾으세요.",
+    "search": "검색",
+    "loadManagementFilter": "부하 관리",
     "siteId": "사이트 ID",
     "siteName": "사이트 이름",
     "addSite": "사이트 생성",
@@ -463,6 +474,9 @@
   },
   "stations": {
     "title": "충전기",
+    "subtitle": "모든 사이트의 충전소를 탐색하고 관리합니다. 사이트, 공급업체, 상태 또는 프로토콜로 필터링하세요.",
+    "search": "검색",
+    "type": "Type",
     "id": "충전기 ID",
     "addStation": "충전기 생성",
     "createStation": "충전기 생성",
@@ -490,6 +504,7 @@
     "filterByOnline": "온라인:",
     "allStatuses": "전체 EVSE 상태",
     "allOnline": "전체 연결 상태",
+    "connectivity": "연결 상태",
     "metrics": "지표",
     "ocppCommands": "OCPP 명령",
     "qrCodes": "QR 코드",
@@ -668,7 +683,7 @@
     "blockStation": "충전소 차단",
     "blockStationDescription": "충전소의 연결이 차단됩니다. 영구적으로 삭제되지 않습니다. 나중에 차단을 해제하여 대기 상태로 복원할 수 있습니다.",
     "onboardingStatus": "온보딩 상태",
-    "onboardingStatusFilter": "온보딩",
+    "onboardingStatusFilter": "모든 온보딩 상태",
     "securityEvents": "보안 이벤트",
     "securityEventsDescription": "인증 실패, 탬퍼 감지, 펌웨어 변경 등 OCPP SecurityEventNotification을 통해 충전기가 보고한 보안 관련 이벤트입니다.",
     "noSecurityEvents": "기록된 보안 이벤트가 없습니다",
@@ -754,6 +769,8 @@
   },
   "sessions": {
     "title": "세션",
+    "subtitle": "플릿 전체의 최근 및 과거 충전 세션입니다. 충전소, 운전자, 상태 또는 날짜 범위로 필터링하세요.",
+    "search": "검색",
     "reservationTokenMismatchTitle": "예약 토큰 불일치",
     "reservationTokenMismatchDescription": "이 세션은 예약에 바인딩된 토큰과 다른 토큰으로 시작되었습니다. 세션은 계속 진행되었습니다. 청구 또는 사기 신호를 검토하세요.",
     "expectedToken": "예상",
@@ -824,6 +841,8 @@
   },
   "drivers": {
     "title": "드라이버",
+    "subtitle": "운전자 계정을 관리합니다. 상태별로 필터링하여 활성 또는 비활성 운전자를 찾으세요.",
+    "search": "검색",
     "driverId": "드라이버 ID",
     "driverName": "드라이버 이름",
     "addDriver": "드라이버 생성",
@@ -857,6 +876,7 @@
   },
   "pricing": {
     "title": "요금제",
+    "subtitle": "가격 그룹은 사이트, 충전소, 플릿 또는 운전자별로 적용되는 하나 이상의 요금제를 묶습니다.",
     "tariffs": "요금",
     "auditEntity": "대상",
     "auditChanges": "변경 내역",
@@ -930,6 +950,7 @@
     "holidayDescription": "구성된 공휴일에 적용됩니다",
     "manageHolidays": "공휴일 관리",
     "holidays": "공휴일",
+    "holidaysSubtitle": "휴일 날짜는 'holidays' 제한을 통해 옵트인하는 시간대 요금제에 적용됩니다.",
     "noHolidays": "구성된 공휴일이 없습니다",
     "addHoliday": "공휴일 추가",
     "bulkAdd": "일괄 추가",
@@ -940,6 +961,8 @@
   },
   "users": {
     "title": "사용자",
+    "subtitle": "대시보드용 운영자 계정입니다. 역할, 상태 또는 사이트 접근으로 필터링하세요.",
+    "search": "검색",
     "userId": "사용자 ID",
     "fullName": "전체 이름",
     "addUser": "사용자 생성",
@@ -1052,6 +1075,8 @@
   },
   "fleets": {
     "title": "차량대",
+    "subtitle": "공유 가격 책정 및 보고를 위해 운전자와 충전소를 플릿으로 그룹화합니다.",
+    "search": "검색",
     "fleetId": "차량대 ID",
     "fleetName": "차량대 이름",
     "createFleet": "차량대 생성",
@@ -1114,6 +1139,8 @@
   },
   "tokens": {
     "title": "토큰",
+    "subtitle": "시스템에 등록된 RFID 및 충전 토큰입니다. 운전자, 토큰 유형 또는 상태로 필터링하세요.",
+    "search": "검색",
     "tokenId": "토큰 ID",
     "addToken": "토큰 생성",
     "createToken": "토큰 생성",
@@ -1369,6 +1396,7 @@
   },
   "settings": {
     "title": "설정",
+    "subtitle": "브랜딩, 결제, 통합, 보안, API 키 및 운영자 도구와 같은 시스템 전반의 기본 설정을 구성합니다.",
     "qrCodeIcon": "QR 코드 아이콘",
     "qrCodeIconDescription": "QR 코드 중앙에 포함할 SVG 아이콘을 업로드하세요.",
     "uploadSvg": "SVG 업로드",
@@ -1742,6 +1770,7 @@
   },
   "pnc": {
     "certificates": "인증서",
+    "certificatesSubtitle": "ISO 15118 Plug and Charge 인증서 수명 주기: CA 루트, 충전소 인증서 및 CSR 요청.",
     "caCertificates": "CA 인증서",
     "stationCertificates": "충전기 인증서",
     "csrRequests": "CSR 요청",
@@ -1780,6 +1809,7 @@
   },
   "notifications": {
     "title": "알림",
+    "subtitle": "이메일, SMS, 푸시 및 웹훅 채널을 통해 운전자와 운영자에게 이벤트 기반 알림을 구성합니다.",
     "eventType": "이벤트 유형",
     "channel": "채널",
     "language": "언어",
@@ -1857,6 +1887,8 @@
   },
   "reservations": {
     "title": "예약",
+    "subtitle": "예정 및 과거 충전 예약입니다. 사이트, 충전소 또는 상태로 필터링하세요.",
+    "search": "검색",
     "create": "예약 생성",
     "createReservation": "예약 생성",
     "cancel": "예약 취소",
@@ -2182,6 +2214,8 @@
   },
   "logs": {
     "title": "로그",
+    "subtitle": "운영자 접근 로그: 모든 로그인 시도, 변경 및 권한 있는 읽기.",
+    "search": "검색",
     "csmsTab": "CSMS 로그",
     "portalTab": "포탈 로그",
     "apiTab": "API 로그",
@@ -2217,6 +2251,7 @@
   },
   "reports": {
     "title": "보고서",
+    "subtitle": "재무, 에너지 및 규정 준수 보고서를 생성하고 정기 발송을 예약하며 과거 실행을 검색합니다.",
     "generateTab": "생성",
     "historyTab": "기록",
     "schedulesTab": "스케줄",
@@ -2343,6 +2378,8 @@
   },
   "supportCases": {
     "title": "지원 요청",
+    "subtitle": "운전자가 시작한 지원 케이스입니다. 상태, 우선순위, 카테고리 또는 할당으로 필터링하세요.",
+    "search": "검색",
     "caseId": "요청 ID",
     "createCase": "요청 생성",
     "searchPlaceholder": "지원 요청 검색...",
@@ -2713,6 +2750,7 @@
   },
   "conformance": {
     "title": "적합성 테스트",
+    "subtitle": "Run the OCTT test suite against this CSMS. View pass/fail history and per-run details.",
     "runTests": "테스트 실행",
     "runAll": "전체 테스트 실행",
     "runHistory": "실행 기록",
@@ -2819,6 +2857,8 @@
     "loadFailed": "감사 로그를 불러오지 못했습니다",
     "noEntries": "필터에 해당하는 감사 항목이 없습니다",
     "history": "이력",
-    "actorType": "유형"
+    "actorType": "유형",
+    "settingKey": "설정",
+    "change": "변경"
   }
 }

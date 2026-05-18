@@ -14,12 +14,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { CopyableId } from '@/components/copyable-id';
-import { Pagination } from '@/components/ui/pagination';
 import { formatDate } from '@/lib/timezone';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
 
 export const DRIVERS_COLUMNS: ColumnMeta[] = [
+  {
+    key: 'driverId',
+    label: 'drivers.driverId',
+    defaultVisible: true,
+    defaultVisibleMobile: false,
+    alwaysVisible: true,
+  },
   {
     key: 'driverName',
     label: 'drivers.driverName',
@@ -27,7 +32,6 @@ export const DRIVERS_COLUMNS: ColumnMeta[] = [
     defaultVisibleMobile: true,
     alwaysVisible: true,
   },
-  { key: 'driverId', label: 'drivers.driverId', defaultVisible: true, defaultVisibleMobile: false },
   { key: 'email', label: 'common.email', defaultVisible: true, defaultVisibleMobile: true },
   { key: 'phone', label: 'drivers.phone', defaultVisible: true, defaultVisibleMobile: false },
   { key: 'status', label: 'common.status', defaultVisible: true, defaultVisibleMobile: true },
@@ -59,9 +63,6 @@ interface DriversTableProps {
 
 export function DriversTable({
   drivers,
-  page,
-  totalPages,
-  onPageChange,
   timezone,
   isLoading,
   emptyMessage,
@@ -82,8 +83,8 @@ export function DriversTable({
         <Table>
           <TableHeader>
             <TableRow>
-              {isVisible('driverName') && <TableHead>{t('drivers.driverName')}</TableHead>}
               {isVisible('driverId') && <TableHead>{t('drivers.driverId')}</TableHead>}
+              {isVisible('driverName') && <TableHead>{t('drivers.driverName')}</TableHead>}
               {isVisible('email') && <TableHead>{t('common.email')}</TableHead>}
               {isVisible('phone') && <TableHead>{t('drivers.phone')}</TableHead>}
               {isVisible('status') && <TableHead>{t('common.status')}</TableHead>}
@@ -108,14 +109,12 @@ export function DriversTable({
                   void navigate(`/drivers/${driver.id}`);
                 }}
               >
+                {isVisible('driverId') && (
+                  <TableCell className="text-muted-foreground">{driver.id}</TableCell>
+                )}
                 {isVisible('driverName') && (
                   <TableCell className="font-medium text-primary" data-testid="row-click-target">
                     {driver.firstName} {driver.lastName}
-                  </TableCell>
-                )}
-                {isVisible('driverId') && (
-                  <TableCell>
-                    <CopyableId id={driver.id} variant="table" />
                   </TableCell>
                 )}
                 {isVisible('email') && <TableCell>{driver.email ?? '-'}</TableCell>}
@@ -157,8 +156,6 @@ export function DriversTable({
           </TableBody>
         </Table>
       </div>
-
-      <Pagination page={page} totalPages={totalPages} onPageChange={onPageChange} />
     </>
   );
 }

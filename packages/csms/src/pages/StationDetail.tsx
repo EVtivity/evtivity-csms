@@ -151,7 +151,7 @@ export function StationDetail(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
         <div className="flex items-center gap-4">
           <BackButton to="/stations" />
           <div>
@@ -176,7 +176,7 @@ export function StationDetail(): React.JSX.Element {
         <Card className="border-warning">
           <CardContent className="flex items-center justify-between p-4">
             <p className="text-sm">{t('stations.pendingApproval')}</p>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
               <Button
                 variant="outline"
                 size="sm"

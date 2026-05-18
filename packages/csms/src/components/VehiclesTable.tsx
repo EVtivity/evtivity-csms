@@ -13,7 +13,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { CopyableId } from '@/components/copyable-id';
 import { Pagination } from '@/components/ui/pagination';
 
 export interface Vehicle {
@@ -64,9 +63,9 @@ export function VehiclesTable({
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead>{t('vehicles.vehicleId')}</TableHead>
               <TableHead>{t('vehicles.make')}</TableHead>
               <TableHead>{t('vehicles.model')}</TableHead>
-              <TableHead>{t('vehicles.vehicleId')}</TableHead>
               {showDriver && <TableHead>{t('tokens.driver')}</TableHead>}
               <TableHead>{t('vehicles.year')}</TableHead>
               <TableHead>{t('vehicles.vin')}</TableHead>
@@ -91,13 +90,11 @@ export function VehiclesTable({
                   onRowClick?.(v);
                 }}
               >
+                <TableCell className="text-muted-foreground">{v.id}</TableCell>
                 <TableCell className="font-medium" data-testid="row-click-target">
                   {v.make ?? 'n/a'}
                 </TableCell>
                 <TableCell>{v.model ?? 'n/a'}</TableCell>
-                <TableCell>
-                  <CopyableId id={v.id} variant="table" />
-                </TableCell>
                 {showDriver && (
                   <TableCell>
                     <button

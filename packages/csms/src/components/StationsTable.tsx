@@ -15,7 +15,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { CopyableId } from '@/components/copyable-id';
 import { SecurityProfileBadge } from '@/components/SecurityProfileBadge';
 import { SVG_COLORS } from '@/lib/chart-theme';
 import { formatDateTime, formatRelativeTime } from '@/lib/timezone';
@@ -24,13 +23,19 @@ import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
 
 export const STATIONS_COLUMNS: ColumnMeta[] = [
   {
+    key: 'id',
+    label: 'stations.id',
+    defaultVisible: true,
+    defaultVisibleMobile: false,
+    alwaysVisible: true,
+  },
+  {
     key: 'stationId',
     label: 'stations.stationId',
     defaultVisible: true,
     defaultVisibleMobile: true,
     alwaysVisible: true,
   },
-  { key: 'id', label: 'stations.id', defaultVisible: true, defaultVisibleMobile: false },
   { key: 'site', label: 'sites.siteName', defaultVisible: true, defaultVisibleMobile: true },
   { key: 'vendor', label: 'stations.vendor', defaultVisible: false, defaultVisibleMobile: false },
   { key: 'model', label: 'stations.model', defaultVisible: true, defaultVisibleMobile: false },
@@ -330,8 +335,8 @@ export function StationsTable({
       <Table>
         <TableHeader>
           <TableRow>
-            {isVisible('stationId') && <TableHead>{t('stations.stationId')}</TableHead>}
             {isVisible('id') && <TableHead>{t('stations.id')}</TableHead>}
+            {isVisible('stationId') && <TableHead>{t('stations.stationId')}</TableHead>}
             {showSiteColumn && isVisible('site') && <TableHead>{t('sites.siteName')}</TableHead>}
             {isVisible('vendor') && <TableHead>{t('stations.vendor')}</TableHead>}
             {isVisible('model') && <TableHead>{t('stations.model')}</TableHead>}
@@ -418,6 +423,9 @@ export function StationsTable({
                 void navigate(`/stations/${station.id}`);
               }}
             >
+              {isVisible('id') && (
+                <TableCell className="text-muted-foreground">{station.id}</TableCell>
+              )}
               {isVisible('stationId') && (
                 <TableCell
                   className="font-medium text-primary whitespace-nowrap"
@@ -436,11 +444,6 @@ export function StationsTable({
                       </Badge>
                     )}
                   </span>
-                </TableCell>
-              )}
-              {isVisible('id') && (
-                <TableCell>
-                  <CopyableId id={station.id} variant="table" />
                 </TableCell>
               )}
               {showSiteColumn && isVisible('site') && (

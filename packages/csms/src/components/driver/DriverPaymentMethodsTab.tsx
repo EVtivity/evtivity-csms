@@ -73,7 +73,7 @@ export function DriverPaymentMethodsTab({
   return (
     <TabsContent value="payment-methods">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('payments.paymentMethods')}</CardTitle>
           {!addingPaymentMethod && (
             <CreateButton

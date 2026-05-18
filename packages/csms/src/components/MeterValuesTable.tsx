@@ -15,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ResponsiveFilters } from '@/components/responsive-filters';
+import { FilterPopover } from '@/components/FilterBar';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
 export interface MeterValueItem {
@@ -73,12 +73,12 @@ export function MeterValuesTable({
   return (
     <Card>
       <CardHeader>
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4">
+        <div className="flex flex-row items-center justify-between gap-2">
           <div className="space-y-1.5">
             <CardTitle>{t('sessions.meterValuesTab')}</CardTitle>
             <p className="text-sm text-muted-foreground">{description}</p>
           </div>
-          <ResponsiveFilters activeCount={measurandFilter ? 1 : 0}>
+          <FilterPopover activeCount={measurandFilter ? 1 : 0}>
             <Select
               aria-label="Filter by measurand"
               value={measurandFilter}
@@ -95,7 +95,7 @@ export function MeterValuesTable({
                 </option>
               ))}
             </Select>
-          </ResponsiveFilters>
+          </FilterPopover>
         </div>
       </CardHeader>
       <CardContent>

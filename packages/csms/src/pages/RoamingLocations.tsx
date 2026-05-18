@@ -4,7 +4,7 @@
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Table,
   TableBody,
@@ -44,68 +44,66 @@ export function RoamingLocations(): React.JSX.Element {
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('roaming.locations.title')}</CardTitle>
-        <p className="text-muted-foreground text-sm">{t('roaming.locations.description')}</p>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('roaming.locations.locationName')}</TableHead>
-              <TableHead>{t('roaming.locations.address')}</TableHead>
-              <TableHead>{t('roaming.locations.published')}</TableHead>
-              <TableHead>{t('roaming.locations.visibility')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
+    <div className="space-y-6">
+      <Card>
+        <CardContent className="overflow-x-auto p-0">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={4} className="text-center">
-                  {t('common.loading')}
-                </TableCell>
+                <TableHead>{t('roaming.locations.locationName')}</TableHead>
+                <TableHead>{t('roaming.locations.address')}</TableHead>
+                <TableHead>{t('roaming.locations.published')}</TableHead>
+                <TableHead>{t('roaming.locations.visibility')}</TableHead>
               </TableRow>
-            ) : locations == null || locations.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground">
-                  {t('roaming.locations.noLocations')}
-                </TableCell>
-              </TableRow>
-            ) : (
-              locations.map((loc) => (
-                <TableRow key={loc.id}>
-                  <TableCell className="font-medium">{loc.name}</TableCell>
-                  <TableCell>
-                    {[loc.address, loc.city, loc.country].filter(Boolean).join(', ') || '-'}
-                  </TableCell>
-                  <TableCell>
-                    <input
-                      type="checkbox"
-                      checked={loc.isPublished}
-                      onChange={(e) => {
-                        toggleMutation.mutate({ siteId: loc.id, isPublished: e.target.checked });
-                      }}
-                      className="h-4 w-4 rounded border-gray-300"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {loc.isPublished ? (
-                      <Badge variant={loc.publishToAll ? 'default' : 'secondary'}>
-                        {loc.publishToAll
-                          ? t('roaming.locations.allPartners')
-                          : t('roaming.locations.selectedPartners')}
-                      </Badge>
-                    ) : (
-                      <span className="text-muted-foreground">-</span>
-                    )}
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center">
+                    {t('common.loading')}
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+              ) : locations == null || locations.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-muted-foreground">
+                    {t('roaming.locations.noLocations')}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                locations.map((loc) => (
+                  <TableRow key={loc.id}>
+                    <TableCell className="font-medium">{loc.name}</TableCell>
+                    <TableCell>
+                      {[loc.address, loc.city, loc.country].filter(Boolean).join(', ') || '-'}
+                    </TableCell>
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        checked={loc.isPublished}
+                        onChange={(e) => {
+                          toggleMutation.mutate({ siteId: loc.id, isPublished: e.target.checked });
+                        }}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {loc.isPublished ? (
+                        <Badge variant={loc.publishToAll ? 'default' : 'secondary'}>
+                          {loc.publishToAll
+                            ? t('roaming.locations.allPartners')
+                            : t('roaming.locations.selectedPartners')}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

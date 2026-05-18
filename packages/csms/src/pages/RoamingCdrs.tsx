@@ -3,7 +3,7 @@
 
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Table,
   TableBody,
@@ -43,64 +43,61 @@ export function RoamingCdrs(): React.JSX.Element {
   } = usePaginatedQuery<CdrEntry>('ocpi-cdrs', '/v1/ocpi/cdrs');
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('roaming.cdrs.title')}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('roaming.cdrs.partner')}</TableHead>
-              <TableHead>{t('roaming.cdrs.cdrId')}</TableHead>
-              <TableHead>{t('roaming.cdrs.energy')}</TableHead>
-              <TableHead>{t('roaming.cdrs.cost')}</TableHead>
-              <TableHead>{t('roaming.cdrs.type')}</TableHead>
-              <TableHead>{t('roaming.cdrs.pushStatus')}</TableHead>
-              <TableHead>{t('common.created')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
+    <div className="space-y-6">
+      <Card>
+        <CardContent className="overflow-x-auto p-0">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={7} className="text-center">
-                  {t('common.loading')}
-                </TableCell>
+                <TableHead>{t('roaming.cdrs.partner')}</TableHead>
+                <TableHead>{t('roaming.cdrs.cdrId')}</TableHead>
+                <TableHead>{t('roaming.cdrs.energy')}</TableHead>
+                <TableHead>{t('roaming.cdrs.cost')}</TableHead>
+                <TableHead>{t('roaming.cdrs.type')}</TableHead>
+                <TableHead>{t('roaming.cdrs.pushStatus')}</TableHead>
+                <TableHead>{t('common.created')}</TableHead>
               </TableRow>
-            ) : cdrs == null || cdrs.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground">
-                  {t('roaming.cdrs.noCdrs')}
-                </TableCell>
-              </TableRow>
-            ) : (
-              cdrs.map((cdr) => (
-                <TableRow key={cdr.id}>
-                  <TableCell className="font-medium">{cdr.partnerName ?? '-'}</TableCell>
-                  <TableCell className="whitespace-nowrap">{cdr.ocpiCdrId}</TableCell>
-                  <TableCell>{parseFloat(cdr.totalEnergy).toFixed(2)} kWh</TableCell>
-                  <TableCell>
-                    {parseFloat(cdr.totalCost).toFixed(2)} {cdr.currency}
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center">
+                    {t('common.loading')}
                   </TableCell>
-                  <TableCell>
-                    <Badge variant={cdr.isCredit ? 'destructive' : 'default'}>
-                      {cdr.isCredit ? t('roaming.cdrs.credit') : t('roaming.cdrs.charge')}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={cdrPushStatusVariant(cdr.pushStatus)}>{cdr.pushStatus}</Badge>
-                  </TableCell>
-                  <TableCell>{formatDateTime(cdr.createdAt, timezone)}</TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ) : cdrs == null || cdrs.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground">
+                    {t('roaming.cdrs.noCdrs')}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                cdrs.map((cdr) => (
+                  <TableRow key={cdr.id}>
+                    <TableCell className="font-medium">{cdr.partnerName ?? '-'}</TableCell>
+                    <TableCell className="whitespace-nowrap">{cdr.ocpiCdrId}</TableCell>
+                    <TableCell>{parseFloat(cdr.totalEnergy).toFixed(2)} kWh</TableCell>
+                    <TableCell>
+                      {parseFloat(cdr.totalCost).toFixed(2)} {cdr.currency}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={cdr.isCredit ? 'destructive' : 'default'}>
+                        {cdr.isCredit ? t('roaming.cdrs.credit') : t('roaming.cdrs.charge')}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={cdrPushStatusVariant(cdr.pushStatus)}>{cdr.pushStatus}</Badge>
+                    </TableCell>
+                    <TableCell>{formatDateTime(cdr.createdAt, timezone)}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
-        {totalPages > 1 && (
-          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-        )}
-      </CardContent>
-    </Card>
+      {totalPages > 1 && <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />}
+    </div>
   );
 }

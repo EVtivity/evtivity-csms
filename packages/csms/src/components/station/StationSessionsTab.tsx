@@ -5,9 +5,10 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Pagination } from '@/components/ui/pagination';
 import { Select } from '@/components/ui/select';
 import { SessionsTable, type Session } from '@/components/SessionsTable';
-import { ResponsiveFilters } from '@/components/responsive-filters';
+import { FilterPopover } from '@/components/FilterBar';
 import { api } from '@/lib/api';
 
 export interface StationSessionsTabProps {
@@ -41,9 +42,9 @@ export function StationSessionsTab({
 
   return (
     <Card>
-      <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <CardHeader className="flex flex-row items-center justify-between gap-2">
         <CardTitle>{t('sessions.title')}</CardTitle>
-        <ResponsiveFilters activeCount={sessionsStatus ? 1 : 0}>
+        <FilterPopover activeCount={sessionsStatus ? 1 : 0}>
           <Select
             aria-label="Filter by status"
             value={sessionsStatus}
@@ -59,7 +60,7 @@ export function StationSessionsTab({
             <option value="completed">{t('status.completed')}</option>
             <option value="faulted">{t('status.faulted')}</option>
           </Select>
-        </ResponsiveFilters>
+        </FilterPopover>
       </CardHeader>
       <CardContent>
         <SessionsTable
@@ -69,6 +70,11 @@ export function StationSessionsTab({
           onPageChange={setSessionsPage}
           timezone={timezone}
           hideStationName
+        />
+        <Pagination
+          page={sessionsPage}
+          totalPages={sessionsTotalPages}
+          onPageChange={setSessionsPage}
         />
       </CardContent>
     </Card>

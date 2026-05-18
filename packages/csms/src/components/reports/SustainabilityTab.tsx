@@ -18,7 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ResponsiveFilters } from '@/components/responsive-filters';
+import { FilterPopover } from '@/components/FilterBar';
 import { api } from '@/lib/api';
 import { API_BASE_URL } from '@/lib/config';
 import { useAuth } from '@/lib/auth';
@@ -153,52 +153,50 @@ export function SustainabilityTab(): React.JSX.Element {
   return (
     <div className="space-y-6">
       <Card>
-        <CardContent className="flex flex-wrap items-center justify-between gap-2 pt-6">
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="date"
-              aria-label="Start date"
-              value={fromDate}
-              onChange={(e) => {
-                setFromDate(e.target.value);
-              }}
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              max={toDate}
-            />
-            <span className="text-sm text-muted-foreground">to</span>
-            <input
-              type="date"
-              aria-label="End date"
-              value={toDate}
-              onChange={(e) => {
-                setToDate(e.target.value);
-              }}
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              min={fromDate}
-              max={today.toISOString().split('T')[0] ?? ''}
-            />
-            <ResponsiveFilters activeCount={siteId ? 1 : 0}>
-              <Select
-                aria-label="Filter by site"
-                value={siteId}
-                onChange={(e) => {
-                  setSiteId(e.target.value);
-                }}
-                className="h-9 w-auto"
-              >
-                <option value="">{t('sessions.allSites')}</option>
-                {sitesData?.data.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </Select>
-            </ResponsiveFilters>
-          </div>
-          <Button variant="outline" onClick={handleExportCsv} className="gap-1.5">
+        <CardContent className="flex flex-wrap items-center gap-2 pt-6">
+          <input
+            type="date"
+            aria-label="Start date"
+            value={fromDate}
+            onChange={(e) => {
+              setFromDate(e.target.value);
+            }}
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            max={toDate}
+          />
+          <span className="text-sm text-muted-foreground">to</span>
+          <input
+            type="date"
+            aria-label="End date"
+            value={toDate}
+            onChange={(e) => {
+              setToDate(e.target.value);
+            }}
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            min={fromDate}
+            max={today.toISOString().split('T')[0] ?? ''}
+          />
+          <Button variant="outline" onClick={handleExportCsv} className="ml-auto gap-1.5">
             <Download className="h-4 w-4" />
             {t('sustainability.exportCsv')}
           </Button>
+          <FilterPopover activeCount={siteId ? 1 : 0}>
+            <Select
+              aria-label="Filter by site"
+              value={siteId}
+              onChange={(e) => {
+                setSiteId(e.target.value);
+              }}
+              className="h-9 w-auto"
+            >
+              <option value="">{t('sessions.allSites')}</option>
+              {sitesData?.data.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          </FilterPopover>
         </CardContent>
       </Card>
 

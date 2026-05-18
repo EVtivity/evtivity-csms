@@ -221,7 +221,7 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
 
       {/* Electrical Infrastructure Card */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('loadManagement.electricalInfrastructure')}</CardTitle>
           <Button
             size="sm"
@@ -254,7 +254,7 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
 
       {/* Allocation History Card */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('loadManagement.allocationHistory')}</CardTitle>
           <Button
             variant="outline"

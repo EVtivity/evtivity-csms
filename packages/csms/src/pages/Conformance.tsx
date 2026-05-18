@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Play, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
 import {
@@ -91,8 +91,13 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
 
   const content = (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4">
-        {!embedded && <h1 className="text-2xl md:text-3xl font-bold">{t('conformance.title')}</h1>}
+      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
+        {!embedded && (
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold">{t('conformance.title')}</h1>
+            <p className="text-sm text-muted-foreground">{t('conformance.subtitle')}</p>
+          </div>
+        )}
 
         <div className="flex items-center gap-2 ml-auto">
           <Select
@@ -124,10 +129,7 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">{t('conformance.runHistory')}</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto p-0">
           {isLoading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />

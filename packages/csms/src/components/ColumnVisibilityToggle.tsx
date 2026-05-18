@@ -63,12 +63,14 @@ export function ColumnVisibilityToggle({
   return (
     <div className="relative" ref={containerRef}>
       <Button
-        variant="ghost"
+        type="button"
+        variant="outline"
         size="icon"
         aria-label={t('common.columns')}
         onClick={() => {
           setOpen((v) => !v);
         }}
+        className="h-10 w-10"
       >
         <Columns3 className="h-4 w-4" />
       </Button>

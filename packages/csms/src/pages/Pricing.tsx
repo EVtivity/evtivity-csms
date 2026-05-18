@@ -8,9 +8,9 @@ import { useTranslation } from 'react-i18next';
 import { Calendar } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { CreateButton } from '@/components/create-button';
 import { SearchInput } from '@/components/search-input';
-import { InfoTooltip } from '@/components/ui/info-tooltip';
 import {
   Table,
   TableBody,
@@ -19,7 +19,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { CopyableId } from '@/components/copyable-id';
 import { TableSkeleton } from '@/components/TableSkeleton';
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
@@ -48,9 +47,12 @@ export function Pricing(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold md:text-3xl">{t('pricing.title')}</h1>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
+        <div>
+          <h1 className="text-2xl font-bold md:text-3xl">{t('pricing.title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('pricing.subtitle')}</p>
+        </div>
+        <div className="flex flex-col gap-2 [&>*]:w-full sm:flex-row sm:items-center sm:[&>*]:w-auto">
           <Button
             variant="outline"
             onClick={() => {
@@ -69,62 +71,71 @@ export function Pricing(): React.JSX.Element {
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5">
-        <SearchInput
-          value={search}
-          onDebouncedChange={setSearch}
-          placeholder={t('common.search')}
-        />
-        <InfoTooltip content={t('pricing.searchHint')} />
-      </div>
+      <Card>
+        <CardContent className="p-4">
+          <SearchInput
+            value={search}
+            onDebouncedChange={setSearch}
+            placeholder={t('common.search')}
+            className="h-10 w-full sm:max-w-half-vw"
+          />
+        </CardContent>
+      </Card>
 
-      {isLoading && <TableSkeleton columns={5} rows={5} />}
+      <Card>
+        <CardContent className="overflow-x-auto p-4">
+          {isLoading && <TableSkeleton columns={5} rows={5} />}
 
-      {filtered != null && filtered.length === 0 && (
-        <p className="text-center text-sm text-muted-foreground">{t('pricing.noTariffsFound')}</p>
-      )}
+          {filtered != null && filtered.length === 0 && (
+            <p className="text-center text-sm text-muted-foreground">
+              {t('pricing.noTariffsFound')}
+            </p>
+          )}
 
-      {filtered != null && filtered.length > 0 && (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('pricing.groupName')}</TableHead>
-                <TableHead>{t('pricing.pricingGroupId')}</TableHead>
-                <TableHead>{t('common.description')}</TableHead>
-                <TableHead>{t('common.default')}</TableHead>
-                <TableHead>{t('common.created')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((group) => (
-                <TableRow
-                  key={group.id}
-                  data-testid={`pricing-group-row-${group.id}`}
-                  className="cursor-pointer"
-                  onClick={() => {
-                    void navigate(`/pricing/${group.id}`);
-                  }}
-                >
-                  <TableCell className="font-medium text-primary" data-testid="row-click-target">
-                    {group.name}
-                  </TableCell>
-                  <TableCell>
-                    <CopyableId id={group.id} variant="table" />
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {group.description ?? 'n/a'}
-                  </TableCell>
-                  <TableCell>
-                    {group.isDefault && <Badge variant="default">{t('common.default')}</Badge>}
-                  </TableCell>
-                  <TableCell>{formatDateTime(group.createdAt, timezone)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+          {filtered != null && filtered.length > 0 && (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('pricing.pricingGroupId')}</TableHead>
+                    <TableHead>{t('pricing.groupName')}</TableHead>
+                    <TableHead>{t('common.description')}</TableHead>
+                    <TableHead>{t('common.default')}</TableHead>
+                    <TableHead>{t('common.created')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((group) => (
+                    <TableRow
+                      key={group.id}
+                      data-testid={`pricing-group-row-${group.id}`}
+                      className="cursor-pointer"
+                      onClick={() => {
+                        void navigate(`/pricing/${group.id}`);
+                      }}
+                    >
+                      <TableCell className="text-muted-foreground">{group.id}</TableCell>
+                      <TableCell
+                        className="font-medium text-primary"
+                        data-testid="row-click-target"
+                      >
+                        {group.name}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {group.description ?? 'n/a'}
+                      </TableCell>
+                      <TableCell>
+                        {group.isDefault && <Badge variant="default">{t('common.default')}</Badge>}
+                      </TableCell>
+                      <TableCell>{formatDateTime(group.createdAt, timezone)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

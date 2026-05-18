@@ -72,7 +72,9 @@
     "confirmDuplicateDescription": "将创建此模板的副本。是否继续?",
     "duplicateSuccess": "模板已复制",
     "loadError": "数据加载失败，请重试。",
-    "moreFilters": "更多筛选"
+    "moreFilters": "更多筛选",
+    "filters": "筛选",
+    "clearAllFilters": "清除全部"
   },
   "status": {
     "online": "在线",
@@ -152,6 +154,7 @@
   "roaming": {
     "partners": {
       "title": "漫游合作伙伴",
+      "subtitle": "管理 OCPI 合作伙伴连接,实现跨网络的漫游充电会话。",
       "partnerId": "合作伙伴 ID",
       "partnerName": "合作伙伴名称",
       "addPartner": "创建合作伙伴",
@@ -181,8 +184,10 @@
       "action": "操作",
       "objects": "对象"
     },
+    "subtitle": "配置 OCPI 漫游合作伙伴、位置发布、会话、CDR 和资费映射。",
     "locations": {
       "title": "站点发布",
+      "subtitle": "通过 OCPI 控制向漫游合作伙伴发布哪些站点。",
       "description": "控制哪些站点通过OCPI发布给漫游合作伙伴。",
       "locationName": "位置名称",
       "address": "地址",
@@ -194,6 +199,7 @@
     },
     "sessions": {
       "title": "漫游会话",
+      "subtitle": "通过 OCPI 网络由外部合作伙伴令牌驱动的充电会话。",
       "partner": "合作伙伴",
       "tokenUid": "令牌UID",
       "energy": "电量",
@@ -202,6 +208,7 @@
     },
     "cdrs": {
       "title": "充电详情记录",
+      "subtitle": "与 OCPI 合作伙伴交换的漫游 CDR,用于跨网络计费。",
       "partner": "合作伙伴",
       "cdrId": "CDR ID",
       "energy": "电量",
@@ -214,6 +221,7 @@
     },
     "tariffs": {
       "title": "费率映射",
+      "subtitle": "将您的内部资费映射到漫游合作伙伴可见的 OCPI 格式资费。",
       "addMapping": "创建映射",
       "createMapping": "创建费率映射",
       "mappingDetails": "费率映射详情",
@@ -376,6 +384,9 @@
   },
   "sites": {
     "title": "站点",
+    "subtitle": "管理您的充电位置。按城市、州或负载管理筛选以查找站点。",
+    "search": "搜索",
+    "loadManagementFilter": "负载管理",
     "siteId": "站点 ID",
     "siteName": "站点名称",
     "addSite": "创建站点",
@@ -463,6 +474,9 @@
   },
   "stations": {
     "title": "充电站",
+    "subtitle": "浏览和管理所有站点的充电站。按站点、供应商、状态或协议筛选。",
+    "search": "搜索",
+    "type": "Type",
     "id": "充电站 ID",
     "addStation": "创建充电站",
     "createStation": "创建充电站",
@@ -490,6 +504,7 @@
     "filterByOnline": "在线:",
     "allStatuses": "所有 EVSE 状态",
     "allOnline": "所有连接",
+    "connectivity": "连接",
     "metrics": "指标",
     "ocppCommands": "OCPP 命令",
     "qrCodes": "二维码",
@@ -754,6 +769,8 @@
   },
   "sessions": {
     "title": "充电会话",
+    "subtitle": "整个车队的近期和历史充电会话。按充电站、驾驶员、状态或日期范围筛选。",
+    "search": "搜索",
     "reservationTokenMismatchTitle": "预约令牌不匹配",
     "reservationTokenMismatchDescription": "此会话使用了与预约绑定不同的令牌。会话已被允许继续；请审查计费或欺诈信号。",
     "expectedToken": "预期",
@@ -824,6 +841,8 @@
   },
   "drivers": {
     "title": "驾驶员",
+    "subtitle": "管理您的驾驶员账户。按状态筛选以查找活跃或非活跃驾驶员。",
+    "search": "搜索",
     "driverId": "驾驶员 ID",
     "driverName": "驾驶员姓名",
     "addDriver": "创建驾驶员",
@@ -857,6 +876,7 @@
   },
   "pricing": {
     "title": "计费",
+    "subtitle": "定价组将一个或多个适用于站点、充电站、车队或驾驶员的资费打包。",
     "tariffs": "费率",
     "auditEntity": "对象",
     "auditChanges": "变更",
@@ -930,6 +950,7 @@
     "holidayDescription": "适用于已配置的节假日",
     "manageHolidays": "管理节假日",
     "holidays": "节假日",
+    "holidaysSubtitle": "假日日期适用于通过'holidays'限制选择加入的时段资费。",
     "noHolidays": "未配置节假日",
     "addHoliday": "添加节假日",
     "bulkAdd": "批量添加",
@@ -940,6 +961,8 @@
   },
   "users": {
     "title": "用户",
+    "subtitle": "仪表板的运营商账户。按角色、状态或站点访问权限筛选。",
+    "search": "搜索",
     "userId": "用户 ID",
     "fullName": "全名",
     "addUser": "创建用户",
@@ -1052,6 +1075,8 @@
   },
   "fleets": {
     "title": "车队",
+    "subtitle": "将驾驶员和充电站分组为车队,以共享定价和报告。",
+    "search": "搜索",
     "fleetId": "车队 ID",
     "fleetName": "车队名称",
     "createFleet": "创建车队",
@@ -1114,6 +1139,8 @@
   },
   "tokens": {
     "title": "令牌",
+    "subtitle": "已在系统中注册的 RFID 和充电令牌。按驾驶员、令牌类型或状态筛选。",
+    "search": "搜索",
     "tokenId": "令牌 ID",
     "addToken": "创建令牌",
     "createToken": "创建令牌",
@@ -1369,6 +1396,7 @@
   },
   "settings": {
     "title": "设置",
+    "subtitle": "配置系统范围的偏好:品牌、支付、集成、安全、API 密钥和运营商工具。",
     "qrCodeIcon": "二维码图标",
     "qrCodeIconDescription": "上传 SVG 图标嵌入二维码中心。",
     "uploadSvg": "上传 SVG",
@@ -1742,6 +1770,7 @@
   },
   "pnc": {
     "certificates": "证书",
+    "certificatesSubtitle": "ISO 15118 即插即充证书生命周期:CA 根证书、充电站证书和 CSR 请求。",
     "caCertificates": "CA 证书",
     "stationCertificates": "充电站证书",
     "csrRequests": "CSR 请求",
@@ -1780,6 +1809,7 @@
   },
   "notifications": {
     "title": "通知",
+    "subtitle": "通过电子邮件、短信、推送和 Webhook 渠道,为驾驶员和运营商配置基于事件的通知。",
     "eventType": "事件类型",
     "channel": "渠道",
     "language": "语言",
@@ -1868,6 +1898,8 @@
   },
   "reservations": {
     "title": "预约",
+    "subtitle": "即将到来和过去的充电预约。按站点、充电站或状态筛选。",
+    "search": "搜索",
     "create": "创建预约",
     "createReservation": "创建预约",
     "cancel": "取消预约",
@@ -2193,6 +2225,8 @@
   },
   "logs": {
     "title": "日志",
+    "subtitle": "运营商访问日志:每次登录尝试、变更和特权读取。",
+    "search": "搜索",
     "csmsTab": "CSMS 日志",
     "portalTab": "门户日志",
     "apiTab": "API 日志",
@@ -2228,6 +2262,7 @@
   },
   "reports": {
     "title": "报告",
+    "subtitle": "生成财务、能源和合规报告,安排定期发送,并浏览过去的运行。",
     "generateTab": "生成",
     "historyTab": "历史",
     "schedulesTab": "计划",
@@ -2354,6 +2389,8 @@
   },
   "supportCases": {
     "title": "工单管理",
+    "subtitle": "由驾驶员发起的支持案例。按状态、优先级、类别或分配筛选。",
+    "search": "搜索",
     "caseId": "工单 ID",
     "createCase": "创建工单",
     "searchPlaceholder": "搜索支持案例...",
@@ -2724,6 +2761,7 @@
   },
   "conformance": {
     "title": "合规测试",
+    "subtitle": "Run the OCTT test suite against this CSMS. View pass/fail history and per-run details.",
     "runTests": "运行测试",
     "runAll": "运行全部",
     "runHistory": "运行历史",
@@ -2830,6 +2868,8 @@
     "loadFailed": "加载审计日志失败",
     "noEntries": "没有符合筛选条件的审计记录",
     "history": "历史",
-    "actorType": "类型"
+    "actorType": "类型",
+    "settingKey": "设置项",
+    "change": "变更"
   }
 }

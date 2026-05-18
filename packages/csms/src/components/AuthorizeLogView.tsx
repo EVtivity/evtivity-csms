@@ -4,7 +4,8 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
 import { SearchInput } from '@/components/search-input';
@@ -109,37 +110,45 @@ export function AuthorizeLogView({
     (hideSessionColumn ? 0 : 1);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('tokens.authorizeLog')}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          {!hideIdTokenFilter ? (
-            <SearchInput
-              value={idToken}
-              onDebouncedChange={setIdToken}
-              placeholder={t('tokens.filterIdToken')}
-            />
-          ) : (
-            <span />
+    <div className="space-y-6">
+      <Card>
+        <CardContent
+          className={hideIdTokenFilter ? 'p-4' : 'grid grid-cols-1 gap-4 p-4 md:grid-cols-2'}
+        >
+          {!hideIdTokenFilter && (
+            <div className="space-y-2">
+              <Label htmlFor="authorize-log-token">{t('tokens.idToken')}</Label>
+              <SearchInput
+                id="authorize-log-token"
+                value={idToken}
+                onDebouncedChange={setIdToken}
+                placeholder={t('tokens.filterIdToken')}
+                className="h-9 max-w-none"
+              />
+            </div>
           )}
-          <Select
-            className="h-9 w-auto"
-            aria-label={t('tokens.filterOutcome')}
-            value={outcome}
-            onChange={(e) => {
-              setOutcome(e.target.value);
-            }}
-          >
-            {OUTCOMES.map((o) => (
-              <option key={o} value={o}>
-                {o === '' ? t('tokens.filterOutcome') : o}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div className="overflow-x-auto">
+          <div className="space-y-2">
+            <Label htmlFor="authorize-log-outcome">{t('tokens.outcome')}</Label>
+            <Select
+              id="authorize-log-outcome"
+              className="h-9"
+              value={outcome}
+              onChange={(e) => {
+                setOutcome(e.target.value);
+              }}
+            >
+              {OUTCOMES.map((o) => (
+                <option key={o} value={o}>
+                  {o === '' ? t('tokens.filterOutcome') : o}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="overflow-x-auto p-0">
           <Table>
             <TableHeader>
               <TableRow>
@@ -233,12 +242,10 @@ export function AuthorizeLogView({
               )}
             </TableBody>
           </Table>
-        </div>
+        </CardContent>
+      </Card>
 
-        {totalPages > 1 && (
-          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-        )}
-      </CardContent>
-    </Card>
+      {totalPages > 1 && <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />}
+    </div>
   );
 }

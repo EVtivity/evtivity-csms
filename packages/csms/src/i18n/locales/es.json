@@ -72,7 +72,9 @@
     "confirmDuplicateDescription": "Se creara una copia de esta plantilla. Continuar?",
     "duplicateSuccess": "Plantilla duplicada",
     "loadError": "Error al cargar los datos. Intente de nuevo.",
-    "moreFilters": "Mas filtros"
+    "moreFilters": "Mas filtros",
+    "filters": "Filtros",
+    "clearAllFilters": "Borrar todo"
   },
   "status": {
     "online": "En linea",
@@ -152,6 +154,7 @@
   "roaming": {
     "partners": {
       "title": "Socios de Roaming",
+      "subtitle": "Gestiona las conexiones de partners OCPI para sesiones de carga de roaming entre redes.",
       "partnerId": "ID de socio",
       "partnerName": "Nombre del socio",
       "addPartner": "Crear socio",
@@ -181,8 +184,10 @@
       "action": "Accion",
       "objects": "Objetos"
     },
+    "subtitle": "Configura partners OCPI de roaming, publicación de ubicaciones, sesiones, CDRs y mapeos de tarifas.",
     "locations": {
       "title": "Publicacion de Ubicaciones",
+      "subtitle": "Controla qué sitios se publican a los partners de roaming a través de OCPI.",
       "description": "Controle que sitios se publican a socios de roaming via OCPI.",
       "locationName": "Nombre de ubicacion",
       "address": "Direccion",
@@ -194,6 +199,7 @@
     },
     "sessions": {
       "title": "Sesiones de Roaming",
+      "subtitle": "Sesiones de carga impulsadas por tokens de partners externos a través de la red OCPI.",
       "partner": "Socio",
       "tokenUid": "UID de Token",
       "energy": "Energia",
@@ -202,6 +208,7 @@
     },
     "cdrs": {
       "title": "Registros de Detalle de Carga",
+      "subtitle": "CDRs de roaming intercambiados con partners OCPI para facturación entre redes.",
       "partner": "Socio",
       "cdrId": "ID de CDR",
       "energy": "Energia",
@@ -214,6 +221,7 @@
     },
     "tariffs": {
       "title": "Mapeos de Tarifas",
+      "subtitle": "Mapea tus tarifas internas a tarifas en formato OCPI visibles para los partners de roaming.",
       "addMapping": "Crear mapeo",
       "createMapping": "Crear mapeo de tarifa",
       "mappingDetails": "Detalles del mapeo de tarifa",
@@ -376,6 +384,9 @@
   },
   "sites": {
     "title": "Sitios",
+    "subtitle": "Gestione sus ubicaciones de carga. Filtre por ciudad, estado o gestión de carga para encontrar un sitio.",
+    "search": "Buscar",
+    "loadManagementFilter": "Gestión de carga",
     "siteId": "ID de sitio",
     "siteName": "Nombre del sitio",
     "addSite": "Crear sitio",
@@ -463,6 +474,9 @@
   },
   "stations": {
     "title": "Estaciones",
+    "subtitle": "Explora y gestiona estaciones en todos tus sitios. Filtra por sitio, proveedor, estado o protocolo.",
+    "search": "Buscar",
+    "type": "Type",
     "id": "ID de estacion",
     "addStation": "Crear estacion",
     "createStation": "Crear estacion",
@@ -490,6 +504,7 @@
     "filterByOnline": "En linea:",
     "allStatuses": "Todo estado EVSE",
     "allOnline": "Toda conectividad",
+    "connectivity": "Conectividad",
     "metrics": "Metricas",
     "ocppCommands": "Comandos OCPP",
     "qrCodes": "Codigos QR",
@@ -668,7 +683,7 @@
     "blockStation": "Bloquear estacion",
     "blockStationDescription": "Esto bloqueara la conexion de la estacion. No se eliminara permanentemente. Puede desbloquearla mas tarde para restaurarla al estado pendiente.",
     "onboardingStatus": "Estado de Incorporacion",
-    "onboardingStatusFilter": "Incorporacion",
+    "onboardingStatusFilter": "Todos los estados de incorporacion",
     "securityEvents": "Eventos de Seguridad",
     "securityEventsDescription": "Eventos de seguridad reportados por la estacion via OCPP SecurityEventNotification, como fallos de autenticacion, deteccion de manipulacion y cambios de firmware.",
     "noSecurityEvents": "No hay eventos de seguridad registrados",
@@ -754,6 +769,8 @@
   },
   "sessions": {
     "title": "Sesiones",
+    "subtitle": "Sesiones de carga recientes e históricas en toda la flota. Filtra por estación, conductor, estado o rango de fechas.",
+    "search": "Buscar",
     "reservationTokenMismatchTitle": "Token de reserva no coincide",
     "reservationTokenMismatchDescription": "Esta sesion se inicio con un token diferente al que tenia vinculada la reserva. Se permitio que continuara; revise por facturacion o senales de fraude.",
     "expectedToken": "Esperado",
@@ -829,6 +846,8 @@
   },
   "drivers": {
     "title": "Conductores",
+    "subtitle": "Gestiona las cuentas de los conductores. Filtra por estado para encontrar conductores activos o inactivos.",
+    "search": "Buscar",
     "driverId": "ID de conductor",
     "driverName": "Nombre del conductor",
     "addDriver": "Crear conductor",
@@ -862,6 +881,7 @@
   },
   "pricing": {
     "title": "Tarifas",
+    "subtitle": "Los grupos de precios agrupan una o más tarifas que se aplican por sitio, estación, flota o conductor.",
     "tariffs": "Tarifas",
     "auditEntity": "Entidad",
     "auditChanges": "Cambios",
@@ -935,6 +955,7 @@
     "holidayDescription": "Se aplica en fechas de festivos configurados",
     "manageHolidays": "Gestionar festivos",
     "holidays": "Festivos",
+    "holidaysSubtitle": "Las fechas festivas se aplican a las tarifas por hora del día que optan a través de la restricción 'holidays'.",
     "noHolidays": "No hay festivos configurados",
     "addHoliday": "Agregar festivo",
     "bulkAdd": "Agregar en lote",
@@ -945,6 +966,8 @@
   },
   "users": {
     "title": "Usuarios",
+    "subtitle": "Cuentas de operadores del panel. Filtra por rol, estado o acceso a sitios.",
+    "search": "Buscar",
     "userId": "ID de usuario",
     "fullName": "Nombre completo",
     "addUser": "Crear usuario",
@@ -1057,6 +1080,8 @@
   },
   "fleets": {
     "title": "Flotas",
+    "subtitle": "Agrupa conductores y estaciones en flotas para precios y reportes compartidos.",
+    "search": "Buscar",
     "fleetId": "ID de flota",
     "fleetName": "Nombre de flota",
     "createFleet": "Crear flota",
@@ -1119,6 +1144,8 @@
   },
   "tokens": {
     "title": "Tokens",
+    "subtitle": "Tokens RFID y de carga registrados en el sistema. Filtra por conductor, tipo de token o estado.",
+    "search": "Buscar",
     "tokenId": "ID de token",
     "addToken": "Crear token",
     "createToken": "Crear token",
@@ -1374,6 +1401,7 @@
   },
   "settings": {
     "title": "Configuracion",
+    "subtitle": "Configura preferencias globales: marca, pagos, integraciones, seguridad, claves API y herramientas de operador.",
     "qrCodeIcon": "Icono de codigo QR",
     "qrCodeIconDescription": "Suba un icono SVG para insertar en el centro de los codigos QR.",
     "uploadSvg": "Subir SVG",
@@ -1747,6 +1775,7 @@
   },
   "pnc": {
     "certificates": "Certificados",
+    "certificatesSubtitle": "Ciclo de vida de certificados ISO 15118 Plug and Charge: CA raíz, certificados de estación y solicitudes CSR.",
     "caCertificates": "Certificados CA",
     "stationCertificates": "Certificados de estacion",
     "csrRequests": "Solicitudes CSR",
@@ -1785,6 +1814,7 @@
   },
   "notifications": {
     "title": "Notificaciones",
+    "subtitle": "Configura notificaciones basadas en eventos a conductores y operadores a través de email, SMS, push y webhook.",
     "eventType": "Tipo de evento",
     "channel": "Canal",
     "language": "Idioma",
@@ -1873,6 +1903,8 @@
   },
   "reservations": {
     "title": "Reservas",
+    "subtitle": "Reservaciones de carga próximas y pasadas. Filtra por sitio, estación o estado.",
+    "search": "Buscar",
     "create": "Crear Reserva",
     "createReservation": "Crear reserva",
     "cancel": "Cancelar Reserva",
@@ -2198,6 +2230,8 @@
   },
   "logs": {
     "title": "Registros",
+    "subtitle": "Registros de acceso de operadores: cada intento de inicio de sesión, mutación y lectura privilegiada.",
+    "search": "Buscar",
     "csmsTab": "Registro CSMS",
     "portalTab": "Registro del portal",
     "apiTab": "Registro de API",
@@ -2233,6 +2267,7 @@
   },
   "reports": {
     "title": "Informes",
+    "subtitle": "Genera informes financieros, de energía y cumplimiento, programa envíos recurrentes y consulta ejecuciones pasadas.",
     "generateTab": "Generar",
     "historyTab": "Historial",
     "schedulesTab": "Programaciones",
@@ -2359,6 +2394,8 @@
   },
   "supportCases": {
     "title": "Casos de Soporte",
+    "subtitle": "Casos de soporte iniciados por conductores. Filtra por estado, prioridad, categoría o asignación.",
+    "search": "Buscar",
     "caseId": "ID de caso",
     "createCase": "Crear Caso",
     "searchPlaceholder": "Buscar casos de soporte...",
@@ -2729,6 +2766,7 @@
   },
   "conformance": {
     "title": "Pruebas de Conformidad",
+    "subtitle": "Run the OCTT test suite against this CSMS. View pass/fail history and per-run details.",
     "runTests": "Ejecutar Pruebas",
     "runAll": "Ejecutar Todas",
     "runHistory": "Historial de Ejecuciones",
@@ -2835,6 +2873,8 @@
     "loadFailed": "Error al cargar el registro de auditoría",
     "noEntries": "Ningún registro de auditoría coincide con estos filtros",
     "history": "Historial",
-    "actorType": "Tipo"
+    "actorType": "Tipo",
+    "settingKey": "Configuración",
+    "change": "Cambio"
   }
 }

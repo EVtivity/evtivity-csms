@@ -77,7 +77,7 @@ export function FirmwareCampaigns({ embedded }: { embedded?: boolean } = {}): Re
 
       <Card>
         {embedded && (
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-1.5">
               <CardTitle>{t('nav.firmwareCampaigns')}</CardTitle>
               <CardDescription>{t('firmwareCampaigns.subtitle')}</CardDescription>

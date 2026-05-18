@@ -272,7 +272,7 @@ export function SchedulesTab(): React.JSX.Element {
                         {schedule.isEnabled ? t('reports.enabled') : t('reports.disabled')}
                       </Badge>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
                       <Button
                         variant="outline"
                         size="sm"

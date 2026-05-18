@@ -20,6 +20,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { actorDisplay, type AuditEntry } from '@/components/EntityHistoryTab';
+import { FilterPopover } from '@/components/FilterBar';
 
 interface AuditPage {
   data: AuditEntry[];
@@ -175,113 +176,141 @@ export function Audit(): React.JSX.Element {
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
+  const activeFilterCount =
+    (entityType !== '' ? 1 : 0) +
+    (actor !== '' ? 1 : 0) +
+    (action !== '' ? 1 : 0) +
+    (entityId !== '' ? 1 : 0) +
+    (from !== '' ? 1 : 0) +
+    (to !== '' ? 1 : 0);
+
+  const filters = (
+    <>
+      <div className="space-y-2">
+        <Label>{t('audit.entityType', 'Entity type')}</Label>
+        <Select
+          aria-label={t('audit.entityType', 'Entity type')}
+          className="h-10"
+          value={entityType}
+          onChange={(e) => {
+            setEntityType(e.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="">{t('audit.all', 'All')}</option>
+          {ENTITY_TYPES.map((tt) => (
+            <option key={tt} value={tt}>
+              {tt}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label>{t('audit.actor', 'Actor')}</Label>
+        <Select
+          aria-label={t('audit.actor', 'Actor')}
+          className="h-10"
+          value={actor}
+          onChange={(e) => {
+            setActor(e.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="">{t('audit.all', 'All')}</option>
+          {ACTORS.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label>{t('audit.action', 'Action')}</Label>
+        <Select
+          aria-label={t('audit.action', 'Action')}
+          className="h-10"
+          value={action}
+          onChange={(e) => {
+            setAction(e.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="">{t('audit.all', 'All')}</option>
+          {ACTIONS.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label>{t('audit.entityId', 'Entity id')}</Label>
+        <Input
+          value={entityId}
+          placeholder={t('audit.entityIdPlaceholder', 'sta_... / sit_... / etc')}
+          onChange={(e) => {
+            setEntityId(e.target.value);
+            setPage(1);
+          }}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>{t('audit.from', 'From')}</Label>
+        <Input
+          type="date"
+          value={from}
+          onChange={(e) => {
+            setFrom(e.target.value);
+            setPage(1);
+          }}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>{t('audit.to', 'To')}</Label>
+        <Input
+          type="date"
+          value={to}
+          onChange={(e) => {
+            setTo(e.target.value);
+            setPage(1);
+          }}
+        />
+      </div>
+    </>
+  );
+
+  const clearAllFilters = (): void => {
+    setEntityType('');
+    setActor('');
+    setAction('');
+    setEntityId('');
+    setFrom('');
+    setTo('');
+    setPage(1);
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold">{t('audit.title', 'Audit Log')}</h1>
-        <p className="text-sm text-muted-foreground">
-          {t(
-            'audit.subtitle',
-            'Every operator-initiated mutation across the system. Filter by entity, actor, action, or time range.',
-          )}
-        </p>
+      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold">{t('audit.title', 'Audit Log')}</h1>
+          <p className="text-sm text-muted-foreground">
+            {t(
+              'audit.subtitle',
+              'Every operator-initiated mutation across the system. Filter by entity, actor, action, or time range.',
+            )}
+          </p>
+        </div>
+        <div className="flex justify-end lg:hidden">
+          <FilterPopover activeCount={activeFilterCount} onClearAll={clearAllFilters}>
+            {filters}
+          </FilterPopover>
+        </div>
       </div>
 
-      <Card>
+      <Card className="hidden lg:block">
         <CardContent className="grid grid-cols-1 gap-4 p-4 md:grid-cols-3 lg:grid-cols-6">
-          <div className="space-y-2">
-            <Label htmlFor="audit-entity-type">{t('audit.entityType', 'Entity type')}</Label>
-            <Select
-              id="audit-entity-type"
-              className="h-9"
-              value={entityType}
-              onChange={(e) => {
-                setEntityType(e.target.value);
-                setPage(1);
-              }}
-            >
-              <option value="">{t('audit.all', 'All')}</option>
-              {ENTITY_TYPES.map((tt) => (
-                <option key={tt} value={tt}>
-                  {tt}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="audit-actor">{t('audit.actor', 'Actor')}</Label>
-            <Select
-              id="audit-actor"
-              className="h-9"
-              value={actor}
-              onChange={(e) => {
-                setActor(e.target.value);
-                setPage(1);
-              }}
-            >
-              <option value="">{t('audit.all', 'All')}</option>
-              {ACTORS.map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="audit-action">{t('audit.action', 'Action')}</Label>
-            <Select
-              id="audit-action"
-              className="h-9"
-              value={action}
-              onChange={(e) => {
-                setAction(e.target.value);
-                setPage(1);
-              }}
-            >
-              <option value="">{t('audit.all', 'All')}</option>
-              {ACTIONS.map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="audit-entity-id">{t('audit.entityId', 'Entity id')}</Label>
-            <Input
-              id="audit-entity-id"
-              value={entityId}
-              placeholder={t('audit.entityIdPlaceholder', 'sta_... / sit_... / etc')}
-              onChange={(e) => {
-                setEntityId(e.target.value);
-                setPage(1);
-              }}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="audit-from">{t('audit.from', 'From')}</Label>
-            <Input
-              id="audit-from"
-              type="date"
-              value={from}
-              onChange={(e) => {
-                setFrom(e.target.value);
-                setPage(1);
-              }}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="audit-to">{t('audit.to', 'To')}</Label>
-            <Input
-              id="audit-to"
-              type="date"
-              value={to}
-              onChange={(e) => {
-                setTo(e.target.value);
-                setPage(1);
-              }}
-            />
-          </div>
+          {filters}
         </CardContent>
       </Card>
 
@@ -320,7 +349,7 @@ export function Audit(): React.JSX.Element {
                       <TableCell>
                         <Badge variant="secondary">{row.entityType}</Badge>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
+                      <TableCell className="text-muted-foreground">
                         {row.entityId ?? row.entityIdSnapshot}
                       </TableCell>
                       <TableCell>

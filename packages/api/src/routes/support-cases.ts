@@ -28,6 +28,7 @@ import { handleSupportAiAssist } from '../services/ai/support-assist.service.js'
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { getPubSub } from '../lib/pubsub.js';
+import { notifySupportCaseEvent } from '../lib/support-case-events.js';
 import { ALL_TEMPLATES_DIRS } from '../lib/template-dirs.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -302,10 +303,6 @@ async function getNextCaseNumber(): Promise<string> {
   const result = await db.execute(sql`SELECT nextval('support_case_number_seq') as val`);
   const seq = Number((result as unknown as Array<{ val: string }>)[0]?.val ?? 1);
   return `CASE-${String(seq).padStart(5, '0')}`;
-}
-
-async function notifyCsmsEvent(eventType: string, caseId: string): Promise<void> {
-  await getPubSub().publish('csms_events', JSON.stringify({ eventType, caseId }));
 }
 
 /**
@@ -797,7 +794,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         );
       }
 
-      void notifyCsmsEvent('supportCase.created', newCase.id);
+      void notifySupportCaseEvent('supportCase.created', newCase.id, body.driverId ?? null);
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -963,7 +960,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         );
       }
 
-      void notifyCsmsEvent('supportCase.updated', id);
+      void notifySupportCaseEvent('supportCase.updated', id, existing.driverId);
 
       const actor = getAuditActor(request);
       if (body.status != null && body.status !== existing.status) {
@@ -1126,7 +1123,12 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         );
       }
 
-      void notifyCsmsEvent('supportCase.newMessage', id);
+      // Internal notes stay operator-only. Driver only sees public replies.
+      void notifySupportCaseEvent(
+        'supportCase.newMessage',
+        id,
+        body.isInternal ? null : supportCase.driverId,
+      );
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -1604,7 +1606,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         );
       }
 
-      void notifyCsmsEvent('supportCase.updated', id);
+      void notifySupportCaseEvent('supportCase.updated', id, supportCase.driverId);
 
       const actor = getAuditActor(request);
       await writeAudit(

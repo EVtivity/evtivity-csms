@@ -10,6 +10,7 @@ import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { CopyableId } from '@/components/copyable-id';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { Pagination } from '@/components/ui/pagination';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SessionsTable, type Session } from '@/components/SessionsTable';
 import { TokenDetailsTab } from '@/components/token/TokenDetailsTab';
@@ -95,6 +96,11 @@ export function TokenDetail(): React.JSX.Element {
                 totalPages={sessionsTotalPages}
                 onPageChange={setSessionsPage}
                 timezone={timezone}
+              />
+              <Pagination
+                page={sessionsPage}
+                totalPages={sessionsTotalPages}
+                onPageChange={setSessionsPage}
               />
             </CardContent>
           </Card>

@@ -28,7 +28,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ResponsiveFilters } from '@/components/responsive-filters';
+import { FilterPopover } from '@/components/FilterBar';
 import { api } from '@/lib/api';
 
 interface OcttRun {
@@ -277,7 +277,7 @@ export function ConformanceDetail(): React.JSX.Element {
             <CardHeader>
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4">
                 <CardTitle className="text-lg">{t('conformance.testResults')}</CardTitle>
-                <ResponsiveFilters
+                <FilterPopover
                   activeCount={
                     [
                       moduleFilter !== 'all' ? moduleFilter : '',
@@ -314,7 +314,7 @@ export function ConformanceDetail(): React.JSX.Element {
                     <option value="skipped">{t('conformance.skipped')}</option>
                     <option value="error">{t('conformance.errors')}</option>
                   </Select>
-                </ResponsiveFilters>
+                </FilterPopover>
               </div>
             </CardHeader>
             <CardContent>
@@ -350,7 +350,7 @@ export function ConformanceDetail(): React.JSX.Element {
                     {Math.min(page * pageSize, detail?.results.length ?? 0)} {t('conformance.of')}{' '}
                     {detail?.results.length ?? 0}
                   </p>
-                  <div className="flex gap-2">
+                  <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
                     <Button
                       variant="outline"
                       size="sm"

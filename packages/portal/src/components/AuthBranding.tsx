@@ -142,7 +142,7 @@ export function AuthFooter({
   ].filter((p) => p != null && p !== '');
 
   return (
-    <footer className="mt-6 text-center text-xs text-muted-foreground space-y-4">
+    <footer className="mt-6 pb-8 text-center text-xs text-muted-foreground space-y-4">
       <div className="flex justify-center">
         <LanguageSelect className="w-auto" />
       </div>

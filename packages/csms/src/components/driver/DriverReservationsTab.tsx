@@ -7,7 +7,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { CopyableId } from '@/components/copyable-id';
 import { Pagination } from '@/components/ui/pagination';
 import {
   Table,
@@ -126,9 +125,7 @@ export function DriverReservationsTab({ driverId, timezone }: Props): React.JSX.
                 <TableBody>
                   {reservations.map((r) => (
                     <TableRow key={r.id}>
-                      <TableCell>
-                        <CopyableId id={r.id} variant="table" />
-                      </TableCell>
+                      <TableCell className="text-muted-foreground">{r.id}</TableCell>
                       <TableCell className="font-medium">
                         <Link to={`/reservations/${r.id}`} className="text-primary hover:underline">
                           {String(r.reservationId)}

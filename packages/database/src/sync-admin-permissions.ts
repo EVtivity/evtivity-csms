@@ -7,14 +7,13 @@
 // verify-migrations script. ON CONFLICT DO NOTHING -- never revokes.
 //
 // Why this exists: adding a new permission to packages/lib/src/permissions.ts
-// previously required the developer to remember a separate backfill migration
-// (per .claude/rules/api/rbac-permissions.md step 6). When that step was
-// skipped, existing admins silently lacked the permission and every UI
-// surface gated by it returned 403 until a manual SQL backfill. This script
-// makes the contract automatic for admin users: any permission newly added
-// to ADMIN_DEFAULT_PERMISSIONS propagates to every existing admin on the
-// next `db:migrate`. Non-admin roles still need explicit backfill migrations
-// because their default set is a curated subset, not "all".
+// previously required the developer to remember a separate backfill migration.
+// When that step was skipped, existing admins silently lacked the permission
+// and every UI surface gated by it returned 403 until a manual SQL backfill.
+// This script makes the contract automatic for admin users: any permission
+// newly added to ADMIN_DEFAULT_PERMISSIONS propagates to every existing admin
+// on the next `db:migrate`. Non-admin roles still need explicit backfill
+// migrations because their default set is a curated subset, not "all".
 
 import postgres from 'postgres';
 import { ADMIN_DEFAULT_PERMISSIONS } from '@evtivity/lib';

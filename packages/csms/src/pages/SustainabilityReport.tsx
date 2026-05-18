@@ -152,7 +152,7 @@ export function SustainabilityReport(): React.JSX.Element {
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('sustainability.title')}</CardTitle>
           <Button variant="outline" onClick={handleExportCsv} className="gap-1.5">
             <Download className="h-4 w-4" />
@@ -160,7 +160,7 @@ export function SustainabilityReport(): React.JSX.Element {
           </Button>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-col gap-2 [&>*]:w-full sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:[&>*]:w-auto">
             <input
               type="date"
               aria-label="Start date"

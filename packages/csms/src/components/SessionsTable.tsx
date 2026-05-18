@@ -13,8 +13,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { CopyableId } from '@/components/copyable-id';
-import { Pagination } from '@/components/ui/pagination';
 import { formatDuration } from '@/lib/formatting';
 import { formatDateTime } from '@/lib/timezone';
 import { sessionStatusVariant } from '@/lib/status-variants';
@@ -22,17 +20,18 @@ import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
 
 export const SESSIONS_COLUMNS: ColumnMeta[] = [
   {
+    key: 'sessionId',
+    label: 'sessions.sessionId',
+    defaultVisible: true,
+    defaultVisibleMobile: false,
+    alwaysVisible: true,
+  },
+  {
     key: 'stationName',
     label: 'sessions.stationName',
     defaultVisible: true,
     defaultVisibleMobile: true,
     alwaysVisible: true,
-  },
-  {
-    key: 'sessionId',
-    label: 'sessions.sessionId',
-    defaultVisible: true,
-    defaultVisibleMobile: false,
   },
   {
     key: 'driverName',
@@ -113,9 +112,6 @@ interface SessionsTableProps {
 
 export const SessionsTable = memo(function SessionsTable({
   sessions,
-  page,
-  totalPages,
-  onPageChange,
   timezone,
   isLoading,
   emptyMessage,
@@ -138,10 +134,10 @@ export const SessionsTable = memo(function SessionsTable({
         <Table>
           <TableHeader>
             <TableRow>
+              {isVisible('sessionId') && <TableHead>{t('sessions.sessionId')}</TableHead>}
               {!hideStationName && isVisible('stationName') && (
                 <TableHead>{t('sessions.stationName')}</TableHead>
               )}
-              {isVisible('sessionId') && <TableHead>{t('sessions.sessionId')}</TableHead>}
               {!hideDriverName && isVisible('driverName') && (
                 <TableHead>{t('sessions.driverName')}</TableHead>
               )}
@@ -177,6 +173,9 @@ export const SessionsTable = memo(function SessionsTable({
                   void navigate(`/sessions/${session.id}`);
                 }}
               >
+                {isVisible('sessionId') && (
+                  <TableCell className="text-muted-foreground">{session.id}</TableCell>
+                )}
                 {!hideStationName && isVisible('stationName') && (
                   <TableCell className="whitespace-nowrap">
                     <Link
@@ -190,11 +189,6 @@ export const SessionsTable = memo(function SessionsTable({
                         ? `${session.siteName} / ${String(session.stationName)}`
                         : (session.stationName ?? '-')}
                     </Link>
-                  </TableCell>
-                )}
-                {isVisible('sessionId') && (
-                  <TableCell>
-                    <CopyableId id={session.id} variant="table" />
                   </TableCell>
                 )}
                 {!hideDriverName && isVisible('driverName') && (
@@ -282,8 +276,6 @@ export const SessionsTable = memo(function SessionsTable({
           </TableBody>
         </Table>
       </div>
-
-      <Pagination page={page} totalPages={totalPages} onPageChange={onPageChange} />
     </>
   );
 });

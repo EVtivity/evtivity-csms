@@ -12,10 +12,11 @@ interface SearchInputProps {
   placeholder?: string;
   size?: 'default' | 'sm';
   className?: string;
+  id?: string;
 }
 
 export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(function SearchInput(
-  { value, onDebouncedChange, placeholder = 'Search...', size = 'default', className },
+  { value, onDebouncedChange, placeholder = 'Search...', size = 'default', className, id },
   ref,
 ) {
   const [input, setInput] = useState(value);
@@ -45,6 +46,7 @@ export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(functi
       <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
       <Input
         ref={ref}
+        id={id}
         value={input}
         onChange={(e) => {
           setInput(e.target.value);

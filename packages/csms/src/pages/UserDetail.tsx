@@ -239,7 +239,7 @@ export function UserDetail(): React.JSX.Element {
       </div>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('common.details')}</CardTitle>
           {!editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
         </CardHeader>
@@ -427,7 +427,7 @@ export function UserDetail(): React.JSX.Element {
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('users.permissions')}</CardTitle>
           {!editingPermissions && (
             <EditButton label={t('common.edit')} onClick={startEditPermissions} />
@@ -473,7 +473,7 @@ export function UserDetail(): React.JSX.Element {
           <form onSubmit={handleResetPassword} noValidate className="grid gap-6">
             <div className="space-y-2">
               <Label htmlFor="new-password">{t('users.newPassword')}</Label>
-              <div className="flex gap-2">
+              <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
                 <PasswordInput
                   id="new-password"
                   value={newPassword}

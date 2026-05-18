@@ -218,7 +218,7 @@ export function ConfigTemplateCreate(): React.JSX.Element {
                         </option>
                       ))}
                     </Select>
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
                       <Input
                         placeholder={t('common.value')}
                         value={v.value}
@@ -265,7 +265,7 @@ export function ConfigTemplateCreate(): React.JSX.Element {
                         <option key={varName} value={varName} />
                       ))}
                     </datalist>
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
                       <Input
                         placeholder={t('common.value')}
                         value={v.value}

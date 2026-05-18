@@ -24,6 +24,7 @@ import { SecurityMfaSettings } from '@/components/settings/SecurityMfaSettings';
 import { SecuritySsoSettings } from '@/components/settings/SecuritySsoSettings';
 import { ApiKeysSettings } from '@/components/settings/ApiKeysSettings';
 import { AiSettings } from '@/components/settings/AiSettings';
+import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { FirmwareCampaigns } from '@/pages/FirmwareCampaigns';
 import { ConfigTemplates } from '@/pages/ConfigTemplates';
 import { SmartChargingTemplates } from '@/pages/SmartChargingTemplates';
@@ -45,6 +46,7 @@ const TAB_PERMISSIONS: Record<string, string> = {
   'smart-charging': 'settings.smartCharging:read',
   ai: 'settings.ai:read',
   conformance: 'settings.conformance:read',
+  history: 'audit:read',
 };
 
 function hasPerm(userPermissions: string[], required: string): boolean {
@@ -54,6 +56,22 @@ function hasPerm(userPermissions: string[], required: string): boolean {
     if (userPermissions.includes(writeVersion)) return true;
   }
   return false;
+}
+
+function formatSettingValue(value: unknown): string {
+  if (value === null || value === undefined) return '∅';
+  if (typeof value === 'string') {
+    if (value === '') return '""';
+    if (value === '<redacted>') return value;
+    return value.length > 60 ? `${value.slice(0, 60)}…` : value;
+  }
+  if (typeof value === 'boolean' || typeof value === 'number') return String(value);
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized.length > 60 ? `${serialized.slice(0, 60)}…` : serialized;
+  } catch {
+    return '[unserializable]';
+  }
 }
 
 export function Settings(): React.JSX.Element {
@@ -90,8 +108,11 @@ export function Settings(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl md:text-3xl font-bold">{t('settings.title')}</h1>
+      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold">{t('settings.title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('settings.subtitle')}</p>
+        </div>
         <Button
           variant="outline"
           size="sm"
@@ -147,6 +168,7 @@ export function Settings(): React.JSX.Element {
           {tabVisible('conformance') && (
             <TabsTrigger value="conformance">{t('settings.conformance')}</TabsTrigger>
           )}
+          {tabVisible('history') && <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>}
         </TabsList>
 
         {tabVisible('company') && (
@@ -245,6 +267,43 @@ export function Settings(): React.JSX.Element {
         {tabVisible('conformance') && (
           <TabsContent value="conformance">
             <Conformance embedded />
+          </TabsContent>
+        )}
+
+        {tabVisible('history') && (
+          <TabsContent value="history">
+            <EntityHistoryTab
+              entityType="setting"
+              entityId={null}
+              extraColumns={[
+                {
+                  header: t('audit.settingKey'),
+                  className: 'text-sm font-medium',
+                  render: (row) => {
+                    const after = row.after as { key?: string } | null;
+                    const before = row.before as { key?: string } | null;
+                    return after?.key ?? before?.key ?? row.entityIdSnapshot;
+                  },
+                },
+                {
+                  header: t('audit.change'),
+                  className: 'text-xs',
+                  render: (row) => {
+                    const before = row.before as { value?: unknown } | null;
+                    const after = row.after as { value?: unknown } | null;
+                    return (
+                      <span className="font-mono">
+                        <span className="text-muted-foreground">
+                          {formatSettingValue(before?.value)}
+                        </span>
+                        <span className="mx-2 text-muted-foreground">{'→'}</span>
+                        <span>{formatSettingValue(after?.value)}</span>
+                      </span>
+                    );
+                  },
+                },
+              ]}
+            />
           </TabsContent>
         )}
       </Tabs>

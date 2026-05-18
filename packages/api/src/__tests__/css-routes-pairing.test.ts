@@ -182,6 +182,13 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
+// CSS routes now gate every endpoint through isCssStationAccessible(), which
+// calls getUserSiteIds(). Stub it to return null (full access) so the access
+// check short-circuits and these tests exercise only the pairing code path.
+vi.mock('../lib/site-access.js', () => ({
+  getUserSiteIds: vi.fn(async () => null),
+}));
+
 import { registerAuth } from '../plugins/auth.js';
 import { cssRoutes } from '../routes/css.js';
 

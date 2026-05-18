@@ -131,16 +131,8 @@ const stationListQuery = paginationQuery.merge(
       .enum(['pending', 'accepted', 'blocked'])
       .optional()
       .describe('Filter by onboarding status'),
-    isOnline: z
-      .enum(['true', 'false'])
-      .transform((v) => v === 'true')
-      .optional()
-      .describe('Filter by online/offline state'),
-    isSimulator: z
-      .enum(['true', 'false'])
-      .transform((v) => v === 'true')
-      .optional()
-      .describe('Filter by simulator flag'),
+    isOnline: z.enum(['true', 'false']).optional().describe('Filter by online/offline state'),
+    isSimulator: z.enum(['true', 'false']).optional().describe('Filter by simulator flag'),
   }),
 );
 
@@ -689,10 +681,10 @@ export function stationRoutes(app: FastifyInstance): void {
         );
       }
       if (isOnline != null) {
-        conditions.push(eq(chargingStations.isOnline, isOnline));
+        conditions.push(eq(chargingStations.isOnline, isOnline === 'true'));
       }
       if (isSimulator != null) {
-        conditions.push(eq(chargingStations.isSimulator, isSimulator));
+        conditions.push(eq(chargingStations.isSimulator, isSimulator === 'true'));
       }
       if (onboardingStatus != null) {
         conditions.push(eq(chargingStations.onboardingStatus, onboardingStatus));

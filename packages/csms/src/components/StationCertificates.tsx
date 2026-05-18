@@ -82,9 +82,9 @@ export function StationCertificates({ stationId }: StationCertificatesProps): Re
 
   return (
     <Card>
-      <CardHeader className="flex flex-col md:flex-row items-start md:items-center justify-between space-y-0 gap-2 md:gap-4">
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0">
         <CardTitle>{t('pnc.certificates')}</CardTitle>
-        <div className="flex items-center gap-2">
+        <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
           <Button
             variant="outline"
             size="sm"

@@ -309,7 +309,7 @@ export function ReservationDetailsTab({
   return (
     <>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('common.details')}</CardTitle>
           {!editing && (reservation.status === 'active' || reservation.status === 'scheduled') && (
             <div className="flex items-center gap-2">

@@ -16,12 +16,23 @@ interface CssCommand {
   params: Record<string, unknown>;
 }
 
+// Negative-result cache for the TLS reachability probe. Successful probes
+// don't need caching -- the simulator boots and the next poll skips it via
+// the `simulators.has(stationId)` continue at the top of the loop. Failed
+// probes, on the other hand, fire every 5s for every unreachable SP3/SP2
+// station while the TLS server is down (initial bring-up, server restart),
+// each opening a 3-second TCP+TLS handshake attempt. A short TTL on the
+// failure result throttles that without slowing recovery much: a station
+// whose TLS server came up still boots within TTL of the next poll.
+const TLS_PROBE_FAILURE_TTL_MS = 15_000;
+
 export class SimulatorManager {
   readonly simulators = new Map<string, StationSimulator>();
   private readonly clockAlignedScheduler: ClockAlignedScheduler;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private syncing = false;
   private readonly sql: postgres.Sql;
+  private readonly tlsProbeFailureCache = new Map<string, number>();
   // Optional: when set, dispatchAction publishes a {commandId, success,
   // error?} message to css_command_results so the API can surface
   // simulator-side rejects (e.g. "Cable not plugged in") to the operator.
@@ -102,7 +113,13 @@ export class SimulatorManager {
   }
 
   private async syncStations(): Promise<void> {
-    if (this.syncing) return;
+    if (this.syncing) {
+      // Surface back-pressure so ops can see when a sync cycle is taking
+      // longer than the 5s poll. Silent skips mask the case where every
+      // cycle drags and new simulators never get picked up.
+      console.log('[simulator-manager] previous syncStations still running, skipping this tick');
+      return;
+    }
     this.syncing = true;
     try {
       await this.syncStationsInner();
@@ -112,41 +129,45 @@ export class SimulatorManager {
   }
 
   private async syncStationsInner(): Promise<void> {
-    const rows = await this.sql`
-      SELECT
-        s.id,
-        s.station_id,
-        cs.ocpp_protocol,
-        cs.security_profile,
-        s.target_url,
-        s.password,
-        cs.model,
-        cs.serial_number,
-        cs.firmware_version,
-        s.client_cert,
-        s.client_key,
-        s.ca_cert,
-        v.name AS vendor_name
-      FROM css_stations s
-      INNER JOIN charging_stations cs ON cs.station_id = s.station_id
-      LEFT JOIN vendors v ON v.id = cs.vendor_id
-      WHERE s.enabled = true
-    `;
-
-    const evseRows = await this.sql`
-      SELECT
-        e.css_station_id,
-        e.evse_id,
-        e.connector_id,
-        e.connector_type,
-        e.max_power_w,
-        e.phases,
-        e.voltage
-      FROM css_evses e
-      INNER JOIN css_stations s ON s.id = e.css_station_id
-      WHERE s.enabled = true
-      ORDER BY e.evse_id, e.connector_id
-    `;
+    // The two queries are independent -- one reads css_stations, the other
+    // reads css_evses. Running them sequentially adds one DB round-trip
+    // per poll cycle for no reason.
+    const [rows, evseRows] = await Promise.all([
+      this.sql`
+        SELECT
+          s.id,
+          s.station_id,
+          cs.ocpp_protocol,
+          cs.security_profile,
+          s.target_url,
+          s.password,
+          cs.model,
+          cs.serial_number,
+          cs.firmware_version,
+          s.client_cert,
+          s.client_key,
+          s.ca_cert,
+          v.name AS vendor_name
+        FROM css_stations s
+        INNER JOIN charging_stations cs ON cs.station_id = s.station_id
+        LEFT JOIN vendors v ON v.id = cs.vendor_id
+        WHERE s.enabled = true
+      `,
+      this.sql`
+        SELECT
+          e.css_station_id,
+          e.evse_id,
+          e.connector_id,
+          e.connector_type,
+          e.max_power_w,
+          e.phases,
+          e.voltage
+        FROM css_evses e
+        INNER JOIN css_stations s ON s.id = e.css_station_id
+        WHERE s.enabled = true
+        ORDER BY e.evse_id, e.connector_id
+      `,
+    ]);
 
     // Build a map of evses grouped by station PK
     const evsesByStation = new Map<
@@ -214,16 +235,28 @@ export class SimulatorManager {
 
       const targetUrl = row.target_url as string;
 
-      // Verify TLS reachability before attempting connection. Retry every cycle
-      // so a TLS server coming online is picked up without restarting CSS.
+      // Verify TLS reachability before attempting connection. Retry every
+      // cycle so a TLS server coming online is picked up without restarting
+      // CSS -- with a short negative-cache TTL so we don't open a 3s probe
+      // every 5s for every unreachable station while the TLS server is down.
       if (targetUrl.startsWith('wss://')) {
+        const cachedFailureExpiresAt = this.tlsProbeFailureCache.get(targetUrl);
+        const isCachedFailure =
+          cachedFailureExpiresAt != null && cachedFailureExpiresAt > Date.now();
+        if (isCachedFailure) {
+          continue;
+        }
         const reachable = await this.isTlsReachable(targetUrl);
         if (!reachable) {
+          this.tlsProbeFailureCache.set(targetUrl, Date.now() + TLS_PROBE_FAILURE_TTL_MS);
           console.log(
-            `[simulator-manager] TLS server ${targetUrl} not reachable, will retry next cycle (${stationId})`,
+            `[simulator-manager] TLS server ${targetUrl} not reachable, will retry in ${String(TLS_PROBE_FAILURE_TTL_MS / 1000)}s (${stationId})`,
           );
           continue;
         }
+        // Reachable now: clear any stale negative-cache entry so future
+        // probes of the same URL don't get short-circuited.
+        this.tlsProbeFailureCache.delete(targetUrl);
       }
 
       const stationPk = row.id as string;

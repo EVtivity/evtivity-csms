@@ -16,6 +16,9 @@ const config: Config = {
       },
     },
     extend: {
+      maxWidth: {
+        'half-vw': '50vw',
+      },
       fontFamily: {
         sans: [
           'Inter',

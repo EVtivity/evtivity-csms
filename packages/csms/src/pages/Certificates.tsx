@@ -17,7 +17,10 @@ export function Certificates(): React.JSX.Element {
 
   return (
     <div>
-      <h1 className="text-2xl md:text-3xl font-bold mb-6">{t('pnc.certificates')}</h1>
+      <div className="mb-6">
+        <h1 className="text-2xl md:text-3xl font-bold">{t('pnc.certificates')}</h1>
+        <p className="text-sm text-muted-foreground">{t('pnc.certificatesSubtitle')}</p>
+      </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

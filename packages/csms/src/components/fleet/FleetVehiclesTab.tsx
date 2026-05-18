@@ -46,7 +46,7 @@ export function FleetVehiclesTab({ fleetId }: FleetVehiclesTabProps): React.JSX.
   return (
     <>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle>{t('fleets.vehicles')}</CardTitle>
             <CardDescription>{t('fleets.addVehicleNote')}</CardDescription>

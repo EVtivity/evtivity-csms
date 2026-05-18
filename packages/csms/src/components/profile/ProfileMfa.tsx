@@ -207,7 +207,7 @@ export function ProfileMfa(): React.JSX.Element {
                 className="max-w-[200px]"
               />
             </div>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
               <Button
                 disabled={mfaCode.length !== 6 || mfaConfirmMutation.isPending}
                 onClick={() => {

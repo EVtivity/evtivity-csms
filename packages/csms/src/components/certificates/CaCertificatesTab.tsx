@@ -31,7 +31,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
-import { ResponsiveFilters } from '@/components/responsive-filters';
+import { FilterPopover } from '@/components/FilterBar';
 import { certificateStatusVariant } from '@/lib/status-variants';
 
 interface CaCertificate {
@@ -103,27 +103,11 @@ export function CaCertificatesTab(): React.JSX.Element {
       <TabsContent value="ca">
         <Card>
           <CardHeader>
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4">
+            <div className="flex flex-row items-center justify-between gap-2">
               <CardTitle>{t('pnc.caCertificates')}</CardTitle>
-              <div className="flex gap-2">
-                <ResponsiveFilters activeCount={caStatusFilter ? 1 : 0}>
-                  <Select
-                    aria-label="Filter by status"
-                    value={caStatusFilter}
-                    onChange={(e) => {
-                      setCaStatusFilter(e.target.value);
-                    }}
-                    className="h-9 w-32"
-                  >
-                    <option value="">{t('common.all')}</option>
-                    <option value="active">{t('pnc.active')}</option>
-                    <option value="expired">{t('pnc.expired')}</option>
-                    <option value="revoked">{t('pnc.revoked')}</option>
-                  </Select>
-                </ResponsiveFilters>
+              <div className="flex flex-col gap-2 [&>*]:w-full sm:flex-row sm:items-center sm:[&>*]:w-auto">
                 <Button
                   variant="outline"
-                  size="sm"
                   onClick={() => {
                     refreshRootsMutation.mutate();
                   }}
@@ -137,7 +121,6 @@ export function CaCertificatesTab(): React.JSX.Element {
                   {t('pnc.refreshRootCerts')}
                 </Button>
                 <Button
-                  size="sm"
                   onClick={() => {
                     setUploadOpen(true);
                   }}
@@ -145,6 +128,29 @@ export function CaCertificatesTab(): React.JSX.Element {
                   <Upload className="h-4 w-4" />
                   {t('pnc.uploadCaCert')}
                 </Button>
+                <FilterPopover
+                  activeCount={caStatusFilter ? 1 : 0}
+                  onClearAll={() => {
+                    setCaStatusFilter('');
+                  }}
+                >
+                  <div className="space-y-2">
+                    <Label>{t('common.status')}</Label>
+                    <Select
+                      aria-label={t('common.status')}
+                      value={caStatusFilter}
+                      onChange={(e) => {
+                        setCaStatusFilter(e.target.value);
+                      }}
+                      className="h-10"
+                    >
+                      <option value="">{t('common.all')}</option>
+                      <option value="active">{t('pnc.active')}</option>
+                      <option value="expired">{t('pnc.expired')}</option>
+                      <option value="revoked">{t('pnc.revoked')}</option>
+                    </Select>
+                  </div>
+                </FilterPopover>
               </div>
             </div>
           </CardHeader>

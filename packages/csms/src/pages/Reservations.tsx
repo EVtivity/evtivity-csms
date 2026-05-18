@@ -6,8 +6,9 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { SearchInput } from '@/components/search-input';
-import { ResponsiveFilters } from '@/components/responsive-filters';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { api } from '@/lib/api';
 import {
@@ -20,11 +21,10 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { CreateButton } from '@/components/create-button';
+import { FilterPopover } from '@/components/FilterBar';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { Link } from 'react-router-dom';
-import { CopyableId } from '@/components/copyable-id';
 import { TableSkeleton } from '@/components/TableSkeleton';
-import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { reservationStatusVariant } from '@/lib/status-variants';
 
@@ -108,8 +108,11 @@ export function Reservations(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl md:text-3xl font-bold">{t('reservations.title')}</h1>
+      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold">{t('reservations.title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('reservations.subtitle')}</p>
+        </div>
         <CreateButton
           label={t('reservations.create')}
           onClick={() => {
@@ -118,169 +121,213 @@ export function Reservations(): React.JSX.Element {
         />
       </div>
 
-      <div className="flex items-center gap-1.5">
-        <SearchInput
-          value={search}
-          onDebouncedChange={setSearch}
-          placeholder={t('reservations.searchPlaceholder')}
-        />
-        <InfoTooltip content={t('reservations.searchHint')} />
-        <ResponsiveFilters
-          activeCount={[siteFilter, stationFilter, statusFilter].filter((v) => v !== '').length}
-        >
-          <Select
-            aria-label="Filter by site"
-            value={siteFilter}
-            onChange={(e) => {
-              setSiteFilter(e.target.value);
-              setPage(1);
-            }}
-            className="h-9 sm:w-44"
-          >
-            <option value="">{t('reservations.allSites')}</option>
-            {sites?.data.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </Select>
-          <Select
-            aria-label="Filter by station"
-            value={stationFilter}
-            onChange={(e) => {
-              setStationFilter(e.target.value);
-              setPage(1);
-            }}
-            className="h-9 sm:w-44"
-          >
-            <option value="">{t('reservations.allStations')}</option>
-            {stations?.data.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.stationId}
-              </option>
-            ))}
-          </Select>
-          <Select
-            aria-label="Filter by status"
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setPage(1);
-            }}
-            className="h-9 sm:w-44"
-          >
-            <option value="">{t('reservations.allStatuses')}</option>
-            <option value="scheduled">{t('reservations.scheduled')}</option>
-            <option value="active">{t('reservations.active')}</option>
-            <option value="in_use">{t('reservations.in_use')}</option>
-            <option value="used">{t('reservations.used')}</option>
-            <option value="cancelled">{t('reservations.cancelled')}</option>
-            <option value="expired">{t('reservations.expired')}</option>
-          </Select>
-        </ResponsiveFilters>
-      </div>
-
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('reservations.stationName')}</TableHead>
-              <TableHead>{t('reservations.reservationId')}</TableHead>
-              <TableHead>{t('reservations.driverName')}</TableHead>
-              <TableHead>{t('common.status')}</TableHead>
-              <TableHead>{t('reservations.session')}</TableHead>
-              <TableHead>{t('reservations.startsAt')}</TableHead>
-              <TableHead>{t('reservations.expiresAt')}</TableHead>
-              <TableHead>{t('reservations.createdAt')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading && (
-              <TableRow>
-                <TableCell colSpan={8}>
-                  <TableSkeleton columns={8} rows={5} />
-                </TableCell>
-              </TableRow>
-            )}
-            {reservations?.map((r) => (
-              <TableRow
-                key={r.id}
-                className="cursor-pointer"
-                data-testid={`reservation-row-${r.id}`}
-                onClick={() => {
-                  void navigate(`/reservations/${r.id}`);
+      {(() => {
+        const searchInput = (
+          <SearchInput
+            value={search}
+            onDebouncedChange={setSearch}
+            placeholder={t('reservations.searchPlaceholder')}
+            className="h-10 w-full"
+          />
+        );
+        const filters = (
+          <>
+            <div className="space-y-2">
+              <Label>{t('sites.title')}</Label>
+              <Select
+                aria-label={t('sites.title')}
+                className="h-10"
+                value={siteFilter}
+                onChange={(e) => {
+                  setSiteFilter(e.target.value);
+                  setPage(1);
                 }}
               >
-                <TableCell className="whitespace-nowrap">
-                  <Link
-                    to={`/stations/${r.stationId}`}
-                    className="text-primary hover:underline"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                    }}
-                  >
-                    {r.siteName != null ? `${r.siteName} / ${r.stationOcppId}` : r.stationOcppId}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <CopyableId id={r.id} variant="table" />
-                </TableCell>
-                <TableCell className="whitespace-nowrap">
-                  {r.driverFirstName != null ? (
-                    <Link
-                      to={`/drivers/${r.driverId ?? ''}`}
-                      className="text-primary hover:underline"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                      }}
-                    >
-                      {r.driverFirstName} {r.driverLastName}
-                    </Link>
-                  ) : (
-                    'n/a'
-                  )}
-                </TableCell>
-                <TableCell data-testid="row-click-target">
-                  <Badge variant={reservationStatusVariant(r.status)}>
-                    {getStatusLabel(r.status, t as (key: string) => string)}
-                  </Badge>
-                </TableCell>
-                <TableCell className="whitespace-nowrap">
-                  {r.sessionId != null ? (
-                    <Link
-                      to={`/sessions/${r.sessionId}`}
-                      className="text-primary hover:underline"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                      }}
-                    >
-                      {r.sessionId}
-                    </Link>
-                  ) : (
-                    <span className="text-muted-foreground">n/a</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {r.startsAt != null ? (
-                    formatDateTime(r.startsAt, timezone)
-                  ) : (
-                    <span className="text-muted-foreground">n/a</span>
-                  )}
-                </TableCell>
-                <TableCell>{formatDateTime(r.expiresAt, timezone)}</TableCell>
-                <TableCell>{formatDateTime(r.createdAt, timezone)}</TableCell>
-              </TableRow>
-            ))}
-            {reservations?.length === 0 && (
+                <option value="">{t('reservations.allSites')}</option>
+                {sites?.data.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>{t('stations.title')}</Label>
+              <Select
+                aria-label={t('stations.title')}
+                className="h-10"
+                value={stationFilter}
+                onChange={(e) => {
+                  setStationFilter(e.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="">{t('reservations.allStations')}</option>
+                {stations?.data.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.stationId}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>{t('common.status')}</Label>
+              <Select
+                aria-label={t('common.status')}
+                className="h-10"
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="">{t('reservations.allStatuses')}</option>
+                <option value="scheduled">{t('reservations.scheduled')}</option>
+                <option value="active">{t('reservations.active')}</option>
+                <option value="in_use">{t('reservations.in_use')}</option>
+                <option value="used">{t('reservations.used')}</option>
+                <option value="cancelled">{t('reservations.cancelled')}</option>
+                <option value="expired">{t('reservations.expired')}</option>
+              </Select>
+            </div>
+          </>
+        );
+        const activeFilterCount =
+          (siteFilter !== '' ? 1 : 0) +
+          (stationFilter !== '' ? 1 : 0) +
+          (statusFilter !== '' ? 1 : 0);
+        return (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 md:hidden">
+                <div className="flex-1">{searchInput}</div>
+                <FilterPopover
+                  activeCount={activeFilterCount}
+                  onClearAll={() => {
+                    setSiteFilter('');
+                    setStationFilter('');
+                    setStatusFilter('');
+                    setPage(1);
+                  }}
+                >
+                  {filters}
+                </FilterPopover>
+              </div>
+              <div className="hidden items-end gap-4 md:flex">
+                <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                  <div className="space-y-2">
+                    <Label>{t('reservations.search')}</Label>
+                    {searchInput}
+                  </div>
+                  {filters}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      <Card>
+        <CardContent className="overflow-x-auto p-0">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground">
-                  {t('reservations.noReservations')}
-                </TableCell>
+                <TableHead>{t('reservations.reservationId')}</TableHead>
+                <TableHead>{t('reservations.stationName')}</TableHead>
+                <TableHead>{t('reservations.driverName')}</TableHead>
+                <TableHead>{t('common.status')}</TableHead>
+                <TableHead>{t('reservations.session')}</TableHead>
+                <TableHead>{t('reservations.startsAt')}</TableHead>
+                <TableHead>{t('reservations.expiresAt')}</TableHead>
+                <TableHead>{t('reservations.createdAt')}</TableHead>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+            </TableHeader>
+            <TableBody>
+              {isLoading && (
+                <TableRow>
+                  <TableCell colSpan={8}>
+                    <TableSkeleton columns={8} rows={5} />
+                  </TableCell>
+                </TableRow>
+              )}
+              {reservations?.map((r) => (
+                <TableRow
+                  key={r.id}
+                  className="cursor-pointer"
+                  data-testid={`reservation-row-${r.id}`}
+                  onClick={() => {
+                    void navigate(`/reservations/${r.id}`);
+                  }}
+                >
+                  <TableCell className="text-muted-foreground">{r.id}</TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    <Link
+                      to={`/stations/${r.stationId}`}
+                      className="text-primary hover:underline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                      }}
+                    >
+                      {r.siteName != null ? `${r.siteName} / ${r.stationOcppId}` : r.stationOcppId}
+                    </Link>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {r.driverFirstName != null ? (
+                      <Link
+                        to={`/drivers/${r.driverId ?? ''}`}
+                        className="text-primary hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                        }}
+                      >
+                        {r.driverFirstName} {r.driverLastName}
+                      </Link>
+                    ) : (
+                      'n/a'
+                    )}
+                  </TableCell>
+                  <TableCell data-testid="row-click-target">
+                    <Badge variant={reservationStatusVariant(r.status)}>
+                      {getStatusLabel(r.status, t as (key: string) => string)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {r.sessionId != null ? (
+                      <Link
+                        to={`/sessions/${r.sessionId}`}
+                        className="text-primary hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                        }}
+                      >
+                        {r.sessionId}
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground">n/a</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {r.startsAt != null ? (
+                      formatDateTime(r.startsAt, timezone)
+                    ) : (
+                      <span className="text-muted-foreground">n/a</span>
+                    )}
+                  </TableCell>
+                  <TableCell>{formatDateTime(r.expiresAt, timezone)}</TableCell>
+                  <TableCell>{formatDateTime(r.createdAt, timezone)}</TableCell>
+                </TableRow>
+              ))}
+              {reservations?.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center text-muted-foreground">
+                    {t('reservations.noReservations')}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>

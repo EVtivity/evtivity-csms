@@ -5,7 +5,7 @@ import { useState, useMemo, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
-import { ResponsiveFilters } from '@/components/responsive-filters';
+import { FilterPopover } from '@/components/FilterBar';
 import {
   Table,
   TableBody,
@@ -61,11 +61,12 @@ export function SmsLogTab(): React.JSX.Element {
     <div className="space-y-4">
       <div className="flex items-center gap-1.5">
         <SearchInput
+          className="flex-1"
           value={search}
           onDebouncedChange={setSearch}
           placeholder={t('logs.searchPlaceholder')}
         />
-        <ResponsiveFilters activeCount={activeFilterCount}>
+        <FilterPopover activeCount={activeFilterCount}>
           <Select
             aria-label="Filter by event category"
             value={eventCategory}
@@ -109,7 +110,7 @@ export function SmsLogTab(): React.JSX.Element {
             <option value="sent">Sent</option>
             <option value="failed">Failed</option>
           </Select>
-        </ResponsiveFilters>
+        </FilterPopover>
       </div>
 
       <div className="overflow-x-auto">

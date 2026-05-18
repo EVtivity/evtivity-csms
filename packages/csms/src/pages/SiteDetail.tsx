@@ -17,7 +17,7 @@ import { LoadManagement } from '@/components/load-management/LoadManagement';
 import { StationsTable } from '@/components/StationsTable';
 import { Select } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { ResponsiveFilters } from '@/components/responsive-filters';
+import { FilterPopover } from '@/components/FilterBar';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { Pagination } from '@/components/ui/pagination';
@@ -205,7 +205,7 @@ export function SiteDetail(): React.JSX.Element {
 
         <TabsContent value="stations">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>{t('nav.stations')}</CardTitle>
               <CreateButton
                 label={t('stations.addStation')}
@@ -237,7 +237,7 @@ export function SiteDetail(): React.JSX.Element {
           <Card>
             <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <CardTitle>{t('sessions.title')}</CardTitle>
-              <ResponsiveFilters
+              <FilterPopover
                 activeCount={[sessionsStationId, sessionsStatus].filter(Boolean).length}
               >
                 <Select
@@ -271,7 +271,7 @@ export function SiteDetail(): React.JSX.Element {
                   <option value="completed">{t('status.completed')}</option>
                   <option value="faulted">{t('status.faulted')}</option>
                 </Select>
-              </ResponsiveFilters>
+              </FilterPopover>
             </CardHeader>
             <CardContent>
               <SessionsTable
@@ -280,6 +280,11 @@ export function SiteDetail(): React.JSX.Element {
                 totalPages={sessionsTotalPages}
                 onPageChange={setSessionsPage}
                 timezone={site.timezone}
+              />
+              <Pagination
+                page={sessionsPage}
+                totalPages={sessionsTotalPages}
+                onPageChange={setSessionsPage}
               />
             </CardContent>
           </Card>

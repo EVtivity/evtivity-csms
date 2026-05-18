@@ -3,7 +3,7 @@
 
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Table,
   TableBody,
@@ -44,62 +44,59 @@ export function RoamingSessions(): React.JSX.Element {
   } = usePaginatedQuery<RoamingSession>('ocpi-sessions', '/v1/ocpi/sessions');
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('roaming.sessions.title')}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('roaming.sessions.partner')}</TableHead>
-              <TableHead>{t('roaming.sessions.tokenUid')}</TableHead>
-              <TableHead>{t('common.status')}</TableHead>
-              <TableHead>{t('roaming.sessions.energy')}</TableHead>
-              <TableHead>{t('roaming.sessions.cost')}</TableHead>
-              <TableHead>{t('common.created')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
+    <div className="space-y-6">
+      <Card>
+        <CardContent className="overflow-x-auto p-0">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={6} className="text-center">
-                  {t('common.loading')}
-                </TableCell>
+                <TableHead>{t('roaming.sessions.partner')}</TableHead>
+                <TableHead>{t('roaming.sessions.tokenUid')}</TableHead>
+                <TableHead>{t('common.status')}</TableHead>
+                <TableHead>{t('roaming.sessions.energy')}</TableHead>
+                <TableHead>{t('roaming.sessions.cost')}</TableHead>
+                <TableHead>{t('common.created')}</TableHead>
               </TableRow>
-            ) : sessions == null || sessions.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground">
-                  {t('roaming.sessions.noSessions')}
-                </TableCell>
-              </TableRow>
-            ) : (
-              sessions.map((session) => (
-                <TableRow key={session.id}>
-                  <TableCell className="font-medium">{session.partnerName ?? '-'}</TableCell>
-                  <TableCell className="whitespace-nowrap">{session.tokenUid}</TableCell>
-                  <TableCell>
-                    <Badge variant={roamingSessionStatusVariant(session.status)}>
-                      {session.status}
-                    </Badge>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center">
+                    {t('common.loading')}
                   </TableCell>
-                  <TableCell>{parseFloat(session.kwh).toFixed(2)} kWh</TableCell>
-                  <TableCell>
-                    {session.totalCost != null
-                      ? `${parseFloat(session.totalCost).toFixed(2)} ${session.currency ?? ''}`
-                      : '-'}
-                  </TableCell>
-                  <TableCell>{formatDateTime(session.createdAt, timezone)}</TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ) : sessions == null || sessions.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    {t('roaming.sessions.noSessions')}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                sessions.map((session) => (
+                  <TableRow key={session.id}>
+                    <TableCell className="font-medium">{session.partnerName ?? '-'}</TableCell>
+                    <TableCell className="whitespace-nowrap">{session.tokenUid}</TableCell>
+                    <TableCell>
+                      <Badge variant={roamingSessionStatusVariant(session.status)}>
+                        {session.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{parseFloat(session.kwh).toFixed(2)} kWh</TableCell>
+                    <TableCell>
+                      {session.totalCost != null
+                        ? `${parseFloat(session.totalCost).toFixed(2)} ${session.currency ?? ''}`
+                        : '-'}
+                    </TableCell>
+                    <TableCell>{formatDateTime(session.createdAt, timezone)}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
-        {totalPages > 1 && (
-          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-        )}
-      </CardContent>
-    </Card>
+      {totalPages > 1 && <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />}
+    </div>
   );
 }

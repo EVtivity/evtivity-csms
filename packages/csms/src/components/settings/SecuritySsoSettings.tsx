@@ -246,7 +246,7 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
               {/* ACS Callback URL (read-only) */}
               <div className="grid gap-2">
                 <Label htmlFor="sso-callback-url">{t('settings.ssoCallbackUrl')}</Label>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
                   <Input id="sso-callback-url" value={callbackUrl} readOnly className="bg-muted" />
                   <Button
                     type="button"

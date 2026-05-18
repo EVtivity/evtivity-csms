@@ -20,7 +20,7 @@ import {
 } from '@evtivity/database';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { ID_PARAMS } from '../../lib/id-validation.js';
-import { getPubSub } from '../../lib/pubsub.js';
+import { notifySupportCaseEvent } from '../../lib/support-case-events.js';
 import { paginatedResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import { paginationQuery } from '../../lib/pagination.js';
@@ -190,10 +190,6 @@ async function getNextCaseNumber(): Promise<string> {
   const result = await db.execute(sql`SELECT nextval('support_case_number_seq') as val`);
   const seq = Number((result as unknown as Array<{ val: string }>)[0]?.val ?? 1);
   return `CASE-${String(seq).padStart(5, '0')}`;
-}
-
-async function notifyCsmsEvent(eventType: string, caseId: string): Promise<void> {
-  await getPubSub().publish('csms_events', JSON.stringify({ eventType, caseId }));
 }
 
 export function portalSupportCaseRoutes(app: FastifyInstance): void {
@@ -447,7 +443,7 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
       // Notify operators
       void dispatchOperatorNotification('new_case', newCase.id, caseNumber, body.subject, null);
 
-      void notifyCsmsEvent('supportCase.created', newCase.id);
+      void notifySupportCaseEvent('supportCase.created', newCase.id, driverId);
 
       return newCase;
     },
@@ -511,7 +507,7 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         supportCase.assignedTo,
       );
 
-      void notifyCsmsEvent('supportCase.newMessage', id);
+      void notifySupportCaseEvent('supportCase.newMessage', id, driverId);
 
       return message;
     },

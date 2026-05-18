@@ -4,7 +4,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { CopyableId } from '@/components/copyable-id';
 import { CreateButton } from '@/components/create-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -92,7 +91,7 @@ export function PricingGroupTariffsTab({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle>{t('pricing.tariffs')}</CardTitle>
         <CreateButton
           label={t('pricing.createTariff')}
@@ -115,8 +114,8 @@ export function PricingGroupTariffsTab({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t('pricing.tariffName')}</TableHead>
                   <TableHead>{t('pricing.tariffId')}</TableHead>
+                  <TableHead>{t('pricing.tariffName')}</TableHead>
                   <TableHead>{t('pricing.tariffType')}</TableHead>
                   <TableHead>{t('pricing.perKwh')}</TableHead>
                   <TableHead>{t('pricing.perMin')}</TableHead>
@@ -137,11 +136,9 @@ export function PricingGroupTariffsTab({
                       void navigate(`/pricing/${groupId}/tariffs/${tariff.id}`);
                     }}
                   >
+                    <TableCell className="text-muted-foreground">{tariff.id}</TableCell>
                     <TableCell className="font-medium text-primary" data-testid="row-click-target">
                       {tariff.name}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      <CopyableId id={tariff.id} variant="table" />
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {formatRestrictionSummary(tariff.restrictions)}

@@ -6,17 +6,19 @@ import { API_BASE_URL } from '@/lib/config';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Card, CardContent } from '@/components/ui/card';
 import { Select } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { Pagination } from '@/components/ui/pagination';
 import { Button } from '@/components/ui/button';
 import { ClipboardList } from 'lucide-react';
 import { CreateButton } from '@/components/create-button';
 import { ImportButton } from '@/components/import-button';
 import { ExportButton } from '@/components/export-button';
 import { SearchInput } from '@/components/search-input';
-import { ResponsiveFilters } from '@/components/responsive-filters';
-import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { TokensTable, TOKENS_COLUMNS, type Token } from '@/components/TokensTable';
 import { ColumnVisibilityToggle } from '@/components/ColumnVisibilityToggle';
+import { FilterPopover } from '@/components/FilterBar';
 import { useColumnVisibility } from '@/hooks/use-column-visibility';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { api } from '@/lib/api';
@@ -110,9 +112,12 @@ export function Tokens(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl md:text-3xl font-bold">{t('tokens.title')}</h1>
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold">{t('tokens.title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('tokens.subtitle')}</p>
+        </div>
+        <div className="flex flex-col gap-2 [&>*]:w-full sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:[&>*]:w-auto">
           {canReadDrivers && (
             <Button
               variant="outline"
@@ -166,59 +171,107 @@ export function Tokens(): React.JSX.Element {
         </div>
       )}
 
-      <div className="flex items-center gap-1.5">
-        <SearchInput
-          value={search}
-          onDebouncedChange={setSearch}
-          placeholder={t('tokens.searchPlaceholder')}
-        />
-        <InfoTooltip content={t('tokens.searchHint')} />
-        <ResponsiveFilters activeCount={[filterType, filterStatus].filter((v) => v !== '').length}>
-          <Select
-            aria-label="Filter by type"
-            value={filterType}
-            onChange={(e) => {
-              setFilterType(e.target.value);
-            }}
-            className="h-9 w-[calc(50%-0.5rem)] sm:w-auto"
-          >
-            <option value="">{t('tokens.allTypes')}</option>
-            {filterOptions?.tokenTypes.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
-          </Select>
-          <Select
-            aria-label="Filter by status"
-            value={filterStatus}
-            onChange={(e) => {
-              setFilterStatus(e.target.value);
-            }}
-            className="h-9 w-[calc(50%-0.5rem)] sm:w-auto"
-          >
-            <option value="">{t('tokens.allStatuses')}</option>
-            <option value="active">{t('common.active')}</option>
-            <option value="inactive">{t('common.inactive')}</option>
-          </Select>
-        </ResponsiveFilters>
-        <ColumnVisibilityToggle
-          tableKey="tokens"
-          columns={TOKENS_COLUMNS}
-          visibility={visibility}
-          onChange={setVisibility}
-        />
-      </div>
+      {(() => {
+        const searchInput = (
+          <SearchInput
+            value={search}
+            onDebouncedChange={setSearch}
+            placeholder={t('tokens.searchPlaceholder')}
+            className="h-10 w-full"
+          />
+        );
+        const filters = (
+          <>
+            <div className="space-y-2">
+              <Label>{t('tokens.type')}</Label>
+              <Select
+                aria-label={t('tokens.type')}
+                className="h-10"
+                value={filterType}
+                onChange={(e) => {
+                  setFilterType(e.target.value);
+                }}
+              >
+                <option value="">{t('tokens.allTypes')}</option>
+                {filterOptions?.tokenTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>{t('common.status')}</Label>
+              <Select
+                aria-label={t('common.status')}
+                className="h-10"
+                value={filterStatus}
+                onChange={(e) => {
+                  setFilterStatus(e.target.value);
+                }}
+              >
+                <option value="">{t('tokens.allStatuses')}</option>
+                <option value="active">{t('common.active')}</option>
+                <option value="inactive">{t('common.inactive')}</option>
+              </Select>
+            </div>
+          </>
+        );
+        const activeFilterCount = (filterType !== '' ? 1 : 0) + (filterStatus !== '' ? 1 : 0);
+        const columnsToggle = (
+          <ColumnVisibilityToggle
+            tableKey="tokens"
+            columns={TOKENS_COLUMNS}
+            visibility={visibility}
+            onChange={setVisibility}
+          />
+        );
+        return (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 md:hidden">
+                <div className="flex-1">{searchInput}</div>
+                <FilterPopover
+                  activeCount={activeFilterCount}
+                  onClearAll={() => {
+                    setFilterType('');
+                    setFilterStatus('');
+                  }}
+                >
+                  {filters}
+                </FilterPopover>
+                {columnsToggle}
+              </div>
+              <div className="hidden items-end gap-4 md:flex">
+                <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label>{t('tokens.search')}</Label>
+                    {searchInput}
+                  </div>
+                  {filters}
+                </div>
+                {columnsToggle}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
-      <TokensTable
-        tokens={tokens}
-        page={page}
-        totalPages={totalPages}
-        onPageChange={setPage}
-        timezone={timezone}
-        isLoading={isLoading}
-        visibility={visibility}
-      />
+      <Card>
+        <CardContent className="p-0">
+          <TokensTable
+            tokens={tokens}
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            timezone={timezone}
+            isLoading={isLoading}
+            visibility={visibility}
+          />
+        </CardContent>
+      </Card>
+
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
   );
 }

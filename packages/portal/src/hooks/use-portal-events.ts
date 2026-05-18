@@ -17,9 +17,9 @@ export function usePortalEvents(): void {
     eventSourceRef.current = es;
 
     es.onmessage = (messageEvent: MessageEvent<string>) => {
-      let parsed: { type?: string };
+      let parsed: { type?: string; caseId?: string };
       try {
-        parsed = JSON.parse(messageEvent.data) as { type?: string };
+        parsed = JSON.parse(messageEvent.data) as { type?: string; caseId?: string };
       } catch {
         return;
       }
@@ -27,6 +27,18 @@ export function usePortalEvents(): void {
       if (parsed.type === 'notification.created') {
         void queryClient.invalidateQueries({ queryKey: ['portal-notifications-unread'] });
         void queryClient.invalidateQueries({ queryKey: ['portal-notifications'] });
+        return;
+      }
+
+      if (
+        parsed.type === 'supportCase.created' ||
+        parsed.type === 'supportCase.updated' ||
+        parsed.type === 'supportCase.newMessage'
+      ) {
+        void queryClient.invalidateQueries({ queryKey: ['portal-support-cases'] });
+        if (parsed.caseId != null) {
+          void queryClient.invalidateQueries({ queryKey: ['portal-support-case', parsed.caseId] });
+        }
       }
     };
 

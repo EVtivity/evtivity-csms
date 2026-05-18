@@ -18,7 +18,7 @@ import {
 import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
-import { ResponsiveFilters } from '@/components/responsive-filters';
+import { FilterPopover } from '@/components/FilterBar';
 import { certificateStatusVariant } from '@/lib/status-variants';
 
 interface StationCertificate {
@@ -66,9 +66,9 @@ export function StationCertificatesTab(): React.JSX.Element {
     <TabsContent value="station">
       <Card>
         <CardHeader>
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4">
+          <div className="flex flex-row items-center justify-between gap-2">
             <CardTitle>{t('pnc.stationCertificates')}</CardTitle>
-            <ResponsiveFilters activeCount={stationCertStatusFilter ? 1 : 0}>
+            <FilterPopover activeCount={stationCertStatusFilter ? 1 : 0}>
               <Select
                 aria-label="Filter by status"
                 value={stationCertStatusFilter}
@@ -82,7 +82,7 @@ export function StationCertificatesTab(): React.JSX.Element {
                 <option value="expired">{t('pnc.expired')}</option>
                 <option value="revoked">{t('pnc.revoked')}</option>
               </Select>
-            </ResponsiveFilters>
+            </FilterPopover>
           </div>
         </CardHeader>
         <CardContent>

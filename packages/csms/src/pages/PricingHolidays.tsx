@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -116,8 +117,11 @@ export function PricingHolidays(): React.JSX.Element {
         </Link>
       </div>
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl md:text-3xl font-bold">{t('pricing.holidays')}</h1>
+      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold">{t('pricing.holidays')}</h1>
+          <p className="text-sm text-muted-foreground">{t('pricing.holidaysSubtitle')}</p>
+        </div>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -145,37 +149,39 @@ export function PricingHolidays(): React.JSX.Element {
       )}
 
       {sorted.length > 0 && (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('pricing.holidayDate')}</TableHead>
-                <TableHead>{t('pricing.holidayName')}</TableHead>
-                <TableHead className="w-16" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sorted.map((holiday) => (
-                <TableRow key={holiday.id}>
-                  <TableCell>{holiday.date}</TableCell>
-                  <TableCell>{holiday.name}</TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={t('pricing.deleteHoliday')}
-                      onClick={() => {
-                        setDeleteTarget(holiday);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </TableCell>
+        <Card>
+          <CardContent className="overflow-x-auto p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('pricing.holidayDate')}</TableHead>
+                  <TableHead>{t('pricing.holidayName')}</TableHead>
+                  <TableHead className="w-16" />
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+              </TableHeader>
+              <TableBody>
+                {sorted.map((holiday) => (
+                  <TableRow key={holiday.id}>
+                    <TableCell>{holiday.date}</TableCell>
+                    <TableCell>{holiday.name}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={t('pricing.deleteHoliday')}
+                        onClick={() => {
+                          setDeleteTarget(holiday);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

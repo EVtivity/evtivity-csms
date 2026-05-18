@@ -176,7 +176,7 @@ export function StationDisplayMessages({
     <Card>
       <CardHeader className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4">
         <CardTitle>{t('stations.displayMessages')}</CardTitle>
-        <div className="flex gap-2">
+        <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
           <Button
             variant="outline"
             size="sm"

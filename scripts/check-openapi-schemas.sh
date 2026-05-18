@@ -4,7 +4,7 @@
 # `z.object({}).passthrough()` and `z.object({})` produce empty objects in
 # the generated OpenAPI spec, which the website renders as a generic object
 # with no field detail. Every response/item schema must enumerate its fields
-# with `.describe()` strings (see .claude/rules/api/response-schemas.md).
+# with `.describe()` strings.
 #
 # This guard scans packages/api/src/routes/**/*.ts and exits non-zero if it
 # finds any loose schema. It is intended to run in CI alongside lint and

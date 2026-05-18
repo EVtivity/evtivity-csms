@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, count, sql } from 'drizzle-orm';
+import { eq, and, count, sql, inArray, or, isNull } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import {
   cssStations,
@@ -50,6 +50,29 @@ import {
 import { meterValueType as meterValueType16 } from '../lib/ocpp-zod-types-v16.js';
 import { OCPP21_CONFIG_DEFAULTS, OCPP16_CONFIG_DEFAULTS } from '../lib/css-config-defaults.js';
 import { authorize } from '../middleware/rbac.js';
+import { getUserSiteIds } from '../lib/site-access.js';
+import type { JwtPayload } from '../plugins/auth.js';
+
+// Multi-tenant access check for CSS endpoints. Looks up the paired
+// charging_stations.siteId for the css_stations row and verifies the
+// operator can read it per the same rules as charging_stations:
+//   - full access (siteIds == null) wins
+//   - no paired charging_stations row OR paired with siteId=null is visible
+//     to everyone (matches stations.ts behavior for unsited rows)
+//   - otherwise the paired siteId must be in the operator's allow-list
+// Returns 404 (not 403) on denial to avoid leaking existence.
+async function isCssStationAccessible(stationId: string, userId: string): Promise<boolean> {
+  const siteIds = await getUserSiteIds(userId);
+  if (siteIds == null) return true;
+  const [cs] = await db
+    .select({ siteId: chargingStations.siteId })
+    .from(chargingStations)
+    .where(eq(chargingStations.stationId, stationId))
+    .limit(1);
+  if (cs == null) return true;
+  if (cs.siteId == null) return true;
+  return siteIds.includes(cs.siteId);
+}
 
 // ---------------------------------------------------------------------------
 // Action version compatibility map
@@ -798,6 +821,11 @@ function actionRoute(
         string,
         unknown
       >;
+      const { userId } = request.user as JwtPayload;
+
+      if (!(await isCssStationAccessible(stationId, userId))) {
+        return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      }
 
       const [station] = await db
         .select({
@@ -988,6 +1016,7 @@ export function cssRoutes(app: FastifyInstance): void {
         body: zodSchema(createStationBody),
         response: {
           201: itemResponse(stationItem),
+          404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
           409: errorWith('Duplicate station id', [ERROR_CODES.DUPLICATE_STATION_ID]),
           500: errorWith('Internal server error', [ERROR_CODES.INTERNAL_ERROR]),
         },
@@ -995,6 +1024,14 @@ export function cssRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const body = request.body as z.infer<typeof createStationBody>;
+      const { userId } = request.user as JwtPayload;
+
+      // Reject if the caller is scoped to a site set that doesn't include the
+      // paired charging_stations row's site. Unsited / not-yet-existing
+      // charging_stations are fine -- those are visible to every operator.
+      if (!(await isCssStationAccessible(body.stationId, userId))) {
+        return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      }
 
       // Check for duplicate stationId (read-only, safe outside the transaction).
       const [existing] = await db
@@ -1111,13 +1148,60 @@ export function cssRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const query = request.query as z.infer<typeof paginationQuery>;
+      const { userId } = request.user as JwtPayload;
       const page = query.page;
       const limit = query.limit;
       const offset = (page - 1) * limit;
 
+      const siteIds = await getUserSiteIds(userId);
+      if (siteIds != null && siteIds.length === 0) {
+        return { data: [], total: 0 };
+      }
+
+      // Filter css_stations by the paired charging_stations.siteId. LEFT JOIN
+      // because some css_stations rows have no charging_stations pair (legacy
+      // seeded fixtures); those stay visible. Same rule for siteId=null --
+      // unsited stations are visible to everyone per site-access-control.md.
+      const accessCondition =
+        siteIds == null
+          ? undefined
+          : or(
+              isNull(chargingStations.id),
+              isNull(chargingStations.siteId),
+              inArray(chargingStations.siteId, siteIds),
+            );
+
       const [data, totalResult] = await Promise.all([
-        db.select().from(cssStations).orderBy(cssStations.createdAt).limit(limit).offset(offset),
-        db.select({ count: count() }).from(cssStations),
+        db
+          .select({
+            id: cssStations.id,
+            stationId: cssStations.stationId,
+            targetUrl: cssStations.targetUrl,
+            password: cssStations.password,
+            clientCert: cssStations.clientCert,
+            clientKey: cssStations.clientKey,
+            caCert: cssStations.caCert,
+            status: cssStations.status,
+            availabilityState: cssStations.availabilityState,
+            bootReason: cssStations.bootReason,
+            lastHeartbeatAt: cssStations.lastHeartbeatAt,
+            lastBootAt: cssStations.lastBootAt,
+            sourceType: cssStations.sourceType,
+            enabled: cssStations.enabled,
+            createdAt: cssStations.createdAt,
+            updatedAt: cssStations.updatedAt,
+          })
+          .from(cssStations)
+          .leftJoin(chargingStations, eq(chargingStations.stationId, cssStations.stationId))
+          .where(accessCondition)
+          .orderBy(cssStations.createdAt)
+          .limit(limit)
+          .offset(offset),
+        db
+          .select({ count: count() })
+          .from(cssStations)
+          .leftJoin(chargingStations, eq(chargingStations.stationId, cssStations.stationId))
+          .where(accessCondition),
       ]);
 
       return { data, total: totalResult[0]?.count ?? 0 };
@@ -1143,6 +1227,11 @@ export function cssRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { stationId } = request.params as z.infer<typeof stationIdParams>;
+      const { userId } = request.user as JwtPayload;
+
+      if (!(await isCssStationAccessible(stationId, userId))) {
+        return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      }
 
       const [station] = await db
         .select()
@@ -1188,6 +1277,11 @@ export function cssRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { stationId } = request.params as z.infer<typeof stationIdParams>;
       const body = request.body as z.infer<typeof updateStationBody>;
+      const { userId } = request.user as JwtPayload;
+
+      if (!(await isCssStationAccessible(stationId, userId))) {
+        return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      }
 
       const [existing] = await db
         .select({ id: cssStations.id })
@@ -1257,6 +1351,11 @@ export function cssRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { stationId } = request.params as z.infer<typeof stationIdParams>;
+      const { userId } = request.user as JwtPayload;
+
+      if (!(await isCssStationAccessible(stationId, userId))) {
+        return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      }
 
       const [existing] = await db
         .select({ id: cssStations.id })
@@ -1292,6 +1391,11 @@ export function cssRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { stationId } = request.params as z.infer<typeof stationIdParams>;
+      const { userId } = request.user as JwtPayload;
+
+      if (!(await isCssStationAccessible(stationId, userId))) {
+        return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      }
 
       const [existing] = await db
         .select({ id: cssStations.id })
@@ -1331,6 +1435,11 @@ export function cssRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { stationId } = request.params as z.infer<typeof stationIdParams>;
+      const { userId } = request.user as JwtPayload;
+
+      if (!(await isCssStationAccessible(stationId, userId))) {
+        return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      }
 
       const [existing] = await db
         .select({ id: cssStations.id })

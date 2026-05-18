@@ -181,11 +181,11 @@ const idParams = z.object({ id: z.coerce.number().int().min(1).describe('Resourc
 
 export function pncCertificateRoutes(app: FastifyInstance): void {
   // Gate the entire PnC certificate API on the pnc.enabled feature flag.
-  // Per .claude/rules/features/pnc.md, certificate routes return 403
-  // PNC_DISABLED when the feature is off (settings routes are exempt and
-  // registered separately in pnc-settings.ts). Without this gate, an
-  // operator with certificates:write can still manage CA certs and CSRs
-  // even after PnC has been disabled.
+  // Certificate routes return 403 PNC_DISABLED when the feature is off.
+  // Settings routes are exempt and registered separately in pnc-settings.ts,
+  // so operators can still configure the provider while PnC is disabled.
+  // Without this gate, an operator with certificates:write can still manage
+  // CA certs and CSRs even after PnC has been disabled.
   app.addHook('preHandler', async (request, reply) => {
     if (!request.url.startsWith('/v1/pnc/')) return;
     if (request.url.startsWith('/v1/pnc/settings')) return;

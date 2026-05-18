@@ -14,11 +14,12 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
 import { Select } from '@/components/ui/select';
 import { SearchInput } from '@/components/search-input';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
-import { ResponsiveFilters } from '@/components/responsive-filters';
 import { httpMethodVariant, httpStatusVariant, workerStatusVariant } from '@/lib/status-variants';
 
 interface AccessLog {
@@ -101,59 +102,66 @@ function BrowserLogTab(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <SearchInput
-        value={search}
-        onDebouncedChange={setSearch}
-        placeholder={t('logs.searchPlaceholder')}
-      />
+      <Card>
+        <CardContent className="p-4">
+          <SearchInput
+            value={search}
+            onDebouncedChange={setSearch}
+            placeholder={t('logs.searchPlaceholder')}
+            className="h-10 w-full sm:max-w-half-vw"
+          />
+        </CardContent>
+      </Card>
 
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('common.timestamp')}</TableHead>
-              <TableHead>{t('logs.user')}</TableHead>
-              <TableHead>{t('logs.action')}</TableHead>
-              <TableHead>{t('logs.ipAddress')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading && (
+      <Card>
+        <CardContent className="overflow-x-auto p-0">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground">
-                  {t('common.loading')}
-                </TableCell>
+                <TableHead>{t('common.timestamp')}</TableHead>
+                <TableHead>{t('logs.user')}</TableHead>
+                <TableHead>{t('logs.action')}</TableHead>
+                <TableHead>{t('logs.ipAddress')}</TableHead>
               </TableRow>
-            )}
-            {logs?.map((log) => (
-              <Fragment key={log.id}>
-                <TableRow
-                  className="cursor-pointer"
-                  data-testid={`admin-log-row-${String(log.id)}`}
-                  onClick={() => {
-                    setExpandedId(expandedId === log.id ? null : log.id);
-                  }}
-                >
-                  <TableCell className="whitespace-nowrap" data-testid="row-click-target">
-                    {new Date(log.createdAt).toLocaleString()}
+            </TableHeader>
+            <TableBody>
+              {isLoading && (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-muted-foreground">
+                    {t('common.loading')}
                   </TableCell>
-                  <TableCell>{userName(log)}</TableCell>
-                  <TableCell>{log.action}</TableCell>
-                  <TableCell>{log.remoteAddress ?? '-'}</TableCell>
                 </TableRow>
-                {expandedId === log.id && <DetailRow log={log} colSpan={4} />}
-              </Fragment>
-            ))}
-            {logs?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground">
-                  {t('logs.noLogs')}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+              )}
+              {logs?.map((log) => (
+                <Fragment key={log.id}>
+                  <TableRow
+                    className="cursor-pointer"
+                    data-testid={`admin-log-row-${String(log.id)}`}
+                    onClick={() => {
+                      setExpandedId(expandedId === log.id ? null : log.id);
+                    }}
+                  >
+                    <TableCell className="whitespace-nowrap" data-testid="row-click-target">
+                      {new Date(log.createdAt).toLocaleString()}
+                    </TableCell>
+                    <TableCell>{userName(log)}</TableCell>
+                    <TableCell>{log.action}</TableCell>
+                    <TableCell>{log.remoteAddress ?? '-'}</TableCell>
+                  </TableRow>
+                  {expandedId === log.id && <DetailRow log={log} colSpan={4} />}
+                </Fragment>
+              ))}
+              {logs?.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-muted-foreground">
+                    {t('logs.noLogs')}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
@@ -178,59 +186,66 @@ function PortalLogTab(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <SearchInput
-        value={search}
-        onDebouncedChange={setSearch}
-        placeholder={t('logs.searchPlaceholder')}
-      />
+      <Card>
+        <CardContent className="p-4">
+          <SearchInput
+            value={search}
+            onDebouncedChange={setSearch}
+            placeholder={t('logs.searchPlaceholder')}
+            className="h-10 w-full sm:max-w-half-vw"
+          />
+        </CardContent>
+      </Card>
 
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('common.timestamp')}</TableHead>
-              <TableHead>{t('logs.user')}</TableHead>
-              <TableHead>{t('logs.action')}</TableHead>
-              <TableHead>{t('logs.ipAddress')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading && (
+      <Card>
+        <CardContent className="overflow-x-auto p-0">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground">
-                  {t('common.loading')}
-                </TableCell>
+                <TableHead>{t('common.timestamp')}</TableHead>
+                <TableHead>{t('logs.user')}</TableHead>
+                <TableHead>{t('logs.action')}</TableHead>
+                <TableHead>{t('logs.ipAddress')}</TableHead>
               </TableRow>
-            )}
-            {logs?.map((log) => (
-              <Fragment key={log.id}>
-                <TableRow
-                  className="cursor-pointer"
-                  data-testid={`portal-log-row-${String(log.id)}`}
-                  onClick={() => {
-                    setExpandedId(expandedId === log.id ? null : log.id);
-                  }}
-                >
-                  <TableCell className="whitespace-nowrap" data-testid="row-click-target">
-                    {new Date(log.createdAt).toLocaleString()}
+            </TableHeader>
+            <TableBody>
+              {isLoading && (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-muted-foreground">
+                    {t('common.loading')}
                   </TableCell>
-                  <TableCell>{userName(log)}</TableCell>
-                  <TableCell>{log.action}</TableCell>
-                  <TableCell>{log.remoteAddress ?? '-'}</TableCell>
                 </TableRow>
-                {expandedId === log.id && <DetailRow log={log} colSpan={4} />}
-              </Fragment>
-            ))}
-            {logs?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground">
-                  {t('logs.noLogs')}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+              )}
+              {logs?.map((log) => (
+                <Fragment key={log.id}>
+                  <TableRow
+                    className="cursor-pointer"
+                    data-testid={`portal-log-row-${String(log.id)}`}
+                    onClick={() => {
+                      setExpandedId(expandedId === log.id ? null : log.id);
+                    }}
+                  >
+                    <TableCell className="whitespace-nowrap" data-testid="row-click-target">
+                      {new Date(log.createdAt).toLocaleString()}
+                    </TableCell>
+                    <TableCell>{userName(log)}</TableCell>
+                    <TableCell>{log.action}</TableCell>
+                    <TableCell>{log.remoteAddress ?? '-'}</TableCell>
+                  </TableRow>
+                  {expandedId === log.id && <DetailRow log={log} colSpan={4} />}
+                </Fragment>
+              ))}
+              {logs?.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-muted-foreground">
+                    {t('logs.noLogs')}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
@@ -270,112 +285,125 @@ function ApiLogTab(): React.JSX.Element {
     });
   }, [logs, filterStatus]);
 
-  const apiActiveFilterCount = [filterMethod, filterStatus].filter(Boolean).length;
-
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-1.5">
-        <SearchInput
-          value={search}
-          onDebouncedChange={setSearch}
-          placeholder={t('logs.searchPlaceholder')}
-        />
-        <ResponsiveFilters activeCount={apiActiveFilterCount}>
-          <Select
-            aria-label="Filter by method"
-            value={filterMethod}
-            onChange={(e) => {
-              setFilterMethod(e.target.value);
-              setPage(1);
-            }}
-            className="h-9 w-auto"
-          >
-            <option value="">{t('logs.allMethods')}</option>
-            <option value="GET">GET</option>
-            <option value="POST">POST</option>
-            <option value="PATCH">PATCH</option>
-            <option value="PUT">PUT</option>
-            <option value="DELETE">DELETE</option>
-          </Select>
-          <Select
-            aria-label="Filter by status"
-            value={filterStatus}
-            onChange={(e) => {
-              setFilterStatus(e.target.value);
-            }}
-            className="h-9 w-auto"
-          >
-            <option value="">{t('logs.allStatuses')}</option>
-            <option value="2xx">2xx</option>
-            <option value="4xx">4xx</option>
-            <option value="5xx">5xx</option>
-          </Select>
-        </ResponsiveFilters>
-      </div>
+      <Card>
+        <CardContent className="grid grid-cols-1 gap-4 p-4 md:grid-cols-3">
+          <div className="space-y-2">
+            <Label htmlFor="api-logs-search">{t('logs.search')}</Label>
+            <SearchInput
+              id="api-logs-search"
+              value={search}
+              onDebouncedChange={setSearch}
+              placeholder={t('logs.searchPlaceholder')}
+              className="h-9 max-w-none"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="api-logs-method">{t('logs.method')}</Label>
+            <Select
+              id="api-logs-method"
+              className="h-9"
+              value={filterMethod}
+              onChange={(e) => {
+                setFilterMethod(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">{t('logs.allMethods')}</option>
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+              <option value="PATCH">PATCH</option>
+              <option value="PUT">PUT</option>
+              <option value="DELETE">DELETE</option>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="api-logs-status">{t('logs.status')}</Label>
+            <Select
+              id="api-logs-status"
+              className="h-9"
+              value={filterStatus}
+              onChange={(e) => {
+                setFilterStatus(e.target.value);
+              }}
+            >
+              <option value="">{t('logs.allStatuses')}</option>
+              <option value="2xx">2xx</option>
+              <option value="4xx">4xx</option>
+              <option value="5xx">5xx</option>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
 
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('common.timestamp')}</TableHead>
-              <TableHead>{t('logs.apiKeyColumn')}</TableHead>
-              <TableHead>{t('logs.user')}</TableHead>
-              <TableHead>{t('logs.method')}</TableHead>
-              <TableHead>{t('logs.path')}</TableHead>
-              <TableHead>{t('logs.status')}</TableHead>
-              <TableHead>{t('logs.duration')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading && (
+      <Card>
+        <CardContent className="overflow-x-auto p-0">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground">
-                  {t('common.loading')}
-                </TableCell>
+                <TableHead>{t('common.timestamp')}</TableHead>
+                <TableHead>{t('logs.apiKeyColumn')}</TableHead>
+                <TableHead>{t('logs.user')}</TableHead>
+                <TableHead>{t('logs.method')}</TableHead>
+                <TableHead>{t('logs.path')}</TableHead>
+                <TableHead>{t('logs.status')}</TableHead>
+                <TableHead>{t('logs.duration')}</TableHead>
               </TableRow>
-            )}
-            {filteredLogs?.map((log) => (
-              <Fragment key={log.id}>
-                <TableRow
-                  className="cursor-pointer"
-                  data-testid={`api-log-row-${String(log.id)}`}
-                  onClick={() => {
-                    setExpandedId(expandedId === log.id ? null : log.id);
-                  }}
-                >
-                  <TableCell className="whitespace-nowrap" data-testid="row-click-target">
-                    {new Date(log.createdAt).toLocaleString()}
-                  </TableCell>
-                  <TableCell>{log.apiKeyName ?? 'n/a'}</TableCell>
-                  <TableCell>{userName(log)}</TableCell>
-                  <TableCell>
-                    {log.method != null && (
-                      <Badge variant={httpMethodVariant(log.method)}>{log.method}</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="max-w-[300px] truncate">{log.path ?? '-'}</TableCell>
-                  <TableCell>
-                    {log.statusCode != null && (
-                      <Badge variant={httpStatusVariant(log.statusCode)}>{log.statusCode}</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    {log.durationMs != null ? t('logs.durationMs', { value: log.durationMs }) : '-'}
+            </TableHeader>
+            <TableBody>
+              {isLoading && (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground">
+                    {t('common.loading')}
                   </TableCell>
                 </TableRow>
-                {expandedId === log.id && <DetailRow log={log} colSpan={7} />}
-              </Fragment>
-            ))}
-            {filteredLogs?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground">
-                  {t('logs.noLogs')}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+              )}
+              {filteredLogs?.map((log) => (
+                <Fragment key={log.id}>
+                  <TableRow
+                    className="cursor-pointer"
+                    data-testid={`api-log-row-${String(log.id)}`}
+                    onClick={() => {
+                      setExpandedId(expandedId === log.id ? null : log.id);
+                    }}
+                  >
+                    <TableCell className="whitespace-nowrap" data-testid="row-click-target">
+                      {new Date(log.createdAt).toLocaleString()}
+                    </TableCell>
+                    <TableCell>{log.apiKeyName ?? 'n/a'}</TableCell>
+                    <TableCell>{userName(log)}</TableCell>
+                    <TableCell>
+                      {log.method != null && (
+                        <Badge variant={httpMethodVariant(log.method)}>{log.method}</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="max-w-[300px] truncate">{log.path ?? '-'}</TableCell>
+                    <TableCell>
+                      {log.statusCode != null && (
+                        <Badge variant={httpStatusVariant(log.statusCode)}>{log.statusCode}</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {log.durationMs != null
+                        ? t('logs.durationMs', { value: log.durationMs })
+                        : '-'}
+                    </TableCell>
+                  </TableRow>
+                  {expandedId === log.id && <DetailRow log={log} colSpan={7} />}
+                </Fragment>
+              ))}
+              {filteredLogs?.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground">
+                    {t('logs.noLogs')}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
@@ -416,110 +444,123 @@ function WorkerLogTab(): React.JSX.Element {
     setSearch,
   } = usePaginatedQuery<WorkerJobLog>('worker-logs', '/v1/worker-logs', extraParams);
 
-  const workerActiveFilterCount = [filterQueue, filterStatus].filter(Boolean).length;
-
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-1.5">
-        <SearchInput
-          value={search}
-          onDebouncedChange={setSearch}
-          placeholder={t('logs.searchPlaceholder')}
-        />
-        <ResponsiveFilters activeCount={workerActiveFilterCount}>
-          <Select
-            aria-label="Filter by queue"
-            value={filterQueue}
-            onChange={(e) => {
-              setFilterQueue(e.target.value);
-              setPage(1);
-            }}
-            className="h-9 w-auto"
-          >
-            <option value="">{t('logs.allQueues')}</option>
-            <option value="cron-jobs">cron-jobs</option>
-            <option value="load-management">load-management</option>
-            <option value="guest-session-events">guest-session-events</option>
-          </Select>
-          <Select
-            aria-label="Filter by status"
-            value={filterStatus}
-            onChange={(e) => {
-              setFilterStatus(e.target.value);
-              setPage(1);
-            }}
-            className="h-9 w-auto"
-          >
-            <option value="">{t('logs.allStatuses')}</option>
-            <option value="started">started</option>
-            <option value="completed">completed</option>
-            <option value="failed">failed</option>
-          </Select>
-        </ResponsiveFilters>
-      </div>
+      <Card>
+        <CardContent className="grid grid-cols-1 gap-4 p-4 md:grid-cols-3">
+          <div className="space-y-2">
+            <Label htmlFor="worker-logs-search">{t('logs.search')}</Label>
+            <SearchInput
+              id="worker-logs-search"
+              value={search}
+              onDebouncedChange={setSearch}
+              placeholder={t('logs.searchPlaceholder')}
+              className="h-9 max-w-none"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="worker-logs-queue">{t('logs.queue')}</Label>
+            <Select
+              id="worker-logs-queue"
+              className="h-9"
+              value={filterQueue}
+              onChange={(e) => {
+                setFilterQueue(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">{t('logs.allQueues')}</option>
+              <option value="cron-jobs">cron-jobs</option>
+              <option value="load-management">load-management</option>
+              <option value="guest-session-events">guest-session-events</option>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="worker-logs-status">{t('logs.status')}</Label>
+            <Select
+              id="worker-logs-status"
+              className="h-9"
+              value={filterStatus}
+              onChange={(e) => {
+                setFilterStatus(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">{t('logs.allStatuses')}</option>
+              <option value="started">started</option>
+              <option value="completed">completed</option>
+              <option value="failed">failed</option>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
 
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('common.timestamp')}</TableHead>
-              <TableHead>{t('logs.jobName')}</TableHead>
-              <TableHead>{t('logs.queue')}</TableHead>
-              <TableHead>{t('logs.status')}</TableHead>
-              <TableHead>{t('logs.duration')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading && (
+      <Card>
+        <CardContent className="overflow-x-auto p-0">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
-                  {t('common.loading')}
-                </TableCell>
+                <TableHead>{t('common.timestamp')}</TableHead>
+                <TableHead>{t('logs.jobName')}</TableHead>
+                <TableHead>{t('logs.queue')}</TableHead>
+                <TableHead>{t('logs.status')}</TableHead>
+                <TableHead>{t('logs.duration')}</TableHead>
               </TableRow>
-            )}
-            {logs?.map((log) => (
-              <Fragment key={log.id}>
-                <TableRow
-                  className="cursor-pointer"
-                  data-testid={`worker-log-row-${String(log.id)}`}
-                  onClick={() => {
-                    setExpandedId(expandedId === log.id ? null : log.id);
-                  }}
-                >
-                  <TableCell className="whitespace-nowrap" data-testid="row-click-target">
-                    {new Date(log.startedAt).toLocaleString()}
-                  </TableCell>
-                  <TableCell>{log.jobName}</TableCell>
-                  <TableCell>{log.queue}</TableCell>
-                  <TableCell>
-                    <Badge variant={workerStatusVariant(log.status)}>{log.status}</Badge>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    {log.durationMs != null ? t('logs.durationMs', { value: log.durationMs }) : '-'}
+            </TableHeader>
+            <TableBody>
+              {isLoading && (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground">
+                    {t('common.loading')}
                   </TableCell>
                 </TableRow>
-                {expandedId === log.id && log.error != null && (
-                  <TableRow>
-                    <TableCell colSpan={5} className="bg-muted/30 p-4">
-                      <p className="font-medium text-muted-foreground mb-1">
-                        {t('logs.errorDetails')}
-                      </p>
-                      <p className="text-sm whitespace-pre-wrap">{log.error}</p>
+              )}
+              {logs?.map((log) => (
+                <Fragment key={log.id}>
+                  <TableRow
+                    className="cursor-pointer"
+                    data-testid={`worker-log-row-${String(log.id)}`}
+                    onClick={() => {
+                      setExpandedId(expandedId === log.id ? null : log.id);
+                    }}
+                  >
+                    <TableCell className="whitespace-nowrap" data-testid="row-click-target">
+                      {new Date(log.startedAt).toLocaleString()}
+                    </TableCell>
+                    <TableCell>{log.jobName}</TableCell>
+                    <TableCell>{log.queue}</TableCell>
+                    <TableCell>
+                      <Badge variant={workerStatusVariant(log.status)}>{log.status}</Badge>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {log.durationMs != null
+                        ? t('logs.durationMs', { value: log.durationMs })
+                        : '-'}
                     </TableCell>
                   </TableRow>
-                )}
-              </Fragment>
-            ))}
-            {logs?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
-                  {t('logs.noWorkerLogs')}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+                  {expandedId === log.id && log.error != null && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="bg-muted/30 p-4">
+                        <p className="font-medium text-muted-foreground mb-1">
+                          {t('logs.errorDetails')}
+                        </p>
+                        <p className="text-sm whitespace-pre-wrap">{log.error}</p>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </Fragment>
+              ))}
+              {logs?.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground">
+                    {t('logs.noWorkerLogs')}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
@@ -532,7 +573,10 @@ export function AccessLogs(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl md:text-3xl font-bold">{t('logs.title')}</h1>
+      <div>
+        <h1 className="text-2xl md:text-3xl font-bold">{t('logs.title')}</h1>
+        <p className="text-sm text-muted-foreground">{t('logs.subtitle')}</p>
+      </div>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>

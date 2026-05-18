@@ -466,12 +466,15 @@ const OCPP16_ACTIONS: Array<{
   },
 ];
 
+const REFRESH_INTERVAL_MS = 30_000;
+
 export class ChaosOrchestrator {
   private readonly sql: postgres.Sql;
   private readonly pubsub: PubSubClient;
   private readonly actionIntervalMs: number;
   private readonly stationLimit: number;
   private actionTimer: ReturnType<typeof setInterval> | null = null;
+  private refreshTimer: ReturnType<typeof setInterval> | null = null;
   private stationIds: string[] = [];
   private tokens: DriverToken[] = [];
   private stationProtocols: Map<string, 'ocpp1.6' | 'ocpp2.1'> = new Map();
@@ -493,36 +496,69 @@ export class ChaosOrchestrator {
     this.stationLimit = options?.stationLimit ?? 0;
   }
 
-  async start(): Promise<void> {
-    // css_stations rows are owned by the seed scripts (db:seed, db:seed:dev)
-    // and migration 0001. The orchestrator just reads them to populate its
-    // in-memory action targets -- no INSERT mirroring here.
+  // Loads the current set of action targets from the DB and replaces the
+  // in-memory caches. Stations added at runtime (dashboard toggle, POST
+  // /v1/css/stations) appear here on the next call; rows that were deleted
+  // or had enabled flipped to false drop out. State for stations that
+  // disappeared (offline marker, active-tx markers) is cleared to avoid
+  // confusing later dispatch ticks.
+  private async loadStations(): Promise<{
+    stations: Array<{ station_id: string; ocpp_protocol: string }>;
+    tokens: DriverToken[];
+  }> {
     const stationRows = await this.sql<Array<{ station_id: string; ocpp_protocol: string }>>`
       SELECT cs.station_id, cs.ocpp_protocol
       FROM charging_stations cs
       INNER JOIN css_stations css ON css.station_id = cs.station_id
       WHERE cs.is_simulator = true AND css.enabled = true
     `;
-
     let stations = [...stationRows];
     if (this.stationLimit > 0 && stations.length > this.stationLimit) {
       stations = stations.slice(0, this.stationLimit);
     }
-
-    // Load driver tokens
-    this.tokens = (
+    const tokens = (
       await this.sql<Array<{ id_token: string; token_type: string }>>`
         SELECT id_token, token_type FROM driver_tokens WHERE is_active = true
       `
     ).map((r) => ({ idToken: r.id_token, tokenType: r.token_type }));
+    return { stations, tokens };
+  }
 
+  private applyLoaded(
+    stations: Array<{ station_id: string; ocpp_protocol: string }>,
+    tokens: DriverToken[],
+  ): void {
+    const liveIds = new Set(stations.map((s) => s.station_id));
+
+    this.stationIds = stations.map((s) => s.station_id);
+    this.stationProtocols.clear();
     for (const station of stations) {
-      this.stationIds.push(station.station_id);
       this.stationProtocols.set(
         station.station_id,
         station.ocpp_protocol === 'ocpp1.6' ? 'ocpp1.6' : 'ocpp2.1',
       );
     }
+
+    // Drop in-flight markers for stations that are no longer in the DB; the
+    // SimulatorManager has already removed those simulators, so any state we
+    // hold for them is stale.
+    for (const id of [...this.offlineStations]) {
+      if (!liveIds.has(id)) this.offlineStations.delete(id);
+    }
+    for (const id of [...this.chargingStations]) {
+      if (!liveIds.has(id)) this.chargingStations.delete(id);
+    }
+
+    this.tokens = tokens;
+  }
+
+  async start(): Promise<void> {
+    // css_stations rows are owned by the seed scripts (db:seed, db:seed:dev)
+    // and migration 0001 -- plus any added at runtime via the dashboard
+    // simulator toggle or POST /v1/css/stations. The orchestrator just reads
+    // them to populate its in-memory action targets; no INSERT mirroring.
+    const { stations, tokens } = await this.loadStations();
+    this.applyLoaded(stations, tokens);
 
     console.log(
       `[chaos] Loaded ${String(stations.length)} stations and ${String(this.tokens.length)} tokens`,
@@ -530,6 +566,23 @@ export class ChaosOrchestrator {
 
     // Start action timer
     this.actionTimer = setInterval(() => void this.dispatchRandomAction(), this.actionIntervalMs);
+
+    // Periodically re-sync station targets so simulators created/deleted
+    // after start are picked up without a CSS restart. Matches the
+    // SimulatorManager's 5s poll-on-css_stations behavior (slower cadence
+    // here because chaos targets are read at every dispatch tick anyway).
+    this.refreshTimer = setInterval(() => {
+      void (async (): Promise<void> => {
+        try {
+          const loaded = await this.loadStations();
+          this.applyLoaded(loaded.stations, loaded.tokens);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.log(`[chaos] Refresh failed: ${msg}`);
+        }
+      })();
+    }, REFRESH_INTERVAL_MS);
+
     console.log(
       `[chaos] Started action timer (${String(this.actionIntervalMs)}ms interval, ${String(this.stationIds.length)} stations)`,
     );
@@ -540,6 +593,19 @@ export class ChaosOrchestrator {
       clearInterval(this.actionTimer);
       this.actionTimer = null;
     }
+    if (this.refreshTimer != null) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+  }
+
+  // Remove a single station from in-memory caches. Used when a dispatch tick
+  // discovers the css_stations row was deleted or disabled between refreshes.
+  private dropStation(stationId: string): void {
+    this.stationIds = this.stationIds.filter((id) => id !== stationId);
+    this.stationProtocols.delete(stationId);
+    this.offlineStations.delete(stationId);
+    this.chargingStations.delete(stationId);
   }
 
   private async dispatchRandomAction(): Promise<void> {
@@ -606,15 +672,21 @@ export class ChaosOrchestrator {
                ) AS has_tx
         FROM css_stations s
         LEFT JOIN css_evses e ON e.css_station_id = s.id AND e.evse_id = 1
-        WHERE s.station_id = ${stationId}
+        WHERE s.station_id = ${stationId} AND s.enabled = true
         LIMIT 1
       `;
       const row = rows[0];
-      if (row != null) {
-        stationStatus = row.status as CssStationStatus;
-        connectorStatus = row.evse_status ?? 'Available';
-        hasActiveTx = row.has_tx || hasActiveTx;
+      if (row == null) {
+        // The css_stations row was deleted or disabled after our last
+        // refresh. Drop it from in-memory targets so we don't publish
+        // commands the SimulatorManager will silently drop, and skip this
+        // tick. The next periodic refresh will reconcile fully.
+        this.dropStation(stationId);
+        return;
       }
+      stationStatus = row.status as CssStationStatus;
+      connectorStatus = row.evse_status ?? 'Available';
+      hasActiveTx = row.has_tx || hasActiveTx;
     } catch {
       // Best-effort: if DB unavailable, fall through with default 'available'.
     }

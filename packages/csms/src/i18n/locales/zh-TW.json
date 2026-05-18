@@ -72,7 +72,9 @@
     "confirmDuplicateDescription": "將建立此模板的副本。是否繼續?",
     "duplicateSuccess": "模板已複製",
     "loadError": "資料載入失敗，請重試。",
-    "moreFilters": "更多篩選"
+    "moreFilters": "更多篩選",
+    "filters": "篩選",
+    "clearAllFilters": "清除全部"
   },
   "status": {
     "online": "線上",
@@ -152,6 +154,7 @@
   "roaming": {
     "partners": {
       "title": "漫遊合作伙伴",
+      "subtitle": "管理 OCPI 合作夥伴連線,實現跨網路的漫遊充電會話。",
       "partnerId": "合作伙伴 ID",
       "partnerName": "合作伙伴名稱",
       "addPartner": "建立合作伙伴",
@@ -181,8 +184,10 @@
       "action": "操作",
       "objects": "物件"
     },
+    "subtitle": "設定 OCPI 漫遊合作夥伴、位置發佈、會話、CDR 和資費對應。",
     "locations": {
       "title": "站點發布",
+      "subtitle": "透過 OCPI 控制向漫遊合作夥伴發佈哪些站點。",
       "description": "控制哪些站點透過OCPI釋出給漫遊合作伙伴。",
       "locationName": "位置名稱",
       "address": "地址",
@@ -194,6 +199,7 @@
     },
     "sessions": {
       "title": "漫遊會話",
+      "subtitle": "透過 OCPI 網路由外部合作夥伴權杖驅動的充電會話。",
       "partner": "合作伙伴",
       "tokenUid": "令牌UID",
       "energy": "電量",
@@ -202,6 +208,7 @@
     },
     "cdrs": {
       "title": "充電詳情記錄",
+      "subtitle": "與 OCPI 合作夥伴交換的漫遊 CDR,用於跨網路計費。",
       "partner": "合作伙伴",
       "cdrId": "CDR ID",
       "energy": "電量",
@@ -214,6 +221,7 @@
     },
     "tariffs": {
       "title": "費率對映",
+      "subtitle": "將您的內部資費對應到漫遊合作夥伴可見的 OCPI 格式資費。",
       "addMapping": "建立對映",
       "createMapping": "建立費率對映",
       "mappingDetails": "費率對映詳情",
@@ -376,6 +384,9 @@
   },
   "sites": {
     "title": "站點",
+    "subtitle": "管理您的充電位置。按城市、州或負載管理篩選以尋找站點。",
+    "search": "搜尋",
+    "loadManagementFilter": "負載管理",
     "siteId": "站點 ID",
     "siteName": "站點名稱",
     "addSite": "建立站點",
@@ -463,6 +474,9 @@
   },
   "stations": {
     "title": "充電站",
+    "subtitle": "瀏覽和管理所有站點的充電站。按站點、供應商、狀態或協議篩選。",
+    "search": "搜尋",
+    "type": "Type",
     "id": "充電站 ID",
     "addStation": "建立充電站",
     "createStation": "建立充電站",
@@ -490,6 +504,7 @@
     "filterByOnline": "線上:",
     "allStatuses": "所有 EVSE 狀態",
     "allOnline": "所有連線",
+    "connectivity": "連線",
     "metrics": "指標",
     "ocppCommands": "OCPP 命令",
     "qrCodes": "二維碼",
@@ -754,6 +769,8 @@
   },
   "sessions": {
     "title": "充電會話",
+    "subtitle": "整個車隊的近期和歷史充電會話。按充電站、駕駛員、狀態或日期範圍篩選。",
+    "search": "搜尋",
     "reservationTokenMismatchTitle": "預約權杖不匹配",
     "reservationTokenMismatchDescription": "此工作階段使用了與預約綁定不同的權杖。工作階段已被允許繼續；請審查計費或詐騙訊號。",
     "expectedToken": "預期",
@@ -824,6 +841,8 @@
   },
   "drivers": {
     "title": "駕駛員",
+    "subtitle": "管理您的駕駛員帳戶。按狀態篩選以尋找活躍或非活躍駕駛員。",
+    "search": "搜尋",
     "driverId": "駕駛員 ID",
     "driverName": "駕駛員姓名",
     "addDriver": "建立駕駛員",
@@ -857,6 +876,7 @@
   },
   "pricing": {
     "title": "計費",
+    "subtitle": "定價組將一個或多個適用於站點、充電站、車隊或駕駛員的資費打包。",
     "tariffs": "費率",
     "auditEntity": "對象",
     "auditChanges": "變更",
@@ -930,6 +950,7 @@
     "holidayDescription": "適用於已配置的節假日",
     "manageHolidays": "管理節假日",
     "holidays": "節假日",
+    "holidaysSubtitle": "假日日期適用於透過'holidays'限制選擇加入的時段資費。",
     "noHolidays": "未配置節假日",
     "addHoliday": "新增節假日",
     "bulkAdd": "批次新增",
@@ -940,6 +961,8 @@
   },
   "users": {
     "title": "使用者",
+    "subtitle": "儀表板的營運商帳戶。按角色、狀態或站點存取權限篩選。",
+    "search": "搜尋",
     "userId": "使用者 ID",
     "fullName": "全名",
     "addUser": "建立使用者",
@@ -1052,6 +1075,8 @@
   },
   "fleets": {
     "title": "車隊",
+    "subtitle": "將駕駛員和充電站分組為車隊,以共享定價和報告。",
+    "search": "搜尋",
     "fleetId": "車隊 ID",
     "fleetName": "車隊名稱",
     "createFleet": "建立車隊",
@@ -1114,6 +1139,8 @@
   },
   "tokens": {
     "title": "令牌",
+    "subtitle": "已在系統中註冊的 RFID 和充電權杖。按駕駛員、權杖類型或狀態篩選。",
+    "search": "搜尋",
     "tokenId": "令牌 ID",
     "addToken": "建立令牌",
     "createToken": "建立令牌",
@@ -1369,6 +1396,7 @@
   },
   "settings": {
     "title": "設定",
+    "subtitle": "設定系統範圍的偏好:品牌、付款、整合、安全、API 金鑰和營運商工具。",
     "qrCodeIcon": "二維碼圖示",
     "qrCodeIconDescription": "上傳 SVG 圖示嵌入二維碼中心。",
     "uploadSvg": "上傳 SVG",
@@ -1742,6 +1770,7 @@
   },
   "pnc": {
     "certificates": "證書",
+    "certificatesSubtitle": "ISO 15118 即插即充憑證生命週期:CA 根憑證、充電站憑證和 CSR 請求。",
     "caCertificates": "CA 證書",
     "stationCertificates": "充電站證書",
     "csrRequests": "CSR 請求",
@@ -1780,6 +1809,7 @@
   },
   "notifications": {
     "title": "通知",
+    "subtitle": "透過電子郵件、簡訊、推播和 Webhook 通道,為駕駛員和營運商設定基於事件的通知。",
     "eventType": "事件型別",
     "channel": "渠道",
     "language": "語言",
@@ -1857,6 +1887,8 @@
   },
   "reservations": {
     "title": "預約",
+    "subtitle": "即將到來和過去的充電預約。按站點、充電站或狀態篩選。",
+    "search": "搜尋",
     "create": "建立預約",
     "createReservation": "建立預約",
     "cancel": "取消預約",
@@ -2182,6 +2214,8 @@
   },
   "logs": {
     "title": "日誌",
+    "subtitle": "營運商存取日誌:每次登入嘗試、變更和特權讀取。",
+    "search": "搜尋",
     "csmsTab": "CSMS 日誌",
     "portalTab": "門戶日誌",
     "apiTab": "API 日誌",
@@ -2217,6 +2251,7 @@
   },
   "reports": {
     "title": "報告",
+    "subtitle": "產生財務、能源和合規報告,安排定期發送,並瀏覽過去的執行。",
     "generateTab": "生成",
     "historyTab": "歷史",
     "schedulesTab": "計劃",
@@ -2343,6 +2378,8 @@
   },
   "supportCases": {
     "title": "工單管理",
+    "subtitle": "由駕駛員發起的支援案例。按狀態、優先順序、類別或分配篩選。",
+    "search": "搜尋",
     "caseId": "工單 ID",
     "createCase": "建立工單",
     "searchPlaceholder": "搜尋支援案例...",
@@ -2713,6 +2750,7 @@
   },
   "conformance": {
     "title": "合規測試",
+    "subtitle": "Run the OCTT test suite against this CSMS. View pass/fail history and per-run details.",
     "runTests": "執行測試",
     "runAll": "執行全部",
     "runHistory": "執行歷史",
@@ -2819,6 +2857,8 @@
     "loadFailed": "載入稽核日誌失敗",
     "noEntries": "沒有符合篩選條件的稽核記錄",
     "history": "歷史",
-    "actorType": "類型"
+    "actorType": "類型",
+    "settingKey": "設定項",
+    "change": "變更"
   }
 }

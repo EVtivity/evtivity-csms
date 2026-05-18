@@ -93,7 +93,7 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle>{t('profile.personalInfo')}</CardTitle>
         {!editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
       </CardHeader>

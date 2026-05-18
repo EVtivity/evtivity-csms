@@ -8,23 +8,8 @@ export function EvPlugAnimation(): React.JSX.Element {
       className="w-full max-w-[200px] mx-auto"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <defs>
-        <style>
-          {`
-            @keyframes nudge {
-              0%, 100% { transform: translateX(0); }
-              50% { transform: translateX(8px); }
-            }
-            .plug-group { animation: nudge 1.8s ease-in-out infinite; }
-            @media (prefers-reduced-motion: reduce) {
-              .plug-group { animation: none; }
-            }
-          `}
-        </style>
-      </defs>
-
       {/* Cable */}
-      <g className="plug-group">
+      <g className="animate-ev-plug-nudge">
         <path
           d="M10 70 Q 30 70 40 60 Q 50 50 55 50"
           fill="none"

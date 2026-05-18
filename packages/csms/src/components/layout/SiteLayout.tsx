@@ -134,7 +134,7 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle>Station Layout</CardTitle>
         <form
           onSubmit={(e) => {
@@ -142,7 +142,7 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
             handleSave();
           }}
           noValidate
-          className="flex gap-2"
+          className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex"
         >
           <ResetButton onClick={handleReset} disabled={pendingPositions.size === 0} />
           <SaveButton isPending={saveMutation.isPending} />

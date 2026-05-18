@@ -72,7 +72,9 @@
     "confirmDuplicateDescription": "A copy of this template will be created. Continue?",
     "duplicateSuccess": "Template duplicated",
     "loadError": "Failed to load data. Please try again.",
-    "moreFilters": "More Filters"
+    "moreFilters": "More Filters",
+    "filters": "Filters",
+    "clearAllFilters": "Clear all"
   },
   "status": {
     "online": "Online",
@@ -150,8 +152,10 @@
     "audit": "Audit"
   },
   "roaming": {
+    "subtitle": "Configure OCPI roaming partners, location publishing, sessions, CDRs, and tariff mappings.",
     "partners": {
       "title": "Roaming Partners",
+      "subtitle": "Manage OCPI partner connections for roaming charge sessions across networks.",
       "partnerId": "Partner ID",
       "partnerName": "Partner Name",
       "addPartner": "Create Partner",
@@ -183,6 +187,7 @@
     },
     "locations": {
       "title": "Location Publishing",
+      "subtitle": "Control which sites are published to roaming partners via OCPI.",
       "description": "Control which sites are published to roaming partners via OCPI.",
       "locationName": "Location Name",
       "address": "Address",
@@ -194,6 +199,7 @@
     },
     "sessions": {
       "title": "Roaming Sessions",
+      "subtitle": "Charging sessions driven by external partner tokens via the OCPI network.",
       "partner": "Partner",
       "tokenUid": "Token UID",
       "energy": "Energy",
@@ -202,6 +208,7 @@
     },
     "cdrs": {
       "title": "Charge Detail Records",
+      "subtitle": "Roaming CDRs exchanged with OCPI partners for cross-network billing.",
       "partner": "Partner",
       "cdrId": "CDR ID",
       "energy": "Energy",
@@ -214,6 +221,7 @@
     },
     "tariffs": {
       "title": "Tariff Mappings",
+      "subtitle": "Map your internal tariffs to OCPI-format tariffs visible to roaming partners.",
       "addMapping": "Create Mapping",
       "createMapping": "Create Tariff Mapping",
       "mappingDetails": "Tariff Mapping Details",
@@ -376,6 +384,10 @@
   },
   "sites": {
     "title": "Sites",
+    "subtitle": "Manage your charging locations. Filter by city, state, or load management to find a site.",
+    "search": "Search",
+    "location": "Location",
+    "loadManagementFilter": "Load Management",
     "siteId": "Site ID",
     "siteName": "Site Name",
     "addSite": "Create Site",
@@ -463,6 +475,10 @@
   },
   "stations": {
     "title": "Stations",
+    "subtitle": "Browse and manage stations across all your sites. Filter by site, vendor, status, or protocol.",
+    "search": "Search",
+    "type": "Type",
+    "onboardingStatus": "Onboarding",
     "id": "Station ID",
     "addStation": "Create Station",
     "createStation": "Create Station",
@@ -490,6 +506,7 @@
     "filterByOnline": "Online:",
     "allStatuses": "All EVSE Status",
     "allOnline": "All Connectivity",
+    "connectivity": "Connectivity",
     "metrics": "Metrics",
     "ocppCommands": "OCPP Commands",
     "qrCodes": "QR Codes",
@@ -668,7 +685,7 @@
     "blockStation": "Block Station",
     "blockStationDescription": "This will block the station from connecting. The station will not be permanently deleted. You can unblock it later to restore it to pending status.",
     "onboardingStatus": "Onboarding Status",
-    "onboardingStatusFilter": "Onboarding",
+    "onboardingStatusFilter": "All Onboarding Status",
     "securityEvents": "Security Events",
     "securityEventsDescription": "Security-related events reported by the station via OCPP SecurityEventNotification, such as authentication failures, tamper detection, and firmware changes.",
     "noSecurityEvents": "No security events recorded",
@@ -754,6 +771,8 @@
   },
   "sessions": {
     "title": "Sessions",
+    "subtitle": "Recent and historical charging sessions across the fleet. Filter by station, driver, status, or date range.",
+    "search": "Search",
     "reservationTokenMismatchTitle": "Reservation token mismatch",
     "reservationTokenMismatchDescription": "This session was started with a different token than the one the reservation was bound to. The session was allowed to proceed; review for billing or fraud signals.",
     "expectedToken": "Expected",
@@ -824,6 +843,8 @@
   },
   "drivers": {
     "title": "Drivers",
+    "subtitle": "Manage your driver accounts. Filter by status to find active or inactive drivers.",
+    "search": "Search",
     "driverId": "Driver ID",
     "driverName": "Driver Name",
     "addDriver": "Create Driver",
@@ -857,6 +878,7 @@
   },
   "pricing": {
     "title": "Pricing",
+    "subtitle": "Pricing groups bundle one or more tariffs that apply by site, station, fleet, or driver.",
     "tariffs": "Tariffs",
     "auditEntity": "Entity",
     "auditChanges": "Changes",
@@ -930,6 +952,7 @@
     "holidayDescription": "Applies on configured holiday dates",
     "manageHolidays": "Manage Holidays",
     "holidays": "Holidays",
+    "holidaysSubtitle": "Holiday dates apply to time-of-day tariffs that opt in via the 'holidays' restriction.",
     "noHolidays": "No holidays configured",
     "addHoliday": "Add Holiday",
     "bulkAdd": "Bulk Add",
@@ -940,6 +963,8 @@
   },
   "users": {
     "title": "Users",
+    "subtitle": "Operator accounts for the dashboard. Filter by role, status, or site access.",
+    "search": "Search",
     "userId": "User ID",
     "fullName": "Full Name",
     "addUser": "Create User",
@@ -1052,6 +1077,8 @@
   },
   "fleets": {
     "title": "Fleets",
+    "subtitle": "Group drivers and stations into fleets for shared pricing and reporting.",
+    "search": "Search",
     "fleetId": "Fleet ID",
     "fleetName": "Fleet Name",
     "createFleet": "Create Fleet",
@@ -1114,6 +1141,8 @@
   },
   "tokens": {
     "title": "Tokens",
+    "subtitle": "RFID and charging tokens registered with the system. Filter by driver, token type, or status.",
+    "search": "Search",
     "tokenId": "Token ID",
     "addToken": "Create Token",
     "createToken": "Create Token",
@@ -1369,6 +1398,7 @@
   },
   "settings": {
     "title": "Settings",
+    "subtitle": "Configure system-wide preferences: branding, payments, integrations, security, API keys, and operator tools.",
     "qrCodeIcon": "QR Code Icon",
     "qrCodeIconDescription": "Upload an SVG icon to embed in the center of QR codes.",
     "uploadSvg": "Upload SVG",
@@ -1742,6 +1772,7 @@
   },
   "pnc": {
     "certificates": "Certificates",
+    "certificatesSubtitle": "ISO 15118 Plug and Charge certificate lifecycle: CA roots, station certs, and CSR requests.",
     "caCertificates": "CA Certificates",
     "stationCertificates": "Station Certificates",
     "csrRequests": "CSR Requests",
@@ -1780,6 +1811,7 @@
   },
   "notifications": {
     "title": "Notifications",
+    "subtitle": "Configure event-driven notifications to drivers and operators across email, SMS, push, and webhook channels.",
     "eventType": "Event Type",
     "channel": "Channel",
     "language": "Language",
@@ -1876,6 +1908,8 @@
   },
   "reservations": {
     "title": "Reservations",
+    "subtitle": "Upcoming and past charging reservations. Filter by site, station, or status.",
+    "search": "Search",
     "create": "Create Reservation",
     "createReservation": "Create Reservation",
     "cancel": "Cancel Reservation",
@@ -2201,6 +2235,8 @@
   },
   "logs": {
     "title": "Logs",
+    "subtitle": "Operator access logs: every login attempt, mutation, and privileged read.",
+    "search": "Search",
     "csmsTab": "CSMS Log",
     "portalTab": "Portal Log",
     "apiTab": "API Log",
@@ -2236,6 +2272,7 @@
   },
   "reports": {
     "title": "Reports",
+    "subtitle": "Generate financial, energy, and compliance reports, schedule recurring sends, and browse past runs.",
     "generateTab": "Generate",
     "historyTab": "History",
     "schedulesTab": "Schedules",
@@ -2362,6 +2399,8 @@
   },
   "supportCases": {
     "title": "Support Cases",
+    "subtitle": "Driver-initiated support cases. Filter by status, priority, category, or assignment.",
+    "search": "Search",
     "caseId": "Case ID",
     "createCase": "Create Case",
     "searchPlaceholder": "Search support cases...",
@@ -2732,6 +2771,7 @@
   },
   "conformance": {
     "title": "Conformance Testing",
+    "subtitle": "Run the OCTT test suite against this CSMS. View pass/fail history and per-run details.",
     "runTests": "Run Tests",
     "runAll": "Run All Tests",
     "runHistory": "Run History",
@@ -2838,6 +2878,8 @@
     "loadFailed": "Failed to load audit log",
     "noEntries": "No audit entries match these filters",
     "history": "History",
-    "actorType": "Type"
+    "actorType": "Type",
+    "settingKey": "Setting",
+    "change": "Change"
   }
 }

@@ -29,7 +29,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
-import { ResponsiveFilters } from '@/components/responsive-filters';
+import { FilterPopover } from '@/components/FilterBar';
 import { certificateStatusVariant } from '@/lib/status-variants';
 
 interface CsrRequest {
@@ -89,9 +89,9 @@ export function CsrRequestsTab(): React.JSX.Element {
       <TabsContent value="csr">
         <Card>
           <CardHeader>
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4">
+            <div className="flex flex-row items-center justify-between gap-2">
               <CardTitle>{t('pnc.csrRequests')}</CardTitle>
-              <ResponsiveFilters activeCount={csrStatusFilter ? 1 : 0}>
+              <FilterPopover activeCount={csrStatusFilter ? 1 : 0}>
                 <Select
                   aria-label="Filter by status"
                   value={csrStatusFilter}
@@ -107,7 +107,7 @@ export function CsrRequestsTab(): React.JSX.Element {
                   <option value="rejected">{t('pnc.rejected')}</option>
                   <option value="expired">{t('pnc.expired')}</option>
                 </Select>
-              </ResponsiveFilters>
+              </FilterPopover>
             </div>
           </CardHeader>
           <CardContent>

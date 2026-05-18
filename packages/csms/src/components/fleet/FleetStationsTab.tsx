@@ -41,7 +41,7 @@ export function FleetStationsTab({ fleetId }: FleetStationsTabProps): React.JSX.
   return (
     <>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('fleets.stations')}</CardTitle>
           <AddButton
             label={t('fleets.addStation')}

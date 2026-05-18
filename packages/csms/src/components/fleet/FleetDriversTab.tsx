@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { Trash2 } from 'lucide-react';
 import { AddButton } from '@/components/add-button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Pagination } from '@/components/ui/pagination';
 import { DriversTable } from '@/components/DriversTable';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
@@ -58,7 +59,7 @@ export function FleetDriversTab({ fleetId }: FleetDriversTabProps): React.JSX.El
   return (
     <>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle>{t('fleets.drivers')}</CardTitle>
             <CardDescription>{t('fleets.addDriverNote')}</CardDescription>
@@ -84,6 +85,8 @@ export function FleetDriversTab({ fleetId }: FleetDriversTabProps): React.JSX.El
           />
         </CardContent>
       </Card>
+
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
 
       <ConfirmDialog
         open={removeDriverId != null}

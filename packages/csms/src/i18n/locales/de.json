@@ -72,7 +72,9 @@
     "confirmDuplicateDescription": "Eine Kopie dieser Vorlage wird erstellt. Fortfahren?",
     "duplicateSuccess": "Vorlage dupliziert",
     "loadError": "Daten konnten nicht geladen werden. Bitte versuchen Sie es erneut.",
-    "moreFilters": "Weitere Filter"
+    "moreFilters": "Weitere Filter",
+    "filters": "Filter",
+    "clearAllFilters": "Alle löschen"
   },
   "status": {
     "online": "Online",
@@ -152,6 +154,7 @@
   "roaming": {
     "partners": {
       "title": "Roaming-Partner",
+      "subtitle": "Verwalten Sie OCPI-Partnerverbindungen für Roaming-Ladevorgänge über Netzwerke hinweg.",
       "partnerId": "Partner-ID",
       "partnerName": "Partnername",
       "addPartner": "Partner erstellen",
@@ -181,8 +184,10 @@
       "action": "Aktion",
       "objects": "Objekte"
     },
+    "subtitle": "Konfigurieren Sie OCPI-Roaming-Partner, Standortveröffentlichung, Sitzungen, CDRs und Tarifzuordnungen.",
     "locations": {
       "title": "Standortveröffentlichung",
+      "subtitle": "Steuern Sie, welche Standorte über OCPI für Roaming-Partner veröffentlicht werden.",
       "description": "Steuern Sie, welche Standorte über OCPI an Roaming-Partner veröffentlicht werden.",
       "locationName": "Standortname",
       "address": "Adresse",
@@ -194,6 +199,7 @@
     },
     "sessions": {
       "title": "Roaming-Sitzungen",
+      "subtitle": "Ladevorgänge, die durch externe Partner-Token über das OCPI-Netzwerk gesteuert werden.",
       "partner": "Partner",
       "tokenUid": "Token-UID",
       "energy": "Energie",
@@ -202,6 +208,7 @@
     },
     "cdrs": {
       "title": "Charge Detail Records",
+      "subtitle": "Roaming-CDRs, die mit OCPI-Partnern für netzübergreifende Abrechnung ausgetauscht werden.",
       "partner": "Partner",
       "cdrId": "CDR-ID",
       "energy": "Energie",
@@ -214,6 +221,7 @@
     },
     "tariffs": {
       "title": "Tarifzuordnungen",
+      "subtitle": "Ordnen Sie Ihre internen Tarife OCPI-Format-Tarifen zu, die für Roaming-Partner sichtbar sind.",
       "addMapping": "Zuordnung erstellen",
       "createMapping": "Tarifzuordnung erstellen",
       "mappingDetails": "Details der Tarifzuordnung",
@@ -376,6 +384,9 @@
   },
   "sites": {
     "title": "Standorte",
+    "subtitle": "Verwalten Sie Ihre Ladestandorte. Filtern Sie nach Stadt, Bundesland oder Lastmanagement, um einen Standort zu finden.",
+    "search": "Suche",
+    "loadManagementFilter": "Lastmanagement",
     "siteId": "Standort-ID",
     "siteName": "Standortname",
     "addSite": "Standort erstellen",
@@ -463,6 +474,9 @@
   },
   "stations": {
     "title": "Ladestationen",
+    "subtitle": "Durchsuchen und verwalten Sie Stationen an allen Standorten. Filtern Sie nach Standort, Hersteller, Status oder Protokoll.",
+    "search": "Suche",
+    "type": "Type",
     "id": "Stations-ID",
     "addStation": "Ladestation erstellen",
     "createStation": "Ladestation erstellen",
@@ -490,6 +504,7 @@
     "filterByOnline": "Online:",
     "allStatuses": "Alle EVSE-Status",
     "allOnline": "Alle Verbindungen",
+    "connectivity": "Verbindung",
     "metrics": "Kennzahlen",
     "ocppCommands": "OCPP-Befehle",
     "qrCodes": "QR-Codes",
@@ -654,7 +669,7 @@
     "blockStation": "Station blockieren",
     "blockStationDescription": "Dadurch wird die Station an der Verbindung gehindert. Die Station wird nicht dauerhaft gelöscht. Sie können sie später entsperren, um sie wieder in den Status Ausstehend zu versetzen.",
     "onboardingStatus": "Onboarding-Status",
-    "onboardingStatusFilter": "Onboarding",
+    "onboardingStatusFilter": "Alle Onboarding-Status",
     "securityEvents": "Sicherheitsereignisse",
     "securityEventsDescription": "Sicherheitsbezogene Ereignisse, die von der Station über OCPP SecurityEventNotification gemeldet werden, z. B. fehlgeschlagene Authentifizierungen, Manipulationserkennung und Firmware-Änderungen.",
     "noSecurityEvents": "Keine Sicherheitsereignisse aufgezeichnet",
@@ -740,6 +755,8 @@
   },
   "sessions": {
     "title": "Ladevorgänge",
+    "subtitle": "Aktuelle und historische Ladevorgänge in der gesamten Flotte. Filtern Sie nach Station, Fahrer, Status oder Datumsbereich.",
+    "search": "Suche",
     "reservationTokenMismatchTitle": "Token der Reservierung stimmt nicht überein",
     "reservationTokenMismatchDescription": "Diese Sitzung wurde mit einem anderen Token gestartet als die Reservierung gebunden hatte. Die Sitzung wurde zugelassen; auf Abrechnung oder Betrugssignale prüfen.",
     "expectedToken": "Erwartet",
@@ -800,6 +817,8 @@
   },
   "drivers": {
     "title": "Fahrer",
+    "subtitle": "Verwalten Sie Ihre Fahrerkonten. Filtern Sie nach Status, um aktive oder inaktive Fahrer zu finden.",
+    "search": "Suche",
     "driverId": "Fahrer-ID",
     "driverName": "Fahrername",
     "addDriver": "Fahrer erstellen",
@@ -833,6 +852,7 @@
   },
   "pricing": {
     "title": "Preise",
+    "subtitle": "Preisgruppen bündeln einen oder mehrere Tarife, die nach Standort, Station, Flotte oder Fahrer gelten.",
     "tariffs": "Tarife",
     "auditEntity": "Entität",
     "auditChanges": "Änderungen",
@@ -906,6 +926,7 @@
     "holidayDescription": "Gilt an konfigurierten Feiertagen",
     "manageHolidays": "Feiertage verwalten",
     "holidays": "Feiertage",
+    "holidaysSubtitle": "Feiertagsdaten gelten für Tageszeit-Tarife, die sich über die 'holidays'-Einschränkung anmelden.",
     "noHolidays": "Keine Feiertage konfiguriert",
     "addHoliday": "Feiertag hinzufügen",
     "bulkAdd": "Mehrere hinzufügen",
@@ -916,6 +937,8 @@
   },
   "users": {
     "title": "Benutzer",
+    "subtitle": "Operator-Konten für das Dashboard. Filtern Sie nach Rolle, Status oder Standortzugriff.",
+    "search": "Suche",
     "userId": "Benutzer-ID",
     "fullName": "Vollständiger Name",
     "addUser": "Benutzer erstellen",
@@ -1028,6 +1051,8 @@
   },
   "fleets": {
     "title": "Flotten",
+    "subtitle": "Gruppieren Sie Fahrer und Stationen in Flotten für gemeinsame Preisgestaltung und Berichterstattung.",
+    "search": "Suche",
     "fleetId": "Flotten-ID",
     "fleetName": "Flottenname",
     "createFleet": "Flotte erstellen",
@@ -1090,6 +1115,8 @@
   },
   "tokens": {
     "title": "Token",
+    "subtitle": "RFID- und Lade-Token, die im System registriert sind. Filtern Sie nach Fahrer, Token-Typ oder Status.",
+    "search": "Suche",
     "tokenId": "Token-ID",
     "addToken": "Token erstellen",
     "createToken": "Token erstellen",
@@ -1335,6 +1362,7 @@
   },
   "settings": {
     "title": "Einstellungen",
+    "subtitle": "Konfigurieren Sie systemweite Einstellungen: Branding, Zahlungen, Integrationen, Sicherheit, API-Schlüssel und Operator-Tools.",
     "qrCodeIcon": "QR-Code-Symbol",
     "qrCodeIconDescription": "Laden Sie ein SVG-Symbol hoch, das in der Mitte von QR-Codes eingebettet wird.",
     "uploadSvg": "SVG hochladen",
@@ -1708,6 +1736,7 @@
   },
   "pnc": {
     "certificates": "Zertifikate",
+    "certificatesSubtitle": "ISO 15118 Plug and Charge Zertifikats-Lebenszyklus: CA-Roots, Stations-Zertifikate und CSR-Anfragen.",
     "caCertificates": "CA-Zertifikate",
     "stationCertificates": "Stationszertifikate",
     "csrRequests": "CSR-Anforderungen",
@@ -1746,6 +1775,7 @@
   },
   "notifications": {
     "title": "Benachrichtigungen",
+    "subtitle": "Konfigurieren Sie ereignisgesteuerte Benachrichtigungen an Fahrer und Operatoren über E-Mail, SMS, Push und Webhook-Kanäle.",
     "eventType": "Ereignistyp",
     "channel": "Kanal",
     "language": "Sprache",
@@ -1842,6 +1872,8 @@
   },
   "reservations": {
     "title": "Reservierungen",
+    "subtitle": "Anstehende und vergangene Ladereservierungen. Filtern Sie nach Standort, Station oder Status.",
+    "search": "Suche",
     "create": "Reservierung erstellen",
     "createReservation": "Reservierung erstellen",
     "cancel": "Reservierung stornieren",
@@ -2167,6 +2199,8 @@
   },
   "logs": {
     "title": "Protokolle",
+    "subtitle": "Operator-Zugriffsprotokolle: Jeder Anmeldeversuch, jede Änderung und jeder privilegierte Lesezugriff.",
+    "search": "Suche",
     "csmsTab": "CSMS-Protokoll",
     "portalTab": "Portal-Protokoll",
     "apiTab": "API-Protokoll",
@@ -2202,6 +2236,7 @@
   },
   "reports": {
     "title": "Berichte",
+    "subtitle": "Erstellen Sie Finanz-, Energie- und Compliance-Berichte, planen Sie wiederkehrende Sendungen und durchsuchen Sie vergangene Läufe.",
     "generateTab": "Generieren",
     "historyTab": "Verlauf",
     "schedulesTab": "Zeitpläne",
@@ -2328,6 +2363,8 @@
   },
   "supportCases": {
     "title": "Supportfälle",
+    "subtitle": "Vom Fahrer initiierte Supportfälle. Filtern Sie nach Status, Priorität, Kategorie oder Zuweisung.",
+    "search": "Suche",
     "caseId": "Fall-ID",
     "createCase": "Fall erstellen",
     "searchPlaceholder": "Supportfälle suchen...",
@@ -2698,6 +2735,7 @@
   },
   "conformance": {
     "title": "Konformitätstests",
+    "subtitle": "Run the OCTT test suite against this CSMS. View pass/fail history and per-run details.",
     "runTests": "Tests ausführen",
     "runAll": "Alle Tests ausführen",
     "runHistory": "Lauf-Verlauf",
@@ -2804,6 +2842,8 @@
     "loadFailed": "Auditprotokoll konnte nicht geladen werden",
     "noEntries": "Keine Audit-Einträge entsprechen diesen Filtern",
     "history": "Verlauf",
-    "actorType": "Typ"
+    "actorType": "Typ",
+    "settingKey": "Einstellung",
+    "change": "Änderung"
   }
 }

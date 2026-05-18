@@ -103,6 +103,14 @@ done
 
 echo ""
 
+echo "Regenerating AI assistant tools from OpenAPI spec..."
+if ! npm run codegen:ai-tools --workspace=@evtivity/api; then
+  echo ""
+  echo "AI tools codegen failed. Fix errors before releasing."
+  exit 1
+fi
+echo ""
+
 echo "Running esbuild production bundles..."
 if ! node scripts/build.mjs all; then
   echo ""
@@ -181,7 +189,7 @@ if [ "$unpushed" -gt 0 ]; then
   fi
 fi
 
-git add package.json packages/*/package.json
+git add package.json packages/*/package.json packages/api/src/services/ai/tools.ts
 if git diff --cached --quiet; then
   git commit --allow-empty -m "release: version $next_version"
 else

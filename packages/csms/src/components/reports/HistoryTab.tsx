@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { ResponsiveFilters } from '@/components/responsive-filters';
+import { FilterPopover } from '@/components/FilterBar';
 import { reportStatusVariant } from '@/lib/status-variants';
 
 interface Report {
@@ -105,8 +105,8 @@ export function HistoryTab(): React.JSX.Element {
   return (
     <Card>
       <CardContent className="pt-6 space-y-4">
-        <div className="flex">
-          <ResponsiveFilters activeCount={typeFilter ? 1 : 0}>
+        <div className="flex justify-end">
+          <FilterPopover activeCount={typeFilter ? 1 : 0}>
             <Select
               aria-label="Filter by report type"
               className="h-9"
@@ -123,7 +123,7 @@ export function HistoryTab(): React.JSX.Element {
                 </option>
               ))}
             </Select>
-          </ResponsiveFilters>
+          </FilterPopover>
         </div>
 
         <div className="overflow-x-auto">
@@ -164,7 +164,7 @@ export function HistoryTab(): React.JSX.Element {
                   </TableCell>
                   <TableCell>{formatDateTime(report.createdAt, timezone)}</TableCell>
                   <TableCell>
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
                       {report.status === 'completed' && (
                         <Button
                           variant="outline"

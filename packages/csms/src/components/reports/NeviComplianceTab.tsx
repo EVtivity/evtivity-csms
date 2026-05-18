@@ -743,7 +743,7 @@ function ExcludedDowntimeSection(): React.JSX.Element {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle>{t('nevi.excludedDowntime')}</CardTitle>
         <CreateButton label={t('nevi.createDowntime')} onClick={openCreate} />
       </CardHeader>
@@ -830,7 +830,7 @@ function ExcludedDowntimeSection(): React.JSX.Element {
                   </TableCell>
                   <TableCell className="max-w-[200px] truncate">{record.notes ?? '-'}</TableCell>
                   <TableCell>
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
                       <EditButton
                         label={t('nevi.editDowntime')}
                         onClick={() => {

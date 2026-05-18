@@ -10,6 +10,7 @@ import { CopyableId } from '@/components/copyable-id';
 import { CreateButton } from '@/components/create-button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Pagination } from '@/components/ui/pagination';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { SessionsTable, type Session } from '@/components/SessionsTable';
@@ -130,7 +131,7 @@ export function DriverDetail(): React.JSX.Element {
 
         <TabsContent value="tokens">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>{t('tokens.title')}</CardTitle>
               <CreateButton
                 label={t('tokens.createToken')}
@@ -157,7 +158,7 @@ export function DriverDetail(): React.JSX.Element {
 
         <TabsContent value="vehicles">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>{t('vehicles.title')}</CardTitle>
               <CreateButton
                 label={t('vehicles.createVehicle')}
@@ -193,6 +194,11 @@ export function DriverDetail(): React.JSX.Element {
                 onPageChange={setSessionsPage}
                 timezone={timezone}
                 hideDriverName
+              />
+              <Pagination
+                page={sessionsPage}
+                totalPages={sessionsTotalPages}
+                onPageChange={setSessionsPage}
               />
             </CardContent>
           </Card>

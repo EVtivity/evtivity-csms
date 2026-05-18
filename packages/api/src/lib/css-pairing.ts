@@ -64,10 +64,18 @@ export async function enableCssPair(opts: PairOptions, tx?: Executor): Promise<v
       connectorId: 1,
     });
 
+    // Batch the config-defaults insert. OCPP 2.1 has ~100 default keys; the
+    // previous per-key loop fired one INSERT per key, multiplying the
+    // round-trip cost of every css_stations pair-create by ~100x.
     const defaults =
       opts.ocppProtocol === 'ocpp1.6' ? OCPP16_CONFIG_DEFAULTS : OCPP21_CONFIG_DEFAULTS;
-    for (const [key, value] of Object.entries(defaults)) {
-      await innerTx.insert(cssConfigVariables).values({ cssStationId: created.id, key, value });
+    const configRows = Object.entries(defaults).map(([key, value]) => ({
+      cssStationId: created.id,
+      key,
+      value,
+    }));
+    if (configRows.length > 0) {
+      await innerTx.insert(cssConfigVariables).values(configRows);
     }
   };
 

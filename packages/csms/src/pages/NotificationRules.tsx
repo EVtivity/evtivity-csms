@@ -15,7 +15,10 @@ export function NotificationRules(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl md:text-3xl font-bold">{t('notifications.title')}</h1>
+      <div>
+        <h1 className="text-2xl md:text-3xl font-bold">{t('notifications.title')}</h1>
+        <p className="text-sm text-muted-foreground">{t('notifications.subtitle')}</p>
+      </div>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>

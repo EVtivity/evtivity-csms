@@ -31,12 +31,11 @@ import { TemplateButton } from '@/components/template-button';
 import { ImportButton } from '@/components/import-button';
 import { ExportButton } from '@/components/export-button';
 import { SearchInput } from '@/components/search-input';
-import { ResponsiveFilters } from '@/components/responsive-filters';
-import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { FilterPopover } from '@/components/FilterBar';
+import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { api } from '@/lib/api';
-import { CopyableId } from '@/components/copyable-id';
 import { TableSkeleton } from '@/components/TableSkeleton';
 import { formatDate, useUserTimezone } from '@/lib/timezone';
 
@@ -194,9 +193,12 @@ export function Sites(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl md:text-3xl font-bold">{t('sites.title')}</h1>
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold">{t('sites.title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('sites.subtitle')}</p>
+        </div>
+        <div className="flex flex-col gap-2 [&>*]:w-full sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:[&>*]:w-auto">
           <TemplateButton label={t('sites.downloadTemplate')} onClick={handleDownloadTemplate} />
           <ImportButton
             label={importMutation.isPending ? t('sites.importing') : t('sites.importCsv')}
@@ -270,112 +272,152 @@ export function Sites(): React.JSX.Element {
         </Card>
       )}
 
-      <div className="flex items-center gap-1.5">
-        <SearchInput
-          value={search}
-          onDebouncedChange={setSearch}
-          placeholder={t('sites.searchPlaceholder')}
-        />
-        <InfoTooltip content={t('sites.searchHint')} />
-        <ResponsiveFilters
-          activeCount={[locationFilter, loadManagementFilter].filter(Boolean).length}
-        >
-          <Select
-            aria-label="Filter by location"
-            value={locationFilter}
-            onChange={(e) => {
-              setLocationFilter(e.target.value);
-              setPage(1);
-            }}
-            className="h-9 w-[calc(50%-0.5rem)] sm:w-auto"
-          >
-            <option value="">{t('sites.allLocations')}</option>
-            {filterOptions?.locations.map((loc) => (
-              <option key={`${loc.city}|${loc.state}`} value={`${loc.city}|${loc.state}`}>
-                {loc.city}, {loc.state}
-              </option>
-            ))}
-          </Select>
-          <Select
-            aria-label="Filter by load management"
-            value={loadManagementFilter}
-            onChange={(e) => {
-              setLoadManagementFilter(e.target.value);
-              setPage(1);
-            }}
-            className="h-9 w-[calc(50%-0.5rem)] sm:w-auto"
-          >
-            <option value="">{t('sites.allLoadMgmt')}</option>
-            <option value="true">{t('common.yes')}</option>
-            <option value="false">{t('common.no')}</option>
-          </Select>
-        </ResponsiveFilters>
-      </div>
-
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('sites.siteName')}</TableHead>
-              <TableHead>{t('sites.siteId')}</TableHead>
-              <TableHead>{t('sites.location')}</TableHead>
-              <TableHead>{t('nav.stations')}</TableHead>
-              <TableHead>{t('sites.powerDraw')}</TableHead>
-              <TableHead>{t('sites.loadManagement')}</TableHead>
-              <TableHead>{t('common.created')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading && (
-              <TableRow>
-                <TableCell colSpan={7}>
-                  <TableSkeleton columns={7} rows={5} />
-                </TableCell>
-              </TableRow>
-            )}
-            {sites?.map((site) => (
-              <TableRow
-                key={site.id}
-                data-testid={`site-row-${site.id}`}
-                className="cursor-pointer"
-                onClick={() => {
-                  void navigate(`/sites/${site.id}`);
+      {(() => {
+        const searchInput = (
+          <SearchInput
+            value={search}
+            onDebouncedChange={setSearch}
+            placeholder={t('sites.searchPlaceholder')}
+            className="h-10 w-full"
+          />
+        );
+        const filters = (
+          <>
+            <div className="space-y-2">
+              <Label>{t('sites.location')}</Label>
+              <Select
+                aria-label={t('sites.location')}
+                className="h-10"
+                value={locationFilter}
+                onChange={(e) => {
+                  setLocationFilter(e.target.value);
+                  setPage(1);
                 }}
               >
-                <TableCell className="font-medium text-primary" data-testid="row-click-target">
-                  {site.name}
-                </TableCell>
-                <TableCell>
-                  <CopyableId id={site.id} variant="table" />
-                </TableCell>
-                <TableCell>{formatLocation(site)}</TableCell>
-                <TableCell>{site.stationCount}</TableCell>
-                <TableCell>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="font-medium">{Number(site.totalDrawKw).toFixed(1)} kW</span>
-                    {site.maxPowerKw != null && Number(site.maxPowerKw) > 0 && (
-                      <span className="text-muted-foreground">/ {Number(site.maxPowerKw)} kW</span>
-                    )}
-                  </span>
-                </TableCell>
-                <TableCell>
-                  <Badge variant={site.loadManagementEnabled ? 'default' : 'outline'}>
-                    {site.loadManagementEnabled ? t('common.yes') : t('common.no')}
-                  </Badge>
-                </TableCell>
-                <TableCell>{formatDate(site.createdAt, timezone)}</TableCell>
-              </TableRow>
-            ))}
-            {sites?.length === 0 && (
+                <option value="">{t('sites.allLocations')}</option>
+                {filterOptions?.locations.map((loc) => (
+                  <option key={`${loc.city}|${loc.state}`} value={`${loc.city}|${loc.state}`}>
+                    {loc.city}, {loc.state}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>{t('sites.loadManagementFilter')}</Label>
+              <Select
+                aria-label={t('sites.loadManagementFilter')}
+                className="h-10"
+                value={loadManagementFilter}
+                onChange={(e) => {
+                  setLoadManagementFilter(e.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="">{t('sites.allLoadMgmt')}</option>
+                <option value="true">{t('common.yes')}</option>
+                <option value="false">{t('common.no')}</option>
+              </Select>
+            </div>
+          </>
+        );
+        const activeFilterCount =
+          (locationFilter !== '' ? 1 : 0) + (loadManagementFilter !== '' ? 1 : 0);
+        return (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 md:hidden">
+                <div className="flex-1">{searchInput}</div>
+                <FilterPopover
+                  activeCount={activeFilterCount}
+                  onClearAll={() => {
+                    setLocationFilter('');
+                    setLoadManagementFilter('');
+                    setPage(1);
+                  }}
+                >
+                  {filters}
+                </FilterPopover>
+              </div>
+              <div className="hidden items-end gap-4 md:flex">
+                <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label>{t('sites.search')}</Label>
+                    {searchInput}
+                  </div>
+                  {filters}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      <Card>
+        <CardContent className="overflow-x-auto p-0">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground">
-                  {t('sites.noSitesFound')}
-                </TableCell>
+                <TableHead>{t('sites.siteId')}</TableHead>
+                <TableHead>{t('sites.siteName')}</TableHead>
+                <TableHead>{t('sites.location')}</TableHead>
+                <TableHead>{t('nav.stations')}</TableHead>
+                <TableHead>{t('sites.powerDraw')}</TableHead>
+                <TableHead>{t('sites.loadManagement')}</TableHead>
+                <TableHead>{t('common.created')}</TableHead>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+            </TableHeader>
+            <TableBody>
+              {isLoading && (
+                <TableRow>
+                  <TableCell colSpan={7}>
+                    <TableSkeleton columns={7} rows={5} />
+                  </TableCell>
+                </TableRow>
+              )}
+              {sites?.map((site) => (
+                <TableRow
+                  key={site.id}
+                  data-testid={`site-row-${site.id}`}
+                  className="cursor-pointer"
+                  onClick={() => {
+                    void navigate(`/sites/${site.id}`);
+                  }}
+                >
+                  <TableCell className="text-muted-foreground">{site.id}</TableCell>
+                  <TableCell className="font-medium text-primary" data-testid="row-click-target">
+                    {site.name}
+                  </TableCell>
+                  <TableCell>{formatLocation(site)}</TableCell>
+                  <TableCell>{site.stationCount}</TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="font-medium">{Number(site.totalDrawKw).toFixed(1)} kW</span>
+                      {site.maxPowerKw != null && Number(site.maxPowerKw) > 0 && (
+                        <span className="text-muted-foreground">
+                          / {Number(site.maxPowerKw)} kW
+                        </span>
+                      )}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={site.loadManagementEnabled ? 'default' : 'outline'}>
+                      {site.loadManagementEnabled ? t('common.yes') : t('common.no')}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{formatDate(site.createdAt, timezone)}</TableCell>
+                </TableRow>
+              ))}
+              {sites?.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground">
+                    {t('sites.noSitesFound')}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
 

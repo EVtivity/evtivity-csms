@@ -3,11 +3,10 @@
 -- packages/lib/src/permissions.ts but no migration backfilled them onto
 -- already-seeded admins, so every per-entity "History" tab returned 403.
 --
--- See .claude/rules/api/permission-sync.md for the contract that prevents
--- this class of bug going forward: every PR that adds a permission MUST
--- ship a corresponding backfill migration AND db:migrate now invokes
--- packages/database/src/sync-admin-permissions.ts as a post-step so admin
--- users converge on ADMIN_DEFAULT_PERMISSIONS automatically.
+-- Going forward, db:migrate runs sync-admin-permissions.ts as a post-step
+-- so admin users converge on ADMIN_DEFAULT_PERMISSIONS automatically. New
+-- permissions added to PERMISSIONS reach existing admins on the next
+-- migrate without needing a hand-written backfill like this one.
 
 INSERT INTO user_permissions (user_id, permission)
 SELECT u.id, p.perm

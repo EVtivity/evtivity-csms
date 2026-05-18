@@ -89,7 +89,7 @@ export function TimeSlotEditor({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle className="text-base">{t('smartCharging.schedulePeriods')}</CardTitle>
         <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={addPeriod}>
           <Plus className="h-4 w-4" />

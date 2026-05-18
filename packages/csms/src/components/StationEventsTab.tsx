@@ -17,7 +17,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Select } from '@/components/ui/select';
 import { Pagination } from '@/components/ui/pagination';
-import { ResponsiveFilters } from '@/components/responsive-filters';
+import { FilterPopover } from '@/components/FilterBar';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 
@@ -75,9 +75,9 @@ function SecurityEventsPanel({ stationId, timezone }: Props): React.JSX.Element 
   return (
     <Card>
       <CardHeader>
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4">
+        <div className="flex flex-row items-center justify-between gap-2">
           <CardTitle>{t('stations.securityEvents')}</CardTitle>
-          <ResponsiveFilters activeCount={severity ? 1 : 0}>
+          <FilterPopover activeCount={severity ? 1 : 0}>
             <Select
               aria-label="Filter by severity"
               value={severity}
@@ -94,7 +94,7 @@ function SecurityEventsPanel({ stationId, timezone }: Props): React.JSX.Element 
               <option value="low">{t('severity.low')}</option>
               <option value="info">{t('severity.info')}</option>
             </Select>
-          </ResponsiveFilters>
+          </FilterPopover>
         </div>
         <CardDescription>{t('stations.securityEventsDescription')}</CardDescription>
       </CardHeader>

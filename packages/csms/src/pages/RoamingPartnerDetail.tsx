@@ -112,7 +112,7 @@ export function RoamingPartnerDetail(): React.JSX.Element {
             {partner.countryCode}-{partner.partyId}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
           {partner.status === 'pending' && (
             <Button
               onClick={() => {

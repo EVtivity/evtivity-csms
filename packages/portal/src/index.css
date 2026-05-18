@@ -167,6 +167,19 @@
   animation: border-pulse 2s ease-in-out infinite;
 }
 
+@keyframes ev-plug-nudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(8px);
+  }
+}
+.animate-ev-plug-nudge {
+  animation: ev-plug-nudge 1.8s ease-in-out infinite;
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *,

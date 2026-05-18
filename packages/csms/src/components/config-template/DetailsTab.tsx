@@ -227,9 +227,9 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
   return (
     <>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('common.details')}</CardTitle>
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
             {!editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
             {!editing && (
               <Button
@@ -378,7 +378,7 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
                           </option>
                         ))}
                       </Select>
-                      <div className="flex gap-2">
+                      <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
                         <Input
                           placeholder={t('common.value')}
                           value={v.value}
@@ -425,7 +425,7 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
                           <option key={varName} value={varName} />
                         ))}
                       </datalist>
-                      <div className="flex gap-2">
+                      <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
                         <Input
                           placeholder={t('common.value')}
                           value={v.value}

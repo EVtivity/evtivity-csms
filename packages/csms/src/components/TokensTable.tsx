@@ -13,11 +13,17 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { CopyableId } from '@/components/copyable-id';
-import { Pagination } from '@/components/ui/pagination';
 import { formatDate } from '@/lib/timezone';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
 
 export const TOKENS_COLUMNS: ColumnMeta[] = [
+  {
+    key: 'tokenId',
+    label: 'tokens.tokenId',
+    defaultVisible: true,
+    defaultVisibleMobile: false,
+    alwaysVisible: true,
+  },
   {
     key: 'token',
     label: 'tokens.token',
@@ -26,7 +32,6 @@ export const TOKENS_COLUMNS: ColumnMeta[] = [
     alwaysVisible: true,
   },
   { key: 'driver', label: 'tokens.driver', defaultVisible: true, defaultVisibleMobile: true },
-  { key: 'tokenId', label: 'tokens.tokenId', defaultVisible: true, defaultVisibleMobile: false },
   { key: 'type', label: 'tokens.type', defaultVisible: true, defaultVisibleMobile: false },
   {
     key: 'status',
@@ -72,9 +77,6 @@ interface TokensTableProps {
 
 export function TokensTable({
   tokens,
-  page,
-  totalPages,
-  onPageChange,
   timezone,
   isLoading,
   showDriver = true,
@@ -94,9 +96,9 @@ export function TokensTable({
         <Table>
           <TableHeader>
             <TableRow>
+              {isVisible('tokenId') && <TableHead>{t('tokens.tokenId')}</TableHead>}
               {isVisible('token') && <TableHead>{t('tokens.token')}</TableHead>}
               {showDriver && isVisible('driver') && <TableHead>{t('tokens.driver')}</TableHead>}
-              {isVisible('tokenId') && <TableHead>{t('tokens.tokenId')}</TableHead>}
               {isVisible('type') && <TableHead>{t('tokens.type')}</TableHead>}
               {isVisible('status') && <TableHead>{t('common.status')}</TableHead>}
               {isVisible('expiresAt') && <TableHead>{t('tokens.expiresAt')}</TableHead>}
@@ -120,6 +122,9 @@ export function TokensTable({
                   void navigate(`/tokens/${token.id}`);
                 }}
               >
+                {isVisible('tokenId') && (
+                  <TableCell className="text-muted-foreground">{token.id}</TableCell>
+                )}
                 {isVisible('token') && (
                   <TableCell>
                     <CopyableId id={token.idToken} variant="table" className="text-primary" />
@@ -140,11 +145,6 @@ export function TokensTable({
                     ) : (
                       <span className="text-muted-foreground">{t('tokens.unassigned')}</span>
                     )}
-                  </TableCell>
-                )}
-                {isVisible('tokenId') && (
-                  <TableCell>
-                    <CopyableId id={token.id} variant="table" />
                   </TableCell>
                 )}
                 {isVisible('type') && <TableCell>{token.tokenType}</TableCell>}
@@ -198,8 +198,6 @@ export function TokensTable({
           </TableBody>
         </Table>
       </div>
-
-      <Pagination page={page} totalPages={totalPages} onPageChange={onPageChange} />
     </>
   );
 }

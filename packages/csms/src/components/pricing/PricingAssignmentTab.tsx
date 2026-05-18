@@ -109,7 +109,7 @@ export function PricingAssignmentTab({
                     <CardDescription>{pricingGroup.description}</CardDescription>
                   )}
                 </div>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
                   <EditButton
                     label={t(keys.change)}
                     onClick={() => {
