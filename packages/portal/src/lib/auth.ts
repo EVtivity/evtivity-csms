@@ -63,6 +63,10 @@ interface AuthState {
   setTimezone: (tz: string) => Promise<void>;
   setTheme: (theme: Theme) => Promise<void>;
   setDistanceUnit: (unit: 'miles' | 'km') => Promise<void>;
+  applyLanguageLocal: (lang: string) => Promise<void>;
+  applyTimezoneLocal: (tz: string) => void;
+  applyThemeLocal: (theme: Theme) => void;
+  applyDistanceUnitLocal: (unit: 'miles' | 'km') => void;
 }
 
 export const useAuth = create<AuthState>((set, get) => ({
@@ -221,5 +225,35 @@ export const useAuth = create<AuthState>((set, get) => ({
       set({ driver: { ...driver, distanceUnit: unit } });
       await api.patch('/v1/portal/driver/profile', { distanceUnit: unit });
     }
+  },
+
+  /**
+   * Apply preference locally only (localStorage + loadLanguage/applyTheme +
+   * Zustand state). Use after a bulk PATCH /v1/portal/driver/profile that
+   * already persisted the values, so the client-side side effects can run
+   * without making a redundant single-field round-trip.
+   */
+  applyLanguageLocal: async (lang: string) => {
+    localStorage.setItem('portal_language', lang);
+    await loadLanguage(lang);
+    const driver = get().driver;
+    if (driver != null) set({ driver: { ...driver, language: lang } });
+  },
+  applyTimezoneLocal: (tz: string) => {
+    localStorage.setItem('portal_timezone', tz);
+    const driver = get().driver;
+    if (driver != null) set({ driver: { ...driver, timezone: tz } });
+  },
+  applyThemeLocal: (theme: Theme) => {
+    localStorage.setItem('portal_theme', theme);
+    applyTheme(theme);
+    set({ theme });
+    const driver = get().driver;
+    if (driver != null) set({ driver: { ...driver, themePreference: theme } });
+  },
+  applyDistanceUnitLocal: (unit: 'miles' | 'km') => {
+    localStorage.setItem('portal_distance_unit', unit);
+    const driver = get().driver;
+    if (driver != null) set({ driver: { ...driver, distanceUnit: unit } });
   },
 }));

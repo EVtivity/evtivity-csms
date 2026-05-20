@@ -603,16 +603,29 @@ const ocppLogsResponse = z
 
 const securityLogItem = z
   .object({
-    id: z.string().describe('Security log row identifier'),
+    id: z.string().describe('Security log row identifier (prefixed with the source table)'),
+    source: z
+      .enum(['connection', 'security'])
+      .describe(
+        '`connection` for CSMS-side auth/credentials/connect events, `security` for OCPP-reported SecurityEventNotification',
+      ),
     event: z
       .string()
       .describe(
-        'Security event type (auth_failed, password_changed, credentials_rotated, connected, disconnected)',
+        'Event identifier. For `connection` source: auth_failed, password_changed, credentials_rotated, connected, disconnected. For `security` source: the OCPP security event type (TamperDetectionActivated, FailedToAuthenticateAtCentralSystem, etc.)',
+      ),
+    severity: z
+      .string()
+      .nullable()
+      .describe(
+        'Severity level for OCPP `security` events (critical, high, medium, low, info); null for `connection` rows',
       ),
     remoteAddress: z
       .string()
       .nullable()
-      .describe('Remote IP address of the station when the event occurred, if available'),
+      .describe(
+        'Remote IP address of the station when the event occurred (connection source only)',
+      ),
     metadata: z.record(z.unknown()).nullable().describe('Event-specific metadata as a JSON object'),
     createdAt: z.coerce.date().describe('When the event was recorded'),
   })
@@ -3197,10 +3210,31 @@ export function stationRoutes(app: FastifyInstance): void {
     },
   );
 
-  // Security event logs
+  // Security event logs — unified feed of CSMS-side auth/credential events
+  // (from `connection_logs`) plus OCPP-reported security events (from
+  // `security_events`). Operators see one chronological list per station so
+  // they don't have to cross-reference two tabs during an incident.
+  const CONNECTION_LOG_EVENTS = [
+    'auth_failed',
+    'password_changed',
+    'credentials_rotated',
+    'connected',
+    'disconnected',
+  ] as const;
+
   const securityLogsQuery = z.object({
     page: z.coerce.number().int().min(1).default(1),
-    limit: z.coerce.number().int().min(1).max(100).default(50),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+    event: z
+      .string()
+      .optional()
+      .describe('Filter by exact event identifier (e.g., auth_failed, TamperDetectionActivated)'),
+    source: z
+      .enum(['connection', 'security'])
+      .optional()
+      .describe('Restrict to a single source table'),
+    from: z.coerce.date().optional().describe('Lower bound (inclusive) for event timestamp'),
+    to: z.coerce.date().optional().describe('Upper bound (inclusive) for event timestamp'),
   });
 
   app.get(
@@ -3230,40 +3264,92 @@ export function stationRoutes(app: FastifyInstance): void {
       const query = request.query as z.infer<typeof securityLogsQuery>;
       const offset = (query.page - 1) * query.limit;
 
-      const securityEvents = [
-        'auth_failed',
-        'password_changed',
-        'credentials_rotated',
-        'connected',
-        'disconnected',
-      ];
+      // UNION ALL over both source tables. Both are filtered by stationId
+      // (the FK is on `chargingStations.id` in both schemas), then by
+      // optional event/source/date filters. We use raw SQL because Drizzle's
+      // builder doesn't compose a discriminated UNION cleanly when the two
+      // sides project different column sets (severity/techInfo only exist
+      // on `security_events`).
+      const fromTs = query.from ?? null;
+      const toTs = query.to ?? null;
+      const eventFilter = query.event ?? null;
+      const wantConnection = query.source == null || query.source === 'connection';
+      const wantSecurity = query.source == null || query.source === 'security';
 
-      const where = and(
-        eq(connectionLogs.stationId, id),
-        inArray(connectionLogs.event, securityEvents),
+      const eventList = sql.join(
+        CONNECTION_LOG_EVENTS.map((e) => sql`${e}`),
+        sql`, `,
       );
 
+      const parts: Array<ReturnType<typeof sql>> = [];
+      if (wantConnection) {
+        parts.push(sql`
+          SELECT
+            'connection:' || id::text AS id,
+            'connection'::text AS source,
+            event,
+            NULL::text AS severity,
+            remote_address,
+            metadata,
+            created_at
+          FROM connection_logs
+          WHERE station_id = ${id}
+            AND event IN (${eventList})
+            AND (${eventFilter}::text IS NULL OR event = ${eventFilter})
+            AND (${fromTs}::timestamptz IS NULL OR created_at >= ${fromTs}::timestamptz)
+            AND (${toTs}::timestamptz IS NULL OR created_at <= ${toTs}::timestamptz)
+        `);
+      }
+      if (wantSecurity) {
+        parts.push(sql`
+          SELECT
+            'security:' || id::text AS id,
+            'security'::text AS source,
+            type AS event,
+            severity,
+            NULL::text AS remote_address,
+            CASE WHEN tech_info IS NULL THEN NULL ELSE jsonb_build_object('techInfo', tech_info) END AS metadata,
+            timestamp AS created_at
+          FROM security_events
+          WHERE station_id = ${id}
+            AND (${eventFilter}::text IS NULL OR type = ${eventFilter})
+            AND (${fromTs}::timestamptz IS NULL OR timestamp >= ${fromTs}::timestamptz)
+            AND (${toTs}::timestamptz IS NULL OR timestamp <= ${toTs}::timestamptz)
+        `);
+      }
+      if (parts.length === 0) {
+        return { data: [], total: 0 };
+      }
+
+      const unionSql = sql.join(parts, sql` UNION ALL `);
+
+      const dataSql = sql`${unionSql} ORDER BY created_at DESC LIMIT ${query.limit} OFFSET ${offset}`;
+      const countSql = sql`SELECT COUNT(*)::int AS count FROM (${unionSql}) sub`;
+
       const [rows, countRows] = await Promise.all([
-        db
-          .select({
-            id: connectionLogs.id,
-            event: connectionLogs.event,
-            remoteAddress: connectionLogs.remoteAddress,
-            metadata: connectionLogs.metadata,
-            createdAt: connectionLogs.createdAt,
-          })
-          .from(connectionLogs)
-          .where(where)
-          .orderBy(desc(connectionLogs.createdAt))
-          .limit(query.limit)
-          .offset(offset),
-        db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(connectionLogs)
-          .where(where),
+        db.execute<{
+          id: string;
+          source: 'connection' | 'security';
+          event: string;
+          severity: string | null;
+          remote_address: string | null;
+          metadata: Record<string, unknown> | null;
+          created_at: Date;
+        }>(dataSql),
+        db.execute<{ count: number }>(countSql),
       ]);
 
-      return { data: rows, total: countRows[0]?.count ?? 0 };
+      const data = rows.map((r) => ({
+        id: r.id,
+        source: r.source,
+        event: r.event,
+        severity: r.severity,
+        remoteAddress: r.remote_address,
+        metadata: r.metadata,
+        createdAt: r.created_at,
+      }));
+
+      return { data, total: countRows[0]?.count ?? 0 };
     },
   );
 
@@ -4023,15 +4109,6 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
       const query = request.query as z.infer<typeof securityEventsQuery>;
-
-      const [station] = await db
-        .select({ id: chargingStations.id })
-        .from(chargingStations)
-        .where(eq(chargingStations.id, id));
-      if (station == null) {
-        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
-        return;
-      }
 
       const conditions = [eq(securityEvents.stationId, id)];
       if (query.severity != null) {

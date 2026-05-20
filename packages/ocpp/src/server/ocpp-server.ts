@@ -294,7 +294,12 @@ export class OcppServer {
       eventType: 'station.Connected',
       aggregateType: 'ChargingStation',
       aggregateId: stationId,
-      payload: { stationId, stationDbId: session.stationDbId, ocppProtocol: ws.protocol || null },
+      payload: {
+        stationId,
+        stationDbId: session.stationDbId,
+        ocppProtocol: ws.protocol || null,
+        remoteAddress: remoteIp,
+      },
     });
 
     this.pingMonitor.writeNow();
@@ -307,7 +312,7 @@ export class OcppServer {
         eventType: 'station.Disconnected',
         aggregateType: 'ChargingStation',
         aggregateId: stationId,
-        payload: { stationId },
+        payload: { stationId, remoteAddress: remoteIp },
       });
 
       this.pingMonitor.writeNow();

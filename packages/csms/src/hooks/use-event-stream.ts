@@ -120,6 +120,17 @@ function getQueryKeysForEvent(event: CsmsEvent): string[][] {
       }
       break;
 
+    case 'station.securityEvent':
+      if (stationId != null) {
+        keys.push(['stations', stationId, 'security-logs']);
+        keys.push(['stations', stationId, 'security-events']);
+        // Auto-disable on a critical event flips availability, so invalidate
+        // the station detail query too. Operators see the new state without
+        // a manual refresh.
+        keys.push(['stations', stationId]);
+      }
+      break;
+
     case 'ocpp.health':
       keys.push(['dashboard', 'ocpp-health']);
       break;

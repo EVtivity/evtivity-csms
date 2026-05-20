@@ -20,6 +20,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { FilterPopover } from '@/components/FilterBar';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
+import { SEVERITY_VARIANT } from '@/lib/severity';
 
 interface SecurityEvent {
   id: number;
@@ -41,17 +42,6 @@ interface Props {
   stationId: string;
   timezone: string;
 }
-
-const SEVERITY_VARIANT: Record<
-  string,
-  'destructive' | 'warning' | 'secondary' | 'outline' | 'info'
-> = {
-  critical: 'destructive',
-  high: 'destructive',
-  medium: 'warning',
-  low: 'secondary',
-  info: 'outline',
-};
 
 function SecurityEventsPanel({ stationId, timezone }: Props): React.JSX.Element {
   const { t } = useTranslation();
@@ -123,7 +113,7 @@ function SecurityEventsPanel({ stationId, timezone }: Props): React.JSX.Element 
                       <TableCell className="text-xs">{event.type}</TableCell>
                       <TableCell>
                         <Badge variant={SEVERITY_VARIANT[event.severity] ?? 'outline'}>
-                          {event.severity}
+                          {t(`severity.${event.severity}`, { defaultValue: event.severity })}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-xs">

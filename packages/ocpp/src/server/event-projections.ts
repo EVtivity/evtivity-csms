@@ -23,7 +23,10 @@ import {
   writeReservationAudit,
   writeAudit,
   firmwareCampaignAuditLog,
+  stationAuditLog,
+  isAutoDisableOnCriticalEnabled,
 } from '@evtivity/database';
+import { getSecuritySeverity } from '../lib/security-severity.js';
 import {
   calculateSessionCost,
   calculateSplitSessionCost,
@@ -734,6 +737,7 @@ export function registerProjections(
     if (stationUuid == null) return;
 
     const ocppProtocol = (event.payload as { ocppProtocol?: string }).ocppProtocol ?? null;
+    const remoteAddress = (event.payload as { remoteAddress?: string }).remoteAddress ?? null;
 
     await sql`
       UPDATE charging_stations
@@ -743,8 +747,8 @@ export function registerProjections(
     `;
 
     const connLog = await sql`
-      INSERT INTO connection_logs (station_id, event, protocol)
-      SELECT ${stationUuid}, 'connected', ${ocppProtocol}
+      INSERT INTO connection_logs (station_id, event, protocol, remote_address)
+      SELECT ${stationUuid}, 'connected', ${ocppProtocol}, ${remoteAddress}
       WHERE EXISTS (SELECT 1 FROM charging_stations WHERE id = ${stationUuid})
     `;
     if (connLog.count === 0) {
@@ -829,9 +833,10 @@ export function registerProjections(
       WHERE id = ${stationUuid}
     `;
 
+    const remoteAddress = (event.payload as { remoteAddress?: string }).remoteAddress ?? null;
     const connLog = await sql`
-      INSERT INTO connection_logs (station_id, event)
-      SELECT ${stationUuid}, 'disconnected'
+      INSERT INTO connection_logs (station_id, event, remote_address)
+      SELECT ${stationUuid}, 'disconnected', ${remoteAddress}
       WHERE EXISTS (SELECT 1 FROM charging_stations WHERE id = ${stationUuid})
     `;
     if (connLog.count === 0) {
@@ -2956,18 +2961,15 @@ export function registerProjections(
     if (stationUuid == null) return;
 
     const payload = event.payload;
-    const eventName = 'security:' + String(payload.type);
-    await sql`
-      INSERT INTO connection_logs (station_id, event, metadata)
-      VALUES (${stationUuid}, ${eventName}, ${sql.json(asJson(payload))})
-    `;
-
-    // Compute severity and persist to security_events table
     const secType = (payload.type as string | undefined) ?? '';
     const secTimestamp = (payload.timestamp as string | undefined) ?? new Date().toISOString();
     const techInfo = (payload.techInfo as string | undefined) ?? null;
-    const { getSecuritySeverity } = await import('../lib/security-severity.js');
     const severity = getSecuritySeverity(secType);
+    // `security_events` is the single source of truth for OCPP-reported
+    // security events. The prior duplicate write to `connection_logs` with a
+    // `security:` prefix was never read by the Security tab (its filter
+    // excluded that prefix) so it was dead data; the unified UNION in
+    // `/security-logs` reads from this table directly.
     await sql`
       INSERT INTO security_events (station_id, type, severity, timestamp, tech_info)
       VALUES (${stationUuid}, ${secType}, ${severity}, ${secTimestamp}, ${techInfo})
@@ -2975,14 +2977,51 @@ export function registerProjections(
 
     // Auto-disable station on critical security events
     if (severity === 'critical') {
-      const { isAutoDisableOnCriticalEnabled } = await import('@evtivity/database');
       const autoDisable = await isAutoDisableOnCriticalEnabled();
       if (autoDisable) {
-        await sql`
-          UPDATE charging_stations
-          SET availability = 'unavailable', updated_at = now()
-          WHERE id = ${stationUuid}
+        // CTE captures the prior availability so the audit row records the
+        // actual previous state, not a guess. RETURNING on the UPDATE alone
+        // would give the post-update value. Per-aggregate event queue
+        // (safeSubscribe) means no other write to this station's
+        // availability is in flight, so the SELECT + UPDATE pair is race-free
+        // even without an explicit transaction.
+        const flipped = await sql<Array<{ prior_availability: string }>>`
+          WITH prior AS (
+            SELECT availability FROM charging_stations
+            WHERE id = ${stationUuid} AND availability != 'unavailable'
+          ),
+          upd AS (
+            UPDATE charging_stations
+            SET availability = 'unavailable', updated_at = now()
+            WHERE id = ${stationUuid} AND availability != 'unavailable'
+            RETURNING id
+          )
+          SELECT prior.availability AS prior_availability FROM prior
+          WHERE EXISTS (SELECT 1 FROM upd)
         `;
+        const priorAvailability = flipped[0]?.prior_availability;
+        if (priorAvailability != null) {
+          // Record the system-initiated availability flip so the History tab
+          // has a forensic trail and operators can correlate the disable
+          // with the triggering security event. `writeAudit` is fail-open
+          // (logs and continues) so a stray audit error never blocks the
+          // OCPP response path that already returned.
+          await writeAudit(
+            { table: stationAuditLog, idColumn: 'station_id' },
+            {
+              entityId: stationUuid,
+              entityIdSnapshot: stationUuid,
+              action: 'updated',
+              actor: 'system',
+              actorLabel: `security-critical:${secType}`,
+              before: { availability: priorAvailability },
+              after: { availability: 'unavailable' },
+              notes: `Auto-disabled by critical SecurityEventNotification: ${secType}`,
+            },
+            undefined,
+            logger,
+          );
+        }
       }
     }
 

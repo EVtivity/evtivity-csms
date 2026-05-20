@@ -1088,15 +1088,36 @@ describe('Station routes - handler logic', () => {
   // --- GET /v1/stations/:id/security-logs ---
 
   describe('GET /v1/stations/:id/security-logs', () => {
-    it('returns paginated security logs', async () => {
-      const logRow = {
-        id: 'log-1',
-        event: 'connected',
-        remoteAddress: '1.2.3.4',
-        metadata: {},
-        createdAt: new Date().toISOString(),
+    it('returns unified paginated security logs from both sources', async () => {
+      // The handler issues a UNION ALL via db.execute (data) and a wrapping
+      // COUNT (via db.execute) so the global execute mock must be overridden
+      // for both calls in order. Row shape matches the SQL `SELECT ... AS`
+      // aliases the handler emits.
+      const { db } = (await import('@evtivity/database')) as unknown as {
+        db: { execute: ReturnType<typeof vi.fn> };
       };
-      setupDbResults([logRow], [{ count: 1 }]);
+      db.execute
+        .mockResolvedValueOnce([
+          {
+            id: 'connection:1',
+            source: 'connection',
+            event: 'auth_failed',
+            severity: null,
+            remote_address: '1.2.3.4',
+            metadata: { reason: 'Invalid password' },
+            created_at: new Date(),
+          },
+          {
+            id: 'security:5',
+            source: 'security',
+            event: 'TamperDetectionActivated',
+            severity: 'critical',
+            remote_address: null,
+            metadata: { techInfo: 'lid sensor tripped' },
+            created_at: new Date(),
+          },
+        ])
+        .mockResolvedValueOnce([{ count: 2 }]);
 
       const response = await app.inject({
         method: 'GET',
@@ -1106,8 +1127,12 @@ describe('Station routes - handler logic', () => {
 
       expect(response.statusCode).toBe(200);
       const body = response.json();
-      expect(body).toHaveProperty('data');
-      expect(body).toHaveProperty('total');
+      expect(body.total).toBe(2);
+      expect(body.data).toHaveLength(2);
+      expect(body.data[0].source).toBe('connection');
+      expect(body.data[0].severity).toBeNull();
+      expect(body.data[1].source).toBe('security');
+      expect(body.data[1].severity).toBe('critical');
     });
   });
 

@@ -72,6 +72,14 @@ interface AuthState {
   setLanguage: (language: string) => Promise<void>;
   setTimezone: (timezone: string) => Promise<void>;
   setTheme: (theme: Theme) => Promise<void>;
+  /**
+   * Apply language locally only (localStorage + loadLanguage + Zustand state).
+   * Use when the caller has already persisted the value via another endpoint
+   * (e.g. PATCH /v1/users/me with language in the body) and just needs to
+   * refresh the client-side bundle, avoiding a redundant API round-trip.
+   */
+  applyLanguageLocal: (language: string) => Promise<void>;
+  applyTimezoneLocal: (timezone: string) => void;
 }
 
 function getInitialState(): {
@@ -262,7 +270,7 @@ export const useAuth = create<AuthState>((set, get) => ({
     const user = get().user;
     if (user != null) {
       set({ user: { ...user, language } });
-      await api.patch(`/v1/users/${user.id}`, { language });
+      await api.patch('/v1/users/me', { language });
     }
   },
 
@@ -271,7 +279,7 @@ export const useAuth = create<AuthState>((set, get) => ({
     const user = get().user;
     if (user != null) {
       set({ user: { ...user, timezone } });
-      await api.patch(`/v1/users/${user.id}`, { timezone });
+      await api.patch('/v1/users/me', { timezone });
     }
   },
 
@@ -282,7 +290,24 @@ export const useAuth = create<AuthState>((set, get) => ({
     const user = get().user;
     if (user != null) {
       set({ user: { ...user, themePreference: theme } });
-      await api.patch(`/v1/users/${user.id}`, { themePreference: theme });
+      await api.patch('/v1/users/me', { themePreference: theme });
+    }
+  },
+
+  applyLanguageLocal: async (language: string) => {
+    localStorage.setItem('language', language);
+    await loadLanguage(language);
+    const user = get().user;
+    if (user != null) {
+      set({ user: { ...user, language } });
+    }
+  },
+
+  applyTimezoneLocal: (timezone: string) => {
+    localStorage.setItem('timezone', timezone);
+    const user = get().user;
+    if (user != null) {
+      set({ user: { ...user, timezone } });
     }
   },
 }));

@@ -14,15 +14,10 @@ import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatDateTime, TIMEZONE_OPTIONS } from '@/lib/timezone';
+import { LANGUAGES } from '@/components/ui/language-select';
 import type { UserMe } from '@/pages/Profile';
 
 const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-const LANGUAGE_OPTIONS = [
-  { value: 'en', label: 'English' },
-  { value: 'es', label: 'Espanol' },
-  { value: 'zh', label: '中文' },
-] as const;
 
 interface ProfilePersonalInfoProps {
   user: UserMe;
@@ -32,8 +27,8 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const hydrate = useAuth((s) => s.hydrate);
-  const setLanguage = useAuth((s) => s.setLanguage);
-  const setTimezone = useAuth((s) => s.setTimezone);
+  const applyLanguageLocal = useAuth((s) => s.applyLanguageLocal);
+  const applyTimezoneLocal = useAuth((s) => s.applyTimezoneLocal);
 
   const [editing, setEditing] = useState(false);
   const [firstName, setFirstName] = useState('');
@@ -49,7 +44,7 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
       phone?: string | null;
       language?: string;
       timezone?: string;
-    }) => api.patch(`/v1/users/${user.id}`, body),
+    }) => api.patch('/v1/users/me', body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['users', 'me'] });
       setEditing(false);
@@ -79,10 +74,10 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
       {
         onSuccess: () => {
           if (editLanguage !== user.language) {
-            void setLanguage(editLanguage);
+            void applyLanguageLocal(editLanguage);
           }
           if (editTimezone !== user.timezone) {
-            void setTimezone(editTimezone);
+            applyTimezoneLocal(editTimezone);
           }
         },
       },
@@ -145,9 +140,9 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
                     setEditLanguage(e.target.value);
                   }}
                 >
-                  {LANGUAGE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
+                  {LANGUAGES.map((lang) => (
+                    <option key={lang.code} value={lang.code}>
+                      {lang.label}
                     </option>
                   ))}
                 </select>
@@ -210,7 +205,7 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
             <div>
               <dt className="text-muted-foreground">{t('profile.language')}</dt>
               <dd className="font-medium">
-                {LANGUAGE_OPTIONS.find((o) => o.value === user.language)?.label ?? user.language}
+                {LANGUAGES.find((o) => o.code === user.language)?.label ?? user.language}
               </dd>
             </div>
             <div>

@@ -130,13 +130,20 @@ const userParams = z.object({
   id: ID_PARAMS.userId.describe('User ID'),
 });
 
+// Restrict language to the locales the CSMS bundle ships translations for
+// (frontend/i18n.md). An arbitrary string would persist and then break the
+// i18n loader on the next session. Matches the portal driver enum.
+const userLanguageEnum = z
+  .enum(['en', 'de', 'es', 'ko', 'zh', 'zh-TW'])
+  .describe('Preferred language code (one of the 6 CSMS-supported locales)');
+
 const updateUserBody = z.object({
   firstName: z.string().max(100).optional(),
   lastName: z.string().max(100).optional(),
   phone: z.string().max(50).nullable().optional().describe('Mobile phone number'),
   roleId: ID_PARAMS.roleId.optional().describe('Role ID to assign to the user'),
   isActive: z.boolean().optional().describe('Whether the user account is active'),
-  language: z.string().max(10).optional().describe('Preferred language code (e.g. en, es, zh)'),
+  language: userLanguageEnum.optional(),
   timezone: z.string().max(50).optional().describe('IANA timezone (e.g. America/New_York)'),
   themePreference: z.enum(['light', 'dark']).optional(),
   hasAllSiteAccess: z.boolean().optional().describe('Whether the user can access all sites'),
@@ -144,6 +151,20 @@ const updateUserBody = z.object({
     .array(z.string())
     .optional()
     .describe('Site IDs to grant access to (replaces existing assignments)'),
+});
+
+// Self-edit body for /v1/users/me. Restricted to fields a user can change
+// about themselves without triggering an RBAC permission check. roleId,
+// isActive, hasAllSiteAccess, siteIds are intentionally excluded so a
+// non-admin operator can save their own profile (the admin-only PATCH
+// /v1/users/:id remains the only path to mutate those).
+const updateMeBody = z.object({
+  firstName: z.string().max(100).optional(),
+  lastName: z.string().max(100).optional(),
+  phone: z.string().max(50).nullable().optional().describe('Mobile phone number'),
+  language: userLanguageEnum.optional(),
+  timezone: z.string().max(50).optional().describe('IANA timezone (e.g. America/New_York)'),
+  themePreference: z.enum(['light', 'dark']).optional(),
 });
 
 const resetPasswordBody = z.object({
@@ -919,6 +940,74 @@ export function userRoutes(app: FastifyInstance): void {
         role: role[0] ? { id: role[0].id, name: role[0].name } : null,
         permissions: permRows.map((r) => r.permission),
       };
+    },
+  );
+
+  app.patch(
+    '/users/me',
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        tags: ['Users'],
+        summary: 'Update the authenticated user&#39;s own profile fields',
+        description:
+          'Self-service update of safe profile fields (name, phone, language, timezone, theme). Auth-only, not RBAC-gated, so non-admin operators can save their own Profile page without holding the users:write permission. Sensitive fields (roleId, isActive, hasAllSiteAccess, siteIds) are intentionally not part of this body; admins use PATCH /v1/users/:id for those.',
+        operationId: 'updateCurrentUser',
+        security: [{ bearerAuth: [] }],
+        body: zodSchema(updateMeBody),
+        response: {
+          200: itemResponse(userWithRole),
+          404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { userId } = request.user as JwtPayload;
+      const body = request.body as z.infer<typeof updateMeBody>;
+
+      const fields: Record<string, unknown> = { updatedAt: new Date() };
+      if (body.firstName !== undefined) fields['firstName'] = body.firstName;
+      if (body.lastName !== undefined) fields['lastName'] = body.lastName;
+      if (body.phone !== undefined) fields['phone'] = body.phone;
+      if (body.language !== undefined) fields['language'] = body.language;
+      if (body.timezone !== undefined) fields['timezone'] = body.timezone;
+      if (body.themePreference !== undefined) fields['themePreference'] = body.themePreference;
+
+      const [before] = await db.select(userSelect).from(users).where(eq(users.id, userId));
+      const [updated] = await db
+        .update(users)
+        .set(fields)
+        .where(eq(users.id, userId))
+        .returning(userSelect);
+
+      if (updated == null) {
+        await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
+        return;
+      }
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: userAuditLog, idColumn: 'user_id' },
+        {
+          entityId: userId,
+          entityIdSnapshot: userId,
+          action: 'updated',
+          ...actor,
+          before,
+          after: updated,
+        },
+        db,
+        request.log,
+      );
+
+      const [role] = updated.roleId
+        ? await db
+            .select({ id: roles.id, name: roles.name })
+            .from(roles)
+            .where(eq(roles.id, updated.roleId))
+        : [];
+
+      return { ...updated, role: role ?? null };
     },
   );
 
@@ -2016,6 +2105,7 @@ export function userRoutes(app: FastifyInstance): void {
           200: itemResponse(mfaSetupResponse),
           400: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
           403: errorResponse,
+          409: errorResponse,
         },
       },
     },
@@ -2036,11 +2126,28 @@ export function userRoutes(app: FastifyInstance): void {
       }
 
       const [user] = await db
-        .select({ email: users.email, firstName: users.firstName, language: users.language })
+        .select({
+          email: users.email,
+          firstName: users.firstName,
+          language: users.language,
+          mfaEnabled: users.mfaEnabled,
+        })
         .from(users)
         .where(eq(users.id, userId));
       if (user == null) {
         await reply.status(400).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
+        return;
+      }
+
+      // Block re-setup when MFA is already enabled. Overwriting
+      // `totpSecretEnc` here without a follow-up confirm would replace the
+      // live secret the operator's authenticator app still trusts, locking
+      // them out at next login. Force the password-gated disable flow
+      // first. Mirrors the same guard on the portal driver endpoint.
+      if (user.mfaEnabled) {
+        await reply
+          .status(409)
+          .send({ error: 'MFA is already enabled', code: 'MFA_ALREADY_ENABLED' });
         return;
       }
 
