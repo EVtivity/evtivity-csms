@@ -47,6 +47,10 @@ const guestPricingInfo = z
       .nullable()
       .describe('Idle fee per minute (after grace period) in major currency units'),
     taxRate: z.string().nullable().describe('Sales tax rate as a decimal (e.g. 0.0875 = 8.75%)'),
+    isFreeVend: z
+      .boolean()
+      .optional()
+      .describe('True when the station&#39;s site has free vend enabled'),
   })
   .passthrough();
 
@@ -332,17 +336,32 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       const tariff = await resolveTariff(station.id, null);
       const isFree = station.freeVendEnabled === true || isTariffFree(tariff);
 
+      // Free-vend overrides whatever tariff is assigned. Return a pricing
+      // object with isFreeVend: true so the portal PricingDisplay renders
+      // the Free Vend badge instead of the (irrelevant) paid breakdown.
+      // When no tariff is assigned at a free-vend site, synthesize a zeroed
+      // pricing object so the badge still surfaces.
       const pricing =
-        tariff != null
+        station.freeVendEnabled === true
           ? {
-              currency: tariff.currency,
-              pricePerKwh: tariff.pricePerKwh,
-              pricePerMinute: tariff.pricePerMinute,
-              pricePerSession: tariff.pricePerSession,
-              idleFeePricePerMinute: tariff.idleFeePricePerMinute,
-              taxRate: tariff.taxRate,
+              currency: tariff?.currency ?? 'USD',
+              pricePerKwh: null,
+              pricePerMinute: null,
+              pricePerSession: null,
+              idleFeePricePerMinute: null,
+              taxRate: null,
+              isFreeVend: true,
             }
-          : undefined;
+          : tariff != null
+            ? {
+                currency: tariff.currency,
+                pricePerKwh: tariff.pricePerKwh,
+                pricePerMinute: tariff.pricePerMinute,
+                pricePerSession: tariff.pricePerSession,
+                idleFeePricePerMinute: tariff.idleFeePricePerMinute,
+                taxRate: tariff.taxRate,
+              }
+            : undefined;
 
       const config = await getStripeConfig(station.siteId ?? null);
       if (config == null) {
