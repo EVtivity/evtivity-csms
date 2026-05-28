@@ -36,6 +36,7 @@ vi.mock('@evtivity/database', () => {
     chargingStations: { id: 'id', stationId: 'station_id', siteId: 'site_id' },
     sites: { id: 'id', freeVendEnabled: 'free_vend_enabled' },
     isRoamingEnabled: vi.fn().mockResolvedValue(false),
+    isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
   };
 });
 
@@ -164,11 +165,9 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
     const ocpiWhereFn = vi.fn().mockReturnValue({ limit: ocpiLimitFn });
     const ocpiFromFn = vi.fn().mockReturnValue({ where: ocpiWhereFn });
 
-    // Calls to selectFn in order: free-vend (caught), driver_tokens, guest_sessions, OCPI
-    // The free-vend select uses the default fromFn chain (innerJoin throws there).
-    // Driver_tokens uses the default fromFn (where returns mockResolvedValueOnce above).
+    // Calls to selectFn in order: driver_tokens, guest_sessions, OCPI.
+    // (Free-vend check now uses the cached reader, no db.select.)
     selectFn
-      .mockReturnValueOnce({ from: fromFn })
       .mockReturnValueOnce({ from: fromFn })
       .mockReturnValueOnce({ from: guestFromFn })
       .mockReturnValueOnce({ from: ocpiFromFn });
@@ -201,7 +200,6 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
 
     selectFn
       .mockReturnValueOnce({ from: fromFn })
-      .mockReturnValueOnce({ from: fromFn })
       .mockReturnValueOnce({ from: guestFromFn })
       .mockReturnValueOnce({ from: ocpiFromFn });
 
@@ -229,7 +227,6 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
     });
 
     selectFn
-      .mockReturnValueOnce({ from: fromFn })
       .mockReturnValueOnce({ from: fromFn })
       .mockReturnValueOnce({ from: guestFromFn })
       .mockReturnValueOnce({ from: throwingFromFn });

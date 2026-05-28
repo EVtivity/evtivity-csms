@@ -6,10 +6,9 @@ import {
   db,
   driverTokens,
   ocpiExternalTokens,
-  chargingStations,
   chargingSessions,
-  sites,
   isRoamingEnabled,
+  isSiteFreeVendEnabledByStation,
 } from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { AuthorizeRequest } from '../../generated/v2_1/types/messages/AuthorizeRequest.js';
@@ -40,34 +39,23 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     payload: { idToken, tokenType, stationId: ctx.stationId },
   });
 
-  // Free-vend short-circuit
-  try {
-    const [fvStation] = await db
-      .select({ freeVendEnabled: sites.freeVendEnabled })
-      .from(chargingStations)
-      .innerJoin(sites, eq(chargingStations.siteId, sites.id))
-      .where(eq(chargingStations.stationId, ctx.stationId));
-    if (fvStation?.freeVendEnabled === true) {
-      ctx.logger.info(
-        { stationId: ctx.stationId, idToken, tokenType },
-        'Free vend site, accepting',
-      );
-      void logAuthorizeAttempt(
-        {
-          stationId: ctx.stationId,
-          idToken,
-          tokenType,
-          outcome: 'accepted',
-          ocppVersion: 'ocpp2.1',
-          reason: 'free_vend',
-        },
-        ctx.logger,
-      );
-      const fvResponse: AuthorizeResponse = { idTokenInfo: { status: 'Accepted' } };
-      return fvResponse as unknown as Record<string, unknown>;
-    }
-  } catch {
-    // Non-critical
+  // Free-vend short-circuit. Cached at 60s so the per-station hot path
+  // does not pay a JOIN on every authorize.
+  if (await isSiteFreeVendEnabledByStation(ctx.stationId)) {
+    ctx.logger.info({ stationId: ctx.stationId, idToken, tokenType }, 'Free vend site, accepting');
+    void logAuthorizeAttempt(
+      {
+        stationId: ctx.stationId,
+        idToken,
+        tokenType,
+        outcome: 'accepted',
+        ocppVersion: 'ocpp2.1',
+        reason: 'free_vend',
+      },
+      ctx.logger,
+    );
+    const fvResponse: AuthorizeResponse = { idTokenInfo: { status: 'Accepted' } };
+    return fvResponse as unknown as Record<string, unknown>;
   }
 
   let status: AuthorizeResponse['idTokenInfo']['status'] = 'Accepted';

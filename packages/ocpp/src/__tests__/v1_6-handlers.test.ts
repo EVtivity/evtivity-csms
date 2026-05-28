@@ -27,6 +27,7 @@ vi.mock('@evtivity/database', () => {
     getHeartbeatIntervalSeconds: vi.fn().mockResolvedValue(300),
     getRegistrationPolicy: vi.fn().mockResolvedValue('auto'),
     isRoamingEnabled: vi.fn().mockResolvedValue(false),
+    isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
   };
 });
 import { handleBootNotification } from '../handlers/v1_6/boot-notification.handler.js';

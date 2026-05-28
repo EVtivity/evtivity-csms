@@ -70,6 +70,7 @@ vi.mock('@evtivity/database', () => ({
   getSampledMeasurands: vi.fn().mockResolvedValue([]),
   getAlignedMeasurands: vi.fn().mockResolvedValue([]),
   getTxEndedMeasurands: vi.fn().mockResolvedValue([]),
+  isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
 }));
 
 const mockDispatchOcpp = vi.fn().mockResolvedValue(undefined);
@@ -554,7 +555,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-1' }], // INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
         [], // UPDATE stale sessions
         [], // INSERT transaction_events
-        [], // SELECT free_vend_enabled (not free vend)
 
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
@@ -613,7 +613,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-roaming' }], // INSERT charging_sessions (with is_roaming = true)
         [], // UPDATE stale sessions
         [], // INSERT transaction_events
-        [], // SELECT free_vend_enabled (not free vend)
         [{ is_roaming: true }], // SELECT is_roaming (seeded true by eager check)
         [{ driver_id: null }], // SELECT driver_id (no driver)
         [], // SELECT driver_tokens (not found)
@@ -667,7 +666,6 @@ describe('Event projections - coverage expansion', () => {
           [{ id: 'session-1' }], // SELECT id
           [], // UPDATE stale sessions
           [], // INSERT transaction_events
-          [], // SELECT free_vend_enabled (not free vend)
           [{ driver_id: null }], // SELECT driver_id
           [], // SELECT driver_tokens (not found)
           [], // SELECT ocpi_external_tokens will throw
@@ -709,7 +707,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-1' }], // INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
         [], // UPDATE stale sessions
         [], // INSERT transaction_events
-        [], // SELECT free_vend_enabled (not free vend)
 
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id (no driver)
@@ -749,7 +746,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-1' }], // INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
         [], // UPDATE stale sessions
         [], // INSERT transaction_events
-        [], // SELECT free_vend_enabled (not free vend)
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id
         // resolvePricingGroupId is now one CTE that resolves driver/fleet/
@@ -803,7 +799,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-1' }], // INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
         [], // UPDATE stale sessions
         [], // INSERT transaction_events
-        [], // SELECT free_vend_enabled (not free vend)
 
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id
@@ -858,7 +853,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-1' }], // INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
         [], // UPDATE stale sessions
         [], // INSERT transaction_events
-        [], // SELECT free_vend_enabled (not free vend)
 
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id
@@ -2193,7 +2187,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-preauth' }], // 2: SELECT id
         [], // 3: UPDATE stale sessions (RETURNING id, empty)
         [], // 4: INSERT transaction_events
-        [], // 5: SELECT free_vend_enabled (not free vend)
 
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: 'driver-pay' }], // 6: SELECT driver_id
@@ -2291,7 +2284,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-1' }], // INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
         [], // UPDATE stale sessions
         [], // INSERT transaction_events
-        [], // SELECT free_vend_enabled (not free vend)
 
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id
@@ -2327,7 +2319,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-1' }],
         [], // UPDATE stale sessions
         [],
-        [], // SELECT free_vend_enabled (not free vend)
 
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: 'driver-nopay' }],
@@ -2379,7 +2370,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-1' }],
         [], // UPDATE stale sessions
         [],
-        [], // SELECT free_vend_enabled (not free vend)
 
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: 'driver-1' }],
@@ -2431,7 +2421,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-1' }],
         [], // UPDATE stale sessions
         [],
-        [], // SELECT free_vend_enabled (not free vend)
 
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: 'driver-1' }],
@@ -2487,7 +2476,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-1' }], // 1: INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
         [], // 2: UPDATE stale sessions (RETURNING id, empty)
         [], // 3: INSERT transaction_events
-        [], // 4: SELECT free_vend_enabled
         [{ is_roaming: false }], // 5: SELECT is_roaming (eager-state seed)
         [{ driver_id: 'driver-1' }], // 6: SELECT driver_id
         // idToken is null on this payload, so no driver_tokens lookup
@@ -2597,7 +2585,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-sim' }], // 1: INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
         [], // 2: UPDATE stale sessions
         [], // 3: INSERT transaction_events
-        [], // 4: SELECT free_vend_enabled
         [{ is_roaming: false }], // 5: SELECT is_roaming (eager-state seed)
         [{ driver_id: 'driver-sim' }], // 6: SELECT driver_id
         [], // 7: SELECT vehicle_id
@@ -2692,7 +2679,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-site' }], // 2: SELECT id
         [], // 3: UPDATE stale
         [], // 4: INSERT transaction_events
-        [], // 5: SELECT free_vend_enabled
 
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: 'driver-site' }], // 6: SELECT driver_id
@@ -2794,7 +2780,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-roaming' }], // INSERT charging_sessions (with is_roaming = true)
         [], // UPDATE stale sessions
         [], // INSERT transaction_events
-        [], // SELECT free_vend_enabled (not free vend)
         [{ is_roaming: true }], // SELECT is_roaming (seeded true by eager check)
         [{ driver_id: null }], // SELECT driver_id (null)
         // idToken + tokenType present -> SELECT driver_tokens (no match)
@@ -2855,7 +2840,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-nopay-nofree' }], // 2: INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
         [], // 3: UPDATE stale sessions
         [], // 4: INSERT transaction_events
-        [], // 5: SELECT free_vend_enabled (not free vend)
         [{ is_roaming: false }], // 6: SELECT is_roaming (eager-state seed)
         [{ driver_id: 'drv_nopay' }], // 7: SELECT driver_id
         // driver_tokens lookup runs because idToken='rfid-nopay'
@@ -2863,8 +2847,8 @@ describe('Event projections - coverage expansion', () => {
         [], // 9: SELECT vehicle_id (auto-link)
       );
       // resolveTariffForStation: single CTE returns a group
-      sqlResults[10] = [{ id: 'pg-1' }]; // resolvePricingGroupId CTE
-      sqlResults[11] = [
+      sqlResults[9] = [{ id: 'pg-1' }]; // resolvePricingGroupId CTE
+      sqlResults[10] = [
         {
           id: 'tariff-nofree',
           currency: 'USD',
@@ -2878,18 +2862,18 @@ describe('Event projections - coverage expansion', () => {
           is_default: true,
         },
       ]; // SELECT tariffs
-      sqlResults[12] = []; // loadHolidays
-      sqlResults[13] = []; // timezone lookup
-      sqlResults[14] = []; // UPDATE session (tariff snapshot)
-      sqlResults[15] = []; // INSERT session_tariff_segments
-      sqlResults[16] = [{ site_id: null }]; // resolveSiteId
-      sqlResults[17] = [{ name: null }]; // resolveSiteName
+      sqlResults[11] = []; // loadHolidays
+      sqlResults[12] = []; // timezone lookup
+      sqlResults[13] = []; // UPDATE session (tariff snapshot)
+      sqlResults[14] = []; // INSERT session_tariff_segments
+      sqlResults[15] = [{ site_id: null }]; // resolveSiteId
+      sqlResults[16] = [{ name: null }]; // resolveSiteName
 
       // runPaymentGate
-      sqlResults[18] = []; // SELECT driver_payment_methods (empty -> MissingPaymentMethod path)
+      sqlResults[17] = []; // SELECT driver_payment_methods (empty -> MissingPaymentMethod path)
       // isTariffFreeForStation: single CTE + tariffs + holidays + timezone
-      sqlResults[19] = [{ id: 'pg-1' }]; // groupRows CTE
-      sqlResults[20] = [
+      sqlResults[18] = [{ id: 'pg-1' }]; // groupRows CTE
+      sqlResults[19] = [
         {
           id: 'tariff-paid',
           currency: 'USD',
@@ -2904,8 +2888,8 @@ describe('Event projections - coverage expansion', () => {
           is_default: true,
         },
       ]; // tariffRows
-      sqlResults[21] = []; // holidayRows
-      sqlResults[22] = []; // timezone lookup
+      sqlResults[20] = []; // holidayRows
+      sqlResults[21] = []; // timezone lookup
 
       await eventBus.emit(
         'ocpp.TransactionEvent',
@@ -2944,16 +2928,15 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-free' }], // 2: INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
         [], // 3: UPDATE stale sessions
         [], // 4: INSERT transaction_events
-        [], // 5: SELECT free_vend_enabled
         [{ is_roaming: false }], // 6: SELECT is_roaming (eager-state seed)
         [{ driver_id: 'drv_free' }], // 7: SELECT driver_id
         [], // 8: SELECT driver_tokens (no match)
         [], // 9: SELECT vehicle_id (auto-link)
       );
       // resolvePricingGroupId CTE
-      sqlResults[10] = [{ id: 'pg-free' }];
+      sqlResults[9] = [{ id: 'pg-free' }];
       // SELECT tariffs
-      sqlResults[11] = [
+      sqlResults[10] = [
         {
           id: 'tariff-free',
           currency: 'USD',
@@ -2968,24 +2951,24 @@ describe('Event projections - coverage expansion', () => {
         },
       ];
       // loadHolidays
-      sqlResults[12] = [];
+      sqlResults[11] = [];
       // timezone lookup
-      sqlResults[13] = [];
+      sqlResults[12] = [];
       // UPDATE session tariff
-      sqlResults[14] = [];
+      sqlResults[13] = [];
       // INSERT segment
-      sqlResults[15] = [];
+      sqlResults[14] = [];
       // resolveSiteId
-      sqlResults[16] = [{ site_id: null }];
+      sqlResults[15] = [{ site_id: null }];
       // resolveSiteName
-      sqlResults[17] = [{ name: null }];
+      sqlResults[16] = [{ name: null }];
 
       // runPaymentGate
       // SELECT driver_payment_methods (empty)
-      sqlResults[18] = [];
+      sqlResults[17] = [];
       // isTariffFreeForStation: 3 sequential queries (group, tariffs, holidays)
-      sqlResults[19] = [{ id: 'pg-free' }]; // groupRows
-      sqlResults[20] = [
+      sqlResults[18] = [{ id: 'pg-free' }]; // groupRows
+      sqlResults[19] = [
         {
           id: 'tariff-free',
           currency: 'USD',
@@ -3000,8 +2983,8 @@ describe('Event projections - coverage expansion', () => {
           is_default: true,
         },
       ]; // tariffRows (free)
-      sqlResults[21] = []; // holidayRows
-      sqlResults[22] = []; // timezone lookup
+      sqlResults[20] = []; // holidayRows
+      sqlResults[21] = []; // timezone lookup
 
       await eventBus.emit(
         'ocpp.TransactionEvent',
@@ -3092,7 +3075,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'session-guest' }], // 2: INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
         [], // 3: UPDATE stale sessions
         [], // 4: INSERT transaction_events
-        [], // 5: SELECT free_vend_enabled
         [{ is_roaming: false }], // 6: SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // 7: SELECT driver_id (null)
         // Token resolution chain: driver_tokens -> guest_sessions
@@ -4229,7 +4211,6 @@ describe('Event projections - coverage expansion', () => {
         // NO SELECT evse_id or UPDATE connectors (skipped for EVConnectTimeout)
         [], // UPDATE charging_sessions SET status = 'failed'
         [], // INSERT transaction_events
-        [], // SELECT free_vend_enabled (not free vend)
 
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id

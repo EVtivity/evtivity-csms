@@ -25,6 +25,7 @@ vi.mock('@evtivity/database', () => {
       uid: 'uid',
     },
     isRoamingEnabled: vi.fn().mockResolvedValue(false),
+    isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
   };
 });
 

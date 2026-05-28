@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql as dsql, eq, and } from 'drizzle-orm';
-import { db, driverTokens, drivers, guestSessions } from '@evtivity/database';
+import {
+  db,
+  driverTokens,
+  drivers,
+  guestSessions,
+  isSiteFreeVendEnabledByStation,
+} from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { StartTransaction } from '../../generated/v1_6/types/messages/StartTransaction.js';
 import { logAuthorizeAttempt } from '../authorize-log.js';
@@ -93,6 +99,36 @@ export async function handleStartTransaction(
   let matchedTokenId: string | null = null;
   let matchedDriverId: string | null = null;
   let reason: string | null = null;
+
+  // Free-vend short-circuit. 1.6 stations frequently skip Authorize when the
+  // operator pushes LocalPreAuthorize/AllowOfflineTxForUnknownId/etc., so the
+  // free-vend gate must also be honored here or unknown idTags at free-vend
+  // sites would be rejected with Invalid despite the Authorize handler and
+  // the TransactionEvent.Started projection both accepting them.
+  if (await isSiteFreeVendEnabledByStation(ctx.stationId)) {
+    ctx.logger.info(
+      { stationId: ctx.stationId, idTag: request.idTag },
+      'Free vend site, accepting StartTransaction (1.6)',
+    );
+    void logAuthorizeAttempt(
+      {
+        stationId: ctx.stationId,
+        idToken: request.idTag,
+        tokenType: 'ISO14443',
+        matchedTokenId: null,
+        matchedDriverId: null,
+        outcome: 'accepted',
+        ocppVersion: 'ocpp1.6',
+        reason: 'free_vend',
+      },
+      ctx.logger,
+    );
+    return {
+      transactionId,
+      idTagInfo: { status: 'Accepted' as const },
+    };
+  }
+
   try {
     const tokens = await db
       .select({

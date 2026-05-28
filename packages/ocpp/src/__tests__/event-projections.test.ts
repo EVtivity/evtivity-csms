@@ -48,6 +48,7 @@ vi.mock('@evtivity/database', () => ({
   getIdlingGracePeriodMinutes: vi.fn().mockResolvedValue(0),
   isSplitBillingEnabled: vi.fn().mockResolvedValue(false),
   getOfflineCommandTtlHours: vi.fn().mockResolvedValue(24),
+  isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
 }));
 
 const mockDispatchOcpp = vi.fn().mockResolvedValue(undefined);
@@ -783,7 +784,7 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationId
         [{ id: 'session-1' }], // INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
         [], // INSERT transaction_events
-        [{ free_vend_enabled: false }], // free_vend check
+        // free_vend check now goes through isSiteFreeVendEnabledByStation (mocked) -- no SQL call
         [{ is_roaming: false }], // SELECT is_roaming
         [{ driver_id: null }], // SELECT driver_id (no driver yet)
         // resolveTariff: no driver group
@@ -1390,7 +1391,7 @@ describe('Event projections', () => {
         [{ id: 'session-1' }], // INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
         [], // UPDATE charging_sessions SET status='faulted' (close stale sessions)
         [], // INSERT transaction_events
-        [], // SELECT free_vend_enabled (not free vend)
+        // free_vend check now goes through isSiteFreeVendEnabledByStation (mocked) -- no SQL call
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id FROM charging_sessions (no driver)
         // resolveTariff: single CTE that resolves driver/fleet/station/site/default
@@ -2724,7 +2725,7 @@ describe('Event projections', () => {
         [], // INSERT charging_sessions
         [{ id: 'session-ooo-1' }], // SELECT id FROM charging_sessions
         [], // INSERT transaction_events
-        [], // SELECT free_vend_enabled (not free vend)
+        // free_vend check now goes through isSiteFreeVendEnabledByStation (mocked) -- no SQL call
         [{ driver_id: null }], // SELECT driver_id
       );
 

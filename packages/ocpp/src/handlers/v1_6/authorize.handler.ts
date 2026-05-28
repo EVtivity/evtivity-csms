@@ -7,11 +7,10 @@ import {
   driverTokens,
   drivers,
   ocpiExternalTokens,
-  chargingStations,
   chargingSessions,
-  sites,
   guestSessions,
   isRoamingEnabled,
+  isSiteFreeVendEnabledByStation,
 } from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { Authorize } from '../../generated/v1_6/types/messages/Authorize.js';
@@ -30,30 +29,21 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     payload: { stationId: ctx.stationId, idToken: idTag, tokenType: 'ISO14443' },
   });
 
-  // Free-vend: accept any token at free-vend sites.
-  try {
-    const [fvStation] = await db
-      .select({ freeVendEnabled: sites.freeVendEnabled })
-      .from(chargingStations)
-      .innerJoin(sites, eq(chargingStations.siteId, sites.id))
-      .where(eq(chargingStations.stationId, ctx.stationId));
-    if (fvStation?.freeVendEnabled === true) {
-      ctx.logger.info({ stationId: ctx.stationId, idTag }, 'Free vend site, accepting (1.6)');
-      void logAuthorizeAttempt(
-        {
-          stationId: ctx.stationId,
-          idToken: idTag,
-          tokenType: null,
-          outcome: 'accepted',
-          ocppVersion: 'ocpp1.6',
-          reason: 'free_vend',
-        },
-        ctx.logger,
-      );
-      return { idTagInfo: { status: 'Accepted' as const } };
-    }
-  } catch {
-    // Non-critical: fall through to normal token validation
+  // Free-vend: accept any token at free-vend sites. Cached at 60s.
+  if (await isSiteFreeVendEnabledByStation(ctx.stationId)) {
+    ctx.logger.info({ stationId: ctx.stationId, idTag }, 'Free vend site, accepting (1.6)');
+    void logAuthorizeAttempt(
+      {
+        stationId: ctx.stationId,
+        idToken: idTag,
+        tokenType: null,
+        outcome: 'accepted',
+        ocppVersion: 'ocpp1.6',
+        reason: 'free_vend',
+      },
+      ctx.logger,
+    );
+    return { idTagInfo: { status: 'Accepted' as const } };
   }
 
   let status: 'Accepted' | 'Blocked' | 'Invalid' | 'Expired' | 'ConcurrentTx' = 'Accepted';

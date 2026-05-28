@@ -25,6 +25,7 @@ import {
   firmwareCampaignAuditLog,
   stationAuditLog,
   isAutoDisableOnCriticalEnabled,
+  isSiteFreeVendEnabledByStation,
 } from '@evtivity/database';
 import { getSecuritySeverity } from '../lib/security-severity.js';
 import {
@@ -38,6 +39,8 @@ import {
   shouldSimulatePaymentFailure,
   isTariffFree,
   dispatchOneShotStationMessage,
+  FREE_VEND_OCPP_21_VARIABLES,
+  FREE_VEND_OCPP_16_KEYS,
 } from '@evtivity/lib';
 import type {
   TariffInput,
@@ -1119,50 +1122,26 @@ export function registerProjections(
       // reboots. Without this re-push, a station that reboots after free-vend
       // was enabled forces drivers to tap-to-start until the operator
       // manually re-pushes the config template.
-      const freeVendRows = await sql`
-        SELECT s.free_vend_enabled FROM sites s
-        JOIN charging_stations cs ON cs.site_id = s.id
-        WHERE cs.id = ${stationUuid}
-      `;
-      const siteFreeVendEnabled = freeVendRows[0]?.free_vend_enabled === true;
+      const siteFreeVendEnabled = await isSiteFreeVendEnabledByStation(stationOcppId);
       if (siteFreeVendEnabled) {
         if (protocol === 'ocpp2.1') {
           await publishCmd(
             'SetVariables',
             {
-              setVariableData: [
-                {
-                  component: { name: 'AuthCtrlr' },
-                  variable: { name: 'Enabled' },
-                  attributeValue: 'false',
-                },
-                {
-                  component: { name: 'TxCtrlr' },
-                  variable: { name: 'TxStartPoint' },
-                  attributeValue: 'EVConnected',
-                },
-              ],
+              setVariableData: FREE_VEND_OCPP_21_VARIABLES.map((v) => ({
+                component: { name: v.component },
+                variable: { name: v.variable },
+                attributeValue: v.value,
+              })),
             },
             'ocpp2.1',
           );
         } else if (protocol === 'ocpp1.6') {
           // OCPP 1.6 has no standard "disable auth" key. The closest
           // standard keys that ease offline/autostart behavior:
-          await publishCmd(
-            'ChangeConfiguration',
-            { key: 'AllowOfflineTxForUnknownId', value: 'true' },
-            'ocpp1.6',
-          );
-          await publishCmd(
-            'ChangeConfiguration',
-            { key: 'LocalPreAuthorize', value: 'true' },
-            'ocpp1.6',
-          );
-          await publishCmd(
-            'ChangeConfiguration',
-            { key: 'LocalAuthorizeOffline', value: 'true' },
-            'ocpp1.6',
-          );
+          for (const cfg of FREE_VEND_OCPP_16_KEYS) {
+            await publishCmd('ChangeConfiguration', { key: cfg.key, value: cfg.value }, 'ocpp1.6');
+          }
         }
         logger.info(
           { stationId: stationOcppId, protocol },
@@ -1588,12 +1567,7 @@ export function registerProjections(
         }
 
         // Check if site has free-vend enabled (skip driver resolution and payment gate)
-        const freeVendRows = await sql`
-          SELECT s.free_vend_enabled FROM sites s
-          JOIN charging_stations cs ON cs.site_id = s.id
-          WHERE cs.id = ${stationUuid}
-        `;
-        const isFreeVend = freeVendRows[0]?.free_vend_enabled === true;
+        const isFreeVend = await isSiteFreeVendEnabledByStation(stationId);
 
         let driverUuid: string | null = null;
         // Seed from the DB so a remote-start session (created by the API with

@@ -107,6 +107,9 @@ export type { SentryConfig } from './sentry.js';
 
 export { calculateCo2AvoidedKg, GASOLINE_CO2_KG_PER_KWH } from './carbon.js';
 
+export { FREE_VEND_OCPP_21_VARIABLES, FREE_VEND_OCPP_16_KEYS } from './free-vend-defaults.js';
+export type { ConfigTemplateVariable } from './free-vend-defaults.js';
+
 export { renderStationMessage, clearStationMessageCache } from './station-message.js';
 export type { StationMessageState, StationMessageContext } from './station-message.js';
 

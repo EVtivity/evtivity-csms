@@ -6,6 +6,7 @@ export { db, client } from './config.js';
 export { PgEventPersistence } from './event-persistence.js';
 export { isRoamingEnabled, clearRoamingCache } from './lib/roaming-setting.js';
 export { isPncEnabled, clearPncSettingsCache } from './lib/pnc-setting.js';
+export { isSiteFreeVendEnabledByStation, clearFreeVendCache } from './lib/free-vend-setting.js';
 export {
   isReservationEnabled,
   getReservationSettings,

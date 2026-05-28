@@ -44,6 +44,7 @@ vi.mock('@evtivity/database', () => ({
   sites: { freeVendEnabled: 'freeVendEnabled' },
   getHeartbeatIntervalSeconds: () => mockGetHeartbeatInterval(),
   isRoamingEnabled: () => mockIsRoamingEnabled(),
+  isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
 }));
 
 vi.mock('drizzle-orm', () => ({

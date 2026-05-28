@@ -4,7 +4,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, or, ilike, sql, gte, and, desc, count, inArray, isNotNull } from 'drizzle-orm';
-import { db, writeAudit, siteAuditLog, configTemplateAuditLog } from '@evtivity/database';
+import {
+  db,
+  writeAudit,
+  siteAuditLog,
+  configTemplateAuditLog,
+  clearFreeVendCache,
+} from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import {
   sites,
@@ -23,7 +29,11 @@ import {
   carbonIntensityFactors,
   pricingAssignmentAuditLog,
 } from '@evtivity/database';
-import { isValidTimezone } from '@evtivity/lib';
+import {
+  isValidTimezone,
+  FREE_VEND_OCPP_21_VARIABLES,
+  FREE_VEND_OCPP_16_KEYS,
+} from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -1984,6 +1994,7 @@ export function siteRoutes(app: FastifyInstance): void {
           db,
           request.log,
         );
+        clearFreeVendCache();
         return { success: true };
       }
 
@@ -1999,10 +2010,7 @@ export function siteRoutes(app: FastifyInstance): void {
               name: `Free Vend - ${site.name} (OCPP 2.1)`,
               description: `Auto generated. Free Vend configuration for ${site.name} (OCPP 2.1).`,
               ocppVersion: '2.1',
-              variables: [
-                { component: 'AuthCtrlr', variable: 'Enabled', value: 'false' },
-                { component: 'TxCtrlr', variable: 'TxStartPoint', value: 'EVConnected' },
-              ],
+              variables: FREE_VEND_OCPP_21_VARIABLES,
               targetFilter: { siteId: site.id },
             })
             .returning();
@@ -2032,23 +2040,11 @@ export function siteRoutes(app: FastifyInstance): void {
               name: `Free Vend - ${site.name} (OCPP 1.6)`,
               description: `Auto generated. Free Vend configuration for ${site.name} (OCPP 1.6). OCPP 1.6 has no standard free-vend mechanism; these keys work with most stations but some vendors require vendor-specific keys (edit and re-push as needed).`,
               ocppVersion: '1.6',
-              variables: [
-                {
-                  component: 'AllowOfflineTxForUnknownId',
-                  variable: 'AllowOfflineTxForUnknownId',
-                  value: 'true',
-                },
-                {
-                  component: 'LocalPreAuthorize',
-                  variable: 'LocalPreAuthorize',
-                  value: 'true',
-                },
-                {
-                  component: 'LocalAuthorizeOffline',
-                  variable: 'LocalAuthorizeOffline',
-                  value: 'true',
-                },
-              ],
+              variables: FREE_VEND_OCPP_16_KEYS.map((k) => ({
+                component: k.key,
+                variable: k.key,
+                value: k.value,
+              })),
               targetFilter: { siteId: site.id },
             })
             .returning();
@@ -2099,12 +2095,16 @@ export function siteRoutes(app: FastifyInstance): void {
         return { templateId21: id21, templateId16: id16 };
       });
 
+      clearFreeVendCache();
+
       // Push templates to online stations at this site (outside the
       // transaction since pushTemplateToSiteStations dispatches OCPP commands).
-      const pushId21 =
-        templateId21 != null ? await pushTemplateToSiteStations(templateId21, id) : '';
-      const pushId16 =
-        templateId16 != null ? await pushTemplateToSiteStations(templateId16, id) : '';
+      // The 2.1 and 1.6 pushes target disjoint station sets, so fire them in
+      // parallel to halve the toggle latency on mixed fleets.
+      const [pushId21, pushId16] = await Promise.all([
+        templateId21 != null ? pushTemplateToSiteStations(templateId21, id) : Promise.resolve(''),
+        templateId16 != null ? pushTemplateToSiteStations(templateId16, id) : Promise.resolve(''),
+      ]);
 
       return { success: true, pushId21, pushId16 };
     },
