@@ -384,16 +384,16 @@ function parseDateRange(query: { days?: string; from?: string; to?: string }): D
     toDate.setHours(23, 59, 59, 999);
     const diffMs = toDate.getTime() - fromDate.getTime();
     const diffDays = Math.ceil(diffMs / 86400000);
-    // Reject inverted ranges (from > to) and oversized ranges with a 400
-    // via ValidationError. Previously diffDays < 1 silently fell back to
-    // a 7-day default, making the chart picker and the rendered data
-    // disagree on the inverted case. The DateRangeControl date inputs
-    // also enforce min/max so the UI path doesn't reach this.
     if (diffDays < 1) {
       throw new ValidationError('"from" date must be on or before "to" date');
     }
     if (diffDays > 90) {
       throw new ValidationError('date range cannot exceed 90 days');
+    }
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+    if (fromDate.getTime() > todayEnd.getTime()) {
+      throw new ValidationError('"from" date cannot be in the future');
     }
     return { since: fromDate, until: toDate, daysNum: diffDays };
   }

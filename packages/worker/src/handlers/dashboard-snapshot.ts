@@ -13,17 +13,29 @@ export async function dashboardSnapshotHandler(log: Logger): Promise<void> {
     return;
   }
 
-  // Batch the per-site work so the snapshot run finishes in a fraction of
-  // the previous wall time while staying under the shared DB pool limit.
-  // Each site's snapshot already does its 4 independent reads in parallel
-  // (station counts, uptime CTE, sessions, revenue, ping). 5 sites in
-  // flight at a time means up to ~25 in-flight queries -- comfortably under
-  // the postgres-js default of 10 + room left for other workers.
+  // ocpp_server_health is a singleton row that aggregates ping metrics
+  // globally; every site's snapshot records the same numbers. Read it
+  // once up front instead of N times inside the per-site fan-out.
+  const pingRows = await db.execute(sql`
+    SELECT
+      COALESCE(avg_ping_latency_ms, 0) AS avg_ping_latency_ms,
+      COALESCE(ping_success_rate, 100) AS ping_success_rate
+    FROM ocpp_server_health
+    WHERE id = 'singleton'
+  `);
+  const pingData = pingRows[0] as
+    | { avg_ping_latency_ms: string; ping_success_rate: string }
+    | undefined;
+  const avgPingLatencyMs = Math.round(Number(pingData?.avg_ping_latency_ms ?? 0) * 100) / 100;
+  const pingSuccessRate = Number(pingData?.ping_success_rate ?? 100);
+
   const CONCURRENCY = 5;
   for (let i = 0; i < allSites.length; i += CONCURRENCY) {
     const batch = allSites.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
-      batch.map((site) => snapshotSite(site.id, site.timezone, log)),
+      batch.map((site) =>
+        snapshotSite(site.id, site.timezone, log, avgPingLatencyMs, pingSuccessRate),
+      ),
     );
     results.forEach((result, idx) => {
       if (result.status === 'rejected') {
@@ -36,7 +48,13 @@ export async function dashboardSnapshotHandler(log: Logger): Promise<void> {
   log.info({ siteCount: allSites.length }, 'Dashboard snapshot complete');
 }
 
-async function snapshotSite(siteId: string, timezone: string, log: Logger): Promise<void> {
+async function snapshotSite(
+  siteId: string,
+  timezone: string,
+  log: Logger,
+  avgPingLatencyMs: number,
+  pingSuccessRate: number,
+): Promise<void> {
   // "Yesterday" in the site's timezone
   const yesterdayResult = await db.execute(
     sql`SELECT (now() AT TIME ZONE ${timezone} - interval '1 day')::date AS yesterday`,
@@ -62,12 +80,12 @@ async function snapshotSite(siteId: string, timezone: string, log: Logger): Prom
   );
   const periodMinutesStr = String(periodMinutes);
 
-  // The four read blocks (station counts, uptime, sessions+energy, revenue,
-  // ping) are all independent of each other. The only cross-block dependency
-  // is the upsert at the end, which combines all results. Fire them in
-  // parallel to collapse 4-5 sequential RTTs into one. At 100 sites this
-  // saves ~400 sequential roundtrips per cron run.
-  const [stationRows, uptimeRows, sessionRows, revenueRows, pingRows] = await Promise.all([
+  // The four read blocks (station counts, uptime, sessions+energy, revenue)
+  // are all independent of each other. The only cross-block dependency is
+  // the upsert at the end. Fire them in parallel to collapse 4 sequential
+  // RTTs into one. Ping data is fetched once at the run level (singleton
+  // row) and passed in, so it is not part of this fan-out.
+  const [stationRows, uptimeRows, sessionRows, revenueRows] = await Promise.all([
     // 1. Station counts
     db.execute(sql`
       SELECT
@@ -170,19 +188,6 @@ async function snapshotSite(siteId: string, timezone: string, log: Logger): Prom
       WHERE cs.site_id = ${siteId}
         AND pr.status IN ('captured', 'partially_refunded')
     `),
-
-    // 5. Ping health
-    db.execute(sql`
-      SELECT
-        COALESCE(AVG(oh.avg_ping_latency_ms), 0) AS avg_ping_latency_ms,
-        CASE WHEN COALESCE(SUM(oh.total_pings_sent), 0) > 0
-          THEN ROUND(SUM(oh.total_pongs_received)::numeric / SUM(oh.total_pings_sent) * 100, 1)
-          ELSE 100
-        END AS ping_success_rate
-      FROM ocpp_health oh
-      INNER JOIN charging_stations cs ON cs.ocpp_identity = oh.station_id
-      WHERE cs.site_id = ${siteId}
-    `),
   ]);
 
   const stationData = stationRows[0] as { total: string; online: string };
@@ -217,13 +222,6 @@ async function snapshotSite(siteId: string, timezone: string, log: Logger): Prom
   const totalSessionsNum = Number(sessData.total_sessions);
   const totalRevCents = Number(revData.total_revenue_cents);
   const avgRevPerSession = totalSessionsNum > 0 ? Math.round(totalRevCents / totalSessionsNum) : 0;
-
-  const pingData = pingRows[0] as {
-    avg_ping_latency_ms: string;
-    ping_success_rate: string;
-  };
-  const avgPingLatencyMs = Math.round(Number(pingData.avg_ping_latency_ms) * 100) / 100;
-  const pingSuccessRate = Number(pingData.ping_success_rate);
 
   // 6. Upsert
   await db.execute(sql`

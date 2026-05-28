@@ -757,11 +757,7 @@ function AdminDashboard({
 
   function renderHistoricalStatCards(): React.JSX.Element {
     const s = snapshot.data;
-    const hasData =
-      !snapshot.isLoading &&
-      fromDate !== '' &&
-      s != null &&
-      (s.totalStations > 0 || s.totalSessions > 0);
+    const hasData = !snapshot.isLoading && fromDate !== '' && s != null && s.hasData;
 
     if (!hasData) {
       const msg =
@@ -1115,11 +1111,7 @@ function OperatorDashboard({
 
   function renderHistoricalStatCards(): React.JSX.Element {
     const s = snapshot.data;
-    const hasData =
-      !snapshot.isLoading &&
-      fromDate !== '' &&
-      s != null &&
-      (s.totalStations > 0 || s.totalSessions > 0);
+    const hasData = !snapshot.isLoading && fromDate !== '' && s != null && s.hasData;
 
     if (!hasData) {
       const msg =
