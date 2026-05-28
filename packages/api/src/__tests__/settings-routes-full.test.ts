@@ -104,6 +104,7 @@ vi.mock('drizzle-orm', () => ({
 
 vi.mock('@evtivity/lib', () => ({
   encryptString: vi.fn((_val: string, _key: string) => 'encrypted-value'),
+  clearNotificationSettingsCache: vi.fn(),
 }));
 
 const mockConfig = vi.hoisted(() => ({

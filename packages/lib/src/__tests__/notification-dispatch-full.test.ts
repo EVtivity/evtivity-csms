@@ -1198,14 +1198,20 @@ describe('notification-dispatch (full coverage)', () => {
       );
 
       await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-11', {});
-      // No SMTP calls and no email insert when SMTP not configured
+      // SMTP must not be called when it isn't configured, but the dispatcher
+      // now always writes an audit row with failureReason='smtp_not_configured'
+      // so operators can see the attempt in the Email Log.
       expect(mockSendMail).not.toHaveBeenCalled();
       const emailInsert = sqlCalls.find(
         (c) =>
           c.strings.some((s) => s.includes('INSERT INTO notifications')) &&
           c.values.some((v) => v === 'email'),
       );
-      expect(emailInsert).toBeUndefined();
+      expect(emailInsert).toBeDefined();
+      const meta = emailInsert?.values.find(
+        (v): v is { failureReason?: string } => typeof v === 'object' && v != null,
+      );
+      expect(meta?.failureReason).toBe('smtp_not_configured');
 
       Date.now = realNow;
     });
@@ -1235,14 +1241,19 @@ describe('notification-dispatch (full coverage)', () => {
       );
 
       await dispatchDriverNotification(sql as never, 'session.Started', 'driver-12', {});
-      // No Twilio calls and no SMS insert when Twilio not configured
+      // Twilio must not be called when it isn't configured, but the dispatcher
+      // now always writes an audit row with failureReason='twilio_not_configured'.
       expect(mockFetch).not.toHaveBeenCalled();
       const smsInsert = sqlCalls.find(
         (c) =>
           c.strings.some((s) => s.includes('INSERT INTO notifications')) &&
           c.values.some((v) => v === 'sms'),
       );
-      expect(smsInsert).toBeUndefined();
+      expect(smsInsert).toBeDefined();
+      const meta = smsInsert?.values.find(
+        (v): v is { failureReason?: string } => typeof v === 'object' && v != null,
+      );
+      expect(meta?.failureReason).toBe('twilio_not_configured');
 
       Date.now = realNow;
     });

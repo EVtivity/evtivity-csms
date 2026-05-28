@@ -35,6 +35,7 @@ import {
   createMfaChallenge,
   verifyMfaChallenge,
   redactSensitiveNotificationContent,
+  recordNotificationAttempt,
 } from '@evtivity/lib';
 import QRCode from 'qrcode';
 import { setAuthCookies, clearAuthCookies } from '../lib/csms-cookies.js';
@@ -659,10 +660,24 @@ export function userRoutes(app: FastifyInstance): void {
               rendered.subject,
               'operator.ForgotPassword',
             );
-            await client`
-              INSERT INTO notifications (channel, recipient, subject, body, status, event_type, sent_at)
-              VALUES ('email', ${email}, ${storedSubject}, ${storedBody}, ${ok ? 'sent' : 'failed'}, 'operator.ForgotPassword', NOW())
-            `;
+            // Match the dispatchSystemNotification pattern so operators can
+            // see in the Email Log why a forgot-password mail failed.
+            const metadata: Record<string, string> = {};
+            if (!ok) {
+              metadata['failureReason'] =
+                settings.smtp.credentialError === 'decrypt_failed'
+                  ? 'credentials_decrypt_failed'
+                  : 'smtp_send_failed';
+            }
+            await recordNotificationAttempt(client, {
+              channel: 'email',
+              recipient: email,
+              subject: storedSubject,
+              body: storedBody,
+              status: ok ? 'sent' : 'failed',
+              eventType: 'operator.ForgotPassword',
+              metadata,
+            });
           }
         } catch {
           // Silently fail email sending to not leak user existence

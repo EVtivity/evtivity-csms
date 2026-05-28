@@ -21,12 +21,18 @@ export interface SmtpConfig {
   username: string;
   password: string;
   from: string;
+  /** Set when the encrypted password could not be decrypted. The dispatcher
+   * still attempts to send (with an empty password) so operators see a real
+   * SMTP error in the history, but stamps this reason on the failed row so
+   * the actual root cause is visible without log-trawling. */
+  credentialError?: 'decrypt_failed';
 }
 
 export interface TwilioConfig {
   accountSid: string;
   authToken: string;
   fromNumber: string;
+  credentialError?: 'decrypt_failed';
 }
 
 export interface NotificationSettings {
@@ -149,15 +155,48 @@ export function wrapEmailHtml(
   wrapperTemplate?: string | null,
   variables?: Record<string, unknown>,
 ): string {
-  const template =
-    wrapperTemplate != null && wrapperTemplate !== '' ? wrapperTemplate : DEFAULT_EMAIL_WRAPPER;
-  return compileTemplate(template, { content: bodyHtml, companyName, ...variables });
+  const customTemplate = wrapperTemplate != null && wrapperTemplate !== '' ? wrapperTemplate : null;
+  if (customTemplate != null) {
+    try {
+      return compileTemplate(customTemplate, { content: bodyHtml, companyName, ...variables });
+    } catch (err) {
+      // A bad operator-edited wrapper template would otherwise throw and
+      // bail out of the whole dispatch, swallowing every outbound email
+      // (the failure record is also skipped because the throw happens
+      // before the INSERT). Fall back to the default wrapper so mail keeps
+      // flowing while the operator notices and fixes the syntax error.
+      logger.warn({ err }, 'email.wrapperTemplate failed to compile; using default wrapper');
+    }
+  }
+  return compileTemplate(DEFAULT_EMAIL_WRAPPER, {
+    content: bodyHtml,
+    companyName,
+    ...variables,
+  });
 }
 
 // --- Settings cache ---
 
-const CACHE_TTL_MS = 5 * 60 * 1000;
+// 60s matches PnC, roaming, free-vend, and the other site-level feature
+// readers. The previous 5-minute window meant a multi-pod fleet served
+// stale SMTP/Twilio creds for up to 5 minutes after the operator rotated
+// them on another pod -- well outside what operators expect from a "save
+// and test" loop.
+const CACHE_TTL_MS = 60 * 1000;
 let settingsCache: { settings: NotificationSettings; expiresAt: number } | null = null;
+
+/**
+ * Drop the cached SMTP/Twilio/wrapper settings so the next dispatch reads
+ * fresh values from the database. Call this after the API mutates any of
+ * `smtp.*`, `twilio.*`, or `email.wrapperTemplate` so the change takes
+ * effect immediately on the pod that handled the mutation instead of after
+ * the full 5-minute TTL. The 5-minute window for other pods is still
+ * acceptable because credentials don't change often.
+ */
+export function clearNotificationSettingsCache(): void {
+  settingsCache = null;
+  companyCache = null;
+}
 
 interface CompanySettings {
   companyName: string;
@@ -239,11 +278,13 @@ export async function getNotificationSettings(sql: postgres.Sql): Promise<Notifi
     const encryptionKey = getEncryptionKey();
     const rawPassword = map.get('smtp.passwordEnc') as string | undefined;
     let password = '';
+    let smtpCredentialError: 'decrypt_failed' | undefined;
     if (rawPassword != null && rawPassword !== '' && encryptionKey != null) {
       try {
         password = decryptString(rawPassword, encryptionKey);
       } catch {
         logger.warn('Failed to decrypt SMTP password');
+        smtpCredentialError = 'decrypt_failed';
       }
     }
     smtp = {
@@ -252,6 +293,7 @@ export async function getNotificationSettings(sql: postgres.Sql): Promise<Notifi
       username: smtpUsername ?? '',
       password,
       from: (map.get('smtp.from') as string | undefined) ?? '',
+      ...(smtpCredentialError != null ? { credentialError: smtpCredentialError } : {}),
     };
   }
 
@@ -261,17 +303,20 @@ export async function getNotificationSettings(sql: postgres.Sql): Promise<Notifi
     const encryptionKey = getEncryptionKey();
     const rawToken = map.get('twilio.authTokenEnc') as string | undefined;
     let authToken = '';
+    let twilioCredentialError: 'decrypt_failed' | undefined;
     if (rawToken != null && rawToken !== '' && encryptionKey != null) {
       try {
         authToken = decryptString(rawToken, encryptionKey);
       } catch {
         logger.warn('Failed to decrypt Twilio auth token');
+        twilioCredentialError = 'decrypt_failed';
       }
     }
     twilio = {
       accountSid: twilioSid,
       authToken,
       fromNumber: (map.get('twilio.fromNumber') as string | undefined) ?? '',
+      ...(twilioCredentialError != null ? { credentialError: twilioCredentialError } : {}),
     };
   }
 
@@ -503,15 +548,34 @@ export async function sendEmail(
   }
 }
 
+/**
+ * Best-effort E.164 normalization. Strips whitespace and punctuation
+ * (`( ) - .`), keeps the leading `+` if present, and tags a US country code
+ * onto bare 10-digit / `1`-prefixed 11-digit numbers (the operator's most
+ * common formatting mistake on a US driver row). Anything else is returned
+ * with just the cosmetic punctuation stripped, so an obviously international
+ * number passes through untouched and Twilio can apply its own normalization.
+ */
+export function normalizeE164(phone: string): string {
+  const cleaned = phone.replace(/[\s().-]/g, '');
+  if (cleaned.startsWith('+')) return cleaned;
+  if (/^[0-9]{10}$/.test(cleaned)) return `+1${cleaned}`;
+  if (/^1[0-9]{10}$/.test(cleaned)) return `+${cleaned}`;
+  return cleaned;
+}
+
 export async function sendSms(config: TwilioConfig, to: string, body: string): Promise<boolean> {
+  const normalizedTo = normalizeE164(to);
   try {
     const url = `https://api.twilio.com/2010-04-01/Accounts/${config.accountSid}/Messages.json`;
     const auth = Buffer.from(`${config.accountSid}:${config.authToken}`).toString('base64');
     const params = new URLSearchParams({
-      To: to,
+      To: normalizedTo,
       From: config.fromNumber,
       Body: body,
     });
+    // Cap each delivery at 10s so a hanging Twilio request does not stall the
+    // notification dispatcher indefinitely.
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -519,15 +583,16 @@ export async function sendSms(config: TwilioConfig, to: string, body: string): P
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: params.toString(),
+      signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) {
       const text = await response.text();
-      logger.error({ status: response.status, body: text, to }, 'Twilio API error');
+      logger.error({ status: response.status, body: text, to: normalizedTo }, 'Twilio API error');
       return false;
     }
     return true;
   } catch (err) {
-    logger.error({ err, to }, 'Failed to send SMS');
+    logger.error({ err, to: normalizedTo }, 'Failed to send SMS');
     return false;
   }
 }
@@ -644,72 +709,77 @@ export async function dispatchDriverNotification(
     const emailEnabled = prefs != null ? (prefs.email_enabled as boolean) : true;
     const smsEnabled = prefs != null ? (prefs.sms_enabled as boolean) : true;
 
-    // Send email (only when SMTP is configured)
-    if (emailEnabled && email != null && email !== '' && notificationSettings.smtp != null) {
-      const rendered = await renderTemplate(
-        'email',
-        eventType,
-        language,
-        formattedVariables,
-        sql,
-        undefined,
-        templatesDir,
-      );
-      const wrappedHtml =
-        rendered.html != null
-          ? wrapEmailHtml(
-              rendered.html,
-              companyName,
-              notificationSettings.emailWrapperTemplate,
-              formattedVariables,
-            )
-          : undefined;
+    // Email path. Records a row for every attempt the dispatcher could have
+    // made -- including the "skipped because no address on file" and
+    // "skipped because SMTP not configured" cases -- so the operator can
+    // always answer "did the system try to email this driver?" from the
+    // notifications table alone.
+    if (emailEnabled) {
+      let status: 'sent' | 'failed' = 'failed';
+      let failureReason: string | null = null;
+      let storedSubject = `[${eventType}]`;
+      let storedBody = '';
 
-      const ok = await sendEmail(
-        notificationSettings.smtp,
-        email,
-        rendered.subject,
-        rendered.body,
-        wrappedHtml,
-      );
-      const status = ok ? 'sent' : 'failed';
-      const storedBody = redactSensitiveNotificationContent(
-        wrappedHtml ?? rendered.body,
+      if (email == null || email === '') {
+        failureReason = 'recipient_missing';
+      } else if (notificationSettings.smtp == null) {
+        failureReason = 'smtp_not_configured';
+      } else {
+        const rendered = await renderTemplate(
+          'email',
+          eventType,
+          language,
+          formattedVariables,
+          sql,
+          undefined,
+          templatesDir,
+        );
+        const wrappedHtml =
+          rendered.html != null
+            ? wrapEmailHtml(
+                rendered.html,
+                companyName,
+                notificationSettings.emailWrapperTemplate,
+                formattedVariables,
+              )
+            : undefined;
+
+        const ok = await sendEmail(
+          notificationSettings.smtp,
+          email,
+          rendered.subject,
+          rendered.body,
+          wrappedHtml,
+        );
+        status = ok ? 'sent' : 'failed';
+        if (!ok) {
+          failureReason =
+            notificationSettings.smtp.credentialError === 'decrypt_failed'
+              ? 'credentials_decrypt_failed'
+              : 'smtp_send_failed';
+        }
+        storedSubject = redactSensitiveNotificationContent(rendered.subject, eventType);
+        storedBody = redactSensitiveNotificationContent(wrappedHtml ?? rendered.body, eventType);
+      }
+
+      const recipientForRow = email != null && email !== '' ? email : '(none on file)';
+      const metadata: Record<string, string> = { driverId };
+      if (failureReason != null) metadata['failureReason'] = failureReason;
+      await recordNotificationAttempt(sql, {
+        channel: 'email',
+        recipient: recipientForRow,
+        subject: storedSubject,
+        body: storedBody,
+        status,
         eventType,
-      );
-      const storedSubject = redactSensitiveNotificationContent(rendered.subject, eventType);
-      await sql`
-        INSERT INTO notifications (channel, recipient, subject, body, status, event_type, sent_at, metadata)
-        VALUES ('email', ${email}, ${storedSubject}, ${storedBody}, ${status}, ${eventType}, NOW(), ${sql.json({ driverId })})
-      `;
+        metadata,
+      });
     }
 
-    // Send SMS (only when Twilio is configured)
-    if (smsEnabled && phone != null && phone !== '' && notificationSettings.twilio != null) {
-      const rendered = await renderTemplate(
-        'sms',
-        eventType,
-        language,
-        formattedVariables,
-        sql,
-        undefined,
-        templatesDir,
-      );
-
-      const ok = await sendSms(notificationSettings.twilio, phone, rendered.body);
-      const status = ok ? 'sent' : 'failed';
-      const storedSmsBody = redactSensitiveNotificationContent(rendered.body, eventType);
-      const storedSmsSubject = redactSensitiveNotificationContent(rendered.subject, eventType);
-      await sql`
-        INSERT INTO notifications (channel, recipient, subject, body, status, event_type, sent_at, metadata)
-        VALUES ('sms', ${phone}, ${storedSmsSubject}, ${storedSmsBody}, ${status}, ${eventType}, NOW(), ${sql.json({ driverId })})
-      `;
-    }
-
-    // Always insert a push notification for the in-app portal notification drawer.
-    // This is independent of email/SMS availability.
-    // Push stores a JSON body with title and plain-text message (rendered from SMS template).
-    const pushRendered = await renderTemplate(
+    // Render the SMS template once and reuse it for both the SMS send and
+    // the push row below. The push row exists regardless of whether SMS is
+    // enabled (it's the in-app bell), so the render always gets used.
+    const smsRendered = await renderTemplate(
       'sms',
       eventType,
       language,
@@ -718,15 +788,61 @@ export async function dispatchDriverNotification(
       undefined,
       templatesDir,
     );
+
+    // SMS path. Same audit-completeness guarantee as the email path above.
+    if (smsEnabled) {
+      let status: 'sent' | 'failed' = 'failed';
+      let failureReason: string | null = null;
+      let storedSmsSubject = `[${eventType}]`;
+      let storedSmsBody = '';
+
+      if (phone == null || phone === '') {
+        failureReason = 'recipient_missing';
+      } else if (notificationSettings.twilio == null) {
+        failureReason = 'twilio_not_configured';
+      } else {
+        const ok = await sendSms(notificationSettings.twilio, phone, smsRendered.body);
+        status = ok ? 'sent' : 'failed';
+        if (!ok) {
+          failureReason =
+            notificationSettings.twilio.credentialError === 'decrypt_failed'
+              ? 'credentials_decrypt_failed'
+              : 'twilio_send_failed';
+        }
+        storedSmsSubject = redactSensitiveNotificationContent(smsRendered.subject, eventType);
+        storedSmsBody = redactSensitiveNotificationContent(smsRendered.body, eventType);
+      }
+
+      const recipientForRow = phone != null && phone !== '' ? phone : '(none on file)';
+      const metadata: Record<string, string> = { driverId };
+      if (failureReason != null) metadata['failureReason'] = failureReason;
+      await recordNotificationAttempt(sql, {
+        channel: 'sms',
+        recipient: recipientForRow,
+        subject: storedSmsSubject,
+        body: storedSmsBody,
+        status,
+        eventType,
+        metadata,
+      });
+    }
+
+    // Always insert a push notification for the in-app portal notification drawer.
+    // Push stores a JSON body with title and plain-text message (rendered from SMS template).
     const pushBody = JSON.stringify({
-      title: pushRendered.subject,
-      message: redactSensitiveNotificationContent(pushRendered.body, eventType),
+      title: smsRendered.subject,
+      message: redactSensitiveNotificationContent(smsRendered.body, eventType),
     });
-    const pushSubject = redactSensitiveNotificationContent(pushRendered.subject, eventType);
-    await sql`
-      INSERT INTO notifications (channel, recipient, subject, body, status, event_type, sent_at, metadata)
-      VALUES ('push', ${driverId}, ${pushSubject}, ${pushBody}, 'sent', ${eventType}, NOW(), ${sql.json({ driverId })})
-    `;
+    const pushSubject = redactSensitiveNotificationContent(smsRendered.subject, eventType);
+    await recordNotificationAttempt(sql, {
+      channel: 'push',
+      recipient: driverId,
+      subject: pushSubject,
+      body: pushBody,
+      status: 'sent',
+      eventType,
+      metadata: { driverId },
+    });
 
     // Notify the portal SSE channel so the bell icon updates in real time
     if (pubsub != null) {
@@ -742,6 +858,30 @@ export async function dispatchDriverNotification(
   } catch (err) {
     logger.error({ err, eventType, driverId }, 'Driver notification dispatch failed');
   }
+}
+
+/**
+ * Single INSERT shape shared by every dispatch path (driver email/SMS/push,
+ * system email/SMS, operator forgot-password, OCPP email/webhook). Keeps the
+ * `notifications` row contract in one place so a new metadata field can be
+ * added without sweeping six call sites.
+ */
+export async function recordNotificationAttempt(
+  sql: postgres.Sql,
+  args: {
+    channel: 'email' | 'sms' | 'push' | 'webhook' | 'log';
+    recipient: string;
+    subject: string;
+    body: string;
+    status: 'sent' | 'failed';
+    eventType: string;
+    metadata: Record<string, string>;
+  },
+): Promise<void> {
+  await sql`
+    INSERT INTO notifications (channel, recipient, subject, body, status, event_type, sent_at, metadata)
+    VALUES (${args.channel}, ${args.recipient}, ${args.subject}, ${args.body}, ${args.status}, ${args.eventType}, NOW(), ${sql.json(args.metadata)})
+  `;
 }
 
 // --- System notification dispatch ---
@@ -798,44 +938,68 @@ export async function dispatchSystemNotification(
 
     const formattedVariables = formatDateVariables(enrichedVariables, timezone);
 
-    // Send email (only when SMTP is configured)
-    if (email != null && email !== '' && notificationSettings.smtp != null) {
-      const rendered = await renderTemplate(
-        'email',
-        eventType,
-        language,
-        formattedVariables,
-        sql,
-        undefined,
-        templatesDir,
-      );
-      const wrappedHtml =
-        rendered.html != null
-          ? wrapEmailHtml(
-              rendered.html,
-              companyName,
-              notificationSettings.emailWrapperTemplate,
-              formattedVariables,
-            )
-          : undefined;
+    // Email path. Always records a history row so operators can answer
+    // "did the system try to email this recipient?" without trawling logs.
+    {
+      let status: 'sent' | 'failed' = 'failed';
+      let failureReason: string | null = null;
+      let storedSubject = `[${eventType}]`;
+      let storedBody = '';
 
-      const ok = await sendEmail(
-        notificationSettings.smtp,
-        email,
-        rendered.subject,
-        rendered.body,
-        wrappedHtml,
-      );
-      const status = ok ? 'sent' : 'failed';
-      const storedBody = redactSensitiveNotificationContent(
-        wrappedHtml ?? rendered.body,
+      if (email == null || email === '') {
+        failureReason = 'recipient_missing';
+      } else if (notificationSettings.smtp == null) {
+        failureReason = 'smtp_not_configured';
+      } else {
+        const rendered = await renderTemplate(
+          'email',
+          eventType,
+          language,
+          formattedVariables,
+          sql,
+          undefined,
+          templatesDir,
+        );
+        const wrappedHtml =
+          rendered.html != null
+            ? wrapEmailHtml(
+                rendered.html,
+                companyName,
+                notificationSettings.emailWrapperTemplate,
+                formattedVariables,
+              )
+            : undefined;
+
+        const ok = await sendEmail(
+          notificationSettings.smtp,
+          email,
+          rendered.subject,
+          rendered.body,
+          wrappedHtml,
+        );
+        status = ok ? 'sent' : 'failed';
+        if (!ok) {
+          failureReason =
+            notificationSettings.smtp.credentialError === 'decrypt_failed'
+              ? 'credentials_decrypt_failed'
+              : 'smtp_send_failed';
+        }
+        storedSubject = redactSensitiveNotificationContent(rendered.subject, eventType);
+        storedBody = redactSensitiveNotificationContent(wrappedHtml ?? rendered.body, eventType);
+      }
+
+      const recipientForRow = email != null && email !== '' ? email : '(none on file)';
+      const metadata: Record<string, string> = {};
+      if (failureReason != null) metadata['failureReason'] = failureReason;
+      await recordNotificationAttempt(sql, {
+        channel: 'email',
+        recipient: recipientForRow,
+        subject: storedSubject,
+        body: storedBody,
+        status,
         eventType,
-      );
-      const storedSubject = redactSensitiveNotificationContent(rendered.subject, eventType);
-      await sql`
-        INSERT INTO notifications (channel, recipient, subject, body, status, event_type, sent_at, metadata)
-        VALUES ('email', ${email}, ${storedSubject}, ${storedBody}, ${status}, ${eventType}, NOW(), ${sql.json({})})
-      `;
+        metadata,
+      });
     }
 
     // Check operator SMS preferences (opt-out)
@@ -851,26 +1015,54 @@ export async function dispatchSystemNotification(
       }
     }
 
-    // Send SMS (only when Twilio is configured and SMS not opted out)
-    if (smsEnabled && phone != null && phone !== '' && notificationSettings.twilio != null) {
-      const rendered = await renderTemplate(
-        'sms',
-        eventType,
-        language,
-        formattedVariables,
-        sql,
-        undefined,
-        templatesDir,
-      );
+    // SMS path. Skips writing a row only when the operator explicitly
+    // opted out of SMS -- in that case there's no failure to audit, just a
+    // preference. Otherwise records the attempt with a failure reason.
+    if (smsEnabled) {
+      let status: 'sent' | 'failed' = 'failed';
+      let failureReason: string | null = null;
+      let storedSmsSubject = `[${eventType}]`;
+      let storedSmsBody = '';
 
-      const ok = await sendSms(notificationSettings.twilio, phone, rendered.body);
-      const status = ok ? 'sent' : 'failed';
-      const storedSmsBody = redactSensitiveNotificationContent(rendered.body, eventType);
-      const storedSmsSubject = redactSensitiveNotificationContent(rendered.subject, eventType);
-      await sql`
-        INSERT INTO notifications (channel, recipient, subject, body, status, event_type, sent_at, metadata)
-        VALUES ('sms', ${phone}, ${storedSmsSubject}, ${storedSmsBody}, ${status}, ${eventType}, NOW(), ${sql.json({})})
-      `;
+      if (phone == null || phone === '') {
+        failureReason = 'recipient_missing';
+      } else if (notificationSettings.twilio == null) {
+        failureReason = 'twilio_not_configured';
+      } else {
+        const rendered = await renderTemplate(
+          'sms',
+          eventType,
+          language,
+          formattedVariables,
+          sql,
+          undefined,
+          templatesDir,
+        );
+
+        const ok = await sendSms(notificationSettings.twilio, phone, rendered.body);
+        status = ok ? 'sent' : 'failed';
+        if (!ok) {
+          failureReason =
+            notificationSettings.twilio.credentialError === 'decrypt_failed'
+              ? 'credentials_decrypt_failed'
+              : 'twilio_send_failed';
+        }
+        storedSmsSubject = redactSensitiveNotificationContent(rendered.subject, eventType);
+        storedSmsBody = redactSensitiveNotificationContent(rendered.body, eventType);
+      }
+
+      const recipientForRow = phone != null && phone !== '' ? phone : '(none on file)';
+      const metadata: Record<string, string> = {};
+      if (failureReason != null) metadata['failureReason'] = failureReason;
+      await recordNotificationAttempt(sql, {
+        channel: 'sms',
+        recipient: recipientForRow,
+        subject: storedSmsSubject,
+        body: storedSmsBody,
+        status,
+        eventType,
+        metadata,
+      });
     }
   } catch (err) {
     logger.error({ err, eventType }, 'System notification dispatch failed');

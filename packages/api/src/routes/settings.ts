@@ -13,7 +13,13 @@ import {
   settingAuditLog,
 } from '@evtivity/database';
 import { settings } from '@evtivity/database';
-import { encryptString } from '@evtivity/lib';
+import { encryptString, clearNotificationSettingsCache } from '@evtivity/lib';
+
+const NOTIFICATION_SETTINGS_KEY_PREFIXES = ['smtp.', 'twilio.', 'email.', 'company.'];
+
+function affectsNotificationSettings(key: string): boolean {
+  return NOTIFICATION_SETTINGS_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
 import { zodSchema } from '../lib/zod-schema.js';
 import { successResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
@@ -264,6 +270,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      if (affectsNotificationSettings(row.key)) clearNotificationSettingsCache();
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
   );
@@ -313,6 +320,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      if (affectsNotificationSettings(row.key)) clearNotificationSettingsCache();
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
   );
@@ -354,6 +362,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      if (affectsNotificationSettings(row.key)) clearNotificationSettingsCache();
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
   );

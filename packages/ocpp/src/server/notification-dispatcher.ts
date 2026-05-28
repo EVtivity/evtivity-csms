@@ -19,6 +19,7 @@ import {
   dispatchDriverNotification as _dispatchDriverNotification,
   dispatchSystemNotification,
   formatDateVariables,
+  recordNotificationAttempt,
 } from '@evtivity/lib';
 
 export { dispatchSystemNotification };
@@ -210,17 +211,29 @@ export async function dispatchOcppNotification(
                   formattedVariables,
                 )
               : undefined;
-          let status = 'sent';
+          let status: 'sent' | 'failed' = 'sent';
+          let failureReason: string | null = null;
 
-          if (channel === 'email' && notificationSettings.smtp != null) {
-            const ok = await sendEmail(
-              notificationSettings.smtp,
-              recipient.address,
-              rendered.subject,
-              rendered.body,
-              wrappedHtml,
-            );
-            if (!ok) status = 'failed';
+          if (channel === 'email') {
+            if (notificationSettings.smtp == null) {
+              status = 'failed';
+              failureReason = 'smtp_not_configured';
+            } else {
+              const ok = await sendEmail(
+                notificationSettings.smtp,
+                recipient.address,
+                rendered.subject,
+                rendered.body,
+                wrappedHtml,
+              );
+              if (!ok) {
+                status = 'failed';
+                failureReason =
+                  notificationSettings.smtp.credentialError === 'decrypt_failed'
+                    ? 'credentials_decrypt_failed'
+                    : 'smtp_send_failed';
+              }
+            }
           } else if (channel === 'webhook') {
             const ok = await sendWebhook(
               recipient.address,
@@ -228,25 +241,27 @@ export async function dispatchOcppNotification(
               rendered.body,
               formattedVariables,
             );
-            if (!ok) status = 'failed';
+            if (!ok) {
+              status = 'failed';
+              failureReason = 'webhook_send_failed';
+            }
           } else {
             logNotification(channel, recipient.address, rendered.subject, rendered.body);
           }
 
           const storedBody =
             channel === 'email' && wrappedHtml != null ? wrappedHtml : rendered.body;
-          await sql`
-            INSERT INTO notifications (channel, recipient, subject, body, status, event_type, sent_at)
-            VALUES (
-              ${channel},
-              ${recipient.address},
-              ${rendered.subject},
-              ${storedBody},
-              ${status},
-              ${event.eventType},
-              NOW()
-            )
-          `;
+          const metadata: Record<string, string> = {};
+          if (failureReason != null) metadata['failureReason'] = failureReason;
+          await recordNotificationAttempt(sql, {
+            channel: channel as 'email' | 'sms' | 'push' | 'webhook' | 'log',
+            recipient: recipient.address,
+            subject: rendered.subject,
+            body: storedBody,
+            status,
+            eventType: event.eventType,
+            metadata,
+          });
         } catch (err) {
           logger.error(
             { err, eventType: event.eventType, recipient: recipient.address },

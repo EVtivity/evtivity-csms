@@ -275,6 +275,28 @@ const testBody = z.object({
   recipient: z.string().max(500).describe('Email address or phone number'),
 });
 
+// Recipient validators applied inside handlers because `zod-to-json-schema`
+// strips `.refine()` from the published OpenAPI doc, leaving a 400 that
+// looks unmotivated. Validating in the handler lets us return a proper
+// VALIDATION_ERROR with a useful message.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_RE = /^[+]?[0-9\s().-]{7,}$/;
+
+function isValidEmail(value: string): boolean {
+  return EMAIL_RE.test(value);
+}
+function isValidPhone(value: string): boolean {
+  return PHONE_RE.test(value);
+}
+function isValidWebhookUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 const notificationChannelValues = ['email', 'sms', 'webhook', 'push', 'log'] as const;
 
 const notificationListQuery = paginationQuery.merge(
@@ -577,12 +599,35 @@ export function notificationRoutes(app: FastifyInstance): void {
         operationId: 'updateOcppEventSettings',
         security: [{ bearerAuth: [] }],
         body: zodSchema(ocppEventSettingsBody),
-        response: { 200: itemResponse(ocppEventSettingItem) },
+        response: {
+          200: itemResponse(ocppEventSettingItem),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const body = request.body as z.infer<typeof ocppEventSettingsBody>;
       const channel = body.channel ?? 'email';
+      // Validate the recipient against the channel format so misconfigured
+      // settings fail at save time with a clear error, not silently at
+      // dispatch time with an SMTP/webhook rejection deep in the worker log.
+      // `$admin` is the magic recipient that resolves to the operator email.
+      if (body.recipient != null && body.recipient !== '' && body.recipient !== '$admin') {
+        if (channel === 'email' && !isValidEmail(body.recipient)) {
+          await reply.status(400).send({
+            error: 'recipient must be a valid email address for email channel',
+            code: 'VALIDATION_ERROR',
+          });
+          return;
+        }
+        if (channel === 'webhook' && !isValidWebhookUrl(body.recipient)) {
+          await reply.status(400).send({
+            error: 'recipient must be a valid http(s) URL for webhook channel',
+            code: 'VALIDATION_ERROR',
+          });
+          return;
+        }
+      }
       const updates: Record<string, unknown> = { updatedAt: new Date() };
       if (body.recipient !== undefined) updates['recipient'] = body.recipient;
       if (body.templateHtml !== undefined) updates['templateHtml'] = body.templateHtml;
@@ -729,6 +774,23 @@ export function notificationRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { channel, recipient } = request.body as z.infer<typeof testBody>;
+
+      // Fail fast on bad recipients so operators don't see a vague SMTP/Twilio
+      // failure when the real issue is a typo in the test form.
+      if (channel === 'email' && !isValidEmail(recipient)) {
+        await reply.status(400).send({
+          error: 'recipient must be a valid email address',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
+      if (channel === 'sms' && !isValidPhone(recipient)) {
+        await reply.status(400).send({
+          error: 'recipient must be a valid phone number',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
 
       const allSettings = await db.select().from(settings);
       const settingsMap = new Map<string, unknown>();

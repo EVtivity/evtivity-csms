@@ -22,7 +22,12 @@ import {
   DRIVER_EVENT_TYPES,
   OPERATOR_EVENT_TYPES,
 } from '@/lib/template-variables';
-import { type NotificationRecord, statusBadgeClass, formatTimestamp } from './shared';
+import {
+  type NotificationRecord,
+  statusBadgeClass,
+  formatTimestamp,
+  formatFailureReason,
+} from './shared';
 
 const EVENT_CATEGORIES: Record<string, readonly string[]> = {
   driver: DRIVER_EVENT_TYPES,
@@ -146,7 +151,15 @@ export function SmsLogTab(): React.JSX.Element {
                   <TableCell>{msg.recipient}</TableCell>
                   <TableCell>{msg.eventType ?? '-'}</TableCell>
                   <TableCell>
-                    <Badge className={statusBadgeClass(msg.status)}>{msg.status}</Badge>
+                    <div className="flex flex-col gap-1">
+                      <Badge className={statusBadgeClass(msg.status)}>{msg.status}</Badge>
+                      {msg.status === 'failed' &&
+                        formatFailureReason(msg.metadata?.failureReason) != null && (
+                          <span className="text-xs text-muted-foreground">
+                            {formatFailureReason(msg.metadata?.failureReason)}
+                          </span>
+                        )}
+                    </div>
                   </TableCell>
                 </TableRow>
                 {expandedId === msg.id && (

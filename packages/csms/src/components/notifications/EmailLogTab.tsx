@@ -23,7 +23,12 @@ import {
   DRIVER_EVENT_TYPES,
   OPERATOR_EVENT_TYPES,
 } from '@/lib/template-variables';
-import { type NotificationRecord, statusBadgeClass, formatTimestamp } from './shared';
+import {
+  type NotificationRecord,
+  statusBadgeClass,
+  formatTimestamp,
+  formatFailureReason,
+} from './shared';
 
 const EVENT_CATEGORIES: Record<string, readonly string[]> = {
   driver: DRIVER_EVENT_TYPES,
@@ -149,7 +154,15 @@ export function EmailLogTab(): React.JSX.Element {
                 <TableCell className="max-w-[300px] truncate">{email.subject ?? '-'}</TableCell>
                 <TableCell>{email.eventType ?? '-'}</TableCell>
                 <TableCell>
-                  <Badge className={statusBadgeClass(email.status)}>{email.status}</Badge>
+                  <div className="flex flex-col gap-1">
+                    <Badge className={statusBadgeClass(email.status)}>{email.status}</Badge>
+                    {email.status === 'failed' &&
+                      formatFailureReason(email.metadata?.failureReason) != null && (
+                        <span className="text-xs text-muted-foreground">
+                          {formatFailureReason(email.metadata?.failureReason)}
+                        </span>
+                      )}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
