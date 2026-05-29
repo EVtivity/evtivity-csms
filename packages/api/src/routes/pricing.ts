@@ -33,40 +33,8 @@ import {
 import { paginationQuery } from '../lib/pagination.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { resolveTariffGroup } from '../services/tariff.service.js';
-import { getPubSub } from '../lib/pubsub.js';
 import { authorize } from '../middleware/rbac.js';
-
-// Best-effort SSE so any operator viewing pricing-related UI sees the change
-// without manual refresh. Also used by the station-message refresh listener
-// to invalidate the cached display template for stations resolving to this
-// pricing group.
-async function publishPricingChanged(args: {
-  pricingGroupId: string | null;
-  tariffId?: string | null;
-  action:
-    | 'group.updated'
-    | 'group.deleted'
-    | 'tariff.updated'
-    | 'tariff.deleted'
-    | 'tariff.created'
-    | 'group.created'
-    | 'holiday.changed';
-}): Promise<void> {
-  try {
-    const pubsub = getPubSub();
-    await pubsub.publish(
-      'csms_events',
-      JSON.stringify({
-        eventType: 'pricing.changed',
-        pricingGroupId: args.pricingGroupId,
-        tariffId: args.tariffId ?? null,
-        action: args.action,
-      }),
-    );
-  } catch {
-    // Non-critical
-  }
-}
+import { publishPricingChanged } from '../lib/pricing-events.js';
 
 const pricingGroupItem = z
   .object({
@@ -582,7 +550,10 @@ export function pricingRoutes(app: FastifyInstance): void {
         response: {
           201: itemResponse(tariffItem),
           400: errorWith('Invalid restrictions', [ERROR_CODES.INVALID_RESTRICTIONS]),
-          409: errorWith('Tariff overlap', [ERROR_CODES.TARIFF_OVERLAP]),
+          409: errorWith('Tariff conflict', [
+            ERROR_CODES.TARIFF_OVERLAP,
+            ERROR_CODES.TARIFF_CURRENCY_MISMATCH,
+          ]),
         },
       },
     },

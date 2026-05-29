@@ -11,7 +11,6 @@ import {
   pricingAssignmentAuditLog,
   drivers,
   chargingStations,
-  pricingGroups,
 } from '@evtivity/database';
 import { eq } from 'drizzle-orm';
 import { getAuditActor } from '../lib/audit-actor.js';
@@ -20,6 +19,8 @@ import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
+import { publishPricingChanged } from '../lib/pricing-events.js';
+import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
 import {
   paginatedResponse,
   itemResponse,
@@ -494,7 +495,10 @@ export function fleetRoutes(app: FastifyInstance): void {
         body: zodSchema(addDriverBody),
         response: {
           201: itemResponse(fleetDriverRecordItem),
-          404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
+          404: errorWith('Fleet or driver not found', [
+            ERROR_CODES.FLEET_NOT_FOUND,
+            ERROR_CODES.DRIVER_NOT_FOUND,
+          ]),
           409: errorWith('Driver already in fleet', [ERROR_CODES.DRIVER_ALREADY_IN_FLEET]),
         },
       },
@@ -502,6 +506,13 @@ export function fleetRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const body = request.body as z.infer<typeof addDriverBody>;
+      // Pre-check fleet existence so an FK race on the INSERT below can
+      // be safely attributed to the driver (the only remaining unknown FK).
+      const fleet = await fleetService.getFleet(id);
+      if (fleet == null) {
+        await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
+        return;
+      }
       // Pre-check driver existence — without this, an invalid driverId
       // hits the FK constraint and 500s (ON CONFLICT DO NOTHING in the
       // service only catches the uniqueness conflict, not FK violations).
@@ -513,7 +524,23 @@ export function fleetRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
         return;
       }
-      const record = await fleetService.addDriverToFleet(id, body.driverId);
+      let record;
+      try {
+        record = await fleetService.addDriverToFleet(id, body.driverId);
+      } catch (err) {
+        // Pre-check is non-transactional, so the driver can be deleted
+        // between the check and this INSERT. Map the FK violation back
+        // to the same 404 the pre-check would have produced.
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          (err as { code?: string }).code === '23503'
+        ) {
+          await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+          return;
+        }
+        throw err;
+      }
       // Service returns null when the unique (fleet_id, driver_id)
       // constraint trips, i.e. the driver is already in this fleet.
       if (record == null) {
@@ -551,7 +578,7 @@ export function fleetRoutes(app: FastifyInstance): void {
         params: zodSchema(driverParams),
         response: {
           200: itemResponse(fleetDriverRecordItem),
-          404: errorWith('Resource not found', [ERROR_CODES.NOT_FOUND]),
+          404: errorWith('Driver not found in fleet', [ERROR_CODES.DRIVER_NOT_FOUND]),
         },
       },
     },
@@ -615,7 +642,10 @@ export function fleetRoutes(app: FastifyInstance): void {
         body: zodSchema(addStationBody),
         response: {
           201: itemResponse(fleetStationRecordItem),
-          404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+          404: errorWith('Fleet or station not found', [
+            ERROR_CODES.FLEET_NOT_FOUND,
+            ERROR_CODES.STATION_NOT_FOUND,
+          ]),
           409: errorWith('Station already in fleet', [ERROR_CODES.STATION_ALREADY_IN_FLEET]),
         },
       },
@@ -623,6 +653,13 @@ export function fleetRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const body = request.body as z.infer<typeof addStationBody>;
+      // Pre-check fleet existence so an FK race on the INSERT below can
+      // be safely attributed to the station (the only remaining unknown FK).
+      const fleet = await fleetService.getFleet(id);
+      if (fleet == null) {
+        await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
+        return;
+      }
       // Pre-check station existence (FK violations bypass ON CONFLICT and
       // would otherwise leak as a 500).
       const [station] = await db
@@ -633,7 +670,23 @@ export function fleetRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
-      const record = await fleetService.addStationToFleet(id, body.stationId);
+      let record;
+      try {
+        record = await fleetService.addStationToFleet(id, body.stationId);
+      } catch (err) {
+        // Pre-check is non-transactional, so the station can be deleted
+        // between the check and this INSERT. Map the FK violation back
+        // to the same 404 the pre-check would have produced.
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          (err as { code?: string }).code === '23503'
+        ) {
+          await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+          return;
+        }
+        throw err;
+      }
       // null = (fleet_id, station_id) unique tripped — already in fleet.
       if (record == null) {
         await reply
@@ -670,7 +723,7 @@ export function fleetRoutes(app: FastifyInstance): void {
         params: zodSchema(stationParams),
         response: {
           200: itemResponse(fleetStationRecordItem),
-          404: errorWith('Resource not found', [ERROR_CODES.NOT_FOUND]),
+          404: errorWith('Station not found in fleet', [ERROR_CODES.STATION_NOT_FOUND]),
         },
       },
     },
@@ -852,7 +905,10 @@ export function fleetRoutes(app: FastifyInstance): void {
         body: zodSchema(addPricingGroupBody),
         response: {
           201: itemResponse(fleetPricingGroupRecordItem),
-          404: errorWith('Pricing group not found', [ERROR_CODES.PRICING_GROUP_NOT_FOUND]),
+          404: errorWith('Fleet or pricing group not found', [
+            ERROR_CODES.FLEET_NOT_FOUND,
+            ERROR_CODES.PRICING_GROUP_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -860,20 +916,40 @@ export function fleetRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const { userId } = request.user as JwtPayload;
       const body = request.body as z.infer<typeof addPricingGroupBody>;
-      // Pre-check pricing group existence — without this a typo'd id
-      // trips the FK and 500s. Same pattern as drivers.ts pricing route.
-      const [pgExists] = await db
-        .select({ id: pricingGroups.id })
-        .from(pricingGroups)
-        .where(eq(pricingGroups.id, body.pricingGroupId));
-      if (pgExists == null) {
+      // Pre-check fleet existence so the FK race on the INSERT below can
+      // be safely attributed to the pricing group (the only remaining
+      // unknown FK).
+      const fleet = await fleetService.getFleet(id);
+      if (fleet == null) {
+        await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
+        return;
+      }
+      if (!(await pricingGroupExists(body.pricingGroupId))) {
         await reply
           .status(404)
           .send({ error: 'Pricing group not found', code: 'PRICING_GROUP_NOT_FOUND' });
         return;
       }
       const previous = await fleetService.getFleetPricingGroup(id);
-      const record = await fleetService.addPricingGroupToFleet(id, body.pricingGroupId);
+      let record;
+      try {
+        record = await fleetService.addPricingGroupToFleet(id, body.pricingGroupId);
+      } catch (err) {
+        // Pre-check is non-transactional, so the pricing group can be deleted
+        // between the check and this INSERT. Map the FK violation to the same
+        // 404 the operator would have seen on the pre-check.
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          (err as { code?: string }).code === '23503'
+        ) {
+          await reply
+            .status(404)
+            .send({ error: 'Pricing group not found', code: 'PRICING_GROUP_NOT_FOUND' });
+          return;
+        }
+        throw err;
+      }
       await writeAudit(
         { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
         {
@@ -903,6 +979,11 @@ export function fleetRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      await publishPricingChanged({
+        pricingGroupId: body.pricingGroupId,
+        action: 'assignment.changed',
+        fleetId: id,
+      });
       await reply.status(201).send(record);
     },
   );
@@ -919,7 +1000,9 @@ export function fleetRoutes(app: FastifyInstance): void {
         params: zodSchema(pricingGroupParams),
         response: {
           200: itemResponse(fleetPricingGroupRecordItem),
-          404: errorWith('Resource not found', [ERROR_CODES.NOT_FOUND]),
+          404: errorWith('Pricing assignment not found', [
+            ERROR_CODES.PRICING_ASSIGNMENT_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -928,9 +1011,10 @@ export function fleetRoutes(app: FastifyInstance): void {
       const { userId } = request.user as JwtPayload;
       const record = await fleetService.removePricingGroupFromFleet(id, pricingGroupId);
       if (record == null) {
-        await reply
-          .status(404)
-          .send({ error: 'Pricing group not found for fleet', code: 'NOT_FOUND' });
+        await reply.status(404).send({
+          error: 'Pricing group not found for fleet',
+          code: 'PRICING_ASSIGNMENT_NOT_FOUND',
+        });
         return;
       }
       await writeAudit(
@@ -959,6 +1043,7 @@ export function fleetRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      await publishPricingChanged({ pricingGroupId, action: 'assignment.changed', fleetId: id });
       return record;
     },
   );

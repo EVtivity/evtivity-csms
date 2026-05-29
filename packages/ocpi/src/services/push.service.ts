@@ -138,6 +138,14 @@ async function pushLocationUpdate(siteId: string): Promise<void> {
   const [site] = await db.select().from(sites).where(eq(sites.id, siteId)).limit(1);
   if (site == null) return;
 
+  // OCPI Location.coordinates is required. Skipping the push here keeps
+  // unconfigured sites out of partner feeds entirely instead of publishing
+  // (0, 0) null-island coordinates that routing systems would treat as real.
+  if (site.latitude == null || site.longitude == null) {
+    logger.warn({ siteId }, 'Skipping OCPI location push: site has no coordinates configured');
+    return;
+  }
+
   // Get stations and EVSEs
   const stationRows = await db
     .select()

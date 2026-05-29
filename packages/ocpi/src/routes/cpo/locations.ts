@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import { eq, and, gte, lte, sql } from 'drizzle-orm';
+import { eq, and, gte, lte, sql, isNotNull } from 'drizzle-orm';
 import {
   db,
   sites,
@@ -64,13 +64,17 @@ async function getPublishedLocations(
     conditions.push(lte(ocpiLocationPublish.updatedAt, dateTo));
   }
 
-  // Query published sites - either publishToAll=true or partner is in the allow list
+  // Query published sites - either publishToAll=true or partner is in the allow list.
+  // Inner-join sites and require non-null coordinates so the OCPI list reflects
+  // only locations we can actually represent (coordinates is a required field
+  // in the OCPI Location object); count and pagination both reflect that filter.
   const publishedSiteIds = await db
     .select({
       siteId: ocpiLocationPublish.siteId,
       ocpiLocationId: ocpiLocationPublish.ocpiLocationId,
     })
     .from(ocpiLocationPublish)
+    .innerJoin(sites, eq(sites.id, ocpiLocationPublish.siteId))
     .leftJoin(
       ocpiLocationPublishPartners,
       eq(ocpiLocationPublish.id, ocpiLocationPublishPartners.locationPublishId),
@@ -78,6 +82,8 @@ async function getPublishedLocations(
     .where(
       and(
         ...conditions,
+        isNotNull(sites.latitude),
+        isNotNull(sites.longitude),
         sql`(${ocpiLocationPublish.publishToAll} = true OR ${ocpiLocationPublishPartners.partnerId} = ${partnerId})`,
       ),
     );
@@ -220,6 +226,8 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
     const countryCode = getCountryCode();
     const partyId = getPartyId();
 
+    // OCPI Location.coordinates is required; getPublishedLocations() filters
+    // out coordinateless sites at the source so total + pagination stay aligned.
     const ocpiLocations = siteRows.map((site) => {
       const siteStationIds = stationsBySite.get(site.id) ?? [];
       const allEvses = siteStationIds.flatMap((stId) => evseMap.get(stId) ?? []);
@@ -265,7 +273,9 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
     }
 
     const [site] = await db.select().from(sites).where(eq(sites.id, siteId)).limit(1);
-    if (site == null) {
+    if (site == null || site.latitude == null || site.longitude == null) {
+      // Missing coordinates leave the location unrepresentable in OCPI; treat
+      // it as not-found from the partner's perspective rather than emit (0, 0).
       await reply
         .status(404)
         .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_LOCATION, 'Location not found'));

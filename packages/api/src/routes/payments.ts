@@ -1,10 +1,10 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, sql, and, inArray, like } from 'drizzle-orm';
-import { db, client, writeAudit, settingAuditLog } from '@evtivity/database';
+import { db, client, writeAudit, settingAuditLog, siteAuditLog } from '@evtivity/database';
 import {
   sitePaymentConfigs,
   driverPaymentMethods,
@@ -14,6 +14,7 @@ import {
   settings,
   drivers,
   chargingStations,
+  sites,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { encryptString, decryptString, dispatchDriverNotification } from '@evtivity/lib';
@@ -403,6 +404,28 @@ export function paymentRoutes(app: FastifyInstance): void {
     },
   );
 
+  async function writeSitePaymentConfigAudit(
+    request: FastifyRequest,
+    siteId: string,
+    before: Record<string, unknown> | null | undefined,
+    after: Record<string, unknown> | null | undefined,
+  ): Promise<void> {
+    const actor = getAuditActor(request);
+    await writeAudit(
+      { table: siteAuditLog, idColumn: 'site_id' },
+      {
+        entityId: siteId,
+        entityIdSnapshot: siteId,
+        action: 'payment_config_changed',
+        ...actor,
+        before: before ?? null,
+        after: after ?? null,
+      },
+      db,
+      request.log,
+    );
+  }
+
   app.put(
     '/sites/:id/payment-config',
     {
@@ -416,7 +439,10 @@ export function paymentRoutes(app: FastifyInstance): void {
         body: zodSchema(upsertSitePaymentConfigBody),
         response: {
           200: itemResponse(sitePaymentConfigItem),
-          404: errorWith('Payment config not found', [ERROR_CODES.PAYMENT_CONFIG_NOT_FOUND]),
+          404: errorWith('Site or payment config not found', [
+            ERROR_CODES.SITE_NOT_FOUND,
+            ERROR_CODES.PAYMENT_CONFIG_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -434,8 +460,17 @@ export function paymentRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // The siteIds filter above only guards non-all-access operators.
+      // All-site-access admins still need an explicit site existence check
+      // so the INSERT below cannot create a row with a dangling siteId FK.
+      const [siteRow] = await db.select({ id: sites.id }).from(sites).where(eq(sites.id, id));
+      if (siteRow == null) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
+
       const [existing] = await db
-        .select({ id: sitePaymentConfigs.id })
+        .select()
         .from(sitePaymentConfigs)
         .where(eq(sitePaymentConfigs.siteId, id));
 
@@ -453,23 +488,40 @@ export function paymentRoutes(app: FastifyInstance): void {
           })
           .where(eq(sitePaymentConfigs.siteId, id))
           .returning();
-        clearConfigCache();
+        clearConfigCache(id);
+        await writeSitePaymentConfigAudit(request, id, existing, updated);
         return updated;
       }
 
-      const [created] = await db
-        .insert(sitePaymentConfigs)
-        .values({
-          siteId: id,
-          stripeConnectedAccountId: body.stripeConnectedAccountId ?? null,
-          currency: body.currency,
-          preAuthAmountCents: body.preAuthAmountCents,
-          platformFeePercent:
-            body.platformFeePercent != null ? String(body.platformFeePercent) : null,
-          isEnabled: body.isEnabled,
-        })
-        .returning();
-      clearConfigCache();
+      let created;
+      try {
+        [created] = await db
+          .insert(sitePaymentConfigs)
+          .values({
+            siteId: id,
+            stripeConnectedAccountId: body.stripeConnectedAccountId ?? null,
+            currency: body.currency,
+            preAuthAmountCents: body.preAuthAmountCents,
+            platformFeePercent:
+              body.platformFeePercent != null ? String(body.platformFeePercent) : null,
+            isEnabled: body.isEnabled,
+          })
+          .returning();
+      } catch (err) {
+        // Pre-check is non-transactional, so the site can be deleted between
+        // the check and this INSERT. Map the FK violation back to 404.
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          (err as { code?: string }).code === '23503'
+        ) {
+          await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+          return;
+        }
+        throw err;
+      }
+      clearConfigCache(id);
+      await writeSitePaymentConfigAudit(request, id, null, created);
       return created;
     },
   );
@@ -515,7 +567,8 @@ export function paymentRoutes(app: FastifyInstance): void {
         });
         return;
       }
-      clearConfigCache();
+      clearConfigCache(id);
+      await writeSitePaymentConfigAudit(request, id, deleted, null);
       return { success: true };
     },
   );

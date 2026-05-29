@@ -238,11 +238,6 @@ export function portalDriverRoutes(app: FastifyInstance): void {
     },
   );
 
-  const updateNotificationPrefsBody = z.object({
-    emailEnabled: z.boolean().describe('Whether email notifications are enabled'),
-    smsEnabled: z.boolean().describe('Whether SMS notifications are enabled'),
-  });
-
   app.put(
     '/portal/driver/notification-preferences',
     {
@@ -252,13 +247,13 @@ export function portalDriverRoutes(app: FastifyInstance): void {
         summary: 'Update driver notification preferences',
         operationId: 'portalUpdateNotificationPreferences',
         security: [{ bearerAuth: [] }],
-        body: zodSchema(updateNotificationPrefsBody),
+        body: zodSchema(notificationPrefsItem),
         response: { 200: itemResponse(notificationPrefsItem) },
       },
     },
     async (request) => {
       const { driverId } = request.user as DriverJwtPayload;
-      const body = request.body as z.infer<typeof updateNotificationPrefsBody>;
+      const body = request.body as z.infer<typeof notificationPrefsItem>;
 
       const [result] = await db
         .insert(driverNotificationPreferences)

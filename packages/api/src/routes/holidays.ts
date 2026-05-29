@@ -9,9 +9,9 @@ import { pricingHolidays, holidayAuditLog, writeAudit } from '@evtivity/database
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
-import { getPubSub } from '../lib/pubsub.js';
 import { authorize } from '../middleware/rbac.js';
 import { clearHolidayCache } from '../services/tariff.service.js';
+import { publishPricingChanged } from '../lib/pricing-events.js';
 
 async function publishHolidayChanged(): Promise<void> {
   // Clear the in-process holiday cache so the next resolveTariff() call on
@@ -19,15 +19,7 @@ async function publishHolidayChanged(): Promise<void> {
   // every operator-added or operator-deleted holiday for up to a minute
   // before it takes effect.
   clearHolidayCache();
-  try {
-    const pubsub = getPubSub();
-    await pubsub.publish(
-      'csms_events',
-      JSON.stringify({ eventType: 'pricing.changed', action: 'holiday.changed' }),
-    );
-  } catch {
-    // Non-critical
-  }
+  await publishPricingChanged({ pricingGroupId: null, action: 'holiday.changed' });
 }
 
 const holidayItem = z

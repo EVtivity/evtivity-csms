@@ -1,8 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, or, ilike, and, asc, inArray } from 'drizzle-orm';
+import { eq, or, ilike, and, asc, inArray, sql } from 'drizzle-orm';
 import { db } from '@evtivity/database';
+import { siteNameEq } from '../lib/site-lookup.js';
 import {
   sites,
   chargingStations,
@@ -12,6 +13,7 @@ import {
   writeAudit,
   siteAuditLog,
 } from '@evtivity/database';
+import { csvEscape } from '@evtivity/lib';
 
 interface ImportActor {
   actor: 'operator' | 'driver' | 'api_key' | 'system' | 'ocpp';
@@ -26,11 +28,15 @@ const VALID_CONNECTOR_TYPES = ['CCS2', 'CHAdeMO', 'Type2', 'Type1', 'GBT', 'Tesl
 const CSV_HEADER =
   'siteName,stationId,stationModel,stationSerialNumber,stationStatus,onboardingStatus,evseId,connectorId,connectorType,maxPowerKw,maxCurrentAmps,stationVendor';
 
+// onboardingStatus column (index 5) is intentionally blank in the template
+// rows: it appears in export so operators can audit the current state, but
+// the import path silently drops it because onboarding transitions belong to
+// the dedicated approve/reject endpoints, not free-form CSV edits.
 const TEMPLATE_ROWS = [
-  'Downtown Garage,CS-001,PowerCharge 150,SN-12345,pending,1,1,CCS2,150,32,ACME Chargers',
-  'Downtown Garage,CS-001,PowerCharge 150,SN-12345,pending,1,2,CHAdeMO,50,125,ACME Chargers',
-  'Downtown Garage,CS-001,PowerCharge 150,SN-12345,pending,2,1,Type2,22,32,ACME Chargers',
-  'Airport Lot,,,,,,,,',
+  'Downtown Garage,CS-001,PowerCharge 150,SN-12345,available,,1,1,CCS2,150,400,ACME Chargers',
+  'Downtown Garage,CS-001,PowerCharge 150,SN-12345,available,,1,2,CHAdeMO,50,125,ACME Chargers',
+  'Downtown Garage,CS-001,PowerCharge 150,SN-12345,available,,2,1,Type2,22,32,ACME Chargers',
+  'Airport Lot,,,,,,,,,,,',
 ];
 
 export interface ImportRow {
@@ -38,6 +44,7 @@ export interface ImportRow {
   stationId?: string | undefined;
   stationModel?: string | undefined;
   stationSerialNumber?: string | undefined;
+  stationStatus?: 'available' | 'unavailable' | 'faulted' | undefined;
   evseId?: number | undefined;
   connectorId?: number | undefined;
   connectorType?: string | undefined;
@@ -111,7 +118,7 @@ export async function exportSitesCsv(search?: string, siteIds?: string[]): Promi
       row.evseId != null ? String(row.evseId) : '',
       row.connectorId != null ? String(row.connectorId) : '',
       csvEscape(row.connectorType ?? ''),
-      row.maxPowerKw ?? '',
+      csvEscape(row.maxPowerKw ?? ''),
       row.maxCurrentAmps != null ? String(row.maxCurrentAmps) : '',
       csvEscape(row.vendorName ?? ''),
     ].join(',');
@@ -128,6 +135,9 @@ export async function importSitesCsv(
   rows: ImportRow[],
   updateExisting: boolean,
   actor?: ImportActor,
+  // null means full site access (admin). An array restricts the import to
+  // updating sites already in the list; new-site creation is rejected per-row.
+  allowedSiteIds?: string[] | null,
 ): Promise<ImportResult> {
   const result: ImportResult = {
     sitesCreated: 0,
@@ -187,8 +197,29 @@ export async function importSitesCsv(
 
     for (const [siteName, siteRows] of siteGroups) {
       // Case-insensitive existing-site lookup so the import enforces the
-      // same uniqueness semantics as POST /v1/sites (which uses ilike).
-      const [existing] = await tx.select().from(sites).where(ilike(sites.name, siteName)).limit(1);
+      // same uniqueness semantics as POST /v1/sites.
+      const [existing] = await tx.select().from(sites).where(siteNameEq(siteName)).limit(1);
+
+      // Restricted operators (allowedSiteIds is an array, not null) cannot
+      // create new sites and cannot mutate sites they don't have access to.
+      // Reject the whole site group up front so a single CSV upload can't be
+      // used to escalate beyond the user's site assignments.
+      if (allowedSiteIds != null) {
+        if (existing == null) {
+          for (const entry of siteRows) {
+            result.errors.push(
+              `Row ${String(entry.index + 1)}: insufficient site access to create new site "${siteName}"`,
+            );
+          }
+          continue;
+        }
+        if (!allowedSiteIds.includes(existing.id)) {
+          for (const entry of siteRows) {
+            result.errors.push(`Row ${String(entry.index + 1)}: no access to site "${siteName}"`);
+          }
+          continue;
+        }
+      }
 
       if (existing != null) {
         siteIdByName.set(siteName, existing.id);
@@ -262,10 +293,13 @@ export async function importSitesCsv(
           if (vendorIdByName.has(vendorName)) {
             vendorId = vendorIdByName.get(vendorName) ?? null;
           } else {
+            // Case-insensitive vendor lookup mirrors siteNameEq so a CSV with
+            // "ACME chargers" matches a DB row of "Acme Chargers" instead of
+            // surfacing a confusing "vendor not found" per-row error.
             const [vendor] = await tx
               .select({ id: vendors.id })
               .from(vendors)
-              .where(eq(vendors.name, vendorName));
+              .where(sql`LOWER(${vendors.name}) = LOWER(${vendorName})`);
             if (vendor != null) {
               vendorId = vendor.id;
               vendorIdByName.set(vendorName, vendor.id);
@@ -283,6 +317,7 @@ export async function importSitesCsv(
           model?: string;
           serialNumber?: string;
           vendorId?: string;
+          availability?: 'available' | 'unavailable' | 'faulted';
         } = {
           stationId,
           siteId,
@@ -296,6 +331,9 @@ export async function importSitesCsv(
         }
         if (vendorId) {
           stationValues.vendorId = vendorId;
+        }
+        if (firstStationRow.row.stationStatus != null) {
+          stationValues.availability = firstStationRow.row.stationStatus;
         }
 
         if (updateExisting) {
@@ -482,11 +520,4 @@ export async function importSitesCsv(
   });
 
   return result;
-}
-
-function csvEscape(value: string): string {
-  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
 }

@@ -3,9 +3,9 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, sql, asc } from 'drizzle-orm';
+import { eq, and, sql, asc, desc } from 'drizzle-orm';
 import { db } from '@evtivity/database';
-import { vehicles, vehicleEfficiencyLookup } from '@evtivity/database';
+import { vehicles, vehicleEfficiencyLookup, vehicleAuditLog, writeAudit } from '@evtivity/database';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { ID_PARAMS } from '../../lib/id-validation.js';
 import { arrayResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
@@ -92,7 +92,8 @@ export function portalVehicleRoutes(app: FastifyInstance): void {
           createdAt: vehicles.createdAt,
         })
         .from(vehicles)
-        .where(eq(vehicles.driverId, driverId));
+        .where(eq(vehicles.driverId, driverId))
+        .orderBy(desc(vehicles.createdAt), asc(vehicles.id));
     },
   );
 
@@ -125,6 +126,22 @@ export function portalVehicleRoutes(app: FastifyInstance): void {
           year: body.year ?? null,
         })
         .returning();
+
+      if (vehicle != null) {
+        await writeAudit(
+          { table: vehicleAuditLog, idColumn: 'vehicle_id' },
+          {
+            entityId: vehicle.id,
+            entityIdSnapshot: vehicle.id,
+            action: 'created',
+            actor: 'driver',
+            actorDriverId: driverId,
+            after: vehicle,
+          },
+          db,
+          request.log,
+        );
+      }
 
       return reply.status(201).send(vehicle);
     },
@@ -166,7 +183,24 @@ export function portalVehicleRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Capture the full row for the audit before deleting it.
+      const [fullVehicle] = await db.select().from(vehicles).where(eq(vehicles.id, id));
       await db.delete(vehicles).where(eq(vehicles.id, id));
+      if (fullVehicle != null) {
+        await writeAudit(
+          { table: vehicleAuditLog, idColumn: 'vehicle_id' },
+          {
+            entityId: null,
+            entityIdSnapshot: fullVehicle.id,
+            action: 'deleted',
+            actor: 'driver',
+            actorDriverId: driverId,
+            before: fullVehicle,
+          },
+          db,
+          request.log,
+        );
+      }
       return reply.status(204).send();
     },
   );
@@ -187,16 +221,27 @@ export function portalVehicleRoutes(app: FastifyInstance): void {
       const { driverId } = request.user as DriverJwtPayload;
       const DEFAULT_EFFICIENCY = 3.5;
 
+      // Pick the most-recently-added vehicle as a proxy for "current car".
+      // The portal Activity miles estimate uses one driver-wide efficiency
+      // value, so for multi-vehicle drivers we need a deterministic choice;
+      // recency is the closest signal we have without a dedicated "primary
+      // vehicle" flag.
       const [firstVehicle] = await db
-        .select({ make: vehicles.make, model: vehicles.model })
+        .select({ make: vehicles.make, model: vehicles.model, year: vehicles.year })
         .from(vehicles)
         .where(eq(vehicles.driverId, driverId))
+        .orderBy(desc(vehicles.createdAt), desc(vehicles.id))
         .limit(1);
 
       if (firstVehicle == null || firstVehicle.make == null || firstVehicle.model == null) {
         return { efficiencyMiPerKwh: DEFAULT_EFFICIENCY };
       }
 
+      // Prefer a year-specific match, then fall back to the year-null row
+      // for the make/model. The seed mixes both shapes (see
+      // idx_vel_make_model_year unique on LOWER(make)+LOWER(model)+
+      // COALESCE(year, '')), so ordering by year IS NOT NULL DESC pulls the
+      // tighter match first whenever the driver's vehicle has a year.
       const [match] = await db
         .select({ efficiencyMiPerKwh: vehicleEfficiencyLookup.efficiencyMiPerKwh })
         .from(vehicleEfficiencyLookup)
@@ -204,8 +249,12 @@ export function portalVehicleRoutes(app: FastifyInstance): void {
           and(
             sql`LOWER(${vehicleEfficiencyLookup.make}) = LOWER(${firstVehicle.make})`,
             sql`LOWER(${vehicleEfficiencyLookup.model}) = LOWER(${firstVehicle.model})`,
+            firstVehicle.year != null
+              ? sql`(${vehicleEfficiencyLookup.year} = ${firstVehicle.year} OR ${vehicleEfficiencyLookup.year} IS NULL)`
+              : sql`${vehicleEfficiencyLookup.year} IS NULL`,
           ),
         )
+        .orderBy(sql`${vehicleEfficiencyLookup.year} IS NOT NULL DESC`)
         .limit(1);
 
       return {

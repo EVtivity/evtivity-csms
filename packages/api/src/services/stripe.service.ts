@@ -274,8 +274,15 @@ export async function retrievePaymentMethod(
   return config.stripe.paymentMethods.retrieve(paymentMethodId);
 }
 
-export function clearConfigCache(): void {
-  instanceCache.clear();
+// Pass a siteId to evict just that site's cached config (or 'platform' for the
+// global key). Pass nothing to clear every entry — needed for global settings
+// edits where every per-site config inherits the platform Stripe secret.
+export function clearConfigCache(siteId?: string | null): void {
+  if (siteId === undefined) {
+    instanceCache.clear();
+    return;
+  }
+  instanceCache.delete(siteId ?? 'platform');
 }
 
 export function verifyWebhookSignature(

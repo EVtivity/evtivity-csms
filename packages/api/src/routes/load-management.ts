@@ -342,7 +342,7 @@ export function loadManagementRoutes(app: FastifyInstance): void {
         body: zodSchema(patchPriorityBody),
         response: {
           200: itemResponse(loadPriorityItem),
-          404: errorWith('Not found', [ERROR_CODES.NOT_FOUND]),
+          404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
         },
       },
     },
@@ -353,7 +353,7 @@ export function loadManagementRoutes(app: FastifyInstance): void {
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
       if (siteIds != null && !siteIds.includes(id)) {
-        return reply.status(404).send({ error: 'Station not found', code: 'NOT_FOUND' });
+        return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
       }
 
       // Bind the station to the URL site so an operator with access to
@@ -369,7 +369,7 @@ export function loadManagementRoutes(app: FastifyInstance): void {
         .returning();
 
       if (updated == null) {
-        return reply.status(404).send({ error: 'Station not found', code: 'NOT_FOUND' });
+        return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
       }
 
       return { id: updated.id, stationId: updated.stationId, loadPriority: updated.loadPriority };

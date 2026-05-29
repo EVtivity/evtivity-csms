@@ -8,6 +8,8 @@ import { hash } from 'argon2';
 import { eq, or, ilike, and, sql, gte, desc, count, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { db, writeAudit, stationAuditLog } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { publishPricingChanged } from '../lib/pricing-events.js';
+import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
 import {
   chargingStations,
   evses,
@@ -3715,7 +3717,10 @@ export function stationRoutes(app: FastifyInstance): void {
         body: zodSchema(addStationPricingGroupBody),
         response: {
           201: itemResponse(stationPricingGroupRecordItem),
-          404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+          404: errorWith('Station or pricing group not found', [
+            ERROR_CODES.STATION_NOT_FOUND,
+            ERROR_CODES.PRICING_GROUP_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -3727,18 +3732,42 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
       const body = request.body as z.infer<typeof addStationPricingGroupBody>;
+      if (!(await pricingGroupExists(body.pricingGroupId))) {
+        await reply
+          .status(404)
+          .send({ error: 'Pricing group not found', code: 'PRICING_GROUP_NOT_FOUND' });
+        return;
+      }
       const [previous] = await db
         .select()
         .from(pricingGroupStations)
         .where(eq(pricingGroupStations.stationId, id));
-      const [record] = await db
-        .insert(pricingGroupStations)
-        .values({ stationId: id, pricingGroupId: body.pricingGroupId })
-        .onConflictDoUpdate({
-          target: [pricingGroupStations.stationId],
-          set: { pricingGroupId: body.pricingGroupId, createdAt: new Date() },
-        })
-        .returning();
+      let record;
+      try {
+        [record] = await db
+          .insert(pricingGroupStations)
+          .values({ stationId: id, pricingGroupId: body.pricingGroupId })
+          .onConflictDoUpdate({
+            target: [pricingGroupStations.stationId],
+            set: { pricingGroupId: body.pricingGroupId, createdAt: new Date() },
+          })
+          .returning();
+      } catch (err) {
+        // The pre-check is non-transactional, so the pricing group can be
+        // deleted between the lookup and this INSERT. Map the FK violation
+        // back to 404 instead of leaking a 500.
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          (err as { code?: string }).code === '23503'
+        ) {
+          await reply
+            .status(404)
+            .send({ error: 'Pricing group not found', code: 'PRICING_GROUP_NOT_FOUND' });
+          return;
+        }
+        throw err;
+      }
       await writeAudit(
         { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
         {
@@ -3756,6 +3785,11 @@ export function stationRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      await publishPricingChanged({
+        pricingGroupId: body.pricingGroupId,
+        action: 'assignment.changed',
+        stationId: id,
+      });
       await reply.status(201).send(record);
     },
   );
@@ -3772,7 +3806,10 @@ export function stationRoutes(app: FastifyInstance): void {
         params: zodSchema(stationPricingGroupParams),
         response: {
           200: itemResponse(stationPricingGroupRecordItem),
-          404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+          404: errorWith('Station or pricing assignment not found', [
+            ERROR_CODES.STATION_NOT_FOUND,
+            ERROR_CODES.PRICING_ASSIGNMENT_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -3793,9 +3830,10 @@ export function stationRoutes(app: FastifyInstance): void {
         )
         .returning();
       if (record == null) {
-        await reply
-          .status(404)
-          .send({ error: 'Pricing group not found for station', code: 'NOT_FOUND' });
+        await reply.status(404).send({
+          error: 'Pricing group not found for station',
+          code: 'PRICING_ASSIGNMENT_NOT_FOUND',
+        });
         return;
       }
       await writeAudit(
@@ -3811,6 +3849,11 @@ export function stationRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      await publishPricingChanged({
+        pricingGroupId,
+        action: 'assignment.changed',
+        stationId: id,
+      });
       return record;
     },
   );

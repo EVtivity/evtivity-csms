@@ -32,11 +32,30 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
   // Free-vend: accept any token at free-vend sites. Cached at 60s.
   if (await isSiteFreeVendEnabledByStation(ctx.stationId)) {
     ctx.logger.info({ stationId: ctx.stationId, idTag }, 'Free vend site, accepting (1.6)');
+    // Best-effort match against driver_tokens so the forensic log still
+    // links a free-vend swipe to a registered driver when the operator
+    // taps a known card. Failure here doesn't block the accept.
+    let freeVendMatchedTokenId: string | null = null;
+    let freeVendMatchedDriverId: string | null = null;
+    try {
+      const [row] = await db
+        .select({ id: driverTokens.id, driverId: driverTokens.driverId })
+        .from(driverTokens)
+        .where(eq(driverTokens.idToken, idTag));
+      if (row != null) {
+        freeVendMatchedTokenId = row.id;
+        freeVendMatchedDriverId = row.driverId ?? null;
+      }
+    } catch {
+      // Lookup failure is non-fatal: free-vend still accepts.
+    }
     void logAuthorizeAttempt(
       {
         stationId: ctx.stationId,
         idToken: idTag,
         tokenType: null,
+        matchedTokenId: freeVendMatchedTokenId,
+        matchedDriverId: freeVendMatchedDriverId,
         outcome: 'accepted',
         ocppVersion: 'ocpp1.6',
         reason: 'free_vend',

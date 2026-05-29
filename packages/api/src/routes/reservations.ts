@@ -803,6 +803,7 @@ export function reservationRoutes(app: FastifyInstance): void {
             ERROR_CODES.RESERVATION_TOO_LONG,
             ERROR_CODES.RESERVATION_WINDOW_TOO_SHORT,
             ERROR_CODES.STATION_OFFLINE,
+            ERROR_CODES.VALIDATION_ERROR,
           ]),
           403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN]),
           404: errorWith('Resource not found', [

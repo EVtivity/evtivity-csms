@@ -106,7 +106,9 @@ vi.mock('@evtivity/database', () => {
     settings: {},
     drivers: {},
     chargingStations: {},
+    sites: {},
     settingAuditLog: {},
+    siteAuditLog: {},
     writeAudit: vi.fn(async () => undefined),
   };
 });
@@ -256,6 +258,7 @@ describe('Payment routes - handler logic', () => {
         updatedAt: new Date().toISOString(),
       };
       setupDbResults(
+        [{ id: VALID_SITE_ID }], // site existence pre-check
         [{ id: 'pc-1' }], // existing found
         [updated], // update returning
       );
@@ -284,6 +287,7 @@ describe('Payment routes - handler logic', () => {
         updatedAt: new Date().toISOString(),
       };
       setupDbResults(
+        [{ id: VALID_SITE_ID }], // site existence pre-check
         [], // no existing
         [created], // insert returning
       );

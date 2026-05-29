@@ -7,6 +7,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
 import { GoogleMapPicker } from '@/components/GoogleMapPicker';
+import { HoursOfOperationField } from '@/components/site/HoursOfOperationField';
 import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
 import { Input } from '@/components/ui/input';
@@ -216,19 +217,11 @@ export function SiteCreate(): React.JSX.Element {
                 ))}
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="site-hours">{t('sites.hoursOfOperation')}</Label>
-              <textarea
-                id="site-hours"
-                value={hoursOfOperation}
-                onChange={(e) => {
-                  setHoursOfOperation(e.target.value);
-                }}
-                placeholder={t('sites.hoursOfOperationPlaceholder')}
-                rows={3}
-                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              />
-            </div>
+            <HoursOfOperationField
+              id="site-hours"
+              value={hoursOfOperation}
+              onChange={setHoursOfOperation}
+            />
             <div className="border-t pt-4 space-y-4">
               <div>
                 <p className="text-sm font-medium">{t('sites.contact')}</p>

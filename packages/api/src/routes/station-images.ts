@@ -73,8 +73,14 @@ const uploadUrlResponse = z
 
 const confirmUploadBody = z.object({
   fileName: z.string().min(1).max(255),
-  fileSize: z.number().int().min(1),
-  contentType: z.string().min(1).max(100),
+  // Same caps as uploadUrlBody so a client that requested a presigned
+  // URL for a 1 MB JPEG can't confirm a 50 MB ZIP and persist the lie.
+  fileSize: z
+    .number()
+    .int()
+    .min(1)
+    .max(10 * 1024 * 1024),
+  contentType: z.enum(ALLOWED_IMAGE_MIME_TYPES),
   s3Key: z.string().min(1),
   s3Bucket: z.string().min(1),
   caption: z.string().max(1000).optional(),
@@ -240,23 +246,40 @@ export function stationImageRoutes(app: FastifyInstance): void {
         .orderBy(desc(stationImages.sortOrder))
         .limit(1);
 
-      const [image] = await db
-        .insert(stationImages)
-        .values({
-          stationId: id,
-          fileName: body.fileName,
-          fileSize: body.fileSize,
-          contentType: body.contentType,
-          s3Key: body.s3Key,
-          s3Bucket: body.s3Bucket,
-          caption: body.caption ?? null,
-          tags: body.tags ?? [],
-          isDriverVisible: body.isDriverVisible ?? false,
-          isMainImage: body.isMainImage ?? false,
-          sortOrder: (maxSort?.maxOrder ?? 0) + 1,
-          uploadedBy: userId,
-        })
-        .returning();
+      let image;
+      try {
+        [image] = await db
+          .insert(stationImages)
+          .values({
+            stationId: id,
+            fileName: body.fileName,
+            fileSize: body.fileSize,
+            contentType: body.contentType,
+            s3Key: body.s3Key,
+            s3Bucket: body.s3Bucket,
+            caption: body.caption ?? null,
+            tags: body.tags ?? [],
+            isDriverVisible: body.isDriverVisible ?? false,
+            isMainImage: body.isMainImage ?? false,
+            sortOrder: (maxSort?.maxOrder ?? 0) + 1,
+            uploadedBy: userId,
+          })
+          .returning();
+      } catch (err) {
+        // checkStationSiteAccess pre-check is non-transactional, so the
+        // station can be deleted between that check and this INSERT. Map
+        // the FK violation back to the same 404 the pre-check would have
+        // produced.
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          (err as { code?: string }).code === '23503'
+        ) {
+          await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+          return;
+        }
+        throw err;
+      }
 
       if (image != null) {
         const actor = getAuditActor(request);
@@ -522,12 +545,34 @@ export function stationImageRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Capture the original sort order so the audit row carries enough
+      // context to undo the reorder if needed.
+      const beforeRows = await db
+        .select({ id: stationImages.id, sortOrder: stationImages.sortOrder })
+        .from(stationImages)
+        .where(eq(stationImages.stationId, id));
+
       for (let i = 0; i < imageIds.length; i++) {
         await db
           .update(stationImages)
           .set({ sortOrder: i })
           .where(and(eq(stationImages.id, imageIds[i] as number), eq(stationImages.stationId, id)));
       }
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: stationImageAuditLog, idColumn: 'station_image_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'reordered',
+          ...actor,
+          before: { order: beforeRows },
+          after: { order: imageIds.map((imageId, index) => ({ id: imageId, sortOrder: index })) },
+        },
+        db,
+        request.log,
+      );
 
       return { success: true as const };
     },
@@ -574,17 +619,19 @@ export function stationImageRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Clear existing main
-      await db
-        .update(stationImages)
-        .set({ isMainImage: false })
-        .where(and(eq(stationImages.stationId, id), eq(stationImages.isMainImage, true)));
-
-      // Set new main
-      await db
-        .update(stationImages)
-        .set({ isMainImage: true })
-        .where(eq(stationImages.id, imageId));
+      // Wrap the clear-then-set pair in one transaction so two concurrent
+      // set-main calls cannot interleave and leave the station with two
+      // (or zero) main images.
+      await db.transaction(async (tx) => {
+        await tx
+          .update(stationImages)
+          .set({ isMainImage: false })
+          .where(and(eq(stationImages.stationId, id), eq(stationImages.isMainImage, true)));
+        await tx
+          .update(stationImages)
+          .set({ isMainImage: true })
+          .where(eq(stationImages.id, imageId));
+      });
 
       const actor = getAuditActor(request);
       await writeAudit(

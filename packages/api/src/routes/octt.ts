@@ -227,7 +227,7 @@ export function octtRoutes(app: FastifyInstance): void {
               })
               .passthrough(),
           ),
-          404: errorWith('Not found', [ERROR_CODES.NOT_FOUND]),
+          404: errorWith('Run not found', [ERROR_CODES.OCTT_RUN_NOT_FOUND]),
         },
       },
     },
@@ -237,7 +237,7 @@ export function octtRoutes(app: FastifyInstance): void {
 
       const [run] = await db.select().from(octtRuns).where(eq(octtRuns.id, id));
       if (run == null) {
-        await reply.status(404).send({ error: 'Run not found', code: 'NOT_FOUND' });
+        await reply.status(404).send({ error: 'Run not found', code: 'OCTT_RUN_NOT_FOUND' });
         return;
       }
 
@@ -297,7 +297,7 @@ export function octtRoutes(app: FastifyInstance): void {
         params: zodSchema(z.object({ id: z.coerce.number().int().describe('Run ID') })),
         response: {
           200: zodSchema(z.array(moduleSummarySchema)),
-          404: errorWith('Not found', [ERROR_CODES.NOT_FOUND]),
+          404: errorWith('Run not found', [ERROR_CODES.OCTT_RUN_NOT_FOUND]),
         },
       },
     },
@@ -306,7 +306,7 @@ export function octtRoutes(app: FastifyInstance): void {
 
       const [run] = await db.select().from(octtRuns).where(eq(octtRuns.id, id));
       if (run == null) {
-        await reply.status(404).send({ error: 'Run not found', code: 'NOT_FOUND' });
+        await reply.status(404).send({ error: 'Run not found', code: 'OCTT_RUN_NOT_FOUND' });
         return;
       }
 

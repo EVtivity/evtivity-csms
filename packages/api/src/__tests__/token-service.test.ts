@@ -118,15 +118,19 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(),
 }));
 
-vi.mock('@evtivity/lib', () => ({
-  dispatchDriverNotification: vi.fn().mockResolvedValue(undefined),
-  createLogger: vi.fn(() => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  })),
-}));
+vi.mock('@evtivity/lib', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@evtivity/lib')>();
+  return {
+    ...actual,
+    dispatchDriverNotification: vi.fn().mockResolvedValue(undefined),
+    createLogger: vi.fn(() => ({
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    })),
+  };
+});
 
 vi.mock('../lib/pubsub.js', () => ({
   getPubSub: vi.fn(() => ({

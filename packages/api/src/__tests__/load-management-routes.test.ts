@@ -366,7 +366,7 @@ describe('Load management routes', () => {
     });
     expect(response.statusCode).toBe(404);
     const body = JSON.parse(response.body);
-    expect(body.code).toBe('NOT_FOUND');
+    expect(body.code).toBe('STATION_NOT_FOUND');
   });
 
   it('GET /v1/sites/:id/load-management/history returns allocation log', async () => {

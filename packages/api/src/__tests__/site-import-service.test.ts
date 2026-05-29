@@ -94,6 +94,7 @@ vi.mock('drizzle-orm', () => ({
   ilike: vi.fn(),
   and: vi.fn(),
   asc: vi.fn(),
+  sql: (...args: unknown[]) => ({ __brand: 'SQL', args }),
 }));
 
 import {

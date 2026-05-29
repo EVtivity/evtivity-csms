@@ -3,6 +3,7 @@
 
 import { useState, useRef } from 'react';
 import { API_BASE_URL } from '@/lib/config';
+import { parseCsvLine, readCsvText } from '@/lib/csv-parse';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -143,7 +144,7 @@ export function Sites(): React.JSX.Element {
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target?.result as string;
+      const text = readCsvText(event.target?.result as string);
       const lines = text.trim().split('\n');
       const header = lines[0];
       if (!header) return;
@@ -156,6 +157,7 @@ export function Sites(): React.JSX.Element {
         row['stationId'] = parts[columns.indexOf('stationId')] || undefined;
         row['stationModel'] = parts[columns.indexOf('stationModel')] || undefined;
         row['stationSerialNumber'] = parts[columns.indexOf('stationSerialNumber')] || undefined;
+        row['stationStatus'] = parts[columns.indexOf('stationStatus')] || undefined;
         const evseIdStr = parts[columns.indexOf('evseId')];
         row['evseId'] = evseIdStr ? Number(evseIdStr) : undefined;
         const connectorIdStr = parts[columns.indexOf('connectorId')];
@@ -460,33 +462,4 @@ export function Sites(): React.JSX.Element {
       </Dialog>
     </div>
   );
-}
-
-function parseCsvLine(line: string): string[] {
-  const result: string[] = [];
-  let current = '';
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i++) {
-    const char = line.charAt(i);
-    if (inQuotes) {
-      if (char === '"' && line.charAt(i + 1) === '"') {
-        current += '"';
-        i++;
-      } else if (char === '"') {
-        inQuotes = false;
-      } else {
-        current += char;
-      }
-    } else if (char === '"') {
-      inQuotes = true;
-    } else if (char === ',') {
-      result.push(current);
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-  result.push(current);
-  return result;
 }

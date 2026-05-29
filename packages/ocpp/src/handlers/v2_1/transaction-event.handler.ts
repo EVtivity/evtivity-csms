@@ -6,6 +6,7 @@ import { db, driverTokens } from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { TransactionEventRequest } from '../../generated/v2_1/types/messages/TransactionEventRequest.js';
 import type { TransactionEventResponse } from '../../generated/v2_1/types/messages/TransactionEventResponse.js';
+import { logAuthorizeAttempt } from '../authorize-log.js';
 
 export async function handleTransactionEvent(
   ctx: HandlerContext,
@@ -72,10 +73,16 @@ export async function handleTransactionEvent(
         ? S
         : never
       : never = 'Accepted';
+    let matchedTokenId: string | null = null;
+    let matchedDriverId: string | null = null;
+    let outcome: 'accepted' | 'blocked' | 'expired' | 'unknown' | 'db_error' = 'accepted';
+    let reason: string | null = null;
 
     try {
       const [token] = await db
         .select({
+          id: driverTokens.id,
+          driverId: driverTokens.driverId,
           isActive: driverTokens.isActive,
           expiresAt: driverTokens.expiresAt,
           revokedAt: driverTokens.revokedAt,
@@ -84,11 +91,17 @@ export async function handleTransactionEvent(
         .where(and(eq(driverTokens.idToken, idToken), eq(driverTokens.tokenType, tokenType)));
 
       if (token != null) {
+        matchedTokenId = token.id;
+        matchedDriverId = token.driverId ?? null;
         const now = new Date();
         if (!token.isActive || token.revokedAt != null) {
           status = 'Blocked';
+          outcome = 'blocked';
+          reason = token.revokedAt != null ? 'revoked' : 'inactive';
         } else if (token.expiresAt != null && token.expiresAt.getTime() <= now.getTime()) {
           status = 'Expired';
+          outcome = 'expired';
+          reason = 'expired';
         } else {
           groupIdToken = { idToken, type: tokenType };
         }
@@ -96,15 +109,39 @@ export async function handleTransactionEvent(
         // No row in driver_tokens. For Central/Local types this is expected
         // (CSMS-issued or station-local tokens). Accept without group.
         groupIdToken = { idToken, type: tokenType };
+        outcome = 'unknown';
+        reason = 'no_match';
       }
     } catch {
       // DB unavailable: accept without groupIdToken (fail-open mirrors authorize)
+      outcome = 'db_error';
+      reason = 'db_unreachable';
     }
 
     response.idTokenInfo = {
       status,
       ...(groupIdToken != null ? { groupIdToken } : {}),
     };
+
+    // Forensic log on session start only: stations using LocalAuthList skip
+    // the Authorize call and come straight to TransactionEvent[Started],
+    // so this is the only record of the authorization decision for those
+    // flows. Mirrors the 1.6 StartTransaction logging path.
+    if (request.eventType === 'Started') {
+      void logAuthorizeAttempt(
+        {
+          stationId: ctx.stationId,
+          idToken,
+          tokenType,
+          matchedTokenId,
+          matchedDriverId,
+          outcome,
+          ocppVersion: 'ocpp2.1',
+          reason,
+        },
+        ctx.logger,
+      );
+    }
   }
 
   return response as unknown as Record<string, unknown>;

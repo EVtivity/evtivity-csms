@@ -19,11 +19,13 @@ interface CsmsEvent {
   caseId: string | null;
   runId: number | null;
   campaignId?: string | null;
+  driverId?: string | null;
+  fleetId?: string | null;
 }
 
 function getQueryKeysForEvent(event: CsmsEvent): string[][] {
   const keys: string[][] = [];
-  const { eventType, stationId, siteId } = event;
+  const { eventType, stationId, siteId, driverId, fleetId } = event;
 
   switch (eventType) {
     case 'station.status':
@@ -204,6 +206,12 @@ function getQueryKeysForEvent(event: CsmsEvent): string[][] {
       keys.push(['pricing-holidays']);
       keys.push(['active-tariff']);
       keys.push(['pricing-audit']);
+      // assignment.changed events carry the entity context so the affected
+      // detail page also re-fetches its pricing section without a refresh.
+      if (siteId != null) keys.push(['sites', siteId]);
+      if (stationId != null) keys.push(['stations', stationId]);
+      if (driverId != null) keys.push(['drivers', driverId]);
+      if (fleetId != null) keys.push(['fleets', fleetId]);
       break;
   }
 

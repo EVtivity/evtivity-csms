@@ -655,7 +655,9 @@ describe('Driver routes (operator)', () => {
 
     it('returns 201 on success', async () => {
       const vehicle = makeVehicle();
-      setupDbResults([vehicle]);
+      // New route pre-checks that the driver exists, then inserts the
+      // vehicle. Feed the driver lookup first, then the vehicle returning row.
+      setupDbResults([{ id: VALID_DRIVER_ID }], [vehicle]);
 
       const res = await app.inject({
         method: 'POST',
@@ -672,7 +674,7 @@ describe('Driver routes (operator)', () => {
 
     it('returns 201 with all optional fields', async () => {
       const vehicle = makeVehicle();
-      setupDbResults([vehicle]);
+      setupDbResults([{ id: VALID_DRIVER_ID }], [vehicle]);
 
       const res = await app.inject({
         method: 'POST',

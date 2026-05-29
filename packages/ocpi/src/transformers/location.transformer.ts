@@ -27,6 +27,7 @@ interface SiteRow {
   timezone: string;
   contactName: string | null;
   contactIsPublic: boolean;
+  hoursOfOperation: string | null;
   updatedAt: Date;
 }
 
@@ -189,6 +190,13 @@ export function transformLocation(
 ): OcpiLocation {
   const { site, evses, ocpiLocationId, countryCode, partyId, tariffIds } = input;
 
+  // OCPI Location.coordinates is required. Callers (push.service,
+  // cpo/locations routes) gate on non-null coordinates before reaching here so
+  // we don't fall back to (0, 0) and publish null-island locations to partners.
+  if (site.latitude == null || site.longitude == null) {
+    throw new Error(`Cannot transform OCPI Location for site ${site.id}: missing coordinates`);
+  }
+
   const location: OcpiLocation = {
     country_code: countryCode,
     party_id: partyId,
@@ -199,8 +207,8 @@ export function transformLocation(
     city: site.city ?? 'Unknown',
     country: site.country ?? 'US',
     coordinates: {
-      latitude: site.latitude ?? '0',
-      longitude: site.longitude ?? '0',
+      latitude: site.latitude,
+      longitude: site.longitude,
     },
     time_zone: site.timezone,
     evses: evses.map((e) => transformEvse(e, site.id, version, tariffIds)),
@@ -219,7 +227,12 @@ export function transformLocation(
     location.operator = { name: site.contactName };
   }
 
-  if (version === '2.3.0') {
+  // OCPI opening_times is a structured object (regular_hours[], exceptional_*).
+  // EVtivity stores a free-form text column, so we cannot map it into the
+  // structured shape. Only assert 24/7 when the operator hasn't set any hours;
+  // when they have, omit opening_times so partners treat the schedule as
+  // unknown rather than receive a misleading "always open" signal.
+  if (version === '2.3.0' && site.hoursOfOperation == null) {
     location.opening_times = { twentyfourseven: true };
   }
 

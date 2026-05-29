@@ -29,6 +29,7 @@ export const ERROR_CODES = {
   CIRCUIT_NOT_FOUND: 'CIRCUIT_NOT_FOUND',
   COMMAND_ERROR: 'COMMAND_ERROR',
   COMMAND_FAILED: 'COMMAND_FAILED',
+  COMMAND_QUEUED: 'COMMAND_QUEUED',
   COMMAND_TIMEOUT: 'COMMAND_TIMEOUT',
   CONNECTOR_NOT_AVAILABLE: 'CONNECTOR_NOT_AVAILABLE',
   CONNECTOR_NOT_FOUND: 'CONNECTOR_NOT_FOUND',
@@ -130,6 +131,7 @@ export const ERROR_CODES = {
   NOT_SUPPORTED: 'NOT_SUPPORTED',
   OCPP_COMMAND_FAILED: 'OCPP_COMMAND_FAILED',
   OCPP_VERSION_MISMATCH: 'OCPP_VERSION_MISMATCH',
+  OCTT_RUN_NOT_FOUND: 'OCTT_RUN_NOT_FOUND',
   OVERSUBSCRIPTION_EXCEEDED: 'OVERSUBSCRIPTION_EXCEEDED',
   PANEL_NOT_FOUND: 'PANEL_NOT_FOUND',
   PARTNER_NOT_CONNECTED: 'PARTNER_NOT_CONNECTED',
@@ -151,6 +153,7 @@ export const ERROR_CODES = {
   PNC_DISABLED: 'PNC_DISABLED',
   PORTAL_REGISTRATION_DISABLED: 'PORTAL_REGISTRATION_DISABLED',
   PRE_AUTH_FAILED: 'PRE_AUTH_FAILED',
+  PRICING_ASSIGNMENT_NOT_FOUND: 'PRICING_ASSIGNMENT_NOT_FOUND',
   PRICING_GROUP_NOT_FOUND: 'PRICING_GROUP_NOT_FOUND',
   PRICING_GROUP_TARIFFS_IN_USE: 'PRICING_GROUP_TARIFFS_IN_USE',
   PRICING_NOT_FOUND: 'PRICING_NOT_FOUND',
@@ -251,6 +254,7 @@ export type ErrorCode =
   | 'CIRCUIT_NOT_FOUND'
   | 'COMMAND_ERROR'
   | 'COMMAND_FAILED'
+  | 'COMMAND_QUEUED'
   | 'COMMAND_TIMEOUT'
   | 'CONNECTOR_NOT_AVAILABLE'
   | 'CONNECTOR_NOT_FOUND'
@@ -352,6 +356,7 @@ export type ErrorCode =
   | 'NOT_SUPPORTED'
   | 'OCPP_COMMAND_FAILED'
   | 'OCPP_VERSION_MISMATCH'
+  | 'OCTT_RUN_NOT_FOUND'
   | 'OVERSUBSCRIPTION_EXCEEDED'
   | 'PANEL_NOT_FOUND'
   | 'PARTNER_NOT_CONNECTED'
@@ -373,6 +378,7 @@ export type ErrorCode =
   | 'PNC_DISABLED'
   | 'PORTAL_REGISTRATION_DISABLED'
   | 'PRE_AUTH_FAILED'
+  | 'PRICING_ASSIGNMENT_NOT_FOUND'
   | 'PRICING_GROUP_NOT_FOUND'
   | 'PRICING_GROUP_TARIFFS_IN_USE'
   | 'PRICING_NOT_FOUND'
@@ -480,6 +486,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   CIRCUIT_NOT_FOUND: 'Circuit not found',
   COMMAND_ERROR: 'Command failed',
   COMMAND_FAILED: 'Command failed',
+  COMMAND_QUEUED: 'Station offline, command queued',
   COMMAND_TIMEOUT: 'Command timed out',
   CONNECTOR_NOT_AVAILABLE: 'Connector is not available for charging',
   CONNECTOR_NOT_FOUND: 'Connector not found',
@@ -581,6 +588,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   NOT_SUPPORTED: 'Not supported for OCPP 1.6',
   OCPP_COMMAND_FAILED: 'OCPP command failed',
   OCPP_VERSION_MISMATCH: 'Action ... requires ..., station ... is ...',
+  OCTT_RUN_NOT_FOUND: 'Conformance run not found',
   OVERSUBSCRIPTION_EXCEEDED:
     'Total connected capacity (... kW) exceeds panel effective capacity (... kW)',
   PANEL_NOT_FOUND: 'Panel not found',
@@ -604,6 +612,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   PORTAL_REGISTRATION_DISABLED:
     'Driver self-registration is disabled. Contact your operator to be invited.',
   PRE_AUTH_FAILED: 'Payment pre-authorization failed',
+  PRICING_ASSIGNMENT_NOT_FOUND: 'No pricing group is assigned to this entity',
   PRICING_GROUP_NOT_FOUND: 'Pricing group not found',
   PRICING_GROUP_TARIFFS_IN_USE: 'Pricing group has tariffs referenced by charging sessions',
   PRICING_NOT_FOUND: 'No pricing found',

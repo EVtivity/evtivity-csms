@@ -530,6 +530,7 @@ export const stationImageAuditActionEnum = pgEnum('station_image_audit_action', 
   'updated',
   'deleted',
   'set_main',
+  'reordered',
 ]);
 
 export const stationImageAuditLog = pgTable(

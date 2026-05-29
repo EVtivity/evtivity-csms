@@ -3,6 +3,7 @@
 
 import { useRef, useState } from 'react';
 import { API_BASE_URL } from '@/lib/config';
+import { parseCsvLine, readCsvText } from '@/lib/csv-parse';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -85,7 +86,7 @@ export function Tokens(): React.JSX.Element {
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target?.result as string;
+      const text = readCsvText(event.target?.result as string);
       const lines = text.trim().split('\n');
       const header = lines[0];
       if (!header) return;
@@ -274,33 +275,4 @@ export function Tokens(): React.JSX.Element {
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
   );
-}
-
-function parseCsvLine(line: string): string[] {
-  const result: string[] = [];
-  let current = '';
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i++) {
-    const char = line.charAt(i);
-    if (inQuotes) {
-      if (char === '"' && line.charAt(i + 1) === '"') {
-        current += '"';
-        i++;
-      } else if (char === '"') {
-        inQuotes = false;
-      } else {
-        current += char;
-      }
-    } else if (char === '"') {
-      inQuotes = true;
-    } else if (char === ',') {
-      result.push(current);
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-  result.push(current);
-  return result;
 }

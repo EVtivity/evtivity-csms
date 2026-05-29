@@ -475,6 +475,7 @@ describe('Fleet routes - handler logic', () => {
   describe('POST /v1/fleets/:id/drivers', () => {
     it('adds driver to fleet and returns 201', async () => {
       const record = { fleetId: VALID_FLEET_ID, driverId: 'drv_000000000001' };
+      mockFleetService.getFleet.mockResolvedValue({ id: VALID_FLEET_ID, name: 'Fleet 1' });
       mockFleetService.addDriverToFleet.mockResolvedValue(record);
 
       const response = await app.inject({
@@ -600,6 +601,7 @@ describe('Fleet routes - handler logic', () => {
   describe('POST /v1/fleets/:id/stations', () => {
     it('adds station to fleet and returns 201', async () => {
       const record = { fleetId: VALID_FLEET_ID, stationId: 'sta_000000000001' };
+      mockFleetService.getFleet.mockResolvedValue({ id: VALID_FLEET_ID, name: 'Fleet 1' });
       mockFleetService.addStationToFleet.mockResolvedValue(record);
 
       const response = await app.inject({
@@ -898,6 +900,7 @@ describe('Fleet routes - handler logic', () => {
   describe('POST /v1/fleets/:id/pricing-groups', () => {
     it('adds pricing group to fleet and returns 201', async () => {
       const record = { fleetId: VALID_FLEET_ID, pricingGroupId: 'pgr_000000000001' };
+      mockFleetService.getFleet.mockResolvedValue({ id: VALID_FLEET_ID, name: 'Fleet 1' });
       mockFleetService.addPricingGroupToFleet.mockResolvedValue(record);
 
       const response = await app.inject({
@@ -959,7 +962,7 @@ describe('Fleet routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(404);
-      expect(response.json().code).toBe('NOT_FOUND');
+      expect(response.json().code).toBe('PRICING_ASSIGNMENT_NOT_FOUND');
     });
 
     it('returns 401 without auth', async () => {

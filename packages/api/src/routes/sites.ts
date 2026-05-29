@@ -12,6 +12,9 @@ import {
   clearFreeVendCache,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { siteNameEq } from '../lib/site-lookup.js';
+import { publishPricingChanged } from '../lib/pricing-events.js';
+import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
 import {
   sites,
   chargingStations,
@@ -62,10 +65,16 @@ const importSiteRow = z.object({
   stationId: z.string().max(255).optional(),
   stationModel: z.string().max(100).optional(),
   stationSerialNumber: z.string().max(100).optional(),
+  stationStatus: z.enum(['available', 'unavailable', 'faulted']).optional(),
+  // onboardingStatus is intentionally omitted from import: it has dedicated
+  // approve/reject endpoints with state-machine guards (e.g. "not pending"
+  // 409s) that the CSV path would otherwise bypass. The column stays in
+  // export so operators can audit current state.
   evseId: z.number().int().min(1).optional(),
   connectorId: z.number().int().min(1).optional(),
   connectorType: z.string().max(50).optional(),
   maxPowerKw: z.number().min(0).max(10000).optional(),
+  maxCurrentAmps: z.number().int().min(0).max(1000).optional(),
   stationVendor: z.string().max(100).optional(),
 });
 
@@ -101,10 +110,48 @@ const addSitePricingGroupBody = z.object({
   pricingGroupId: ID_PARAMS.pricingGroupId.describe('Pricing group ID to assign to the site'),
 });
 
+// Stored as a string for fixed-precision preservation, but the value still
+// has to parse as a number in the WGS-84 range so the map and OCPI publish
+// pipeline don't choke on 'abc' or 999.
+const latitudeField = z
+  .string()
+  .max(20)
+  .refine(
+    (s) => {
+      const n = Number(s);
+      return Number.isFinite(n) && n >= -90 && n <= 90;
+    },
+    { message: 'Latitude must be a number in [-90, 90]' },
+  );
+const longitudeField = z
+  .string()
+  .max(20)
+  .refine(
+    (s) => {
+      const n = Number(s);
+      return Number.isFinite(n) && n >= -180 && n <= 180;
+    },
+    { message: 'Longitude must be a number in [-180, 180]' },
+  );
+
 const sitePricingGroupParams = z.object({
   id: ID_PARAMS.siteId.describe('Site ID'),
   pricingGroupId: ID_PARAMS.pricingGroupId.describe('Pricing group ID'),
 });
+
+// Free-form operating hours: null/empty/whitespace-only collapses to null so
+// downstream renderers and the OCPI opening_times override don't have to
+// distinguish "" from null.
+const hoursOfOperationField = z
+  .string()
+  .max(500)
+  .nullable()
+  .optional()
+  .transform((v) => {
+    if (v == null) return v;
+    const trimmed = v.trim();
+    return trimmed === '' ? null : trimmed;
+  });
 
 const createSiteBody = z.object({
   name: z
@@ -118,8 +165,8 @@ const createSiteBody = z.object({
   state: z.string().max(100).optional(),
   postalCode: z.string().max(20).optional(),
   country: z.string().max(100).optional(),
-  latitude: z.string().max(20).optional(),
-  longitude: z.string().max(20).optional(),
+  latitude: latitudeField.optional(),
+  longitude: longitudeField.optional(),
   timezone: z
     .string()
     .max(100)
@@ -129,7 +176,7 @@ const createSiteBody = z.object({
   contactEmail: z.string().email().max(255).optional(),
   contactPhone: z.string().max(50).optional(),
   contactIsPublic: z.boolean().optional(),
-  hoursOfOperation: z.string().max(500).optional(),
+  hoursOfOperation: hoursOfOperationField,
   metadata: z.record(z.unknown()).optional(),
 });
 
@@ -146,8 +193,8 @@ const updateSiteBody = z.object({
   state: z.string().max(100).optional(),
   postalCode: z.string().max(20).optional(),
   country: z.string().max(100).optional(),
-  latitude: z.string().max(20).optional(),
-  longitude: z.string().max(20).optional(),
+  latitude: latitudeField.optional(),
+  longitude: longitudeField.optional(),
   timezone: z
     .string()
     .max(100)
@@ -157,7 +204,7 @@ const updateSiteBody = z.object({
   contactEmail: z.string().email().max(255).optional(),
   contactPhone: z.string().max(50).optional(),
   contactIsPublic: z.boolean().optional(),
-  hoursOfOperation: z.string().max(500).optional(),
+  hoursOfOperation: hoursOfOperationField,
   metadata: z.record(z.unknown()).optional(),
   reservationsEnabled: z
     .boolean()
@@ -619,7 +666,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const siteIds = await getUserSiteIds(userId);
       const csv = await exportSitesCsv(search, siteIds ?? undefined);
       await reply
-        .header('Content-Type', 'text/csv')
+        .header('Content-Type', 'text/csv; charset=utf-8')
         .header('Content-Disposition', 'attachment; filename=sites.csv')
         .send(csv);
     },
@@ -639,7 +686,7 @@ export function siteRoutes(app: FastifyInstance): void {
     async (_request, reply) => {
       const csv = exportSitesTemplateCsv();
       await reply
-        .header('Content-Type', 'text/csv')
+        .header('Content-Type', 'text/csv; charset=utf-8')
         .header('Content-Disposition', 'attachment; filename=sites-template.csv')
         .send(csv);
     },
@@ -649,6 +696,10 @@ export function siteRoutes(app: FastifyInstance): void {
     '/sites/import',
     {
       onRequest: [authorize('sites:write')],
+      // The 10,000-row Zod cap can serialize to ~10 MB at worst-case field
+      // widths. Default 1 MB body limit silently 413s well below the schema's
+      // documented maximum, so raise the route limit to match.
+      bodyLimit: 16 * 1024 * 1024,
       schema: {
         tags: ['Sites'],
         summary: 'Import sites from parsed CSV rows',
@@ -660,7 +711,9 @@ export function siteRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { rows, updateExisting } = request.body as z.infer<typeof importSiteBody>;
-      return importSitesCsv(rows, updateExisting, getAuditActor(request));
+      const { userId } = request.user as { userId: string };
+      const allowedSiteIds = await getUserSiteIds(userId);
+      return importSitesCsv(rows, updateExisting, getAuditActor(request), allowedSiteIds);
     },
   );
 
@@ -727,7 +780,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const [existing] = await db
         .select({ id: sites.id })
         .from(sites)
-        .where(ilike(sites.name, body.name))
+        .where(siteNameEq(body.name))
         .limit(1);
       if (existing != null) {
         await reply
@@ -792,7 +845,7 @@ export function siteRoutes(app: FastifyInstance): void {
         const [existing] = await db
           .select({ id: sites.id })
           .from(sites)
-          .where(and(ilike(sites.name, body.name), sql`${sites.id} <> ${id}`))
+          .where(and(siteNameEq(body.name), sql`${sites.id} <> ${id}`))
           .limit(1);
         if (existing != null) {
           await reply
@@ -1813,7 +1866,10 @@ export function siteRoutes(app: FastifyInstance): void {
         body: zodSchema(addSitePricingGroupBody),
         response: {
           201: itemResponse(sitePricingGroupRecordItem),
-          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+          404: errorWith('Site or pricing group not found', [
+            ERROR_CODES.SITE_NOT_FOUND,
+            ERROR_CODES.PRICING_GROUP_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -1826,18 +1882,50 @@ export function siteRoutes(app: FastifyInstance): void {
         return;
       }
       const body = request.body as z.infer<typeof addSitePricingGroupBody>;
+      // Pre-check the site exists so an FK race on the INSERT below can be
+      // safely attributed to the pricing group (the only remaining unknown
+      // FK). The siteIds filter above only covers non-all-access operators.
+      const [siteRow] = await db.select({ id: sites.id }).from(sites).where(eq(sites.id, id));
+      if (siteRow == null) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
+      if (!(await pricingGroupExists(body.pricingGroupId))) {
+        await reply
+          .status(404)
+          .send({ error: 'Pricing group not found', code: 'PRICING_GROUP_NOT_FOUND' });
+        return;
+      }
       const [previous] = await db
         .select()
         .from(pricingGroupSites)
         .where(eq(pricingGroupSites.siteId, id));
-      const [record] = await db
-        .insert(pricingGroupSites)
-        .values({ siteId: id, pricingGroupId: body.pricingGroupId })
-        .onConflictDoUpdate({
-          target: [pricingGroupSites.siteId],
-          set: { pricingGroupId: body.pricingGroupId, createdAt: new Date() },
-        })
-        .returning();
+      let record;
+      try {
+        [record] = await db
+          .insert(pricingGroupSites)
+          .values({ siteId: id, pricingGroupId: body.pricingGroupId })
+          .onConflictDoUpdate({
+            target: [pricingGroupSites.siteId],
+            set: { pricingGroupId: body.pricingGroupId, createdAt: new Date() },
+          })
+          .returning();
+      } catch (err) {
+        // The pre-checks are non-transactional, so the pricing group can be
+        // deleted between the check and this INSERT. Map the FK violation
+        // to the same 404 the pre-check would have produced.
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          (err as { code?: string }).code === '23503'
+        ) {
+          await reply
+            .status(404)
+            .send({ error: 'Pricing group not found', code: 'PRICING_GROUP_NOT_FOUND' });
+          return;
+        }
+        throw err;
+      }
       await writeAudit(
         { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
         {
@@ -1855,6 +1943,11 @@ export function siteRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      await publishPricingChanged({
+        pricingGroupId: body.pricingGroupId,
+        action: 'assignment.changed',
+        siteId: id,
+      });
       await reply.status(201).send(record);
     },
   );
@@ -1871,7 +1964,10 @@ export function siteRoutes(app: FastifyInstance): void {
         params: zodSchema(sitePricingGroupParams),
         response: {
           200: itemResponse(sitePricingGroupRecordItem),
-          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+          404: errorWith('Site or pricing assignment not found', [
+            ERROR_CODES.SITE_NOT_FOUND,
+            ERROR_CODES.PRICING_ASSIGNMENT_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -1893,9 +1989,10 @@ export function siteRoutes(app: FastifyInstance): void {
         )
         .returning();
       if (record == null) {
-        await reply
-          .status(404)
-          .send({ error: 'Pricing group not found for site', code: 'NOT_FOUND' });
+        await reply.status(404).send({
+          error: 'Pricing group not found for site',
+          code: 'PRICING_ASSIGNMENT_NOT_FOUND',
+        });
         return;
       }
       await writeAudit(
@@ -1911,6 +2008,7 @@ export function siteRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      await publishPricingChanged({ pricingGroupId, action: 'assignment.changed', siteId: id });
       return record;
     },
   );

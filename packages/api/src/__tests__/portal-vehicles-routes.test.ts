@@ -59,6 +59,8 @@ vi.mock('@evtivity/database', () => ({
   },
   vehicles: {},
   vehicleEfficiencyLookup: {},
+  vehicleAuditLog: {},
+  writeAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('drizzle-orm', () => {
@@ -67,6 +69,8 @@ vi.mock('drizzle-orm', () => {
     eq: vi.fn(),
     and: vi.fn(),
     sql: sqlTag,
+    desc: vi.fn(),
+    asc: vi.fn(),
   };
 });
 

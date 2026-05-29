@@ -22,6 +22,8 @@ import {
   pricingAssignmentAuditLog,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { publishPricingChanged } from '../lib/pricing-events.js';
+import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -30,6 +32,7 @@ import { authorize } from '../middleware/rbac.js';
 import * as tokenService from '../services/token.service.js';
 import { OCPP_TOKEN_TYPES } from './tokens.js';
 import type { JwtPayload } from '../plugins/auth.js';
+import { isValidTimezone } from '@evtivity/lib';
 import {
   paginatedResponse,
   itemResponse,
@@ -378,20 +381,35 @@ export function driverRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const body = request.body as z.infer<typeof createDriverBody>;
 
-      // Check for duplicate email. Use ilike so jane@x.com and Jane@x.com
-      // are treated as the same account and the second create is rejected.
-      if (body.email != null) {
+      if (body.email !== undefined) {
+        body.email = body.email.toLowerCase();
         const [existing] = await db
           .select({ id: drivers.id })
           .from(drivers)
-          .where(ilike(drivers.email, body.email));
+          .where(eq(drivers.email, body.email));
         if (existing != null) {
           await reply.status(409).send({ error: 'Email already in use', code: 'DUPLICATE_EMAIL' });
           return;
         }
       }
 
-      const [driver] = await db.insert(drivers).values(body).returning(driverSafeSelect);
+      let driver;
+      try {
+        [driver] = await db.insert(drivers).values(body).returning(driverSafeSelect);
+      } catch (err) {
+        // The pre-check above is non-transactional, so two concurrent POSTs with the
+        // same lowercased email can both pass it and race here. The partial unique
+        // index uq_drivers_email_lower (migration 0052) raises 23505 on the loser.
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          (err as { code?: string }).code === '23505'
+        ) {
+          await reply.status(409).send({ error: 'Email already in use', code: 'DUPLICATE_EMAIL' });
+          return;
+        }
+        throw err;
+      }
       if (driver != null) {
         const actor = getAuditActor(request);
         await writeAudit(
@@ -424,6 +442,7 @@ export function driverRoutes(app: FastifyInstance): void {
         body: zodSchema(updateDriverBody),
         response: {
           200: itemResponse(driverItem),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
           409: errorWith('Email already in use', [ERROR_CODES.DUPLICATE_EMAIL]),
         },
@@ -433,15 +452,17 @@ export function driverRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof driverParams>;
       const body = request.body as z.infer<typeof updateDriverBody>;
 
-      // Reject email changes that would collide with another driver. The
-      // POST handler already enforces ilike uniqueness; without the same
-      // guard here, a PATCH could create two drivers with the same email
-      // and break portal login (which selects by email).
+      if (body.timezone !== undefined && !isValidTimezone(body.timezone)) {
+        await reply.status(400).send({ error: 'Invalid IANA timezone', code: 'VALIDATION_ERROR' });
+        return;
+      }
+
       if (body.email !== undefined) {
+        body.email = body.email.toLowerCase();
         const [collision] = await db
           .select({ id: drivers.id })
           .from(drivers)
-          .where(and(ilike(drivers.email, body.email), ne(drivers.id, id)));
+          .where(and(eq(drivers.email, body.email), ne(drivers.id, id)));
         if (collision != null) {
           await reply.status(409).send({ error: 'Email already in use', code: 'DUPLICATE_EMAIL' });
           return;
@@ -461,11 +482,27 @@ export function driverRoutes(app: FastifyInstance): void {
       // returned `updated` row goes back to the operator, so we project it
       // through driverSafeSelect to keep passwordHash/totpSecretEnc internal.
       const [before] = await db.select().from(drivers).where(eq(drivers.id, id));
-      const [updated] = await db
-        .update(drivers)
-        .set(fields)
-        .where(eq(drivers.id, id))
-        .returning(driverSafeSelect);
+      let updated;
+      try {
+        [updated] = await db
+          .update(drivers)
+          .set(fields)
+          .where(eq(drivers.id, id))
+          .returning(driverSafeSelect);
+      } catch (err) {
+        // Same race as POST: the eq() collision pre-check is non-transactional,
+        // so a concurrent INSERT/UPDATE with the same lowercased email can
+        // happen between the check and this UPDATE.
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          (err as { code?: string }).code === '23505'
+        ) {
+          await reply.status(409).send({ error: 'Email already in use', code: 'DUPLICATE_EMAIL' });
+          return;
+        }
+        throw err;
+      }
 
       if (updated == null) {
         await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
@@ -477,6 +514,10 @@ export function driverRoutes(app: FastifyInstance): void {
       if (before != null && body.isActive !== undefined && body.isActive !== before.isActive) {
         action = body.isActive ? 'activated' : 'deactivated';
       }
+      // Reactivation does NOT auto-reactivate the driver's tokens. The DELETE
+      // cascade flipped them off, but some may have been deliberately revoked
+      // (stolen card, lost fob); blindly flipping them back would override that
+      // intent. The operator reactivates individual tokens via the Tokens page.
       await writeAudit(
         { table: driverAuditLog, idColumn: 'driver_id' },
         {
@@ -623,16 +664,43 @@ export function driverRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(driverParams),
         body: zodSchema(createVehicleBody),
-        response: { 201: itemResponse(vehicleItem) },
+        response: {
+          201: itemResponse(vehicleItem),
+          404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
+        },
       },
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof driverParams>;
       const body = request.body as z.infer<typeof createVehicleBody>;
-      const [vehicle] = await db
-        .insert(vehicles)
-        .values({ driverId: id, ...body })
-        .returning();
+      const [driverRow] = await db
+        .select({ id: drivers.id })
+        .from(drivers)
+        .where(eq(drivers.id, id));
+      if (driverRow == null) {
+        await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+        return;
+      }
+      let vehicle;
+      try {
+        [vehicle] = await db
+          .insert(vehicles)
+          .values({ driverId: id, ...body })
+          .returning();
+      } catch (err) {
+        // Pre-check is non-transactional, so the driver can be deleted
+        // between the check and this INSERT. Map the FK violation back
+        // to the same 404 the pre-check would have produced.
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          (err as { code?: string }).code === '23503'
+        ) {
+          await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+          return;
+        }
+        throw err;
+      }
       if (vehicle != null) {
         const actor = getAuditActor(request);
         await writeAudit(
@@ -846,6 +914,7 @@ export function driverRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof driverParams>;
+      const { userId } = request.user as JwtPayload;
 
       const [driver] = await db.select().from(drivers).where(eq(drivers.id, id));
       if (driver == null) {
@@ -857,6 +926,21 @@ export function driverRoutes(app: FastifyInstance): void {
         .update(drivers)
         .set({ isActive: false, updatedAt: new Date() })
         .where(eq(drivers.id, id));
+
+      // Cascade: OCPP authorize handlers only check driverTokens.isActive,
+      // not drivers.isActive. Deactivate every token the driver owns so the
+      // soft-delete actually blocks future RFID taps and portal idTags.
+      const driverTokenRows = await db
+        .select({ id: driverTokens.id })
+        .from(driverTokens)
+        .where(eq(driverTokens.driverId, id));
+      if (driverTokenRows.length > 0) {
+        await tokenService.bulkSetActive(
+          driverTokenRows.map((t) => t.id),
+          false,
+          { type: 'operator', userId },
+        );
+      }
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -1076,28 +1160,43 @@ export function driverRoutes(app: FastifyInstance): void {
       // 404 instead of a 500 from the FK violation. Run the previous-row
       // lookup in parallel — the typo case is rare so wasting one query
       // there is cheaper than the round-trip it saves on the success path.
-      const [pgRows, previousRows] = await Promise.all([
-        db
-          .select({ id: pricingGroups.id })
-          .from(pricingGroups)
-          .where(eq(pricingGroups.id, body.pricingGroupId)),
+      const [pgExists, previousRows] = await Promise.all([
+        pricingGroupExists(body.pricingGroupId),
         db.select().from(pricingGroupDrivers).where(eq(pricingGroupDrivers.driverId, id)),
       ]);
-      if (pgRows[0] == null) {
+      if (!pgExists) {
         await reply
           .status(404)
           .send({ error: 'Pricing group not found', code: 'PRICING_GROUP_NOT_FOUND' });
         return;
       }
       const previous = previousRows[0];
-      const [record] = await db
-        .insert(pricingGroupDrivers)
-        .values({ driverId: id, pricingGroupId: body.pricingGroupId })
-        .onConflictDoUpdate({
-          target: [pricingGroupDrivers.driverId],
-          set: { pricingGroupId: body.pricingGroupId, createdAt: new Date() },
-        })
-        .returning();
+      let record;
+      try {
+        [record] = await db
+          .insert(pricingGroupDrivers)
+          .values({ driverId: id, pricingGroupId: body.pricingGroupId })
+          .onConflictDoUpdate({
+            target: [pricingGroupDrivers.driverId],
+            set: { pricingGroupId: body.pricingGroupId, createdAt: new Date() },
+          })
+          .returning();
+      } catch (err) {
+        // The pre-check is non-transactional, so the pricing group can be
+        // deleted between the lookup and this INSERT. Map the FK violation
+        // back to 404 — same pattern as sites/stations/fleets.
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          (err as { code?: string }).code === '23503'
+        ) {
+          await reply
+            .status(404)
+            .send({ error: 'Pricing group not found', code: 'PRICING_GROUP_NOT_FOUND' });
+          return;
+        }
+        throw err;
+      }
       const actor = getAuditActor(request);
       // Two independent audit rows for two different tables — write in
       // parallel. Both calls swallow errors internally so the response is
@@ -1134,6 +1233,11 @@ export function driverRoutes(app: FastifyInstance): void {
           request.log,
         ),
       ]);
+      await publishPricingChanged({
+        pricingGroupId: body.pricingGroupId,
+        action: 'assignment.changed',
+        driverId: id,
+      });
       await reply.status(201).send(record);
     },
   );
@@ -1150,7 +1254,9 @@ export function driverRoutes(app: FastifyInstance): void {
         params: zodSchema(driverPricingGroupParams),
         response: {
           200: itemResponse(driverPricingGroupRecordItem),
-          404: errorWith('Resource not found', [ERROR_CODES.NOT_FOUND]),
+          404: errorWith('Pricing assignment not found', [
+            ERROR_CODES.PRICING_ASSIGNMENT_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -1167,9 +1273,10 @@ export function driverRoutes(app: FastifyInstance): void {
         )
         .returning();
       if (record == null) {
-        await reply
-          .status(404)
-          .send({ error: 'Pricing group not found for driver', code: 'NOT_FOUND' });
+        await reply.status(404).send({
+          error: 'Pricing group not found for driver',
+          code: 'PRICING_ASSIGNMENT_NOT_FOUND',
+        });
         return;
       }
       await writeAudit(
@@ -1198,6 +1305,11 @@ export function driverRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      await publishPricingChanged({
+        pricingGroupId,
+        action: 'assignment.changed',
+        driverId: id,
+      });
       return record;
     },
   );

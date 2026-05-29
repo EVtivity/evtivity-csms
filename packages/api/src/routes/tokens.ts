@@ -274,59 +274,6 @@ export function tokenRoutes(app: FastifyInstance): void {
   );
 
   app.get(
-    '/tokens/:id/audit',
-    {
-      onRequest: [authorize('drivers:read')],
-      schema: {
-        tags: ['Tokens'],
-        summary: 'List audit log entries for a token',
-        operationId: 'listTokenAudit',
-        security: [{ bearerAuth: [] }],
-        params: zodSchema(tokenParams),
-        querystring: zodSchema(paginationQuery),
-        response: {
-          200: paginatedResponse(
-            z
-              .object({
-                id: z.number().describe('Audit row identifier'),
-                tokenId: z.string().nullable().describe('Token ID'),
-                idToken: z.string().describe('Token value snapshot'),
-                tokenType: z.string().describe('Token type snapshot'),
-                driverId: z.string().nullable().describe('Driver ID snapshot'),
-                action: z.string().describe('Audit action'),
-                actor: z.string().describe('Actor kind: operator, driver, system'),
-                actorUserId: z.string().nullable().describe('Operator user ID'),
-                actorUserName: z
-                  .string()
-                  .nullable()
-                  .describe('Operator display name (first + last, or email fallback)'),
-                actorDriverId: z.string().nullable().describe('Driver actor ID'),
-                actorDriverName: z
-                  .string()
-                  .nullable()
-                  .describe('Driver actor display name (first + last, or email fallback)'),
-                notes: z.string().nullable().describe('Optional note'),
-                createdAt: z.coerce.date().describe('Audit timestamp'),
-              })
-              .passthrough(),
-          ),
-          404: errorWith('Token not found', [ERROR_CODES.TOKEN_NOT_FOUND]),
-        },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params as z.infer<typeof tokenParams>;
-      const { page, limit } = request.query as z.infer<typeof paginationQuery>;
-      const token = await tokenService.getToken(id);
-      if (token == null) {
-        await reply.status(404).send({ error: 'Token not found', code: 'TOKEN_NOT_FOUND' });
-        return;
-      }
-      return tokenService.listTokenAuditLog(id, { page, limit });
-    },
-  );
-
-  app.get(
     '/tokens/:id/sessions',
     {
       onRequest: [authorize('drivers:read')],

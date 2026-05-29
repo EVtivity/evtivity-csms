@@ -71,35 +71,46 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
-vi.mock('@evtivity/database', () => ({
-  db: {
+vi.mock('@evtivity/database', () => {
+  const makeTxStub = () => ({
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
     update: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
-    execute: vi.fn(() => Promise.resolve([])),
-  },
-  stationImages: {},
-  chargingStations: {},
-  writeAudit: vi.fn().mockResolvedValue(undefined),
-  siteAuditLog: {},
-  stationAuditLog: {},
-  driverAuditLog: {},
-  fleetAuditLog: {},
-  userAuditLog: {},
-  vehicleAuditLog: {},
-  supportCaseAuditLog: {},
-  ocpiPartnerAuditLog: {},
-  certificateAuditLog: {},
-  roleAuditLog: {},
-  apiKeyAuditLog: {},
-  settingAuditLog: {},
-  smartChargingTemplateAuditLog: {},
-  configTemplateAuditLog: {},
-  firmwareCampaignAuditLog: {},
-  stationImageAuditLog: {},
-  localAuthListAuditLog: {},
-}));
+  });
+  return {
+    db: {
+      select: vi.fn(() => makeChain()),
+      insert: vi.fn(() => makeChain()),
+      update: vi.fn(() => makeChain()),
+      delete: vi.fn(() => makeChain()),
+      execute: vi.fn(() => Promise.resolve([])),
+      transaction: vi.fn(async (cb: (tx: ReturnType<typeof makeTxStub>) => Promise<unknown>) =>
+        cb(makeTxStub()),
+      ),
+    },
+    stationImages: {},
+    chargingStations: {},
+    writeAudit: vi.fn().mockResolvedValue(undefined),
+    siteAuditLog: {},
+    stationAuditLog: {},
+    driverAuditLog: {},
+    fleetAuditLog: {},
+    userAuditLog: {},
+    vehicleAuditLog: {},
+    supportCaseAuditLog: {},
+    ocpiPartnerAuditLog: {},
+    certificateAuditLog: {},
+    roleAuditLog: {},
+    apiKeyAuditLog: {},
+    settingAuditLog: {},
+    smartChargingTemplateAuditLog: {},
+    configTemplateAuditLog: {},
+    firmwareCampaignAuditLog: {},
+    stationImageAuditLog: {},
+    localAuthListAuditLog: {},
+  };
+});
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),

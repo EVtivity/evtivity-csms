@@ -57,10 +57,11 @@ export const drivers = pgTable(
   },
   (table) => [
     index('idx_drivers_email').on(table.email),
-    // Partial unique index: only enforces uniqueness for non-null emails.
-    // The actual index is created in migration 0022_production_hardening.sql
-    // with a WHERE clause. Drizzle's uniqueIndex does not support WHERE,
-    // so the index definition here is omitted to avoid conflicts.
+    // Partial unique index on LOWER(email) is defined in migration
+    // 0052_drivers_email_partial_unique.sql (Drizzle's uniqueIndex does not
+    // support expression columns or partial WHERE clauses, so the index is
+    // SQL-only). Combined with email normalization in the API layer, this
+    // enforces case-insensitive uniqueness on non-null driver emails.
   ],
 );
 

@@ -6,13 +6,12 @@ import { db, client } from '@evtivity/database';
 import {
   driverTokens,
   drivers,
-  users,
   tokenAuditLog,
   stationLocalAuthEntries,
   stationLocalAuthVersions,
   writeAudit,
 } from '@evtivity/database';
-import { dispatchDriverNotification, createLogger } from '@evtivity/lib';
+import { dispatchDriverNotification, createLogger, csvEscape } from '@evtivity/lib';
 import { getPubSub } from '../lib/pubsub.js';
 import type { PaginationParams, PaginatedResponse } from '../lib/pagination.js';
 
@@ -560,104 +559,6 @@ export async function bulkSetActive(
   return { updated: updated.length };
 }
 
-export async function listTokenAuditLog(
-  tokenId: string,
-  params: { page: number; limit: number },
-): Promise<
-  PaginatedResponse<{
-    id: number;
-    tokenId: string | null;
-    idToken: string;
-    tokenType: string;
-    driverId: string | null;
-    action: string;
-    actor: string;
-    actorUserId: string | null;
-    actorUserName: string | null;
-    actorDriverId: string | null;
-    actorDriverName: string | null;
-    notes: string | null;
-    createdAt: Date;
-  }>
-> {
-  const { page, limit } = params;
-  const offset = (page - 1) * limit;
-  const where = eq(tokenAuditLog.tokenId, tokenId);
-
-  const [rows, countRows] = await Promise.all([
-    db
-      .select({
-        id: tokenAuditLog.id,
-        tokenId: tokenAuditLog.tokenId,
-        tokenIdSnapshot: tokenAuditLog.tokenIdSnapshot,
-        before: tokenAuditLog.before,
-        after: tokenAuditLog.after,
-        action: tokenAuditLog.action,
-        actor: tokenAuditLog.actor,
-        actorUserId: tokenAuditLog.actorUserId,
-        actorUserName: sql<string | null>`CASE
-          WHEN ${users.id} IS NOT NULL THEN
-            COALESCE(
-              NULLIF(TRIM(COALESCE(${users.firstName}, '') || ' ' || COALESCE(${users.lastName}, '')), ''),
-              ${users.email}
-            )
-          ELSE NULL
-        END`,
-        actorDriverId: tokenAuditLog.actorDriverId,
-        actorDriverName: sql<string | null>`CASE
-          WHEN ${drivers.id} IS NOT NULL THEN
-            COALESCE(
-              NULLIF(TRIM(COALESCE(${drivers.firstName}, '') || ' ' || COALESCE(${drivers.lastName}, '')), ''),
-              ${drivers.email}
-            )
-          ELSE NULL
-        END`,
-        notes: tokenAuditLog.notes,
-        createdAt: tokenAuditLog.createdAt,
-      })
-      .from(tokenAuditLog)
-      .leftJoin(users, eq(users.id, tokenAuditLog.actorUserId))
-      .leftJoin(drivers, eq(drivers.id, tokenAuditLog.actorDriverId))
-      .where(where)
-      .orderBy(desc(tokenAuditLog.createdAt))
-      .limit(limit)
-      .offset(offset),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(tokenAuditLog)
-      .where(where),
-  ]);
-
-  // Project the unified JSONB shape (after/before) back to the legacy
-  // per-field response so the History card on the Token detail page keeps
-  // working unchanged. Prefer `after` for the snapshot (created/imported
-  // rows leave `before` null); fall back to `before` for deleted rows.
-  const data = rows.map((row) => {
-    const snapshot = (row.after ?? row.before ?? {}) as {
-      idToken?: string;
-      tokenType?: string;
-      driverId?: string | null;
-    };
-    return {
-      id: row.id,
-      tokenId: row.tokenId,
-      idToken: snapshot.idToken ?? '',
-      tokenType: snapshot.tokenType ?? '',
-      driverId: snapshot.driverId ?? null,
-      action: row.action,
-      actor: row.actor,
-      actorUserId: row.actorUserId,
-      actorUserName: row.actorUserName,
-      actorDriverId: row.actorDriverId,
-      actorDriverName: row.actorDriverName,
-      notes: row.notes,
-      createdAt: row.createdAt,
-    };
-  });
-
-  return { data, total: countRows[0]?.count ?? 0 };
-}
-
 export async function exportTokensCsv(search?: string): Promise<string> {
   let where = undefined;
   if (search) {
@@ -881,11 +782,4 @@ export async function importTokensCsv(
   }
 
   return { imported: inserted.length, errors };
-}
-
-function csvEscape(value: string): string {
-  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
 }

@@ -15,6 +15,7 @@ import { TabsContent } from '@/components/ui/tabs';
 import { Select } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { GoogleMapPicker } from '@/components/GoogleMapPicker';
+import { HoursOfOperationField } from '@/components/site/HoursOfOperationField';
 import { api } from '@/lib/api';
 import { TIMEZONE_OPTIONS, formatDateTime } from '@/lib/timezone';
 
@@ -299,19 +300,11 @@ export function SiteDetailsTab({
                   ))}
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-hours">{t('sites.hoursOfOperation')}</Label>
-                <textarea
-                  id="edit-hours"
-                  value={hoursOfOperation}
-                  onChange={(e) => {
-                    setHoursOfOperation(e.target.value);
-                  }}
-                  placeholder={t('sites.hoursOfOperationPlaceholder')}
-                  rows={3}
-                  className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                />
-              </div>
+              <HoursOfOperationField
+                id="edit-hours"
+                value={hoursOfOperation}
+                onChange={setHoursOfOperation}
+              />
               <div className="border-t pt-4 space-y-4">
                 <div>
                   <p className="text-sm font-medium">{t('sites.contact')}</p>

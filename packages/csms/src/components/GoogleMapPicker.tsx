@@ -32,7 +32,18 @@ export function GoogleMapPicker({
   const markerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
 
+  // Latch the latest callback so the map/marker listeners (registered once on
+  // mount) always invoke the current onLocationChange without re-running the
+  // map-build effect when the parent renders a new function instance.
+  const onLocationChangeRef = useRef(onLocationChange);
+  useEffect(() => {
+    onLocationChangeRef.current = onLocationChange;
+  }, [onLocationChange]);
+
   const { data: settings } = useQuery({
+    // Google Maps key + defaults change rarely. Cache for an hour so the 3-4
+    // map pickers a typical operator session mounts share one settings fetch.
+    staleTime: 60 * 60 * 1000,
     queryKey: ['google-maps-settings'],
     queryFn: async () => {
       const allSettings = await api.get<Record<string, unknown>>('/v1/settings');
@@ -103,7 +114,7 @@ export function GoogleMapPicker({
           if (pos != null) {
             const newLat = typeof pos.lat === 'function' ? pos.lat() : pos.lat;
             const newLng = typeof pos.lng === 'function' ? pos.lng() : pos.lng;
-            onLocationChange(newLat.toFixed(6), newLng.toFixed(6));
+            onLocationChangeRef.current(newLat.toFixed(6), newLng.toFixed(6));
           }
         });
 
@@ -113,7 +124,7 @@ export function GoogleMapPicker({
           if (e.latLng == null) return;
           const newLat = e.latLng.lat();
           const newLng = e.latLng.lng();
-          onLocationChange(newLat.toFixed(6), newLng.toFixed(6));
+          onLocationChangeRef.current(newLat.toFixed(6), newLng.toFixed(6));
           if (markerRef.current != null) {
             markerRef.current.position = { lat: newLat, lng: newLng };
           }
@@ -123,7 +134,25 @@ export function GoogleMapPicker({
         setMapError(err instanceof Error ? err.message : 'Failed to load Google Maps');
       }
     })();
-  }, [settings, latitude, longitude, onLocationChange]);
+
+    return () => {
+      // Tear down listeners and detach the marker/map so repeat mounts (tab
+      // switches, edit-mode toggles) don't leak instances. The map is only
+      // rebuilt on unmount/remount; external lat/lng changes after build are
+      // handled by the marker-update effect below.
+      if (markerRef.current != null) {
+        google.maps.event.clearInstanceListeners(markerRef.current);
+        markerRef.current.map = null;
+        markerRef.current = null;
+      }
+      if (mapInstanceRef.current != null) {
+        google.maps.event.clearInstanceListeners(mapInstanceRef.current);
+        mapInstanceRef.current = null;
+      }
+    };
+    // Deliberately only depend on `settings`: lat/lng prop changes flow through
+    // the marker-update effect, and onLocationChange is ref-latched above.
+  }, [settings]);
 
   // Update marker when lat/lng props change externally (operator typed into
   // the lat/lng input boxes). Move the marker only; do not pan the map --
