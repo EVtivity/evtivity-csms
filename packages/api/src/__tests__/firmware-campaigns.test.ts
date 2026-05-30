@@ -717,9 +717,10 @@ describe('Firmware campaign routes', () => {
       ];
 
       // 1. select campaign, 2. select target stations,
-      // 3. insert campaign_stations, 4. update campaign status,
+      // 3. CAS update campaign status (must return a row to claim the start),
+      // 4. insert campaign_stations,
       // 5. insert firmware_updates (station 1), 6. insert firmware_updates (station 2)
-      setupDbResults([campaign], targets, [], [], [], []);
+      setupDbResults([campaign], targets, [{ id: 'camp-001' }], [], [], []);
 
       const response = await app.inject({
         method: 'POST',

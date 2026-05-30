@@ -50,6 +50,19 @@ function sendCall(
   ws.send(JSON.stringify([2, messageId, action, payload]));
 }
 
+// Drive the station through a successful BootNotification so the boot
+// guard middleware lets the test message through. Tests for non-boot
+// actions must call this first; the boot guard rejects all other CALLs
+// with SecurityError until the session reaches Accepted.
+async function bootStation(ws: WebSocket): Promise<void> {
+  const bootResponse = waitForMessage(ws);
+  sendCall(ws, 'boot-' + Math.random().toString(36).slice(2, 8), 'BootNotification', {
+    chargingStation: { vendorName: 'TestVendor', model: 'TestModel' },
+    reason: 'PowerUp',
+  });
+  await bootResponse;
+}
+
 function waitForMessage(ws: WebSocket): Promise<unknown[]> {
   return new Promise((resolve) => {
     ws.once('message', (data: Buffer) => {
@@ -95,6 +108,7 @@ describe('OcppServer integration', () => {
     const port = getNextPort();
     await startServer(port);
     const ws = await connectStation(port, 'TEST-003');
+    await bootStation(ws);
 
     const responsePromise = waitForMessage(ws);
     sendCall(ws, 'msg-2', 'Heartbeat', {});
@@ -110,6 +124,7 @@ describe('OcppServer integration', () => {
     const port = getNextPort();
     await startServer(port);
     const ws = await connectStation(port, 'TEST-004');
+    await bootStation(ws);
 
     const responsePromise = waitForMessage(ws);
     sendCall(ws, 'msg-3', 'NonExistentAction', {});
@@ -125,6 +140,7 @@ describe('OcppServer integration', () => {
     const port = getNextPort();
     await startServer(port);
     const ws = await connectStation(port, 'TEST-005');
+    await bootStation(ws);
 
     const responsePromise = waitForMessage(ws);
     sendCall(ws, 'msg-4', 'DataTransfer', {
@@ -225,6 +241,7 @@ describe('OcppServer integration', () => {
     const port = getNextPort();
     await startServer(port);
     const ws = await connectStation(port, 'TEST-ERR');
+    await bootStation(ws);
 
     const responsePromise = waitForMessage(ws);
     // Send a call with action that does not exist (triggers NotImplemented OcppError from router)

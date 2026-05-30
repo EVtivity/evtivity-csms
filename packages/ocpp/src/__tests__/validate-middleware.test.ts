@@ -48,7 +48,7 @@ describe('validateMiddleware', () => {
     expect(next).toHaveBeenCalled();
   });
 
-  it('throws FormatViolation for invalid request payload', async () => {
+  it('throws OccurrenceConstraintViolation for missing required field', async () => {
     const ctx = makeCtx('BootNotification', {});
     const next = vi.fn();
 
@@ -58,7 +58,39 @@ describe('validateMiddleware', () => {
       await validateMiddleware(ctx, next);
     } catch (err) {
       const ocppErr = err as OcppError;
-      expect(ocppErr.errorCode).toBe('FormatViolation');
+      expect(ocppErr.errorCode).toBe('OccurrenceConstraintViolation');
+    }
+  });
+
+  it('throws TypeConstraintViolation for wrong primitive type', async () => {
+    const ctx = makeCtx('BootNotification', {
+      chargingStation: { vendorName: 'V', model: 'M' },
+      reason: 123,
+    });
+    const next = vi.fn();
+
+    try {
+      await validateMiddleware(ctx, next);
+      throw new Error('expected throw');
+    } catch (err) {
+      const ocppErr = err as OcppError;
+      expect(ocppErr.errorCode).toBe('TypeConstraintViolation');
+    }
+  });
+
+  it('throws PropertyConstraintViolation for invalid enum value', async () => {
+    const ctx = makeCtx('BootNotification', {
+      chargingStation: { vendorName: 'V', model: 'M' },
+      reason: 'NotARealReason',
+    });
+    const next = vi.fn();
+
+    try {
+      await validateMiddleware(ctx, next);
+      throw new Error('expected throw');
+    } catch (err) {
+      const ocppErr = err as OcppError;
+      expect(ocppErr.errorCode).toBe('PropertyConstraintViolation');
     }
   });
 
@@ -113,25 +145,24 @@ describe('validateMiddleware', () => {
     expect(next).toHaveBeenCalled();
   });
 
-  it('logs error for invalid response but does not throw', async () => {
-    const errorSpy = vi.spyOn(logger, 'error');
+  it('throws InternalError when handler produces an invalid response', async () => {
     const ctx = makeCtx('Heartbeat', {});
     ctx.logger = logger;
     const next = vi.fn().mockImplementation(async () => {
-      // Set an invalid response (missing required currentTime)
       ctx.response = { invalidField: true };
     });
 
-    // Should not throw even though response is invalid
-    await validateMiddleware(ctx, next);
-
+    try {
+      await validateMiddleware(ctx, next);
+      throw new Error('expected throw');
+    } catch (err) {
+      const ocppErr = err as OcppError;
+      expect(ocppErr.errorCode).toBe('InternalError');
+    }
     expect(next).toHaveBeenCalled();
-    // The middleware logs the error but does not throw
-    errorSpy.mockRestore();
   });
 
-  it('throws FormatViolation for invalid 1.6 BootNotification', async () => {
-    // 1.6 BootNotification requires chargePointVendor and chargePointModel
+  it('throws OcppError for invalid 1.6 BootNotification', async () => {
     const ctx = makeCtx('BootNotification', {}, 'ocpp1.6');
     const next = vi.fn();
 

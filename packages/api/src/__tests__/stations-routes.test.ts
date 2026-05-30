@@ -183,6 +183,7 @@ vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn().mockResolvedValue(null),
   invalidateSiteAccessCache: vi.fn(),
   checkStationSiteAccess: vi.fn().mockResolvedValue(true),
+  userCanAccessSite: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('../lib/ocpp-command.js', () => ({
@@ -1285,11 +1286,13 @@ describe('Station routes - handler logic', () => {
           status: 'available',
         },
       ];
-      // 1: find evse, 2: update connector returning id (loop), 3: select updated connectors
+      // 1: find evse, 2: pre-validate connector ids exist, 3: tx.update (1 per connector),
+      // 4: select updated connectors. The mock chain consumes one entry per awaited call.
       setupDbResults(
         [evse],
-        [{ id: 'con_000000000001' }], // update returning rows (must be non-empty)
-        updatedConnectors, // select result
+        [{ connectorId: 1 }], // pre-validation: all body connectorIds exist
+        [], // tx.update inside transaction (no .returning(); chain still consumes one slot)
+        updatedConnectors, // final select result
       );
 
       const response = await app.inject({

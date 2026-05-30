@@ -631,19 +631,33 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Insert campaign station rows
+      // Atomic transition draft -> active. Two operators clicking Start at
+      // the same moment both pass the SELECT-then-check pre-guard at line
+      // ~600; without this CAS both would insert duplicate
+      // firmware_campaign_stations rows (the table has no (campaignId,
+      // stationId) unique index) and dispatch UpdateFirmware twice. CAS
+      // makes the second caller's UPDATE return zero rows; we surface that
+      // as the same 409 NOT_DRAFT the pre-check would have raised.
+      const claimed = await db
+        .update(firmwareCampaigns)
+        .set({ status: 'active', updatedAt: new Date() })
+        .where(and(eq(firmwareCampaigns.id, id), eq(firmwareCampaigns.status, 'draft')))
+        .returning({ id: firmwareCampaigns.id });
+      if (claimed.length === 0) {
+        await reply
+          .status(409)
+          .send({ error: 'Campaign is not in draft state', code: 'NOT_DRAFT' });
+        return;
+      }
+
+      // Insert campaign station rows AFTER the CAS so only the winning
+      // operator's targets are recorded.
       await db.insert(firmwareCampaignStations).values(
         targets.map((t) => ({
           campaignId: id,
           stationId: t.id,
         })),
       );
-
-      // Mark campaign as active
-      await db
-        .update(firmwareCampaigns)
-        .set({ status: 'active', updatedAt: new Date() })
-        .where(eq(firmwareCampaigns.id, id));
 
       const actor = getAuditActor(request);
       await writeAudit(

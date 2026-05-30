@@ -138,8 +138,12 @@ export async function authenticateConnection(
     // station. Without the per-station serial check, any station holding a
     // valid CA-signed cert could impersonate any other SP3 station. Match
     // on (stationId, serialNumber, active, ChargingStationCertificate).
-    const certSerial = cert.serialNumber;
-    if (certSerial === '') {
+    // Node's getPeerCertificate() can leave serialNumber undefined when the
+    // cert lacks the extension entirely; the prior `=== ''` check missed
+    // that case and the DB-lookup branch below silently returned "serial
+    // not registered" instead of the real "no serial" reason. Cover both.
+    const certSerial = cert.serialNumber as string | undefined;
+    if (certSerial == null || certSerial === '') {
       await logAuthEvent(sql, station.id, 'auth_failed', remoteAddress, {
         reason: 'Client certificate missing serial number',
       });

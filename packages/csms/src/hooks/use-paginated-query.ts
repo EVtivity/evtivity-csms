@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
@@ -36,6 +36,14 @@ export function usePaginatedQuery<T>(
     setSearchState(value);
     setPage(1);
   }, []);
+
+  // Reset to page 1 when filter params change. Without this a user sitting
+  // on page 5 of an unfiltered list who picks a filter that shrinks the
+  // result to a single page would be stuck rendering page 5 of 1.
+  const extraParamsKey = extraParams != null ? JSON.stringify(extraParams) : '';
+  useEffect(() => {
+    setPage(1);
+  }, [extraParamsKey]);
 
   const params = new URLSearchParams();
   params.set('page', String(page));

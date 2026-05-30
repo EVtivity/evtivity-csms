@@ -23,8 +23,13 @@ export function createBootGuardMiddleware() {
       return;
     }
 
-    // Reject non-BootNotification when station has not been accepted
-    if (bootStatus !== 'Accepted' && bootStatus !== null) {
+    // Reject non-BootNotification when station has not been accepted. Null
+    // (no boot record yet) is treated the same as Pending/Rejected: per
+    // OCPP 2.1 B02.FR.02 the CSMS must reject every non-BootNotification
+    // CALL until it has accepted a BootNotification. Allowing null through
+    // would let a station that just connected skip BootNotification and
+    // send Heartbeat/StatusNotification/etc. straight away.
+    if (bootStatus !== 'Accepted') {
       ctx.logger.info(
         { stationId: ctx.stationId, action: ctx.action, bootStatus },
         'Rejecting message: station boot not accepted',

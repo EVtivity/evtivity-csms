@@ -48,6 +48,30 @@ const IP_MESSAGE_WINDOW_MS = 1000;
 const ipConnectionCounts = new Map<string, number>();
 const ipMessageCounters = new Map<string, { count: number; windowStart: number }>();
 
+// ipMessageCounters entries are only refreshed when the same IP sends
+// another message; an IP that sends once and goes silent leaves its
+// counter in the Map forever. On a public-facing server that fields
+// random internet probes the Map drifts upward indefinitely. Sweep stale
+// entries on a 60s cadence the same way rate-limit.ts does for its
+// per-station counters.
+const IP_COUNTER_STALE_MS = 5 * 60 * 1000;
+const IP_COUNTER_CLEANUP_MS = 60 * 1000;
+let ipMessageCleanupTimer: NodeJS.Timeout | null = null;
+function ensureIpMessageCleanup(): void {
+  if (ipMessageCleanupTimer != null) return;
+  ipMessageCleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [ip, counter] of ipMessageCounters) {
+      if (now - counter.windowStart > IP_COUNTER_STALE_MS) {
+        ipMessageCounters.delete(ip);
+      }
+    }
+  }, IP_COUNTER_CLEANUP_MS);
+  // Don't keep the event loop alive solely for cleanup; the OCPP server's
+  // own listeners are what should hold it.
+  ipMessageCleanupTimer.unref();
+}
+
 export interface TlsOptions {
   // PEM content (not file paths). The caller is responsible for reading the
   // material from disk or env var before passing it in.
@@ -106,6 +130,7 @@ export class OcppServer {
   }
 
   async start(options: OcppServerOptions): Promise<void> {
+    ensureIpMessageCleanup();
     this.wss = new WebSocketServer({
       port: options.port,
       host: options.host,

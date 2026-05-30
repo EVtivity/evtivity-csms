@@ -286,7 +286,14 @@ describe('Display message routes', () => {
     it('returns 500 when message insert returns null', async () => {
       setupDbResults(
         // 1. station lookup
-        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }],
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
         // 2. maxResult for ocppMessageId
         [{ maxId: 5 }],
         // 3. insert returns empty (no row)
@@ -333,7 +340,14 @@ describe('Display message routes', () => {
 
       setupDbResults(
         // 1. station lookup
-        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }],
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
         // 2. maxResult for ocppMessageId
         [{ maxId: 5 }],
         // 3. insert returning
@@ -399,7 +413,14 @@ describe('Display message routes', () => {
       };
 
       setupDbResults(
-        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }],
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
         [{ maxId: 5 }],
         [insertedMessage],
         [updatedMessage],
@@ -453,7 +474,14 @@ describe('Display message routes', () => {
       };
 
       setupDbResults(
-        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }],
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
         [{ maxId: 5 }],
         [insertedMessage],
       );
@@ -501,7 +529,14 @@ describe('Display message routes', () => {
       };
 
       setupDbResults(
-        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }],
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
         [{ maxId: 5 }],
         [insertedMessage],
       );
@@ -562,7 +597,14 @@ describe('Display message routes', () => {
       };
 
       setupDbResults(
-        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }],
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
         [{ maxId: 5 }],
         [insertedMessage],
         [updatedMessage],
@@ -641,7 +683,14 @@ describe('Display message routes', () => {
       };
 
       setupDbResults(
-        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }],
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
         // maxResult returns empty array (no existing messages)
         [],
         [insertedMessage],
@@ -697,7 +746,14 @@ describe('Display message routes', () => {
       const updatedMessage = { ...insertedMessage, status: 'rejected', ocppResponse: {} };
 
       setupDbResults(
-        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }],
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
         [{ maxId: 5 }],
         [insertedMessage],
         [updatedMessage],
@@ -753,7 +809,14 @@ describe('Display message routes', () => {
       const updatedMessage = { ...insertedMessage, status: 'rejected', ocppResponse: null };
 
       setupDbResults(
-        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }],
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
         [{ maxId: 5 }],
         [insertedMessage],
         [updatedMessage],
@@ -1054,7 +1117,9 @@ describe('Display message routes', () => {
     });
 
     it('returns 200 on success', async () => {
-      setupDbResults([{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }]);
+      setupDbResults([
+        { id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true, ocppProtocol: 'ocpp2.1' },
+      ]);
 
       const responsePromise = app.inject({
         method: 'POST',
@@ -1084,7 +1149,9 @@ describe('Display message routes', () => {
     });
 
     it('returns status "Unknown" when response status is undefined', async () => {
-      setupDbResults([{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }]);
+      setupDbResults([
+        { id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true, ocppProtocol: 'ocpp2.1' },
+      ]);
 
       const responsePromise = app.inject({
         method: 'POST',
@@ -1115,7 +1182,9 @@ describe('Display message routes', () => {
     });
 
     it('returns 504 on timeout', async () => {
-      setupDbResults([{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }]);
+      setupDbResults([
+        { id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true, ocppProtocol: 'ocpp2.1' },
+      ]);
 
       vi.useFakeTimers();
 
@@ -1137,7 +1206,9 @@ describe('Display message routes', () => {
     });
 
     it('returns 502 on OCPP error', async () => {
-      setupDbResults([{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }]);
+      setupDbResults([
+        { id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true, ocppProtocol: 'ocpp2.1' },
+      ]);
 
       const responsePromise = app.inject({
         method: 'POST',
@@ -1200,7 +1271,14 @@ describe('Display message routes', () => {
       };
 
       setupDbResults(
-        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }],
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
         [{ maxId: 0 }],
         [insertedMessage],
         [updatedMessage],
@@ -1267,7 +1345,14 @@ describe('Display message routes', () => {
       };
 
       setupDbResults(
-        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }],
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
         [{ maxId: 0 }],
         [insertedMessage],
         [updatedMessage],
@@ -1333,7 +1418,14 @@ describe('Display message routes', () => {
       };
 
       setupDbResults(
-        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }],
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
         [{ maxId: 0 }],
         [insertedMessage],
       );
@@ -1380,7 +1472,14 @@ describe('Display message routes', () => {
       };
 
       setupDbResults(
-        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }],
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
         [{ maxId: 0 }],
         [insertedMessage],
       );
@@ -1405,7 +1504,9 @@ describe('Display message routes', () => {
     });
 
     it('timeout cleans up subscription when it exists', async () => {
-      setupDbResults([{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true }]);
+      setupDbResults([
+        { id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true, ocppProtocol: 'ocpp2.1' },
+      ]);
 
       vi.useFakeTimers();
 

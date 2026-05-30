@@ -20,6 +20,7 @@ import { Select } from '@/components/ui/select';
 import { GoogleMapPicker } from '@/components/GoogleMapPicker';
 import { FileViewerDialog } from '@/components/FileViewerDialog';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { OCPP_BASE_URL } from '@/lib/config';
 import { formatDateTime } from '@/lib/timezone';
 
@@ -274,6 +275,11 @@ export function StationInfoTab({
                   setLongitude(lng);
                 }}
               />
+              {updateMutation.isError && (
+                <p className="text-sm text-destructive">
+                  {getErrorMessage(updateMutation.error, t)}
+                </p>
+              )}
               <div className="flex justify-end gap-2">
                 <CancelButton
                   onClick={() => {

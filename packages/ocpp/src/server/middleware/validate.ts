@@ -11,9 +11,49 @@ type RegistryEntry = {
   validateRequest: (data: unknown) => boolean;
   validateResponse: (data: unknown) => boolean;
 } & {
-  validateRequest: { errors?: unknown[] | null };
-  validateResponse: { errors?: unknown[] | null };
+  validateRequest: { errors?: AjvError[] | null };
+  validateResponse: { errors?: AjvError[] | null };
 };
+
+interface AjvError {
+  keyword?: string;
+  instancePath?: string;
+  schemaPath?: string;
+  params?: Record<string, unknown>;
+  message?: string;
+}
+
+// Maps AJV error keyword to the OCPP 2.1 Part 4 error code class for that
+// constraint kind. OCTT conformance suites assert on the specific code.
+function ocppErrorCodeForAjvErrors(errors: AjvError[]): OcppErrorCode {
+  const first = errors[0];
+  if (first == null) return OcppErrorCode.FormatViolation;
+  switch (first.keyword) {
+    case 'required':
+    case 'minItems':
+    case 'maxItems':
+    case 'minProperties':
+    case 'maxProperties':
+      return OcppErrorCode.OccurrenceConstraintViolation;
+    case 'type':
+      return OcppErrorCode.TypeConstraintViolation;
+    case 'enum':
+    case 'pattern':
+    case 'format':
+    case 'maxLength':
+    case 'minLength':
+    case 'maximum':
+    case 'minimum':
+    case 'exclusiveMaximum':
+    case 'exclusiveMinimum':
+    case 'multipleOf':
+    case 'additionalProperties':
+    case 'const':
+      return OcppErrorCode.PropertyConstraintViolation;
+    default:
+      return OcppErrorCode.FormatViolation;
+  }
+}
 
 export const validateMiddleware: Middleware = async (ctx, next) => {
   const registry = ctx.protocolVersion === 'ocpp1.6' ? Registry16 : Registry21;
@@ -27,7 +67,9 @@ export const validateMiddleware: Middleware = async (ctx, next) => {
   const valid = entry.validateRequest(ctx.payload);
   if (!valid) {
     const errors = entry.validateRequest.errors ?? [];
-    throw new OcppError(OcppErrorCode.FormatViolation, 'Request validation failed', { errors });
+    throw new OcppError(ocppErrorCodeForAjvErrors(errors), 'Request validation failed', {
+      errors,
+    });
   }
 
   await next();
@@ -35,9 +77,15 @@ export const validateMiddleware: Middleware = async (ctx, next) => {
   if (ctx.response != null) {
     const responseValid = entry.validateResponse(ctx.response);
     if (!responseValid) {
+      const errors = entry.validateResponse.errors ?? [];
       ctx.logger.error(
-        { action: ctx.action, errors: entry.validateResponse.errors },
-        'Response validation failed',
+        { action: ctx.action, errors },
+        'Response validation failed: handler produced a response that does not match the schema',
+      );
+      throw new OcppError(
+        OcppErrorCode.InternalError,
+        'CSMS produced an invalid response payload',
+        { errors },
       );
     }
   }

@@ -169,7 +169,7 @@ export function displayMessageRoutes(app: FastifyInstance): void {
         body: zodSchema(createMessageBody),
         response: {
           200: itemResponse(displayMessageItem),
-          400: errorWith('Station offline', [ERROR_CODES.STATION_OFFLINE]),
+          400: errorWith('Bad request', [ERROR_CODES.STATION_OFFLINE, ERROR_CODES.NOT_SUPPORTED]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
           500: errorWith('Internal server error', [ERROR_CODES.INTERNAL_ERROR]),
           502: errorWith('Station rejected the command', [ERROR_CODES.STATION_REJECTED]),
@@ -188,6 +188,7 @@ export function displayMessageRoutes(app: FastifyInstance): void {
           stationId: chargingStations.stationId,
           siteId: chargingStations.siteId,
           isOnline: chargingStations.isOnline,
+          ocppProtocol: chargingStations.ocppProtocol,
         })
         .from(chargingStations)
         .where(eq(chargingStations.id, stationId));
@@ -206,6 +207,17 @@ export function displayMessageRoutes(app: FastifyInstance): void {
 
       if (!station.isOnline) {
         await reply.status(400).send({ error: 'Station is offline', code: 'STATION_OFFLINE' });
+        return;
+      }
+
+      // SetDisplayMessage is OCPP 2.1 only. Reject before INSERT so a 1.6
+      // station does not leave an unresolvable pending row behind when the
+      // command-translation layer downstream returns NotSupported.
+      if (station.ocppProtocol !== 'ocpp2.1') {
+        await reply.status(400).send({
+          error: 'SetDisplayMessage requires OCPP 2.1',
+          code: 'NOT_SUPPORTED',
+        });
         return;
       }
 

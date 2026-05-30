@@ -71,6 +71,27 @@ export function invalidateSiteAccessCache(userId: string): void {
 }
 
 /**
+ * Check whether a user can access a specific site. Returns true when:
+ * - the user has all-site access (getUserSiteIds returned null)
+ * - the siteId is null (unsited stations are visible to everyone)
+ * - the siteId is in the user's allowed list.
+ *
+ * Use this when the caller already knows the target siteId (e.g., the
+ * POST /v1/stations body or the before-state siteId on PATCH/DELETE);
+ * checkStationSiteAccess below is the right helper when the caller has
+ * a stationId instead.
+ */
+export async function userCanAccessSite(
+  userId: string,
+  siteId: string | null | undefined,
+): Promise<boolean> {
+  if (siteId == null) return true;
+  const siteIds = await getUserSiteIds(userId);
+  if (siteIds == null) return true;
+  return siteIds.includes(siteId);
+}
+
+/**
  * Check if a user has access to a station based on its site assignment.
  * Returns true if the user has access, false if not (station not found or site not allowed).
  */

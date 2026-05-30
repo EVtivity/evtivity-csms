@@ -52,11 +52,26 @@ import {
   errorWith,
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
-import { getUserSiteIds, checkStationSiteAccess } from '../lib/site-access.js';
+import { getUserSiteIds, checkStationSiteAccess, userCanAccessSite } from '../lib/site-access.js';
 import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../lib/ocpp-command.js';
 import { enableCssPair, disableCssPair } from '../lib/css-pairing.js';
 import { authorize } from '../middleware/rbac.js';
 import type { JwtPayload } from '../plugins/auth.js';
+
+// Statuses that mean a connector is actively in use and blocks deletion
+// of the connector or its parent EVSE. Keeping a single source of truth
+// across the per-EVSE and per-connector DELETE handlers so the in-use
+// semantics can't drift between them.
+const CONNECTOR_IN_USE_STATUSES = [
+  'occupied',
+  'charging',
+  'preparing',
+  'ev_connected',
+  'suspended_ev',
+  'suspended_evse',
+  'idle',
+  'discharging',
+] as const;
 
 const stationParams = z.object({
   id: ID_PARAMS.stationId.describe('Station ID'),
@@ -418,28 +433,6 @@ const evseDetail = z
   })
   .passthrough();
 
-const evseResponse = z
-  .object({
-    evseId: z.number().describe('OCPP EVSE id (1-based)'),
-    connectors: z
-      .array(
-        z
-          .object({
-            connectorId: z.number().describe('OCPP connector ID within the EVSE (1-based)'),
-            connectorType: z
-              .string()
-              .nullable()
-              .describe('Physical connector type (CCS2, CHAdeMO, Type2, Type1, GBT, Tesla, NACS)'),
-            maxPowerKw: z.number().nullable().describe('Maximum charging power in kilowatts'),
-            maxCurrentAmps: z.number().nullable().describe('Maximum charging current in amps'),
-            status: z.string().describe('Current connector operational status'),
-          })
-          .passthrough(),
-      )
-      .describe('Connectors on this EVSE'),
-  })
-  .passthrough();
-
 const connectorResponse = z
   .object({
     connectorId: z.number().describe('OCPP connector ID within the EVSE (1-based)'),
@@ -450,6 +443,13 @@ const connectorResponse = z
     maxPowerKw: z.number().nullable().describe('Maximum charging power in kilowatts'),
     maxCurrentAmps: z.number().nullable().describe('Maximum charging current in amps'),
     status: z.string().describe('Current connector operational status'),
+  })
+  .passthrough();
+
+const evseResponse = z
+  .object({
+    evseId: z.number().describe('OCPP EVSE id (1-based)'),
+    connectors: z.array(connectorResponse).describe('Connectors on this EVSE'),
   })
   .passthrough();
 
@@ -768,14 +768,19 @@ export function stationRoutes(app: FastifyInstance): void {
         .from(chargingStations)
         .leftJoin(vendors, eq(vendors.id, chargingStations.vendorId))
         .leftJoin(sites, eq(sites.id, chargingStations.siteId))
-        .where(where);
+        .where(where)
+        // Stable sort: newest first, then id as tiebreaker so two rows with
+        // the same createdAt millisecond don't swap order between pages and
+        // cause the user to see duplicates or skips on the boundary.
+        .orderBy(desc(chargingStations.createdAt), chargingStations.id);
 
-      const data = await baseQuery.limit(limit).offset(offset);
-
-      const countResult = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(chargingStations)
-        .where(where);
+      const [data, countResult] = await Promise.all([
+        baseQuery.limit(limit).offset(offset),
+        db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(chargingStations)
+          .where(where),
+      ]);
 
       return { data, total: countResult[0]?.count ?? 0 };
     },
@@ -954,13 +959,10 @@ export function stationRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const body = request.body as z.infer<typeof createStationBody>;
-      if (body.siteId != null) {
-        const { userId } = request.user as JwtPayload;
-        const siteIds = await getUserSiteIds(userId);
-        if (siteIds != null && !siteIds.includes(body.siteId)) {
-          await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
-          return;
-        }
+      const { userId } = request.user as JwtPayload;
+      if (!(await userCanAccessSite(userId, body.siteId))) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
       }
 
       // Pre-check vendor existence (orphan vendorId would trip FK with a 500
@@ -1142,7 +1144,7 @@ export function stationRoutes(app: FastifyInstance): void {
       }
       const { password, ...body } = request.body as z.infer<typeof updateStationBody>;
       // Check access to the new siteId if being reassigned
-      if (body.siteId != null && siteIds != null && !siteIds.includes(body.siteId)) {
+      if (body.siteId != null && !(await userCanAccessSite(userId, body.siteId))) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -1681,27 +1683,45 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Update each connector. Use returning() so we can detect a missing
-      // connector and 404 instead of silently no-op'ing the request.
-      for (const c of body.connectors) {
-        const updates: Record<string, unknown> = { updatedAt: new Date() };
-        if (c.connectorType != null) updates['connectorType'] = c.connectorType;
-        if (c.maxPowerKw != null) updates['maxPowerKw'] = String(c.maxPowerKw);
-        if (c.maxCurrentAmps != null) updates['maxCurrentAmps'] = c.maxCurrentAmps;
-
-        const updated = await db
-          .update(connectors)
-          .set(updates)
-          .where(and(eq(connectors.evseId, evse.id), eq(connectors.connectorId, c.connectorId)))
-          .returning({ id: connectors.id });
-        if (updated.length === 0) {
-          await reply.status(404).send({
-            error: `Connector ${String(c.connectorId)} not found on this EVSE`,
-            code: 'CONNECTOR_NOT_FOUND',
-          });
-          return;
-        }
+      // Pre-validate that every connectorId in the body exists on this EVSE
+      // before issuing any UPDATE. Without this pre-check the loop below
+      // would commit the first N successful UPDATEs and then 404 on the
+      // first missing connector, leaving the EVSE in a partial state where
+      // some connectors had the new values and others did not.
+      const requestedConnectorIds = body.connectors.map((c) => c.connectorId);
+      const existingConnectors = await db
+        .select({ connectorId: connectors.connectorId })
+        .from(connectors)
+        .where(
+          and(
+            eq(connectors.evseId, evse.id),
+            inArray(connectors.connectorId, requestedConnectorIds),
+          ),
+        );
+      if (existingConnectors.length !== requestedConnectorIds.length) {
+        const found = new Set(existingConnectors.map((c) => c.connectorId));
+        const missing = requestedConnectorIds.find((cid) => !found.has(cid));
+        await reply.status(404).send({
+          error: `Connector ${String(missing)} not found on this EVSE`,
+          code: 'CONNECTOR_NOT_FOUND',
+        });
+        return;
       }
+
+      // Single transaction so a mid-loop failure rolls back everything.
+      await db.transaction(async (tx) => {
+        for (const c of body.connectors) {
+          const updates: Record<string, unknown> = { updatedAt: new Date() };
+          if (c.connectorType != null) updates['connectorType'] = c.connectorType;
+          if (c.maxPowerKw != null) updates['maxPowerKw'] = String(c.maxPowerKw);
+          if (c.maxCurrentAmps != null) updates['maxCurrentAmps'] = c.maxCurrentAmps;
+
+          await tx
+            .update(connectors)
+            .set(updates)
+            .where(and(eq(connectors.evseId, evse.id), eq(connectors.connectorId, c.connectorId)));
+        }
+      });
 
       // Return updated EVSE with connectors
       const updatedConnectors = await db
@@ -2100,20 +2120,8 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Reject if any connector is in use. List must match the per-connector
-      // delete handler below; both 'idle' and 'discharging' indicate an active
-      // transaction (paused charge, V2G discharge) so deleting would orphan
-      // the session.
-      const activeStatuses = [
-        'occupied',
-        'charging',
-        'preparing',
-        'ev_connected',
-        'suspended_ev',
-        'suspended_evse',
-        'idle',
-        'discharging',
-      ];
+      // Reject if any connector is in use. Source list:
+      // CONNECTOR_IN_USE_STATUSES at top of file.
       const [inUse] = await db
         .select({ id: connectors.id })
         .from(connectors)
@@ -2121,7 +2129,7 @@ export function stationRoutes(app: FastifyInstance): void {
           and(
             eq(connectors.evseId, evse.id),
             sql`${connectors.status} IN (${sql.join(
-              activeStatuses.map((s) => sql`${s}`),
+              CONNECTOR_IN_USE_STATUSES.map((s) => sql`${s}`),
               sql`, `,
             )})`,
           ),
@@ -2193,18 +2201,8 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Reject if in use
-      const inUseStatuses = [
-        'occupied',
-        'charging',
-        'preparing',
-        'ev_connected',
-        'suspended_ev',
-        'suspended_evse',
-        'idle',
-        'discharging',
-      ];
-      if (inUseStatuses.includes(connector.status)) {
+      // Reject if in use. Source: CONNECTOR_IN_USE_STATUSES at top of file.
+      if ((CONNECTOR_IN_USE_STATUSES as readonly string[]).includes(connector.status)) {
         await reply.status(409).send({
           error: 'Cannot delete occupied connector',
           code: 'CONNECTOR_OCCUPIED',
@@ -3976,6 +3974,11 @@ export function stationRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof stationParams>;
+      const { userId } = request.user as JwtPayload;
+      if (!(await checkStationSiteAccess(id, userId))) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
 
       const [station] = await db
         .select({ onboardingStatus: chargingStations.onboardingStatus })

@@ -18,6 +18,7 @@ import {
   reservations,
   sites,
 } from '@evtivity/database';
+import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { getPubSub } from '../../lib/pubsub.js';
 import { successResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
@@ -443,15 +444,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         return;
       }
 
-      if (station.onboardingStatus !== 'accepted') {
-        const code = station.onboardingStatus === 'pending' ? 'STATION_PENDING' : 'STATION_BLOCKED';
-        const msg =
-          station.onboardingStatus === 'pending'
-            ? 'Station is pending approval'
-            : 'Station is blocked';
-        await reply.status(403).send({ error: msg, code });
-        return;
-      }
+      if (!(await checkStationOnboarded(station, reply))) return;
 
       if (!station.isOnline) {
         await reply.status(400).send({ error: 'Station is offline', code: 'STATION_OFFLINE' });
