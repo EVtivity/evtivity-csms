@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,6 +12,12 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { executeRecaptcha } from '@/lib/recaptcha';
+
+interface SecurityPublic {
+  recaptchaEnabled: boolean;
+  recaptchaSiteKey: string;
+}
 
 export function ForgotPassword(): React.JSX.Element {
   const { t } = useTranslation();
@@ -23,6 +30,11 @@ export function ForgotPassword(): React.JSX.Element {
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const { companyName, companyLogo } = useAuthBranding();
+
+  const { data: securityPublic } = useQuery({
+    queryKey: ['security-public'],
+    queryFn: () => api.get<SecurityPublic>('/v1/security/public'),
+  });
 
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
@@ -44,7 +56,11 @@ export function ForgotPassword(): React.JSX.Element {
     setError(null);
     setLoading(true);
     try {
-      await api.post('/v1/auth/forgot-password', { email });
+      let recaptchaToken: string | undefined;
+      if (securityPublic?.recaptchaEnabled && securityPublic.recaptchaSiteKey !== '') {
+        recaptchaToken = await executeRecaptcha(securityPublic.recaptchaSiteKey, 'login');
+      }
+      await api.post('/v1/auth/forgot-password', { email, recaptchaToken });
       setSent(true);
     } catch (err) {
       setError(getErrorMessage(err, t));

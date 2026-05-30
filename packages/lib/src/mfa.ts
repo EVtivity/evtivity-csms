@@ -17,6 +17,24 @@ export async function createMfaChallenge(
   const codeHash = crypto.createHash('sha256').update(code).digest('hex');
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
+  // Invalidate any prior unused challenges for the same principal so a
+  // resend leaves only the newest code valid. Without this an intercepted
+  // first code stays usable for its full 5-minute TTL even after the user
+  // requested a resend, narrowing the attacker's window only by their
+  // own request cadence.
+  if (opts.userId != null) {
+    await client`
+      UPDATE mfa_challenges SET used_at = NOW()
+      WHERE user_id = ${opts.userId} AND used_at IS NULL
+    `;
+  }
+  if (opts.driverId != null) {
+    await client`
+      UPDATE mfa_challenges SET used_at = NOW()
+      WHERE driver_id = ${opts.driverId} AND used_at IS NULL
+    `;
+  }
+
   const rows = await client`
     INSERT INTO mfa_challenges (user_id, driver_id, code_hash, method, expires_at)
     VALUES (${opts.userId ?? null}, ${opts.driverId ?? null}, ${codeHash}, ${opts.method}, ${expiresAt})

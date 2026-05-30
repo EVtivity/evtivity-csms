@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import type { JwtPayload } from '../plugins/auth.js';
 import crypto from 'node:crypto';
 import { resolve, dirname } from 'node:path';
@@ -38,7 +38,7 @@ import {
   recordNotificationAttempt,
 } from '@evtivity/lib';
 import QRCode from 'qrcode';
-import { setAuthCookies, clearAuthCookies } from '../lib/csms-cookies.js';
+import { setAuthCookies, clearAuthCookies, isSecureRequest } from '../lib/auth-cookies.js';
 import { checkRecaptcha } from '../lib/recaptcha-check.js';
 import {
   createRefreshToken,
@@ -173,6 +173,7 @@ const changePasswordBody = z.object({
 
 const forgotPasswordBody = z.object({
   email: z.string().email(),
+  recaptchaToken: z.string().optional().describe('reCAPTCHA v3 token'),
 });
 
 const resetPasswordWithTokenBody = z.object({
@@ -323,14 +324,6 @@ const roleItem = z
   .passthrough();
 
 export function userRoutes(app: FastifyInstance): void {
-  function isSecureRequest(request: FastifyRequest): boolean {
-    const proto = request.headers['x-forwarded-proto'];
-    if (typeof proto === 'string') {
-      return proto.split(',')[0]?.trim() === 'https';
-    }
-    return request.protocol === 'https';
-  }
-
   app.post(
     '/auth/login',
     {
@@ -428,7 +421,7 @@ export function userRoutes(app: FastifyInstance): void {
 
       const token = app.jwt.sign({ userId: user.id, roleId: user.roleId }, { expiresIn: '1h' });
       const refreshResult = await createRefreshToken({ userId: user.id });
-      setAuthCookies(reply, token, refreshResult.rawToken, isSecureRequest(request));
+      setAuthCookies('csms', reply, token, refreshResult.rawToken, isSecureRequest(request));
 
       await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
 
@@ -470,7 +463,7 @@ export function userRoutes(app: FastifyInstance): void {
       if ('userId' in jwtUser && typeof jwtUser['userId'] === 'string') {
         invalidatePermissionCache(jwtUser['userId']);
       }
-      clearAuthCookies(reply, isSecureRequest(request));
+      clearAuthCookies('csms', reply, isSecureRequest(request));
       return { success: true };
     },
   );
@@ -508,7 +501,7 @@ export function userRoutes(app: FastifyInstance): void {
 
       const result = await validateAndRotateRefreshToken(rawToken);
       if (result == null || result.userId == null) {
-        clearAuthCookies(reply, isSecureRequest(request));
+        clearAuthCookies('csms', reply, isSecureRequest(request));
         await reply
           .status(401)
           .send({ error: 'Invalid refresh token', code: 'INVALID_REFRESH_TOKEN' });
@@ -525,7 +518,7 @@ export function userRoutes(app: FastifyInstance): void {
         .where(eq(users.id, result.userId));
 
       if (!user || !user.isActive) {
-        clearAuthCookies(reply, isSecureRequest(request));
+        clearAuthCookies('csms', reply, isSecureRequest(request));
         await reply.status(401).send({ error: 'Account disabled', code: 'ACCOUNT_DISABLED' });
         return;
       }
@@ -535,7 +528,7 @@ export function userRoutes(app: FastifyInstance): void {
         { expiresIn: '1h' },
       );
       const newRefresh = await createRefreshToken({ userId: user.id });
-      setAuthCookies(reply, accessToken, newRefresh.rawToken, isSecureRequest(request));
+      setAuthCookies('csms', reply, accessToken, newRefresh.rawToken, isSecureRequest(request));
 
       return { success: true };
     },
@@ -550,7 +543,11 @@ export function userRoutes(app: FastifyInstance): void {
         operationId: 'forgotPassword',
         security: [],
         body: zodSchema(forgotPasswordBody),
-        response: { 200: successResponse },
+        response: {
+          200: successResponse,
+          400: errorWith('Bad request', [ERROR_CODES.RECAPTCHA_REQUIRED]),
+          403: errorWith('Forbidden', [ERROR_CODES.RECAPTCHA_FAILED]),
+        },
       },
       config: {
         rateLimit: {
@@ -559,8 +556,13 @@ export function userRoutes(app: FastifyInstance): void {
         },
       },
     },
-    async (request) => {
-      const { email } = request.body as z.infer<typeof forgotPasswordBody>;
+    async (request, reply) => {
+      const { email, recaptchaToken } = request.body as z.infer<typeof forgotPasswordBody>;
+
+      // Gate reset-link dispatch on reCAPTCHA so a bot cannot enumerate
+      // operator emails by triggering reset emails for any account.
+      const recaptchaOk = await checkRecaptcha(recaptchaToken, reply);
+      if (!recaptchaOk) return;
 
       const [user] = await db
         .select({
@@ -920,7 +922,7 @@ export function userRoutes(app: FastifyInstance): void {
 
       const token = app.jwt.sign({ userId: user.id, roleId: user.roleId }, { expiresIn: '1h' });
       const refreshResult = await createRefreshToken({ userId: user.id });
-      setAuthCookies(reply, token, refreshResult.rawToken, isSecureRequest(request));
+      setAuthCookies('csms', reply, token, refreshResult.rawToken, isSecureRequest(request));
 
       await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
 
@@ -1965,7 +1967,7 @@ export function userRoutes(app: FastifyInstance): void {
 
       const token = app.jwt.sign({ userId: user.id, roleId: user.roleId }, { expiresIn: '1h' });
       const refreshResult = await createRefreshToken({ userId: user.id });
-      setAuthCookies(reply, token, refreshResult.rawToken, isSecureRequest(request));
+      setAuthCookies('csms', reply, token, refreshResult.rawToken, isSecureRequest(request));
       await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
 
       return {
@@ -2148,7 +2150,7 @@ export function userRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(mfaSetupResponse),
           400: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
-          403: errorResponse,
+          403: errorWith('MFA method disabled', [ERROR_CODES.MFA_METHOD_DISABLED]),
           409: errorResponse,
         },
       },
@@ -2246,7 +2248,10 @@ export function userRoutes(app: FastifyInstance): void {
         body: zodSchema(mfaConfirmBody),
         response: {
           200: successResponse,
-          400: errorWith('Totp not configured', [ERROR_CODES.TOTP_NOT_CONFIGURED]),
+          400: errorWith('Bad request', [
+            ERROR_CODES.MFA_CODE_INVALID,
+            ERROR_CODES.TOTP_NOT_CONFIGURED,
+          ]),
           403: errorResponse,
         },
       },
@@ -2332,6 +2337,9 @@ export function userRoutes(app: FastifyInstance): void {
     '/users/me/mfa',
     {
       onRequest: [app.authenticate],
+      // Throttle so a stolen session cookie can't be used to brute-force the
+      // password (each request hits argon2.verify with the supplied value).
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
       schema: {
         tags: ['Users'],
         summary: 'Disable MFA',

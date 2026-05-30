@@ -93,6 +93,7 @@
     "portal.registrationEnabled": true,
 
     "audit.retentionDays": 1095,
+    "refreshTokens.retentionDays": 30,
 
     "logs.access.retentionDays": 30,
     "logs.ocppMessage.retentionDays": 30,

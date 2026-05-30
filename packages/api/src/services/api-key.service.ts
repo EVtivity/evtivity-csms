@@ -5,10 +5,7 @@ import crypto from 'node:crypto';
 import { db } from '@evtivity/database';
 import { refreshTokens } from '@evtivity/database';
 import { eq, and, isNull, desc } from 'drizzle-orm';
-
-function hashToken(raw: string): string {
-  return crypto.createHash('sha256').update(raw).digest('hex');
-}
+import { hashToken } from '../lib/token-hash.js';
 
 const API_KEY_BYTES = 32;
 

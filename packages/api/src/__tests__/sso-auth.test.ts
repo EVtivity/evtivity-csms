@@ -111,8 +111,9 @@ vi.mock('../services/refresh-token.service.js', () => ({
   createRefreshToken: mockCreateRefreshToken,
 }));
 
-vi.mock('../lib/csms-cookies.js', () => ({
+vi.mock('../lib/auth-cookies.js', () => ({
   setAuthCookies: mockSetAuthCookies,
+  isSecureRequest: () => false,
 }));
 
 import { registerAuth } from '../plugins/auth.js';

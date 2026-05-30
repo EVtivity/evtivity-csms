@@ -23,6 +23,8 @@ import { stationMessageChargingRefreshHandler } from './handlers/station-message
 import { paymentCaptureRetryHandler } from './handlers/payment-capture-retry.js';
 import { auditRetentionPruneHandler } from './handlers/audit-retention-prune.js';
 import { logRetentionPruneHandler } from './handlers/log-retention-prune.js';
+import { mfaChallengePruneHandler } from './handlers/mfa-challenge-prune.js';
+import { refreshTokenPruneHandler } from './handlers/refresh-token-prune.js';
 
 const log = createLogger('cron-worker');
 
@@ -46,6 +48,8 @@ const JOB_HANDLERS = new Map<string, JobHandlerFn>([
   ['payment-capture-retry', paymentCaptureRetryHandler],
   ['audit-retention-prune', auditRetentionPruneHandler],
   ['log-retention-prune', logRetentionPruneHandler],
+  ['mfa-challenge-prune', mfaChallengePruneHandler],
+  ['refresh-token-prune', refreshTokenPruneHandler],
 ]);
 
 export function createCronWorker(connection: ConnectionOptions): Worker {

@@ -358,6 +358,7 @@ export function portalDriverRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(mfaSetupResponse),
           400: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
+          403: errorWith('MFA method disabled', [ERROR_CODES.MFA_METHOD_DISABLED]),
           409: errorResponse,
         },
       },
@@ -365,6 +366,18 @@ export function portalDriverRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { driverId } = request.user as DriverJwtPayload;
       const { method } = request.body as z.infer<typeof mfaSetupBody>;
+
+      const mfaConfig = await getMfaConfig();
+      const methodEnabled =
+        (method === 'email' && mfaConfig.emailEnabled) ||
+        (method === 'totp' && mfaConfig.totpEnabled) ||
+        (method === 'sms' && mfaConfig.smsEnabled);
+      if (!methodEnabled) {
+        await reply
+          .status(403)
+          .send({ error: 'MFA method is disabled', code: 'MFA_METHOD_DISABLED' });
+        return;
+      }
 
       const [driver] = await db
         .select({
@@ -444,7 +457,10 @@ export function portalDriverRoutes(app: FastifyInstance): void {
         body: zodSchema(mfaConfirmBody),
         response: {
           200: successResponse,
-          400: errorWith('Totp not configured', [ERROR_CODES.TOTP_NOT_CONFIGURED]),
+          400: errorWith('Bad request', [
+            ERROR_CODES.MFA_CODE_INVALID,
+            ERROR_CODES.TOTP_NOT_CONFIGURED,
+          ]),
         },
       },
     },
@@ -463,8 +479,17 @@ export function portalDriverRoutes(app: FastifyInstance): void {
           return;
         }
         const encKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
-        const secret = decryptString(driver.totpSecretEnc, encKey);
-        verified = verifyTotpCode(secret, code);
+        try {
+          const secret = decryptString(driver.totpSecretEnc, encKey);
+          verified = verifyTotpCode(secret, code);
+        } catch (err: unknown) {
+          // Mirror the /portal/auth/mfa/verify path: a corrupted ciphertext
+          // or rotated SETTINGS_ENCRYPTION_KEY would otherwise surface as a
+          // raw 500. Return a clean 400 and log the root cause.
+          request.log.warn({ err, driverId }, 'TOTP secret decrypt failed');
+          await reply.status(400).send({ error: 'TOTP not set up', code: 'TOTP_NOT_CONFIGURED' });
+          return;
+        }
       } else if (challengeId != null) {
         verified = await verifyMfaChallenge(client, challengeId, code, { driverId });
       }
@@ -507,6 +532,10 @@ export function portalDriverRoutes(app: FastifyInstance): void {
           ]),
         },
       },
+      // Tight bucket so a stolen session token cannot brute-force the
+      // disable password by spamming this endpoint. Parity with the
+      // operator MFA DELETE which has the same 5/min cap.
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     },
     async (request, reply) => {
       const { driverId } = request.user as DriverJwtPayload;

@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import { registerAuth } from '../plugins/auth.js';
-import { clearAuthCookies } from '../lib/csms-cookies.js';
+import { clearAuthCookies } from '../lib/auth-cookies.js';
 
 function isSecureRequest(request: {
   headers: Record<string, string | string[] | undefined>;
@@ -23,7 +23,7 @@ describe('POST /v1/auth/logout', () => {
     await registerAuth(app);
 
     app.post('/v1/auth/logout', { onRequest: [app.authenticate] }, async (request, reply) => {
-      clearAuthCookies(reply, isSecureRequest(request));
+      clearAuthCookies('csms', reply, isSecureRequest(request));
       return { success: true };
     });
 

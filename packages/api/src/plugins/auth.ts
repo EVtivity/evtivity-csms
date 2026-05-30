@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import crypto from 'node:crypto';
 import jwt from '@fastify/jwt';
 import { db } from '@evtivity/database';
 import { refreshTokens, users, drivers, userPermissions } from '@evtivity/database';
@@ -10,6 +9,7 @@ import { eq, and, isNull } from 'drizzle-orm';
 import { config } from '../lib/config.js';
 import { isApiKeyRateLimited } from '../lib/rate-limiters.js';
 import { getPubSub } from '../lib/pubsub.js';
+import { hashToken } from '../lib/token-hash.js';
 
 export interface JwtPayload {
   userId: string;
@@ -154,7 +154,7 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
       if (authHeader != null) {
         const token = authHeader.replace(/^Bearer\s+/i, '');
         if (/^[0-9a-f]{64}$/i.test(token)) {
-          const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+          const tokenHash = hashToken(token);
           const [row] = await db
             .select({
               id: refreshTokens.id,

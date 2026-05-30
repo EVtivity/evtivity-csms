@@ -5,13 +5,10 @@ import crypto from 'node:crypto';
 import { db } from '@evtivity/database';
 import { refreshTokens } from '@evtivity/database';
 import { eq, and, isNull } from 'drizzle-orm';
+import { hashToken } from '../lib/token-hash.js';
 
 const REFRESH_TOKEN_BYTES = 32;
 const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-
-function hashToken(raw: string): string {
-  return crypto.createHash('sha256').update(raw).digest('hex');
-}
 
 export interface CreateRefreshTokenResult {
   rawToken: string;
@@ -43,17 +40,41 @@ export interface ValidateRefreshTokenResult {
   tokenId: number;
 }
 
+// Grace window for distinguishing legitimate concurrent rotation (two
+// browser tabs hitting /refresh simultaneously) from a theft replay
+// (attacker presenting a token that was rotated long ago). Within the
+// window, presenting a revoked token is silently 401'd; outside it, we
+// treat it as theft evidence and revoke every other session for the
+// affected principal so neither party stays logged in without re-auth.
+const ROTATION_GRACE_MS = 30 * 1000;
+
 export async function validateAndRotateRefreshToken(
   rawToken: string,
 ): Promise<ValidateRefreshTokenResult | null> {
   const tokenHash = hashToken(rawToken);
 
-  const [row] = await db
-    .select()
-    .from(refreshTokens)
-    .where(and(eq(refreshTokens.tokenHash, tokenHash), isNull(refreshTokens.revokedAt)));
+  const [row] = await db.select().from(refreshTokens).where(eq(refreshTokens.tokenHash, tokenHash));
 
   if (row == null) return null;
+
+  // OAuth 2.0 refresh-token-rotation theft detection: a revoked token
+  // presented after the grace window is strong evidence that someone
+  // replayed a stolen cookie. Revoke every active session refresh token
+  // for the principal so attacker and victim are both forced through
+  // re-auth; the legitimate owner can recover via password, the attacker
+  // cannot.
+  if (row.revokedAt != null) {
+    const ageMs = Date.now() - row.revokedAt.getTime();
+    if (ageMs > ROTATION_GRACE_MS) {
+      if (row.userId != null) {
+        await revokeAllUserSessions(row.userId);
+      }
+      if (row.driverId != null) {
+        await revokeAllDriverRefreshTokens(row.driverId);
+      }
+    }
+    return null;
+  }
 
   // Check expiry (null expiresAt = non-expiring)
   if (row.expiresAt != null && row.expiresAt < new Date()) {

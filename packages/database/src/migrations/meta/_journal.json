@@ -379,6 +379,20 @@
       "when": 1778700000035,
       "tag": "0053_station_image_audit_reordered",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1778700000036,
+      "tag": "0054_seed_mfa_challenge_prune_cron",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1778700000037,
+      "tag": "0055_seed_refresh_token_prune_cron",
+      "breakpoints": true
     }
   ]
 }

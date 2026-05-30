@@ -1,24 +1,17 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { SAML } from '@node-saml/node-saml';
 import { eq, ilike } from 'drizzle-orm';
 import { db, getSsoConfig, users, roles, writeAudit, userAuditLog } from '@evtivity/database';
 import { generateId } from '@evtivity/lib';
-import { setAuthCookies } from '../lib/csms-cookies.js';
+import { setAuthCookies, isSecureRequest } from '../lib/auth-cookies.js';
 import { createRefreshToken } from '../services/refresh-token.service.js';
 import { config as apiConfig } from '../lib/config.js';
 import { errorWith } from '../lib/response-schemas.js';
 
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
-function isSecureRequest(request: FastifyRequest): boolean {
-  const proto = request.headers['x-forwarded-proto'];
-  if (typeof proto === 'string') {
-    return proto.split(',')[0]?.trim() === 'https';
-  }
-  return request.protocol === 'https';
-}
 
 function getBaseUrl(): string {
   // Use the configured CSMS URL instead of trusting X-Forwarded-Host headers
@@ -141,7 +134,7 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
           { expiresIn: '1h' },
         );
         const refreshResult = await createRefreshToken({ userId: existingUser.id });
-        setAuthCookies(reply, token, refreshResult.rawToken, isSecureRequest(request));
+        setAuthCookies('csms', reply, token, refreshResult.rawToken, isSecureRequest(request));
 
         await db
           .update(users)
@@ -222,7 +215,7 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
         { expiresIn: '1h' },
       );
       const refreshResult = await createRefreshToken({ userId: newUserId });
-      setAuthCookies(reply, token, refreshResult.rawToken, isSecureRequest(request));
+      setAuthCookies('csms', reply, token, refreshResult.rawToken, isSecureRequest(request));
 
       await reply.redirect('/');
     },

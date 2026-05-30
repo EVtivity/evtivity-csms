@@ -1,8 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import crypto from 'node:crypto';
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, isNull, ilike } from 'drizzle-orm';
 import argon2 from 'argon2';
@@ -16,6 +15,7 @@ import {
   verifyMfaChallenge,
   verifyTotpCode,
 } from '@evtivity/lib';
+import { setAuthCookies, clearAuthCookies, isSecureRequest } from '../../lib/auth-cookies.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { generateUserToken, hashUserToken } from '../../lib/user-token.js';
 import { validatePasswordComplexity } from '../../lib/password-validation.js';
@@ -97,84 +97,6 @@ const driverSelect = {
   createdAt: drivers.createdAt,
 };
 
-const ACCESS_COOKIE_MAX_AGE = 60 * 60; // 1 hour in seconds
-const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60; // 7 days in seconds
-
-function isSecureRequest(request: FastifyRequest): boolean {
-  const proto = request.headers['x-forwarded-proto'];
-  if (typeof proto === 'string') {
-    return proto.split(',')[0]?.trim() === 'https';
-  }
-  return request.protocol === 'https';
-}
-
-function setAuthCookies(
-  reply: FastifyReply,
-  accessToken: string,
-  refreshToken: string,
-  secure: boolean,
-): void {
-  const csrfToken = crypto.randomBytes(32).toString('hex');
-  const domainOpts = apiConfig.COOKIE_DOMAIN != null ? { domain: apiConfig.COOKIE_DOMAIN } : {};
-
-  void reply.setCookie('portal_token', accessToken, {
-    httpOnly: true,
-    secure,
-    signed: true,
-    sameSite: 'lax',
-    path: '/v1/portal',
-    maxAge: ACCESS_COOKIE_MAX_AGE,
-    ...domainOpts,
-  });
-
-  void reply.setCookie('portal_refresh', refreshToken, {
-    httpOnly: true,
-    secure,
-    signed: true,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: REFRESH_COOKIE_MAX_AGE,
-    ...domainOpts,
-  });
-
-  void reply.setCookie('portal_csrf', csrfToken, {
-    httpOnly: false,
-    secure,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: ACCESS_COOKIE_MAX_AGE,
-    ...domainOpts,
-  });
-}
-
-function clearAuthCookies(reply: FastifyReply, secure: boolean): void {
-  const domainOpts = apiConfig.COOKIE_DOMAIN != null ? { domain: apiConfig.COOKIE_DOMAIN } : {};
-
-  void reply.clearCookie('portal_token', {
-    httpOnly: true,
-    secure,
-    sameSite: 'lax',
-    path: '/v1/portal',
-    ...domainOpts,
-  });
-
-  void reply.clearCookie('portal_refresh', {
-    httpOnly: true,
-    secure,
-    sameSite: 'lax',
-    path: '/',
-    ...domainOpts,
-  });
-
-  void reply.clearCookie('portal_csrf', {
-    httpOnly: false,
-    secure,
-    sameSite: 'lax',
-    path: '/',
-    ...domainOpts,
-  });
-}
-
 export function portalAuthRoutes(app: FastifyInstance): void {
   app.post(
     '/portal/auth/register',
@@ -237,17 +159,34 @@ export function portalAuthRoutes(app: FastifyInstance): void {
 
       const passwordHash = await argon2.hash(body.password);
 
-      const rows = await db
-        .insert(drivers)
-        .values({
-          firstName: body.firstName,
-          lastName: body.lastName,
-          email: body.email,
-          phone: body.phone,
-          passwordHash,
-          registrationSource: 'portal',
-        })
-        .returning(driverSelect);
+      let rows;
+      try {
+        rows = await db
+          .insert(drivers)
+          .values({
+            firstName: body.firstName,
+            lastName: body.lastName,
+            email: body.email,
+            phone: body.phone,
+            passwordHash,
+            registrationSource: 'portal',
+          })
+          .returning(driverSelect);
+      } catch (err) {
+        // The application-level ilike check above is non-transactional, so two
+        // concurrent registrations with the same email both reach this INSERT.
+        // The partial unique index on LOWER(email) (migration 0052) makes the
+        // loser 23505; map it back to 409 EMAIL_EXISTS instead of leaking 500.
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          (err as { code?: string }).code === '23505'
+        ) {
+          await reply.status(409).send({ error: 'Email already registered', code: 'EMAIL_EXISTS' });
+          return;
+        }
+        throw err;
+      }
 
       const driver = rows[0];
       if (driver == null) {
@@ -262,7 +201,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       );
       const refreshResult = await createRefreshToken({ driverId: driver.id });
 
-      setAuthCookies(reply, token, refreshResult.rawToken, isSecureRequest(request));
+      setAuthCookies('portal', reply, token, refreshResult.rawToken, isSecureRequest(request));
       await reply.status(201).send({ driver });
 
       // Generate email verification token
@@ -398,7 +337,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       );
       const refreshResult = await createRefreshToken({ driverId: driver.id });
 
-      setAuthCookies(reply, token, refreshResult.rawToken, isSecureRequest(request));
+      setAuthCookies('portal', reply, token, refreshResult.rawToken, isSecureRequest(request));
 
       return {
         driver: {
@@ -436,7 +375,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       if (rawRefreshToken) {
         await revokeRefreshToken(rawRefreshToken);
       }
-      clearAuthCookies(reply, isSecureRequest(request));
+      clearAuthCookies('portal', reply, isSecureRequest(request));
       await reply.status(204).send();
     },
   );
@@ -476,7 +415,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
 
       const result = await validateAndRotateRefreshToken(rawToken);
       if (result == null || result.driverId == null) {
-        clearAuthCookies(reply, isSecureRequest(request));
+        clearAuthCookies('portal', reply, isSecureRequest(request));
         await reply
           .status(401)
           .send({ error: 'Invalid refresh token', code: 'INVALID_REFRESH_TOKEN' });
@@ -489,7 +428,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         .where(eq(drivers.id, result.driverId));
 
       if (!driver || !driver.isActive) {
-        clearAuthCookies(reply, isSecureRequest(request));
+        clearAuthCookies('portal', reply, isSecureRequest(request));
         await reply.status(401).send({ error: 'Account disabled', code: 'ACCOUNT_DISABLED' });
         return;
       }
@@ -499,7 +438,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         { expiresIn: '1h' },
       );
       const newRefresh = await createRefreshToken({ driverId: driver.id });
-      setAuthCookies(reply, accessToken, newRefresh.rawToken, isSecureRequest(request));
+      setAuthCookies('portal', reply, accessToken, newRefresh.rawToken, isSecureRequest(request));
 
       return { success: true };
     },
@@ -653,7 +592,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       );
       const refreshResult = await createRefreshToken({ driverId: driver.id });
 
-      setAuthCookies(reply, token, refreshResult.rawToken, isSecureRequest(request));
+      setAuthCookies('portal', reply, token, refreshResult.rawToken, isSecureRequest(request));
 
       return {
         driver: {
@@ -756,6 +695,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
   // Forgot password
   const forgotPasswordBody = z.object({
     email: z.string().email(),
+    recaptchaToken: z.string().optional().describe('reCAPTCHA v3 token'),
   });
 
   app.post(
@@ -767,7 +707,11 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         operationId: 'portalForgotPassword',
         security: [],
         body: zodSchema(forgotPasswordBody),
-        response: { 200: successResponse },
+        response: {
+          200: successResponse,
+          400: errorWith('Bad request', [ERROR_CODES.RECAPTCHA_REQUIRED]),
+          403: errorWith('Forbidden', [ERROR_CODES.RECAPTCHA_FAILED]),
+        },
       },
       config: {
         rateLimit: {
@@ -776,8 +720,13 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         },
       },
     },
-    async (request) => {
-      const { email } = request.body as z.infer<typeof forgotPasswordBody>;
+    async (request, reply) => {
+      const { email, recaptchaToken } = request.body as z.infer<typeof forgotPasswordBody>;
+
+      // Gate reset-link dispatch on reCAPTCHA so a bot cannot enumerate
+      // driver emails by triggering reset emails for any account.
+      const recaptchaOk = await checkRecaptcha(recaptchaToken, reply);
+      if (!recaptchaOk) return;
 
       // Match register/login path: ilike so a driver who registered with
       // Jane@x.com can recover via jane@x.com.

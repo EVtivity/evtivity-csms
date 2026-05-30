@@ -504,6 +504,7 @@ async function seed(): Promise<void> {
     // off so the portal Register page returns 403 PORTAL_REGISTRATION_DISABLED.
     'portal.registrationEnabled': true,
     'audit.retentionDays': 1095,
+    'refreshTokens.retentionDays': 30,
     // Per-log retention. Worker prunes each table on the daily cron; set 0 to
     // disable an individual table. Defaults are tuned for fleet size of 200+
     // stations: high-volume tables (access, ocpp message, port status, worker
