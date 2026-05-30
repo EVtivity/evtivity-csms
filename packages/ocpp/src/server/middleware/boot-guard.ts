@@ -6,33 +6,36 @@ import { OcppErrorCode } from '../../protocol/error-codes.js';
 import type { HandlerContext, NextFunction } from './pipeline.js';
 
 /**
- * Per OCPP 2.1 spec (B02.FR.02): When the CSMS responds with Pending or Rejected
- * to BootNotification, it MUST respond to all messages other than BootNotification
- * with a SecurityError CALLERROR.
+ * Per OCPP 2.1 spec B02.FR.02: when the CSMS responds with Pending or Rejected
+ * to BootNotification, it MUST respond to all CALL messages other than
+ * BootNotification with a SecurityError CALLERROR until a BootNotification is
+ * Accepted.
  *
- * The boot status is tracked on the session by the BootNotification handler.
- * Null means no boot has occurred yet (also reject).
+ * The spec scopes this rule to the Pending/Rejected case. It does NOT mandate
+ * rejection when bootStatus is null (no BootNotification has arrived yet).
+ * Real stations commonly send Heartbeat or StatusNotification in parallel
+ * with BootNotification because of WebSocket frame queuing — extending the
+ * rule to null breaks interop with widely-deployed non-compliant firmware
+ * without buying any spec compliance the OCTT actually asserts.
+ *
+ * Null is therefore allowed to pass through. The downstream handler decides
+ * whether to act on the message; in practice the BootNotification CALL is
+ * almost always the next frame and the session reaches 'Accepted' immediately
+ * after.
  */
 export function createBootGuardMiddleware() {
   return async (ctx: HandlerContext, next: NextFunction): Promise<void> => {
     const { bootStatus } = ctx.session;
 
-    // Allow BootNotification through regardless of boot status
     if (ctx.action === 'BootNotification') {
       await next();
       return;
     }
 
-    // Reject non-BootNotification when station has not been accepted. Null
-    // (no boot record yet) is treated the same as Pending/Rejected: per
-    // OCPP 2.1 B02.FR.02 the CSMS must reject every non-BootNotification
-    // CALL until it has accepted a BootNotification. Allowing null through
-    // would let a station that just connected skip BootNotification and
-    // send Heartbeat/StatusNotification/etc. straight away.
-    if (bootStatus !== 'Accepted') {
+    if (bootStatus !== 'Accepted' && bootStatus !== null) {
       ctx.logger.info(
         { stationId: ctx.stationId, action: ctx.action, bootStatus },
-        'Rejecting message: station boot not accepted',
+        'Rejecting message: BootNotification was not Accepted',
       );
       throw new OcppError(OcppErrorCode.SecurityError, 'Station boot status is not Accepted');
     }

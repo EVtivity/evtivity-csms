@@ -70,8 +70,18 @@ export async function handleBootNotification(
           return { status: 'Pending', currentTime, interval };
         }
       }
-    } catch {
-      // DB error: fall through to Accepted
+    } catch (err: unknown) {
+      // DB unreachable at boot time: fail closed. We cannot tell whether the
+      // station is blocked / pending / accepted, so returning Accepted would
+      // let a station that was just blocked by an operator slip through. Per
+      // OCPP 1.6 section 4.2 the station retries after `interval` seconds on
+      // Pending, which is the right outcome here.
+      ctx.logger.warn(
+        { stationId: ctx.stationId, err: err instanceof Error ? err.message : String(err) },
+        'BootNotification: onboarding lookup failed, returning Pending to force station retry (1.6)',
+      );
+      ctx.session.bootStatus = 'Pending';
+      return { status: 'Pending', currentTime, interval };
     }
   }
 
