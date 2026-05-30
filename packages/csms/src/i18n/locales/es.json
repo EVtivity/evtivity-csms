@@ -77,7 +77,16 @@
     "loadError": "Error al cargar los datos. Intente de nuevo.",
     "moreFilters": "Mas filtros",
     "filters": "Filtros",
-    "clearAllFilters": "Borrar todo"
+    "clearAllFilters": "Borrar todo",
+    "filterByStatus": "Filtrar por estado",
+    "filterByMeasurand": "Filtrar por medida",
+    "filterBySeverity": "Filtrar por severidad",
+    "filterByEventCategory": "Filtrar por categoria de evento",
+    "filterByEventType": "Filtrar por tipo de evento",
+    "filterBySite": "Filtrar por sitio",
+    "filterByReportType": "Filtrar por tipo de informe",
+    "filterByStation": "Filtrar por estacion",
+    "filterByModule": "Filtrar por modulo"
   },
   "status": {
     "online": "En linea",

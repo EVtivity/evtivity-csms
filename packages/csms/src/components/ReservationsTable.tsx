@@ -92,9 +92,26 @@ export function ReservationsTable({
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle>{t('reservations.title')}</CardTitle>
-          <FilterPopover activeCount={statusFilter ? 1 : 0}>
+          <Select
+            aria-label={t('common.filterByStatus')}
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setPage(1);
+            }}
+            className="hidden h-9 sm:w-44 md:block"
+          >
+            <option value="">{t('reservations.allStatuses')}</option>
+            <option value="scheduled">{t('reservations.scheduled')}</option>
+            <option value="active">{t('reservations.active')}</option>
+            <option value="in_use">{t('reservations.in_use')}</option>
+            <option value="used">{t('reservations.used')}</option>
+            <option value="cancelled">{t('reservations.cancelled')}</option>
+            <option value="expired">{t('reservations.expired')}</option>
+          </Select>
+          <FilterPopover className="md:hidden" activeCount={statusFilter ? 1 : 0}>
             <Select
-              aria-label="Filter by status"
+              aria-label={t('common.filterByStatus')}
               value={statusFilter}
               onChange={(e) => {
                 setStatusFilter(e.target.value);

@@ -77,7 +77,16 @@
     "loadError": "Failed to load data. Please try again.",
     "moreFilters": "More Filters",
     "filters": "Filters",
-    "clearAllFilters": "Clear all"
+    "clearAllFilters": "Clear all",
+    "filterByStatus": "Filter by status",
+    "filterByMeasurand": "Filter by measurand",
+    "filterBySeverity": "Filter by severity",
+    "filterByEventCategory": "Filter by event category",
+    "filterByEventType": "Filter by event type",
+    "filterBySite": "Filter by site",
+    "filterByReportType": "Filter by report type",
+    "filterByStation": "Filter by station",
+    "filterByModule": "Filter by module"
   },
   "status": {
     "online": "Online",

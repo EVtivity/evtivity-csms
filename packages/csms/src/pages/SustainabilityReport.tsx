@@ -184,7 +184,7 @@ export function SustainabilityReport(): React.JSX.Element {
               max={today.toISOString().split('T')[0] ?? ''}
             />
             <Select
-              aria-label="Filter by site"
+              aria-label={t('common.filterBySite')}
               value={siteId}
               onChange={(e) => {
                 setSiteId(e.target.value);

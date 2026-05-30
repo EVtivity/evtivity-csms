@@ -77,7 +77,16 @@
     "loadError": "Daten konnten nicht geladen werden. Bitte versuchen Sie es erneut.",
     "moreFilters": "Weitere Filter",
     "filters": "Filter",
-    "clearAllFilters": "Alle löschen"
+    "clearAllFilters": "Alle löschen",
+    "filterByStatus": "Nach Status filtern",
+    "filterByMeasurand": "Nach Messgröße filtern",
+    "filterBySeverity": "Nach Schweregrad filtern",
+    "filterByEventCategory": "Nach Ereigniskategorie filtern",
+    "filterByEventType": "Nach Ereignistyp filtern",
+    "filterBySite": "Nach Standort filtern",
+    "filterByReportType": "Nach Berichtstyp filtern",
+    "filterByStation": "Nach Station filtern",
+    "filterByModule": "Nach Modul filtern"
   },
   "status": {
     "online": "Online",

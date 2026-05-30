@@ -67,9 +67,25 @@ function SecurityEventsPanel({ stationId, timezone }: Props): React.JSX.Element 
       <CardHeader>
         <div className="flex flex-row items-center justify-between gap-2">
           <CardTitle>{t('stations.securityEvents')}</CardTitle>
-          <FilterPopover activeCount={severity ? 1 : 0}>
+          <Select
+            aria-label={t('common.filterBySeverity')}
+            value={severity}
+            onChange={(e) => {
+              setSeverity(e.target.value);
+              setPage(1);
+            }}
+            className="hidden h-9 w-auto md:block"
+          >
+            <option value="">{t('common.all')}</option>
+            <option value="critical">{t('severity.critical')}</option>
+            <option value="high">{t('severity.high')}</option>
+            <option value="medium">{t('severity.medium')}</option>
+            <option value="low">{t('severity.low')}</option>
+            <option value="info">{t('severity.info')}</option>
+          </Select>
+          <FilterPopover className="md:hidden" activeCount={severity ? 1 : 0}>
             <Select
-              aria-label="Filter by severity"
+              aria-label={t('common.filterBySeverity')}
               value={severity}
               onChange={(e) => {
                 setSeverity(e.target.value);

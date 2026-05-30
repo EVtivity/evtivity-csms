@@ -91,9 +91,24 @@ export function CsrRequestsTab(): React.JSX.Element {
           <CardHeader>
             <div className="flex flex-row items-center justify-between gap-2">
               <CardTitle>{t('pnc.csrRequests')}</CardTitle>
-              <FilterPopover activeCount={csrStatusFilter ? 1 : 0}>
+              <Select
+                aria-label={t('common.filterByStatus')}
+                value={csrStatusFilter}
+                onChange={(e) => {
+                  setCsrStatusFilter(e.target.value);
+                }}
+                className="hidden h-9 w-32 md:block"
+              >
+                <option value="">{t('common.all')}</option>
+                <option value="pending">{t('pnc.pending')}</option>
+                <option value="submitted">{t('pnc.submitted')}</option>
+                <option value="signed">{t('pnc.signed')}</option>
+                <option value="rejected">{t('pnc.rejected')}</option>
+                <option value="expired">{t('pnc.expired')}</option>
+              </Select>
+              <FilterPopover className="md:hidden" activeCount={csrStatusFilter ? 1 : 0}>
                 <Select
-                  aria-label="Filter by status"
+                  aria-label={t('common.filterByStatus')}
                   value={csrStatusFilter}
                   onChange={(e) => {
                     setCsrStatusFilter(e.target.value);

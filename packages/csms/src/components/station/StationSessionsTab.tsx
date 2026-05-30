@@ -44,9 +44,24 @@ export function StationSessionsTab({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <CardTitle>{t('sessions.title')}</CardTitle>
-        <FilterPopover activeCount={sessionsStatus ? 1 : 0}>
+        <Select
+          aria-label={t('common.filterByStatus')}
+          value={sessionsStatus}
+          onChange={(e) => {
+            setSessionsStatus(e.target.value);
+            setSessionsPage(1);
+          }}
+          className="hidden h-9 sm:w-44 md:block"
+        >
+          <option value="">{t('sessions.allStatuses')}</option>
+          <option value="active">{t('status.active')}</option>
+          <option value="idling">{t('status.idle')}</option>
+          <option value="completed">{t('status.completed')}</option>
+          <option value="faulted">{t('status.faulted')}</option>
+        </Select>
+        <FilterPopover className="md:hidden" activeCount={sessionsStatus ? 1 : 0}>
           <Select
-            aria-label="Filter by status"
+            aria-label={t('common.filterByStatus')}
             value={sessionsStatus}
             onChange={(e) => {
               setSessionsStatus(e.target.value);

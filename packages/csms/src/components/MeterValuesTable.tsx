@@ -78,9 +78,25 @@ export function MeterValuesTable({
             <CardTitle>{t('sessions.meterValuesTab')}</CardTitle>
             <p className="text-sm text-muted-foreground">{description}</p>
           </div>
-          <FilterPopover activeCount={measurandFilter ? 1 : 0}>
+          <Select
+            aria-label={t('common.filterByMeasurand')}
+            value={measurandFilter}
+            onChange={(e) => {
+              setMeasurandFilter(e.target.value);
+              setPage(1);
+            }}
+            className="hidden h-9 w-64 md:block"
+          >
+            <option value="">{t('sessions.meterValueFilterMeasurand')}</option>
+            {COMMON_MEASURANDS.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </Select>
+          <FilterPopover className="md:hidden" activeCount={measurandFilter ? 1 : 0}>
             <Select
-              aria-label="Filter by measurand"
+              aria-label={t('common.filterByMeasurand')}
               value={measurandFilter}
               onChange={(e) => {
                 setMeasurandFilter(e.target.value);

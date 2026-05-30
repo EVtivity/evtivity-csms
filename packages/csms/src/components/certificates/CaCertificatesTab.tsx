@@ -128,7 +128,21 @@ export function CaCertificatesTab(): React.JSX.Element {
                   <Upload className="h-4 w-4" />
                   {t('pnc.uploadCaCert')}
                 </Button>
+                <Select
+                  aria-label={t('common.status')}
+                  value={caStatusFilter}
+                  onChange={(e) => {
+                    setCaStatusFilter(e.target.value);
+                  }}
+                  className="hidden h-9 w-auto md:block"
+                >
+                  <option value="">{t('common.all')}</option>
+                  <option value="active">{t('pnc.active')}</option>
+                  <option value="expired">{t('pnc.expired')}</option>
+                  <option value="revoked">{t('pnc.revoked')}</option>
+                </Select>
                 <FilterPopover
+                  className="md:hidden"
                   activeCount={caStatusFilter ? 1 : 0}
                   onClearAll={() => {
                     setCaStatusFilter('');

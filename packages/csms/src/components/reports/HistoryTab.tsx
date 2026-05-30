@@ -106,9 +106,25 @@ export function HistoryTab(): React.JSX.Element {
     <Card>
       <CardContent className="pt-6 space-y-4">
         <div className="flex justify-end">
-          <FilterPopover activeCount={typeFilter ? 1 : 0}>
+          <Select
+            aria-label={t('common.filterByReportType')}
+            className="hidden h-9 w-auto md:block"
+            value={typeFilter}
+            onChange={(e) => {
+              setTypeFilter(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">{t('common.all')}</option>
+            {REPORT_TYPES.map((rt) => (
+              <option key={rt} value={rt}>
+                {t(`reports.types.${rt}`, rt)}
+              </option>
+            ))}
+          </Select>
+          <FilterPopover className="md:hidden" activeCount={typeFilter ? 1 : 0}>
             <Select
-              aria-label="Filter by report type"
+              aria-label={t('common.filterByReportType')}
               className="h-9"
               value={typeFilter}
               onChange={(e) => {

@@ -77,7 +77,16 @@
     "loadError": "数据加载失败，请重试。",
     "moreFilters": "更多筛选",
     "filters": "筛选",
-    "clearAllFilters": "清除全部"
+    "clearAllFilters": "清除全部",
+    "filterByStatus": "按状态筛选",
+    "filterByMeasurand": "按测量值筛选",
+    "filterBySeverity": "按严重程度筛选",
+    "filterByEventCategory": "按事件类别筛选",
+    "filterByEventType": "按事件类型筛选",
+    "filterBySite": "按站点筛选",
+    "filterByReportType": "按报告类型筛选",
+    "filterByStation": "按充电站筛选",
+    "filterByModule": "按模块筛选"
   },
   "status": {
     "online": "在线",

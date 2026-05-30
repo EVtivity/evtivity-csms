@@ -68,9 +68,22 @@ export function StationCertificatesTab(): React.JSX.Element {
         <CardHeader>
           <div className="flex flex-row items-center justify-between gap-2">
             <CardTitle>{t('pnc.stationCertificates')}</CardTitle>
-            <FilterPopover activeCount={stationCertStatusFilter ? 1 : 0}>
+            <Select
+              aria-label={t('common.filterByStatus')}
+              value={stationCertStatusFilter}
+              onChange={(e) => {
+                setStationCertStatusFilter(e.target.value);
+              }}
+              className="hidden h-9 w-32 md:block"
+            >
+              <option value="">{t('common.all')}</option>
+              <option value="active">{t('pnc.active')}</option>
+              <option value="expired">{t('pnc.expired')}</option>
+              <option value="revoked">{t('pnc.revoked')}</option>
+            </Select>
+            <FilterPopover className="md:hidden" activeCount={stationCertStatusFilter ? 1 : 0}>
               <Select
-                aria-label="Filter by status"
+                aria-label={t('common.filterByStatus')}
                 value={stationCertStatusFilter}
                 onChange={(e) => {
                   setStationCertStatusFilter(e.target.value);

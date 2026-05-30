@@ -180,9 +180,24 @@ export function SustainabilityTab(): React.JSX.Element {
             <Download className="h-4 w-4" />
             {t('sustainability.exportCsv')}
           </Button>
-          <FilterPopover activeCount={siteId ? 1 : 0}>
+          <Select
+            aria-label={t('common.filterBySite')}
+            value={siteId}
+            onChange={(e) => {
+              setSiteId(e.target.value);
+            }}
+            className="hidden h-9 w-auto md:block"
+          >
+            <option value="">{t('sessions.allSites')}</option>
+            {sitesData?.data.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </Select>
+          <FilterPopover className="md:hidden" activeCount={siteId ? 1 : 0}>
             <Select
-              aria-label="Filter by site"
+              aria-label={t('common.filterBySite')}
               value={siteId}
               onChange={(e) => {
                 setSiteId(e.target.value);

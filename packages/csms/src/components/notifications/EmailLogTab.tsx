@@ -65,16 +65,59 @@ export function EmailLogTab(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         <SearchInput
-          className="flex-1"
+          className="flex-1 md:max-w-xs"
           value={search}
           onDebouncedChange={setSearch}
           placeholder={t('logs.searchPlaceholder')}
         />
-        <FilterPopover activeCount={activeFilterCount}>
+        <Select
+          aria-label={t('common.filterByEventCategory')}
+          value={eventCategory}
+          onChange={(e) => {
+            setEventCategory(e.target.value);
+            setEventType('');
+          }}
+          className="hidden h-9 w-auto md:block"
+        >
+          <option value="">{t('notifications.allCategories')}</option>
+          <option value="driver">{t('notifications.driverEvents')}</option>
+          <option value="system">{t('notifications.systemEvents')}</option>
+          <option value="ocpp">{t('notifications.ocppEvents')}</option>
+        </Select>
+        {eventCategory && (
           <Select
-            aria-label="Filter by event category"
+            aria-label={t('common.filterByEventType')}
+            value={eventType}
+            onChange={(e) => {
+              setEventType(e.target.value);
+            }}
+            className="hidden h-9 w-auto md:block"
+          >
+            <option value="">{t('notifications.allEvents')}</option>
+            {eventNames.map((et) => (
+              <option key={et} value={et}>
+                {et}
+              </option>
+            ))}
+          </Select>
+        )}
+        <Select
+          aria-label={t('common.filterByStatus')}
+          value={statusFilter}
+          onChange={(e) => {
+            setStatusFilter(e.target.value);
+          }}
+          className="hidden h-9 w-auto md:block"
+        >
+          <option value="">{t('notifications.allStatuses')}</option>
+          <option value="sent">Sent</option>
+          <option value="failed">Failed</option>
+        </Select>
+        <FilterPopover className="md:hidden" activeCount={activeFilterCount}>
+          <Select
+            aria-label={t('common.filterByEventCategory')}
             value={eventCategory}
             onChange={(e) => {
               setEventCategory(e.target.value);
@@ -89,7 +132,7 @@ export function EmailLogTab(): React.JSX.Element {
           </Select>
           {eventCategory && (
             <Select
-              aria-label="Filter by event type"
+              aria-label={t('common.filterByEventType')}
               value={eventType}
               onChange={(e) => {
                 setEventType(e.target.value);
@@ -105,7 +148,7 @@ export function EmailLogTab(): React.JSX.Element {
             </Select>
           )}
           <Select
-            aria-label="Filter by status"
+            aria-label={t('common.filterByStatus')}
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value);

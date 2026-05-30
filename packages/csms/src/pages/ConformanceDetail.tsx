@@ -277,7 +277,39 @@ export function ConformanceDetail(): React.JSX.Element {
             <CardHeader>
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4">
                 <CardTitle className="text-lg">{t('conformance.testResults')}</CardTitle>
+                <div className="hidden md:flex md:flex-wrap md:items-center md:gap-2">
+                  <Select
+                    aria-label={t('common.filterByModule')}
+                    className="h-9 w-[180px]"
+                    value={moduleFilter}
+                    onChange={(e) => {
+                      setModuleFilter(e.target.value);
+                    }}
+                  >
+                    <option value="all">{t('conformance.allModules')}</option>
+                    {modules.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </Select>
+                  <Select
+                    aria-label={t('common.filterByStatus')}
+                    className="h-9 w-[140px]"
+                    value={statusFilter}
+                    onChange={(e) => {
+                      setStatusFilter(e.target.value);
+                    }}
+                  >
+                    <option value="all">{t('conformance.allStatuses')}</option>
+                    <option value="passed">{t('conformance.passed')}</option>
+                    <option value="failed">{t('conformance.failed')}</option>
+                    <option value="skipped">{t('conformance.skipped')}</option>
+                    <option value="error">{t('conformance.errors')}</option>
+                  </Select>
+                </div>
                 <FilterPopover
+                  className="md:hidden"
                   activeCount={
                     [
                       moduleFilter !== 'all' ? moduleFilter : '',
@@ -286,7 +318,7 @@ export function ConformanceDetail(): React.JSX.Element {
                   }
                 >
                   <Select
-                    aria-label="Filter by module"
+                    aria-label={t('common.filterByModule')}
                     className="w-[180px]"
                     value={moduleFilter}
                     onChange={(e) => {
@@ -301,7 +333,7 @@ export function ConformanceDetail(): React.JSX.Element {
                     ))}
                   </Select>
                   <Select
-                    aria-label="Filter by status"
+                    aria-label={t('common.filterByStatus')}
                     className="w-[140px]"
                     value={statusFilter}
                     onChange={(e) => {

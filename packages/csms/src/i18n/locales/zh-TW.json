@@ -77,7 +77,16 @@
     "loadError": "資料載入失敗，請重試。",
     "moreFilters": "更多篩選",
     "filters": "篩選",
-    "clearAllFilters": "清除全部"
+    "clearAllFilters": "清除全部",
+    "filterByStatus": "按狀態篩選",
+    "filterByMeasurand": "按測量值篩選",
+    "filterBySeverity": "按嚴重程度篩選",
+    "filterByEventCategory": "按事件類別篩選",
+    "filterByEventType": "按事件類型篩選",
+    "filterBySite": "按站點篩選",
+    "filterByReportType": "按報告類型篩選",
+    "filterByStation": "按充電站篩選",
+    "filterByModule": "按模組篩選"
   },
   "status": {
     "online": "線上",

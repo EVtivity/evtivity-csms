@@ -237,11 +237,9 @@ export function SiteDetail(): React.JSX.Element {
           <Card>
             <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <CardTitle>{t('sessions.title')}</CardTitle>
-              <FilterPopover
-                activeCount={[sessionsStationId, sessionsStatus].filter(Boolean).length}
-              >
+              <div className="hidden md:flex md:flex-wrap md:items-center md:gap-2">
                 <Select
-                  aria-label="Filter by station"
+                  aria-label={t('common.filterByStation')}
                   value={sessionsStationId}
                   onChange={(e) => {
                     setSessionsStationId(e.target.value);
@@ -257,7 +255,43 @@ export function SiteDetail(): React.JSX.Element {
                   ))}
                 </Select>
                 <Select
-                  aria-label="Filter by status"
+                  aria-label={t('common.filterByStatus')}
+                  value={sessionsStatus}
+                  onChange={(e) => {
+                    setSessionsStatus(e.target.value);
+                    setSessionsPage(1);
+                  }}
+                  className="h-9 sm:w-44"
+                >
+                  <option value="">{t('sessions.allStatuses')}</option>
+                  <option value="active">{t('status.active')}</option>
+                  <option value="idling">{t('status.idle')}</option>
+                  <option value="completed">{t('status.completed')}</option>
+                  <option value="faulted">{t('status.faulted')}</option>
+                </Select>
+              </div>
+              <FilterPopover
+                className="md:hidden"
+                activeCount={[sessionsStationId, sessionsStatus].filter(Boolean).length}
+              >
+                <Select
+                  aria-label={t('common.filterByStation')}
+                  value={sessionsStationId}
+                  onChange={(e) => {
+                    setSessionsStationId(e.target.value);
+                    setSessionsPage(1);
+                  }}
+                  className="h-9 sm:w-44"
+                >
+                  <option value="">{t('sessions.allStations')}</option>
+                  {siteStationsForFilter?.data.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.stationId}
+                    </option>
+                  ))}
+                </Select>
+                <Select
+                  aria-label={t('common.filterByStatus')}
                   value={sessionsStatus}
                   onChange={(e) => {
                     setSessionsStatus(e.target.value);
