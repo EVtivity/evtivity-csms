@@ -487,7 +487,7 @@ describe('NotifyReport handler', () => {
 });
 
 describe('NotifySettlement handler', () => {
-  it('publishes event and returns Accepted', async () => {
+  it('publishes event and returns empty response (no receipt URL fabricated)', async () => {
     const { handleNotifySettlement } =
       await import('../handlers/v2_1/notify-settlement.handler.js');
     const { ctx, publishMock } = makeCtx('NotifySettlement', {
@@ -496,7 +496,7 @@ describe('NotifySettlement handler', () => {
       transactionId: 'tx-1',
     });
     const response = await handleNotifySettlement(ctx);
-    expect(response).toEqual({ receiptUrl: expect.stringContaining('tx-1') });
+    expect(response).toEqual({});
     expect(publishMock).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: 'ocpp.NotifySettlement' }),
     );

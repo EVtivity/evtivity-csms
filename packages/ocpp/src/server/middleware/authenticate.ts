@@ -229,7 +229,24 @@ export async function authenticateConnection(
 
   const decoded = Buffer.from(authHeader.slice(6), 'base64').toString('utf-8');
   const colonIndex = decoded.indexOf(':');
+  const username = colonIndex >= 0 ? decoded.slice(0, colonIndex) : decoded;
   const password = colonIndex >= 0 ? decoded.slice(colonIndex + 1) : '';
+
+  // OCPP 1.6 §4.7 and OCPP 2.1 SP1/SP2 require the Basic auth username to
+  // equal the ChargingStationId from the URL path. Without this check, a
+  // station presenting valid credentials for station A could connect to
+  // station B's URL and inherit B's identity for the session.
+  if (username !== stationId) {
+    await logAuthEvent(sql, station.id, 'auth_failed', remoteAddress, {
+      reason: 'Username does not equal ChargingStationId',
+    });
+    return {
+      authenticated: false,
+      stationId,
+      stationDbId: station.id,
+      error: 'Username must equal the ChargingStationId',
+    };
+  }
 
   if (station.basic_auth_password_hash == null) {
     await logAuthEvent(sql, station.id, 'auth_failed', remoteAddress, {

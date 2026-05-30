@@ -81,7 +81,7 @@ export function OcppLogTable({
           <CardTitle>{title}</CardTitle>
           {showFilter && (
             <div className="flex items-center gap-2">
-              <Label htmlFor="ocpp-action-filter" className="text-sm font-normal">
+              <Label htmlFor="ocpp-action-filter" className="text-sm font-normal whitespace-nowrap">
                 {t('ocppLogs.filterAction')}
               </Label>
               <Select

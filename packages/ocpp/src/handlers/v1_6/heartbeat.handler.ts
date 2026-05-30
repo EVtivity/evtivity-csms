@@ -12,7 +12,7 @@ export async function handleHeartbeat(ctx: HandlerContext): Promise<Record<strin
     eventType: 'ocpp.Heartbeat',
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
-    payload: { stationId: ctx.stationId },
+    payload: { stationId: ctx.stationId, stationDbId: ctx.stationDbId },
   });
 
   return { currentTime: new Date().toISOString() };

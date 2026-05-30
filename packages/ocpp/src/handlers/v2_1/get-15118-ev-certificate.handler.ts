@@ -45,16 +45,17 @@ export async function handleGet15118EVCertificate(
     if (result.status === 'Accepted' && result.exiResponse !== '') {
       return { status: result.status, exiResponse: result.exiResponse };
     }
-    // Provider returned Failed or empty response; fall through to placeholder
+    ctx.logger.warn(
+      { stationId: ctx.stationId, providerStatus: result.status },
+      'Get15118EVCertificate: provider returned no usable response',
+    );
   } catch (err) {
     ctx.logger.error({ err, stationId: ctx.stationId }, 'Contract certificate retrieval failed');
   }
 
-  // Return Accepted with a placeholder EXI response when no provider can fulfill the request.
-  // This allows the protocol flow to complete in test/demo environments.
-  ctx.logger.info(
-    { stationId: ctx.stationId },
-    'Returning placeholder EXI response for Get15118EVCertificate',
-  );
-  return { status: 'Accepted', exiResponse: 'RVhJX1BMQUNFSE9MREVS' };
+  // No provider could fulfill the request. Per OCPP 2.1 Part 2 M01 the CSMS
+  // returns Failed with an empty exiResponse so the EV's ISO 15118 stack
+  // aborts the contract authentication cleanly instead of trying to verify a
+  // fabricated EXI payload.
+  return { status: 'Failed', exiResponse: '' };
 }

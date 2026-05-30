@@ -114,31 +114,50 @@ function mapSendLocalList16(payload: Record<string, unknown>): Record<string, un
 
 function mapGetVariables16(payload: Record<string, unknown>): Record<string, unknown> {
   const variables = payload.getVariableData as Record<string, unknown>[] | undefined;
-  if (variables != null && variables.length > 0) {
-    const first = variables[0];
-    if (first == null) return {};
-    const component = first.component as Record<string, unknown> | undefined;
-    const variable = first.variable as Record<string, unknown> | undefined;
-    return {
-      key: [component?.name ?? variable?.name].filter(Boolean),
-    };
+  if (variables == null || variables.length === 0) return {};
+  // OCPP 1.6 GetConfiguration accepts a `key` array but the response is a
+  // single map; mapping multiple 2.1 variables onto one 1.6 call would lose
+  // the per-variable status the 2.1 schema returns. Force callers to loop
+  // explicitly for 1.6 stations (config-push already does this) instead of
+  // silently dropping all but the first variable.
+  if (variables.length > 1) {
+    throw new Error(
+      `GetVariables to an OCPP 1.6 station must contain at most one variable per call; ` +
+        `received ${String(variables.length)}. The caller must split the request and send one ` +
+        `ChangeConfiguration / GetConfiguration per variable.`,
+    );
   }
-  return {};
+  const first = variables[0];
+  if (first == null) return {};
+  const component = first.component as Record<string, unknown> | undefined;
+  const variable = first.variable as Record<string, unknown> | undefined;
+  return {
+    key: [component?.name ?? variable?.name].filter(Boolean),
+  };
 }
 
 function mapSetVariables16(payload: Record<string, unknown>): Record<string, unknown> {
   const variables = payload.setVariableData as Record<string, unknown>[] | undefined;
-  if (variables != null && variables.length > 0) {
-    const first = variables[0];
-    if (first == null) return {};
-    const component = first.component as Record<string, unknown> | undefined;
-    const variable = first.variable as Record<string, unknown> | undefined;
-    return {
-      key: component?.name ?? variable?.name,
-      value: first.attributeValue,
-    };
+  if (variables == null || variables.length === 0) return {};
+  // OCPP 1.6 ChangeConfiguration accepts a single `key`/`value` pair. Mapping
+  // multiple 2.1 setVariableData entries onto one 1.6 call would silently
+  // apply only the first and drop the rest. Throwing here surfaces the
+  // mismatch so callers can loop.
+  if (variables.length > 1) {
+    throw new Error(
+      `SetVariables to an OCPP 1.6 station must contain at most one variable per call; ` +
+        `received ${String(variables.length)}. The caller must split the request and send one ` +
+        `ChangeConfiguration per variable.`,
+    );
   }
-  return {};
+  const first = variables[0];
+  if (first == null) return {};
+  const component = first.component as Record<string, unknown> | undefined;
+  const variable = first.variable as Record<string, unknown> | undefined;
+  return {
+    key: component?.name ?? variable?.name,
+    value: first.attributeValue,
+  };
 }
 
 function mapUpdateFirmware16(payload: Record<string, unknown>): Record<string, unknown> {

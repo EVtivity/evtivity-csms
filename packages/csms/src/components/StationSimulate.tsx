@@ -226,7 +226,9 @@ export function StationSimulate({
           </div>
           <div className="grid gap-2">
             <div className="flex items-center justify-between gap-2">
-              <Label htmlFor="sim-token">{t('simulate.idToken')}</Label>
+              <Label htmlFor="sim-token" className="whitespace-nowrap">
+                {t('simulate.idToken')}
+              </Label>
               <span className="text-xs text-muted-foreground">{t('simulate.tokenUsedBy')}</span>
             </div>
             <ClearableInput

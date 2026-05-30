@@ -348,8 +348,8 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
               </div>
 
               <div className="grid gap-2">
-                <div className="flex items-center justify-between">
-                  <Label>{t('configTemplates.variables')}</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="whitespace-nowrap">{t('configTemplates.variables')}</Label>
                   <Button
                     type="button"
                     variant="outline"

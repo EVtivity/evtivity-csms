@@ -37,9 +37,12 @@ export async function handleNotifySettlement(
     },
   });
 
-  // Per OCPP 2.1, NotifySettlementResponse should include a receiptUrl
-  // where the driver can view or download a payment receipt.
-  const receiptUrl = `https://receipts.evtivity.com/transactions/${request.transactionId}`;
-
-  return { receiptUrl };
+  // OCPP 2.1 NotifySettlementResponse.receiptUrl is optional. It is only
+  // useful when the CSMS actually generates a receipt page that the station
+  // can QR-encode for the driver. Returning a fabricated URL (e.g. a
+  // hardcoded operator-specific domain that does not host a receipt page)
+  // would make every station show drivers a broken link. Omit the field
+  // until per-operator receipt generation is implemented and surfaced via
+  // a configurable receiptUrlTemplate setting.
+  return {};
 }

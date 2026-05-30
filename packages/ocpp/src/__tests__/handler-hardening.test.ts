@@ -199,7 +199,7 @@ describe('BootNotification 1.6 - hardened', () => {
     expect(response).toHaveProperty('status', 'Accepted');
   });
 
-  it('accepts station when availability check fails (DB error)', async () => {
+  it('returns Pending when the onboarding lookup fails (fail-closed on DB error)', async () => {
     mockGetHeartbeatInterval.mockResolvedValueOnce(300);
     mockWhere.mockRejectedValueOnce(new Error('DB unavailable'));
 
@@ -210,7 +210,8 @@ describe('BootNotification 1.6 - hardened', () => {
     );
     const response = await handleBootNotification(ctx);
 
-    expect(response).toHaveProperty('status', 'Accepted');
+    expect(response).toHaveProperty('status', 'Pending');
+    expect(ctx.session.bootStatus).toBe('Pending');
   });
 
   it('skips availability check when stationDbId is null', async () => {

@@ -20,6 +20,7 @@ export async function handleDiagnosticsStatusNotification(
     aggregateId: ctx.stationId,
     payload: {
       stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       status: request.status,
     },
   });

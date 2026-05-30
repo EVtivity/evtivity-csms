@@ -1277,8 +1277,8 @@ export function StationCommands({
           {advancedAction !== '' && (
             <>
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>{t('commands.payloadJson')}</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="whitespace-nowrap">{t('commands.payloadJson')}</Label>
                   {!schemaLoading && !schemaError && (
                     <button
                       type="button"
@@ -1369,7 +1369,7 @@ export function StationCommands({
               {result != null && (
                 <div className="mt-4">
                   <div className="flex items-center gap-2">
-                    <Label className="m-0">{t('commands.response')}</Label>
+                    <Label className="m-0 whitespace-nowrap">{t('commands.response')}</Label>
                     {result.status === 'queued' && (
                       <Badge variant="warning">{t('commands.queued')}</Badge>
                     )}
@@ -1427,7 +1427,7 @@ export function StationCommands({
               {advancedResult != null && (
                 <div>
                   <div className="flex items-center gap-2">
-                    <Label className="m-0">{t('commands.response')}</Label>
+                    <Label className="m-0 whitespace-nowrap">{t('commands.response')}</Label>
                     {advancedResult.status === 'queued' && (
                       <Badge variant="warning">{t('commands.queued')}</Badge>
                     )}

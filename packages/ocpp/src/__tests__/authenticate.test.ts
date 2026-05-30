@@ -211,7 +211,7 @@ describe('authenticateConnection', () => {
         onboarding_status: 'accepted',
       },
     ]);
-    const authHeader = 'Basic ' + Buffer.from('station:wrongpass').toString('base64');
+    const authHeader = 'Basic ' + Buffer.from('SP1-STATION:wrongpass').toString('base64');
     const req = createMockRequest('/SP1-STATION', authHeader);
     const result = await authenticateConnection(req, logger, sql);
     expect(result.authenticated).toBe(false);
@@ -228,11 +228,28 @@ describe('authenticateConnection', () => {
         onboarding_status: 'accepted',
       },
     ]);
-    const authHeader = 'Basic ' + Buffer.from('station:correctpass').toString('base64');
+    const authHeader = 'Basic ' + Buffer.from('SP1-STATION:correctpass').toString('base64');
     const req = createMockRequest('/SP1-STATION', authHeader);
     const result = await authenticateConnection(req, logger, sql);
     expect(result.authenticated).toBe(true);
     expect(result.stationDbId).toBe('db-id-4');
+  });
+
+  it('rejects SP1 station when Basic auth username does not equal ChargingStationId', async () => {
+    const passwordHash = await hash('correctpass');
+    const sql = createMockSql([
+      {
+        id: 'db-id-4b',
+        security_profile: 1,
+        basic_auth_password_hash: passwordHash,
+        onboarding_status: 'accepted',
+      },
+    ]);
+    const authHeader = 'Basic ' + Buffer.from('OTHER-STATION:correctpass').toString('base64');
+    const req = createMockRequest('/SP1-STATION', authHeader);
+    const result = await authenticateConnection(req, logger, sql);
+    expect(result.authenticated).toBe(false);
+    expect(result.error).toBe('Username must equal the ChargingStationId');
   });
 
   it('rejects SP2 station on non-TLS connection', async () => {
@@ -261,7 +278,7 @@ describe('authenticateConnection', () => {
         onboarding_status: 'accepted',
       },
     ]);
-    const authHeader = 'Basic ' + Buffer.from('station:somepass').toString('base64');
+    const authHeader = 'Basic ' + Buffer.from('SP1-NO-PASS:somepass').toString('base64');
     const req = createMockRequest('/SP1-NO-PASS', authHeader);
     const result = await authenticateConnection(req, logger, sql);
     expect(result.authenticated).toBe(false);

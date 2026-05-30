@@ -37,14 +37,24 @@ export async function handleGetCertificateStatus(
     if (result.status === 'Accepted') {
       return { status: result.status, ocspResult: result.ocspResult };
     }
-  } catch {
     ctx.logger.warn(
-      { stationId: ctx.stationId, responderURL: request.ocspRequestData.responderURL },
-      'OCSP status check failed, returning placeholder',
+      { stationId: ctx.stationId, providerStatus: result.status },
+      'GetCertificateStatus: provider returned non-Accepted status',
+    );
+  } catch (err) {
+    ctx.logger.warn(
+      {
+        stationId: ctx.stationId,
+        responderURL: request.ocspRequestData.responderURL,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      'OCSP status check failed',
     );
   }
 
-  // Return Accepted with a placeholder OCSP result when the real OCSP responder
-  // is unreachable. This allows the protocol flow to complete in test/demo environments.
-  return { status: 'Accepted', ocspResult: 'T0NTUF9QTEFDRUhPTERFUg==' };
+  // The OCSP responder was unreachable or rejected the request. Per OCPP 2.1
+  // Part 2 M03 the CSMS returns Failed so the station does not treat an
+  // unverified certificate as live. Returning a fabricated ocspResult here
+  // would let a revoked certificate pass the EV's signature check.
+  return { status: 'Failed', ocspResult: '' };
 }

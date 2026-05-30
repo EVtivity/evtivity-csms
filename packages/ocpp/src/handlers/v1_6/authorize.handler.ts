@@ -76,6 +76,7 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     | 'db_error' = 'accepted';
   let matchedTokenId: string | null = null;
   let matchedDriverId: string | null = null;
+  let matchedExpiresAt: Date | null = null;
   let reason: string | null = null;
 
   try {
@@ -240,6 +241,7 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
       if (usable != null) {
         matchedTokenId = usable.id;
         matchedDriverId = usable.driverId;
+        matchedExpiresAt = usable.expiresAt;
         status = 'Accepted';
         outcome = 'accepted';
       } else {
@@ -317,5 +319,9 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     ctx.logger,
   );
 
-  return { idTagInfo: { status } };
+  const idTagInfo: { status: typeof status; expiryDate?: string } = { status };
+  if (status === 'Accepted' && matchedExpiresAt != null) {
+    idTagInfo.expiryDate = matchedExpiresAt.toISOString();
+  }
+  return { idTagInfo };
 }

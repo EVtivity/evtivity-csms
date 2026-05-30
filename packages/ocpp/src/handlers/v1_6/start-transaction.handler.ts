@@ -7,6 +7,7 @@ import {
   driverTokens,
   drivers,
   guestSessions,
+  chargingSessions,
   isSiteFreeVendEnabledByStation,
 } from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
@@ -94,10 +95,18 @@ export async function handleStartTransaction(
   // row when multiple rows match (same idToken with different tokenType is
   // allowed by uniqueness). A station that skips Authorize and goes straight
   // to StartTransaction must not be able to bypass revocation/expiry.
-  let idTagStatus: 'Accepted' | 'Blocked' | 'Invalid' | 'Expired' = 'Accepted';
-  let outcome: 'accepted' | 'invalid' | 'blocked' | 'expired' | 'unknown' | 'db_error' = 'accepted';
+  let idTagStatus: 'Accepted' | 'Blocked' | 'Invalid' | 'Expired' | 'ConcurrentTx' = 'Accepted';
+  let outcome:
+    | 'accepted'
+    | 'invalid'
+    | 'blocked'
+    | 'expired'
+    | 'concurrent_tx'
+    | 'unknown'
+    | 'db_error' = 'accepted';
   let matchedTokenId: string | null = null;
   let matchedDriverId: string | null = null;
+  let matchedExpiresAt: Date | null = null;
   let reason: string | null = null;
 
   // Free-vend short-circuit. 1.6 stations frequently skip Authorize when the
@@ -203,6 +212,7 @@ export async function handleStartTransaction(
       if (usable != null) {
         matchedTokenId = usable.id;
         matchedDriverId = usable.driverId;
+        matchedExpiresAt = usable.expiresAt;
       } else {
         const expiredRow = tokens.find(
           (t) => t.expiresAt != null && t.expiresAt.getTime() <= now.getTime(),
@@ -229,6 +239,39 @@ export async function handleStartTransaction(
     reason = 'db_unreachable';
   }
 
+  // Concurrent-tx guard. Stations using LocalAuthList / LocalPreAuthorize
+  // skip the Authorize handler and come straight to StartTransaction, so
+  // the Authorize concurrent-tx check never runs for them. Per OCPP 1.6
+  // 5.13, idTagInfo.status of ConcurrentTx tells the station to refuse
+  // the second concurrent session. Without this guard the same card
+  // could open two active sessions on the same physical station.
+  if (idTagStatus === 'Accepted' && matchedTokenId != null) {
+    try {
+      const [activeSession] = await db
+        .select({ id: chargingSessions.id })
+        .from(chargingSessions)
+        .where(
+          and(eq(chargingSessions.tokenId, matchedTokenId), eq(chargingSessions.status, 'active')),
+        )
+        .limit(1);
+      if (activeSession != null) {
+        idTagStatus = 'ConcurrentTx';
+        outcome = 'concurrent_tx';
+        reason = `concurrent_session ${activeSession.id}`;
+        ctx.logger.info(
+          {
+            stationId: ctx.stationId,
+            idTag: request.idTag,
+            conflictingSessionId: activeSession.id,
+          },
+          'StartTransaction rejected: concurrent transaction (1.6)',
+        );
+      }
+    } catch (err) {
+      ctx.logger.warn({ err, idTag: request.idTag }, 'Concurrent-tx lookup failed (1.6 start)');
+    }
+  }
+
   // Forensic log: stations using LocalAuthList skip Authorize and come
   // straight to StartTransaction, so this is the only record of the
   // authorization decision for those flows.
@@ -250,8 +293,12 @@ export async function handleStartTransaction(
   // Accepted/Blocked/Expired/Invalid/ConcurrentTx (no NoCredit). Our 'Expired'
   // maps directly.
 
+  const idTagInfo: { status: typeof idTagStatus; expiryDate?: string } = { status: idTagStatus };
+  if (idTagStatus === 'Accepted' && matchedExpiresAt != null) {
+    idTagInfo.expiryDate = matchedExpiresAt.toISOString();
+  }
   return {
     transactionId,
-    idTagInfo: { status: idTagStatus },
+    idTagInfo,
   };
 }

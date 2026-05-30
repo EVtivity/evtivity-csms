@@ -81,8 +81,22 @@ export async function handleBootNotification(
           return pending as unknown as Record<string, unknown>;
         }
       }
-    } catch {
-      // DB error: fall through to Accepted
+    } catch (err: unknown) {
+      // DB unreachable: fail closed. Returning Accepted here would let a
+      // blocked station slip through during a transient outage. Per OCPP 2.1
+      // B02.FR.04 the station retries after `interval` seconds on Pending,
+      // which is the right recovery once the DB is back.
+      ctx.logger.warn(
+        { stationId: ctx.stationId, err: err instanceof Error ? err.message : String(err) },
+        'BootNotification: onboarding lookup failed, returning Pending to force station retry',
+      );
+      const pending: BootNotificationResponse = {
+        currentTime,
+        interval,
+        status: 'Pending',
+      };
+      ctx.session.bootStatus = 'Pending';
+      return pending as unknown as Record<string, unknown>;
     }
   }
 

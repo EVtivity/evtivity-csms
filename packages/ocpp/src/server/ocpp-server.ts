@@ -392,7 +392,42 @@ export class OcppServer {
 
     // Handle responses to our outgoing calls
     if (messageType === MESSAGE_TYPE_CALLRESULT || messageType === MESSAGE_TYPE_CALLERROR) {
-      if (isCallResult(parsed) || isCallError(parsed)) {
+      if (isCallResult(parsed)) {
+        // Log the inbound CALLRESULT so operators can see what the station
+        // returned for CSMS-initiated commands. Without this the OCPP log
+        // tab only carries the outbound CALL row (logged by
+        // command-listener.ts) and the response is invisible.
+        void this.eventBus.publish({
+          eventType: 'ocpp.MessageLog',
+          aggregateType: 'ChargingStation',
+          aggregateId: session.stationId,
+          payload: {
+            stationId: session.stationId,
+            stationDbId: session.stationDbId,
+            direction: 'inbound',
+            messageType: MESSAGE_TYPE_CALLRESULT,
+            messageId: parsed[1],
+            action: null,
+            payload: parsed[2],
+          },
+        });
+        this.correlator.handleResponse(session, parsed);
+      } else if (isCallError(parsed)) {
+        void this.eventBus.publish({
+          eventType: 'ocpp.MessageLog',
+          aggregateType: 'ChargingStation',
+          aggregateId: session.stationId,
+          payload: {
+            stationId: session.stationId,
+            stationDbId: session.stationDbId,
+            direction: 'inbound',
+            messageType: MESSAGE_TYPE_CALLERROR,
+            messageId: parsed[1],
+            action: null,
+            errorCode: parsed[2],
+            errorDescription: parsed[3],
+          },
+        });
         this.correlator.handleResponse(session, parsed);
       }
       return;

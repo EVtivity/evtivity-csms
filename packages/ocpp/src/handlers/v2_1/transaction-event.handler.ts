@@ -75,6 +75,7 @@ export async function handleTransactionEvent(
       : never = 'Accepted';
     let matchedTokenId: string | null = null;
     let matchedDriverId: string | null = null;
+    let matchedExpiresAt: Date | null = null;
     let outcome: 'accepted' | 'blocked' | 'expired' | 'unknown' | 'db_error' = 'accepted';
     let reason: string | null = null;
 
@@ -104,6 +105,7 @@ export async function handleTransactionEvent(
           reason = 'expired';
         } else {
           groupIdToken = { idToken, type: tokenType };
+          matchedExpiresAt = token.expiresAt;
         }
       } else {
         // No row in driver_tokens. For Central/Local types this is expected
@@ -121,6 +123,9 @@ export async function handleTransactionEvent(
     response.idTokenInfo = {
       status,
       ...(groupIdToken != null ? { groupIdToken } : {}),
+      ...(status === 'Accepted' && matchedExpiresAt != null
+        ? { cacheExpiryDateTime: matchedExpiresAt.toISOString() }
+        : {}),
     };
 
     // Forensic log on session start only: stations using LocalAuthList skip

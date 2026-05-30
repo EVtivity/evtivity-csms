@@ -92,6 +92,7 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
 
   let groupIdToken: AuthorizeResponse['idTokenInfo']['groupIdToken'] | undefined;
   let certificateStatus: AuthorizeResponse['certificateStatus'] | undefined;
+  let matchedExpiresAt: Date | null = null;
 
   if (ACCEPT_WITHOUT_LOOKUP.has(tokenType)) {
     ctx.logger.info(
@@ -187,6 +188,7 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
         } else {
           matchedTokenId = token.id;
           matchedDriverId = token.driverId;
+          matchedExpiresAt = token.expiresAt;
           groupIdToken = { idToken, type: tokenType };
           logReason = 'active';
         }
@@ -271,6 +273,9 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     idTokenInfo: {
       status,
       ...(groupIdToken != null ? { groupIdToken } : {}),
+      ...(status === 'Accepted' && matchedExpiresAt != null
+        ? { cacheExpiryDateTime: matchedExpiresAt.toISOString() }
+        : {}),
     },
     ...(certificateStatus != null ? { certificateStatus } : {}),
   };

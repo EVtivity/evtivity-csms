@@ -38,8 +38,10 @@ export function ProfileNotifications(): React.JSX.Element {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">{t('profile.notificationsDescription')}</p>
-        <div className="flex items-center justify-between">
-          <Label htmlFor="sms-toggle">{t('profile.receiveSms')}</Label>
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="sms-toggle" className="whitespace-nowrap">
+            {t('profile.receiveSms')}
+          </Label>
           <Toggle
             id="sms-toggle"
             checked={smsEnabled}

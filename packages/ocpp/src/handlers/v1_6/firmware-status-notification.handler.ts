@@ -31,6 +31,7 @@ export async function handleFirmwareStatusNotification(
     aggregateId: ctx.stationId,
     payload: {
       stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       status: mappedStatus,
     },
   });
