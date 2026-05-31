@@ -1716,45 +1716,29 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       }
 
       // Fail-fast pre-auth: charge the card BEFORE telling the station to start
-      // charging. Skips simulated customers (handled by the event-projection
-      // payment gate) and free tariffs. On success the payment_records row is
-      // inserted with status='pre_authorized' and the projection's payment gate
-      // skips its work via the existing duplicate guard. On failure the session
-      // is removed and the API returns 402 so the driver sees the decline
-      // immediately instead of getting a stranded ghost session.
+      // so a decline shortcuts to 402 without leaving a ghost session. Skips
+      // simulated customers (event-projection gate handles them) and free
+      // tariffs. Success inserts payment_records with status='pre_authorized'
+      // so the projection's gate skips via its duplicate guard.
       if (
         pmForPreAuth != null &&
         config != null &&
         !isSimulatedCustomer(pmForPreAuth.stripeCustomerId)
       ) {
+        // Stripe call and the payment_records INSERT are intentionally in
+        // separate try/catch: a Stripe decline is a driver-facing 402, while
+        // a DB hiccup after a successful pre-auth must REVERSE the Stripe
+        // hold, otherwise we 402 the driver while holding their money and a
+        // retry would create a second hold under a new session id.
+        let paymentIntent: Awaited<ReturnType<typeof createPreAuthorization>>;
         try {
-          const paymentIntent = await createPreAuthorization(
+          paymentIntent = await createPreAuthorization(
             config,
             pmForPreAuth.stripeCustomerId,
             pmForPreAuth.stripePaymentMethodId,
             undefined,
             `preauth_${session.id}`,
           );
-          await db.execute(sql`
-            INSERT INTO payment_records (
-              session_id, driver_id, site_payment_config_id,
-              stripe_payment_intent_id, stripe_customer_id, stripe_payment_method_id,
-              payment_source, currency, pre_auth_amount_cents, status
-            )
-            VALUES (
-              ${session.id},
-              ${driverId},
-              ${config.configId},
-              ${paymentIntent.id},
-              ${pmForPreAuth.stripeCustomerId},
-              ${pmForPreAuth.stripePaymentMethodId},
-              'web_portal',
-              ${config.currency},
-              ${config.preAuthAmountCents},
-              'pre_authorized'
-            )
-            ON CONFLICT (session_id) DO NOTHING
-          `);
         } catch (err: unknown) {
           const reason = err instanceof Error ? err.message.slice(0, 500) : 'Unknown decline';
           request.log.warn(
@@ -1796,6 +1780,56 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           await reply.status(402).send({
             error: `Payment authorization declined: ${reason}`,
             code: 'PAYMENT_PREAUTH_FAILED',
+          });
+          return;
+        }
+
+        try {
+          await db.execute(sql`
+            INSERT INTO payment_records (
+              session_id, driver_id, site_payment_config_id,
+              stripe_payment_intent_id, stripe_customer_id, stripe_payment_method_id,
+              payment_source, currency, pre_auth_amount_cents, status
+            )
+            VALUES (
+              ${session.id},
+              ${driverId},
+              ${config.configId},
+              ${paymentIntent.id},
+              ${pmForPreAuth.stripeCustomerId},
+              ${pmForPreAuth.stripePaymentMethodId},
+              'web_portal',
+              ${config.currency},
+              ${config.preAuthAmountCents},
+              'pre_authorized'
+            )
+            ON CONFLICT (session_id) DO NOTHING
+          `);
+        } catch (err: unknown) {
+          request.log.error(
+            { err, sessionId: session.id, paymentIntentId: paymentIntent.id },
+            'Failed to record successful pre-auth; reversing Stripe hold',
+          );
+          try {
+            await config.stripe.paymentIntents.cancel(paymentIntent.id);
+          } catch (cancelErr) {
+            request.log.error(
+              { err: cancelErr, paymentIntentId: paymentIntent.id, sessionId: session.id },
+              'Failed to cancel Stripe pre-auth after DB INSERT failure; manual reconciliation required',
+            );
+          }
+          await db
+            .update(chargingSessions)
+            .set({
+              status: 'failed',
+              stoppedReason: 'PreAuthRecordFailed',
+              endedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(eq(chargingSessions.id, session.id));
+          await reply.status(500).send({
+            error: 'Failed to record payment authorization',
+            code: 'INTERNAL_ERROR',
           });
           return;
         }

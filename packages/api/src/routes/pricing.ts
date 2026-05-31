@@ -35,6 +35,7 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { resolveTariffGroup } from '../services/tariff.service.js';
 import { authorize } from '../middleware/rbac.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
+import { getAuditActor } from '../lib/audit-actor.js';
 
 const pricingGroupItem = z
   .object({
@@ -306,7 +307,6 @@ export function pricingRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const body = request.body as z.infer<typeof createGroupBody>;
-      const { userId } = request.user as { userId: string };
       const [group] = await db.insert(pricingGroups).values(body).returning();
       if (group != null) {
         await writeAudit(
@@ -315,8 +315,7 @@ export function pricingRoutes(app: FastifyInstance): void {
             entityId: group.id,
             entityIdSnapshot: group.id,
             action: 'created',
-            actor: 'operator',
-            actorUserId: userId,
+            ...getAuditActor(request),
             after: group,
           },
           db,
@@ -348,7 +347,6 @@ export function pricingRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof groupParams>;
       const body = request.body as z.infer<typeof updateGroupBody>;
-      const { userId } = request.user as { userId: string };
 
       const [existing] = await db.select().from(pricingGroups).where(eq(pricingGroups.id, id));
       if (existing == null) {
@@ -369,8 +367,7 @@ export function pricingRoutes(app: FastifyInstance): void {
           entityId: id,
           entityIdSnapshot: id,
           action: 'updated',
-          actor: 'operator',
-          actorUserId: userId,
+          ...getAuditActor(request),
           before: existing,
           after: updated,
         },
@@ -412,12 +409,25 @@ export function pricingRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const [usage] = await db
-        .select({ count: count() })
-        .from(chargingSessions)
-        .innerJoin(tariffs, eq(chargingSessions.tariffId, tariffs.id))
-        .where(eq(tariffs.pricingGroupId, id));
-      if (usage != null && usage.count > 0) {
+      // Both charging_sessions.tariff_id AND session_tariff_segments.tariff_id
+      // reference tariffs.id with ON DELETE NO ACTION. The per-tariff DELETE
+      // checks both; the group cascade DELETE must too, or a tariff used only
+      // as a split-billing segment slips past and the cascade DELETE throws
+      // a raw 500.
+      const [sessionUsage, segmentUsage] = await Promise.all([
+        db
+          .select({ count: count() })
+          .from(chargingSessions)
+          .innerJoin(tariffs, eq(chargingSessions.tariffId, tariffs.id))
+          .where(eq(tariffs.pricingGroupId, id)),
+        db
+          .select({ count: count() })
+          .from(sessionTariffSegments)
+          .innerJoin(tariffs, eq(sessionTariffSegments.tariffId, tariffs.id))
+          .where(eq(tariffs.pricingGroupId, id)),
+      ]);
+      const inUse = (sessionUsage[0]?.count ?? 0) > 0 || (segmentUsage[0]?.count ?? 0) > 0;
+      if (inUse) {
         await reply.status(409).send({
           error: 'Pricing group has tariffs referenced by charging sessions',
           code: 'PRICING_GROUP_TARIFFS_IN_USE',
@@ -426,9 +436,26 @@ export function pricingRoutes(app: FastifyInstance): void {
       }
 
       const groupTariffs = await db.select().from(tariffs).where(eq(tariffs.pricingGroupId, id));
-      await db.delete(tariffs).where(eq(tariffs.pricingGroupId, id));
-      await db.delete(pricingGroups).where(eq(pricingGroups.id, id));
-      const { userId } = request.user as { userId: string };
+      try {
+        await db.delete(tariffs).where(eq(tariffs.pricingGroupId, id));
+        await db.delete(pricingGroups).where(eq(pricingGroups.id, id));
+      } catch (err) {
+        // Race window: a session could start between the check above and the
+        // delete here. Map FK violation back to 409 so the operator sees the
+        // same code regardless of which path tripped it.
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          (err as { code?: string }).code === '23503'
+        ) {
+          await reply.status(409).send({
+            error: 'Pricing group has tariffs referenced by charging sessions',
+            code: 'PRICING_GROUP_TARIFFS_IN_USE',
+          });
+          return;
+        }
+        throw err;
+      }
       // Audit the cascading deletes too so the pricing audit log shows every
       // tariff that disappeared with the group, not just the group itself.
       for (const t of groupTariffs) {
@@ -438,8 +465,7 @@ export function pricingRoutes(app: FastifyInstance): void {
             entityId: t.id,
             entityIdSnapshot: t.id,
             action: 'deleted',
-            actor: 'operator',
-            actorUserId: userId,
+            ...getAuditActor(request),
             before: t,
             notes: `cascade from pricing_group ${id}`,
           },
@@ -453,8 +479,7 @@ export function pricingRoutes(app: FastifyInstance): void {
           entityId: id,
           entityIdSnapshot: id,
           action: 'deleted',
-          actor: 'operator',
-          actorUserId: userId,
+          ...getAuditActor(request),
           before: group,
         },
         db,
@@ -663,15 +688,13 @@ export function pricingRoutes(app: FastifyInstance): void {
         })
         .returning();
       if (tariff != null) {
-        const { userId } = request.user as { userId: string };
         await writeAudit(
           { table: tariffAuditLog, idColumn: 'tariff_id' },
           {
             entityId: tariff.id,
             entityIdSnapshot: tariff.id,
             action: 'created',
-            actor: 'operator',
-            actorUserId: userId,
+            ...getAuditActor(request),
             after: tariff,
           },
           db,
@@ -807,15 +830,13 @@ export function pricingRoutes(app: FastifyInstance): void {
         .set(updateData)
         .where(eq(tariffs.id, tariffId))
         .returning();
-      const { userId } = request.user as { userId: string };
       await writeAudit(
         { table: tariffAuditLog, idColumn: 'tariff_id' },
         {
           entityId: tariffId,
           entityIdSnapshot: tariffId,
           action: 'updated',
-          actor: 'operator',
-          actorUserId: userId,
+          ...getAuditActor(request),
           before: existing,
           after: updated,
         },
@@ -884,15 +905,13 @@ export function pricingRoutes(app: FastifyInstance): void {
       }
 
       await db.delete(tariffs).where(eq(tariffs.id, tariffId));
-      const { userId } = request.user as { userId: string };
       await writeAudit(
         { table: tariffAuditLog, idColumn: 'tariff_id' },
         {
           entityId: tariffId,
           entityIdSnapshot: tariffId,
           action: 'deleted',
-          actor: 'operator',
-          actorUserId: userId,
+          ...getAuditActor(request),
           before: tariff,
         },
         db,

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { TariffRestrictions } from './tariff-restrictions.js';
+import { timeToMinutes } from './tariff-restrictions.js';
 
 interface TariffForOverlap {
   id: string;
@@ -13,11 +14,6 @@ interface OverlapResult {
   valid: boolean;
   conflictingTariffId?: string;
   message?: string;
-}
-
-function timeToMinutes(time: string): number {
-  const [hoursStr, minutesStr] = time.split(':');
-  return Number(hoursStr) * 60 + Number(minutesStr);
 }
 
 function timeRangesOverlap(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {

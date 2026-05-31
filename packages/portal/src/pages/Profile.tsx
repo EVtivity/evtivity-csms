@@ -14,6 +14,7 @@ import { LANGUAGES } from '@/components/ui/language-select';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { TIMEZONE_OPTIONS } from '@/lib/timezone';
+import { AccountNotificationPrefs } from '@/components/account/AccountNotificationPrefs';
 
 export function Profile(): React.JSX.Element {
   const { t } = useTranslation();
@@ -42,11 +43,6 @@ export function Profile(): React.JSX.Element {
   const [selectedTheme, setSelectedTheme] = useState<'light' | 'dark'>(authTheme);
   const [prefsSettingsMsg, setPrefsSettingsMsg] = useState('');
   const [prefsSettingsLoading, setPrefsSettingsLoading] = useState(false);
-
-  const [emailEnabled, setEmailEnabled] = useState(true);
-  const [smsEnabled, setSmsEnabled] = useState(true);
-  const [prefsMsg, setPrefsMsg] = useState('');
-  const [prefsLoading, setPrefsLoading] = useState(false);
 
   const [mfaEnabled, setMfaEnabled] = useState(false);
   const [mfaMethod, setMfaMethod] = useState<string | null>(null);
@@ -109,36 +105,6 @@ export function Profile(): React.JSX.Element {
       setPasswordMsg(t('profile.passwordChangeFailed'));
     } finally {
       setPasswordLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void api
-      .get<{
-        emailEnabled: boolean;
-        smsEnabled: boolean;
-      }>('/v1/portal/driver/notification-preferences')
-      .then((prefs) => {
-        setEmailEnabled(prefs.emailEnabled);
-        setSmsEnabled(prefs.smsEnabled);
-      });
-  }, []);
-
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  async function handlePrefsSave(e: React.FormEvent): Promise<void> {
-    e.preventDefault();
-    setPrefsMsg('');
-    setPrefsLoading(true);
-    try {
-      await api.put('/v1/portal/driver/notification-preferences', {
-        emailEnabled,
-        smsEnabled,
-      });
-      setPrefsMsg(t('profile.preferencesSaved'));
-    } catch {
-      setPrefsMsg(t('profile.preferencesFailed'));
-    } finally {
-      setPrefsLoading(false);
     }
   }
 
@@ -348,40 +314,7 @@ export function Profile(): React.JSX.Element {
           <CardTitle>{t('profile.notificationPreferences')}</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={(e) => void handlePrefsSave(e)} className="space-y-4">
-            {prefsMsg !== '' && <p className="text-sm text-muted-foreground">{prefsMsg}</p>}
-            <div className="flex items-center space-x-2">
-              <input
-                id="emailEnabled"
-                type="checkbox"
-                checked={emailEnabled}
-                onChange={(e) => {
-                  setEmailEnabled(e.target.checked);
-                }}
-                className="h-4 w-4 rounded border-input"
-              />
-              <label htmlFor="emailEnabled" className="text-sm font-medium">
-                {t('profile.emailNotifications')}
-              </label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <input
-                id="smsEnabled"
-                type="checkbox"
-                checked={smsEnabled}
-                onChange={(e) => {
-                  setSmsEnabled(e.target.checked);
-                }}
-                className="h-4 w-4 rounded border-input"
-              />
-              <label htmlFor="smsEnabled" className="text-sm font-medium">
-                {t('profile.smsNotifications')}
-              </label>
-            </div>
-            <Button type="submit" className="w-full" disabled={prefsLoading}>
-              {prefsLoading ? t('common.saving') : t('common.save')}
-            </Button>
-          </form>
+          <AccountNotificationPrefs />
         </CardContent>
       </Card>
 

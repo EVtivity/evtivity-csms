@@ -83,43 +83,47 @@ export async function tariffBoundaryCheckHandler(log: Logger): Promise<void> {
       const closedIdleMins = Number(closedIdleAgg?.total ?? 0);
       const segmentIdleMins = Math.max(0, sessionIdleMins - closedIdleMins);
 
-      // Close open segment
-      await db
-        .update(sessionTariffSegments)
-        .set({
-          endedAt: now,
-          energyWhEnd: String(energyWh),
-          durationMinutes: sql`EXTRACT(EPOCH FROM (NOW() - started_at)) / 60`,
-          idleMinutes: String(segmentIdleMins),
-        })
-        .where(
-          and(
-            eq(sessionTariffSegments.sessionId, session.sessionId),
-            isNull(sessionTariffSegments.endedAt),
-          ),
-        );
+      // Wrap close-open-snapshot in a transaction so a transient failure
+      // (e.g. close succeeds, open fails) doesn't leave the session with no
+      // open segment while the tariff snapshot still points at the old
+      // tariff. The next cron tick still self-heals via the same path, but
+      // the transaction keeps each tick's segments and snapshot consistent.
+      await db.transaction(async (tx) => {
+        await tx
+          .update(sessionTariffSegments)
+          .set({
+            endedAt: now,
+            energyWhEnd: String(energyWh),
+            durationMinutes: sql`EXTRACT(EPOCH FROM (NOW() - started_at)) / 60`,
+            idleMinutes: String(segmentIdleMins),
+          })
+          .where(
+            and(
+              eq(sessionTariffSegments.sessionId, session.sessionId),
+              isNull(sessionTariffSegments.endedAt),
+            ),
+          );
 
-      // Open new segment
-      await db.insert(sessionTariffSegments).values({
-        sessionId: session.sessionId,
-        tariffId: currentTariff.id,
-        startedAt: now,
-        energyWhStart: String(energyWh),
-      });
-
-      // Update session tariff snapshot
-      await db
-        .update(chargingSessions)
-        .set({
+        await tx.insert(sessionTariffSegments).values({
+          sessionId: session.sessionId,
           tariffId: currentTariff.id,
-          tariffPricePerKwh: currentTariff.pricePerKwh,
-          tariffPricePerMinute: currentTariff.pricePerMinute,
-          tariffPricePerSession: currentTariff.pricePerSession,
-          tariffIdleFeePricePerMinute: currentTariff.idleFeePricePerMinute,
-          tariffTaxRate: currentTariff.taxRate,
-          updatedAt: sql`now()`,
-        })
-        .where(eq(chargingSessions.id, session.sessionId));
+          startedAt: now,
+          energyWhStart: String(energyWh),
+        });
+
+        await tx
+          .update(chargingSessions)
+          .set({
+            tariffId: currentTariff.id,
+            tariffPricePerKwh: currentTariff.pricePerKwh,
+            tariffPricePerMinute: currentTariff.pricePerMinute,
+            tariffPricePerSession: currentTariff.pricePerSession,
+            tariffIdleFeePricePerMinute: currentTariff.idleFeePricePerMinute,
+            tariffTaxRate: currentTariff.taxRate,
+            updatedAt: sql`now()`,
+          })
+          .where(eq(chargingSessions.id, session.sessionId));
+      });
 
       log.info(
         {

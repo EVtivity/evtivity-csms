@@ -97,7 +97,7 @@ export function derivePriority(restrictions: TariffRestrictions | null): number 
   return 0;
 }
 
-function timeToMinutes(time: string): number {
+export function timeToMinutes(time: string): number {
   const [hoursStr, minutesStr] = time.split(':');
   return Number(hoursStr) * 60 + Number(minutesStr);
 }

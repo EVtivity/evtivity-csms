@@ -38,10 +38,12 @@ export async function reconcilePayments(
   const config = await getStripeConfig(null);
   if (config == null) {
     result.errors.push('Stripe not configured');
+    log.warn('Payment reconciliation skipped: Stripe not configured');
     return result;
   }
 
   const cutoff = new Date(Date.now() - lookbackHours * 3600_000);
+  log.info({ lookbackHours, cutoff }, 'Payment reconciliation started');
 
   // Process payment records in batches using cursor-based pagination
   let lastId = 0;
@@ -100,22 +102,31 @@ export async function reconcilePayments(
 
       if (error != null || intent == null) {
         result.errors.push('Failed to retrieve ' + intentId + ': ' + (error ?? 'unknown'));
+        log.warn({ intentId, error }, 'Failed to retrieve PaymentIntent during reconciliation');
         continue;
       }
 
-      const expectedLocalStatus = mapStripeStatusToLocal(intent.status);
-      if (expectedLocalStatus != null && record.status !== expectedLocalStatus) {
+      const acceptable = acceptableLocalStatusesForStripe(intent.status);
+      if (acceptable != null && !acceptable.has(record.status)) {
         result.discrepancies.push({
           paymentRecordId: record.id,
           stripePaymentIntentId: intentId,
           field: 'status',
           localValue: record.status,
-          stripeValue: intent.status + ' (expected local: ' + expectedLocalStatus + ')',
+          stripeValue: intent.status + ' (acceptable local: ' + [...acceptable].join('|') + ')',
         });
         continue;
       }
 
-      if (record.status === 'captured' && record.capturedAmountCents != null) {
+      // Verify captured amount for captured/refunded states. Stripe's
+      // amount_received doesn't decrease on refunds, so the comparison is
+      // valid for partially_refunded and refunded local statuses too.
+      if (
+        (record.status === 'captured' ||
+          record.status === 'partially_refunded' ||
+          record.status === 'refunded') &&
+        record.capturedAmountCents != null
+      ) {
         const stripeAmount = intent.amount_received;
         if (stripeAmount !== record.capturedAmountCents) {
           result.discrepancies.push({
@@ -133,9 +144,39 @@ export async function reconcilePayments(
     }
   }
 
+  log.info(
+    {
+      checked: result.checked,
+      matched: result.matched,
+      discrepancies: result.discrepancies.length,
+      errors: result.errors.length,
+    },
+    'Payment reconciliation completed',
+  );
+
   return result;
 }
 
+// Returns the set of local payment_records.status values that legitimately
+// correspond to a given Stripe PaymentIntent.status. Multiple local statuses
+// per Stripe status because refunds and pre-auth declines diverge from the
+// intent's view: a refund keeps the intent at 'succeeded'; a pre-auth decline
+// can leave the intent 'canceled' or absent depending on how it was cleaned up.
+export function acceptableLocalStatusesForStripe(stripeStatus: string): Set<string> | null {
+  const map: Record<string, Set<string>> = {
+    requires_payment_method: new Set(['pending']),
+    requires_confirmation: new Set(['pending']),
+    requires_action: new Set(['pending']),
+    processing: new Set(['pending']),
+    requires_capture: new Set(['pre_authorized']),
+    succeeded: new Set(['captured', 'partially_refunded', 'refunded']),
+    canceled: new Set(['cancelled', 'failed']),
+  };
+  return map[stripeStatus] ?? null;
+}
+
+// Kept for backward compatibility (callers that want the canonical local
+// status for a Stripe state). Returns the "primary" expected local status.
 export function mapStripeStatusToLocal(stripeStatus: string): string | null {
   const map: Record<string, string> = {
     requires_payment_method: 'pending',

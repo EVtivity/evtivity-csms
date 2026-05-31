@@ -113,6 +113,19 @@ function cleanCellParagraphs(html: string): string {
   return html.replace(/<(td|th)([^>]*)><p>([\s\S]*?)<\/p><\/(td|th)>/gi, '<$1$2>$3</$4>');
 }
 
+// Tiptap strips inline `style` from table parts by default. We need them to
+// survive a save/load cycle so operator-edited templates keep their colors,
+// borders, and widths. The four table extensions all need the same attribute
+// definition.
+const styleAttribute = {
+  style: {
+    default: null,
+    parseHTML: (el: HTMLElement): string | null => el.getAttribute('style'),
+    renderHTML: (attrs: Record<string, unknown>): Record<string, unknown> =>
+      attrs.style != null ? { style: attrs.style } : {},
+  },
+};
+
 export interface WysiwygEditorHandle {
   insertText: (text: string) => void;
 }
@@ -139,54 +152,22 @@ export const WysiwygEditor = forwardRef<WysiwygEditorHandle, WysiwygEditorProps>
         Placeholder.configure({ placeholder: placeholder ?? 'Start typing...' }),
         Table.extend({
           addAttributes() {
-            return {
-              ...this.parent?.(),
-              style: {
-                default: null,
-                parseHTML: (el: HTMLElement) => el.getAttribute('style'),
-                renderHTML: (attrs: Record<string, unknown>) =>
-                  attrs.style != null ? { style: attrs.style } : {},
-              },
-            };
+            return { ...this.parent?.(), ...styleAttribute };
           },
         }).configure({ resizable: false }),
         TableRow.extend({
           addAttributes() {
-            return {
-              ...this.parent?.(),
-              style: {
-                default: null,
-                parseHTML: (el: HTMLElement) => el.getAttribute('style'),
-                renderHTML: (attrs: Record<string, unknown>) =>
-                  attrs.style != null ? { style: attrs.style } : {},
-              },
-            };
+            return { ...this.parent?.(), ...styleAttribute };
           },
         }),
         TableCell.extend({
           addAttributes() {
-            return {
-              ...this.parent?.(),
-              style: {
-                default: null,
-                parseHTML: (el: HTMLElement) => el.getAttribute('style'),
-                renderHTML: (attrs: Record<string, unknown>) =>
-                  attrs.style != null ? { style: attrs.style } : {},
-              },
-            };
+            return { ...this.parent?.(), ...styleAttribute };
           },
         }),
         TableHeader.extend({
           addAttributes() {
-            return {
-              ...this.parent?.(),
-              style: {
-                default: null,
-                parseHTML: (el: HTMLElement) => el.getAttribute('style'),
-                renderHTML: (attrs: Record<string, unknown>) =>
-                  attrs.style != null ? { style: attrs.style } : {},
-              },
-            };
+            return { ...this.parent?.(), ...styleAttribute };
           },
         }),
       ],
@@ -278,7 +259,7 @@ export const WysiwygEditor = forwardRef<WysiwygEditorHandle, WysiwygEditorProps>
 
     const toggleSource = useCallback(() => {
       if (showSource) {
-        editor.commands.setContent(sourceValue);
+        editor.commands.setContent(sourceValue, { emitUpdate: false });
         onChange(sourceValue);
         setShowSource(false);
       } else {

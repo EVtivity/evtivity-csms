@@ -131,40 +131,44 @@ export async function resolveTariff(
   const group = await resolveTariffGroup(stationUuid, driverUuid);
   if (group == null) return null;
 
-  // Fetch ALL active tariffs in the resolved group
-  const activeTariffs = await db
-    .select({
-      id: tariffs.id,
-      name: tariffs.name,
-      currency: tariffs.currency,
-      pricePerKwh: tariffs.pricePerKwh,
-      pricePerMinute: tariffs.pricePerMinute,
-      pricePerSession: tariffs.pricePerSession,
-      idleFeePricePerMinute: tariffs.idleFeePricePerMinute,
-      reservationFeePerMinute: tariffs.reservationFeePerMinute,
-      taxRate: tariffs.taxRate,
-      restrictions: tariffs.restrictions,
-      priority: tariffs.priority,
-      isDefault: tariffs.isDefault,
-    })
-    .from(tariffs)
-    .where(and(eq(tariffs.pricingGroupId, group.groupId), eq(tariffs.isActive, true)));
+  // Active tariffs, holidays, and site timezone are independent after the
+  // group is resolved -- fan them out so dispatch latency is bounded by the
+  // slowest single query instead of the sum.
+  const [activeTariffs, holidays, siteTzRows] = await Promise.all([
+    db
+      .select({
+        id: tariffs.id,
+        name: tariffs.name,
+        currency: tariffs.currency,
+        pricePerKwh: tariffs.pricePerKwh,
+        pricePerMinute: tariffs.pricePerMinute,
+        pricePerSession: tariffs.pricePerSession,
+        idleFeePricePerMinute: tariffs.idleFeePricePerMinute,
+        reservationFeePerMinute: tariffs.reservationFeePerMinute,
+        taxRate: tariffs.taxRate,
+        restrictions: tariffs.restrictions,
+        priority: tariffs.priority,
+        isDefault: tariffs.isDefault,
+      })
+      .from(tariffs)
+      .where(and(eq(tariffs.pricingGroupId, group.groupId), eq(tariffs.isActive, true))),
+    loadHolidays(),
+    db
+      .select({ timezone: sites.timezone })
+      .from(chargingStations)
+      .leftJoin(sites, eq(chargingStations.siteId, sites.id))
+      .where(eq(chargingStations.id, stationUuid))
+      .limit(1),
+  ]);
 
   if (activeTariffs.length === 0) return null;
 
-  const holidays = await loadHolidays();
   const now = new Date();
   // Resolve in the SITE's timezone so time-of-day and holiday boundaries fire
   // where the driver actually plugs in, not where the server lives. Falls
   // back to server-local time when the station has no site or the site has
   // no timezone column populated.
-  const [siteTz] = await db
-    .select({ timezone: sites.timezone })
-    .from(chargingStations)
-    .leftJoin(sites, eq(chargingStations.siteId, sites.id))
-    .where(eq(chargingStations.id, stationUuid))
-    .limit(1);
-  const timezone = siteTz?.timezone ?? undefined;
+  const timezone = siteTzRows[0]?.timezone ?? undefined;
 
   const tariffInputs: TariffWithRestrictions[] = activeTariffs.map((t) => ({
     id: t.id,

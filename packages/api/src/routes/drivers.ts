@@ -1154,7 +1154,6 @@ export function driverRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof driverParams>;
-      const { userId } = request.user as JwtPayload;
       const body = request.body as z.infer<typeof addDriverPricingGroupBody>;
       // Pre-check pricing group existence so a typo'd id returns a clean
       // 404 instead of a 500 from the FK violation. Run the previous-row
@@ -1208,8 +1207,7 @@ export function driverRoutes(app: FastifyInstance): void {
             entityId: id,
             entityIdSnapshot: id,
             action: previous == null ? 'created' : 'updated',
-            actor: 'operator',
-            actorUserId: userId,
+            ...actor,
             before:
               previous == null
                 ? null
@@ -1262,7 +1260,6 @@ export function driverRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id, pricingGroupId } = request.params as z.infer<typeof driverPricingGroupParams>;
-      const { userId } = request.user as JwtPayload;
       const [record] = await db
         .delete(pricingGroupDrivers)
         .where(
@@ -1279,32 +1276,33 @@ export function driverRoutes(app: FastifyInstance): void {
         });
         return;
       }
-      await writeAudit(
-        { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
-        {
-          entityId: id,
-          entityIdSnapshot: id,
-          action: 'deleted',
-          actor: 'operator',
-          actorUserId: userId,
-          before: { scope: 'driver', driverId: id, pricingGroupId },
-        },
-        db,
-        request.log,
-      );
       const actor = getAuditActor(request);
-      await writeAudit(
-        { table: driverAuditLog, idColumn: 'driver_id' },
-        {
-          entityId: id,
-          entityIdSnapshot: id,
-          action: 'pricing_assignment_changed',
-          ...actor,
-          before: { pricingGroupId },
-        },
-        db,
-        request.log,
-      );
+      await Promise.all([
+        writeAudit(
+          { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'deleted',
+            ...actor,
+            before: { scope: 'driver', driverId: id, pricingGroupId },
+          },
+          db,
+          request.log,
+        ),
+        writeAudit(
+          { table: driverAuditLog, idColumn: 'driver_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'pricing_assignment_changed',
+            ...actor,
+            before: { pricingGroupId },
+          },
+          db,
+          request.log,
+        ),
+      ]);
       await publishPricingChanged({
         pricingGroupId,
         action: 'assignment.changed',

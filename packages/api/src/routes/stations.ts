@@ -3772,8 +3772,7 @@ export function stationRoutes(app: FastifyInstance): void {
           entityId: id,
           entityIdSnapshot: id,
           action: previous == null ? 'created' : 'updated',
-          actor: 'operator',
-          actorUserId: userId,
+          ...getAuditActor(request),
           before:
             previous == null
               ? null
@@ -3840,8 +3839,7 @@ export function stationRoutes(app: FastifyInstance): void {
           entityId: id,
           entityIdSnapshot: id,
           action: 'deleted',
-          actor: 'operator',
-          actorUserId: userId,
+          ...getAuditActor(request),
           before: { scope: 'station', stationId: id, pricingGroupId },
         },
         db,

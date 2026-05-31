@@ -73,7 +73,7 @@ import { authorize } from '../middleware/rbac.js';
 
 const ocppEventSettingItem = z
   .object({
-    id: z.string().describe('Setting ID'),
+    id: z.number().int().describe('Setting ID'),
     eventType: z
       .string()
       .max(255)
@@ -93,13 +93,18 @@ const ocppEventSettingItem = z
   })
   .passthrough();
 
-const driverEventSettingItem = z
+// Shared item shape for driver + system event toggle settings. Both tables
+// expose the same columns; the endpoint summaries differentiate which catalog
+// of event types each surface manages.
+const eventToggleSettingItem = z
   .object({
-    id: z.string().describe('Setting ID'),
+    id: z.number().int().describe('Setting ID'),
     eventType: z
       .string()
       .max(255)
-      .describe('Driver event type (e.g. session.Started, session.Completed)'),
+      .describe(
+        'Event type identifier (driver event for driver settings, system event for system settings)',
+      ),
     isEnabled: z.boolean().describe('Whether notifications are enabled for this event type'),
     createdAt: z.coerce.date().describe('Timestamp when the setting was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the setting was last updated'),
@@ -108,14 +113,14 @@ const driverEventSettingItem = z
 
 const notificationHistoryItem = z
   .object({
-    id: z.string().describe('Notification ID'),
+    id: z.number().int().describe('Notification ID'),
     eventType: z
       .string()
       .max(255)
       .describe('Notification event type (e.g. session.Started, ocpp.BootNotification)'),
     channel: z
-      .enum(['email', 'webhook', 'sms', 'log'])
-      .describe('Delivery channel (email, webhook, sms, log)'),
+      .enum(['email', 'webhook', 'sms', 'push', 'log'])
+      .describe('Delivery channel (email, webhook, sms, push, log)'),
     recipient: z.string().max(500).describe('Recipient address (email, phone, or webhook URL)'),
     status: z
       .enum(['pending', 'sent', 'failed'])
@@ -257,8 +262,11 @@ const SYSTEM_EVENT_TYPES = [
 
 const ALL_EVENT_TYPES = [...OCPP_EVENT_TYPES, ...DRIVER_EVENT_TYPES, ...SYSTEM_EVENT_TYPES];
 
-const driverEventSettingsBody = z.object({
-  eventType: z.string().max(255).describe('Driver event type identifier'),
+const eventToggleSettingBody = z.object({
+  eventType: z
+    .string()
+    .max(255)
+    .describe('Event type identifier (driver or system event, depending on endpoint)'),
   isEnabled: z.boolean().describe('Whether notifications are enabled for this event type'),
 });
 
@@ -637,7 +645,7 @@ export function notificationRoutes(app: FastifyInstance): void {
         .insert(ocppEventSettings)
         .values({
           eventType: body.eventType,
-          recipient: body.recipient ?? (channel === 'webhook' ? '' : ''),
+          recipient: body.recipient ?? '',
           channel,
           templateHtml: body.templateHtml ?? null,
           language: body.language ?? null,
@@ -764,7 +772,11 @@ export function notificationRoutes(app: FastifyInstance): void {
         body: zodSchema(testBody),
         response: {
           200: successResponse,
-          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          400: errorWith('Validation or configuration error', [
+            ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.EMAIL_NOT_CONFIGURED,
+            ERROR_CODES.SMS_NOT_CONFIGURED,
+          ]),
           500: errorWith('Server error', [
             ERROR_CODES.EMAIL_SEND_FAILED,
             ERROR_CODES.SMS_SEND_FAILED,
@@ -814,7 +826,8 @@ export function notificationRoutes(app: FastifyInstance): void {
           try {
             password = decryptString(rawPassword, encryptionKey);
           } catch {
-            // Use raw value if decryption fails
+            // Leave password empty so SMTP returns a clear auth failure instead
+            // of silently leaking ciphertext as the credential.
           }
         }
 
@@ -861,7 +874,8 @@ export function notificationRoutes(app: FastifyInstance): void {
         try {
           authToken = decryptString(rawToken, encryptionKey);
         } catch {
-          // Use raw value if decryption fails
+          // Leave authToken empty so Twilio returns a clear auth failure
+          // instead of silently leaking ciphertext as the credential.
         }
       }
 
@@ -875,6 +889,8 @@ export function notificationRoutes(app: FastifyInstance): void {
       });
 
       try {
+        // Cap at 10s to match sendSms in @evtivity/lib so a hanging Twilio
+        // request can't stall the operator's settings test indefinitely.
         const response = await fetch(url, {
           method: 'POST',
           headers: {
@@ -882,6 +898,7 @@ export function notificationRoutes(app: FastifyInstance): void {
             'Content-Type': 'application/x-www-form-urlencoded',
           },
           body: smsParams.toString(),
+          signal: AbortSignal.timeout(10_000),
         });
         if (!response.ok) {
           const text = await response.text();
@@ -908,7 +925,7 @@ export function notificationRoutes(app: FastifyInstance): void {
         summary: 'List driver event settings',
         operationId: 'getDriverEventSettings',
         security: [{ bearerAuth: [] }],
-        response: { 200: arrayResponse(driverEventSettingItem) },
+        response: { 200: arrayResponse(eventToggleSettingItem) },
       },
     },
     async () => {
@@ -926,12 +943,12 @@ export function notificationRoutes(app: FastifyInstance): void {
         summary: 'Create or update a driver event setting',
         operationId: 'updateDriverEventSettings',
         security: [{ bearerAuth: [] }],
-        body: zodSchema(driverEventSettingsBody),
-        response: { 200: itemResponse(driverEventSettingItem) },
+        body: zodSchema(eventToggleSettingBody),
+        response: { 200: itemResponse(eventToggleSettingItem) },
       },
     },
     async (request) => {
-      const body = request.body as z.infer<typeof driverEventSettingsBody>;
+      const body = request.body as z.infer<typeof eventToggleSettingBody>;
       const [saved] = await db
         .insert(driverEventSettings)
         .values({
@@ -961,7 +978,7 @@ export function notificationRoutes(app: FastifyInstance): void {
         summary: 'List system event settings',
         operationId: 'getSystemEventSettings',
         security: [{ bearerAuth: [] }],
-        response: { 200: arrayResponse(driverEventSettingItem) },
+        response: { 200: arrayResponse(eventToggleSettingItem) },
       },
     },
     async () => {
@@ -979,12 +996,12 @@ export function notificationRoutes(app: FastifyInstance): void {
         summary: 'Create or update a system event setting',
         operationId: 'updateSystemEventSettings',
         security: [{ bearerAuth: [] }],
-        body: zodSchema(driverEventSettingsBody),
-        response: { 200: itemResponse(driverEventSettingItem) },
+        body: zodSchema(eventToggleSettingBody),
+        response: { 200: itemResponse(eventToggleSettingItem) },
       },
     },
     async (request) => {
-      const body = request.body as z.infer<typeof driverEventSettingsBody>;
+      const body = request.body as z.infer<typeof eventToggleSettingBody>;
       const [saved] = await db
         .insert(systemEventSettings)
         .values({

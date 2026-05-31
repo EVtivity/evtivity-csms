@@ -14,7 +14,6 @@ import {
 } from '@evtivity/database';
 import { eq } from 'drizzle-orm';
 import { getAuditActor } from '../lib/audit-actor.js';
-import type { JwtPayload } from '../plugins/auth.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -914,7 +913,6 @@ export function fleetRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
-      const { userId } = request.user as JwtPayload;
       const body = request.body as z.infer<typeof addPricingGroupBody>;
       // Pre-check fleet existence so the FK race on the INSERT below can
       // be safely attributed to the pricing group (the only remaining
@@ -950,35 +948,41 @@ export function fleetRoutes(app: FastifyInstance): void {
         }
         throw err;
       }
-      await writeAudit(
-        { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
-        {
-          entityId: id,
-          entityIdSnapshot: id,
-          action: previous == null ? 'created' : 'updated',
-          actor: 'operator',
-          actorUserId: userId,
-          before:
-            previous == null ? null : { scope: 'fleet', fleetId: id, pricingGroupId: previous.id },
-          after: { scope: 'fleet', fleetId: id, pricingGroupId: body.pricingGroupId },
-        },
-        db,
-        request.log,
-      );
       const actor = getAuditActor(request);
-      await writeAudit(
-        { table: fleetAuditLog, idColumn: 'fleet_id' },
-        {
-          entityId: id,
-          entityIdSnapshot: id,
-          action: 'pricing_assignment_changed',
-          ...actor,
-          before: previous == null ? null : { pricingGroupId: previous.id },
-          after: { pricingGroupId: body.pricingGroupId },
-        },
-        db,
-        request.log,
-      );
+      // Two independent audit rows for two different tables — write in parallel.
+      // Both calls swallow errors internally so the response is never blocked
+      // by an audit failure.
+      await Promise.all([
+        writeAudit(
+          { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: previous == null ? 'created' : 'updated',
+            ...actor,
+            before:
+              previous == null
+                ? null
+                : { scope: 'fleet', fleetId: id, pricingGroupId: previous.id },
+            after: { scope: 'fleet', fleetId: id, pricingGroupId: body.pricingGroupId },
+          },
+          db,
+          request.log,
+        ),
+        writeAudit(
+          { table: fleetAuditLog, idColumn: 'fleet_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'pricing_assignment_changed',
+            ...actor,
+            before: previous == null ? null : { pricingGroupId: previous.id },
+            after: { pricingGroupId: body.pricingGroupId },
+          },
+          db,
+          request.log,
+        ),
+      ]);
       await publishPricingChanged({
         pricingGroupId: body.pricingGroupId,
         action: 'assignment.changed',
@@ -1008,7 +1012,6 @@ export function fleetRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id, pricingGroupId } = request.params as z.infer<typeof pricingGroupParams>;
-      const { userId } = request.user as JwtPayload;
       const record = await fleetService.removePricingGroupFromFleet(id, pricingGroupId);
       if (record == null) {
         await reply.status(404).send({
@@ -1017,32 +1020,33 @@ export function fleetRoutes(app: FastifyInstance): void {
         });
         return;
       }
-      await writeAudit(
-        { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
-        {
-          entityId: id,
-          entityIdSnapshot: id,
-          action: 'deleted',
-          actor: 'operator',
-          actorUserId: userId,
-          before: { scope: 'fleet', fleetId: id, pricingGroupId },
-        },
-        db,
-        request.log,
-      );
       const actor = getAuditActor(request);
-      await writeAudit(
-        { table: fleetAuditLog, idColumn: 'fleet_id' },
-        {
-          entityId: id,
-          entityIdSnapshot: id,
-          action: 'pricing_assignment_changed',
-          ...actor,
-          before: { pricingGroupId },
-        },
-        db,
-        request.log,
-      );
+      await Promise.all([
+        writeAudit(
+          { table: pricingAssignmentAuditLog, idColumn: 'pricing_assignment_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'deleted',
+            ...actor,
+            before: { scope: 'fleet', fleetId: id, pricingGroupId },
+          },
+          db,
+          request.log,
+        ),
+        writeAudit(
+          { table: fleetAuditLog, idColumn: 'fleet_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'pricing_assignment_changed',
+            ...actor,
+            before: { pricingGroupId },
+          },
+          db,
+          request.log,
+        ),
+      ]);
       await publishPricingChanged({ pricingGroupId, action: 'assignment.changed', fleetId: id });
       return record;
     },

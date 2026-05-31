@@ -795,13 +795,13 @@ describe('notification-dispatch (full coverage)', () => {
   // -----------------------------------------------------------------------
 
   describe('sendWebhook', () => {
-    it('returns false on fetch exception', async () => {
+    it('returns network_error on fetch exception', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network error'));
       const { sendWebhook } = await freshImport();
       const result = await sendWebhook('https://hook.example.com', 'Subject', 'Body', {
         key: 'val',
       });
-      expect(result).toBe(false);
+      expect(result).toBe('network_error');
     });
 
     it('sends JSON body with variables merged', async () => {

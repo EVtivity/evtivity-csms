@@ -90,6 +90,19 @@ function getString(obj: Record<string, unknown>, key: string): string | null {
   return typeof val === 'string' ? val : null;
 }
 
+// Currency-aware amount formatter for driver notifications. Hardcoding "$"
+// gave non-USD operators a wrong-currency symbol in CaptureFailed templates.
+// Falls back to a "CODE 12.50" string if the currency code is malformed.
+function formatCurrencyAmount(amountCents: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(
+      amountCents / 100,
+    );
+  } catch {
+    return `${currency.toUpperCase()} ${(amountCents / 100).toFixed(2)}`;
+  }
+}
+
 export interface ProjectionOptions {
   registry?: ConnectionRegistry;
   instanceId?: string;
@@ -3392,6 +3405,42 @@ export function registerProjections(
       }
     }
 
+    async function notifyPreAuthFailed(reason: string): Promise<void> {
+      if (driverId == null) return;
+      try {
+        void dispatchDriverNotification(
+          sql,
+          'payment.PreAuthFailed',
+          driverId,
+          {
+            stationId: ocppStationId,
+            transactionId,
+            reason: reason.slice(0, 200),
+          },
+          ALL_TEMPLATES_DIRS,
+          pubsub,
+        );
+      } catch (err) {
+        logger.debug(
+          { err, driverId, sessionId },
+          'PreAuthFailed notification dispatch failed; continuing',
+        );
+      }
+      try {
+        await pubsub.publish(
+          'csms_events',
+          JSON.stringify({
+            type: 'payment.preAuthFailed',
+            sessionId,
+            transactionId,
+            reason: reason.slice(0, 200),
+          }),
+        );
+      } catch (err) {
+        logger.debug({ err, sessionId }, 'PreAuthFailed SSE publish failed; continuing');
+      }
+    }
+
     if (driverId != null) {
       // ---- Driver session ----
       const pmRows = await sql`
@@ -3626,8 +3675,14 @@ export function registerProjections(
         return;
       }
 
-      // Case 3: Real Stripe pre-auth
+      // Case 3: Real Stripe pre-auth.
+      // Stripe call and payment_records INSERT are intentionally in separate
+      // try/catch: a Stripe decline must fault the session, while a DB hiccup
+      // after a successful pre-auth must REVERSE the Stripe hold (otherwise
+      // the driver's card stays held but no internal record exists).
       const encryptionKey = config.SETTINGS_ENCRYPTION_KEY;
+      let stripeClient: import('stripe').default | null = null;
+      let paymentIntentId: string | null = null;
 
       try {
         // Get Stripe secret key and platform fee (currency/amount already resolved above)
@@ -3650,7 +3705,7 @@ export function registerProjections(
         const secretKey = decryptString(secretKeyEnc, encryptionKey);
 
         const Stripe = (await import('stripe')).default;
-        const stripe = new Stripe(secretKey);
+        stripeClient = new Stripe(secretKey);
 
         const piParams: import('stripe').default.PaymentIntentCreateParams = {
           amount: platformPreAuthCents,
@@ -3672,30 +3727,10 @@ export function registerProjections(
           }
         }
 
-        const paymentIntent = await stripe.paymentIntents.create(piParams, {
+        const paymentIntent = await stripeClient.paymentIntents.create(piParams, {
           idempotencyKey: `preauth_${sessionId}`,
         });
-
-        await sql`
-            INSERT INTO payment_records (
-              session_id, driver_id, site_payment_config_id,
-              stripe_payment_intent_id, stripe_customer_id, stripe_payment_method_id,
-              payment_source, currency, pre_auth_amount_cents, status
-            )
-            VALUES (
-              ${sessionId},
-              ${driverId},
-              ${siteConfigId},
-              ${paymentIntent.id},
-              ${pm.stripe_customer_id as string},
-              ${pm.stripe_payment_method_id as string},
-              'web_portal',
-              ${platformCurrency},
-              ${platformPreAuthCents},
-              'pre_authorized'
-            )
-            ON CONFLICT (session_id) DO NOTHING
-          `;
+        paymentIntentId = paymentIntent.id;
       } catch (err) {
         logger.error({ err }, 'Auto pre-auth failed, stopping session');
         const reason = err instanceof Error ? err.message.slice(0, 500) : 'Unknown pre-auth error';
@@ -3723,40 +3758,51 @@ export function registerProjections(
         }
 
         await stopSession('PaymentFailed');
+        await notifyPreAuthFailed(reason);
+        return;
+      }
 
+      // Stripe pre-auth succeeded -- record it. If the INSERT fails we must
+      // cancel the Stripe hold so the driver's card isn't held with no internal
+      // mirror; otherwise a retry would create a second hold under a new session.
+      // Reaching here means the try block completed without throwing, so both
+      // paymentIntentId and stripeClient are non-null (the catch block returned).
+      try {
+        await sql`
+          INSERT INTO payment_records (
+            session_id, driver_id, site_payment_config_id,
+            stripe_payment_intent_id, stripe_customer_id, stripe_payment_method_id,
+            payment_source, currency, pre_auth_amount_cents, status
+          )
+          VALUES (
+            ${sessionId},
+            ${driverId},
+            ${siteConfigId},
+            ${paymentIntentId},
+            ${pm.stripe_customer_id as string},
+            ${pm.stripe_payment_method_id as string},
+            'web_portal',
+            ${platformCurrency},
+            ${platformPreAuthCents},
+            'pre_authorized'
+          )
+          ON CONFLICT (session_id) DO NOTHING
+        `;
+      } catch (insertErr) {
+        logger.error(
+          { err: insertErr, sessionId, paymentIntentId },
+          'Failed to record successful pre-auth; reversing Stripe hold',
+        );
         try {
-          void dispatchDriverNotification(
-            sql,
-            'payment.PreAuthFailed',
-            driverId,
-            {
-              stationId: ocppStationId,
-              transactionId,
-              reason: reason.slice(0, 200),
-            },
-            ALL_TEMPLATES_DIRS,
-            pubsub,
-          );
-        } catch (err) {
-          logger.debug(
-            { err, driverId, sessionId },
-            'PreAuthFailed notification dispatch failed; continuing',
+          await stripeClient.paymentIntents.cancel(paymentIntentId);
+        } catch (cancelErr) {
+          logger.error(
+            { err: cancelErr, paymentIntentId, sessionId },
+            'Failed to cancel Stripe pre-auth after DB INSERT failure; manual reconciliation required',
           );
         }
-
-        try {
-          await pubsub.publish(
-            'csms_events',
-            JSON.stringify({
-              type: 'payment.preAuthFailed',
-              sessionId,
-              transactionId,
-              reason: reason.slice(0, 200),
-            }),
-          );
-        } catch (err) {
-          logger.debug({ err, sessionId }, 'PreAuthFailed SSE publish failed; continuing');
-        }
+        await stopSession('PaymentFailed');
+        await notifyPreAuthFailed('Payment recording failed. Please contact support.');
       }
     } else {
       // ---- Guest or anonymous session ----
@@ -3812,7 +3858,8 @@ export function registerProjections(
     if (eventType === 'Ended') {
       // Auto-capture on session end
       const sessionRows = await sql`
-        SELECT cs.id, cs.final_cost_cents, cs2.site_id
+        SELECT cs.id, cs.final_cost_cents, cs.currency, cs.station_id AS station_uuid,
+               cs2.station_id AS station_ocpp_id, cs2.site_id
         FROM charging_sessions cs
         JOIN charging_stations cs2 ON cs2.id = cs.station_id
         WHERE cs.transaction_id = ${transactionId}
@@ -3821,7 +3868,7 @@ export function registerProjections(
       if (session == null) return;
 
       const prRows = await sql`
-        SELECT id, stripe_payment_intent_id, driver_id
+        SELECT id, stripe_payment_intent_id, driver_id, pre_auth_amount_cents
         FROM payment_records
         WHERE session_id = ${session.id as string} AND status = 'pre_authorized'
         LIMIT 1
@@ -3835,6 +3882,7 @@ export function registerProjections(
 
       const prDriverId = pr.driver_id as string | null;
       const finalCostCents = session.final_cost_cents as number | null;
+      const sessionCurrency = (session.currency as string | null) ?? 'USD';
 
       // Guest sessions: driver_id is null on the payment record.
       // The guest-session-worker handles capture for guest sessions via finalizeGuestPayment().
@@ -3857,7 +3905,7 @@ export function registerProjections(
             logger.error({ err: dbErr }, 'Failed to mark simulated capture as failed');
           }
           try {
-            const amountFormatted = `$${((finalCostCents ?? 0) / 100).toFixed(2)}`;
+            const amountFormatted = formatCurrencyAmount(finalCostCents ?? 0, sessionCurrency);
             void dispatchDriverNotification(
               sql,
               'payment.CaptureFailed',
@@ -3890,7 +3938,8 @@ export function registerProjections(
                   updated_at = now()
               WHERE id = ${pr.id as string}
             `;
-            // Notify driver of successful payment
+            // Notify driver of successful payment. Use the session's stored
+            // currency so simulated EUR/GBP/etc tariffs don't get a USD label.
             void dispatchDriverNotification(
               sql,
               'session.PaymentReceived',
@@ -3899,7 +3948,7 @@ export function registerProjections(
                 stationId: event.aggregateId,
                 transactionId,
                 amountCents: finalCostCents,
-                currency: 'USD',
+                currency: sessionCurrency,
               },
               ALL_TEMPLATES_DIRS,
               pubsub,
@@ -3919,8 +3968,20 @@ export function registerProjections(
         return;
       }
 
-      // Real Stripe capture
+      // Real Stripe capture.
+      // Stripe operations (capture/cancel/top-up) are in their own try. The
+      // subsequent payment_records UPDATE runs in a separate try so that a DB
+      // hiccup after a successful Stripe call does NOT cause us to mark the
+      // record 'failed' and dispatch CaptureFailed to the driver -- Stripe
+      // already took the money.
       const encryptionKey = config.SETTINGS_ENCRYPTION_KEY;
+
+      let captureAmount = 0;
+      let totalCaptured = 0;
+      let topUpFailureReason: string | null = null;
+      let topUpIntentId: string | null = null;
+      let captureSucceeded = false;
+      let cancelSucceeded = false;
 
       try {
         const settingsRows = await sql`
@@ -3936,19 +3997,8 @@ export function registerProjections(
         const stripe = new Stripe(secretKey);
 
         if (finalCostCents != null && finalCostCents > 0) {
-          // Fetch session/station context up front so the top-up path knows
-          // which currency to use.
-          const captureSession = await sql`
-            SELECT cs2.station_id AS station_ocpp_id, cs.currency, cs.station_id AS station_uuid
-            FROM charging_sessions cs
-            JOIN charging_stations cs2 ON cs2.id = cs.station_id
-            WHERE cs.id = ${session.id as string}
-          `;
-          const cs = captureSession[0];
-          const sessionCurrency = (cs?.currency as string | null) ?? 'USD';
-
           const preAuthAmount = (pr.pre_auth_amount_cents as number | null) ?? finalCostCents;
-          const captureAmount = Math.min(finalCostCents, preAuthAmount);
+          captureAmount = Math.min(finalCostCents, preAuthAmount);
 
           // Always capture the pre-auth fully (or finalCost if smaller). When
           // finalCost > preauth we then create a second PaymentIntent for the
@@ -3961,9 +4011,7 @@ export function registerProjections(
             { idempotencyKey: `capture_${pr.id as string}` },
           );
 
-          let totalCaptured = captureAmount;
-          let topUpFailureReason: string | null = null;
-          let topUpIntentId: string | null = null;
+          totalCaptured = captureAmount;
 
           if (finalCostCents > preAuthAmount) {
             const deltaCents = finalCostCents - preAuthAmount;
@@ -4031,49 +4079,10 @@ export function registerProjections(
             }
           }
 
-          await sql`
-            UPDATE payment_records
-            SET status = 'captured',
-                captured_amount_cents = ${totalCaptured},
-                failure_reason = ${topUpFailureReason},
-                metadata = CASE
-                  WHEN ${topUpIntentId}::text IS NULL THEN metadata
-                  ELSE jsonb_set(COALESCE(metadata, '{}'::jsonb), '{topUpIntentId}', to_jsonb(${topUpIntentId}::text))
-                END,
-                updated_at = now()
-            WHERE id = ${pr.id as string}
-          `;
-
-          // Driver notification: payment captured via Stripe
-          const captureDriverRows = await sql`
-            SELECT driver_id FROM payment_records WHERE id = ${pr.id as string}
-          `;
-          const captureDriver = captureDriverRows[0];
-          if (captureDriver?.driver_id != null) {
-            const captureSiteName =
-              cs?.station_uuid != null ? await resolveSiteName(cs.station_uuid as string) : null;
-            void dispatchDriverNotification(
-              sql,
-              'session.PaymentReceived',
-              captureDriver.driver_id as string,
-              {
-                siteName: captureSiteName ?? '',
-                stationId: cs?.station_ocpp_id as string,
-                transactionId,
-                amountCents: totalCaptured,
-                currency: sessionCurrency,
-              },
-              ALL_TEMPLATES_DIRS,
-              pubsub,
-            );
-          }
+          captureSucceeded = true;
         } else {
           await stripe.paymentIntents.cancel(paymentIntentId);
-          await sql`
-            UPDATE payment_records
-            SET status = 'cancelled', captured_amount_cents = 0, updated_at = now()
-            WHERE id = ${pr.id as string}
-          `;
+          cancelSucceeded = true;
         }
       } catch (err) {
         logger.error({ err }, 'Auto capture/cancel failed');
@@ -4090,7 +4099,7 @@ export function registerProjections(
         }
 
         try {
-          const amountFormatted = `$${((finalCostCents ?? 0) / 100).toFixed(2)}`;
+          const amountFormatted = formatCurrencyAmount(finalCostCents ?? 0, sessionCurrency);
           void dispatchDriverNotification(
             sql,
             'payment.CaptureFailed',
@@ -4108,6 +4117,62 @@ export function registerProjections(
           logger.debug(
             { err, prDriverId, transactionId },
             'CaptureFailed notification dispatch failed; continuing',
+          );
+        }
+        return;
+      }
+
+      // Stripe succeeded -- record the result. If the UPDATE fails, log loudly
+      // (Stripe already took the money) and do NOT dispatch CaptureFailed.
+      if (captureSucceeded) {
+        try {
+          await sql`
+            UPDATE payment_records
+            SET status = 'captured',
+                captured_amount_cents = ${totalCaptured},
+                failure_reason = ${topUpFailureReason},
+                metadata = CASE
+                  WHEN ${topUpIntentId}::text IS NULL THEN metadata
+                  ELSE jsonb_set(COALESCE(metadata, '{}'::jsonb), '{topUpIntentId}', to_jsonb(${topUpIntentId}::text))
+                END,
+                updated_at = now()
+            WHERE id = ${pr.id as string}
+          `;
+        } catch (dbErr) {
+          logger.error(
+            { err: dbErr, paymentRecordId: pr.id, paymentIntentId, totalCaptured },
+            'Stripe capture succeeded but payment_records UPDATE failed; manual reconciliation required',
+          );
+          return;
+        }
+
+        const stationUuid = session.station_uuid as string | null;
+        const captureSiteName = stationUuid != null ? await resolveSiteName(stationUuid) : null;
+        void dispatchDriverNotification(
+          sql,
+          'session.PaymentReceived',
+          prDriverId,
+          {
+            siteName: captureSiteName ?? '',
+            stationId: session.station_ocpp_id as string,
+            transactionId,
+            amountCents: totalCaptured,
+            currency: sessionCurrency,
+          },
+          ALL_TEMPLATES_DIRS,
+          pubsub,
+        );
+      } else if (cancelSucceeded) {
+        try {
+          await sql`
+            UPDATE payment_records
+            SET status = 'cancelled', captured_amount_cents = 0, updated_at = now()
+            WHERE id = ${pr.id as string}
+          `;
+        } catch (dbErr) {
+          logger.error(
+            { err: dbErr, paymentRecordId: pr.id, paymentIntentId },
+            'Stripe cancel succeeded but payment_records UPDATE failed; manual reconciliation required',
           );
         }
       }

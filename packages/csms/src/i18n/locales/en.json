@@ -1456,6 +1456,7 @@
     "twilioSaved": "Twilio settings saved.",
     "twilioSaveFailed": "Failed to save Twilio settings.",
     "testNotification": "Send Test",
+    "testRecipientLabel": "Send to",
     "testSuccess": "Test notification sent.",
     "testFailed": "Failed to send test notification.",
     "companyInfo": "Company Info",

@@ -255,7 +255,7 @@ export function portalDriverRoutes(app: FastifyInstance): void {
       const { driverId } = request.user as DriverJwtPayload;
       const body = request.body as z.infer<typeof notificationPrefsItem>;
 
-      const [result] = await db
+      await db
         .insert(driverNotificationPreferences)
         .values({
           driverId,
@@ -269,10 +269,9 @@ export function portalDriverRoutes(app: FastifyInstance): void {
             smsEnabled: body.smsEnabled,
             updatedAt: new Date(),
           },
-        })
-        .returning();
+        });
 
-      return result;
+      return { emailEnabled: body.emailEnabled, smsEnabled: body.smsEnabled };
     },
   );
 

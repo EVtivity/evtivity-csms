@@ -161,7 +161,7 @@ describe('dispatchOcppNotification', () => {
     });
     mockResolveRecipients.mockReturnValue([{ address: 'https://hook.test.com', language: 'en' }]);
     mockRenderTemplate.mockResolvedValue({ subject: 'Test', body: 'Body' });
-    mockSendWebhook.mockResolvedValue(true);
+    mockSendWebhook.mockResolvedValue('ok');
 
     const sql = createSqlMock();
     await dispatchOcppNotification(sql as never, makeEvent('ocpp.StatusNotification'));
@@ -239,7 +239,7 @@ describe('dispatchOcppNotification', () => {
     mockRenderTemplate.mockResolvedValue({ subject: 'Test', body: 'Body', html: '<p>Body</p>' });
     mockWrapEmailHtml.mockReturnValue('<div><p>Body</p></div>');
     mockSendEmail.mockResolvedValue(true);
-    mockSendWebhook.mockResolvedValue(true);
+    mockSendWebhook.mockResolvedValue('ok');
 
     const sql = createSqlMock();
     await dispatchOcppNotification(sql as never, makeEvent('ocpp.StatusNotification'));

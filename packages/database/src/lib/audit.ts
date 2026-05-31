@@ -62,10 +62,10 @@ const SENSITIVE_AUDIT_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Returns a shallow copy of `obj` with sensitive fields redacted to the
- * literal string '<redacted>'. Recurses one level into nested objects so
- * `before.driver.passwordHash` is also caught. Arrays and primitives pass
- * through unchanged.
+ * Returns a redacted copy of `obj` with sensitive fields replaced by the
+ * literal string '<redacted>'. Recurses into nested plain objects so a
+ * sensitive field at any depth is caught (e.g. `before.driver.profile.passwordHash`).
+ * Arrays, Dates, and primitives pass through unchanged.
  */
 export function redactAuditPayload(obj: unknown): unknown {
   if (obj == null || typeof obj !== 'object') return obj;
@@ -100,8 +100,8 @@ export async function writeAudit(
       actorApiKeyId: args.actorApiKeyId ?? null,
       actorLabel: args.actorLabel ?? null,
       // Always strip sensitive fields (password hashes, encrypted secrets,
-      // certificate private keys) before persisting. The redactor caches
-      // a shallow copy so the original entity row passed in by the caller
+      // certificate private keys) before persisting. The redactor returns
+      // a fresh object so the original entity row passed in by the caller
       // is not mutated.
       before: args.before == null ? null : redactAuditPayload(args.before),
       after: args.after == null ? null : redactAuditPayload(args.after),

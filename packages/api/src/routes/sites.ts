@@ -1932,8 +1932,7 @@ export function siteRoutes(app: FastifyInstance): void {
           entityId: id,
           entityIdSnapshot: id,
           action: previous == null ? 'created' : 'updated',
-          actor: 'operator',
-          actorUserId: userId,
+          ...getAuditActor(request),
           before:
             previous == null
               ? null
@@ -2001,8 +2000,7 @@ export function siteRoutes(app: FastifyInstance): void {
           entityId: id,
           entityIdSnapshot: id,
           action: 'deleted',
-          actor: 'operator',
-          actorUserId: userId,
+          ...getAuditActor(request),
           before: { scope: 'site', siteId: id, pricingGroupId },
         },
         db,

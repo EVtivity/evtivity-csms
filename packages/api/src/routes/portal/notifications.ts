@@ -16,7 +16,7 @@ const notificationItem = z
   .object({
     id: z.number().int().min(1).describe('Notification ID'),
     channel: z
-      .enum(['email', 'webhook', 'sms', 'log'])
+      .enum(['email', 'webhook', 'sms', 'log', 'push'])
       .describe('Delivery channel used for this notification'),
     subject: z
       .string()
@@ -38,6 +38,10 @@ const unreadCountResponse = z
   })
   .passthrough();
 
+function driverPushFilter(driverId: string): ReturnType<typeof sql> {
+  return sql`${notifications.metadata}->>'driverId' = ${driverId} AND ${notifications.channel} = 'push'`;
+}
+
 export function portalNotificationRoutes(app: FastifyInstance): void {
   app.get(
     '/portal/notifications',
@@ -57,6 +61,7 @@ export function portalNotificationRoutes(app: FastifyInstance): void {
       const { page, limit } = request.query as z.infer<typeof paginationQuery>;
       const offset = (page - 1) * limit;
 
+      const baseFilter = driverPushFilter(driverId);
       const [data, countRows] = await Promise.all([
         db
           .select({
@@ -67,18 +72,14 @@ export function portalNotificationRoutes(app: FastifyInstance): void {
             createdAt: notifications.createdAt,
           })
           .from(notifications)
-          .where(
-            sql`${notifications.metadata}->>'driverId' = ${driverId} AND ${notifications.channel} = 'push'`,
-          )
+          .where(baseFilter)
           .orderBy(desc(notifications.createdAt))
           .limit(limit)
           .offset(offset),
         db
           .select({ count: sql<number>`count(*)::int` })
           .from(notifications)
-          .where(
-            sql`${notifications.metadata}->>'driverId' = ${driverId} AND ${notifications.channel} = 'push'`,
-          ),
+          .where(baseFilter),
       ]);
 
       return { data, total: countRows[0]?.count ?? 0 } satisfies PaginatedResponse<
@@ -109,10 +110,11 @@ export function portalNotificationRoutes(app: FastifyInstance): void {
 
       const lastReadAt = driver?.lastNotificationReadAt;
 
+      const baseFilter = driverPushFilter(driverId);
       const whereClause =
         lastReadAt != null
-          ? sql`${notifications.metadata}->>'driverId' = ${driverId} AND ${notifications.channel} = 'push' AND ${notifications.createdAt} > ${lastReadAt.toISOString()}`
-          : sql`${notifications.metadata}->>'driverId' = ${driverId} AND ${notifications.channel} = 'push'`;
+          ? sql`${baseFilter} AND ${notifications.createdAt} > ${lastReadAt.toISOString()}`
+          : baseFilter;
 
       const [result] = await db
         .select({ count: sql<number>`count(*)::int` })

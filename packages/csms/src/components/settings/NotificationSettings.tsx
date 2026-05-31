@@ -84,6 +84,9 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
   const [twilioAuthToken, setTwilioAuthToken] = useState('');
   const [twilioFromNumber, setTwilioFromNumber] = useState('');
 
+  const [testEmailRecipient, setTestEmailRecipient] = useState('');
+  const [testSmsRecipient, setTestSmsRecipient] = useState('');
+
   const [emailWrapperTemplate, setEmailWrapperTemplate] = useState(DEFAULT_EMAIL_WRAPPER);
   const [notificationSubTab, setNotificationSubTab] = useTab('smtp', 'sub');
   const [copiedVar, setCopiedVar] = useState<string | null>(null);
@@ -98,7 +101,9 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
     setSmtpPort(s('smtp.port') || '587');
     setSmtpUsername(s('smtp.username'));
     setSmtpPassword(s('smtp.passwordEnc'));
-    setSmtpFrom(s('smtp.from'));
+    const fromAddr = s('smtp.from');
+    setSmtpFrom(fromAddr);
+    setTestEmailRecipient((current) => (current === '' ? fromAddr : current));
     setTwilioAccountSid(s('twilio.accountSid'));
     setTwilioAuthToken(s('twilio.authTokenEnc'));
     setTwilioFromNumber(s('twilio.fromNumber'));
@@ -273,12 +278,28 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
                   });
                 }}
               />
+              <Input
+                aria-label={t('settings.testRecipientLabel')}
+                value={testEmailRecipient}
+                onChange={(e) => {
+                  setTestEmailRecipient(e.target.value);
+                }}
+                placeholder="test@example.com"
+                className="w-64"
+              />
               <Button
                 variant="outline"
                 onClick={() => {
-                  testNotificationMutation.mutate({ channel: 'email', recipient: smtpFrom });
+                  testNotificationMutation.mutate({
+                    channel: 'email',
+                    recipient: testEmailRecipient,
+                  });
                 }}
-                disabled={testNotificationMutation.isPending || smtpHost === ''}
+                disabled={
+                  testNotificationMutation.isPending ||
+                  smtpHost === '' ||
+                  testEmailRecipient.trim() === ''
+                }
               >
                 <Send className="h-4 w-4" />
                 {t('settings.testNotification')}
@@ -355,15 +376,28 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
                   });
                 }}
               />
+              <Input
+                aria-label={t('settings.testRecipientLabel')}
+                value={testSmsRecipient}
+                onChange={(e) => {
+                  setTestSmsRecipient(e.target.value);
+                }}
+                placeholder="+15551234567"
+                className="w-64"
+              />
               <Button
                 variant="outline"
                 onClick={() => {
                   testNotificationMutation.mutate({
                     channel: 'sms',
-                    recipient: twilioFromNumber,
+                    recipient: testSmsRecipient,
                   });
                 }}
-                disabled={testNotificationMutation.isPending || twilioAccountSid === ''}
+                disabled={
+                  testNotificationMutation.isPending ||
+                  twilioAccountSid === '' ||
+                  testSmsRecipient.trim() === ''
+                }
               >
                 <Send className="h-4 w-4" />
                 {t('settings.testNotification')}
@@ -374,6 +408,12 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
             )}
             {twilioMutation.isError && (
               <p className="text-sm text-destructive">{t('settings.twilioSaveFailed')}</p>
+            )}
+            {testNotificationMutation.isSuccess && (
+              <p className="text-sm text-green-600">{t('settings.testSuccess')}</p>
+            )}
+            {testNotificationMutation.isError && (
+              <p className="text-sm text-destructive">{t('settings.testFailed')}</p>
             )}
           </CardContent>
         </Card>

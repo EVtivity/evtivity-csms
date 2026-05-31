@@ -1456,6 +1456,7 @@
     "twilioSaved": "Twilio 设置已保存。",
     "twilioSaveFailed": "Twilio 设置保存失败。",
     "testNotification": "发送测试",
+    "testRecipientLabel": "发送至",
     "testSuccess": "测试通知已发送。",
     "testFailed": "发送测试通知失败。",
     "companyInfo": "公司信息",

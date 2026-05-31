@@ -12,6 +12,7 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
 import { clearHolidayCache } from '../services/tariff.service.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
+import { getAuditActor } from '../lib/audit-actor.js';
 
 async function publishHolidayChanged(): Promise<void> {
   // Clear the in-process holiday cache so the next resolveTariff() call on
@@ -116,15 +117,13 @@ export function holidayRoutes(app: FastifyInstance): void {
       try {
         const [holiday] = await db.insert(pricingHolidays).values(body).returning();
         if (holiday != null) {
-          const { userId } = request.user as { userId: string };
           await writeAudit(
             { table: holidayAuditLog, idColumn: 'holiday_id' },
             {
               entityId: String(holiday.id),
               entityIdSnapshot: String(holiday.id),
               action: 'created',
-              actor: 'operator',
-              actorUserId: userId,
+              ...getAuditActor(request),
               after: holiday,
             },
             db,
@@ -176,15 +175,13 @@ export function holidayRoutes(app: FastifyInstance): void {
         return;
       }
       await db.delete(pricingHolidays).where(eq(pricingHolidays.id, id));
-      const { userId } = request.user as { userId: string };
       await writeAudit(
         { table: holidayAuditLog, idColumn: 'holiday_id' },
         {
           entityId: String(id),
           entityIdSnapshot: String(id),
           action: 'deleted',
-          actor: 'operator',
-          actorUserId: userId,
+          ...getAuditActor(request),
           before: existing,
         },
         db,
@@ -225,7 +222,6 @@ export function holidayRoutes(app: FastifyInstance): void {
         .map((h) => ({ date: h.date, reason: 'duplicate' as const }));
 
       if (result.length > 0) {
-        const { userId } = request.user as { userId: string };
         // Fire the per-row audit writes in parallel. writeAudit is fail-open
         // (catches and warn-logs internally, never throws), so a slower row
         // can't block the rest, and the bulk endpoint's worst-case latency
@@ -238,8 +234,7 @@ export function holidayRoutes(app: FastifyInstance): void {
                 entityId: String(h.id),
                 entityIdSnapshot: String(h.id),
                 action: 'created',
-                actor: 'operator',
-                actorUserId: userId,
+                ...getAuditActor(request),
                 after: h,
                 notes: 'bulk import',
               },

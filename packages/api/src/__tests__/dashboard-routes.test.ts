@@ -449,6 +449,7 @@ describe('Dashboard routes', () => {
   it('GET /v1/dashboard/snapshots returns aggregated snapshot for a date', async () => {
     vi.mocked(db.execute).mockResolvedValueOnce([
       {
+        has_data: true,
         total_stations: '10',
         online_stations: '9',
         online_percent: '90',
@@ -466,6 +467,8 @@ describe('Dashboard routes', () => {
         day_transactions: '10',
         total_ports: '20',
         stations_below_threshold: '1',
+        avg_ping_latency_ms: '12.5',
+        ping_success_rate: '99.1',
       },
     ] as never);
     const response = await app.inject({
@@ -505,6 +508,7 @@ describe('Dashboard routes', () => {
     vi.mocked(db.execute).mockResolvedValueOnce([
       {
         date: '2026-03-12',
+        has_data: true,
         total_stations: '10',
         online_percent: '95',
         uptime_percent: '99',
@@ -520,6 +524,8 @@ describe('Dashboard routes', () => {
         day_transactions: '10',
         total_ports: '20',
         stations_below_threshold: '0',
+        avg_ping_latency_ms: '12.5',
+        ping_success_rate: '99.1',
       },
     ] as never);
     const response = await app.inject({

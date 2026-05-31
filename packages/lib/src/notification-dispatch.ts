@@ -158,7 +158,7 @@ export function wrapEmailHtml(
   const customTemplate = wrapperTemplate != null && wrapperTemplate !== '' ? wrapperTemplate : null;
   if (customTemplate != null) {
     try {
-      return compileTemplate(customTemplate, { content: bodyHtml, companyName, ...variables });
+      return compileTemplate(customTemplate, { ...variables, content: bodyHtml, companyName });
     } catch (err) {
       // A bad operator-edited wrapper template would otherwise throw and
       // bail out of the whole dispatch, swallowing every outbound email
@@ -169,9 +169,9 @@ export function wrapEmailHtml(
     }
   }
   return compileTemplate(DEFAULT_EMAIL_WRAPPER, {
+    ...variables,
     content: bodyHtml,
     companyName,
-    ...variables,
   });
 }
 
@@ -186,16 +186,18 @@ const CACHE_TTL_MS = 60 * 1000;
 let settingsCache: { settings: NotificationSettings; expiresAt: number } | null = null;
 
 /**
- * Drop the cached SMTP/Twilio/wrapper settings so the next dispatch reads
- * fresh values from the database. Call this after the API mutates any of
- * `smtp.*`, `twilio.*`, or `email.wrapperTemplate` so the change takes
- * effect immediately on the pod that handled the mutation instead of after
- * the full 5-minute TTL. The 5-minute window for other pods is still
- * acceptable because credentials don't change often.
+ * Drop the cached SMTP/Twilio/wrapper, company, and system timezone settings
+ * so the next dispatch reads fresh values from the database. Call this after
+ * the API mutates any of `smtp.*`, `twilio.*`, `email.wrapperTemplate`,
+ * `company.*`, or `system.timezone` so the change takes effect immediately
+ * on the pod that handled the mutation instead of after the 60s TTL. Other
+ * pods still wait the TTL, which is acceptable because these settings change
+ * rarely.
  */
 export function clearNotificationSettingsCache(): void {
   settingsCache = null;
   companyCache = null;
+  systemTimezoneCache = null;
 }
 
 interface CompanySettings {
@@ -523,11 +525,18 @@ export async function sendEmail(
   attachments?: EmailAttachment[],
 ): Promise<boolean> {
   try {
+    // Cap connect/greeting/send to 10s each so a black-holed SMTP server
+    // can't stall the dispatcher chain. Matches the 10s timeout in
+    // sendSms (Twilio) and sendWebhook so all three channels degrade
+    // uniformly under upstream latency.
     const transport = nodemailer.createTransport({
       host: config.host,
       port: config.port,
       secure: config.port === 465,
       auth: config.username !== '' ? { user: config.username, pass: config.password } : undefined,
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 10_000,
     });
     await transport.sendMail({
       from: config.from,
@@ -597,15 +606,22 @@ export async function sendSms(config: TwilioConfig, to: string, body: string): P
   }
 }
 
+export type WebhookResult =
+  | 'ok'
+  | 'blocked_private_url'
+  | 'http_error'
+  | 'network_error'
+  | 'timeout';
+
 export async function sendWebhook(
   url: string,
   subject: string,
   body: string,
   variables: Record<string, unknown>,
-): Promise<boolean> {
+): Promise<WebhookResult> {
   if (isPrivateUrl(url)) {
     logger.warn({ url }, 'Blocked webhook to private/internal URL');
-    return false;
+    return 'blocked_private_url';
   }
   // Cap each delivery at 10s. Without an AbortController the fetch can hang
   // indefinitely on a slow or stalled webhook endpoint and starve subsequent
@@ -624,12 +640,14 @@ export async function sendWebhook(
     if (!response.ok) {
       const text = await response.text();
       logger.error({ status: response.status, body: text, url }, 'Webhook delivery failed');
-      return false;
+      return 'http_error';
     }
-    return true;
+    return 'ok';
   } catch (err) {
-    logger.error({ err, url }, 'Failed to send webhook');
-    return false;
+    const isAbort =
+      err instanceof Error && (err.name === 'AbortError' || err.message.includes('aborted'));
+    logger.error({ err, url }, isAbort ? 'Webhook timed out' : 'Failed to send webhook');
+    return isAbort ? 'timeout' : 'network_error';
   } finally {
     clearTimeout(timer);
   }
@@ -762,7 +780,7 @@ export async function dispatchDriverNotification(
         storedBody = redactSensitiveNotificationContent(wrappedHtml ?? rendered.body, eventType);
       }
 
-      const recipientForRow = email != null && email !== '' ? email : '(none on file)';
+      const recipientForRow = email != null && email !== '' ? email : '';
       const metadata: Record<string, string> = { driverId };
       if (failureReason != null) metadata['failureReason'] = failureReason;
       await recordNotificationAttempt(sql, {
@@ -813,7 +831,7 @@ export async function dispatchDriverNotification(
         storedSmsBody = redactSensitiveNotificationContent(smsRendered.body, eventType);
       }
 
-      const recipientForRow = phone != null && phone !== '' ? phone : '(none on file)';
+      const recipientForRow = phone != null && phone !== '' ? phone : '';
       const metadata: Record<string, string> = { driverId };
       if (failureReason != null) metadata['failureReason'] = failureReason;
       await recordNotificationAttempt(sql, {
@@ -988,7 +1006,7 @@ export async function dispatchSystemNotification(
         storedBody = redactSensitiveNotificationContent(wrappedHtml ?? rendered.body, eventType);
       }
 
-      const recipientForRow = email != null && email !== '' ? email : '(none on file)';
+      const recipientForRow = email != null && email !== '' ? email : '';
       const metadata: Record<string, string> = {};
       if (failureReason != null) metadata['failureReason'] = failureReason;
       await recordNotificationAttempt(sql, {
@@ -1051,7 +1069,7 @@ export async function dispatchSystemNotification(
         storedSmsBody = redactSensitiveNotificationContent(rendered.body, eventType);
       }
 
-      const recipientForRow = phone != null && phone !== '' ? phone : '(none on file)';
+      const recipientForRow = phone != null && phone !== '' ? phone : '';
       const metadata: Record<string, string> = {};
       if (failureReason != null) metadata['failureReason'] = failureReason;
       await recordNotificationAttempt(sql, {

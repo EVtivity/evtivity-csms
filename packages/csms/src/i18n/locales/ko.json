@@ -1456,6 +1456,7 @@
     "twilioSaved": "Twilio 설정이 저장되었습니다.",
     "twilioSaveFailed": "Twilio 설정 저장에 실패했습니다.",
     "testNotification": "테스트 전송",
+    "testRecipientLabel": "수신자",
     "testSuccess": "테스트 알림이 전송되었습니다.",
     "testFailed": "테스트 알림 전송에 실패했습니다.",
     "companyInfo": "회사 정보",

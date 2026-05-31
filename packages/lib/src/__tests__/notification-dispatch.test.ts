@@ -287,12 +287,12 @@ describe('notification-dispatch', () => {
   });
 
   describe('sendWebhook', () => {
-    it('sends webhook and returns true', async () => {
+    it('sends webhook and returns ok', async () => {
       const { sendWebhook } = await import('../notification-dispatch.js');
       const result = await sendWebhook('https://webhook.test.com/hook', 'Subject', 'Body', {
         key: 'value',
       });
-      expect(result).toBe(true);
+      expect(result).toBe('ok');
       expect(mockFetch).toHaveBeenCalledWith(
         'https://webhook.test.com/hook',
         expect.objectContaining({
@@ -302,7 +302,7 @@ describe('notification-dispatch', () => {
       );
     });
 
-    it('returns false on delivery failure', async () => {
+    it('returns http_error on non-2xx response', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 500,
@@ -310,7 +310,7 @@ describe('notification-dispatch', () => {
       });
       const { sendWebhook } = await import('../notification-dispatch.js');
       const result = await sendWebhook('https://webhook.test.com/hook', 'Subject', 'Body', {});
-      expect(result).toBe(false);
+      expect(result).toBe('http_error');
     });
   });
 

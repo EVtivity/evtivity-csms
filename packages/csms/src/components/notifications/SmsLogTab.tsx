@@ -3,7 +3,6 @@
 
 import { useState, useMemo, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
 import { FilterPopover } from '@/components/FilterBar';
 import {
@@ -22,12 +21,8 @@ import {
   DRIVER_EVENT_TYPES,
   OPERATOR_EVENT_TYPES,
 } from '@/lib/template-variables';
-import {
-  type NotificationRecord,
-  statusBadgeClass,
-  formatTimestamp,
-  formatFailureReason,
-} from './shared';
+import { type NotificationRecord, formatTimestamp, formatRecipient } from './shared';
+import { StatusCell } from './StatusCell';
 
 const EVENT_CATEGORIES: Record<string, readonly string[]> = {
   driver: DRIVER_EVENT_TYPES,
@@ -191,18 +186,10 @@ export function SmsLogTab(): React.JSX.Element {
                   <TableCell className="whitespace-nowrap" data-testid="row-click-target">
                     {formatTimestamp(msg.sentAt, msg.createdAt)}
                   </TableCell>
-                  <TableCell>{msg.recipient}</TableCell>
+                  <TableCell>{formatRecipient(msg.recipient)}</TableCell>
                   <TableCell>{msg.eventType ?? '-'}</TableCell>
                   <TableCell>
-                    <div className="flex flex-col gap-1">
-                      <Badge className={statusBadgeClass(msg.status)}>{msg.status}</Badge>
-                      {msg.status === 'failed' &&
-                        formatFailureReason(msg.metadata?.failureReason) != null && (
-                          <span className="text-xs text-muted-foreground">
-                            {formatFailureReason(msg.metadata?.failureReason)}
-                          </span>
-                        )}
-                    </div>
+                    <StatusCell status={msg.status} metadata={msg.metadata} />
                   </TableCell>
                 </TableRow>
                 {expandedId === msg.id && (

@@ -27,8 +27,9 @@ import {
   type NotificationRecord,
   statusBadgeClass,
   formatTimestamp,
-  formatFailureReason,
+  formatRecipient,
 } from './shared';
+import { StatusCell } from './StatusCell';
 
 const EVENT_CATEGORIES: Record<string, readonly string[]> = {
   driver: DRIVER_EVENT_TYPES,
@@ -193,19 +194,11 @@ export function EmailLogTab(): React.JSX.Element {
                 <TableCell className="whitespace-nowrap" data-testid="row-click-target">
                   {formatTimestamp(email.sentAt, email.createdAt)}
                 </TableCell>
-                <TableCell>{email.recipient}</TableCell>
+                <TableCell>{formatRecipient(email.recipient)}</TableCell>
                 <TableCell className="max-w-[300px] truncate">{email.subject ?? '-'}</TableCell>
                 <TableCell>{email.eventType ?? '-'}</TableCell>
                 <TableCell>
-                  <div className="flex flex-col gap-1">
-                    <Badge className={statusBadgeClass(email.status)}>{email.status}</Badge>
-                    {email.status === 'failed' &&
-                      formatFailureReason(email.metadata?.failureReason) != null && (
-                        <span className="text-xs text-muted-foreground">
-                          {formatFailureReason(email.metadata?.failureReason)}
-                        </span>
-                      )}
-                  </div>
+                  <StatusCell status={email.status} metadata={email.metadata} />
                 </TableCell>
               </TableRow>
             ))}
@@ -235,7 +228,7 @@ export function EmailLogTab(): React.JSX.Element {
               <div className="text-sm text-muted-foreground space-y-1 pt-2">
                 <p>
                   <span className="font-medium">{t('logs.recipient')}:</span>{' '}
-                  {selectedEmail.recipient}
+                  {formatRecipient(selectedEmail.recipient)}
                 </p>
                 <p>
                   <span className="font-medium">{t('logs.subject')}:</span>{' '}

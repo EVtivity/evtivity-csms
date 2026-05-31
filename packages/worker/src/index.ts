@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { Worker } from 'bullmq';
-import { createLogger, createBullMQConnection, RedisPubSubClient, initSentry } from '@evtivity/lib';
+import {
+  createLogger,
+  createBullMQConnection,
+  RedisPubSubClient,
+  initSentry,
+  clearNotificationSettingsCache,
+} from '@evtivity/lib';
 import { getSentryConfig } from '@evtivity/database';
 import { setPubSub } from '@evtivity/api/src/lib/pubsub.js';
 import { createQueues, QUEUE_NAMES } from './queues.js';
@@ -61,6 +67,23 @@ async function start(): Promise<void> {
   const stopGuestBridge = await startGuestSessionBridge(pubsub, guestSessionQueue);
   const stopReservationBridge = await startReservationBridge(pubsub, reservationQueue);
 
+  // Listen for credential-rotation invalidations from the API so the next
+  // dispatchDriverNotification / scheduled report email reads fresh SMTP and
+  // Twilio creds instead of waiting out the 60s TTL.
+  const cacheInvalidateSubscription = await pubsub.subscribe(
+    'cache_invalidate',
+    (payload: string) => {
+      try {
+        const msg = JSON.parse(payload) as { kind?: string };
+        if (msg.kind === 'notification_settings') {
+          clearNotificationSettingsCache();
+        }
+      } catch {
+        // ignore malformed payloads
+      }
+    },
+  );
+
   // OCTT run bridge: pub/sub -> BullMQ
   const octtSubscription = await pubsub.subscribe('octt_run', (message: string) => {
     void (async () => {
@@ -81,6 +104,7 @@ async function start(): Promise<void> {
     await stopGuestBridge();
     await stopReservationBridge();
     await octtSubscription.unsubscribe();
+    await cacheInvalidateSubscription.unsubscribe();
     await cronWorker.close();
     await loadWorker.close();
     await guestWorker.close();

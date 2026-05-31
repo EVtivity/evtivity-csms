@@ -14,11 +14,26 @@ import {
 } from '@evtivity/database';
 import { settings } from '@evtivity/database';
 import { encryptString, clearNotificationSettingsCache } from '@evtivity/lib';
+import { getPubSub } from '../lib/pubsub.js';
 
 const NOTIFICATION_SETTINGS_KEY_PREFIXES = ['smtp.', 'twilio.', 'email.', 'company.'];
+const NOTIFICATION_SETTINGS_EXACT_KEYS = new Set(['system.timezone']);
 
 function affectsNotificationSettings(key: string): boolean {
+  if (NOTIFICATION_SETTINGS_EXACT_KEYS.has(key)) return true;
   return NOTIFICATION_SETTINGS_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
+async function invalidateNotificationSettings(): Promise<void> {
+  clearNotificationSettingsCache();
+  try {
+    await getPubSub().publish(
+      'cache_invalidate',
+      JSON.stringify({ kind: 'notification_settings' }),
+    );
+  } catch {
+    // Non-critical: peers refresh from the 60s TTL anyway.
+  }
 }
 import { zodSchema } from '../lib/zod-schema.js';
 import { successResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
@@ -270,7 +285,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
-      if (affectsNotificationSettings(row.key)) clearNotificationSettingsCache();
+      if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
   );
@@ -320,7 +335,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
-      if (affectsNotificationSettings(row.key)) clearNotificationSettingsCache();
+      if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
   );
@@ -362,7 +377,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
-      if (affectsNotificationSettings(row.key)) clearNotificationSettingsCache();
+      if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
   );

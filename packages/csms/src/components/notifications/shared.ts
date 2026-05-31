@@ -22,6 +22,12 @@ export function formatTimestamp(sentAt: string | null, createdAt: string): strin
   return sentAt != null ? new Date(sentAt).toLocaleString() : new Date(createdAt).toLocaleString();
 }
 
+/** Render the recipient column. Empty strings come from dispatch attempts
+ * where no address was on file (the failureReason carries that signal). */
+export function formatRecipient(recipient: string): string {
+  return recipient === '' ? '—' : recipient;
+}
+
 /** Map the dispatcher's failureReason enum to short, operator-friendly text.
  * Unknown reasons fall through as-is so a future reason added to the dispatcher
  * still surfaces something rather than nothing. */
@@ -42,6 +48,14 @@ export function formatFailureReason(reason: string | undefined | null): string |
       return 'Twilio send failed';
     case 'webhook_send_failed':
       return 'Webhook delivery failed';
+    case 'webhook_blocked_private_url':
+      return 'Webhook blocked (private URL)';
+    case 'webhook_http_error':
+      return 'Webhook returned non-2xx';
+    case 'webhook_network_error':
+      return 'Webhook network error';
+    case 'webhook_timeout':
+      return 'Webhook timed out';
     default:
       return reason;
   }

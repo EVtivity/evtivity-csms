@@ -400,7 +400,12 @@ export function userRoutes(app: FastifyInstance): void {
           await dispatchSystemNotification(
             client,
             'mfa.VerificationCode',
-            { email: user.email, firstName: user.firstName ?? undefined, language: user.language },
+            {
+              email: user.email,
+              phone: user.phone ?? undefined,
+              firstName: user.firstName ?? undefined,
+              language: user.language,
+            },
             { code: challenge.code },
             TEMPLATES_DIR,
           );
@@ -901,7 +906,12 @@ export function userRoutes(app: FastifyInstance): void {
           await dispatchSystemNotification(
             client,
             'mfa.VerificationCode',
-            { email: user.email, firstName: user.firstName ?? undefined, language: user.language },
+            {
+              email: user.email,
+              phone: user.phone ?? undefined,
+              firstName: user.firstName ?? undefined,
+              language: user.language,
+            },
             { code: challenge.code },
             TEMPLATES_DIR,
           );
@@ -2063,7 +2073,12 @@ export function userRoutes(app: FastifyInstance): void {
       await dispatchSystemNotification(
         client,
         'mfa.VerificationCode',
-        { email: user.email, firstName: user.firstName ?? undefined, language: user.language },
+        {
+          email: user.email,
+          phone: user.phone ?? undefined,
+          firstName: user.firstName ?? undefined,
+          language: user.language,
+        },
         { code: challenge.code },
         TEMPLATES_DIR,
       );
@@ -2174,6 +2189,7 @@ export function userRoutes(app: FastifyInstance): void {
       const [user] = await db
         .select({
           email: users.email,
+          phone: users.phone,
           firstName: users.firstName,
           language: users.language,
           mfaEnabled: users.mfaEnabled,
@@ -2219,7 +2235,12 @@ export function userRoutes(app: FastifyInstance): void {
       await dispatchSystemNotification(
         client,
         'mfa.VerificationCode',
-        { email: user.email, firstName: user.firstName ?? undefined, language: user.language },
+        {
+          email: user.email,
+          phone: user.phone ?? undefined,
+          firstName: user.firstName ?? undefined,
+          language: user.language,
+        },
         { code: challenge.code },
         TEMPLATES_DIR,
       );
@@ -2432,26 +2453,23 @@ export function userRoutes(app: FastifyInstance): void {
 
   // --- Notification Preferences ---
 
+  const operatorNotificationPrefsResponse = z
+    .object({
+      smsEnabled: z.boolean().describe('Whether the operator opted in to SMS notifications'),
+    })
+    .passthrough();
+  const operatorNotificationPrefsBody = z.object({ smsEnabled: z.boolean() });
+
   app.get(
     '/users/me/notification-preferences',
     {
-      onRequest: [authorize('users:read')],
+      onRequest: [app.authenticate],
       schema: {
         tags: ['Users'],
         summary: 'Get operator notification preferences',
         operationId: 'getUserNotificationPreferences',
         security: [{ bearerAuth: [] }],
-        response: {
-          200: itemResponse(
-            z
-              .object({
-                smsEnabled: z
-                  .boolean()
-                  .describe('Whether the operator opted in to SMS notifications'),
-              })
-              .passthrough(),
-          ),
-        },
+        response: { 200: itemResponse(operatorNotificationPrefsResponse) },
       },
     },
     async (request) => {
@@ -2473,33 +2491,21 @@ export function userRoutes(app: FastifyInstance): void {
         summary: 'Update operator notification preferences',
         operationId: 'updateUserNotificationPreferences',
         security: [{ bearerAuth: [] }],
-        body: zodSchema(z.object({ smsEnabled: z.boolean() })),
-        response: {
-          200: itemResponse(
-            z
-              .object({
-                smsEnabled: z
-                  .boolean()
-                  .describe('Whether the operator opted in to SMS notifications'),
-              })
-              .passthrough(),
-          ),
-        },
+        body: zodSchema(operatorNotificationPrefsBody),
+        response: { 200: itemResponse(operatorNotificationPrefsResponse) },
       },
     },
     async (request) => {
       const { userId } = request.user as JwtPayload;
-      const body = request.body as { smsEnabled: boolean };
-      const [saved] = await db
+      const body = request.body as z.infer<typeof operatorNotificationPrefsBody>;
+      await db
         .insert(userNotificationPreferences)
         .values({ userId, smsEnabled: body.smsEnabled })
         .onConflictDoUpdate({
           target: [userNotificationPreferences.userId],
           set: { smsEnabled: body.smsEnabled, updatedAt: new Date() },
-        })
-        .returning();
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      return { smsEnabled: saved!.smsEnabled };
+        });
+      return { smsEnabled: body.smsEnabled };
     },
   );
 

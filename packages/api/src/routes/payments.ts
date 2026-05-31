@@ -555,10 +555,29 @@ export function paymentRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const [deleted] = await db
-        .delete(sitePaymentConfigs)
-        .where(eq(sitePaymentConfigs.siteId, id))
-        .returning();
+      let deleted;
+      try {
+        [deleted] = await db
+          .delete(sitePaymentConfigs)
+          .where(eq(sitePaymentConfigs.siteId, id))
+          .returning();
+      } catch (err) {
+        // payment_records.site_payment_config_id references this row with no
+        // cascade. Log the FK violation distinctly so operators can find it
+        // in logs; the global handler turns it into a 500 (a dedicated 409
+        // code would need updates across error-codes + 6 locales + docs).
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          (err as { code?: string }).code === '23503'
+        ) {
+          request.log.warn(
+            { sitePaymentConfigSiteId: id },
+            'Cannot delete site_payment_config: referenced by existing payment_records',
+          );
+        }
+        throw err;
+      }
 
       if (deleted == null) {
         await reply.status(404).send({
@@ -1276,8 +1295,34 @@ export function paymentRoutes(app: FastifyInstance): void {
 
       // Lock the payment record for the duration of the refund so a concurrent
       // capture or refund can't read a stale captured/refunded amount and
-      // double-spend.
-      const updated = await db.transaction(async (tx) => {
+      // double-spend. The transaction returns both the updated row and the
+      // amount actually refunded on THIS call so the post-commit notification
+      // can report the real delta (a "full remaining refund" without an
+      // explicit body.amountCents is computed inside; reporting the total
+      // capturedAmountCents instead would lie to the driver).
+      const txResult = await db.transaction(async (tx) => {
+        // Site access enforcement FIRST, before any payment-state response
+        // codes are leaked. Without this, an operator without access could
+        // probe via the response codes (NO_CAPTURED_PAYMENT vs valid) to
+        // learn whether a session in a restricted site has captured payment.
+        const [station] = await tx
+          .select({ siteId: chargingStations.siteId })
+          .from(chargingStations)
+          .innerJoin(chargingSessions, eq(chargingSessions.stationId, chargingStations.id))
+          .where(eq(chargingSessions.id, id));
+
+        const siteIds = await getUserSiteIds(userId);
+        if (siteIds != null && station?.siteId != null && !siteIds.includes(station.siteId)) {
+          await reply.status(404).send({
+            error: 'Payment not found',
+            code: 'PAYMENT_NOT_FOUND',
+          });
+          return null as null | {
+            row: typeof paymentRecords.$inferSelect;
+            refundedNowCents: number;
+          };
+        }
+
         const lockedRows = await tx.execute<{
           id: number;
           status: string;
@@ -1326,23 +1371,6 @@ export function paymentRoutes(app: FastifyInstance): void {
           return null;
         }
 
-        const [station] = await tx
-          .select({ siteId: chargingStations.siteId })
-          .from(chargingStations)
-          .innerJoin(chargingSessions, eq(chargingSessions.stationId, chargingStations.id))
-          .where(eq(chargingSessions.id, id));
-
-        // Site access enforcement: operators with restricted site access
-        // can only refund payments for sessions on their assigned sites.
-        const siteIds = await getUserSiteIds(userId);
-        if (siteIds != null && station?.siteId != null && !siteIds.includes(station.siteId)) {
-          await reply.status(404).send({
-            error: 'Payment not found',
-            code: 'PAYMENT_NOT_FOUND',
-          });
-          return null;
-        }
-
         const config = await getStripeConfig(station?.siteId ?? null);
         if (config == null) {
           await reply.status(400).send({
@@ -1380,9 +1408,12 @@ export function paymentRoutes(app: FastifyInstance): void {
           })
           .where(eq(paymentRecords.id, locked.id))
           .returning();
-        return row;
+        return { row, refundedNowCents: requestedAmount };
       });
 
+      if (txResult == null) return;
+      const updated = txResult.row;
+      const refundedNowCents = txResult.refundedNowCents;
       if (updated == null) return;
 
       // Driver notification: payment refunded. Fire-and-forget so a slow
@@ -1395,7 +1426,7 @@ export function paymentRoutes(app: FastifyInstance): void {
           'payment.Refunded',
           updated.driverId,
           {
-            amountCents: body.amountCents ?? updated.capturedAmountCents ?? 0,
+            amountCents: refundedNowCents,
             currency: updated.currency,
             transactionId: updated.sessionId,
           },

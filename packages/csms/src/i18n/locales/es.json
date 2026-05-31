@@ -1461,6 +1461,7 @@
     "twilioSaved": "Configuracion Twilio guardada.",
     "twilioSaveFailed": "Error al guardar configuracion Twilio.",
     "testNotification": "Enviar prueba",
+    "testRecipientLabel": "Enviar a",
     "testSuccess": "Notificacion de prueba enviada.",
     "testFailed": "Error al enviar notificacion de prueba.",
     "companyInfo": "Datos de la empresa",

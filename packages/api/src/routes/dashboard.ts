@@ -263,6 +263,15 @@ const snapshotItem = z
       .int()
       .min(0)
       .describe('Number of stations with uptime below the 97% threshold on this date'),
+    avgPingLatencyMs: z
+      .number()
+      .min(0)
+      .describe('Average OCPP ping round-trip latency in milliseconds'),
+    pingSuccessRate: z
+      .number()
+      .min(0)
+      .max(100)
+      .describe('Percentage of OCPP pings that received a pong response (0-100)'),
   })
   .passthrough();
 
@@ -347,6 +356,15 @@ const trendResponse = z
               .int()
               .min(0)
               .describe('Number of stations with uptime below the 97% threshold on this date'),
+            avgPingLatencyMs: z
+              .number()
+              .min(0)
+              .describe('Average OCPP ping round-trip latency in milliseconds'),
+            pingSuccessRate: z
+              .number()
+              .min(0)
+              .max(100)
+              .describe('Percentage of OCPP pings that received a pong response (0-100)'),
           })
           .passthrough(),
       )

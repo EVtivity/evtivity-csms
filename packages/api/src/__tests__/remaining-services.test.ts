@@ -186,12 +186,13 @@ import {
   createTariff,
 } from '../services/pricing.service.js';
 
-import { resolveTariff } from '../services/tariff.service.js';
+import { resolveTariff, clearHolidayCache } from '../services/tariff.service.js';
 
 beforeEach(() => {
   dbResults = [];
   dbCallIndex = 0;
   vi.clearAllMocks();
+  clearHolidayCache();
 });
 
 // ---------------------------------------------------------------------------
@@ -590,15 +591,17 @@ describe('Tariff Service', () => {
   // resolveTariff does:
   // 1. resolveTariffGroup(): single db.execute() CTE that resolves driver/fleet/station/site/default
   //    in one round-trip. Returns either zero rows (no match) or one row.
-  // 2. Fetches ALL active tariffs in the resolved group (1 db.select)
-  // 3. Loads holidays via cached helper (1 db.select on first call, cached after)
-  // 4. Fetches site timezone (1 db.select)
-  // 5. Calls resolveActiveTariff() from @evtivity/lib to pick the matching tariff
+  // 2. After group resolves, fans out 3 parallel queries via Promise.all: active tariffs,
+  //    holidays (cached after first call), and site timezone.
+  // 3. Calls resolveActiveTariff() from @evtivity/lib to pick the matching tariff.
+  //
+  // Mock consumption order with the sequential queue mock: execute -> holidays (inner
+  // await inside loadHolidays runs during Promise.all array construction) -> tariffs
+  // (thenable .then triggered by Promise.all iteration) -> timezone (same).
 
   describe('resolveTariff', () => {
     it('returns driver-specific tariff when found (priority 1)', async () => {
-      // execute -> mockExecuteGroup, then select tariffs, holidays, timezone
-      setupDbResults([mockExecuteGroup], [mockTariffRow], [], []);
+      setupDbResults([mockExecuteGroup], [], [mockTariffRow], []);
 
       const result = await resolveTariff('sta_000000000001', 'drv_000000000001');
 
@@ -606,8 +609,7 @@ describe('Tariff Service', () => {
     });
 
     it('returns fleet tariff when driver query returns empty (priority 2)', async () => {
-      // Same flow: one execute call returns the winning group regardless of priority.
-      setupDbResults([mockExecuteGroup], [mockTariffRow], [], []);
+      setupDbResults([mockExecuteGroup], [], [mockTariffRow], []);
 
       const result = await resolveTariff('sta_000000000001', 'drv_000000000001');
 
@@ -615,7 +617,7 @@ describe('Tariff Service', () => {
     });
 
     it('returns station tariff when driver and fleet return empty (priority 3)', async () => {
-      setupDbResults([mockExecuteGroup], [mockTariffRow], [], []);
+      setupDbResults([mockExecuteGroup], [], [mockTariffRow], []);
 
       const result = await resolveTariff('sta_000000000001', 'drv_000000000001');
 
@@ -635,7 +637,7 @@ describe('Tariff Service', () => {
       // The CTE still runs as one execute call; null driverId is passed as empty string
       // and the driver/fleet sub-queries produce no rows. Station/site/default branches
       // still resolve the group.
-      setupDbResults([mockExecuteGroup], [mockTariffRow], [], []);
+      setupDbResults([mockExecuteGroup], [], [mockTariffRow], []);
 
       const result = await resolveTariff('sta_000000000001', null);
 

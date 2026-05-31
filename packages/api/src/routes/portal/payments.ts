@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, asc, sql } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { drivers, driverPaymentMethods } from '@evtivity/database';
 import { zodSchema } from '../../lib/zod-schema.js';
@@ -517,7 +517,28 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
         );
       }
 
+      const wasDefault = method.isDefault;
       await db.delete(driverPaymentMethods).where(eq(driverPaymentMethods.id, pmId));
+
+      // If we just removed the default, promote another PM so the next charge
+      // can still resolve a default. Without this, a driver with 2 cards who
+      // deletes their default ends up with no default; the pre-auth gate then
+      // dispatches MissingPaymentMethod for a driver who clearly intends to
+      // keep paying with the remaining card.
+      if (wasDefault) {
+        const [next] = await db
+          .select({ id: driverPaymentMethods.id })
+          .from(driverPaymentMethods)
+          .where(eq(driverPaymentMethods.driverId, driverId))
+          .orderBy(asc(driverPaymentMethods.createdAt))
+          .limit(1);
+        if (next != null) {
+          await db
+            .update(driverPaymentMethods)
+            .set({ isDefault: true, updatedAt: new Date() })
+            .where(eq(driverPaymentMethods.id, next.id));
+        }
+      }
 
       return { success: true };
     },

@@ -19,6 +19,16 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { config as apiConfig } from '../lib/config.js';
+import { getPubSub } from '../lib/pubsub.js';
+
+async function invalidateSecuritySettings(): Promise<void> {
+  clearSecuritySettingsCache();
+  try {
+    await getPubSub().publish('cache_invalidate', JSON.stringify({ kind: 'security_settings' }));
+  } catch {
+    // Non-critical: peers refresh from the 60s TTL anyway.
+  }
+}
 
 // Read prior values for the keys we're about to write so the audit row can
 // carry a faithful before/after. Returns a Map keyed by setting key.
@@ -171,7 +181,7 @@ export function securitySettingsRoutes(app: FastifyInstance): void {
 
       const before = await loadCurrentValues(written.map((w) => w.key));
       await Promise.all(written.map((w) => upsert(w.key, w.value)));
-      clearSecuritySettingsCache();
+      await invalidateSecuritySettings();
       await auditSettingChanges(request, before, written);
       return { success: true };
     },
@@ -210,7 +220,7 @@ export function securitySettingsRoutes(app: FastifyInstance): void {
 
       const before = await loadCurrentValues(written.map((w) => w.key));
       await Promise.all(written.map((w) => upsert(w.key, w.value)));
-      clearSecuritySettingsCache();
+      await invalidateSecuritySettings();
       await auditSettingChanges(request, before, written);
       return { success: true };
     },

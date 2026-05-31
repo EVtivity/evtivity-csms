@@ -20,6 +20,7 @@ import {
   dispatchSystemNotification,
   formatDateVariables,
   recordNotificationAttempt,
+  clearNotificationSettingsCache,
 } from '@evtivity/lib';
 
 export { dispatchSystemNotification };
@@ -81,6 +82,7 @@ export const OCPP_CACHE_INVALIDATE_CHANNEL = 'cache_invalidate';
 
 interface CacheInvalidateMessage {
   cache?: string;
+  kind?: string;
 }
 
 export async function subscribeOcppEventSettingsInvalidation(
@@ -93,6 +95,10 @@ export async function subscribeOcppEventSettingsInvalidation(
       if (msg.cache === 'ocppEventSettings') {
         clearOcppEventSettingsCache();
         log.info('OCPP event settings cache invalidated');
+      }
+      if (msg.kind === 'notification_settings') {
+        clearNotificationSettingsCache();
+        log.info('Notification settings cache invalidated');
       }
     } catch (err: unknown) {
       log.warn({ err }, 'Bad cache_invalidate payload');
@@ -235,15 +241,15 @@ export async function dispatchOcppNotification(
               }
             }
           } else if (channel === 'webhook') {
-            const ok = await sendWebhook(
+            const result = await sendWebhook(
               recipient.address,
               rendered.subject,
               rendered.body,
               formattedVariables,
             );
-            if (!ok) {
+            if (result !== 'ok') {
               status = 'failed';
-              failureReason = 'webhook_send_failed';
+              failureReason = `webhook_${result}`;
             }
           } else {
             logNotification(channel, recipient.address, rendered.subject, rendered.body);

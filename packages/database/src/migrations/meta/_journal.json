@@ -393,6 +393,13 @@
       "when": 1778700000037,
       "tag": "0055_seed_refresh_token_prune_cron",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1778700000038,
+      "tag": "0056_dashboard_snapshot_cron_shift_to_11utc",
+      "breakpoints": true
     }
   ]
 }

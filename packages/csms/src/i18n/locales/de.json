@@ -1422,6 +1422,7 @@
     "twilioSaved": "Twilio-Einstellungen gespeichert.",
     "twilioSaveFailed": "Twilio-Einstellungen konnten nicht gespeichert werden.",
     "testNotification": "Test senden",
+    "testRecipientLabel": "Senden an",
     "testSuccess": "Testbenachrichtigung gesendet.",
     "testFailed": "Testbenachrichtigung konnte nicht gesendet werden.",
     "companyInfo": "Unternehmensinformationen",
