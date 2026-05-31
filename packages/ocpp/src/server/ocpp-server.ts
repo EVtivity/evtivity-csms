@@ -449,6 +449,15 @@ export class OcppServer {
 
     this.lifecycle.received(messageId, session.stationId, action);
 
+    // Both OCPP versions allow any Charge Point -> CSMS message to substitute
+    // for a Heartbeat — OCPP 1.6 section 4.6 ("the heartbeat interval can be
+    // restarted at the reception of any message from the Charge Point") and
+    // OCPP 2.1 section B07 (Heartbeat is only required when no other message
+    // has been sent within the configured interval). Treat every inbound CALL
+    // as the liveness signal PingMonitor.checkHeartbeats() consults, not just
+    // Heartbeat messages.
+    session.lastHeartbeat = new Date();
+
     // Log inbound CALL from station
     void this.eventBus.publish({
       eventType: 'ocpp.MessageLog',

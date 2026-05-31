@@ -120,6 +120,34 @@ describe('OcppServer integration', () => {
     ws.close();
   });
 
+  it('treats any inbound CALL as a liveness signal, not just Heartbeat', async () => {
+    // Per OCPP 2.1 B07.FR.04, a station sending other messages within the
+    // heartbeat interval does not need to send a Heartbeat. The CSMS must
+    // accept any inbound CALL as proof of life or it will kill connections
+    // on stations that only send MeterValues.
+    const port = getNextPort();
+    const srv = await startServer(port);
+    const ws = await connectStation(port, 'TEST-LIVENESS');
+    await bootStation(ws);
+
+    const conn = srv.getConnectionManager().get('TEST-LIVENESS');
+    expect(conn).toBeDefined();
+    const baseline = conn!.session.lastHeartbeat.getTime();
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const responsePromise = waitForMessage(ws);
+    sendCall(ws, 'msg-liveness', 'DataTransfer', {
+      vendorId: 'com.test',
+      messageId: 'liveness-check',
+      data: 'ping',
+    });
+    await responsePromise;
+
+    expect(conn!.session.lastHeartbeat.getTime()).toBeGreaterThan(baseline);
+    ws.close();
+  });
+
   it('returns CALLERROR for unknown action', async () => {
     const port = getNextPort();
     await startServer(port);
