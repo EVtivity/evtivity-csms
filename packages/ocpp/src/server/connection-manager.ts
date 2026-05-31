@@ -42,8 +42,11 @@ export class ConnectionManager {
     this.logger.info({ stationId, total: this.connections.size }, 'Station connected');
 
     if (this.registry != null && this.instanceId != null) {
-      void this.registry.register(stationId, this.instanceId).catch(() => {
-        // Non-critical: registry update failure should not block connection
+      void this.registry.register(stationId, this.instanceId).catch((err: unknown) => {
+        this.logger.debug(
+          { err, stationId, instanceId: this.instanceId },
+          'Registry register failed on connect; continuing',
+        );
       });
     }
   }
@@ -53,8 +56,11 @@ export class ConnectionManager {
     this.logger.info({ stationId, total: this.connections.size }, 'Station disconnected');
 
     if (this.registry != null) {
-      void this.registry.unregister(stationId).catch(() => {
-        // Non-critical
+      void this.registry.unregister(stationId).catch((err: unknown) => {
+        this.logger.debug(
+          { err, stationId },
+          'Registry unregister failed on disconnect; continuing',
+        );
       });
     }
   }

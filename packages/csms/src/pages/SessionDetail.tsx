@@ -142,7 +142,7 @@ export function SessionDetail(): React.JSX.Element {
         >
           {session.status === 'active' && session.idleStartedAt != null
             ? t('status.idle')
-            : session.status}
+            : t(`status.${session.status}`, { defaultValue: session.status })}
         </Badge>
         {tokenMismatch != null && (
           <Badge variant="warning" title={t('sessions.reservationTokenMismatchTooltip')}>

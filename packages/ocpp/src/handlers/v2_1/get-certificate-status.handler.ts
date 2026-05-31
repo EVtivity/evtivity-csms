@@ -27,6 +27,8 @@ export async function handleGetCertificateStatus(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       ocspRequestData: request.ocspRequestData,
     },
   });

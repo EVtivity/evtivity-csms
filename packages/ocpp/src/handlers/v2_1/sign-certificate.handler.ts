@@ -43,6 +43,8 @@ export async function handleSignCertificate(ctx: HandlerContext): Promise<Record
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       csr: request.csr,
       certificateType: request.certificateType,
     },
@@ -59,6 +61,8 @@ export async function handleSignCertificate(ctx: HandlerContext): Promise<Record
       aggregateType: 'ChargingStation',
       aggregateId: ctx.stationId,
       payload: {
+        stationId: ctx.stationId,
+        stationDbId: ctx.stationDbId,
         certificateChain: result.certificateChain,
         certificateType,
         providerReference: result.providerReference,
@@ -75,9 +79,9 @@ export async function handleSignCertificate(ctx: HandlerContext): Promise<Record
     // Fallback: send CertificateSigned with a placeholder certificate so the station
     // can complete the flow. This covers test/demo environments where no PKI provider
     // is configured. The placeholder is a minimal self-signed PEM.
-    ctx.logger.info(
+    ctx.logger.warn(
       { stationId: ctx.stationId, certificateType },
-      'Dispatching CertificateSigned with placeholder certificate (no provider available)',
+      'Dispatching CertificateSigned with placeholder certificate (no PKI provider configured)',
     );
     await ctx.eventBus.publish({
       eventType: 'pnc.CsrSigned',

@@ -94,6 +94,7 @@
     "available": "可用",
     "unavailable": "不可用",
     "faulted": "故障",
+    "failed": "失敗",
     "removed": "已移除",
     "active": "活躍",
     "inactive": "非活躍",

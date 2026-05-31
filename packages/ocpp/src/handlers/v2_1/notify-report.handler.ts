@@ -47,6 +47,8 @@ export async function handleNotifyReport(ctx: HandlerContext): Promise<Record<st
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       requestId: request.requestId,
       generatedAt: request.generatedAt,
       seqNo: request.seqNo,

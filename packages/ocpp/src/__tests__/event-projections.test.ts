@@ -984,6 +984,7 @@ describe('Event projections', () => {
         [
           {
             id: 'session-1',
+            evse_id: 'evs_000000000001',
             tariff_id: null,
             current_cost_cents: 0,
             started_at: '2024-01-01T00:00:00Z',
@@ -991,8 +992,7 @@ describe('Event projections', () => {
             energy_delivered_wh: 5000,
             currency: null,
           },
-        ], // SELECT session row
-        [{ evse_id: 'evs_000000000001' }], // SELECT evse_id (new chargingState path)
+        ], // SELECT session row (now includes evse_id)
         [], // UPDATE connectors SET status = 'ev_connected'
         [{ site_id: null }], // resolveSiteId for connector notify
         [], // pg_notify station.status

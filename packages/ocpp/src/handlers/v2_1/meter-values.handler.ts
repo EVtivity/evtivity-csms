@@ -23,6 +23,7 @@ export async function handleMeterValues(ctx: HandlerContext): Promise<Record<str
     aggregateId: ctx.stationId,
     payload: {
       stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       evseId: request.evseId,
       meterValues: request.meterValue,
       source: 'MeterValues',

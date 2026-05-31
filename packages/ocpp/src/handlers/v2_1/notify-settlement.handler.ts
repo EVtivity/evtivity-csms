@@ -29,6 +29,8 @@ export async function handleNotifySettlement(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       transactionId: request.transactionId,
       pspRef: request.pspRef,
       status: request.status,

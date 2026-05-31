@@ -33,6 +33,8 @@ export async function handleGet15118EVCertificate(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       iso15118SchemaVersion: request.iso15118SchemaVersion,
       action: request.action,
       exiRequest: request.exiRequest,

@@ -21,6 +21,8 @@ export async function handleNotifyWebPaymentStarted(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       evseId: request.evseId,
       timeout: request.timeout,
     },

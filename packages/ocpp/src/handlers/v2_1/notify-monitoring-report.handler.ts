@@ -24,6 +24,8 @@ export async function handleNotifyMonitoringReport(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       requestId: request.requestId,
       seqNo: request.seqNo,
       generatedAt: request.generatedAt,

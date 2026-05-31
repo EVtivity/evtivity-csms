@@ -21,6 +21,8 @@ export async function handleNotifyEvent(ctx: HandlerContext): Promise<Record<str
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       generatedAt: request.generatedAt,
       seqNo: request.seqNo,
       tbc: request.tbc,

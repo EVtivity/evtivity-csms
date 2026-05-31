@@ -22,6 +22,8 @@ export async function handleNotifyEVChargingSchedule(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       timeBase: request.timeBase,
       evseId: request.evseId,
       chargingSchedule: request.chargingSchedule,

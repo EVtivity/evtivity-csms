@@ -27,6 +27,8 @@ export async function handleNotifyDERStartStop(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       controlType: request.controlType,
       started: request.started,
       timestamp: request.timestamp,

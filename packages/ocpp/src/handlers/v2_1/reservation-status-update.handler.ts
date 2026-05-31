@@ -25,6 +25,8 @@ export async function handleReservationStatusUpdate(
     aggregateType: 'Reservation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       reservationId: request.reservationId,
       reservationUpdateStatus: request.reservationUpdateStatus,
     },

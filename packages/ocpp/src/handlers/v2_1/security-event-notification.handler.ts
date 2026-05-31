@@ -18,6 +18,8 @@ export async function handleSecurityEventNotification(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       type: request.type,
       timestamp: request.timestamp,
       techInfo: request.techInfo,

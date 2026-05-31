@@ -10,6 +10,7 @@ import {
   getStaleSessionTimeoutHours,
   getIdlingGracePeriodMinutes,
   isSplitBillingEnabled,
+  writeReservationAudit,
 } from '@evtivity/database';
 import { calculateSessionCost, calculateSplitSessionCost } from '@evtivity/lib';
 import type { TariffSegment } from '@evtivity/lib';
@@ -45,6 +46,7 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
       tariffTaxRate: chargingSessions.tariffTaxRate,
       idleStartedAt: chargingSessions.idleStartedAt,
       idleMinutes: chargingSessions.idleMinutes,
+      reservationId: chargingSessions.reservationId,
       stationIsOnline: chargingStations.isOnline,
       stationOcppId: chargingStations.stationId,
       ocppProtocol: chargingStations.ocppProtocol,
@@ -189,6 +191,28 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
           updatedAt: new Date(),
         })
         .where(eq(chargingSessions.id, session.id));
+
+      // Audit the reservation linkage so the reservation timeline shows why
+      // this session terminated. Mirrors the projection-side fault paths.
+      if (session.reservationId != null) {
+        try {
+          await writeReservationAudit(
+            {
+              reservationId: session.reservationId,
+              action: 'session_failed',
+              actor: 'system',
+              notes: `session ${session.id}: faulted: StaleSession`,
+            },
+            undefined,
+            log,
+          );
+        } catch (auditErr: unknown) {
+          log.warn(
+            { sessionId: session.id, reservationId: session.reservationId, err: auditErr },
+            'Failed to write session_failed reservation audit on stale cleanup',
+          );
+        }
+      }
 
       // Send RequestStopTransaction to online stations to clear the station-side transaction
       if (session.stationIsOnline) {

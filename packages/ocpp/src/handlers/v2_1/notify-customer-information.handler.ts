@@ -24,6 +24,8 @@ export async function handleNotifyCustomerInformation(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       data: request.data,
       seqNo: request.seqNo,
       generatedAt: request.generatedAt,

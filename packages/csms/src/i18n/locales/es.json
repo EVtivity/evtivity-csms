@@ -94,6 +94,7 @@
     "available": "Disponible",
     "unavailable": "No disponible",
     "faulted": "Con falla",
+    "failed": "Fallido",
     "removed": "Eliminado",
     "active": "Activo",
     "inactive": "Inactivo",

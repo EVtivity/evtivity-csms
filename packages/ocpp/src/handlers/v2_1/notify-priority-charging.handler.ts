@@ -25,6 +25,8 @@ export async function handleNotifyPriorityCharging(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       transactionId: request.transactionId,
       activated: request.activated,
     },

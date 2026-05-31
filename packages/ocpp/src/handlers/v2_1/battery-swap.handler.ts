@@ -24,6 +24,8 @@ export async function handleBatterySwap(ctx: HandlerContext): Promise<Record<str
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       eventType: request.eventType,
       transactionId: request.transactionId,
       idToken: request.idToken,

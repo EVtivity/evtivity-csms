@@ -22,6 +22,8 @@ export async function handleNotifyChargingLimit(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       chargingLimit: request.chargingLimit,
       chargingSchedule: request.chargingSchedule,
       evseId: request.evseId,

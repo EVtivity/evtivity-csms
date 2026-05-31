@@ -14,10 +14,15 @@ function mapResetType(payload: Record<string, unknown>): Record<string, unknown>
     Immediate: 'Hard',
     OnIdle: 'Soft',
   };
-  return {
-    ...payload,
-    type: typeMap[payload.type as string] ?? payload.type,
-  };
+  const incomingType = payload.type as string | undefined;
+  const mapped = incomingType != null ? typeMap[incomingType] : undefined;
+  if (mapped == null) {
+    throw new Error(
+      `Reset type "${String(incomingType)}" has no OCPP 1.6 equivalent. ` +
+        `Only Immediate and OnIdle map to 1.6 Hard/Soft; ImmediateAndResume is 2.1-only.`,
+    );
+  }
+  return { ...payload, type: mapped };
 }
 
 function mapAvailability16(payload: Record<string, unknown>): Record<string, unknown> {

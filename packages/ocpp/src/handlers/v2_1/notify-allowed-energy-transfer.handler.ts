@@ -25,6 +25,8 @@ export async function handleNotifyAllowedEnergyTransfer(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       allowedEnergyTransfer: request.allowedEnergyTransfer,
       transactionId: request.transactionId,
     },

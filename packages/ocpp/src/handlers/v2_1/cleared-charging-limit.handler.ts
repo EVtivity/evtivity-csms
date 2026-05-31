@@ -25,6 +25,8 @@ export async function handleClearedChargingLimit(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       chargingLimitSource: request.chargingLimitSource,
       evseId: request.evseId,
     },

@@ -25,7 +25,7 @@ describe('RedisConnectionRegistry', () => {
   describe('register', () => {
     it('calls redis.set with correct key prefix, value, EX, and TTL', async () => {
       await registry.register('STATION-001', 'instance-abc');
-      expect(redis.set).toHaveBeenCalledWith('ocpp:conn:STATION-001', 'instance-abc', 'EX', 120);
+      expect(redis.set).toHaveBeenCalledWith('ocpp:conn:STATION-001', 'instance-abc', 'EX', 600);
     });
   });
 

@@ -21,6 +21,8 @@ export async function handleNotifyPeriodicEventStream(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       id: request.id,
       data: request.data,
     },

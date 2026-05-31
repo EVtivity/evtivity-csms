@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { eq } from 'drizzle-orm';
+import { createLogger } from '@evtivity/lib';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+
+const logger = createLogger('idling-setting');
 
 let cachedValue: number | undefined;
 let cachedAt = 0;
@@ -24,7 +27,8 @@ export async function getIdlingGracePeriodMinutes(): Promise<number> {
     cachedValue = row != null && typeof row.value === 'number' ? row.value : 30;
     cachedAt = now;
     return cachedValue;
-  } catch {
+  } catch (err) {
+    logger.debug({ err }, 'getIdlingGracePeriodMinutes lookup failed; returning cached/default');
     return cachedValue ?? 30;
   }
 }

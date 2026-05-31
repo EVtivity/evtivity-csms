@@ -20,6 +20,8 @@ export async function handlePullDynamicScheduleUpdate(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       chargingProfileId: request.chargingProfileId,
     },
   });

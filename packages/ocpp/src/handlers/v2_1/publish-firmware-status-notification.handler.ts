@@ -22,6 +22,8 @@ export async function handlePublishFirmwareStatusNotification(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       status: request.status,
       location: request.location,
       requestId: request.requestId,

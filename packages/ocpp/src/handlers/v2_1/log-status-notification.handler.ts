@@ -17,7 +17,12 @@ export async function handleLogStatusNotification(
     eventType: 'ocpp.LogStatusNotification',
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
-    payload: { status: request.status, requestId: request.requestId },
+    payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
+      status: request.status,
+      requestId: request.requestId,
+    },
   });
 
   return {};

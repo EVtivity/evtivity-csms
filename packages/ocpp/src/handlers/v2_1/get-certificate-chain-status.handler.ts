@@ -33,6 +33,8 @@ export async function handleGetCertificateChainStatus(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       certificateStatusRequests: requests,
     },
   });

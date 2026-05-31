@@ -25,6 +25,8 @@ export async function handleStatusNotification(
     aggregateType: 'Connector',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       evseId: request.evseId,
       connectorId: request.connectorId,
       connectorStatus: request.connectorStatus,

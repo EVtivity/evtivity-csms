@@ -28,9 +28,11 @@ export async function handleOpenPeriodicEventStream(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       constantStreamData: request.constantStreamData,
     },
   });
 
-  return {};
+  return { status: 'Accepted' };
 }

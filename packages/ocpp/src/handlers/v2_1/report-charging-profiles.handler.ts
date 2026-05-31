@@ -29,6 +29,8 @@ export async function handleReportChargingProfiles(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       requestId: request.requestId,
       chargingLimitSource: request.chargingLimitSource,
       evseId: request.evseId,

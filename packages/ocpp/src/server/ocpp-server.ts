@@ -195,8 +195,14 @@ export class OcppServer {
         this.logger.error({ error: err.message }, 'Secure WebSocket server error');
       });
 
-      await new Promise<void>((resolve) => {
+      await new Promise<void>((resolve, reject) => {
+        const onError = (err: Error): void => {
+          httpsServer.removeListener('error', onError);
+          reject(err);
+        };
+        httpsServer.once('error', onError);
         httpsServer.listen(tlsPort, options.host ?? '0.0.0.0', () => {
+          httpsServer.removeListener('error', onError);
           resolve();
         });
       });

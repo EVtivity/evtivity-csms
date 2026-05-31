@@ -23,6 +23,8 @@ export async function handleReportDERControl(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       requestId: request.requestId,
       seqNo: request.seqNo,
       tbc: request.tbc,

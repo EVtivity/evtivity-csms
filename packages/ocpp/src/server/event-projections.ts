@@ -240,7 +240,7 @@ export function registerProjections(
           logger.error(
             {
               eventType,
-              stationId: event.aggregateId,
+              aggregateId: event.aggregateId,
               error: err instanceof Error ? err.message : String(err),
             },
             'Event projection failed',
@@ -350,8 +350,8 @@ export function registerProjections(
         ...(extra ?? {}),
       });
       await pubsub.publish('csms_events', payload);
-    } catch {
-      // Non-critical: SSE notification failure should not block event processing
+    } catch (err) {
+      logger.debug({ err, eventType, stationId }, 'SSE notification publish failed; continuing');
     }
   }
 
@@ -363,8 +363,8 @@ export function registerProjections(
       if (!(await isRoamingEnabled())) return;
       const payload = JSON.stringify({ type, ...ids });
       await pubsub.publish('ocpi_push', payload);
-    } catch {
-      // Non-critical: OCPI push failure should not block event processing
+    } catch (err) {
+      logger.debug({ err, type }, 'OCPI push publish failed; continuing');
     }
   }
 
@@ -782,11 +782,10 @@ export function registerProjections(
         WHERE station_id = ${stationOcppId} AND status = 'pending' AND expires_at > now()
         ORDER BY created_at ASC
       `;
-      // Publish all queued commands first, then batch-update their status in
-      // one query. The previous loop issued (publish + update) per command
-      // sequentially: at 50 commands queued for a station, that was 100
-      // serial awaits on reconnect; the batched update collapses N writes
-      // into one.
+      // Publish all queued commands, collect successful IDs, then batch-update
+      // their status in one query. Per-command try/catch ensures a transient
+      // publish failure on one command doesn't leave previously-published ones
+      // unmarked-as-sent (which would cause duplicate dispatch on next reconnect).
       const sentIds: number[] = [];
       for (const cmd of pendingCommands) {
         const queuedPayload = JSON.stringify({
@@ -796,8 +795,15 @@ export function registerProjections(
           payload: cmd.payload as Record<string, unknown>,
           version: (cmd.version as string | undefined) ?? undefined,
         });
-        await pubsub.publish('ocpp_commands', queuedPayload);
-        sentIds.push(cmd.id as number);
+        try {
+          await pubsub.publish('ocpp_commands', queuedPayload);
+          sentIds.push(cmd.id as number);
+        } catch (publishErr) {
+          logger.warn(
+            { err: publishErr, stationOcppId, commandId: cmd.command_id },
+            'Offline queue drain: publish failed for command; leaving pending for next drain',
+          );
+        }
       }
       if (sentIds.length > 0) {
         await sql`
@@ -806,8 +812,8 @@ export function registerProjections(
           WHERE id IN ${sql(sentIds)}
         `;
       }
-    } catch {
-      // Non-critical: queue drain failure should not block connection handling
+    } catch (err) {
+      logger.debug({ err, stationOcppId }, 'Offline command queue drain failed; continuing');
     }
 
     if (ocppProtocol != null && ocppProtocol.startsWith('ocpp2')) {
@@ -820,8 +826,8 @@ export function registerProjections(
             ocppProtocol,
           }),
         );
-      } catch {
-        // Best-effort station-message refresh
+      } catch (err) {
+        logger.debug({ err, stationOcppId }, 'Station-message refresh publish failed; continuing');
       }
     }
   });
@@ -1182,8 +1188,8 @@ export function registerProjections(
           }),
         );
       }
-    } catch {
-      // Best-effort station-message refresh
+    } catch (err) {
+      logger.debug({ err }, 'Station-message refresh publish failed; continuing');
     }
   });
 
@@ -1201,8 +1207,11 @@ export function registerProjections(
     if (registry != null && instanceId != null) {
       try {
         await registry.register(event.aggregateId, instanceId);
-      } catch {
-        // Non-critical: registry refresh failure should not block heartbeat
+      } catch (err) {
+        logger.debug(
+          { err, instanceId, aggregateId: event.aggregateId },
+          'Registry refresh failed on heartbeat; continuing',
+        );
       }
     }
   });
@@ -1326,8 +1335,11 @@ export function registerProjections(
             }),
           );
         }
-      } catch {
-        // Best-effort station-message refresh
+      } catch (err) {
+        logger.debug(
+          { err, stationId: event.aggregateId },
+          'Station-message refresh publish failed; continuing',
+        );
       }
     }
 
@@ -1410,32 +1422,43 @@ export function registerProjections(
             chargingState,
           }),
         );
-      } catch {
-        // Best-effort station-message refresh
+      } catch (err) {
+        logger.debug(
+          { err, sessionId, kind },
+          'Station-message transaction publish failed; continuing',
+        );
       }
     }
 
     if (eventType === 'Started') {
       // For remote starts, link back to the session created by the portal/API
-      // instead of creating a duplicate
+      // instead of creating a duplicate.
       let sessionId: string | null = null;
       if (triggerReason === 'RemoteStart') {
-        const existing = await sql`
-          SELECT id FROM charging_sessions
-          WHERE station_id = ${stationUuid}
-            AND remote_start_id IS NOT NULL
-            AND status = 'active'
-            AND transaction_id != ${transactionId}
-          ORDER BY started_at DESC
-          LIMIT 1
+        // Atomic pick-and-link in one statement so concurrent Started events
+        // (different transactionIds, parallel projection queues) cannot both
+        // claim the same pending row. Without FOR UPDATE SKIP LOCKED, two
+        // simultaneous portal starts on the same station would both UPDATE
+        // the same row and the second would orphan the first's linkage.
+        const linked = await sql`
+          WITH target AS (
+            SELECT id FROM charging_sessions
+            WHERE station_id = ${stationUuid}
+              AND remote_start_id IS NOT NULL
+              AND status = 'active'
+              AND transaction_id != ${transactionId}
+            ORDER BY started_at DESC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+          )
+          UPDATE charging_sessions cs
+          SET transaction_id = ${transactionId}, updated_at = now()
+          FROM target
+          WHERE cs.id = target.id
+          RETURNING cs.id
         `;
-        if (existing[0] != null) {
-          sessionId = existing[0].id as string;
-          await sql`
-            UPDATE charging_sessions
-            SET transaction_id = ${transactionId}, updated_at = now()
-            WHERE id = ${sessionId}
-          `;
+        if (linked[0] != null) {
+          sessionId = linked[0].id as string;
         }
       }
 
@@ -1469,8 +1492,11 @@ export function registerProjections(
               LIMIT 1
             `;
             initialIsRoaming = roamCheck.length > 0;
-          } catch {
-            // ocpi tables may not exist in test/dev environments; safe default
+          } catch (err) {
+            logger.debug(
+              { err, idToken: earlyIdToken },
+              'OCPI external-token lookup failed; defaulting to non-roaming',
+            );
             initialIsRoaming = false;
           }
         }
@@ -1776,8 +1802,11 @@ export function registerProjections(
                 }
               }
             }
-          } catch {
-            // Non-critical: reservation linking failure should not break session creation
+          } catch (err) {
+            logger.debug(
+              { err, sessionId },
+              'Reservation linking failed; continuing session creation',
+            );
           }
         }
 
@@ -1804,8 +1833,8 @@ export function registerProjections(
               },
             });
             await pubsub.publish('csms_events', guestPayload);
-          } catch {
-            // Non-critical
+          } catch (err) {
+            logger.debug({ err, sessionId }, 'Guest session SSE publish failed; continuing');
           }
         }
 
@@ -1865,9 +1894,12 @@ export function registerProjections(
         await publishStationMessageTransaction(startedSessionId, 'started', startedChargingState);
       }
     } else if (eventType === 'Updated') {
-      const sessionId = getSessionId(
-        await sql`SELECT id FROM charging_sessions WHERE transaction_id = ${transactionId}`,
-      );
+      const updatedRows = await sql`
+        SELECT id, evse_id FROM charging_sessions WHERE transaction_id = ${transactionId}
+      `;
+      const updatedRow = updatedRows[0];
+      const sessionId = updatedRow != null ? (updatedRow.id as string) : null;
+      const sessionEvseUuid = updatedRow != null ? (updatedRow.evse_id as string | null) : null;
       if (sessionId != null) {
         try {
           await sql`
@@ -1906,31 +1938,23 @@ export function registerProjections(
           }
         }
 
-        // Update connector status from chargingState (OCPP 2.1 enrichment)
+        // Update connector status from chargingState (OCPP 2.1 enrichment).
+        // Portal SSE forwarder only relays 'station.status', so the
+        // 'session.updated' notify below isn't enough -- we publish here too.
         if (chargingState != null) {
           const connectorStatus = CHARGING_STATE_TO_STATUS[chargingState];
-          if (connectorStatus != null) {
-            const sessionEvse = await sql`
-              SELECT evse_id FROM charging_sessions WHERE id = ${sessionId}
+          if (connectorStatus != null && sessionEvseUuid != null) {
+            await sql`
+              UPDATE connectors
+              SET status = CASE
+                    WHEN status IN ('faulted', 'unavailable') THEN status
+                    ELSE ${connectorStatus}
+                  END,
+                  updated_at = now()
+              WHERE evse_id = ${sessionEvseUuid}
             `;
-            const evseUuid = sessionEvse[0]?.evse_id as string | null;
-            if (evseUuid != null) {
-              await sql`
-                UPDATE connectors
-                SET status = CASE
-                      WHEN status IN ('faulted', 'unavailable') THEN status
-                      ELSE ${connectorStatus}
-                    END,
-                    updated_at = now()
-                WHERE evse_id = ${evseUuid}
-              `;
-              // Notify portal SSE: chargingState enrichment changes
-              // connectors.status without a StatusNotification, so the
-              // 'session.updated' event below is not enough -- the portal
-              // SSE forwarder only relays 'station.status'.
-              const updatedStationStatusSiteId = await resolveSiteId(stationUuid);
-              await notifyChange('station.status', stationUuid, updatedStationStatusSiteId);
-            }
+            const updatedStationStatusSiteId = await resolveSiteId(stationUuid);
+            await notifyChange('station.status', stationUuid, updatedStationStatusSiteId);
           }
         }
 
@@ -2018,7 +2042,7 @@ export function registerProjections(
       `;
 
       const sessionRows = await sql`
-        SELECT id, status, tariff_id, current_cost_cents, started_at, ended_at, energy_delivered_wh,
+        SELECT id, evse_id, status, tariff_id, current_cost_cents, started_at, ended_at, energy_delivered_wh,
                currency, tariff_price_per_kwh, tariff_price_per_minute, tariff_price_per_session,
                tariff_idle_fee_price_per_minute, tariff_tax_rate,
                idle_started_at, idle_minutes, reservation_id
@@ -2027,6 +2051,7 @@ export function registerProjections(
       const sessionRow = sessionRows[0];
       if (sessionRow != null) {
         const sessionId = sessionRow.id as string;
+        const endedEvseUuid = sessionRow.evse_id as string | null;
 
         // OCPP 2.1: chargingState is on transactionInfo of the Ended event (e.g. EVConnected
         // when the cable is still plugged after a remote stop). Mirror the Updated-handler
@@ -2035,24 +2060,18 @@ export function registerProjections(
         const endedChargingState = getString(payload, 'chargingState');
         if (endedChargingState != null) {
           const endedConnectorStatus = CHARGING_STATE_TO_STATUS[endedChargingState];
-          if (endedConnectorStatus != null) {
-            const sessionEvse = await sql`
-              SELECT evse_id FROM charging_sessions WHERE id = ${sessionId}
+          if (endedConnectorStatus != null && endedEvseUuid != null) {
+            await sql`
+              UPDATE connectors
+              SET status = CASE
+                    WHEN status IN ('faulted', 'unavailable') THEN status
+                    ELSE ${endedConnectorStatus}
+                  END,
+                  updated_at = now()
+              WHERE evse_id = ${endedEvseUuid}
             `;
-            const endedEvseUuid = sessionEvse[0]?.evse_id as string | null;
-            if (endedEvseUuid != null) {
-              await sql`
-                UPDATE connectors
-                SET status = CASE
-                      WHEN status IN ('faulted', 'unavailable') THEN status
-                      ELSE ${endedConnectorStatus}
-                    END,
-                    updated_at = now()
-                WHERE evse_id = ${endedEvseUuid}
-              `;
-              const endedSiteId = await resolveSiteId(stationUuid);
-              await notifyChange('station.status', stationUuid, endedSiteId);
-            }
+            const endedSiteId = await resolveSiteId(stationUuid);
+            await notifyChange('station.status', stationUuid, endedSiteId);
           }
         }
 
@@ -2320,8 +2339,8 @@ export function registerProjections(
             transactionId,
           });
           await pubsub.publish('csms_events', endPayload);
-        } catch {
-          // Non-critical
+        } catch (err) {
+          logger.debug({ err, sessionId }, 'Transaction-ended SSE publish failed; continuing');
         }
 
         // Driver notification: transaction completed (skip when the session
@@ -2600,15 +2619,20 @@ export function registerProjections(
     // Notify for all MeterValues (both standalone and transaction-scoped).
     // Cost recalculation and session updates follow below when active sessions exist.
 
-    // Update real-time cost on active sessions for this station using snapshotted rates
+    // Update real-time cost on active sessions for this station using snapshotted rates.
+    // JOIN to charging_stations so the CostUpdated dispatch path below has the
+    // transactionId and ocpp_protocol without a second SQL round-trip per
+    // cost-change event (previously ran on every throttled dispatch).
     const activeSessions = await sql`
-      SELECT id, tariff_id, driver_id, started_at, energy_delivered_wh, current_cost_cents,
-             currency, tariff_price_per_kwh, tariff_price_per_minute, tariff_price_per_session,
-             tariff_idle_fee_price_per_minute, tariff_tax_rate,
-             idle_started_at, idle_minutes
-      FROM charging_sessions
-      WHERE station_id = ${stationUuid} AND status = 'active' AND tariff_id IS NOT NULL
-        AND (${evseUuid}::text IS NULL OR evse_id = ${evseUuid})
+      SELECT cs.id, cs.transaction_id, cs.tariff_id, cs.driver_id, cs.started_at,
+             cs.energy_delivered_wh, cs.current_cost_cents,
+             cs.currency, cs.tariff_price_per_kwh, cs.tariff_price_per_minute,
+             cs.tariff_price_per_session, cs.tariff_idle_fee_price_per_minute, cs.tariff_tax_rate,
+             cs.idle_started_at, cs.idle_minutes, st.ocpp_protocol
+      FROM charging_sessions cs
+      JOIN charging_stations st ON st.id = cs.station_id
+      WHERE cs.station_id = ${stationUuid} AND cs.status = 'active' AND cs.tariff_id IS NOT NULL
+        AND (${evseUuid}::text IS NULL OR cs.evse_id = ${evseUuid})
     `;
 
     const meterGracePeriod = await getIdlingGracePeriodMinutes();
@@ -2680,6 +2704,7 @@ export function registerProjections(
       if (splitBillingEnabled) {
         const segments = await sql`
           SELECT sts.started_at, sts.ended_at, sts.energy_wh_start, sts.energy_wh_end,
+                 sts.idle_minutes,
                  t.currency, t.price_per_kwh, t.price_per_minute, t.price_per_session,
                  t.idle_fee_price_per_minute, t.tax_rate
           FROM session_tariff_segments sts
@@ -2689,12 +2714,22 @@ export function registerProjections(
         `;
         if (segments.length > 1) {
           const nowMs = Date.now();
+          // Closed segments' idle was already attributed at close time and is
+          // billed at the tariff rate active during their window. The still-
+          // open last segment gets the remainder (session idle minus the
+          // closed segments' stored idle).
+          const closedIdleSum = segments.reduce(
+            (sum, s) => (s.ended_at != null ? sum + Number(s.idle_minutes ?? 0) : sum),
+            0,
+          );
+          const openIdleMinutes = Math.max(0, idleMinutes - closedIdleSum);
           const tariffSegments: TariffSegment[] = segments.map((seg, index) => {
             const segStartMs = new Date(seg.started_at as string).getTime();
             const segEndMs =
               seg.ended_at != null ? new Date(seg.ended_at as string).getTime() : nowMs;
             const segEnergyStart = Number(seg.energy_wh_start ?? 0);
             const segEnergyEnd = seg.ended_at != null ? Number(seg.energy_wh_end ?? 0) : energyWh;
+            const isOpen = seg.ended_at == null;
             return {
               tariff: {
                 pricePerKwh: seg.price_per_kwh as string | null,
@@ -2707,8 +2742,7 @@ export function registerProjections(
               },
               durationMinutes: (segEndMs - segStartMs) / 60000,
               energyDeliveredWh: segEnergyEnd - segEnergyStart,
-              // Idle time attributed to the last (current) segment
-              idleMinutes: index === segments.length - 1 ? idleMinutes : 0,
+              idleMinutes: isOpen ? openIdleMinutes : Number(seg.idle_minutes ?? 0),
               isFirstSegment: index === 0,
             };
           });
@@ -2763,14 +2797,8 @@ export function registerProjections(
         const now = Date.now();
         const lastSentAt = lastCostUpdatedAt.get(sessionId) ?? 0;
         if (now - lastSentAt >= COST_UPDATED_THROTTLE_MS) {
-          const txAndProtocol = await sql`
-            SELECT cs.transaction_id, st.ocpp_protocol
-            FROM charging_sessions cs
-            JOIN charging_stations st ON st.id = cs.station_id
-            WHERE cs.id = ${sessionId}
-          `;
-          const txId = txAndProtocol[0]?.transaction_id as string | null;
-          const protocol = txAndProtocol[0]?.ocpp_protocol as string | null;
+          const txId = session.transaction_id as string | null;
+          const protocol = session.ocpp_protocol as string | null;
           if (txId != null && protocol === 'ocpp2.1') {
             const commandId = crypto.randomUUID();
             const costUpdatePayload = JSON.stringify({
@@ -2785,8 +2813,11 @@ export function registerProjections(
             try {
               await pubsub.publish('ocpp_commands', costUpdatePayload);
               lastCostUpdatedAt.set(sessionId, now);
-            } catch {
-              // Non-critical: CostUpdated failure should not block meter value processing
+            } catch (err) {
+              logger.debug(
+                { err, sessionId },
+                'CostUpdated command publish failed; continuing meter processing',
+              );
             }
           }
         }
@@ -3402,8 +3433,8 @@ export function registerProjections(
               transactionId,
             }),
           );
-        } catch {
-          // Non-critical
+        } catch (err) {
+          logger.debug({ err, sessionId }, 'MissingPaymentMethod SSE publish failed; continuing');
         }
         return;
       }
@@ -3585,8 +3616,11 @@ export function registerProjections(
                 reason: 'Simulated payment failure',
               }),
             );
-          } catch {
-            // Non-critical
+          } catch (err) {
+            logger.debug(
+              { err, sessionId },
+              'Simulated pre-auth failure SSE publish failed; continuing',
+            );
           }
         }
         return;
@@ -3703,8 +3737,11 @@ export function registerProjections(
             ALL_TEMPLATES_DIRS,
             pubsub,
           );
-        } catch {
-          // Non-critical
+        } catch (err) {
+          logger.debug(
+            { err, driverId, sessionId },
+            'PreAuthFailed notification dispatch failed; continuing',
+          );
         }
 
         try {
@@ -3717,8 +3754,8 @@ export function registerProjections(
               reason: reason.slice(0, 200),
             }),
           );
-        } catch {
-          // Non-critical
+        } catch (err) {
+          logger.debug({ err, sessionId }, 'PreAuthFailed SSE publish failed; continuing');
         }
       }
     } else {
@@ -4067,8 +4104,11 @@ export function registerProjections(
             ALL_TEMPLATES_DIRS,
             pubsub,
           );
-        } catch {
-          // Non-critical
+        } catch (err) {
+          logger.debug(
+            { err, prDriverId, transactionId },
+            'CaptureFailed notification dispatch failed; continuing',
+          );
         }
       }
     }
@@ -4278,8 +4318,11 @@ export function registerProjections(
               VALUES (${stationUuid}, ${stationEventId ?? null}, ${ruleId}, ${componentName}, ${variableName}, ${severity}, ${trigger}, ${actualValue}, ${techInfo})
             `;
           }
-        } catch {
-          // Non-critical: do not break event persistence
+        } catch (err) {
+          logger.debug(
+            { err, stationUuid, componentName, variableName },
+            'Event alert rule evaluation failed; continuing event persistence',
+          );
         }
       }
     }
@@ -4735,7 +4778,7 @@ export function registerProjections(
     const departureTime = (chargingNeeds.departureTime as string | undefined) ?? null;
     const requestedEnergyTransfer =
       (chargingNeeds.requestedEnergyTransfer as string | undefined) ?? null;
-    const controlMode = (payload.controlMode as string | undefined) ?? null;
+    const controlMode = (chargingNeeds.controlMode as string | undefined) ?? null;
     const maxScheduleTuples = (payload.maxScheduleTuples as number | undefined) ?? null;
 
     await sql`

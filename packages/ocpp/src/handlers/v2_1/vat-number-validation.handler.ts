@@ -24,6 +24,8 @@ export async function handleVatNumberValidation(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       vatNumber: request.vatNumber,
       evseId: request.evseId,
     },

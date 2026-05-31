@@ -20,6 +20,8 @@ export async function handleDataTransfer(ctx: HandlerContext): Promise<Record<st
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       vendorId: request.vendorId,
       messageId: request.messageId,
       data: request.data,

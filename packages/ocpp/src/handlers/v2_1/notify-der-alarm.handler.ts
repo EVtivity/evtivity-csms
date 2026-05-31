@@ -20,6 +20,8 @@ export async function handleNotifyDERAlarm(ctx: HandlerContext): Promise<Record<
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       controlType: request.controlType,
       timestamp: request.timestamp,
       gridEventFault: request.gridEventFault,

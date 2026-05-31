@@ -227,9 +227,21 @@ const monthlyStatementSessionItem = z
   })
   .passthrough();
 
+const monthlyStatementCostBreakdownItem = z
+  .object({
+    currency: z.string().length(3).describe('Currency code (ISO 4217)'),
+    totalCostCents: z.number().int().min(0).describe('Total cost in this currency'),
+    sessionCount: z.number().int().min(0).describe('Sessions in this currency'),
+  })
+  .passthrough();
+
 const monthlyStatementTotals = z
   .object({
-    totalCostCents: z.number().int().min(0).describe('Total cost across the statement in cents'),
+    totalCostCents: z.number().int().min(0).describe('Total cost in the primary currency in cents'),
+    currency: z.string().length(3).nullable().describe('Primary currency for totalCostCents'),
+    costBreakdown: z
+      .array(monthlyStatementCostBreakdownItem)
+      .describe('Per-currency cost split when sessions cross currencies'),
     totalEnergyWh: z.number().min(0).describe('Total energy delivered across the statement in Wh'),
     totalCo2AvoidedKg: z.number().describe('Total CO2 avoided across the statement in kg'),
     sessionCount: z.number().int().min(0).describe('Number of completed sessions in the statement'),
@@ -429,21 +441,35 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         )
         .orderBy(desc(chargingSessions.startedAt));
 
-      let totalCostCents = 0;
+      // Group cost by currency so cross-currency drivers don't see a nonsense
+      // mixed-currency sum (mirrors monthly-summary). Primary currency = the
+      // one with the most sessions; totalCostCents reports that currency only.
+      const costByCurrency = new Map<string, { totalCostCents: number; sessionCount: number }>();
       let totalEnergyWh = 0;
       let totalCo2AvoidedKg = 0;
       for (const s of sessions) {
-        totalCostCents += s.finalCostCents ?? 0;
         totalEnergyWh += Number(s.energyDeliveredWh ?? 0);
         totalCo2AvoidedKg += Number(s.co2AvoidedKg ?? 0);
+        if (s.currency != null) {
+          const entry = costByCurrency.get(s.currency) ?? { totalCostCents: 0, sessionCount: 0 };
+          entry.totalCostCents += s.finalCostCents ?? 0;
+          entry.sessionCount += 1;
+          costByCurrency.set(s.currency, entry);
+        }
       }
+      const costBreakdown = Array.from(costByCurrency.entries())
+        .map(([currency, v]) => ({ currency, ...v }))
+        .sort((a, b) => b.sessionCount - a.sessionCount);
+      const primary = costBreakdown[0];
 
       return {
         month,
         driverName: driver != null ? `${driver.firstName} ${driver.lastName}` : '--',
         sessions,
         totals: {
-          totalCostCents,
+          totalCostCents: primary?.totalCostCents ?? 0,
+          currency: primary?.currency ?? null,
+          costBreakdown,
           totalEnergyWh,
           totalCo2AvoidedKg,
           sessionCount: sessions.length,

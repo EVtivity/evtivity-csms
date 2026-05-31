@@ -30,6 +30,7 @@ export async function handleTransactionEvent(
     aggregateId: request.transactionInfo.transactionId,
     payload: {
       stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       eventType: request.eventType,
       triggerReason: request.triggerReason,
       seqNo: request.seqNo,
@@ -51,6 +52,7 @@ export async function handleTransactionEvent(
       aggregateId: ctx.stationId,
       payload: {
         stationId: ctx.stationId,
+        stationDbId: ctx.stationDbId,
         evseId: request.evse?.id ?? 0,
         meterValues: request.meterValue,
         source: 'TransactionEvent',
@@ -114,8 +116,11 @@ export async function handleTransactionEvent(
         outcome = 'unknown';
         reason = 'no_match';
       }
-    } catch {
-      // DB unavailable: accept without groupIdToken (fail-open mirrors authorize)
+    } catch (err) {
+      ctx.logger.warn(
+        { err, stationId: ctx.stationId, idToken },
+        'Token lookup failed on TransactionEvent; accepting without groupIdToken',
+      );
       outcome = 'db_error';
       reason = 'db_unreachable';
     }

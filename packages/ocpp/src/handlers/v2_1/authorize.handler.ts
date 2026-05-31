@@ -57,8 +57,11 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
         freeVendMatchedTokenId = row.id;
         freeVendMatchedDriverId = row.driverId ?? null;
       }
-    } catch {
-      // Lookup failure is non-fatal: free-vend still accepts.
+    } catch (err) {
+      ctx.logger.warn(
+        { err, stationId: ctx.stationId, idToken },
+        'Free-vend matched-token lookup failed; accepting without match',
+      );
     }
     void logAuthorizeAttempt(
       {
@@ -130,8 +133,11 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
               .from(ocpiExternalTokens)
               .where(eq(ocpiExternalTokens.uid, idToken))
               .limit(1);
-          } catch {
-            // OCPI tables may not exist
+          } catch (err) {
+            ctx.logger.debug(
+              { err, idToken },
+              'OCPI external-token lookup failed; OCPI tables may not exist',
+            );
           }
         }
         if (externalToken != null) {
@@ -249,9 +255,12 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
   let tariff: Record<string, unknown> | undefined;
   if (status === 'Accepted' && tokenType !== 'NoAuthorization') {
     try {
-      tariff = await resolveDriverTariff(idToken, tokenType, ctx.stationId, ctx.logger);
-    } catch {
-      // Non-critical
+      tariff = await resolveDriverTariff(matchedDriverId, ctx.stationId, ctx.logger);
+    } catch (err) {
+      ctx.logger.warn(
+        { err, stationId: ctx.stationId, idToken },
+        'Tariff resolution failed; authorize response omits tariff',
+      );
     }
   }
 
@@ -288,18 +297,10 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
 }
 
 async function resolveDriverTariff(
-  idToken: string,
-  tokenType: string,
+  driverId: string | null,
   stationId: string,
   logger: Logger,
 ): Promise<Record<string, unknown> | undefined> {
-  const [tokenRow] = await db
-    .select({ driverId: driverTokens.driverId })
-    .from(driverTokens)
-    .where(and(eq(driverTokens.idToken, idToken), eq(driverTokens.tokenType, tokenType)));
-
-  const driverId = tokenRow?.driverId;
-
   const rows = await db.execute<{
     id: string;
     currency: string;
@@ -345,7 +346,7 @@ async function resolveDriverTariff(
 
   const rawRow = (rows as unknown as Array<Record<string, unknown>>)[0];
   if (rawRow == null) {
-    logger.debug({ stationId, idToken }, 'No tariff found for driver');
+    logger.debug({ stationId, driverId }, 'No tariff found for driver');
     return undefined;
   }
 

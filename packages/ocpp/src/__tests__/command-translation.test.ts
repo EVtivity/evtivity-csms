@@ -356,9 +356,16 @@ describe('command-translation', () => {
     });
 
     describe('Reset edge cases', () => {
-      it('passes unknown reset type through for ocpp1.6', () => {
-        const result = translateCommand('Reset', 'ocpp1.6', { type: 'CustomType' });
-        expect(result?.payload).toHaveProperty('type', 'CustomType');
+      it('throws for unknown reset type targeting ocpp1.6 (e.g. 2.1 ImmediateAndResume)', () => {
+        // OCPP 1.6 Reset.type enum is Hard|Soft only. Letting an unknown value
+        // through produces a FormationViolation CALLERROR; the mapper throws
+        // so the caller surfaces the mismatch at the CSMS layer.
+        expect(() => translateCommand('Reset', 'ocpp1.6', { type: 'ImmediateAndResume' })).toThrow(
+          /no OCPP 1.6 equivalent/,
+        );
+        expect(() => translateCommand('Reset', 'ocpp1.6', { type: 'CustomType' })).toThrow(
+          /no OCPP 1.6 equivalent/,
+        );
       });
     });
 

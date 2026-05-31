@@ -94,6 +94,7 @@
     "available": "사용 가능",
     "unavailable": "사용 불가",
     "faulted": "결함",
+    "failed": "실패",
     "removed": "제거됨",
     "active": "활성",
     "inactive": "비활성",

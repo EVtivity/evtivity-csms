@@ -122,8 +122,11 @@ export class CommandListener {
           );
           return;
         }
-      } catch {
-        // Registry unavailable: proceed with dispatch (fail-open)
+      } catch (err) {
+        this.logger.debug(
+          { err, stationId, instanceId: this.instanceId },
+          'Connection registry lookup failed; proceeding with dispatch (fail-open)',
+        );
       }
     }
 

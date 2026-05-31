@@ -4,7 +4,11 @@
 import type { Redis } from 'ioredis';
 
 const KEY_PREFIX = 'ocpp:conn:';
-const TTL_SECONDS = 120;
+// TTL must exceed the maximum expected heartbeat interval so the registry
+// does not expire between heartbeats. OCPP default heartbeat is 300s; we use
+// 600s (2x) to absorb jitter and operator-configured intervals up to 600s.
+// Connection-manager.add and ocpp.Heartbeat handler both refresh this TTL.
+const TTL_SECONDS = 600;
 
 export interface ConnectionRegistry {
   register(stationId: string, instanceId: string): Promise<void>;

@@ -137,6 +137,7 @@ export function Sessions(): React.JSX.Element {
                 <option value="active">{t('status.active')}</option>
                 <option value="idling">{t('status.idle')}</option>
                 <option value="completed">{t('status.completed')}</option>
+                <option value="failed">{t('status.failed')}</option>
                 <option value="faulted">{t('status.faulted')}</option>
               </Select>
             </div>

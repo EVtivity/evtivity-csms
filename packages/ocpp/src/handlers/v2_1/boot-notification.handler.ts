@@ -32,6 +32,7 @@ export async function handleBootNotification(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationDbId: ctx.stationDbId,
       vendorName: request.chargingStation.vendorName,
       model: request.chargingStation.model,
       serialNumber: request.chargingStation.serialNumber,

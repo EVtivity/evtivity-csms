@@ -21,6 +21,8 @@ export async function handleNotifyDisplayMessages(
     aggregateType: 'ChargingStation',
     aggregateId: ctx.stationId,
     payload: {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
       requestId: request.requestId,
       messageInfo: request.messageInfo,
     },
