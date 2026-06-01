@@ -67,13 +67,13 @@ function statusClassName(status: string, isIdling?: boolean): string | undefined
   if (status === 'occupied' && isIdling === true) return undefined;
   switch (status) {
     case 'available':
+    case 'occupied':
+      return 'bg-blue-500 text-blue-50 hover:bg-blue-500/80';
+    case 'charging':
+    case 'discharging':
       return 'bg-green-500 text-green-50 hover:bg-green-500/80';
     case 'finishing':
       return 'bg-violet-500 text-violet-50 hover:bg-violet-500/80';
-    case 'occupied':
-    case 'charging':
-    case 'discharging':
-      return 'bg-blue-500 text-blue-50 hover:bg-blue-500/80';
     case 'preparing':
     case 'ev_connected':
       return 'bg-cyan-500 text-cyan-50 hover:bg-cyan-500/80';
@@ -84,6 +84,7 @@ function statusClassName(status: string, isIdling?: boolean): string | undefined
     case 'idle':
       return 'bg-yellow-500 text-yellow-50 hover:bg-yellow-500/80';
     case 'faulted':
+    case 'unavailable':
       return 'bg-red-500 text-red-50 hover:bg-red-500/80';
     default:
       return 'bg-red-500 text-red-50 hover:bg-red-500/80';

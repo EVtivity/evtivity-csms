@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth';
-import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
+import { CHART_COLORS, getGridColor, formatChartDateLabel } from '@/lib/chart-theme';
 
 interface EnergyChartProps {
   data: { date: string; energyWh: number }[];
@@ -36,10 +36,7 @@ export function EnergyChart({ data, title, actions, info }: EnergyChartProps): R
       xaxis: {
         categories: data.map((d) => d.date),
         labels: {
-          formatter: (val: string) => {
-            const date = new Date(val);
-            return `${String(date.getMonth() + 1)}/${String(date.getDate())}`;
-          },
+          formatter: formatChartDateLabel,
         },
       },
       yaxis: {

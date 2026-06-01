@@ -195,21 +195,37 @@ export function roamingPartnerStatusVariant(
   }
 }
 
-/** Station status -> badge variant (for station list/card displays) */
+/** Station status -> badge variant (for station list/card displays).
+ *
+ * Semantic color scheme: blue = idle/ready (available, occupied, preparing,
+ * ev_connected); green = actively working (charging, discharging); yellow =
+ * paused/attention (suspended_ev/evse, idle); red = unusable (faulted,
+ * unavailable); orange = held (reserved). Statuses without a Badge variant
+ * for their target color (orange, violet, cyan) get a className override in
+ * statusClassName() at the caller. */
 export function stationStatusVariant(
   status: string,
-): 'default' | 'secondary' | 'destructive' | 'outline' {
+): 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'info' {
   switch (status) {
     case 'available':
+    case 'occupied':
+    case 'finishing':
       return 'default';
     case 'charging':
-      return 'secondary';
+    case 'discharging':
+      return 'success';
+    case 'preparing':
+    case 'ev_connected':
+      return 'info';
+    case 'suspended_ev':
+    case 'suspended_evse':
+    case 'idle':
+      return 'warning';
     case 'reserved':
       return 'outline';
     case 'faulted':
-      return 'destructive';
     case 'unavailable':
-      return 'secondary';
+      return 'destructive';
     default:
       return 'outline';
   }

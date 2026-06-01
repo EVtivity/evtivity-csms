@@ -99,7 +99,7 @@ const utilizationItem = z
 const peakUsageItem = z
   .object({
     hour: z.number().int().min(0).max(23).describe('Hour of day (0-23, local timezone)'),
-    dayOfWeek: z.number().int().min(0).max(6).describe('Day of week (0=Sunday, 6=Saturday)'),
+    dayOfWeek: z.number().int().min(1).max(7).describe('ISO 8601 day of week (1=Monday, 7=Sunday)'),
     count: z
       .number()
       .int()
@@ -292,6 +292,11 @@ const trendResponse = z
               .int()
               .min(0)
               .describe('Total number of stations on this date'),
+            onlineStations: z
+              .number()
+              .int()
+              .min(0)
+              .describe('Number of stations online on this date'),
             onlinePercent: z
               .number()
               .min(0)
@@ -302,6 +307,11 @@ const trendResponse = z
               .min(0)
               .max(100)
               .describe('Average port uptime percentage on this date (0-100)'),
+            activeSessions: z
+              .number()
+              .int()
+              .min(0)
+              .describe('Number of active sessions on this date'),
             totalEnergyWh: z
               .number()
               .min(0)
@@ -384,10 +394,54 @@ const snapshotDateQuery = z.object({
     .describe('Range end in YYYY-MM-DD format. If omitted, returns data for single date.'),
 });
 
+const dateRangeQuery = z.object({
+  days: z
+    .string()
+    .optional()
+    .describe(
+      'Number of trailing days to include (1-90, defaults to 7). Ignored when both `from` and `to` are provided.',
+    ),
+  from: z
+    .string()
+    .optional()
+    .describe('Range start as ISO date/datetime. Must be combined with `to`.'),
+  to: z
+    .string()
+    .optional()
+    .describe(
+      'Range end as ISO date/datetime. Must be combined with `from`. Range cannot exceed 90 days.',
+    ),
+});
+
+const uptimeQuery = z.object({
+  months: z
+    .string()
+    .optional()
+    .describe('Number of trailing months to compute uptime over (1-24, defaults to 12).'),
+});
+
 interface DateRange {
   since: Date;
   until: Date | null;
   daysNum: number;
+}
+
+/** Strictly parse a YYYY-MM-DD string into an epoch ms (UTC midnight).
+ * Returns null when the input doesn't round-trip — catches inputs like
+ * "2024-02-30" that pass the regex shape check but represent dates the
+ * calendar doesn't have. */
+function parseCalendarDate(s: string): number | null {
+  const parts = s.split('-');
+  if (parts.length !== 3) return null;
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) {
+    return null;
+  }
+  return date.getTime();
 }
 
 function parseDateRange(query: { days?: string; from?: string; to?: string }): DateRange {
@@ -545,6 +599,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
         summary: 'Get energy delivery history by day',
         operationId: 'listDashboardEnergyHistory',
         security: [{ bearerAuth: [] }],
+        querystring: zodSchema(dateRangeQuery),
         response: {
           200: arrayResponse(dateValueItem),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
@@ -598,6 +653,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
         summary: 'Get charging session count history by day',
         operationId: 'listDashboardSessionHistory',
         security: [{ bearerAuth: [] }],
+        querystring: zodSchema(dateRangeQuery),
         response: {
           200: arrayResponse(dateCountItem),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
@@ -689,6 +745,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
         summary: 'Get site utilization percentages',
         operationId: 'listDashboardUtilization',
         security: [{ bearerAuth: [] }],
+        querystring: zodSchema(dateRangeQuery),
         response: {
           200: arrayResponse(utilizationItem),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
@@ -750,6 +807,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
         summary: 'Get peak usage heatmap by hour and day of week',
         operationId: 'listDashboardPeakUsage',
         security: [{ bearerAuth: [] }],
+        querystring: zodSchema(dateRangeQuery),
         response: {
           200: arrayResponse(peakUsageItem),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
@@ -823,14 +881,12 @@ export function dashboardRoutes(app: FastifyInstance): void {
 
       if (siteIds != null && siteIds.length === 0) return emptyFinancials;
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayIso = today.toISOString();
+      const tz = await getSystemTimezone();
 
       const query = db
         .select({
           totalRevenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
-          todayRevenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where ${chargingSessions.startedAt} >= ${todayIso}::timestamptz), 0)`,
+          todayRevenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz}) = date_trunc('day', now() AT TIME ZONE ${tz})), 0)`,
           avgRevenueCentsPerSession: sql<number>`coalesce(avg(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
           totalTransactions: sql<number>`count(*) filter (where coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null)`,
         })
@@ -863,6 +919,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
         summary: 'Get revenue history by day',
         operationId: 'listDashboardRevenueHistory',
         security: [{ bearerAuth: [] }],
+        querystring: zodSchema(dateRangeQuery),
         response: {
           200: arrayResponse(revenueHistoryItem),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
@@ -967,6 +1024,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
         summary: 'Get station uptime percentage and port counts',
         operationId: 'getDashboardUptime',
         security: [{ bearerAuth: [] }],
+        querystring: zodSchema(uptimeQuery),
         response: { 200: itemResponse(uptimeResponse) },
       },
       config: DASHBOARD_RATE_LIMIT,
@@ -1225,6 +1283,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
           snapshot_date::text AS date,
           true AS has_data,
           COALESCE(SUM(total_stations), 0) AS total_stations,
+          COALESCE(SUM(online_stations), 0) AS online_stations,
           CASE WHEN SUM(total_stations) > 0
             THEN SUM(online_percent::numeric * total_stations) / SUM(total_stations)
             ELSE 0
@@ -1233,6 +1292,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
             THEN SUM(uptime_percent::numeric * total_stations) / SUM(total_stations)
             ELSE 100
           END AS uptime_percent,
+          COALESCE(SUM(active_sessions), 0) AS active_sessions,
           COALESCE(SUM(total_energy_wh::numeric), 0) AS total_energy_wh,
           COALESCE(SUM(day_energy_wh::numeric), 0) AS day_energy_wh,
           COALESCE(SUM(total_sessions), 0) AS total_sessions,
@@ -1271,8 +1331,10 @@ export function dashboardRoutes(app: FastifyInstance): void {
         // single-date and range snapshot endpoints.
         hasData: row.has_data === true,
         totalStations: Number(row.total_stations),
+        onlineStations: Number(row.online_stations),
         onlinePercent: Math.round(Number(row.online_percent) * 10) / 10,
         uptimePercent: Math.round(Number(row.uptime_percent) * 100) / 100,
+        activeSessions: Number(row.active_sessions),
         totalEnergyWh: Number(row.total_energy_wh),
         dayEnergyWh: Number(row.day_energy_wh),
         totalSessions: Number(row.total_sessions),
@@ -1341,7 +1403,10 @@ export function dashboardRoutes(app: FastifyInstance): void {
         operationId: 'getDashboardSnapshot',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(snapshotDateQuery),
-        response: { 200: itemResponse(snapshotItem) },
+        response: {
+          200: itemResponse(snapshotItem),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+        },
       },
       config: DASHBOARD_RATE_LIMIT,
     },
@@ -1349,6 +1414,26 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
       const { date, to } = request.query as z.infer<typeof snapshotDateQuery>;
+
+      // Regex on snapshotDateQuery only checks the YYYY-MM-DD shape; reject
+      // syntactically-valid-but-impossible dates like "2024-02-30" here so
+      // operators see a clear 400 instead of a generic 500 from the
+      // PostgreSQL ::date cast. Also reject an inverted range so behaviour
+      // matches the documented contract for the live endpoints.
+      const dateMs = parseCalendarDate(date);
+      if (dateMs == null) {
+        throw new ValidationError('"date" is not a valid calendar date');
+      }
+      if (to != null) {
+        const toMs = parseCalendarDate(to);
+        if (toMs == null) {
+          throw new ValidationError('"to" is not a valid calendar date');
+        }
+        if (toMs < dateMs) {
+          throw new ValidationError('"to" must be on or after "date"');
+        }
+      }
+
       const isRange = to != null && to !== date;
 
       const emptySnapshot = {
@@ -1582,13 +1667,23 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const empty = { totalCo2AvoidedKg: 0, sessionCount: 0, avgCo2AvoidedKgPerSession: 0 };
       if (siteIds != null && siteIds.length === 0) return empty;
 
+      const tz = await getSystemTimezone();
       const conditions = [
         eq(chargingSessions.status, 'completed'),
         sql`${chargingSessions.co2AvoidedKg} IS NOT NULL`,
       ];
-      if (fromDate != null) conditions.push(gte(chargingSessions.endedAt, new Date(fromDate)));
-      if (toDate != null)
-        conditions.push(lte(chargingSessions.endedAt, new Date(`${toDate}T23:59:59.999Z`)));
+      // Compare endedAt projected into the system timezone so YYYY-MM-DD
+      // filters mean "the operator's local day", not UTC midnight.
+      if (fromDate != null) {
+        conditions.push(
+          sql`(${chargingSessions.endedAt} AT TIME ZONE ${tz})::date >= ${fromDate}::date`,
+        );
+      }
+      if (toDate != null) {
+        conditions.push(
+          sql`(${chargingSessions.endedAt} AT TIME ZONE ${tz})::date <= ${toDate}::date`,
+        );
+      }
 
       const query = db
         .select({

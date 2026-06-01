@@ -2351,12 +2351,13 @@ describe('Event projections', () => {
   });
 
   describe('ocpp.MessageLog', () => {
-    it('inserts message log entry', async () => {
+    it('inserts message log entry and bumps last_heartbeat on inbound', async () => {
       await setup();
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationId
         [], // INSERT ocpp_message_logs
+        [], // UPDATE charging_stations.last_heartbeat (inbound liveness bump)
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
       );
@@ -2373,10 +2374,14 @@ describe('Event projections', () => {
         }),
       );
 
-      expect(sqlCalls.length).toBeGreaterThanOrEqual(2);
+      // Find the last_heartbeat update — it should be present for inbound.
+      const heartbeatUpdate = sqlCalls.find((call) =>
+        call.strings.some((s) => s.includes('last_heartbeat = now()')),
+      );
+      expect(heartbeatUpdate).toBeDefined();
     });
 
-    it('uses stationDbId when provided', async () => {
+    it('does not bump last_heartbeat on outbound messages', async () => {
       await setup();
 
       setupSqlResults(
@@ -2398,7 +2403,10 @@ describe('Event projections', () => {
         }),
       );
 
-      expect(sqlCalls.length).toBeGreaterThanOrEqual(1);
+      const heartbeatUpdate = sqlCalls.find((call) =>
+        call.strings.some((s) => s.includes('last_heartbeat = now()')),
+      );
+      expect(heartbeatUpdate).toBeUndefined();
     });
   });
 

@@ -1795,6 +1795,7 @@ describe('Event projections - coverage expansion', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationId
         [], // INSERT ocpp_message_logs
+        [], // UPDATE charging_stations.last_heartbeat (inbound liveness bump)
         [{ site_id: null }], // resolveSiteId
       );
 

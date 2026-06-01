@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { ArrowUp, ArrowDown, ArrowRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
@@ -24,6 +25,7 @@ import { PaymentBreakdownChart } from '@/components/charts/PaymentBreakdownChart
 import { DateRangeControl } from '@/components/DateRangeControl';
 import { useDateRange } from '@/hooks/useDateRange';
 import { useUpdateCheck } from '@/hooks/use-update-check';
+import { useDayDeltaContext, type SnapshotData } from '@/hooks/use-day-delta-context';
 
 interface DashboardStats {
   totalStations: number;
@@ -35,33 +37,6 @@ interface DashboardStats {
   faultedStations: number;
   statusCounts: Record<string, number>;
   onboardingStatusCounts: Record<string, number>;
-}
-
-interface SnapshotData {
-  // False when no dashboard_snapshots row matched the requested date filter.
-  // Drives suppression of the day-over-day delta arrows on early days of a
-  // deployment so the StatCards don't show a misleading +/-100% vs an
-  // empty/never-populated baseline.
-  hasData: boolean;
-  totalStations: number;
-  onlineStations: number;
-  onlinePercent: number;
-  uptimePercent: number;
-  activeSessions: number;
-  totalEnergyWh: number;
-  dayEnergyWh: number;
-  totalSessions: number;
-  daySessions: number;
-  connectedStations: number;
-  totalRevenueCents: number;
-  dayRevenueCents: number;
-  avgRevenueCentsPerSession: number;
-  totalTransactions: number;
-  dayTransactions: number;
-  totalPorts: number;
-  stationsBelowThreshold: number;
-  avgPingLatencyMs: number;
-  pingSuccessRate: number;
 }
 
 interface TrendDay extends SnapshotData {
@@ -135,7 +110,8 @@ interface OcppHealthStats {
 
 interface CarbonStats {
   totalCo2AvoidedKg: number;
-  sessionsWithCo2: number;
+  sessionCount: number;
+  avgCo2AvoidedKgPerSession: number;
 }
 
 function parseValue(value: string | number): {
@@ -206,12 +182,6 @@ function useAnimatedValue(value: string | number): string {
   return `${prefix}${formatAnimatedValue(display, decimals)}${suffix}`;
 }
 
-function computeDelta(current: number | undefined, baseline: number | undefined): number | null {
-  if (current == null || baseline == null) return null;
-  if (baseline !== 0) return Math.round(((current - baseline) / Math.abs(baseline)) * 1000) / 10;
-  return current > 0 ? 100 : 0;
-}
-
 function StatCard({
   title,
   value,
@@ -258,9 +228,12 @@ function StatCard({
           {animated}
           {extra}
           {delta != null && tooltipText != null && (
-            <InfoTooltip content={<div className="whitespace-nowrap">{tooltipText}</div>}>
+            <InfoTooltip
+              content={<div className="whitespace-nowrap">{tooltipText}</div>}
+              showOnMobile
+            >
               <span
-                className={`text-sm cursor-default ${
+                className={`inline-flex items-center cursor-default ${
                   isZero
                     ? 'text-muted-foreground'
                     : isGood
@@ -270,7 +243,13 @@ function StatCard({
                         : 'text-muted-foreground'
                 }`}
               >
-                {isPositive ? '\u2191' : isNegative ? '\u2193' : '\u2192'}
+                {isPositive ? (
+                  <ArrowUp className="h-4 w-4" />
+                ) : isNegative ? (
+                  <ArrowDown className="h-4 w-4" />
+                ) : (
+                  <ArrowRight className="h-4 w-4" />
+                )}
               </span>
             </InfoTooltip>
           )}
@@ -384,6 +363,16 @@ function ModeToggle({
 }): React.JSX.Element {
   const { t } = useTranslation();
   const today = new Date().toISOString().split('T')[0] ?? '';
+  // Bound the historical date picker to dates that actually have snapshots so
+  // operators can't pick pre-history dates that would only render a "No Data"
+  // overlay. The endpoint returns dates DESC, so [-1] is the oldest.
+  const { data: availableDates } = useQuery({
+    queryKey: ['dashboard', 'snapshots', 'available-dates'],
+    queryFn: () => api.get<string[]>('/v1/dashboard/snapshots/available-dates'),
+    staleTime: 5 * 60_000,
+    enabled: mode === 'historical',
+  });
+  const oldestAvailable = availableDates?.[availableDates.length - 1] ?? '';
   return (
     <div className="flex items-center gap-2">
       <div className="inline-flex rounded-md border border-border">
@@ -420,6 +409,7 @@ function ModeToggle({
               onFromChange(e.target.value);
             }}
             className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            min={oldestAvailable || undefined}
             max={toDate || today}
           />
           <span className="text-sm text-muted-foreground">to</span>
@@ -431,7 +421,7 @@ function ModeToggle({
               onToChange(e.target.value);
             }}
             className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-            min={fromDate}
+            min={fromDate || oldestAvailable || undefined}
             max={today}
           />
         </div>
@@ -552,46 +542,7 @@ function AdminDashboard({
     refetchInterval: REFETCH_INTERVAL,
   });
 
-  const { yesterdayDate, dayBeforeDate } = (() => {
-    const y = new Date();
-    y.setDate(y.getDate() - 1);
-    const d2 = new Date();
-    d2.setDate(d2.getDate() - 2);
-    return {
-      yesterdayDate: y.toISOString().split('T')[0] ?? '',
-      dayBeforeDate: d2.toISOString().split('T')[0] ?? '',
-    };
-  })();
-
-  const yesterdaySnapshot = useQuery({
-    queryKey: ['dashboard', 'snapshots', 'yesterday', yesterdayDate],
-    queryFn: () => api.get<SnapshotData>(`/v1/dashboard/snapshots?date=${yesterdayDate}`),
-    staleTime: 5 * 60_000,
-  });
-
-  const dayBeforeSnapshot = useQuery({
-    queryKey: ['dashboard', 'snapshots', 'dayBefore', dayBeforeDate],
-    queryFn: () => api.get<SnapshotData>(`/v1/dashboard/snapshots?date=${dayBeforeDate}`),
-    staleTime: 5 * 60_000,
-  });
-
-  const yd = yesterdaySnapshot.data;
-  const db = dayBeforeSnapshot.data;
-
-  // Only show the day-over-day delta when both reference days actually had
-  // snapshot data. The snapshot endpoint returns zeros + uptime=100 when
-  // no rows match, which used to make StatCards show a misleading +100%
-  // vs the prior day during the first 1-2 days after deployment.
-  const dayDelta = (current: number | undefined, baseline: number | undefined): number | null =>
-    yd?.hasData === true && db?.hasData === true ? computeDelta(current, baseline) : null;
-
-  const deltaLabel = (() => {
-    const y = new Date();
-    y.setDate(y.getDate() - 1);
-    const d2 = new Date();
-    d2.setDate(d2.getDate() - 2);
-    return `${String(y.getMonth() + 1)}/${String(y.getDate())} vs ${String(d2.getMonth() + 1)}/${String(d2.getDate())}`;
-  })();
+  const { yd, db, dayDelta, deltaLabel } = useDayDeltaContext();
 
   const isRange = fromDate !== toDate;
   const snapshotUrl = isRange
@@ -1031,46 +982,7 @@ function OperatorDashboard({
     enabled: mode === 'trend',
   });
 
-  const { yesterdayDate, dayBeforeDate } = (() => {
-    const y = new Date();
-    y.setDate(y.getDate() - 1);
-    const d2 = new Date();
-    d2.setDate(d2.getDate() - 2);
-    return {
-      yesterdayDate: y.toISOString().split('T')[0] ?? '',
-      dayBeforeDate: d2.toISOString().split('T')[0] ?? '',
-    };
-  })();
-
-  const yesterdaySnapshot = useQuery({
-    queryKey: ['dashboard', 'snapshots', 'yesterday', yesterdayDate],
-    queryFn: () => api.get<SnapshotData>(`/v1/dashboard/snapshots?date=${yesterdayDate}`),
-    staleTime: 5 * 60_000,
-  });
-
-  const dayBeforeSnapshot = useQuery({
-    queryKey: ['dashboard', 'snapshots', 'dayBefore', dayBeforeDate],
-    queryFn: () => api.get<SnapshotData>(`/v1/dashboard/snapshots?date=${dayBeforeDate}`),
-    staleTime: 5 * 60_000,
-  });
-
-  const yd = yesterdaySnapshot.data;
-  const db = dayBeforeSnapshot.data;
-
-  // Only show the day-over-day delta when both reference days actually had
-  // snapshot data. The snapshot endpoint returns zeros + uptime=100 when
-  // no rows match, which used to make StatCards show a misleading +100%
-  // vs the prior day during the first 1-2 days after deployment.
-  const dayDelta = (current: number | undefined, baseline: number | undefined): number | null =>
-    yd?.hasData === true && db?.hasData === true ? computeDelta(current, baseline) : null;
-
-  const deltaLabel = (() => {
-    const y = new Date();
-    y.setDate(y.getDate() - 1);
-    const d2 = new Date();
-    d2.setDate(d2.getDate() - 2);
-    return `${String(y.getMonth() + 1)}/${String(y.getDate())} vs ${String(d2.getMonth() + 1)}/${String(d2.getDate())}`;
-  })();
+  const { yd, db, dayDelta, deltaLabel } = useDayDeltaContext();
 
   function renderLiveStatCards(): React.JSX.Element {
     return (

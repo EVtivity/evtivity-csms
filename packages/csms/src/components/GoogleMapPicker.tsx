@@ -2,22 +2,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
 import { MapPin } from 'lucide-react';
-import { api } from '@/lib/api';
+import { useGoogleMapsSettings } from '@/hooks/use-google-maps-settings';
 
 interface GoogleMapPickerProps {
   latitude: string;
   longitude: string;
   onLocationChange: (lat: string, lng: string) => void;
-}
-
-interface MapsSettings {
-  apiKey: string;
-  defaultLat: string;
-  defaultLng: string;
-  defaultZoom: string;
 }
 
 let optionsSet = false;
@@ -40,33 +32,7 @@ export function GoogleMapPicker({
     onLocationChangeRef.current = onLocationChange;
   }, [onLocationChange]);
 
-  const { data: settings } = useQuery({
-    // Google Maps key + defaults change rarely. Cache for an hour so the 3-4
-    // map pickers a typical operator session mounts share one settings fetch.
-    staleTime: 60 * 60 * 1000,
-    queryKey: ['google-maps-settings'],
-    queryFn: async () => {
-      const allSettings = await api.get<Record<string, unknown>>('/v1/settings');
-      return {
-        apiKey:
-          typeof allSettings['googleMaps.apiKeyEnc'] === 'string'
-            ? allSettings['googleMaps.apiKeyEnc']
-            : '',
-        defaultLat:
-          typeof allSettings['googleMaps.defaultLat'] === 'string'
-            ? allSettings['googleMaps.defaultLat']
-            : '39.8283',
-        defaultLng:
-          typeof allSettings['googleMaps.defaultLng'] === 'string'
-            ? allSettings['googleMaps.defaultLng']
-            : '-98.5795',
-        defaultZoom:
-          typeof allSettings['googleMaps.defaultZoom'] === 'string'
-            ? allSettings['googleMaps.defaultZoom']
-            : '4',
-      } satisfies MapsSettings;
-    },
-  });
+  const { data: settings } = useGoogleMapsSettings();
 
   useEffect(() => {
     if (settings == null || settings.apiKey === '' || mapRef.current == null) return;

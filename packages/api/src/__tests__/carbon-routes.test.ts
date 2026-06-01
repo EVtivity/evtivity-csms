@@ -75,6 +75,7 @@ vi.mock('@evtivity/database', () => ({
   evses: {},
   paymentRecords: {},
   ocppServerHealth: {},
+  getSystemTimezone: vi.fn(async () => 'UTC'),
 }));
 
 vi.mock('drizzle-orm', () => ({

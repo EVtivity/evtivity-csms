@@ -9,6 +9,7 @@ import { MapPin } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { api } from '@/lib/api';
+import { useGoogleMapsSettings } from '@/hooks/use-google-maps-settings';
 
 interface SiteLocation {
   siteId: string;
@@ -18,46 +19,16 @@ interface SiteLocation {
   stationCount: number;
 }
 
-interface MapsSettings {
-  apiKey: string;
-  defaultLat: string;
-  defaultLng: string;
-  defaultZoom: string;
-}
-
 let optionsSet = false;
 
 export function StationMapChart({ info }: { info?: string }): React.JSX.Element {
   const { t } = useTranslation();
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
+  const [mapInstance, setMapInstance] = useState<google.maps.Map | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
 
-  const { data: mapsSettings } = useQuery({
-    queryKey: ['google-maps-settings'],
-    queryFn: async () => {
-      const allSettings = await api.get<Record<string, unknown>>('/v1/settings');
-      return {
-        apiKey:
-          typeof allSettings['googleMaps.apiKeyEnc'] === 'string'
-            ? allSettings['googleMaps.apiKeyEnc']
-            : '',
-        defaultLat:
-          typeof allSettings['googleMaps.defaultLat'] === 'string'
-            ? allSettings['googleMaps.defaultLat']
-            : '39.8283',
-        defaultLng:
-          typeof allSettings['googleMaps.defaultLng'] === 'string'
-            ? allSettings['googleMaps.defaultLng']
-            : '-98.5795',
-        defaultZoom:
-          typeof allSettings['googleMaps.defaultZoom'] === 'string'
-            ? allSettings['googleMaps.defaultZoom']
-            : '4',
-      } satisfies MapsSettings;
-    },
-  });
+  const { data: mapsSettings } = useGoogleMapsSettings();
 
   const { data: siteLocations } = useQuery({
     queryKey: ['dashboard', 'site-locations'],
@@ -67,7 +38,7 @@ export function StationMapChart({ info }: { info?: string }): React.JSX.Element 
 
   useEffect(() => {
     if (mapsSettings == null || mapsSettings.apiKey === '' || mapRef.current == null) return;
-    if (mapInstanceRef.current != null) return;
+    if (mapInstance != null) return;
 
     if (!optionsSet) {
       setOptions({ key: mapsSettings.apiKey, v: 'weekly', libraries: ['marker'] });
@@ -91,16 +62,16 @@ export function StationMapChart({ info }: { info?: string }): React.JSX.Element 
           mapTypeControl: false,
         });
 
-        mapInstanceRef.current = map;
+        setMapInstance(map);
       } catch (err) {
         console.error('Google Maps load error:', err);
         setMapError(err instanceof Error ? err.message : 'Failed to load Google Maps');
       }
     })();
-  }, [mapsSettings]);
+  }, [mapsSettings, mapInstance]);
 
   useEffect(() => {
-    const map = mapInstanceRef.current;
+    const map = mapInstance;
     if (map == null || siteLocations == null || siteLocations.length === 0) return;
 
     void (async () => {
@@ -132,7 +103,7 @@ export function StationMapChart({ info }: { info?: string }): React.JSX.Element 
         // Markers failed but map is still usable
       }
     })();
-  }, [siteLocations, mapInstanceRef.current]);
+  }, [siteLocations, mapInstance]);
 
   return (
     <Card>

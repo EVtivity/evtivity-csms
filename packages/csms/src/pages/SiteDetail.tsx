@@ -66,6 +66,7 @@ interface Station {
   connectorTypes: string[] | null;
   isOnline: boolean;
   lastHeartbeat: string | null;
+  createdAt: string;
 }
 
 export function SiteDetail(): React.JSX.Element {

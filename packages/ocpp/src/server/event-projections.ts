@@ -4209,6 +4209,17 @@ export function registerProjections(
       return;
     }
 
+    // Any inbound message proves liveness (OCPP 2.1 G02.FR.04, OCPP 1.6 §4.6).
+    // Bump last_heartbeat so the UI's freshness signal tracks reality rather
+    // than only counting actual Heartbeat OCPP messages.
+    if (direction === 'inbound') {
+      await sql`
+        UPDATE charging_stations
+        SET last_heartbeat = now()
+        WHERE id = ${stationUuid}
+      `;
+    }
+
     const siteId = await resolveSiteId(stationUuid);
     await notifyChange('ocpp.message', stationUuid, siteId);
   });

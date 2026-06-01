@@ -71,6 +71,12 @@ export const STATIONS_COLUMNS: ColumnMeta[] = [
     defaultVisible: true,
     defaultVisibleMobile: false,
   },
+  {
+    key: 'createdAt',
+    label: 'common.created',
+    defaultVisible: true,
+    defaultVisibleMobile: false,
+  },
 ];
 
 export interface Station {
@@ -88,11 +94,12 @@ export interface Station {
   isSimulator?: boolean;
   siteFreeVendEnabled?: boolean;
   lastHeartbeat: string | null;
+  createdAt: string;
 }
 
 function statusClassName(status: string): string | undefined {
-  if (status === 'charging') return 'bg-blue-500 text-blue-50 hover:bg-blue-500/80';
   if (status === 'reserved') return 'bg-orange-500 text-orange-50 hover:bg-orange-500/80';
+  if (status === 'finishing') return 'bg-violet-500 text-violet-50 hover:bg-violet-500/80';
   return undefined;
 }
 
@@ -403,6 +410,7 @@ export function StationsTable({
             )}
             {isVisible('online') && <TableHead>{t('status.online')}</TableHead>}
             {isVisible('lastHeartbeat') && <TableHead>{t('stations.lastHeartbeat')}</TableHead>}
+            {isVisible('createdAt') && <TableHead>{t('common.created')}</TableHead>}
             {hasActions && <TableHead />}
           </TableRow>
         </TableHeader>
@@ -517,6 +525,13 @@ export function StationsTable({
                   ) : (
                     '-'
                   )}
+                </TableCell>
+              )}
+              {isVisible('createdAt') && (
+                <TableCell>
+                  <span title={formatDateTime(station.createdAt, timezone)}>
+                    {formatRelativeTime(station.createdAt, timezone)}
+                  </span>
                 </TableCell>
               )}
               {hasActions && (

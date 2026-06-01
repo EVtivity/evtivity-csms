@@ -46,7 +46,7 @@ export const TOKENS_COLUMNS: ColumnMeta[] = [
     defaultVisible: true,
     defaultVisibleMobile: false,
   },
-  { key: 'created', label: 'common.created', defaultVisible: false, defaultVisibleMobile: false },
+  { key: 'created', label: 'common.created', defaultVisible: true, defaultVisibleMobile: false },
 ];
 
 export interface Token {

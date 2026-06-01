@@ -19,15 +19,18 @@ interface PeakUsageChartProps {
 export function PeakUsageChart({ data, actions, info }: PeakUsageChartProps): React.JSX.Element {
   const { t } = useTranslation();
   const isDark = useAuth((s) => s.theme) === 'dark';
-  const dayNames = [
-    t('charts.mon'),
-    t('charts.tue'),
-    t('charts.wed'),
-    t('charts.thu'),
-    t('charts.fri'),
-    t('charts.sat'),
-    t('charts.sun'),
-  ];
+  const dayNames = useMemo(
+    () => [
+      t('charts.mon'),
+      t('charts.tue'),
+      t('charts.wed'),
+      t('charts.thu'),
+      t('charts.fri'),
+      t('charts.sat'),
+      t('charts.sun'),
+    ],
+    [t],
+  );
   const seriesData = useMemo(
     () =>
       dayNames.map((day, dayIdx) => ({

@@ -10,6 +10,16 @@ export function getGridColor(isDark: boolean): string {
   return isDark ? '#1e293b' : '#e2e8f0';
 }
 
+/** Format a YYYY-MM-DD calendar-date label as "M/D" for chart x-axes.
+ * Parses by splitting the string rather than `new Date(val)` because
+ * `new Date("2024-03-12")` parses as UTC midnight and would shift the
+ * label by one day for browsers west of UTC. */
+export function formatChartDateLabel(val: string): string {
+  const parts = val.split('-');
+  if (parts.length !== 3) return val;
+  return `${String(Number(parts[1]))}/${String(Number(parts[2]))}`;
+}
+
 export const CHART_COLORS = {
   primary: '#2563eb',
   secondary: '#6366f1',
@@ -22,21 +32,20 @@ export const CHART_COLORS = {
 } as const;
 
 export const STATUS_COLORS: Record<string, string> = {
-  available: '#22c55e',
+  available: '#3b82f6',
   occupied: '#3b82f6',
-  reserved: '#f97316',
-  faulted: '#ef4444',
-  unavailable: '#6b7280',
-  removed: '#9ca3af',
-  // OCPP 1.6 connector statuses
-  charging: '#3b82f6',
+  charging: '#22c55e',
+  discharging: '#22c55e',
   preparing: '#06b6d4',
   ev_connected: '#06b6d4',
+  reserved: '#f97316',
   suspended_ev: '#f59e0b',
   suspended_evse: '#f59e0b',
-  finishing: '#8b5cf6',
   idle: '#f59e0b',
-  discharging: '#8b5cf6',
+  finishing: '#8b5cf6',
+  faulted: '#ef4444',
+  unavailable: '#ef4444',
+  removed: '#9ca3af',
 };
 
 export const PAYMENT_STATUS_COLORS: Record<string, string> = {
