@@ -47,6 +47,7 @@ interface ChargerInfo {
     }>;
     reservationExpiresAt: string | null;
   };
+  maintenance: { active: boolean; plannedEndAt: string | null; message: string | null } | null;
 }
 
 export function ChargerLanding(): React.JSX.Element {
@@ -213,7 +214,10 @@ export function ChargerLanding(): React.JSX.Element {
   // holder plugs in. The portal-authenticated flow (ChargerDetail) handles
   // the reservation-holder case; guests must always be blocked.
   const isReserved = charger.evse.reservationExpiresAt != null;
-  const isAvailable = startableStatuses.includes(connectorStatus) && !isReserved;
+  const isAvailable =
+    charger.maintenance?.active !== true &&
+    startableStatuses.includes(connectorStatus) &&
+    !isReserved;
   const maxPower = charger.evse.connectors.reduce((max, c) => Math.max(max, c.maxPowerKw ?? 0), 0);
   const maxCurrent = charger.evse.connectors.reduce(
     (max, c) => Math.max(max, c.maxCurrentAmps ?? 0),
@@ -243,6 +247,22 @@ export function ChargerLanding(): React.JSX.Element {
           )}
         </CardHeader>
         <CardContent className="space-y-4">
+          {charger.maintenance?.active === true && (
+            <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-left">
+              <p className="font-semibold text-sm">{t('charger.maintenanceTitle')}</p>
+              {charger.maintenance.plannedEndAt != null && (
+                <p className="mt-1 text-xs">
+                  {t('charger.maintenanceUntil', {
+                    time: new Date(charger.maintenance.plannedEndAt).toLocaleString(),
+                  })}
+                </p>
+              )}
+              {charger.maintenance.message != null && charger.maintenance.message.length > 0 && (
+                <p className="mt-1 text-xs">{charger.maintenance.message}</p>
+              )}
+            </div>
+          )}
+
           {/* Location */}
           {charger.siteAddress != null && charger.siteId != null ? (
             <Link

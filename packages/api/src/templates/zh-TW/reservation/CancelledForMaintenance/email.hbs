@@ -1,0 +1,4 @@
+{{#if firstName}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>您好 {{firstName}}，</p>{{/if}}
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>由於站點進入排定維護時段，您的預約已被取消。</p>
+<p style='color:#1a1a1a;line-height:1.6;margin:0 0 16px 0;'><strong>維護事件:</strong> {{maintenanceEventId}}<br/><strong>時段:</strong> {{plannedStartAt}} 至 {{plannedEndAt}}{{#if reason}}<br/><strong>原因:</strong> {{reason}}{{/if}}</p>
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>不會收取取消費用。</p>

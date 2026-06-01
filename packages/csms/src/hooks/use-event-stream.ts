@@ -186,6 +186,13 @@ function getQueryKeysForEvent(event: CsmsEvent): string[][] {
       }
       break;
 
+    case 'maintenance.changed':
+      keys.push(['maintenance']);
+      keys.push(['sites']);
+      keys.push(['stations']);
+      if (siteId != null) keys.push(['site', siteId]);
+      break;
+
     case 'token.changed':
       keys.push(['tokens']);
       // AuthorizeLogView (global page + TokenDetail tab + StationDetail tab +

@@ -11,7 +11,9 @@ import {
   connectors,
   ocpiLocationPublish,
   ocpiLocationPublishPartners,
+  maintenanceEvents,
 } from '@evtivity/database';
+import { inArray } from 'drizzle-orm';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
 import { parsePaginationParams, setPaginationHeaders } from '../../lib/ocpi-pagination.js';
 import { ocpiAuthenticate } from '../../middleware/ocpi-auth.js';
@@ -33,6 +35,7 @@ function getPartyId(): string {
 
 interface EvseRow {
   id: string;
+  stationId: string;
   evseId: number;
   updatedAt: Date;
 }
@@ -155,6 +158,7 @@ async function getEvsesWithConnectors(
     const list = result.get(stId) ?? [];
     list.push({
       id: e.id,
+      stationId: stId,
       evseId: e.evseId,
       updatedAt: e.updatedAt,
       connectors: connectorsByEvse.get(e.id) ?? [],
@@ -162,6 +166,47 @@ async function getEvsesWithConnectors(
     result.set(stId, list);
   }
 
+  return result;
+}
+
+interface SiteMaintenanceCoverage {
+  allAffected: boolean;
+  affectedStationIds: Set<string>;
+}
+
+async function findSiteMaintenanceCoverage(
+  siteIds: string[],
+): Promise<Map<string, SiteMaintenanceCoverage>> {
+  const result = new Map<string, SiteMaintenanceCoverage>();
+  if (siteIds.length === 0) return result;
+  const now = new Date();
+  const rows = await db
+    .select({
+      siteId: maintenanceEvents.siteId,
+      affectedStationIds: maintenanceEvents.affectedStationIds,
+    })
+    .from(maintenanceEvents)
+    .where(
+      and(
+        inArray(maintenanceEvents.siteId, siteIds),
+        eq(maintenanceEvents.status, 'active'),
+        lte(maintenanceEvents.plannedStartAt, now),
+        gte(maintenanceEvents.plannedEndAt, now),
+      ),
+    );
+  for (const r of rows) {
+    const existing = result.get(r.siteId) ?? {
+      allAffected: false,
+      affectedStationIds: new Set<string>(),
+    };
+    const filter = r.affectedStationIds;
+    if (filter == null || filter.length === 0) {
+      existing.allAffected = true;
+    } else {
+      for (const s of filter) existing.affectedStationIds.add(s);
+    }
+    result.set(r.siteId, existing);
+  }
   return result;
 }
 
@@ -226,11 +271,15 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
     const countryCode = getCountryCode();
     const partyId = getPartyId();
 
+    const allSiteIds = siteRows.map((s) => s.id);
+    const maintenanceCoverage = await findSiteMaintenanceCoverage(allSiteIds);
+
     // OCPI Location.coordinates is required; getPublishedLocations() filters
     // out coordinateless sites at the source so total + pagination stay aligned.
     const ocpiLocations = siteRows.map((site) => {
       const siteStationIds = stationsBySite.get(site.id) ?? [];
       const allEvses = siteStationIds.flatMap((stId) => evseMap.get(stId) ?? []);
+      const coverage = maintenanceCoverage.get(site.id);
 
       return transformLocation(
         {
@@ -239,6 +288,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
           ocpiLocationId: locationIdMap.get(site.id) ?? site.id,
           countryCode,
           partyId,
+          ...(coverage != null ? { maintenance: coverage } : {}),
         },
         version,
       );
@@ -291,6 +341,8 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
     const evseMap = await getEvsesWithConnectors(stationIds);
     const allEvses = stationIds.flatMap((stId) => evseMap.get(stId) ?? []);
 
+    const maintenanceCoverage = await findSiteMaintenanceCoverage([siteId]);
+    const coverage = maintenanceCoverage.get(siteId);
     const location = transformLocation(
       {
         site,
@@ -298,6 +350,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
         ocpiLocationId: location_id,
         countryCode: getCountryCode(),
         partyId: getPartyId(),
+        ...(coverage != null ? { maintenance: coverage } : {}),
       },
       version,
     );

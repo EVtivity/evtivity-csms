@@ -121,6 +121,9 @@ const NotificationRules = lazy(() =>
 const Reservations = lazy(() =>
   import('@/pages/Reservations').then((m) => ({ default: m.Reservations })),
 );
+const Maintenance = lazy(() =>
+  import('@/pages/Maintenance').then((m) => ({ default: m.Maintenance })),
+);
 const ReservationCreate = lazy(() =>
   import('@/pages/ReservationCreate').then((m) => ({ default: m.ReservationCreate })),
 );
@@ -295,6 +298,7 @@ export function App(): React.JSX.Element {
                   <Route path="sessions" element={<Sessions />} />
                   <Route path="sessions/:id" element={<SessionDetail />} />
                   <Route path="reservations" element={<Reservations />} />
+                  <Route path="maintenance" element={<Maintenance />} />
                   <Route path="reservations/new" element={<ReservationCreate />} />
                   <Route path="reservations/:id" element={<ReservationDetail />} />
                   <Route path="drivers" element={<Drivers />} />

@@ -45,6 +45,7 @@ const ENTITY_TYPES = [
   'firmware_campaign',
   'station_image',
   'local_auth_list',
+  'maintenance_event',
 ] as const;
 
 const ACTORS = ['operator', 'driver', 'api_key', 'system', 'ocpp'] as const;
@@ -75,6 +76,7 @@ const ACTIONS = [
   'deleted',
   'disconnected',
   'email_verified',
+  'ended',
   'expired',
   'fleet_assignment_changed',
   'free_vend_toggled',
@@ -99,6 +101,7 @@ const ACTIONS = [
   'pushed',
   'refund_issued',
   'registered',
+  'reservations_cancelled',
   'reset_triggered',
   'resumed',
   'revoked',
@@ -106,6 +109,7 @@ const ACTIONS = [
   'root_certificates_refreshed',
   'session_failed',
   'sessions_linked',
+  'sessions_stopped',
   'sessions_unlinked',
   'set_main',
   'simulator_toggled',

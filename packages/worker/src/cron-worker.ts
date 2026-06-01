@@ -25,6 +25,7 @@ import { auditRetentionPruneHandler } from './handlers/audit-retention-prune.js'
 import { logRetentionPruneHandler } from './handlers/log-retention-prune.js';
 import { mfaChallengePruneHandler } from './handlers/mfa-challenge-prune.js';
 import { refreshTokenPruneHandler } from './handlers/refresh-token-prune.js';
+import { maintenanceSchedulerHandler } from './handlers/maintenance-scheduler.js';
 
 const log = createLogger('cron-worker');
 
@@ -50,6 +51,7 @@ const JOB_HANDLERS = new Map<string, JobHandlerFn>([
   ['log-retention-prune', logRetentionPruneHandler],
   ['mfa-challenge-prune', mfaChallengePruneHandler],
   ['refresh-token-prune', refreshTokenPruneHandler],
+  ['maintenance-scheduler', maintenanceSchedulerHandler],
 ]);
 
 export function createCronWorker(connection: ConnectionOptions): Worker {

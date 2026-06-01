@@ -42,6 +42,8 @@
     "idling.gracePeriodMinutes": 30,
     "session.staleTimeoutHours": 24,
 
+    "maintenance.defaultMessageTemplate": "This site is temporarily unavailable for maintenance. {{reason}}",
+
     "notifications.emailEnabled": true,
 
     "smtp.host": "localhost",

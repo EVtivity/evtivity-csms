@@ -128,12 +128,17 @@ vi.mock('../lib/reservation-buffer.js', () => ({
   isEvseInReservationBuffer: vi.fn().mockResolvedValue(false),
 }));
 
+vi.mock('../services/maintenance.service.js', () => ({
+  getActiveMaintenanceForStation: vi.fn().mockResolvedValue(null),
+}));
+
 import { registerAuth } from '../plugins/auth.js';
 import { portalGuestRoutes } from '../routes/portal/guest.js';
 import { getStripeConfig } from '../services/stripe.service.js';
 import { isTariffFree } from '../services/tariff.service.js';
 import { isEvseInReservationBuffer } from '../lib/reservation-buffer.js';
 import { sendOcppCommandAndWait } from '../lib/ocpp-command.js';
+import { getActiveMaintenanceForStation } from '../services/maintenance.service.js';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -159,6 +164,7 @@ describe('Portal guest routes - handler logic', () => {
     vi.mocked(getStripeConfig).mockResolvedValue(null);
     vi.mocked(isTariffFree).mockReturnValue(true);
     vi.mocked(isEvseInReservationBuffer).mockResolvedValue(false);
+    vi.mocked(getActiveMaintenanceForStation).mockResolvedValue(null);
   });
 
   describe('GET /v1/portal/guest/charger-config/:stationId/:evseId', () => {

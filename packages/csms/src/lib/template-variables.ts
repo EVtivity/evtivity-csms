@@ -69,6 +69,8 @@ export const DRIVER_SESSION_EVENTS = [
   'session.Receipt',
 ] as const;
 
+export const DRIVER_MAINTENANCE_EVENTS = ['maintenance.SessionStopped'] as const;
+
 export const DRIVER_ACCOUNT_EVENTS = [
   'driver.Welcome',
   'driver.ForgotPassword',
@@ -88,6 +90,7 @@ export const DRIVER_PAYMENT_EVENTS = [
 export const DRIVER_RESERVATION_EVENTS = [
   'reservation.Created',
   'reservation.Cancelled',
+  'reservation.CancelledForMaintenance',
   'reservation.Expiring',
   'reservation.Expired',
   'reservation.StationFaulted',
@@ -112,6 +115,7 @@ export const DRIVER_EVENT_TYPES = [
   ...DRIVER_SUPPORT_EVENTS,
   ...DRIVER_TOKEN_EVENTS,
   ...DRIVER_MFA_EVENTS,
+  ...DRIVER_MAINTENANCE_EVENTS,
 ] as const;
 
 // Keep old names for imports that haven't been updated
@@ -467,6 +471,22 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'reservationId', description: 'Reservation ID' },
     { name: 'stationId', description: 'Station OCPP identifier' },
     { name: 'cancellationFeeFormatted', description: 'Formatted cancellation fee (e.g. $5.00)' },
+  ],
+  'reservation.CancelledForMaintenance': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'maintenanceEventId', description: 'Maintenance event ID' },
+    { name: 'plannedStartAt', description: 'Planned maintenance start' },
+    { name: 'plannedEndAt', description: 'Planned maintenance end' },
+    { name: 'reason', description: 'Operator-supplied reason' },
+  ],
+  'maintenance.SessionStopped': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'maintenanceEventId', description: 'Maintenance event ID' },
+    { name: 'sessionId', description: 'Charging session ID that was stopped' },
+    { name: 'plannedEndAt', description: 'When maintenance is expected to end' },
+    { name: 'reason', description: 'Operator-supplied reason' },
   ],
   'reservation.Expiring': [
     { name: 'firstName', description: 'Driver first name' },

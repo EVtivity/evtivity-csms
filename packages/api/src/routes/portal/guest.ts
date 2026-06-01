@@ -33,6 +33,7 @@ import {
 import { getStripeConfig } from '../../services/stripe.service.js';
 import { resolveTariff, isTariffFree } from '../../services/tariff.service.js';
 import { isEvseInReservationBuffer } from '../../lib/reservation-buffer.js';
+import { getActiveMaintenanceForStation } from '../../services/maintenance.service.js';
 
 const guestPricingInfo = z
   .object({
@@ -414,6 +415,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           409: errorWith('Conflict', [
             ERROR_CODES.EVSE_IN_USE,
             ERROR_CODES.RESERVATION_BUFFER_ACTIVE,
+            ERROR_CODES.MAINTENANCE_ACTIVE,
           ]),
           502: errorWith('Station rejected', [ERROR_CODES.STATION_REJECTED]),
           504: errorWith('Station did not respond within timeout', [ERROR_CODES.STATION_TIMEOUT]),
@@ -441,6 +443,16 @@ export function portalGuestRoutes(app: FastifyInstance): void {
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
+
+      const guestActiveMaintenance = await getActiveMaintenanceForStation(station.id);
+      if (guestActiveMaintenance != null) {
+        await reply.status(409).send({
+          error: 'Site is currently under maintenance',
+          code: 'MAINTENANCE_ACTIVE',
+          plannedEndAt: guestActiveMaintenance.plannedEndAt.toISOString(),
+        });
         return;
       }
 

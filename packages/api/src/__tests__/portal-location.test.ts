@@ -83,6 +83,9 @@ vi.mock('drizzle-orm', () => ({
   asc: vi.fn(),
   count: vi.fn(),
   gte: vi.fn(),
+  gt: vi.fn(),
+  lt: vi.fn(),
+  lte: vi.fn(),
   inArray: vi.fn(),
   notInArray: vi.fn(),
   isNull: vi.fn(),
@@ -129,15 +132,24 @@ vi.mock('../services/tariff.service.js', () => ({
   isTariffFree: vi.fn(() => false),
 }));
 
-vi.mock('@evtivity/lib', () => ({
-  dispatchDriverNotification: vi.fn(),
-  decryptString: vi.fn((value: string) => value),
-  createLogger: vi.fn(() => ({
-    info: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-    debug: vi.fn(),
-  })),
+vi.mock('@evtivity/lib', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@evtivity/lib')>();
+  return {
+    ...actual,
+    dispatchDriverNotification: vi.fn(),
+    decryptString: vi.fn((value: string) => value),
+    createLogger: vi.fn(() => ({
+      info: vi.fn(),
+      error: vi.fn(),
+      warn: vi.fn(),
+      debug: vi.fn(),
+    })),
+    renderMaintenanceMessage: vi.fn().mockResolvedValue(''),
+  };
+});
+
+vi.mock('../services/maintenance.service.js', () => ({
+  getActiveMaintenanceForStation: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('../lib/template-dirs.js', () => ({

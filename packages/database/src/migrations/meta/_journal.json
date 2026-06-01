@@ -400,6 +400,41 @@
       "when": 1778700000038,
       "tag": "0056_dashboard_snapshot_cron_shift_to_11utc",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1778700000039,
+      "tag": "0057_add_maintenance_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1778700000040,
+      "tag": "0058_backfill_maintenance_perms_for_operators",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1778700000041,
+      "tag": "0059_seed_maintenance_settings_and_cron",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1778700000042,
+      "tag": "0060_seed_maintenance_driver_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1778700000043,
+      "tag": "0061_add_maintenance_audit_updated",
+      "breakpoints": true
     }
   ]
 }

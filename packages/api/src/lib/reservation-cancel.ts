@@ -18,6 +18,8 @@ export type ReservationCancelReason =
   | 'station_rejected_occupied'
   | 'station_rejected_other'
   | 'station_offline_at_activation'
+  | 'evse_in_use_at_activation'
+  | 'station_faulted_at_activation'
   | 'system_cleanup';
 
 export interface ReservationCancelInput {

@@ -1,0 +1,4 @@
+{{#if firstName}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>안녕하세요 {{firstName}}님,</p>{{/if}}
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>예정된 유지보수로 인해 충전 세션이 중지되었습니다.</p>
+<p style='color:#1a1a1a;line-height:1.6;margin:0 0 16px 0;'><strong>세션:</strong> {{sessionId}}<br/><strong>유지보수 ID:</strong> {{maintenanceEventId}}<br/><strong>예상 종료:</strong> {{plannedEndAt}}{{#if reason}}<br/><strong>사유:</strong> {{reason}}{{/if}}</p>
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>실제 공급된 전력에 대해서만 청구됩니다.</p>

@@ -259,7 +259,9 @@
     "statusCheckFailed": "Anschlussstatus konnte nicht geprüft werden. Versuche es erneut.",
     "reservedUntil": "Reserviert bis {{time}}",
     "reserved": "Reserviert",
-    "connectorReserved": "Anschluss ist reserviert"
+    "connectorReserved": "Anschluss ist reserviert",
+    "maintenanceTitle": "Standort in Wartung",
+    "maintenanceUntil": "Voraussichtliche Wiederaufnahme: {{time}}"
   },
   "chargerSearch": {
     "title": "Ladevorgang starten",
@@ -664,7 +666,13 @@
     "retry": "Erneut versuchen",
     "serverDown": "Verbindung nicht möglich",
     "serverDownDescription": "Der Server antwortet nicht. Bitte prüfe deine Verbindung und versuche es erneut.",
-    "unknown": "Etwas ist schiefgelaufen. Bitte versuche es erneut."
+    "unknown": "Etwas ist schiefgelaufen. Bitte versuche es erneut.",
+    "MAINTENANCE_NOT_FOUND": "Wartungsereignis nicht gefunden",
+    "MAINTENANCE_OVERLAPS_EXISTING": "Wartungsfenster überschneidet sich mit bestehendem Ereignis",
+    "MAINTENANCE_INVALID_RANGE": "Wartungsende muss nach dem Start liegen",
+    "MAINTENANCE_ALREADY_ACTIVE": "Wartungsereignis ist bereits aktiv",
+    "MAINTENANCE_ACTIVE": "Der Standort befindet sich derzeit in Wartung",
+    "RESERVATION_DURING_MAINTENANCE": "Reservierung fällt in ein geplantes Wartungsfenster"
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",

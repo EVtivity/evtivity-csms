@@ -8,9 +8,16 @@ import { clearSecuritySettingsCache } from '@evtivity/database';
 import { clearPermissionCacheLocal } from '../middleware/rbac.js';
 import { clearSiteAccessCacheLocal } from '../lib/site-access.js';
 import { clearUserActiveCacheLocal } from '../plugins/auth.js';
+import { clearMaintenanceCheckCacheLocal } from '../lib/maintenance-check.js';
 
 interface CacheInvalidateMessage {
-  kind: 'permission' | 'site' | 'active' | 'notification_settings' | 'security_settings';
+  kind:
+    | 'permission'
+    | 'site'
+    | 'active'
+    | 'notification_settings'
+    | 'security_settings'
+    | 'maintenance';
   userId?: string;
 }
 
@@ -51,6 +58,9 @@ export async function startCacheInvalidateListener(
         return;
       case 'security_settings':
         clearSecuritySettingsCache();
+        return;
+      case 'maintenance':
+        clearMaintenanceCheckCacheLocal();
         return;
       case 'permission':
       case 'site':

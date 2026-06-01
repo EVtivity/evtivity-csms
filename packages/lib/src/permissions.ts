@@ -51,6 +51,8 @@ export const PAGE_PERMISSIONS = [
   'users:write',
   'audit:read',
   'audit:write',
+  'maintenance:read',
+  'maintenance:write',
 ] as const;
 
 // Settings tab permissions
@@ -125,6 +127,8 @@ export const OPERATOR_DEFAULT_PERMISSIONS: Permission[] = [
   'sustainability:read',
   'users:read',
   'audit:read',
+  'maintenance:read',
+  'maintenance:write',
 ];
 
 /** Viewer gets read-only access to operational pages. No write, no settings. */
@@ -150,6 +154,7 @@ export const VIEWER_DEFAULT_PERMISSIONS: Permission[] = [
   'sustainability:read',
   'users:read',
   'audit:read',
+  'maintenance:read',
 ];
 
 /** Permission groups for the UI. */
@@ -237,6 +242,10 @@ export const PERMISSION_GROUPS = [
   {
     label: 'Audit Log',
     permissions: ['audit:read', 'audit:write'],
+  },
+  {
+    label: 'Maintenance',
+    permissions: ['maintenance:read', 'maintenance:write'],
   },
   {
     label: 'Settings - System',

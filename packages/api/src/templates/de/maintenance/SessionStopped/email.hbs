@@ -1,0 +1,4 @@
+{{#if firstName}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>Hallo {{firstName}},</p>{{/if}}
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>Ihre Ladesitzung wurde wegen einer geplanten Wartung gestoppt.</p>
+<p style='color:#1a1a1a;line-height:1.6;margin:0 0 16px 0;'><strong>Sitzung:</strong> {{sessionId}}<br/><strong>Wartung:</strong> {{maintenanceEventId}}<br/><strong>Voraussichtliches Ende:</strong> {{plannedEndAt}}{{#if reason}}<br/><strong>Grund:</strong> {{reason}}{{/if}}</p>
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>Es wird nur tatsächlich gelieferte Energie berechnet.</p>

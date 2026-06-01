@@ -49,6 +49,9 @@ vi.mock('../handlers/offline-command-cleanup.js', () => ({
 vi.mock('../handlers/certificate-expiration-check.js', () => ({
   certificateExpirationCheckHandler: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock('../handlers/maintenance-scheduler.js', () => ({
+  maintenanceSchedulerHandler: vi.fn().mockResolvedValue(undefined),
+}));
 
 describe('createCronWorker', () => {
   it('creates a BullMQ Worker with concurrency 1', async () => {

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, lte, gte } from 'drizzle-orm';
 import {
   db,
   sites,
@@ -14,6 +14,7 @@ import {
   ocpiLocationPublish,
   ocpiExternalTokens,
   ocpiRoamingSessions,
+  maintenanceEvents,
 } from '@evtivity/database';
 import { isPrivateUrl } from '@evtivity/lib';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
@@ -75,10 +76,36 @@ function parseEvseUidTail(evseUid: string | undefined): number | undefined {
   return Number.isFinite(num) ? num : undefined;
 }
 
+/**
+ * Returns true when the supplied station (resolved by site + optional evse uid)
+ * is covered by an active maintenance window. Used to short-circuit external
+ * START_SESSION / RESERVE_NOW commands so partners see a clean REJECTED rather
+ * than dispatch OCPP traffic to a site that is currently inoperative.
+ */
+async function isStationUnderMaintenance(siteId: string, stationDbId: string): Promise<boolean> {
+  const now = new Date();
+  const rows = await db
+    .select({ affectedStationIds: maintenanceEvents.affectedStationIds })
+    .from(maintenanceEvents)
+    .where(
+      and(
+        eq(maintenanceEvents.siteId, siteId),
+        eq(maintenanceEvents.status, 'active'),
+        lte(maintenanceEvents.plannedStartAt, now),
+        gte(maintenanceEvents.plannedEndAt, now),
+      ),
+    );
+  if (rows.length === 0) return false;
+  return rows.some((r) => {
+    const f = r.affectedStationIds;
+    return f == null || f.length === 0 || f.includes(stationDbId);
+  });
+}
+
 async function findStationForSite(
   siteId: string,
   evseUid?: string,
-): Promise<{ stationId: string; evseDbId?: string } | null> {
+): Promise<{ stationDbId: string; stationId: string; evseDbId?: string } | null> {
   if (evseUid != null) {
     const evseIdNum = parseEvseUidTail(evseUid);
     if (evseIdNum == null) return null;
@@ -97,18 +124,18 @@ async function findStationForSite(
 
     const row = results[0];
     if (row == null) return null;
-    return { stationId: row.stationId, evseDbId: row.evseDbId };
+    return { stationDbId: row.stationDbId, stationId: row.stationId, evseDbId: row.evseDbId };
   }
 
   // No EVSE specified, find any station at the site
   const [station] = await db
-    .select({ stationId: chargingStations.stationId })
+    .select({ stationDbId: chargingStations.id, stationId: chargingStations.stationId })
     .from(chargingStations)
     .where(eq(chargingStations.siteId, siteId))
     .limit(1);
 
   if (station == null) return null;
-  return { stationId: station.stationId };
+  return { stationDbId: station.stationDbId, stationId: station.stationId };
 }
 
 async function findConnectorId(evseDbId: string, connectorIdStr: string): Promise<number | null> {
@@ -172,6 +199,11 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
 
     const station = await findStationForSite(siteId, body.evse_uid);
     if (station == null) {
+      const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
+      return ocpiSuccess(response);
+    }
+
+    if (await isStationUnderMaintenance(siteId, station.stationDbId)) {
       const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
       return ocpiSuccess(response);
     }
@@ -351,6 +383,11 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
 
     const station = await findStationForSite(siteId, body.evse_uid);
     if (station == null) {
+      const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
+      return ocpiSuccess(response);
+    }
+
+    if (await isStationUnderMaintenance(siteId, station.stationDbId)) {
       const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
       return ocpiSuccess(response);
     }

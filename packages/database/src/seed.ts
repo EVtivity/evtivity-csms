@@ -436,6 +436,8 @@ async function seed(): Promise<void> {
     'stationMessage.charging.refreshSeconds': 30,
     'stationMessage.eventMessageTtlSeconds': 30,
     'stationMessage.brandLine': '',
+    'maintenance.defaultMessageTemplate':
+      'This site is temporarily unavailable for maintenance. {{reason}}',
     'notifications.emailEnabled': true,
     'ftp.host': 'ftp',
     'ftp.port': 21,

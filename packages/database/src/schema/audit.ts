@@ -768,6 +768,41 @@ export const pricingAssignmentAuditLog = pgTable(
   ],
 );
 
+// Maintenance event audit. Tracks the lifecycle of a maintenance window plus
+// counts of side effects (sessions stopped, reservations cancelled) for forensics.
+export const maintenanceEventAuditActionEnum = pgEnum('maintenance_event_audit_action', [
+  'created',
+  'updated',
+  'started',
+  'ended',
+  'cancelled',
+  'sessions_stopped',
+  'reservations_cancelled',
+]);
+
+export const maintenanceEventAuditLog = pgTable(
+  'maintenance_event_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    maintenanceEventId: text('maintenance_event_id'),
+    maintenanceEventIdSnapshot: text('maintenance_event_id_snapshot').notNull(),
+    action: maintenanceEventAuditActionEnum('action').notNull(),
+    actor: auditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    actorApiKeyId: text('actor_api_key_id'),
+    actorLabel: varchar('actor_label', { length: 100 }),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_maintenance_event_audit_event_id').on(table.maintenanceEventId),
+    index('idx_maintenance_event_audit_created_at').on(table.createdAt),
+  ],
+);
+
 // Map of every audit table keyed by the entityType used in API filters.
 // Used by the global GET /v1/audit endpoint (UNION over all tables) and by
 // the worker retention prune job (DELETE FROM each).
@@ -795,6 +830,7 @@ export const AUDIT_TABLES = {
   tariff: tariffAuditLog,
   holiday: holidayAuditLog,
   pricing_assignment: pricingAssignmentAuditLog,
+  maintenance_event: maintenanceEventAuditLog,
 } as const;
 
 export type AuditEntityType = keyof typeof AUDIT_TABLES;

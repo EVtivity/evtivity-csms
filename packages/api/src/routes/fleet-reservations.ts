@@ -21,6 +21,7 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { sendOcppCommandAndWait } from '../lib/ocpp-command.js';
 import { applyReservationCancellation } from '../lib/reservation-cancel.js';
 import { assertReservationsAllowed } from '../lib/reservation-eligibility.js';
+import { assertNoMaintenanceConflict } from '../lib/maintenance-check.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 
@@ -259,6 +260,16 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
           await assertReservationsAllowed(station);
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : 'Reservations not allowed';
+          validationErrors.push({ index: i, error: msg });
+          continue;
+        }
+
+        try {
+          const fleetStart = body.startsAt != null ? new Date(body.startsAt) : new Date();
+          const fleetEnd = new Date(body.expiresAt);
+          await assertNoMaintenanceConflict(station.id, fleetStart, fleetEnd);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : 'Maintenance window blocks this slot';
           validationErrors.push({ index: i, error: msg });
           continue;
         }

@@ -96,6 +96,10 @@ vi.mock('../lib/reservation-eligibility.js', () => ({
   assertReservationsAllowed: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('../lib/maintenance-check.js', () => ({
+  assertNoMaintenanceConflict: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn().mockResolvedValue(null),
   invalidateSiteAccessCache: vi.fn(),

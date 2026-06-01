@@ -40,6 +40,7 @@ interface StationInfo {
   siteCity: string | null;
   siteState: string | null;
   evses: EvseItem[];
+  maintenance: { active: boolean; plannedEndAt: string | null; message: string | null } | null;
 }
 
 export function ChargerStationLanding(): React.JSX.Element {
@@ -130,6 +131,22 @@ export function ChargerStationLanding(): React.JSX.Element {
             </div>
           ) : null}
 
+          {station.maintenance?.active === true && (
+            <div className="rounded-md border border-warning/40 bg-warning/10 p-3">
+              <p className="font-semibold text-sm">{t('charger.maintenanceTitle')}</p>
+              {station.maintenance.plannedEndAt != null && (
+                <p className="mt-1 text-xs">
+                  {t('charger.maintenanceUntil', {
+                    time: new Date(station.maintenance.plannedEndAt).toLocaleString(),
+                  })}
+                </p>
+              )}
+              {station.maintenance.message != null && station.maintenance.message.length > 0 && (
+                <p className="mt-1 text-xs">{station.maintenance.message}</p>
+              )}
+            </div>
+          )}
+
           {/* EVSE selection */}
           {station.evses.length > 0 && (
             <>
@@ -146,8 +163,11 @@ export function ChargerStationLanding(): React.JSX.Element {
                     'ev_connected',
                     'finishing',
                   ];
+                  const maintenanceBlocks = station.maintenance?.active === true;
                   const isAvailable =
-                    startableStatuses.includes(connectorStatus) && station.isOnline;
+                    !maintenanceBlocks &&
+                    startableStatuses.includes(connectorStatus) &&
+                    station.isOnline;
 
                   const connectorTypes = [
                     ...new Set(

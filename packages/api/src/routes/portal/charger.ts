@@ -38,6 +38,12 @@ import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../../lib/ocpp-
 import { applyReservationCancellation } from '../../lib/reservation-cancel.js';
 import { assertReservationsAllowed } from '../../lib/reservation-eligibility.js';
 import {
+  assertNoMaintenanceConflict,
+  MaintenanceConflictError,
+} from '../../lib/maintenance-check.js';
+import { getActiveMaintenanceForStation } from '../../services/maintenance.service.js';
+import { renderMaintenanceMessage } from '@evtivity/lib';
+import {
   isStationCheckRateLimited,
   getCachedConnectorStatus,
   setCachedConnectorStatus,
@@ -96,6 +102,15 @@ const portalChargerDetail = z
           .describe('Driver ID holding the active reservation, null when not reserved'),
       })
       .describe('Selected EVSE detail with reservation context'),
+    maintenance: z
+      .object({
+        active: z.boolean(),
+        plannedEndAt: z.coerce.date().nullable(),
+        message: z.string().nullable(),
+      })
+      .passthrough()
+      .nullable()
+      .describe('Active maintenance window for the site; null when none'),
   })
   .passthrough();
 
@@ -143,6 +158,21 @@ const portalStationDetail = z
       .boolean()
       .describe('Whether Stripe is configured for this site and payment is required'),
     evses: z.array(portalEvseItem).describe('All EVSEs on the station'),
+    maintenance: z
+      .object({
+        active: z.boolean().describe('True when the site has an active maintenance window'),
+        plannedEndAt: z.coerce
+          .date()
+          .nullable()
+          .describe('When the active maintenance window is expected to end'),
+        message: z
+          .string()
+          .nullable()
+          .describe('Rendered driver-facing message for the active window'),
+      })
+      .passthrough()
+      .nullable()
+      .describe('Active maintenance window for the site; null when none'),
   })
   .passthrough();
 
@@ -385,6 +415,24 @@ const startChargingBody = z.object({
     .describe('Driver payment method ID, required when payment is enabled'),
 });
 
+async function getMaintenancePayloadForStation(
+  stationDbId: string,
+): Promise<{ active: boolean; plannedEndAt: Date | null; message: string | null } | null> {
+  const event = await getActiveMaintenanceForStation(stationDbId);
+  if (event == null) return null;
+  let message: string | null = null;
+  try {
+    const [siteRow] = await db
+      .select({ name: sites.name })
+      .from(sites)
+      .where(eq(sites.id, event.siteId));
+    message = await renderMaintenanceMessage(client, event, siteRow?.name ?? '');
+  } catch {
+    message = null;
+  }
+  return { active: true, plannedEndAt: event.plannedEndAt, message };
+}
+
 export function portalChargerRoutes(app: FastifyInstance): void {
   app.get(
     '/portal/chargers/:stationId/evse/:evseId',
@@ -492,6 +540,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       }
 
       const config = await getStripeConfig(station.siteId ?? null);
+      const maintenance = await getMaintenancePayloadForStation(station.id);
 
       return {
         stationId: station.stationId,
@@ -510,6 +559,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           reservationExpiresAt,
           reservationDriverId,
         },
+        maintenance,
       };
     },
   );
@@ -1303,6 +1353,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       const config = await getStripeConfig(station.siteId ?? null);
 
       const isContactPublic = station.siteContactIsPublic === true;
+      const maintenance = await getMaintenancePayloadForStation(station.id);
 
       return {
         stationId: station.stationId,
@@ -1324,6 +1375,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           reservationExpiresAt: reservationExpiryMap.get(e.evseUuid) ?? null,
           reservationDriverId: reservationDriverMap.get(e.evseUuid) ?? null,
         })),
+        maintenance,
       };
     },
   );
@@ -1470,6 +1522,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           409: errorWith('Conflict', [
             ERROR_CODES.EVSE_IN_USE,
             ERROR_CODES.RESERVATION_BUFFER_ACTIVE,
+            ERROR_CODES.MAINTENANCE_ACTIVE,
           ]),
           500: errorWith('Internal server error', [ERROR_CODES.INTERNAL_ERROR]),
           502: errorWith('Start rejected', [ERROR_CODES.START_REJECTED]),
@@ -1500,6 +1553,16 @@ export function portalChargerRoutes(app: FastifyInstance): void {
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
+
+      const activeMaintenance = await getActiveMaintenanceForStation(station.id);
+      if (activeMaintenance != null) {
+        await reply.status(409).send({
+          error: 'Site is currently under maintenance',
+          code: 'MAINTENANCE_ACTIVE',
+          plannedEndAt: activeMaintenance.plannedEndAt.toISOString(),
+        });
         return;
       }
 
@@ -2255,7 +2318,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
             ERROR_CODES.EVSE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
           ]),
-          409: errorWith('Conflict', [ERROR_CODES.EVSE_IN_USE, ERROR_CODES.RESERVATION_CONFLICT]),
+          409: errorWith('Conflict', [
+            ERROR_CODES.EVSE_IN_USE,
+            ERROR_CODES.RESERVATION_CONFLICT,
+            ERROR_CODES.RESERVATION_DURING_MAINTENANCE,
+          ]),
           500: errorWith('Reservation create failed', [ERROR_CODES.RESERVATION_CREATE_FAILED]),
         },
       },
@@ -2282,6 +2349,22 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       }
 
       if (!(await checkStationOnboarded(station, reply))) return;
+
+      const portalReservationStart = body.startsAt != null ? new Date(body.startsAt) : new Date();
+      const portalReservationEnd = new Date(body.expiresAt);
+      try {
+        await assertNoMaintenanceConflict(station.id, portalReservationStart, portalReservationEnd);
+      } catch (err) {
+        if (err instanceof MaintenanceConflictError) {
+          await reply.status(409).send({
+            error: err.message,
+            code: err.code,
+            ...err.details,
+          });
+          return;
+        }
+        throw err;
+      }
 
       // Check system-wide, site-level, and station-level reservation eligibility.
       // Operator + fleet routes already gate on this; the portal create route

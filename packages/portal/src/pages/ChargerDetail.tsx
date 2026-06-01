@@ -52,6 +52,12 @@ interface EvseItem {
   reservationDriverId: string | null;
 }
 
+interface MaintenanceInfo {
+  active: boolean;
+  plannedEndAt: string | null;
+  message: string | null;
+}
+
 interface StationDetail {
   stationId: string;
   siteId: string | null;
@@ -67,6 +73,7 @@ interface StationDetail {
   siteContactPhone: string | null;
   paymentEnabled: boolean;
   evses: EvseItem[];
+  maintenance: MaintenanceInfo | null;
 }
 
 interface PaymentMethod {
@@ -462,6 +469,22 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
         </div>
       ) : null}
 
+      {station.maintenance?.active === true && (
+        <div className="rounded-md border border-warning/40 bg-warning/10 p-4">
+          <p className="font-semibold">{t('charger.maintenanceTitle')}</p>
+          {station.maintenance.plannedEndAt != null && (
+            <p className="mt-1 text-sm">
+              {t('charger.maintenanceUntil', {
+                time: new Date(station.maintenance.plannedEndAt).toLocaleString(),
+              })}
+            </p>
+          )}
+          {station.maintenance.message != null && station.maintenance.message.length > 0 && (
+            <p className="mt-2 text-sm">{station.maintenance.message}</p>
+          )}
+        </div>
+      )}
+
       {/* Site Contact */}
       {(station.siteContactName != null ||
         station.siteContactEmail != null ||
@@ -545,12 +568,14 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
             // active reservation is selectable for a future-window reservation
             // (the backend's time-overlap check will reject a true conflict).
             // Charge mode keeps the existing startable + reserved-for-me gate.
+            const maintenanceBlocks = station.maintenance?.active === true;
             const isAvailable =
-              mode === 'reserve'
+              !maintenanceBlocks &&
+              (mode === 'reserve'
                 ? station.isOnline && evse.reservationDriverId == null
                 : station.isOnline &&
                   !reservedByOther &&
-                  (startableStatuses.includes(connectorStatus) || reservedForMe);
+                  (startableStatuses.includes(connectorStatus) || reservedForMe));
             const isSelected = selectedEvseId === evse.evseId;
 
             const connectorTypes = [

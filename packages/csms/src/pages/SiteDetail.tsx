@@ -28,6 +28,7 @@ import { SiteMetricsTab } from '@/components/site/SiteMetricsTab';
 import { SiteQrCodesTab } from '@/components/site/SiteQrCodesTab';
 import { SitePricingTab } from '@/components/site/SitePricingTab';
 import { SiteFreeVendTab } from '@/components/site/SiteFreeVendTab';
+import { SiteMaintenanceTab } from '@/components/SiteMaintenanceTab';
 
 interface Site {
   id: string;
@@ -80,6 +81,7 @@ export function SiteDetail(): React.JSX.Element {
   const [activeTab, setActiveTab] = useTab('details');
   const { t } = useTranslation();
   const canReadAudit = useHasPermission('audit:read');
+  const canReadMaintenance = useHasPermission('maintenance:read');
 
   const { data: site, isLoading } = useQuery({
     queryKey: ['sites', id],
@@ -191,6 +193,9 @@ export function SiteDetail(): React.JSX.Element {
             <TabsTrigger value="reservations">{t('reservations.title')}</TabsTrigger>
           )}
           <TabsTrigger value="free-vend">{t('sites.freeVend')}</TabsTrigger>
+          {canReadMaintenance && (
+            <TabsTrigger value="maintenance">{t('nav.maintenance')}</TabsTrigger>
+          )}
           {canReadAudit && <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>}
         </TabsList>
 
@@ -370,6 +375,12 @@ export function SiteDetail(): React.JSX.Element {
         )}
 
         <SiteFreeVendTab site={site} siteId={id ?? ''} />
+
+        {canReadMaintenance && (
+          <TabsContent value="maintenance">
+            <SiteMaintenanceTab siteId={id ?? ''} timezone={site.timezone} />
+          </TabsContent>
+        )}
 
         <TabsContent value="history">
           <EntityHistoryTab entityType="site" entityId={id ?? ''} />

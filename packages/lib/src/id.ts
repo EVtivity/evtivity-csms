@@ -31,6 +31,7 @@ export const ID_PREFIXES = {
   firmwareCampaign: 'fwc',
   configTemplate: 'ctm',
   configTemplatePush: 'ctp',
+  maintenanceEvent: 'mne',
 } as const;
 
 export type EntityType = keyof typeof ID_PREFIXES;

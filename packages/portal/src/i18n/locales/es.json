@@ -262,7 +262,9 @@
     "statusCheckFailed": "No se pudo verificar el estado del conector. Intente de nuevo.",
     "reservedUntil": "Reservado hasta {{time}}",
     "reserved": "Reservado",
-    "connectorReserved": "El conector esta reservado"
+    "connectorReserved": "El conector esta reservado",
+    "maintenanceTitle": "Sitio en mantenimiento",
+    "maintenanceUntil": "Reanudación prevista: {{time}}"
   },
   "chargerSearch": {
     "title": "Iniciar carga",
@@ -668,7 +670,13 @@
     "retry": "Reintentar",
     "serverDown": "No se puede conectar",
     "serverDownDescription": "El servidor no responde. Verifique su conexion e intente de nuevo.",
-    "unknown": "Algo salio mal. Intenta de nuevo."
+    "unknown": "Algo salio mal. Intenta de nuevo.",
+    "MAINTENANCE_NOT_FOUND": "Evento de mantenimiento no encontrado",
+    "MAINTENANCE_OVERLAPS_EXISTING": "La ventana de mantenimiento se superpone a un evento existente",
+    "MAINTENANCE_INVALID_RANGE": "El fin del mantenimiento debe ser posterior al inicio",
+    "MAINTENANCE_ALREADY_ACTIVE": "El evento de mantenimiento ya está activo",
+    "MAINTENANCE_ACTIVE": "El sitio está actualmente en mantenimiento",
+    "RESERVATION_DURING_MAINTENANCE": "La reserva cae dentro de una ventana de mantenimiento programado"
   },
   "validation": {
     "required": "Este campo es obligatorio",

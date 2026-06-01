@@ -262,7 +262,9 @@
     "statusCheckFailed": "無法檢查連接器狀態。請重試。",
     "reservedUntil": "預約至 {{time}}",
     "reserved": "已預約",
-    "connectorReserved": "充電接口已被預約"
+    "connectorReserved": "充電接口已被預約",
+    "maintenanceTitle": "站點維護中",
+    "maintenanceUntil": "預計恢復時間: {{time}}"
   },
   "chargerSearch": {
     "title": "開始充電",
@@ -668,7 +670,13 @@
     "retry": "重試",
     "serverDown": "無法連接",
     "serverDownDescription": "伺服器無回應。請檢查您的網路連線，然後重試。",
-    "unknown": "出現錯誤，請重試。"
+    "unknown": "出現錯誤，請重試。",
+    "MAINTENANCE_NOT_FOUND": "找不到維護事件",
+    "MAINTENANCE_OVERLAPS_EXISTING": "維護時段與現有事件重疊",
+    "MAINTENANCE_INVALID_RANGE": "維護結束時間必須晚於開始時間",
+    "MAINTENANCE_ALREADY_ACTIVE": "維護事件已啟用",
+    "MAINTENANCE_ACTIVE": "站點目前正在維護中",
+    "RESERVATION_DURING_MAINTENANCE": "預約時間落在已排定的維護時段內"
   },
   "validation": {
     "required": "此欄位為必填項",

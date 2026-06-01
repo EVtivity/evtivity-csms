@@ -51,6 +51,11 @@ import { portalSessionRoutes } from './routes/portal/sessions.js';
 import { portalChargerRoutes } from './routes/portal/charger.js';
 import { portalGuestRoutes } from './routes/portal/guest.js';
 import { reservationRoutes } from './routes/reservations.js';
+import {
+  maintenanceRoutes,
+  maintenancePreviewRoutes,
+  maintenanceCrossSiteRoutes,
+} from './routes/maintenance.js';
 import { accessLogRoutes } from './routes/access-logs.js';
 import { displayMessageRoutes } from './routes/display-messages.js';
 import { reportRoutes } from './routes/reports.js';
@@ -187,6 +192,9 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(loadManagementRoutes);
       await v1.register(notificationRoutes);
       await v1.register(reservationRoutes);
+      await v1.register(maintenanceRoutes);
+      await v1.register(maintenancePreviewRoutes);
+      await v1.register(maintenanceCrossSiteRoutes);
       await v1.register(portalAuthRoutes);
       await v1.register(portalDriverRoutes);
       await v1.register(portalPaymentRoutes);

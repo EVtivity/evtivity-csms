@@ -1,0 +1,4 @@
+{{#if firstName}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>您好 {{firstName}}，</p>{{/if}}
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>由于计划维护，您的充电会话已停止。</p>
+<p style='color:#1a1a1a;line-height:1.6;margin:0 0 16px 0;'><strong>会话:</strong> {{sessionId}}<br/><strong>维护:</strong> {{maintenanceEventId}}<br/><strong>预计结束:</strong> {{plannedEndAt}}{{#if reason}}<br/><strong>原因:</strong> {{reason}}{{/if}}</p>
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>仅按实际供电量收费。</p>

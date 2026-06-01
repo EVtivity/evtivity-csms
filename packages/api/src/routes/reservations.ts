@@ -35,6 +35,7 @@ import { paginatedResponse, itemResponse, errorWith } from '../lib/response-sche
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { applyReservationCancellation } from '../lib/reservation-cancel.js';
 import { assertReservationsAllowed } from '../lib/reservation-eligibility.js';
+import { assertNoMaintenanceConflict, MaintenanceConflictError } from '../lib/maintenance-check.js';
 import { authorize } from '../middleware/rbac.js';
 
 const reservationListItem = z
@@ -810,7 +811,11 @@ export function reservationRoutes(app: FastifyInstance): void {
             ERROR_CODES.EVSE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
           ]),
-          409: errorWith('Conflict', [ERROR_CODES.EVSE_IN_USE, ERROR_CODES.RESERVATION_CONFLICT]),
+          409: errorWith('Conflict', [
+            ERROR_CODES.EVSE_IN_USE,
+            ERROR_CODES.RESERVATION_CONFLICT,
+            ERROR_CODES.RESERVATION_DURING_MAINTENANCE,
+          ]),
           500: errorWith('Reservation create failed', [ERROR_CODES.RESERVATION_CREATE_FAILED]),
           502: errorWith('Station rejected the command', [ERROR_CODES.RESERVATION_REJECTED]),
           504: errorWith('Station did not respond within timeout', [
@@ -843,6 +848,22 @@ export function reservationRoutes(app: FastifyInstance): void {
       if (siteIds != null && station.siteId != null && !siteIds.includes(station.siteId)) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
+      }
+
+      const reservationStart = body.startsAt != null ? new Date(body.startsAt) : new Date();
+      const reservationEnd = new Date(body.expiresAt);
+      try {
+        await assertNoMaintenanceConflict(station.id, reservationStart, reservationEnd);
+      } catch (err) {
+        if (err instanceof MaintenanceConflictError) {
+          await reply.status(409).send({
+            error: err.message,
+            code: err.code,
+            ...err.details,
+          });
+          return;
+        }
+        throw err;
       }
 
       // Window validation. datetime-local inputs only have minute precision,
@@ -1720,6 +1741,7 @@ export function reservationRoutes(app: FastifyInstance): void {
             ERROR_CODES.EVSE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
           ]),
+          409: errorWith('Conflict', [ERROR_CODES.RESERVATION_DURING_MAINTENANCE]),
         },
       },
     },
@@ -1738,7 +1760,9 @@ export function reservationRoutes(app: FastifyInstance): void {
           siteId: chargingStations.siteId,
           evseId: reservations.evseId,
           driverId: reservations.driverId,
+          startsAt: reservations.startsAt,
           expiresAt: reservations.expiresAt,
+          createdAt: reservations.createdAt,
           status: reservations.status,
         })
         .from(reservations)
@@ -1813,6 +1837,25 @@ export function reservationRoutes(app: FastifyInstance): void {
           .status((e.statusCode ?? 500) as 400)
           .send({ error: e.message ?? 'Reservations not allowed', code: e.code });
         return;
+      }
+
+      // 5b. Maintenance check on the NEW station for the reservation's window.
+      try {
+        await assertNoMaintenanceConflict(
+          newStation.id,
+          reservation.startsAt ?? reservation.createdAt,
+          reservation.expiresAt,
+        );
+      } catch (err) {
+        if (err instanceof MaintenanceConflictError) {
+          await reply.status(409).send({
+            error: err.message,
+            code: err.code,
+            ...err.details,
+          });
+          return;
+        }
+        throw err;
       }
 
       // 6. Resolve newEvseId integer to DB UUID if provided

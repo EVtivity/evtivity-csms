@@ -138,3 +138,9 @@ export {
   hasAnySettingsPermission,
 } from './permissions.js';
 export type { Permission } from './permissions.js';
+
+export {
+  renderMaintenanceMessage,
+  DEFAULT_MAINTENANCE_MESSAGE_TEMPLATE,
+} from './maintenance-message.js';
+export type { MaintenanceMessageVars } from './maintenance-message.js';

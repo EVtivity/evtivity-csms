@@ -262,7 +262,9 @@
     "statusCheckFailed": "Could not check connector status. Try again.",
     "reservedUntil": "Reserved until {{time}}",
     "reserved": "Reserved",
-    "connectorReserved": "Connector is reserved"
+    "connectorReserved": "Connector is reserved",
+    "maintenanceTitle": "Site under maintenance",
+    "maintenanceUntil": "Expected to resume around {{time}}"
   },
   "chargerSearch": {
     "title": "Start Charging",
@@ -668,7 +670,13 @@
     "retry": "Try Again",
     "serverDown": "Unable to Connect",
     "serverDownDescription": "The server is not responding. Please check your connection and try again.",
-    "unknown": "Something went wrong. Please try again."
+    "unknown": "Something went wrong. Please try again.",
+    "MAINTENANCE_NOT_FOUND": "Maintenance event not found",
+    "MAINTENANCE_OVERLAPS_EXISTING": "Maintenance window overlaps an existing event",
+    "MAINTENANCE_INVALID_RANGE": "Maintenance end must be after start",
+    "MAINTENANCE_ALREADY_ACTIVE": "Maintenance event is already active",
+    "MAINTENANCE_ACTIVE": "Site is currently under maintenance",
+    "RESERVATION_DURING_MAINTENANCE": "Reservation falls within a scheduled maintenance window"
   },
   "validation": {
     "required": "This field is required",

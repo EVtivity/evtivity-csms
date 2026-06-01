@@ -155,11 +155,26 @@ vi.mock('../lib/template-dirs.js', () => ({
   ALL_TEMPLATES_DIRS: [],
 }));
 
+vi.mock('../services/maintenance.service.js', () => ({
+  getActiveMaintenanceForStation: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock('../lib/maintenance-check.js', () => ({
+  assertNoMaintenanceConflict: vi.fn().mockResolvedValue(undefined),
+  MaintenanceConflictError: class MaintenanceConflictError extends Error {
+    statusCode = 409;
+    code = 'RESERVATION_DURING_MAINTENANCE';
+    details = {};
+  },
+}));
+
 import { registerAuth } from '../plugins/auth.js';
 import { portalChargerRoutes } from '../routes/portal/charger.js';
 import { getStripeConfig } from '../services/stripe.service.js';
 import { resolveTariff, isTariffFree } from '../services/tariff.service.js';
 import { isEvseInReservationBuffer } from '../lib/reservation-buffer.js';
+import { getActiveMaintenanceForStation } from '../services/maintenance.service.js';
+import { assertNoMaintenanceConflict } from '../lib/maintenance-check.js';
 
 const VALID_STATION_ID = 'sta_000000000001';
 const VALID_USER_ID = 'usr_000000000001';
@@ -195,6 +210,8 @@ describe('Portal charger routes - handler logic', () => {
     vi.mocked(resolveTariff).mockResolvedValue(null);
     vi.mocked(isTariffFree).mockReturnValue(true);
     vi.mocked(isEvseInReservationBuffer).mockResolvedValue(false);
+    vi.mocked(getActiveMaintenanceForStation).mockResolvedValue(null);
+    vi.mocked(assertNoMaintenanceConflict).mockResolvedValue(undefined);
   });
 
   describe('GET /v1/portal/chargers/:stationId/evse/:evseId', () => {

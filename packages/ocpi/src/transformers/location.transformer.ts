@@ -33,6 +33,9 @@ interface SiteRow {
 
 interface EvseRow {
   id: string;
+  /** Internal DB id of the owning station. Used by the OCPI transformer to
+   *  apply per-station maintenance masking. */
+  stationId: string;
   evseId: number;
   updatedAt: Date;
   connectors: ConnectorRow[];
@@ -55,6 +58,14 @@ interface LocationTransformInput {
   countryCode: string;
   partyId: string;
   tariffIds?: string[];
+  /** Maintenance coverage for this location. When `allAffected` is true every
+   *  EVSE in the location reports INOPERATIVE regardless of its connector
+   *  status. When `allAffected` is false, only stations whose internal DB id
+   *  appears in `affectedStationIds` are marked INOPERATIVE. */
+  maintenance?: {
+    allAffected: boolean;
+    affectedStationIds: Set<string>;
+  };
 }
 
 const EVSE_STATUS_MAP: Record<string, OcpiEVSEStatus> = {
@@ -171,8 +182,10 @@ function transformEvse(
   siteId: string,
   version: OcpiVersion,
   tariffIds?: string[],
+  underMaintenance?: boolean,
 ): OcpiEVSE {
-  const status = deriveEvseStatus(evse.connectors);
+  const status: OcpiEVSEStatus =
+    underMaintenance === true ? 'INOPERATIVE' : deriveEvseStatus(evse.connectors);
 
   return {
     uid: `${siteId}-${String(evse.evseId)}`,
@@ -182,6 +195,15 @@ function transformEvse(
     capabilities: ['REMOTE_START_STOP_CAPABLE', 'RFID_READER'],
     last_updated: evse.updatedAt.toISOString(),
   };
+}
+
+function isEvseUnderMaintenance(
+  evse: EvseRow,
+  maintenance?: { allAffected: boolean; affectedStationIds: Set<string> },
+): boolean {
+  if (maintenance == null) return false;
+  if (maintenance.allAffected) return true;
+  return maintenance.affectedStationIds.has(evse.stationId);
 }
 
 export function transformLocation(
@@ -211,7 +233,9 @@ export function transformLocation(
       longitude: site.longitude,
     },
     time_zone: site.timezone,
-    evses: evses.map((e) => transformEvse(e, site.id, version, tariffIds)),
+    evses: evses.map((e) =>
+      transformEvse(e, site.id, version, tariffIds, isEvseUnderMaintenance(e, input.maintenance)),
+    ),
     last_updated: site.updatedAt.toISOString(),
   };
 
@@ -244,8 +268,9 @@ export function transformEvseStandalone(
   siteId: string,
   version: OcpiVersion,
   tariffIds?: string[],
+  underMaintenance?: boolean,
 ): OcpiEVSE {
-  return transformEvse(evse, siteId, version, tariffIds);
+  return transformEvse(evse, siteId, version, tariffIds, underMaintenance);
 }
 
 export function transformConnectorStandalone(

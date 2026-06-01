@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, lte, gte } from 'drizzle-orm';
 import {
   db,
   sites,
@@ -15,6 +15,7 @@ import {
   ocpiRoamingSessions,
   ocpiTariffMappings,
   ocpiSyncLog,
+  maintenanceEvents,
 } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import type { PubSubClient, Subscription } from '@evtivity/lib';
@@ -193,8 +194,42 @@ async function pushLocationUpdate(siteId: string): Promise<void> {
   const countryCode = getCountryCode();
   const partyId = getPartyId();
 
+  const now = new Date();
+  const activeMaintenance = await db
+    .select({ affectedStationIds: maintenanceEvents.affectedStationIds })
+    .from(maintenanceEvents)
+    .where(
+      and(
+        eq(maintenanceEvents.siteId, siteId),
+        eq(maintenanceEvents.status, 'active'),
+        lte(maintenanceEvents.plannedStartAt, now),
+        gte(maintenanceEvents.plannedEndAt, now),
+      ),
+    );
+
+  let coverage: { allAffected: boolean; affectedStationIds: Set<string> } | undefined;
+  if (activeMaintenance.length > 0) {
+    const allAffected = activeMaintenance.some(
+      (m) => m.affectedStationIds == null || m.affectedStationIds.length === 0,
+    );
+    const stationSet = new Set<string>();
+    for (const m of activeMaintenance) {
+      if (m.affectedStationIds != null) {
+        for (const s of m.affectedStationIds) stationSet.add(s);
+      }
+    }
+    coverage = { allAffected, affectedStationIds: stationSet };
+  }
+
   const location = transformLocation(
-    { site, evses: evsesWithConnectors, ocpiLocationId: locationId, countryCode, partyId },
+    {
+      site,
+      evses: evsesWithConnectors,
+      ocpiLocationId: locationId,
+      countryCode,
+      partyId,
+      ...(coverage != null ? { maintenance: coverage } : {}),
+    },
     '2.2.1',
   );
 
