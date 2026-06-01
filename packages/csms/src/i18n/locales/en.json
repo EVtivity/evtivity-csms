@@ -484,7 +484,8 @@
     "carbonRegion": "Carbon Region",
     "carbonRegionDescription": "Select the grid region for carbon intensity calculations.",
     "carbonIntensity": "Carbon Intensity",
-    "noCarbonRegion": "No carbon region assigned"
+    "noCarbonRegion": "No carbon region assigned",
+    "underMaintenanceBadge": "Maintenance"
   },
   "stations": {
     "title": "Stations",

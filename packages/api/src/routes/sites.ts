@@ -237,6 +237,12 @@ const siteSelect = {
   freeVendEnabled: sites.freeVendEnabled,
   freeVendTemplateId21: sites.freeVendTemplateId21,
   freeVendTemplateId16: sites.freeVendTemplateId16,
+  underMaintenance: sql<boolean>`EXISTS (
+    SELECT 1
+    FROM maintenance_events me
+    WHERE me.site_id = ${sites.id}
+      AND me.status = 'active'
+  )`,
   maxPowerKw: sql<number | null>`null::numeric`,
   totalDrawKw: sql<number>`coalesce((
     SELECT sum(latest.kw)
@@ -280,6 +286,9 @@ const siteItem = z
     updatedAt: z.coerce.date().describe('Timestamp when the site was last updated'),
     stationCount: z.number().describe('Number of charging stations at this site'),
     loadManagementEnabled: z.boolean().describe('Whether site-level load management is enabled'),
+    underMaintenance: z
+      .boolean()
+      .describe('True when the site currently has an active maintenance event'),
     maxPowerKw: z.number().nullable().describe('Maximum power available at the site in kilowatts'),
     totalDrawKw: z.number().describe('Current total power draw across all stations in kilowatts'),
   })

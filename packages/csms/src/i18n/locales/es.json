@@ -484,7 +484,8 @@
     "carbonRegion": "Region de Carbono",
     "carbonRegionDescription": "Seleccione la region de la red para los calculos de intensidad de carbono.",
     "carbonIntensity": "Intensidad de Carbono",
-    "noCarbonRegion": "Sin region de carbono asignada"
+    "noCarbonRegion": "Sin region de carbono asignada",
+    "underMaintenanceBadge": "Mantenimiento"
   },
   "stations": {
     "title": "Estaciones",

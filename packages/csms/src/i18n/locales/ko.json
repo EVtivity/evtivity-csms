@@ -484,7 +484,8 @@
     "carbonRegion": "탄소 지역",
     "carbonRegionDescription": "탄소 집약도 계산을 위한 전력망 지역을 선택하세요.",
     "carbonIntensity": "탄소 집약도",
-    "noCarbonRegion": "탄소 지역이 할당되지 않았습니다"
+    "noCarbonRegion": "탄소 지역이 할당되지 않았습니다",
+    "underMaintenanceBadge": "유지보수"
   },
   "stations": {
     "title": "충전기",

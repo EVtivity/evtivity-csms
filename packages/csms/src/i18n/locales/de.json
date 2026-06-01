@@ -484,7 +484,8 @@
     "carbonRegion": "CO₂-Region",
     "carbonRegionDescription": "Wählen Sie die Netzregion für CO₂-Intensitätsberechnungen aus.",
     "carbonIntensity": "CO₂-Intensität",
-    "noCarbonRegion": "Keine CO₂-Region zugewiesen"
+    "noCarbonRegion": "Keine CO₂-Region zugewiesen",
+    "underMaintenanceBadge": "Wartung"
   },
   "stations": {
     "title": "Ladestationen",

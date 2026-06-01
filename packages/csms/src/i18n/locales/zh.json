@@ -484,7 +484,8 @@
     "carbonRegion": "碳排放区域",
     "carbonRegionDescription": "选择用于碳强度计算的电网区域。",
     "carbonIntensity": "碳强度",
-    "noCarbonRegion": "未分配碳排放区域"
+    "noCarbonRegion": "未分配碳排放区域",
+    "underMaintenanceBadge": "维护中"
   },
   "stations": {
     "title": "充电站",

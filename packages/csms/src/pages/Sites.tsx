@@ -50,6 +50,7 @@ interface Site {
   country: string | null;
   stationCount: number;
   loadManagementEnabled: boolean;
+  underMaintenance: boolean;
   maxPowerKw: string | null;
   totalDrawKw: string;
   createdAt: string;
@@ -387,7 +388,12 @@ export function Sites(): React.JSX.Element {
                 >
                   <TableCell className="text-muted-foreground">{site.id}</TableCell>
                   <TableCell className="font-medium text-primary" data-testid="row-click-target">
-                    {site.name}
+                    <span className="inline-flex items-center gap-2">
+                      {site.name}
+                      {site.underMaintenance && (
+                        <Badge variant="warning">{t('sites.underMaintenanceBadge')}</Badge>
+                      )}
+                    </span>
                   </TableCell>
                   <TableCell>{formatLocation(site)}</TableCell>
                   <TableCell>{site.stationCount}</TableCell>
