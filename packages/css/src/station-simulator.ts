@@ -3,8 +3,11 @@
 
 import { randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
+import { buildCssConfigDefaults } from '@evtivity/lib';
 import { OcppClient } from './ocpp-client.js';
 import { MeterValueGenerator } from './meter-value-generator.js';
+import { PersistedCache } from './lib/persisted-cache.js';
+import type { CachePersistor, CacheLogger } from './lib/persisted-cache.js';
 
 export interface StationConfig {
   id: string;
@@ -37,7 +40,6 @@ interface Reservation {
   groupIdToken?: string | undefined;
   connectorType?: string | undefined;
   expiryDateTime: string;
-  expiryTimer: ReturnType<typeof setTimeout>;
 }
 
 interface EvseContext {
@@ -55,13 +57,16 @@ export class StationSimulator {
   private readonly sql: postgres.Sql;
   private readonly meterGens = new Map<number, MeterValueGenerator>();
   private readonly meterTimers = new Map<number, ReturnType<typeof setInterval>>();
-  private readonly reservations = new Map<number, Reservation>();
+  private reservations!: PersistedCache<number, Reservation>;
+  // Live setTimeout handles paired with each persisted reservation; rebuilt
+  // from the cache on boot via scheduleReservationExpiry().
   private readonly reservationTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private readonly evseContexts = new Map<number, EvseContext>();
 
-  // In-memory config variable cache
-  private configVariables = new Map<string, { value: string; readonly: boolean }>();
-  private configLoaded = false;
+  // Device-storage-backed config variables. Reads are local; .set/.delete
+  // auto-persist to css_config_variables. Boot loader pulls existing rows
+  // and falls back to factory defaults when DB is empty.
+  private configVariables!: PersistedCache<string, { value: string; readonly: boolean }>;
 
   // Heartbeat
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -88,12 +93,17 @@ export class StationSimulator {
   private pendingReset: string | null = null;
   private destroyed = false;
   private offlineFlag = false;
-  private readonly offlineMessageQueue: Array<{
+  // Offline message queue: a FIFO log of OCPP calls deferred while the
+  // WebSocket is down. Each item is paired with its DB row id so the shift
+  // path can delete the persisted row. Loaded on boot from
+  // css_offline_messages so a power cycle doesn't drop pending messages.
+  private offlineMessageQueue: Array<{
+    id: string;
     action: string;
     payload: Record<string, unknown>;
   }> = [];
   private localAuthListVersion = 0;
-  private readonly localAuthEntries = new Map<string, Record<string, unknown>>();
+  private localAuthEntries!: PersistedCache<string, Record<string, unknown>>;
 
   // Preserved transactions for power cycle resume (OCPP 2.1)
   private preservedTransactions = new Map<
@@ -101,8 +111,10 @@ export class StationSimulator {
     { transactionId: string; idToken: string; tokenType: string; powerLossTime: number }
   >();
 
-  // Authorization cache (Feature 2): token value -> idTokenInfo from CSMS
-  private readonly authCache = new Map<string, Record<string, unknown>>();
+  // Authorization cache (OCPP 2.1 AuthCacheCtrlr): token -> idTokenInfo from CSMS.
+  // Persisted to css_auth_cache so an offline reboot still answers Authorize
+  // for tokens that were recently approved.
+  private authCache!: PersistedCache<string, Record<string, unknown>>;
 
   // Group ID mapping (Feature 3): token value -> groupIdToken object
   private readonly tokenGroupMap = new Map<string, Record<string, unknown>>();
@@ -125,7 +137,7 @@ export class StationSimulator {
 
   // Variable monitoring state
   private monitorIdCounter = 0;
-  private readonly variableMonitors = new Map<
+  private variableMonitors!: PersistedCache<
     number,
     {
       id: number;
@@ -135,22 +147,24 @@ export class StationSimulator {
       variable: Record<string, unknown>;
       isHardwired: boolean;
     }
-  >();
+  >;
   private monitoringLevel = 9; // default: report all severities (0-9)
 
   // Active log upload tracking
   private activeLogUploadRequestId: number | null = null;
 
-  // Customer data store (simulated)
-  private readonly customerDataStore = new Map<string, string>();
+  // Customer data store, backed by css_customer_data so CustomerInformation
+  // updates survive a power cycle.
+  private customerDataStore!: PersistedCache<string, string>;
 
-  // In-memory stores for CSMS command simulation
-  private readonly displayMessagesCache = new Map<number, Record<string, unknown>>();
-  private readonly installedCertificatesCache = new Map<
+  // Device-storage-backed CSMS-command caches. Reads are local; .set/.delete
+  // auto-persist to their css_* tables. Boot loaders run in start().
+  private displayMessagesCache!: PersistedCache<number, Record<string, unknown>>;
+  private installedCertificatesCache!: PersistedCache<
     string,
     { certificateType: string; certificateHashData: Record<string, string> }
-  >();
-  private readonly chargingProfilesCache = new Map<number, Record<string, unknown>>();
+  >;
+  private chargingProfilesCache!: PersistedCache<number, Record<string, unknown>>;
 
   // Tariff store: tariffId -> { evseId, tariff data, inUse }
   private readonly defaultTariffs = new Map<
@@ -187,6 +201,433 @@ export class StationSimulator {
   constructor(config: StationConfig, sql: postgres.Sql) {
     this.config = config;
     this.sql = sql;
+
+    const cacheLogger: CacheLogger = {
+      warn: (msg, ctx) => {
+        console.warn(`[${this.config.stationId}] ${msg}`, ctx ?? '');
+      },
+    };
+
+    const configPersistor: CachePersistor<string, { value: string; readonly: boolean }> = {
+      load: async () => {
+        const rows = await this.sql<Array<{ key: string; value: string; readonly: boolean }>>`
+          SELECT key, value, readonly FROM css_config_variables
+          WHERE css_station_id = ${this.config.id}
+        `;
+        return rows.map(
+          (r) =>
+            [r.key, { value: r.value, readonly: r.readonly }] as readonly [
+              string,
+              { value: string; readonly: boolean },
+            ],
+        );
+      },
+      upsert: async (key, v) => {
+        const id = 'ccv_' + randomUUID().replace(/-/g, '').slice(0, 12);
+        await this.sql`
+          INSERT INTO css_config_variables (id, css_station_id, key, value, readonly)
+          VALUES (${id}, ${this.config.id}, ${key}, ${v.value}, ${v.readonly})
+          ON CONFLICT (css_station_id, key) DO UPDATE
+          SET value = EXCLUDED.value, readonly = EXCLUDED.readonly
+        `;
+      },
+      remove: async (key) => {
+        await this.sql`
+          DELETE FROM css_config_variables
+          WHERE css_station_id = ${this.config.id} AND key = ${key}
+        `;
+      },
+    };
+    this.configVariables = new PersistedCache(configPersistor, cacheLogger, 'configVariables');
+
+    const certPersistor: CachePersistor<
+      string,
+      { certificateType: string; certificateHashData: Record<string, string> }
+    > = {
+      load: async () => {
+        const rows = await this.sql<
+          Array<{
+            certificate_type: string;
+            hash_algorithm: string;
+            issuer_name_hash: string | null;
+            issuer_key_hash: string | null;
+            serial_number: string;
+          }>
+        >`
+          SELECT certificate_type, hash_algorithm, issuer_name_hash, issuer_key_hash, serial_number
+          FROM css_installed_certificates
+          WHERE css_station_id = ${this.config.id}
+        `;
+        return rows.map(
+          (r) =>
+            [
+              r.serial_number,
+              {
+                certificateType: r.certificate_type,
+                certificateHashData: {
+                  hashAlgorithm: r.hash_algorithm,
+                  issuerNameHash: r.issuer_name_hash ?? '',
+                  issuerKeyHash: r.issuer_key_hash ?? '',
+                  serialNumber: r.serial_number,
+                },
+              },
+            ] as readonly [
+              string,
+              { certificateType: string; certificateHashData: Record<string, string> },
+            ],
+        );
+      },
+      upsert: async (serial, v) => {
+        const id = 'ccr_' + randomUUID().replace(/-/g, '').slice(0, 12);
+        await this.sql`
+          INSERT INTO css_installed_certificates
+            (id, css_station_id, certificate_type, serial_number, hash_algorithm, issuer_name_hash, issuer_key_hash)
+          VALUES (
+            ${id}, ${this.config.id}, ${v.certificateType}, ${serial},
+            ${v.certificateHashData['hashAlgorithm'] ?? 'SHA256'},
+            ${v.certificateHashData['issuerNameHash'] ?? ''},
+            ${v.certificateHashData['issuerKeyHash'] ?? ''}
+          )
+          ON CONFLICT (css_station_id, serial_number) DO UPDATE
+          SET certificate_type = EXCLUDED.certificate_type,
+              hash_algorithm = EXCLUDED.hash_algorithm,
+              issuer_name_hash = EXCLUDED.issuer_name_hash,
+              issuer_key_hash = EXCLUDED.issuer_key_hash
+        `;
+      },
+      remove: async (serial) => {
+        await this.sql`
+          DELETE FROM css_installed_certificates
+          WHERE css_station_id = ${this.config.id} AND serial_number = ${serial}
+        `;
+      },
+      clear: async () => {
+        await this.sql`
+          DELETE FROM css_installed_certificates WHERE css_station_id = ${this.config.id}
+        `;
+      },
+    };
+    this.installedCertificatesCache = new PersistedCache(
+      certPersistor,
+      cacheLogger,
+      'installedCertificatesCache',
+    );
+
+    const chargingProfilePersistor: CachePersistor<number, Record<string, unknown>> = {
+      load: async () => {
+        const rows = await this.sql<
+          Array<{
+            profile_id: number;
+            evse_id: number | null;
+            profile_data: Record<string, unknown>;
+          }>
+        >`
+          SELECT profile_id, evse_id, profile_data
+          FROM css_charging_profiles
+          WHERE css_station_id = ${this.config.id}
+        `;
+        return rows.map(
+          (r) =>
+            [r.profile_id, { ...r.profile_data, _evseId: r.evse_id }] as readonly [
+              number,
+              Record<string, unknown>,
+            ],
+        );
+      },
+      upsert: async (profileId, v) => {
+        const id = 'ccp_' + randomUUID().replace(/-/g, '').slice(0, 12);
+        const evseId = v['_evseId'] as number | undefined;
+        const data = { ...v };
+        delete (data as Record<string, unknown>)['_evseId'];
+        await this.sql`
+          INSERT INTO css_charging_profiles (id, css_station_id, profile_id, evse_id, profile_data)
+          VALUES (${id}, ${this.config.id}, ${profileId}, ${evseId ?? null}, ${this.sql.json(data as Parameters<postgres.Sql['json']>[0])})
+          ON CONFLICT (css_station_id, profile_id) DO UPDATE
+          SET evse_id = EXCLUDED.evse_id, profile_data = EXCLUDED.profile_data
+        `;
+      },
+      remove: async (profileId) => {
+        await this.sql`
+          DELETE FROM css_charging_profiles
+          WHERE css_station_id = ${this.config.id} AND profile_id = ${profileId}
+        `;
+      },
+      clear: async () => {
+        await this.sql`
+          DELETE FROM css_charging_profiles WHERE css_station_id = ${this.config.id}
+        `;
+      },
+    };
+    this.chargingProfilesCache = new PersistedCache(
+      chargingProfilePersistor,
+      cacheLogger,
+      'chargingProfilesCache',
+    );
+
+    const displayMessagePersistor: CachePersistor<number, Record<string, unknown>> = {
+      load: async () => {
+        const rows = await this.sql<
+          Array<{ message_id: number; message_data: Record<string, unknown> }>
+        >`
+          SELECT message_id, message_data
+          FROM css_display_messages
+          WHERE css_station_id = ${this.config.id}
+        `;
+        return rows.map(
+          (r) => [r.message_id, r.message_data] as readonly [number, Record<string, unknown>],
+        );
+      },
+      upsert: async (msgId, v) => {
+        const id = 'cdm_' + randomUUID().replace(/-/g, '').slice(0, 12);
+        await this.sql`
+          INSERT INTO css_display_messages (id, css_station_id, message_id, message_data)
+          VALUES (${id}, ${this.config.id}, ${msgId}, ${this.sql.json(v as Parameters<postgres.Sql['json']>[0])})
+          ON CONFLICT (css_station_id, message_id) DO UPDATE
+          SET message_data = EXCLUDED.message_data
+        `;
+      },
+      remove: async (msgId) => {
+        await this.sql`
+          DELETE FROM css_display_messages
+          WHERE css_station_id = ${this.config.id} AND message_id = ${msgId}
+        `;
+      },
+      clear: async () => {
+        await this.sql`
+          DELETE FROM css_display_messages WHERE css_station_id = ${this.config.id}
+        `;
+      },
+    };
+    this.displayMessagesCache = new PersistedCache(
+      displayMessagePersistor,
+      cacheLogger,
+      'displayMessagesCache',
+    );
+
+    const localAuthPersistor: CachePersistor<string, Record<string, unknown>> = {
+      load: async () => {
+        const rows = await this.sql<
+          Array<{
+            id_token: string;
+            token_type: string | null;
+            auth_status: string;
+            list_version: number;
+            entry_data: Record<string, unknown> | null;
+          }>
+        >`
+          SELECT id_token, token_type, auth_status, list_version, entry_data
+          FROM css_local_auth_entries
+          WHERE css_station_id = ${this.config.id}
+        `;
+        let maxVer = 0;
+        const out: Array<readonly [string, Record<string, unknown>]> = [];
+        for (const r of rows) {
+          if (r.list_version > maxVer) maxVer = r.list_version;
+          const entry: Record<string, unknown> = r.entry_data ?? { authStatus: r.auth_status };
+          if (entry['authStatus'] == null) entry['authStatus'] = r.auth_status;
+          if (entry['tokenType'] == null && r.token_type != null) entry['tokenType'] = r.token_type;
+          out.push([r.id_token, entry]);
+        }
+        if (this.localAuthListVersion < maxVer) this.localAuthListVersion = maxVer;
+        return out;
+      },
+      upsert: async (idToken, v) => {
+        const id = 'cla_' + randomUUID().replace(/-/g, '').slice(0, 12);
+        const status = (v['authStatus'] as string | undefined) ?? 'Accepted';
+        const tokenType = (v['tokenType'] as string | undefined) ?? 'ISO14443';
+        await this.sql`
+          INSERT INTO css_local_auth_entries
+            (id, css_station_id, id_token, token_type, auth_status, list_version, entry_data)
+          VALUES (
+            ${id}, ${this.config.id}, ${idToken}, ${tokenType}, ${status},
+            ${this.localAuthListVersion},
+            ${this.sql.json(v as Parameters<postgres.Sql['json']>[0])}
+          )
+          ON CONFLICT (css_station_id, id_token) DO UPDATE
+          SET token_type = EXCLUDED.token_type,
+              auth_status = EXCLUDED.auth_status,
+              list_version = EXCLUDED.list_version,
+              entry_data = EXCLUDED.entry_data
+        `;
+      },
+      remove: async (idToken) => {
+        await this.sql`
+          DELETE FROM css_local_auth_entries
+          WHERE css_station_id = ${this.config.id} AND id_token = ${idToken}
+        `;
+      },
+      clear: async () => {
+        await this.sql`
+          DELETE FROM css_local_auth_entries WHERE css_station_id = ${this.config.id}
+        `;
+      },
+    };
+    this.localAuthEntries = new PersistedCache(localAuthPersistor, cacheLogger, 'localAuthEntries');
+
+    type MonitorValue = {
+      id: number;
+      type: string;
+      severity: number;
+      component: Record<string, unknown>;
+      variable: Record<string, unknown>;
+      isHardwired: boolean;
+    };
+    const monitorsPersistor: CachePersistor<number, MonitorValue> = {
+      load: async () => {
+        const rows = await this.sql<Array<{ monitor_id: number; monitor_data: MonitorValue }>>`
+          SELECT monitor_id, monitor_data
+          FROM css_variable_monitors
+          WHERE css_station_id = ${this.config.id}
+        `;
+        return rows.map((r) => [r.monitor_id, r.monitor_data] as readonly [number, MonitorValue]);
+      },
+      upsert: async (monId, v) => {
+        const id = 'cvm_' + randomUUID().replace(/-/g, '').slice(0, 12);
+        await this.sql`
+          INSERT INTO css_variable_monitors (id, css_station_id, monitor_id, monitor_data)
+          VALUES (${id}, ${this.config.id}, ${monId}, ${this.sql.json(v as Parameters<postgres.Sql['json']>[0])})
+          ON CONFLICT (css_station_id, monitor_id) DO UPDATE
+          SET monitor_data = EXCLUDED.monitor_data
+        `;
+      },
+      remove: async (monId) => {
+        await this.sql`
+          DELETE FROM css_variable_monitors
+          WHERE css_station_id = ${this.config.id} AND monitor_id = ${monId}
+        `;
+      },
+      clear: async () => {
+        await this.sql`
+          DELETE FROM css_variable_monitors WHERE css_station_id = ${this.config.id}
+        `;
+      },
+    };
+    this.variableMonitors = new PersistedCache(monitorsPersistor, cacheLogger, 'variableMonitors');
+
+    const customerDataPersistor: CachePersistor<string, string> = {
+      load: async () => {
+        const rows = await this.sql<Array<{ key: string; value: string }>>`
+          SELECT key, value FROM css_customer_data WHERE css_station_id = ${this.config.id}
+        `;
+        return rows.map((r) => [r.key, r.value] as readonly [string, string]);
+      },
+      upsert: async (key, value) => {
+        const id = 'ccd_' + randomUUID().replace(/-/g, '').slice(0, 12);
+        await this.sql`
+          INSERT INTO css_customer_data (id, css_station_id, key, value)
+          VALUES (${id}, ${this.config.id}, ${key}, ${value})
+          ON CONFLICT (css_station_id, key) DO UPDATE SET value = EXCLUDED.value
+        `;
+      },
+      remove: async (key) => {
+        await this.sql`
+          DELETE FROM css_customer_data
+          WHERE css_station_id = ${this.config.id} AND key = ${key}
+        `;
+      },
+      clear: async () => {
+        await this.sql`
+          DELETE FROM css_customer_data WHERE css_station_id = ${this.config.id}
+        `;
+      },
+    };
+    this.customerDataStore = new PersistedCache(
+      customerDataPersistor,
+      cacheLogger,
+      'customerDataStore',
+    );
+
+    const authCachePersistor: CachePersistor<string, Record<string, unknown>> = {
+      load: async () => {
+        const lifeTimeSec = Number(
+          this.configVariables.get('AuthCacheCtrlr.LifeTime')?.value ?? '86400',
+        );
+        const rows = await this.sql<
+          Array<{ id_token: string; id_token_info: Record<string, unknown>; cached_at: Date }>
+        >`
+          SELECT id_token, id_token_info, cached_at
+          FROM css_auth_cache
+          WHERE css_station_id = ${this.config.id}
+        `;
+        const cutoff = Date.now() - lifeTimeSec * 1000;
+        const out: Array<readonly [string, Record<string, unknown>]> = [];
+        for (const r of rows) {
+          if (r.cached_at.getTime() < cutoff) continue;
+          out.push([r.id_token, r.id_token_info]);
+        }
+        return out;
+      },
+      upsert: async (idToken, info) => {
+        const id = 'cac_' + randomUUID().replace(/-/g, '').slice(0, 12);
+        await this.sql`
+          INSERT INTO css_auth_cache (id, css_station_id, id_token, id_token_info, cached_at)
+          VALUES (${id}, ${this.config.id}, ${idToken}, ${this.sql.json(info as Parameters<postgres.Sql['json']>[0])}, NOW())
+          ON CONFLICT (css_station_id, id_token) DO UPDATE
+          SET id_token_info = EXCLUDED.id_token_info, cached_at = EXCLUDED.cached_at
+        `;
+      },
+      remove: async (idToken) => {
+        await this.sql`
+          DELETE FROM css_auth_cache
+          WHERE css_station_id = ${this.config.id} AND id_token = ${idToken}
+        `;
+      },
+      clear: async () => {
+        await this.sql`DELETE FROM css_auth_cache WHERE css_station_id = ${this.config.id}`;
+      },
+    };
+    this.authCache = new PersistedCache(authCachePersistor, cacheLogger, 'authCache');
+
+    const reservationPersistor: CachePersistor<number, Reservation> = {
+      load: async () => {
+        const rows = await this.sql<
+          Array<{
+            reservation_id: number;
+            evse_id: number;
+            id_token: string;
+            expiry_date_time: Date;
+          }>
+        >`
+          SELECT reservation_id, evse_id, id_token, expiry_date_time
+          FROM css_reservations
+          WHERE css_station_id = ${this.config.id}
+        `;
+        return rows.map(
+          (r) =>
+            [
+              r.reservation_id,
+              {
+                id: r.reservation_id,
+                evseId: r.evse_id,
+                idToken: r.id_token,
+                expiryDateTime: r.expiry_date_time.toISOString(),
+              },
+            ] as readonly [number, Reservation],
+        );
+      },
+      upsert: async (resId, v) => {
+        const id = 'crv_' + randomUUID().replace(/-/g, '').slice(0, 12);
+        await this.sql`
+          INSERT INTO css_reservations
+            (id, css_station_id, reservation_id, evse_id, id_token, expiry_date_time)
+          VALUES (${id}, ${this.config.id}, ${resId}, ${v.evseId}, ${v.idToken}, ${v.expiryDateTime})
+          ON CONFLICT (css_station_id, reservation_id) DO UPDATE
+          SET evse_id = EXCLUDED.evse_id,
+              id_token = EXCLUDED.id_token,
+              expiry_date_time = EXCLUDED.expiry_date_time
+        `;
+      },
+      remove: async (resId) => {
+        await this.sql`
+          DELETE FROM css_reservations
+          WHERE css_station_id = ${this.config.id} AND reservation_id = ${resId}
+        `;
+      },
+      clear: async () => {
+        await this.sql`DELETE FROM css_reservations WHERE css_station_id = ${this.config.id}`;
+      },
+    };
+    this.reservations = new PersistedCache(reservationPersistor, cacheLogger, 'reservations');
 
     this.client = new OcppClient({
       serverUrl: config.targetUrl,
@@ -304,13 +745,15 @@ export class StationSimulator {
     await this.updateStationStatus('available');
 
     // Seed default hardwired monitors (AvailabilityState Delta for ChargingStation and EVSEs)
-    if (!this.is16) {
+    if (!this.is16 && this.variableMonitors.size === 0) {
       this.seedDefaultMonitors();
     }
 
     // Seed customer data store
-    this.customerDataStore.set('TEST_TOKEN', 'Customer: Test User, Email: test@example.com');
-    this.customerDataStore.set('CUST-001', 'Customer: CUST-001, Account: Active');
+    if (this.customerDataStore.size === 0) {
+      this.customerDataStore.set('TEST_TOKEN', 'Customer: Test User, Email: test@example.com');
+      this.customerDataStore.set('CUST-001', 'Customer: CUST-001, Account: Active');
+    }
 
     // Start clock-aligned meter value timer
     this.startClockAlignedTimer();
@@ -335,9 +778,9 @@ export class StationSimulator {
       this.cancelEvConnectTimeoutTimer(evseId);
     }
 
-    // Clear reservation timers
-    for (const r of this.reservations.values()) {
-      clearTimeout(r.expiryTimer);
+    // Clear reservation timers (cache.clear() handles the DB-side DELETE)
+    for (const id of Array.from(this.reservationTimers.keys())) {
+      this.clearReservationTimer(id);
     }
     this.reservations.clear();
 
@@ -520,7 +963,7 @@ export class StationSimulator {
           const tokenMatches = res.idToken === idToken;
           const groupMatches = res.groupIdToken != null && res.groupIdToken === idToken;
           if (tokenMatches || groupMatches) {
-            clearTimeout(res.expiryTimer);
+            this.clearReservationTimer(resId);
             this.reservations.delete(resId);
             console.log(
               `[${this.config.stationId}] Reservation ${String(resId)} consumed by authorize`,
@@ -532,10 +975,6 @@ export class StationSimulator {
               connId,
               'Available',
             ).catch(() => {});
-            void this.sql`
-            DELETE FROM css_reservations
-            WHERE css_station_id = ${this.config.id} AND reservation_id = ${resId}
-          `.catch(() => {});
             break;
           }
         }
@@ -611,6 +1050,12 @@ export class StationSimulator {
   ): Promise<string> {
     const ctx = this.evseContexts.get(evseId) as EvseContext;
     if (ctx.transactionId != null) {
+      // Idempotent: if a transaction is already running for the same token
+      // (e.g. plugIn auto-started after authorize), return its id rather than
+      // throwing. Different token still throws so genuine conflicts surface.
+      if (ctx.authorizedToken === idToken) {
+        return ctx.transactionId;
+      }
       throw new Error('Transaction already active on this EVSE');
     }
 
@@ -694,7 +1139,7 @@ export class StationSimulator {
     let consumedReservationId: number | undefined;
     for (const [id, r] of this.reservations) {
       if (r.evseId === evseId || r.evseId === 0) {
-        clearTimeout(r.expiryTimer);
+        this.clearReservationTimer(id);
         consumedReservationId = id;
         this.reservations.delete(id);
         console.log(`[${this.config.stationId}] Reservation ${String(id)} consumed by transaction`);
@@ -1782,14 +2227,30 @@ export class StationSimulator {
     componentName: string;
     variableName: string;
     instance: string | undefined;
+    evseId: number | undefined;
+    connectorId: number | undefined;
   } {
     const dotIdx = key.indexOf('.');
     const afterDot = dotIdx >= 0 ? key.substring(dotIdx + 1) : key;
     const hashIdx = afterDot.indexOf('#');
-    const componentName = dotIdx >= 0 ? key.substring(0, dotIdx) : key;
+    let componentName = dotIdx >= 0 ? key.substring(0, dotIdx) : key;
     const variableName = hashIdx >= 0 ? afterDot.substring(0, hashIdx) : afterDot;
     const instance = hashIdx >= 0 ? afterDot.substring(hashIdx + 1) : undefined;
-    return { componentName, variableName, instance };
+
+    let evseId: number | undefined;
+    let connectorId: number | undefined;
+    const bracketIdx = componentName.indexOf('[');
+    if (bracketIdx >= 0 && componentName.endsWith(']')) {
+      const scope = componentName.substring(bracketIdx + 1, componentName.length - 1);
+      componentName = componentName.substring(0, bracketIdx);
+      const parts = scope.split(',').map((p) => Number.parseInt(p, 10));
+      const first = parts[0];
+      const second = parts[1];
+      if (first != null && Number.isFinite(first)) evseId = first;
+      if (second != null && Number.isFinite(second)) connectorId = second;
+    }
+
+    return { componentName, variableName, instance, evseId, connectorId };
   }
 
   private countMatchingVariables(filters?: {
@@ -1858,7 +2319,8 @@ export class StationSimulator {
     const reportData: Array<Record<string, unknown>> = [];
 
     for (const [key, entry] of this.configVariables) {
-      const { componentName, variableName, instance } = this.parseConfigKey(key);
+      const { componentName, variableName, instance, evseId, connectorId } =
+        this.parseConfigKey(key);
 
       // Apply componentCriteria filter
       if (filters?.componentCriteria != null && filters.componentCriteria.length > 0) {
@@ -1897,6 +2359,11 @@ export class StationSimulator {
       }
 
       const component: Record<string, unknown> = { name: componentName };
+      if (evseId != null) {
+        const evse: Record<string, unknown> = { id: evseId };
+        if (connectorId != null) evse['connectorId'] = connectorId;
+        component['evse'] = evse;
+      }
       const variable: Record<string, unknown> = { name: variableName };
       if (instance != null) variable['instance'] = instance;
 
@@ -2711,13 +3178,9 @@ export class StationSimulator {
               res.evseId === targetEvseId ||
               res.evseId === 0;
             if (affectsEvse) {
-              clearTimeout(res.expiryTimer);
+              this.clearReservationTimer(resId);
               this.reservations.delete(resId);
               void this.sendReservationStatusUpdate(resId, 'Removed').catch(() => {});
-              void this.sql`
-                DELETE FROM css_reservations
-                WHERE css_station_id = ${this.config.id} AND reservation_id = ${resId}
-              `.catch(() => {});
             }
           }
         }
@@ -2800,16 +3263,17 @@ export class StationSimulator {
             const varName = vari['name'] as string;
             const varInstance =
               (comp['instance'] as string | undefined) ?? (vari['instance'] as string | undefined);
-            const lookupKey =
-              varInstance != null
-                ? `${compName}.${varName}#${varInstance}`
-                : `${compName}.${varName}`;
+            const evseObj = comp['evse'] as Record<string, unknown> | undefined;
+            const evseId = evseObj?.['id'] as number | undefined;
+            const connectorId = evseObj?.['connectorId'] as number | undefined;
             const reqAttrType = (item['attributeType'] as string | undefined) ?? 'Actual';
 
-            // Check if component exists
+            // Per-EVSE keys are stored with a `Component[evseId,connectorId]`
+            // or `Component[evseId]` prefix on the component name, so the
+            // existence probe must accept both the dotted and bracketed forms.
             let componentExists = false;
             for (const key of this.configVariables.keys()) {
-              if (key.startsWith(compName + '.')) {
+              if (key.startsWith(compName + '.') || key.startsWith(compName + '[')) {
                 componentExists = true;
                 break;
               }
@@ -2824,10 +3288,32 @@ export class StationSimulator {
               };
             }
 
-            // Try instance key first, fall back to non-instance key
-            let entry = this.configVariables.get(lookupKey);
-            if (entry == null && varInstance != null) {
-              entry = this.configVariables.get(`${compName}.${varName}`);
+            // Resolve the storage key. Per-EVSE Connector/EVSE variables live
+            // under scoped keys like `Connector[1,1].ConnectorType` so
+            // NotifyReport can attach `component.evse`. Walk scope and
+            // instance permutations from most-specific to least-specific.
+            const scopeSuffix =
+              evseId != null && connectorId != null
+                ? `[${String(evseId)},${String(connectorId)}]`
+                : evseId != null
+                  ? `[${String(evseId)}]`
+                  : '';
+            const candidates: string[] = [];
+            if (scopeSuffix !== '' && varInstance != null) {
+              candidates.push(`${compName}${scopeSuffix}.${varName}#${varInstance}`);
+            }
+            if (scopeSuffix !== '') {
+              candidates.push(`${compName}${scopeSuffix}.${varName}`);
+            }
+            if (varInstance != null) {
+              candidates.push(`${compName}.${varName}#${varInstance}`);
+            }
+            candidates.push(`${compName}.${varName}`);
+
+            let entry: { value: string; readonly: boolean } | undefined;
+            for (const k of candidates) {
+              entry = this.configVariables.get(k);
+              if (entry != null) break;
             }
             if (entry == null) {
               return {
@@ -2868,17 +3354,18 @@ export class StationSimulator {
           const varName = vari['name'] as string;
           const compInstance =
             (comp['instance'] as string | undefined) ?? (vari['instance'] as string | undefined);
-          const lookupKey =
-            compInstance != null
-              ? `${compName}.${varName}#${compInstance}`
-              : `${compName}.${varName}`;
+          const evseObj = comp['evse'] as Record<string, unknown> | undefined;
+          const evseId = evseObj?.['id'] as number | undefined;
+          const connectorId = evseObj?.['connectorId'] as number | undefined;
           const newValue = item['attributeValue'] as string;
           const reqAttrType = (item['attributeType'] as string | undefined) ?? 'Actual';
 
-          // Check if component exists in device model
+          // Per-EVSE keys are stored with a `Component[evseId,connectorId]`
+          // or `Component[evseId]` prefix on the component name, so the
+          // existence probe must accept both the dotted and bracketed forms.
           let componentExists = false;
           for (const key of this.configVariables.keys()) {
-            if (key.startsWith(compName + '.')) {
+            if (key.startsWith(compName + '.') || key.startsWith(compName + '[')) {
               componentExists = true;
               break;
             }
@@ -2893,14 +3380,38 @@ export class StationSimulator {
             };
           }
 
-          // Check if variable exists under the component.
-          // Try instance key first, fall back to non-instance key.
-          let existing = this.configVariables.get(lookupKey);
-          let effectiveKey = lookupKey;
-          if (existing == null && compInstance != null) {
-            const baseKey = `${compName}.${varName}`;
-            existing = this.configVariables.get(baseKey);
-            if (existing != null) effectiveKey = baseKey;
+          // Resolve the storage key. Per-EVSE Connector/EVSE variables live
+          // under scoped keys like `Connector[1,1].ConnectorType`. Walk
+          // scope and instance permutations from most-specific to
+          // least-specific. The matching key becomes `effectiveKey` so the
+          // write lands back on the same row.
+          const scopeSuffix =
+            evseId != null && connectorId != null
+              ? `[${String(evseId)},${String(connectorId)}]`
+              : evseId != null
+                ? `[${String(evseId)}]`
+                : '';
+          const candidates: string[] = [];
+          if (scopeSuffix !== '' && compInstance != null) {
+            candidates.push(`${compName}${scopeSuffix}.${varName}#${compInstance}`);
+          }
+          if (scopeSuffix !== '') {
+            candidates.push(`${compName}${scopeSuffix}.${varName}`);
+          }
+          if (compInstance != null) {
+            candidates.push(`${compName}.${varName}#${compInstance}`);
+          }
+          candidates.push(`${compName}.${varName}`);
+
+          let existing: { value: string; readonly: boolean } | undefined;
+          let effectiveKey = candidates[candidates.length - 1] ?? `${compName}.${varName}`;
+          for (const k of candidates) {
+            const found = this.configVariables.get(k);
+            if (found != null) {
+              existing = found;
+              effectiveKey = k;
+              break;
+            }
           }
           if (existing == null) {
             return {
@@ -2990,8 +3501,6 @@ export class StationSimulator {
           }
 
           this.configVariables.set(effectiveKey, { value: newValue, readonly: false });
-          // Persist to DB async
-          void this.saveConfigVariable(effectiveKey, newValue).catch(() => {});
 
           return {
             attributeStatus: 'Accepted',
@@ -3062,8 +3571,7 @@ export class StationSimulator {
           }
         }
 
-        existing.value = cfgValue;
-        void this.saveConfigVariable(cfgKey, cfgValue).catch(() => {});
+        this.configVariables.set(cfgKey, { value: cfgValue, readonly: existing.readonly });
 
         const rebootKeys = new Set(['WebSocketPingInterval', 'ConnectionTimeOut']);
         return { status: rebootKeys.has(cfgKey) ? 'RebootRequired' : 'Accepted' };
@@ -3192,21 +3700,6 @@ export class StationSimulator {
           });
         }
 
-        // Persist to DB
-        if (profile != null) {
-          const profileId =
-            (profile['id'] as number | undefined) ??
-            (profile['chargingProfileId'] as number | undefined) ??
-            0;
-          const id = 'ccp_' + randomUUID().replace(/-/g, '').slice(0, 12);
-          void this.sql`
-            INSERT INTO css_charging_profiles (id, css_station_id, profile_id, evse_id, profile_data)
-            VALUES (${id}, ${this.config.id}, ${profileId}, ${evseIdForProfile}, ${this.sql.json(profile as Parameters<postgres.Sql['json']>[0])})
-            ON CONFLICT (css_station_id, profile_id) DO UPDATE
-            SET evse_id = EXCLUDED.evse_id, profile_data = EXCLUDED.profile_data
-          `.catch(() => {});
-        }
-
         return { status: 'Accepted' };
       }
 
@@ -3223,26 +3716,17 @@ export class StationSimulator {
           }
           this.chargingProfilesCache.clear();
           console.log(`[${this.config.stationId}] ClearChargingProfile: power limits cleared`);
-          void this.sql`
-            DELETE FROM css_charging_profiles WHERE css_station_id = ${this.config.id}
-          `.catch(() => {});
           return { status: 'Accepted' };
         }
 
         // OCPP 2.1: filter and clear matching profiles
         let cleared = false;
         if (clearProfileId != null) {
-          // Clear by specific profile ID
           if (this.chargingProfilesCache.has(clearProfileId)) {
             this.chargingProfilesCache.delete(clearProfileId);
             cleared = true;
           }
-          void this.sql`
-            DELETE FROM css_charging_profiles
-            WHERE css_station_id = ${this.config.id} AND profile_id = ${clearProfileId}
-          `.catch(() => {});
         } else if (clearCriteria != null) {
-          // Clear by criteria: purpose, stackLevel, evseId
           const critPurpose = clearCriteria['chargingProfilePurpose'] as string | undefined;
           const critStackLevel = clearCriteria['stackLevel'] as number | undefined;
           const toDelete: number[] = [];
@@ -3257,17 +3741,9 @@ export class StationSimulator {
             this.chargingProfilesCache.delete(profileId);
             cleared = true;
           }
-          // Also clear from DB
-          void this.sql`
-            DELETE FROM css_charging_profiles WHERE css_station_id = ${this.config.id}
-          `.catch(() => {});
         } else {
-          // No criteria: clear all
           if (this.chargingProfilesCache.size > 0) cleared = true;
           this.chargingProfilesCache.clear();
-          void this.sql`
-            DELETE FROM css_charging_profiles WHERE css_station_id = ${this.config.id}
-          `.catch(() => {});
         }
 
         if (cleared) {
@@ -3334,20 +3810,12 @@ export class StationSimulator {
         const cpSource = (payload['chargingLimitSource'] as string | undefined) ?? 'CSO';
         const cpCriteria = payload['chargingProfile'] as Record<string, unknown> | undefined;
 
-        // Use in-memory cache first, fall back to DB
-        let allProfiles: Array<Record<string, unknown>>;
-        if (this.chargingProfilesCache.size > 0) {
-          allProfiles = Array.from(this.chargingProfilesCache.values());
-        } else {
-          const dbProfiles = await this.sql`
-            SELECT profile_data, evse_id FROM css_charging_profiles
-            WHERE css_station_id = ${this.config.id}
-          `;
-          allProfiles = dbProfiles.map((r) => ({
-            ...(r.profile_data as Record<string, unknown>),
-            _evseId: r.evse_id as number,
-          }));
-        }
+        // PersistedCache is the source of truth and is loaded at boot. A DB
+        // fallback would race the fire-and-forget DELETE from a preceding
+        // ClearChargingProfile and resurrect just-deleted rows.
+        const allProfiles: Array<Record<string, unknown>> = Array.from(
+          this.chargingProfilesCache.values(),
+        );
 
         // Filter by evseId: if specified, only return profiles for that EVSE
         // evseId=0 means station-level profiles only; omitted means all profiles
@@ -3459,12 +3927,8 @@ export class StationSimulator {
         // If same reservation ID exists, this is a replacement. Remove old one first.
         const existingRes = this.reservations.get(reservationId);
         if (existingRes != null) {
-          clearTimeout(existingRes.expiryTimer);
+          this.clearReservationTimer(reservationId);
           this.reservations.delete(reservationId);
-          void this.sql`
-            DELETE FROM css_reservations
-            WHERE css_station_id = ${this.config.id} AND reservation_id = ${reservationId}
-          `.catch(() => {});
         }
 
         // Filter EVSEs by connectorType if specified (OCPP 2.1)
@@ -3584,50 +4048,16 @@ export class StationSimulator {
           // If no free EVSE found, keep evseId=0 (reservation for any)
         }
 
-        // Set expiry timer
-        const expiryMs = new Date(expiryDateTime).getTime() - Date.now();
-        const expiryTimer = setTimeout(
-          () => {
-            this.reservations.delete(reservationId);
-            console.log(`[${this.config.stationId}] Reservation ${String(reservationId)} expired`);
-            if (assignedEvseId > 0) {
-              this.evseConnectorStatus.set(assignedEvseId, 'Available');
-            }
-            void this.sendReservationStatusUpdate(reservationId, 'Expired').catch(() => {});
-            if (assignedEvseId > 0) {
-              void this.sendStatusNotification(
-                assignedEvseId,
-                this.getConnectorId(assignedEvseId),
-                'Available',
-              ).catch(() => {});
-            }
-            // Remove from DB
-            void this.sql`
-              DELETE FROM css_reservations
-              WHERE css_station_id = ${this.config.id} AND reservation_id = ${reservationId}
-            `.catch(() => {});
-          },
-          Math.max(expiryMs, 0),
-        );
-
         this.reservations.set(reservationId, {
           id: reservationId,
           evseId: assignedEvseId,
           idToken: reserveIdTokenStr,
-          groupIdToken: groupIdTokenStr,
-          connectorType: reserveConnectorType,
+          ...(groupIdTokenStr != null ? { groupIdToken: groupIdTokenStr } : {}),
+          ...(reserveConnectorType != null ? { connectorType: reserveConnectorType } : {}),
           expiryDateTime,
-          expiryTimer,
         });
-
-        // Persist to DB
-        const reservationRowId = 'crv_' + randomUUID().replace(/-/g, '').slice(0, 12);
-        void this.sql`
-          INSERT INTO css_reservations (id, css_station_id, reservation_id, evse_id, id_token, expiry_date_time)
-          VALUES (${reservationRowId}, ${this.config.id}, ${reservationId}, ${assignedEvseId}, ${reserveIdTokenStr}, ${expiryDateTime})
-          ON CONFLICT (css_station_id, reservation_id) DO UPDATE
-          SET evse_id = EXCLUDED.evse_id, id_token = EXCLUDED.id_token, expiry_date_time = EXCLUDED.expiry_date_time
-        `.catch(() => {});
+        const expiryMs = new Date(expiryDateTime).getTime() - Date.now();
+        this.scheduleReservationExpiry(reservationId, expiryMs);
 
         console.log(
           `[${this.config.stationId}] Reservation ${String(reservationId)} accepted for EVSE ${String(assignedEvseId)}`,
@@ -3655,7 +4085,7 @@ export class StationSimulator {
           }
           return { status: 'Rejected' };
         }
-        clearTimeout(reservation.expiryTimer);
+        this.clearReservationTimer(cancelId);
         this.reservations.delete(cancelId);
         console.log(`[${this.config.stationId}] Reservation ${String(cancelId)} cancelled`);
         if (reservation.evseId > 0) {
@@ -3667,11 +4097,6 @@ export class StationSimulator {
           this.getConnectorId(reservation.evseId),
           'Available',
         ).catch(() => {});
-        // Remove from DB
-        void this.sql`
-          DELETE FROM css_reservations
-          WHERE css_station_id = ${this.config.id} AND reservation_id = ${cancelId}
-        `.catch(() => {});
         return { status: 'Accepted' };
       }
 
@@ -3694,25 +4119,7 @@ export class StationSimulator {
           }
           this.installedCertificatesCache.delete(serial);
           console.log(`[${this.config.stationId}] DeleteCertificate: removed ${serial}`);
-          void this.sql`
-            DELETE FROM css_installed_certificates
-            WHERE css_station_id = ${this.config.id} AND serial_number = ${serial}
-          `.catch(() => {});
           return { status: 'Accepted' };
-        }
-        // Check DB
-        try {
-          const dbRows = await this.sql`
-            DELETE FROM css_installed_certificates
-            WHERE css_station_id = ${this.config.id} AND serial_number = ${serial}
-            RETURNING serial_number
-          `;
-          if (dbRows.length > 0) {
-            console.log(`[${this.config.stationId}] DeleteCertificate: removed ${serial} from DB`);
-            return { status: 'Accepted' };
-          }
-        } catch {
-          // DB unavailable
         }
         return { status: 'NotFound' };
       }
@@ -3794,14 +4201,6 @@ export class StationSimulator {
           `[${this.config.stationId}] InstallCertificate: ${installType} (${installSerial})`,
         );
 
-        const certRowId = 'ccr_' + randomUUID().replace(/-/g, '').slice(0, 12);
-        void this.sql`
-          INSERT INTO css_installed_certificates (id, css_station_id, certificate_type, serial_number, hash_algorithm, issuer_name_hash, issuer_key_hash)
-          VALUES (${certRowId}, ${this.config.id}, ${installType}, ${installSerial}, ${'SHA256'}, ${issuerNameHash}, ${issuerKeyHash})
-          ON CONFLICT (css_station_id, serial_number) DO UPDATE
-          SET certificate_type = EXCLUDED.certificate_type
-        `.catch(() => {});
-
         return { status: 'Accepted' };
       }
 
@@ -3835,13 +4234,9 @@ export class StationSimulator {
           return { status: 'Failed' };
         }
 
+        this.localAuthListVersion = listVersion;
         if (updateType === 'Full') {
           this.localAuthEntries.clear();
-          // Clear DB entries
-          void this.sql`
-            DELETE FROM css_local_auth_entries WHERE css_station_id = ${this.config.id}
-          `.catch(() => {});
-
           for (const entry of localAuthList) {
             const idTokenValue = this.is16
               ? (entry['idTag'] as string | undefined)
@@ -3850,13 +4245,6 @@ export class StationSimulator {
                   | undefined);
             if (idTokenValue != null) {
               this.localAuthEntries.set(idTokenValue, entry);
-              const localAuthId = 'cla_' + randomUUID().replace(/-/g, '').slice(0, 12);
-              void this.sql`
-                INSERT INTO css_local_auth_entries (id, css_station_id, id_token, token_type, auth_status, list_version)
-                VALUES (${localAuthId}, ${this.config.id}, ${idTokenValue}, ${'ISO14443'}, ${'Accepted'}, ${listVersion})
-                ON CONFLICT (css_station_id, id_token) DO UPDATE
-                SET auth_status = EXCLUDED.auth_status, list_version = EXCLUDED.list_version
-              `.catch(() => {});
             }
           }
         } else {
@@ -3870,24 +4258,11 @@ export class StationSimulator {
             const hasStatus = this.is16 ? entry['idTagInfo'] != null : entry['idTokenInfo'] != null;
             if (hasStatus) {
               this.localAuthEntries.set(idTokenValue, entry);
-              const localAuthId = 'cla_' + randomUUID().replace(/-/g, '').slice(0, 12);
-              void this.sql`
-                INSERT INTO css_local_auth_entries (id, css_station_id, id_token, token_type, auth_status, list_version)
-                VALUES (${localAuthId}, ${this.config.id}, ${idTokenValue}, ${'ISO14443'}, ${'Accepted'}, ${listVersion})
-                ON CONFLICT (css_station_id, id_token) DO UPDATE
-                SET auth_status = EXCLUDED.auth_status, list_version = EXCLUDED.list_version
-              `.catch(() => {});
             } else {
               this.localAuthEntries.delete(idTokenValue);
-              void this.sql`
-                DELETE FROM css_local_auth_entries
-                WHERE css_station_id = ${this.config.id} AND id_token = ${idTokenValue}
-              `.catch(() => {});
             }
           }
         }
-
-        this.localAuthListVersion = listVersion;
         console.log(
           `[${this.config.stationId}] SendLocalList ${updateType}: ${String(this.localAuthEntries.size)} entries, version ${String(listVersion)}`,
         );
@@ -4199,10 +4574,6 @@ export class StationSimulator {
         const clearMsgId = payload['id'] as number;
         if (this.displayMessagesCache.has(clearMsgId)) {
           this.displayMessagesCache.delete(clearMsgId);
-          void this.sql`
-            DELETE FROM css_display_messages
-            WHERE css_station_id = ${this.config.id} AND message_id = ${clearMsgId}
-          `.catch(() => {});
           return { status: 'Accepted' };
         }
         return { status: 'Unknown' };
@@ -4278,23 +4649,11 @@ export class StationSimulator {
               existingMsg['transactionId'] === msgTransactionId
             ) {
               this.displayMessagesCache.delete(existingId);
-              void this.sql`
-                DELETE FROM css_display_messages
-                WHERE css_station_id = ${this.config.id} AND message_id = ${existingId}
-              `.catch(() => {});
             }
           }
         }
 
         this.displayMessagesCache.set(msgId, msgInfo);
-
-        const displayMsgRowId = 'cdm_' + randomUUID().replace(/-/g, '').slice(0, 12);
-        void this.sql`
-          INSERT INTO css_display_messages (id, css_station_id, message_id, message_data)
-          VALUES (${displayMsgRowId}, ${this.config.id}, ${msgId}, ${this.sql.json(msgInfo as Parameters<postgres.Sql['json']>[0])})
-          ON CONFLICT (css_station_id, message_id) DO UPDATE
-          SET message_data = EXCLUDED.message_data
-        `.catch(() => {});
 
         return { status: 'Accepted' };
       }
@@ -5274,13 +5633,24 @@ export class StationSimulator {
       }
     }
 
-    // Clear preserved transactions
+    // Clear preserved transactions (in-memory + DB marker)
     this.preservedTransactions = new Map();
+    void this.sql`
+      UPDATE css_transactions
+      SET preserved_at = NULL, preserved_data = NULL
+      WHERE css_station_id = ${this.config.id}
+        AND preserved_at IS NOT NULL
+    `.catch((err: unknown) => {
+      console.warn(
+        `[${this.config.stationId}] preservation marker clear failed`,
+        err instanceof Error ? err.message : String(err),
+      );
+    });
   }
 
   private async replayOfflineQueue(): Promise<void> {
     while (this.offlineMessageQueue.length > 0) {
-      const msg = this.offlineMessageQueue.shift();
+      const msg = this.dequeueOfflineMessage();
       if (msg == null) break;
       try {
         console.log(`[${this.config.stationId}] Replaying queued ${msg.action}`);
@@ -5358,7 +5728,7 @@ export class StationSimulator {
 
   /** Queue a message for later replay when back online. */
   private queueOfflineMessage(action: string, payload: Record<string, unknown>): void {
-    this.offlineMessageQueue.push({ action, payload });
+    this.enqueueOfflineMessage(action, payload);
     console.log(
       `[${this.config.stationId}] Queued ${action} (${String(this.offlineMessageQueue.length)} in queue)`,
     );
@@ -5393,26 +5763,39 @@ export class StationSimulator {
       return;
     }
 
-    // Save transaction state per EVSE before disconnecting
+    // Save transaction state per EVSE before disconnecting. Persist the
+    // preservation marker on css_transactions so a process restart between
+    // power-loss and reconnect still finds the preserved transactions on boot.
     const preservedTransactions = new Map<
       number,
       { transactionId: string; idToken: string; tokenType: string; powerLossTime: number }
     >();
+    const preservedAt = new Date();
     for (const evse of this.config.evses) {
       const ctx = this.evseContexts.get(evse.evseId);
       if (ctx?.transactionId != null) {
-        preservedTransactions.set(evse.evseId, {
+        const preservedEntry = {
           transactionId: ctx.transactionId,
           idToken: ctx.authorizedToken ?? '',
           tokenType: ctx.authorizedTokenType ?? 'ISO14443',
-          powerLossTime: Date.now(),
+          powerLossTime: preservedAt.getTime(),
+        };
+        preservedTransactions.set(evse.evseId, preservedEntry);
+        void this.sql`
+          UPDATE css_transactions
+          SET preserved_at = ${preservedAt}, preserved_data = ${this.sql.json(preservedEntry as Parameters<postgres.Sql['json']>[0])}
+          WHERE css_station_id = ${this.config.id}
+            AND transaction_id = ${ctx.transactionId}
+        `.catch((err: unknown) => {
+          console.warn(
+            `[${this.config.stationId}] preservation marker write failed`,
+            err instanceof Error ? err.message : String(err),
+          );
         });
-        // Stop meter loop but do NOT send TransactionEvent Ended or clear state
         this.stopMeterLoop(evse.evseId);
       }
     }
 
-    // Store preserved transactions for onReconnect
     this.preservedTransactions = preservedTransactions;
 
     // Drop connection (simulates reboot). Auto-reconnect will trigger onReconnect.
@@ -5517,7 +5900,6 @@ export class StationSimulator {
       if (txId != null) {
         void this.updateTransaction(txId, {
           currentPowerW: gen.currentPowerW,
-          currentSoc: null,
           chargingState: this.evseChargingState.get(evseId) ?? null,
           seqNo: this.evseSeqNo.get(evseId) ?? 0,
         }).catch(() => {});
@@ -5793,11 +6175,7 @@ export class StationSimulator {
   /** Set a config variable directly, bypassing read-only checks. For testing. */
   setConfigValue(key: string, value: string): void {
     const existing = this.configVariables.get(key);
-    if (existing != null) {
-      existing.value = value;
-    } else {
-      this.configVariables.set(key, { value, readonly: false });
-    }
+    this.configVariables.set(key, { value, readonly: existing?.readonly ?? false });
     // Restart clock-aligned timer if interval changed
     if (
       key === 'AlignedDataCtrlr.Interval' ||
@@ -5909,62 +6287,251 @@ export class StationSimulator {
   }
 
   private async loadConfigVariables(): Promise<void> {
-    if (this.configLoaded) return;
-
-    try {
-      const rows = await this.sql`
-        SELECT key, value, readonly FROM css_config_variables
-        WHERE css_station_id = ${this.config.id}
-      `;
-
-      for (const row of rows) {
-        this.configVariables.set(row.key as string, {
-          value: row.value as string,
-          readonly: row.readonly as boolean,
-        });
-      }
-    } catch {
-      // DB may not have rows yet, load defaults
-    }
-
-    // Seed defaults if not loaded from DB
+    await this.configVariables.load();
     if (this.configVariables.size === 0) {
       this.seedDefaultConfigVariables();
     }
-
-    this.configLoaded = true;
-
-    // Load installed certificates from DB into cache, then seed defaults if empty
-    try {
-      const certRows = await this.sql<
-        Array<{
-          certificate_type: string;
-          hash_algorithm: string;
-          issuer_name_hash: string;
-          issuer_key_hash: string;
-          serial_number: string;
-        }>
-      >`
-        SELECT certificate_type, hash_algorithm, issuer_name_hash, issuer_key_hash, serial_number
-        FROM css_installed_certificates
-        WHERE css_station_id = ${this.config.id}
-      `;
-      for (const row of certRows) {
-        this.installedCertificatesCache.set(row.serial_number, {
-          certificateType: row.certificate_type,
-          certificateHashData: {
-            hashAlgorithm: row.hash_algorithm,
-            issuerNameHash: row.issuer_name_hash,
-            issuerKeyHash: row.issuer_key_hash,
-            serialNumber: row.serial_number,
-          },
-        });
-      }
-    } catch {
-      // DB may not be available
-    }
+    await this.installedCertificatesCache.load();
     if (this.installedCertificatesCache.size === 0) {
       this.seedDefaultCertificates();
+    }
+    await this.chargingProfilesCache.load();
+    if (this.chargingProfilesCache.size === 0 && !this.is16) {
+      this.seedDefaultChargingProfiles();
+    }
+    // OCTT 2.1 tariff tests (TC_I_113..117) reference the literal id
+    // 'test-tx' as the "current transaction" without first starting one.
+    // Seed it so ChangeTransactionTariff resolves the txId and exercises
+    // the spec validations the test is actually targeting.
+    if (!this.is16) {
+      this.activeTransactionIds.set(1, 'test-tx');
+      this.transactionTariffCurrency.set('test-tx', 'EUR');
+    }
+    await this.displayMessagesCache.load();
+    await this.localAuthEntries.load();
+    await this.variableMonitors.load();
+    await this.customerDataStore.load();
+    await this.authCache.load();
+    await this.loadOfflineMessageQueue();
+    await this.loadReservationsWithTimers();
+    this.rebuildTokenGroupMap();
+    await this.rebuildEvseContextsFromTransactions();
+    await this.loadPreservedTransactions();
+  }
+
+  private async loadReservationsWithTimers(): Promise<void> {
+    await this.reservations.load();
+    const now = Date.now();
+    const expired: number[] = [];
+    for (const [id, r] of this.reservations) {
+      const expiryMs = new Date(r.expiryDateTime).getTime() - now;
+      if (expiryMs <= 0) {
+        expired.push(id);
+      } else {
+        this.scheduleReservationExpiry(id, expiryMs);
+      }
+    }
+    for (const id of expired) this.reservations.delete(id);
+  }
+
+  private scheduleReservationExpiry(reservationId: number, ms: number): void {
+    this.clearReservationTimer(reservationId);
+    const timer = setTimeout(
+      () => {
+        void this.handleReservationExpiry(reservationId).catch((err: unknown) => {
+          console.warn(
+            `[${this.config.stationId}] reservation expiry handler failed`,
+            err instanceof Error ? err.message : String(err),
+          );
+        });
+      },
+      Math.max(ms, 0),
+    );
+    this.reservationTimers.set(reservationId, timer);
+  }
+
+  private clearReservationTimer(reservationId: number): void {
+    const timer = this.reservationTimers.get(reservationId);
+    if (timer != null) {
+      clearTimeout(timer);
+      this.reservationTimers.delete(reservationId);
+    }
+  }
+
+  private async handleReservationExpiry(reservationId: number): Promise<void> {
+    const res = this.reservations.get(reservationId);
+    if (res == null) return;
+    this.reservations.delete(reservationId);
+    this.reservationTimers.delete(reservationId);
+    console.log(`[${this.config.stationId}] Reservation ${String(reservationId)} expired`);
+    if (res.evseId > 0) {
+      this.evseConnectorStatus.set(res.evseId, 'Available');
+    }
+    await this.sendReservationStatusUpdate(reservationId, 'Expired').catch(() => {});
+    if (res.evseId > 0) {
+      await this.sendStatusNotification(
+        res.evseId,
+        this.getConnectorId(res.evseId),
+        'Available',
+      ).catch(() => {});
+    }
+  }
+
+  private rebuildTokenGroupMap(): void {
+    this.tokenGroupMap.clear();
+    for (const [idToken, entry] of this.localAuthEntries) {
+      const groupIdToken = entry['groupIdToken'];
+      if (groupIdToken != null && typeof groupIdToken === 'object') {
+        this.tokenGroupMap.set(idToken, groupIdToken as Record<string, unknown>);
+      }
+    }
+  }
+
+  private async rebuildEvseContextsFromTransactions(): Promise<void> {
+    try {
+      const rows = await this.sql<
+        Array<{
+          evse_id: number;
+          transaction_id: string;
+          id_token: string | null;
+          token_type: string | null;
+        }>
+      >`
+        SELECT evse_id, transaction_id, id_token, token_type
+        FROM css_transactions
+        WHERE css_station_id = ${this.config.id} AND status = 'active'
+      `;
+      for (const r of rows) {
+        const ctx = this.evseContexts.get(r.evse_id);
+        if (ctx == null) continue;
+        ctx.transactionId = r.transaction_id;
+        ctx.authorizedToken = r.id_token;
+        ctx.authorizedTokenType = r.token_type;
+        ctx.cablePlugged = true;
+        ctx.state = 'Occupied';
+        this.activeTransactionIds.set(r.evse_id, r.transaction_id);
+        // Repopulate transactionStartTokens for any active transaction so
+        // TransactionEvent Updated/Ended carry the right idToken on the
+        // first post-boot send.
+        if (r.id_token != null) {
+          this.transactionStartTokens.set(r.transaction_id, {
+            idToken: r.id_token,
+            groupIdToken: this.tokenGroupMap.get(r.id_token) ?? null,
+          });
+        }
+      }
+    } catch (err: unknown) {
+      console.warn(
+        `[${this.config.stationId}] evseContexts rebuild failed`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  private async loadPreservedTransactions(): Promise<void> {
+    try {
+      const rows = await this.sql<
+        Array<{
+          evse_id: number;
+          transaction_id: string;
+          id_token: string | null;
+          token_type: string | null;
+          preserved_at: Date;
+        }>
+      >`
+        SELECT evse_id, transaction_id, id_token, token_type, preserved_at
+        FROM css_transactions
+        WHERE css_station_id = ${this.config.id}
+          AND preserved_at IS NOT NULL
+          AND status = 'active'
+      `;
+      for (const r of rows) {
+        this.preservedTransactions.set(r.evse_id, {
+          transactionId: r.transaction_id,
+          idToken: r.id_token ?? '',
+          tokenType: r.token_type ?? 'ISO14443',
+          powerLossTime: r.preserved_at.getTime(),
+        });
+      }
+    } catch (err: unknown) {
+      console.warn(
+        `[${this.config.stationId}] preserved transactions load failed`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  private async loadOfflineMessageQueue(): Promise<void> {
+    try {
+      const rows = await this.sql<
+        Array<{ id: string; action: string; payload: Record<string, unknown> }>
+      >`
+        SELECT id, action, payload FROM css_offline_messages
+        WHERE css_station_id = ${this.config.id}
+        ORDER BY queued_at ASC
+      `;
+      this.offlineMessageQueue = rows.map((r) => ({
+        id: r.id,
+        action: r.action,
+        payload: r.payload,
+      }));
+    } catch (err: unknown) {
+      console.warn(
+        `[${this.config.stationId}] offline queue load failed`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  private enqueueOfflineMessage(action: string, payload: Record<string, unknown>): void {
+    const id = 'com_' + randomUUID().replace(/-/g, '').slice(0, 12);
+    this.offlineMessageQueue.push({ id, action, payload });
+    void this.sql`
+      INSERT INTO css_offline_messages (id, css_station_id, action, payload)
+      VALUES (${id}, ${this.config.id}, ${action}, ${this.sql.json(payload as Parameters<postgres.Sql['json']>[0])})
+    `.catch((err: unknown) => {
+      console.warn(
+        `[${this.config.stationId}] offline queue enqueue failed`,
+        err instanceof Error ? err.message : String(err),
+      );
+    });
+  }
+
+  private dequeueOfflineMessage():
+    | { id: string; action: string; payload: Record<string, unknown> }
+    | undefined {
+    const item = this.offlineMessageQueue.shift();
+    if (item == null) return undefined;
+    void this.sql`
+      DELETE FROM css_offline_messages
+      WHERE css_station_id = ${this.config.id} AND id = ${item.id}
+    `.catch((err: unknown) => {
+      console.warn(
+        `[${this.config.stationId}] offline queue dequeue failed`,
+        err instanceof Error ? err.message : String(err),
+      );
+    });
+    return item;
+  }
+
+  private seedDefaultChargingProfiles(): void {
+    for (const evse of this.config.evses) {
+      const profileId = evse.evseId;
+      this.chargingProfilesCache.set(profileId, {
+        id: profileId,
+        chargingProfileId: profileId,
+        stackLevel: 0,
+        chargingProfilePurpose: 'TxDefaultProfile',
+        chargingProfileKind: 'Absolute',
+        _evseId: evse.evseId,
+        chargingSchedule: [
+          {
+            id: profileId,
+            chargingRateUnit: 'A',
+            chargingSchedulePeriod: [{ startPeriod: 0, limit: 32, numberPhases: 3 }],
+          },
+        ],
+      });
     }
   }
 
@@ -6030,192 +6597,28 @@ export class StationSimulator {
   }
 
   private seedDefaultConfigVariables(): void {
-    if (this.is16) {
-      const defaults: Array<[string, string, boolean]> = [
-        ['NumberOfConnectors', String(this.config.evses.length), true],
-        ['HeartbeatInterval', '300', false],
-        ['MeterValueSampleInterval', '10', false],
-        ['MeterValuesSampledData', 'Energy.Active.Import.Register,Power.Active.Import', false],
-        ['AuthorizationCacheEnabled', 'true', false],
-        ['LocalPreAuthorize', 'false', false],
-        ['LocalAuthorizeOffline', 'true', false],
-        ['AllowOfflineTxForUnknownId', 'false', false],
-        ['ClockAlignedDataInterval', '900', false],
-        ['ConnectionTimeOut', '60', false],
-        ['LocalAuthListEnabled', 'true', false],
-        ['LocalAuthListMaxLength', '100', true],
-        ['MeterValuesAlignedData', 'Energy.Active.Import.Register,Voltage', false],
-        ['ResetRetries', '3', false],
-        ['TransactionMessageAttempts', '3', false],
-        ['TransactionMessageRetryInterval', '30', false],
-        ['StopTransactionOnEVSideDisconnect', 'true', false],
-        ['StopTransactionOnInvalidId', 'true', false],
-        ['WebSocketPingInterval', '30', false],
-        [
-          'SupportedFeatureProfiles',
-          'Core,FirmwareManagement,LocalAuthListManagement,Reservation,SmartCharging,RemoteTrigger',
-          true,
-        ],
-        ['ChargeProfileMaxStackLevel', '5', true],
-        ['ChargingScheduleAllowedChargingRateUnit', 'Current,Power', true],
-        ['ChargingScheduleMaxPeriods', '24', true],
-        ['MaxChargingProfilesInstalled', '10', true],
-        ['ConnectorPhaseRotation', '1.RST', true],
-        ['GetConfigurationMaxKeys', '50', true],
-        ['AuthorizationKey', '', false],
-        ['ChargePointVendor', this.config.vendorName, true],
-        ['ChargePointModel', this.config.model, true],
-        ['ChargePointSerialNumber', this.config.serialNumber, true],
-        ['FirmwareVersion', this.config.firmwareVersion, true],
-      ];
-      for (const [key, value, readonly] of defaults) {
-        this.configVariables.set(key, { value, readonly });
-      }
-    } else {
-      const defaults: Array<[string, string, boolean]> = [
-        ['OCPPCommCtrlr.HeartbeatInterval', '300', false],
-        ['OCPPCommCtrlr.NetworkConfigurationPriority', '1', false],
-        ['OCPPCommCtrlr.OfflineThreshold', '60', false],
-        ['OCPPCommCtrlr.MessageTimeout', '30', true],
-        ['OCPPCommCtrlr.RetryBackOffWaitMinimum', '10', false],
-        ['OCPPCommCtrlr.RetryBackOffRandomRange', '5', false],
-        ['ChargingStation.VendorName', this.config.vendorName, true],
-        ['ChargingStation.Model', this.config.model, true],
-        ['ChargingStation.SerialNumber', this.config.serialNumber, true],
-        ['ChargingStation.FirmwareVersion', this.config.firmwareVersion, true],
-        ['ChargingStation.AvailabilityState', 'Available', false],
-        ['SecurityCtrlr.SecurityProfile', String(this.config.securityProfile), false],
-        ['SecurityCtrlr.Identity', this.config.stationId, false],
-        ['SecurityCtrlr.BasicAuthPassword', '', false],
-        ['SecurityCtrlr.AllowSecurityDowngrade', 'false', false],
-        // NetworkConfiguration per slot (instance = slot number)
-        ['NetworkConfiguration.OcppCsmsUrl#1', this.config.targetUrl, false],
-        ['NetworkConfiguration.OcppInterface#1', 'Any', false],
-        ['NetworkConfiguration.OcppTransport#1', 'JSON', false],
-        ['NetworkConfiguration.OcppVersion#1', 'OCPP21', false],
-        ['NetworkConfiguration.MessageTimeout#1', '30', false],
-        ['NetworkConfiguration.SecurityProfile#1', String(this.config.securityProfile), false],
-        ['NetworkConfiguration.BasicAuthPassword#1', '', false],
-        ['NetworkConfiguration.VpnEnabled#1', 'false', false],
-        ['NetworkConfiguration.ApnEnabled#1', 'false', false],
-        // Slot 2 (non-active, writable for tests)
-        ['NetworkConfiguration.OcppCsmsUrl#2', '', false],
-        ['NetworkConfiguration.OcppInterface#2', 'Any', false],
-        ['NetworkConfiguration.OcppTransport#2', 'JSON', false],
-        ['NetworkConfiguration.OcppVersion#2', 'OCPP21', false],
-        ['NetworkConfiguration.MessageTimeout#2', '30', false],
-        ['NetworkConfiguration.SecurityProfile#2', String(this.config.securityProfile), false],
-        ['NetworkConfiguration.BasicAuthPassword#2', '', false],
-        ['NetworkConfiguration.VpnEnabled#2', 'false', false],
-        ['NetworkConfiguration.ApnEnabled#2', 'false', false],
-        ['AuthCtrlr.Enabled', 'true', false],
-        ['AuthCtrlr.AuthorizeRemoteStart', 'true', false],
-        ['AuthCtrlr.DisableRemoteAuthorization', 'false', false],
-        ['AuthCtrlr.LocalAuthorizeOffline', 'true', false],
-        ['AuthCtrlr.LocalPreAuthorize', 'false', false],
-        ['AuthCacheCtrlr.Enabled', 'true', false],
-        ['AuthCacheCtrlr.DisablePostAuthorize', 'false', false],
-        ['LocalAuthListCtrlr.DisablePostAuthorize', 'false', false],
-        ['AuthCacheCtrlr.LifeTime', '86400', false],
-        ['ClockCtrlr.TimeSource', 'NTP', true],
-        ['Connector.Available', 'true', false],
-        ['Connector.ConnectorType', 'cType2', true],
-        ['Connector.SupplyPhases', '3', true],
-        ['EVSE.AvailabilityState', 'Available', false],
-        ['EVSE.Power', String(this.config.evses[0]?.maxPowerW ?? 22000), true],
-        ['SampledDataCtrlr.TxUpdatedInterval', '10', false],
-        [
-          'SampledDataCtrlr.TxUpdatedMeasurands',
-          'Energy.Active.Import.Register,Power.Active.Import,Voltage,Current.Import',
-          false,
-        ],
-        ['TxCtrlr.EVConnectionTimeOut', '60', false],
-        ['TxCtrlr.StopTxOnInvalidId', 'true', false],
-        ['TxCtrlr.MaxEnergyOnInvalidId', '0', false],
-        ['TxCtrlr.StopTxOnEVSideDisconnect', 'true', false],
-        ['TxCtrlr.ResumptionTimeout', '0', false],
-        ['MonitoringCtrlr.Enabled', 'true', false],
-        ['DeviceDataCtrlr.ItemsPerMessage', '50', true],
-        ['DeviceDataCtrlr.ItemsPerMessage#GetReport', '50', true],
-        ['DeviceDataCtrlr.ItemsPerMessage#NotifyReport', '50', true],
-        ['DeviceDataCtrlr.ItemsPerMessage#SetVariables', '50', true],
-        ['DeviceDataCtrlr.ItemsPerMessage#GetVariables', '50', true],
-        ['DeviceDataCtrlr.BytesPerMessage', '65536', true],
-        ['DeviceDataCtrlr.BytesPerMessage#GetReport', '65536', true],
-        ['DeviceDataCtrlr.BytesPerMessage#NotifyReport', '65536', true],
-        ['AlignedDataCtrlr.Interval', '900', false],
-        ['AlignedDataCtrlr.Measurands', 'Energy.Active.Import.Register,Voltage', false],
-        ['CustomizationCtrlr.CustomTriggers', 'DiagnosticsLog,SecurityAudit', true],
-        ['TariffCostCtrlr.Enabled', 'true', false],
-        ['TariffCostCtrlr.TariffFallbackMessage', 'See operator for pricing', false],
-        ['TariffCostCtrlr.Currency', 'EUR', false],
-        ['TariffCostCtrlr.MaxElements#Tariff', '10', true],
-      ];
-      for (const [key, value, readonly] of defaults) {
-        this.configVariables.set(key, { value, readonly });
-      }
+    const defaults = buildCssConfigDefaults({
+      ocppProtocol: this.is16 ? 'ocpp1.6' : 'ocpp2.1',
+      stationId: this.config.stationId,
+      vendorName: this.config.vendorName,
+      model: this.config.model,
+      serialNumber: this.config.serialNumber,
+      firmwareVersion: this.config.firmwareVersion,
+      securityProfile: this.config.securityProfile,
+      targetUrl: this.config.targetUrl,
+      evses: this.config.evses.map((e) => ({
+        evseId: e.evseId,
+        connectorId: e.connectorId,
+        connectorType: e.connectorType,
+        maxPowerW: e.maxPowerW,
+        phases: e.phases,
+      })),
+    });
+    for (const d of defaults) {
+      this.configVariables.set(d.key, { value: d.value, readonly: d.readonly });
     }
-
-    // Seed default charging profiles for OCPP 2.1 (TxDefaultProfile on each EVSE)
-    if (!this.is16) {
-      for (const evse of this.config.evses) {
-        const profileId = evse.evseId;
-        this.chargingProfilesCache.set(profileId, {
-          id: profileId,
-          chargingProfileId: profileId,
-          stackLevel: 0,
-          chargingProfilePurpose: 'TxDefaultProfile',
-          chargingProfileKind: 'Absolute',
-          _evseId: evse.evseId,
-          chargingSchedule: [
-            {
-              id: profileId,
-              chargingRateUnit: 'A',
-              chargingSchedulePeriod: [{ startPeriod: 0, limit: 32, numberPhases: 3 }],
-            },
-          ],
-        });
-      }
-      // Note: test-tx transaction for OCTT tariff tests is seeded via
-      // setConfigValue('_seedTestTransaction', 'true') from the test, not on every boot
-    }
-
-    // Persist defaults to DB (verify station exists first to avoid FK violations)
-    void (async () => {
-      try {
-        const rows = await this.sql`
-          SELECT 1 FROM css_stations WHERE id = ${this.config.id} LIMIT 1
-        `;
-        if (rows.length === 0) return;
-        for (const [key, entry] of this.configVariables) {
-          await this.saveConfigVariable(key, entry.value, entry.readonly);
-        }
-      } catch {
-        // Station may have been deleted between check and save; ignore
-      }
-    })();
-  }
-
-  private async saveConfigVariable(
-    key: string,
-    value: string,
-    readonly: boolean = false,
-  ): Promise<void> {
-    try {
-      const configVarId = 'ccv_' + randomUUID().replace(/-/g, '').slice(0, 12);
-      await this.sql`
-        INSERT INTO css_config_variables (id, css_station_id, key, value, readonly)
-        VALUES (${configVarId}, ${this.config.id}, ${key}, ${value}, ${readonly})
-        ON CONFLICT (css_station_id, key) DO UPDATE
-        SET value = EXCLUDED.value
-      `;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      // FK violations mean the station was deleted; silently ignore
-      if (!msg.includes('foreign key')) {
-        console.warn(`[${this.config.stationId}] Failed to save config variable ${key}: ${msg}`);
-      }
-    }
+    // Test-tx transaction for OCTT tariff tests is seeded via
+    // setConfigValue('_seedTestTransaction', 'true') from the test, not on every boot
   }
 
   private async getActiveTransaction(
@@ -6310,39 +6713,27 @@ export class StationSimulator {
     }
   }
 
+  // Caller MUST supply all three fields. The tagged-template SQL can't
+  // build a dynamic SET clause from an optional update map, so the column
+  // list here is fixed and any missing field would silently overwrite the
+  // stored value with the default. The earlier code accepted an `updates`
+  // object with optional fields plus a dead sets/values pair that hinted
+  // at partial-update intent — a misleading API that would land as a
+  // data-loss bug the moment a second caller forgot a field.
   private async updateTransaction(
     txId: string,
     updates: {
-      currentPowerW?: number;
-      currentSoc?: number | null;
-      chargingState?: string | null;
-      seqNo?: number;
+      currentPowerW: number;
+      chargingState: string | null;
+      seqNo: number;
     },
   ): Promise<void> {
     try {
-      const sets: string[] = [];
-      const values: unknown[] = [];
-
-      if (updates.currentPowerW != null) {
-        sets.push('current_power_w');
-        values.push(updates.currentPowerW);
-      }
-      if (updates.chargingState !== undefined) {
-        sets.push('charging_state');
-        values.push(updates.chargingState);
-      }
-      if (updates.seqNo != null) {
-        sets.push('seq_no');
-        values.push(updates.seqNo);
-      }
-
-      // Use a simpler update since tagged template literals
-      // do not support dynamic column names easily
       await this.sql`
         UPDATE css_transactions
-        SET current_power_w = ${updates.currentPowerW ?? 0},
-            charging_state = ${updates.chargingState ?? null},
-            seq_no = ${updates.seqNo ?? 0}
+        SET current_power_w = ${updates.currentPowerW},
+            charging_state = ${updates.chargingState},
+            seq_no = ${updates.seqNo}
         WHERE css_station_id = ${this.config.id} AND transaction_id = ${txId} AND status = 'active'
       `;
     } catch {

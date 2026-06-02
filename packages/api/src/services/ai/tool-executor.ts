@@ -26,6 +26,7 @@ export async function executeToolLoop(
   maxIterations?: number,
 ): Promise<{ content: string; apiCallsMade: number }> {
   const limit = maxIterations ?? DEFAULT_MAX_ITERATIONS;
+  const allowedToolNames = new Set(tools.map((t) => t.name));
   let apiCallsMade = 0;
 
   let response = await provider.chat(messages, tools, systemPrompt, chatOptions);
@@ -40,6 +41,25 @@ export async function executeToolLoop(
     const toolResults = await Promise.all(
       response.toolCalls.map(async (toolCall) => {
         try {
+          // The AI is constrained to the filtered tools at the prompt layer,
+          // but `buildToolRequest` resolves names against the global
+          // ALL_TOOLS catalog. Without this check, a prompt-injected model
+          // could request a tool name (e.g. a POST/DELETE) that was filtered
+          // out of its visible set but still exists in ALL_TOOLS — and we
+          // would happily execute it with the caller's auth header. Reject
+          // anything outside the caller-supplied whitelist.
+          if (!allowedToolNames.has(toolCall.name)) {
+            return {
+              counted: false,
+              message: {
+                role: 'tool_result' as const,
+                content: JSON.stringify({ error: `Tool not available: ${toolCall.name}` }),
+                toolCallId: toolCall.id,
+                toolName: toolCall.name,
+              },
+            };
+          }
+
           const toolRequest = buildToolRequest(toolCall.name, toolCall.arguments);
 
           const injectResult = await app.inject({

@@ -90,13 +90,18 @@ export async function resolveSupportAiConfig(userId: string): Promise<SupportAiC
     throw new Error('SETTINGS_ENCRYPTION_KEY environment variable is required');
   }
 
+  // Use != null so 0 (deterministic temperature, etc.) is preserved. A
+  // truthy check would drop legitimate zero values back to provider defaults.
+  const tempVal = get('supportAi.temperature');
+  const topPVal = get('supportAi.topP');
+  const topKVal = get('supportAi.topK');
   return {
     provider,
     apiKey: decryptString(apiKeyEnc, encryptionKey),
     model: (get('supportAi.model') as string) || undefined,
-    temperature: get('supportAi.temperature') ? Number(get('supportAi.temperature')) : undefined,
-    topP: get('supportAi.topP') ? Number(get('supportAi.topP')) : undefined,
-    topK: get('supportAi.topK') ? Number(get('supportAi.topK')) : undefined,
+    temperature: tempVal != null && tempVal !== '' ? Number(tempVal) : undefined,
+    topP: topPVal != null && topPVal !== '' ? Number(topPVal) : undefined,
+    topK: topKVal != null && topKVal !== '' ? Number(topKVal) : undefined,
     systemPrompt: (get('supportAi.systemPrompt') as string) || undefined,
     tone: (get('supportAi.tone') as string) || 'professional',
   };
@@ -109,7 +114,13 @@ export async function handleSupportAiAssist(
   isInternalNote: boolean,
   authHeader: string,
 ): Promise<{ draft: string; apiCallsMade: number }> {
-  const config = await resolveSupportAiConfig(userId);
+  // Two independent queries; run in parallel to save a round-trip on the
+  // assist hot path.
+  const [config, userRows] = await Promise.all([
+    resolveSupportAiConfig(userId),
+    db.select({ language: users.language }).from(users).where(eq(users.id, userId)).limit(1),
+  ]);
+  const user = userRows[0];
   const provider = createAiProvider(config.provider, config.apiKey, config.model);
 
   const chatOptions: ChatOptions = {
@@ -117,13 +128,6 @@ export async function handleSupportAiAssist(
     topP: config.topP,
     topK: config.topK,
   };
-
-  // Look up operator's language preference
-  const [user] = await db
-    .select({ language: users.language })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
   const userLang = user?.language ?? 'en';
 
   // Build the system prompt with tone, reply type, and language

@@ -3,7 +3,7 @@
 
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
-import { Info, Trash2 } from 'lucide-react';
+import { HelpCircle, Info, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { InfoTooltip as Tooltip } from '@/components/ui/info-tooltip';
 import { Badge } from '@/components/ui/badge';
@@ -299,6 +299,9 @@ function ConnectorTypeIcon({ type }: { type: string }): React.JSX.Element {
       break;
     case 'nacs':
       icon = <NACSIcon />;
+      break;
+    case 'unknown':
+      icon = <HelpCircle className="h-5 w-5 text-muted-foreground" />;
       break;
     default:
       icon = <Type2Icon />;

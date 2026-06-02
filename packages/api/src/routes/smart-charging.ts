@@ -178,6 +178,38 @@ const targetFilterSchema = z
   .optional()
   .nullable();
 
+// Resolve the set of stations a template's push/clear should reach. Combines
+// the template's targetFilter (siteId/vendorId/model) with the user's site
+// access and the version + online predicates. Pulled out because push and
+// clear handlers both build the identical predicate; the matching-stations
+// preview adds its own pagination so it inlines the pieces it needs.
+async function resolveTemplateTargetStations(
+  template: { ocppVersion: string; targetFilter: unknown },
+  userId: string,
+): Promise<Array<{ id: string; stationId: string }>> {
+  const expectedProtocol = `ocpp${template.ocppVersion}`;
+  const filter = template.targetFilter as Record<string, string> | null;
+
+  const accessibleSiteIds = await getUserSiteIds(userId);
+  if (accessibleSiteIds != null && accessibleSiteIds.length === 0) return [];
+
+  const conditions = [
+    eq(chargingStations.isOnline, true),
+    eq(chargingStations.ocppProtocol, expectedProtocol),
+  ];
+  if (filter?.siteId) conditions.push(eq(chargingStations.siteId, filter.siteId));
+  if (filter?.vendorId) conditions.push(eq(chargingStations.vendorId, filter.vendorId));
+  if (filter?.model) conditions.push(eq(chargingStations.model, filter.model));
+  if (accessibleSiteIds != null) {
+    conditions.push(inArray(chargingStations.siteId, accessibleSiteIds));
+  }
+
+  return db
+    .select({ id: chargingStations.id, stationId: chargingStations.stationId })
+    .from(chargingStations)
+    .where(and(...conditions));
+}
+
 const schedulePeriodSchema = z.object({
   startPeriod: z
     .number()
@@ -579,6 +611,38 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Validate validFrom < validTo on the resulting state. The body-level
+      // refine in updateTemplateBody only fires when BOTH are present in the
+      // request; without this guard a PATCH that sends only `validFrom` (or
+      // only `validTo`) can produce a row where validFrom > validTo by
+      // combining the new value with the unchanged existing one.
+      const effectiveValidFromRaw =
+        body.validFrom !== undefined ? body.validFrom : existing.validFrom;
+      const effectiveValidToRaw = body.validTo !== undefined ? body.validTo : existing.validTo;
+      const effectiveValidFrom =
+        effectiveValidFromRaw == null
+          ? null
+          : effectiveValidFromRaw instanceof Date
+            ? effectiveValidFromRaw
+            : new Date(effectiveValidFromRaw);
+      const effectiveValidTo =
+        effectiveValidToRaw == null
+          ? null
+          : effectiveValidToRaw instanceof Date
+            ? effectiveValidToRaw
+            : new Date(effectiveValidToRaw);
+      if (
+        effectiveValidFrom != null &&
+        effectiveValidTo != null &&
+        effectiveValidFrom.getTime() >= effectiveValidTo.getTime()
+      ) {
+        await reply.status(400).send({
+          error: 'validFrom must be strictly before validTo',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
+
       // Reject profileId collisions with other templates.
       if (body.profileId !== undefined && body.profileId !== existing.profileId) {
         const collision = await db
@@ -922,31 +986,9 @@ export function smartChargingRoutes(app: FastifyInstance): void {
       }
 
       const ocppVersion = template.ocppVersion;
-      const expectedProtocol = `ocpp${ocppVersion}`;
-
-      // Resolve target stations from filter
-      const filter = template.targetFilter as Record<string, string> | null;
-      const conditions = [
-        eq(chargingStations.isOnline, true),
-        eq(chargingStations.ocppProtocol, expectedProtocol),
-      ];
-      if (filter?.siteId) conditions.push(eq(chargingStations.siteId, filter.siteId));
-      if (filter?.vendorId) conditions.push(eq(chargingStations.vendorId, filter.vendorId));
-      if (filter?.model) conditions.push(eq(chargingStations.model, filter.model));
 
       const { userId } = request.user as { userId: string };
-      const accessibleSiteIds = await getUserSiteIds(userId);
-      if (accessibleSiteIds != null && accessibleSiteIds.length === 0) {
-        return { success: true, pushId: '' };
-      }
-      if (accessibleSiteIds != null)
-        conditions.push(inArray(chargingStations.siteId, accessibleSiteIds));
-
-      const targetStations = await db
-        .select({ id: chargingStations.id, stationId: chargingStations.stationId })
-        .from(chargingStations)
-        .where(and(...conditions));
-
+      const targetStations = await resolveTemplateTargetStations(template, userId);
       if (targetStations.length === 0) {
         return { success: true, pushId: '' };
       }
@@ -1033,30 +1075,9 @@ export function smartChargingRoutes(app: FastifyInstance): void {
       }
 
       const ocppVersion = template.ocppVersion;
-      const expectedProtocol = `ocpp${ocppVersion}`;
-
-      const filter = template.targetFilter as Record<string, string> | null;
-      const conditions = [
-        eq(chargingStations.isOnline, true),
-        eq(chargingStations.ocppProtocol, expectedProtocol),
-      ];
-      if (filter?.siteId) conditions.push(eq(chargingStations.siteId, filter.siteId));
-      if (filter?.vendorId) conditions.push(eq(chargingStations.vendorId, filter.vendorId));
-      if (filter?.model) conditions.push(eq(chargingStations.model, filter.model));
 
       const { userId } = request.user as { userId: string };
-      const accessibleSiteIds = await getUserSiteIds(userId);
-      if (accessibleSiteIds != null && accessibleSiteIds.length === 0) {
-        return { success: true, pushId: '' };
-      }
-      if (accessibleSiteIds != null)
-        conditions.push(inArray(chargingStations.siteId, accessibleSiteIds));
-
-      const targetStations = await db
-        .select({ id: chargingStations.id, stationId: chargingStations.stationId })
-        .from(chargingStations)
-        .where(and(...conditions));
-
+      const targetStations = await resolveTemplateTargetStations(template, userId);
       if (targetStations.length === 0) {
         return { success: true, pushId: '' };
       }
@@ -1080,7 +1101,11 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         })),
       );
 
-      void processChargingProfileClear(
+      // Background dispatch with explicit .catch so an unexpected rejection
+      // (downstream throw, OOM) surfaces in logs instead of becoming an
+      // unhandledRejection that could crash the worker. Mirrors the push
+      // path above.
+      processChargingProfileClear(
         pushId,
         targetStations,
         {
@@ -1089,6 +1114,26 @@ export function smartChargingRoutes(app: FastifyInstance): void {
           evseId: template.evseId,
         },
         ocppVersion,
+      ).catch((err: unknown) => {
+        request.log.error({ err, pushId }, 'Charging profile clear failed unexpectedly');
+      });
+
+      const actor = getAuditActor(request);
+      // The smart_charging_template_audit_action enum only has
+      // created/updated/deleted/pushed. Reuse 'pushed' for clear too — the
+      // operation type lives on chargingProfilePushes.operation='clear' and
+      // the notes here distinguish the intent for log readers.
+      await writeAudit(
+        { table: smartChargingTemplateAuditLog, idColumn: 'template_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'pushed',
+          ...actor,
+          notes: `Cleared from ${String(targetStations.length)} station(s)`,
+        },
+        db,
+        request.log,
       );
 
       return { success: true, pushId };

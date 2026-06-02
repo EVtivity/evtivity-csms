@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 /**
  * TC_K_117_CSMS: ISO 15118-20 Dynamic Control Mode - Adjusting charging schedule
@@ -72,23 +73,25 @@ export const TC_K_117_CSMS: TestCase = {
         },
       },
     });
-    steps.push({
-      step: 1,
-      description: 'NotifyEVChargingNeeds round 1 (departure +2h)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: `status = ${String(needs1['status'])}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'NotifyEVChargingNeeds round 1 (departure +2h)',
+      needs1,
+      'Response received',
+      `status = ${String(needs1['status'])}`,
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 15000));
     // The CSMS does not generate ISO 15118 charging profiles. Advisory step.
-    steps.push({
-      step: 2,
-      description: 'CSMS sends SetChargingProfile round 1 (advisory)',
-      status: 'passed',
-      expected: 'Profile received (not enforced)',
-      actual: `${String(profileCount)} received`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'CSMS sends SetChargingProfile round 1 (advisory)',
+      needs1,
+      'Profile received (not enforced)',
+      `${String(profileCount)} received`,
+    );
 
     // Confirm schedule
     await ctx.client.sendCall('NotifyEVChargingSchedule', {
@@ -117,22 +120,24 @@ export const TC_K_117_CSMS: TestCase = {
         },
       },
     });
-    steps.push({
-      step: 3,
-      description: 'NotifyEVChargingNeeds round 2 (departure +3h)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: `status = ${String(needs2['status'])}`,
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'NotifyEVChargingNeeds round 2 (departure +3h)',
+      needs2,
+      'Response received',
+      `status = ${String(needs2['status'])}`,
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 15000));
-    steps.push({
-      step: 4,
-      description: 'CSMS sends SetChargingProfile round 2 (advisory)',
-      status: 'passed',
-      expected: 'Second profile received (not enforced)',
-      actual: `${String(profileCount)} total`,
-    });
+    pushSendAckStep(
+      steps,
+      4,
+      'CSMS sends SetChargingProfile round 2 (advisory)',
+      needs2,
+      'Second profile received (not enforced)',
+      `${String(profileCount)} total`,
+    );
 
     // Round 3: same departure, changed energy
     const needs3 = await ctx.client.sendCall('NotifyEVChargingNeeds', {
@@ -150,22 +155,24 @@ export const TC_K_117_CSMS: TestCase = {
         },
       },
     });
-    steps.push({
-      step: 5,
-      description: 'NotifyEVChargingNeeds round 3 (energy changed)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: `status = ${String(needs3['status'])}`,
-    });
+    pushSendAckStep(
+      steps,
+      5,
+      'NotifyEVChargingNeeds round 3 (energy changed)',
+      needs3,
+      'Response received',
+      `status = ${String(needs3['status'])}`,
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 15000));
-    steps.push({
-      step: 6,
-      description: 'CSMS sends SetChargingProfile round 3 (advisory)',
-      status: 'passed',
-      expected: 'Third profile received (not enforced)',
-      actual: `${String(profileCount)} total`,
-    });
+    pushSendAckStep(
+      steps,
+      6,
+      'CSMS sends SetChargingProfile round 3 (advisory)',
+      needs3,
+      'Third profile received (not enforced)',
+      `${String(profileCount)} total`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

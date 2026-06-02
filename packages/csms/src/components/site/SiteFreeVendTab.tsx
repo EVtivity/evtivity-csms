@@ -28,7 +28,7 @@ export function SiteFreeVendTab({ site, siteId }: SiteFreeVendTabProps): React.J
   const freeVendMutation = useMutation({
     mutationFn: (enabled: boolean) => api.post(`/v1/sites/${siteId}/free-vend`, { enabled }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['sites', siteId] });
+      void queryClient.invalidateQueries({ queryKey: ['sites'] });
     },
   });
 

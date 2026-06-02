@@ -83,7 +83,7 @@ export function UserDetail(): React.JSX.Element {
   }, [isOwnUser, navigate]);
 
   const { data: user, isLoading } = useQuery({
-    queryKey: ['users', id],
+    queryKey: ['users'],
     queryFn: () => api.get<User>(`/v1/users/${id ?? ''}`),
     enabled: id != null,
   });
@@ -117,7 +117,7 @@ export function UserDetail(): React.JSX.Element {
       siteIds?: string[];
     }) => api.patch<User>(`/v1/users/${id ?? ''}`, body),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['users', id] });
+      void queryClient.invalidateQueries({ queryKey: ['users'] });
       void queryClient.invalidateQueries({ queryKey: ['users'] });
       setEditing(false);
       setHasSubmittedEdit(false);

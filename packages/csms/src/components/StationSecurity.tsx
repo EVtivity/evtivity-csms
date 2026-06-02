@@ -129,7 +129,7 @@ export function StationSecurity({
     mutationFn: (data: { securityProfile: number; password?: string }) =>
       api.patch(`/v1/stations/${stationDbId}`, data),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['stations', stationDbId] });
+      void queryClient.invalidateQueries({ queryKey: ['stations'] });
       setPendingProfile(null);
       setProfileConfirmOpen(false);
       setProfilePassword('');
@@ -142,7 +142,7 @@ export function StationSecurity({
     mutationFn: (pw: string) =>
       api.post(`/v1/stations/${stationDbId}/credentials`, { password: pw }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['stations', stationDbId] });
+      void queryClient.invalidateQueries({ queryKey: ['stations'] });
       setPasswordConfirmOpen(false);
       setShowPasswordForm(false);
       setPassword('');

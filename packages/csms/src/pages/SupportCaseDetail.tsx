@@ -131,7 +131,10 @@ export function SupportCaseDetail(): React.JSX.Element {
         void queryClient.invalidateQueries({ queryKey: ['support-cases-unread-count'] });
         void queryClient.invalidateQueries({ queryKey: ['support-cases'] });
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        // Mark-read failure leaves the badge stale; surface for debugging.
+        console.warn('[SupportCaseDetail] mark-read failed', err);
+      });
   }, [id, messageCount, queryClient]);
 
   const { data: operatorUsers } = useQuery({
@@ -187,7 +190,7 @@ export function SupportCaseDetail(): React.JSX.Element {
     mutationFn: (sessionId: string) =>
       api.patch(`/v1/support-cases/${id ?? ''}`, { addSessionIds: [sessionId] }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['support-cases', id] });
+      void queryClient.invalidateQueries({ queryKey: ['support-cases'] });
       setSessionSearch('');
       setShowSessionSearch(false);
     },
@@ -197,7 +200,7 @@ export function SupportCaseDetail(): React.JSX.Element {
     mutationFn: (sessionId: string) =>
       api.patch(`/v1/support-cases/${id ?? ''}`, { removeSessionIds: [sessionId] }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['support-cases', id] });
+      void queryClient.invalidateQueries({ queryKey: ['support-cases'] });
     },
   });
 
@@ -205,7 +208,7 @@ export function SupportCaseDetail(): React.JSX.Element {
     mutationFn: (data: { sessionId: string; amountCents?: number }) =>
       api.post(`/v1/support-cases/${id ?? ''}/refund`, data),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({ queryKey: ['support-cases', id] });
+      void queryClient.invalidateQueries({ queryKey: ['support-cases'] });
       void queryClient.invalidateQueries({ queryKey: ['session-payment', variables.sessionId] });
       setRefundSession(null);
       setRefundAmount('');
@@ -483,7 +486,7 @@ export function SupportCaseDetail(): React.JSX.Element {
             s3Configured={s3Status?.configured === true}
             supportAiEnabled={supportAiEnabled}
             onMessageSent={() => {
-              void queryClient.invalidateQueries({ queryKey: ['support-cases', id] });
+              void queryClient.invalidateQueries({ queryKey: ['support-cases'] });
             }}
           />
 

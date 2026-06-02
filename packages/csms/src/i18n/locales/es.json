@@ -2521,7 +2521,10 @@
     "aiAssist": "Borrador IA",
     "aiAssistTooltip": "Generar un borrador de respuesta con IA",
     "aiAssistLoading": "Generando borrador...",
-    "aiAssistError": "Error al generar borrador de IA"
+    "aiAssistError": "Error al generar borrador de IA",
+    "aiAssistOverwriteTitle": "¿Reemplazar borrador existente?",
+    "aiAssistOverwriteDescription": "Generar un borrador con IA reemplazará el texto que ya está en el cuadro de mensaje. ¿Continuar?",
+    "aiAssistOverwriteConfirm": "Reemplazar"
   },
   "vehicles": {
     "title": "Vehiculos",
@@ -2790,6 +2793,7 @@
     "title": "Chatbot IA",
     "placeholder": "Pregunte sobre estaciones, sesiones, ingresos...",
     "send": "Enviar",
+    "resend": "Reenviar",
     "typing": "Pensando...",
     "rateLimited": "Demasiadas solicitudes. Espere un momento.",
     "notConfigured": "El chatbot IA no esta configurado. Configure su clave API en Perfil.",

@@ -2490,7 +2490,10 @@
     "aiAssist": "KI-Entwurf",
     "aiAssistTooltip": "KI-Antwortentwurf erzeugen",
     "aiAssistLoading": "Entwurf wird erzeugt...",
-    "aiAssistError": "KI-Entwurf konnte nicht erzeugt werden"
+    "aiAssistError": "KI-Entwurf konnte nicht erzeugt werden",
+    "aiAssistOverwriteTitle": "Vorhandenen Entwurf ersetzen?",
+    "aiAssistOverwriteDescription": "Beim Erzeugen eines KI-Entwurfs wird der Text im Nachrichtenfeld überschrieben. Fortfahren?",
+    "aiAssistOverwriteConfirm": "Ersetzen"
   },
   "vehicles": {
     "title": "Fahrzeuge",
@@ -2759,6 +2762,7 @@
     "title": "Chatbot-KI",
     "placeholder": "Fragen Sie zu Stationen, Ladevorgängen, Umsatz...",
     "send": "Senden",
+    "resend": "Erneut senden",
     "typing": "Denkt nach...",
     "rateLimited": "Zu viele Anfragen. Bitte warten Sie einen Moment.",
     "notConfigured": "Chatbot-KI ist nicht konfiguriert. Richten Sie Ihren API-Schlüssel im Profil ein.",

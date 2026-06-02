@@ -1,11 +1,45 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { readFileSync } from 'node:fs';
 import { connect as tlsConnect, type TLSSocket } from 'node:tls';
 import type postgres from 'postgres';
 import type { PubSubClient } from '@evtivity/lib';
 import { StationSimulator, type StationConfig } from './station-simulator.js';
 import { ClockAlignedScheduler } from './clock-aligned-scheduler.js';
+import { config as cssConfig } from './lib/config.js';
+
+// Resolve the SP3 PEM bundle from env: prefer the inlined *_PEM variants
+// (CDK/ECS path) over the file-path variants (Helm path). Memoized so each
+// boot doesn't re-read disk. Returns null when no env-supplied bundle is
+// configured; callers fall back to the per-row PEMs on css_stations.
+let envCertBundle: { clientCert?: string; clientKey?: string; caCert?: string } | null | undefined;
+function getEnvCertBundle(): { clientCert?: string; clientKey?: string; caCert?: string } | null {
+  if (envCertBundle !== undefined) return envCertBundle;
+  const readFile = (path: string | undefined): string | undefined => {
+    if (path == null || path === '') return undefined;
+    try {
+      return readFileSync(path, 'utf8');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[simulator-manager] Failed to read PEM file ${path}: ${msg}`);
+      return undefined;
+    }
+  };
+  const clientCert = cssConfig.CSS_CLIENT_CERT_PEM ?? readFile(cssConfig.CSS_CLIENT_CERT);
+  const clientKey = cssConfig.CSS_CLIENT_KEY_PEM ?? readFile(cssConfig.CSS_CLIENT_KEY);
+  const caCert = cssConfig.CSS_CA_PEM ?? readFile(cssConfig.CSS_CA_CERT);
+  if (clientCert == null && clientKey == null && caCert == null) {
+    envCertBundle = null;
+    return null;
+  }
+  envCertBundle = {
+    ...(clientCert != null ? { clientCert } : {}),
+    ...(clientKey != null ? { clientKey } : {}),
+    ...(caCert != null ? { caCert } : {}),
+  };
+  return envCertBundle;
+}
 
 const RESULTS_CHANNEL = 'css_command_results';
 
@@ -261,16 +295,26 @@ export class SimulatorManager {
 
       const stationPk = row.id as string;
       const passwordVal = row.password as string | null;
-      const clientCertVal = row.client_cert as string | null;
-      const clientKeyVal = row.client_key as string | null;
-      const caCertVal = row.ca_cert as string | null;
+      const securityProfileVal = row.security_profile as number;
+      const rowClientCert = row.client_cert as string | null;
+      const rowClientKey = row.client_key as string | null;
+      const rowCaCert = row.ca_cert as string | null;
+      // SP3 stations need a client cert + key to connect. Helm and CDK
+      // deployments wire SP3 secrets in via env (CSS_CLIENT_CERT[_PEM] etc.)
+      // because storing each PEM in css_stations is awkward in templated
+      // infra. Fall back to the env-supplied bundle when the row's cert
+      // columns are NULL; the per-row PEMs still win when explicitly set.
+      const envBundle = securityProfileVal === 3 ? getEnvCertBundle() : null;
+      const clientCertVal = rowClientCert ?? envBundle?.clientCert ?? null;
+      const clientKeyVal = rowClientKey ?? envBundle?.clientKey ?? null;
+      const caCertVal = rowCaCert ?? envBundle?.caCert ?? null;
       const ocppProtocol: 'ocpp1.6' | 'ocpp2.1' =
         row.ocpp_protocol === 'ocpp2.1' ? 'ocpp2.1' : 'ocpp1.6';
       const config: StationConfig = {
         id: stationPk,
         stationId,
         ocppProtocol,
-        securityProfile: row.security_profile as number,
+        securityProfile: securityProfileVal,
         targetUrl: row.target_url as string,
         vendorName: (row.vendor_name as string | null) ?? 'EVtivity',
         model: (row.model as string | null) ?? 'CSS-1000',

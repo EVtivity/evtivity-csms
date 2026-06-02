@@ -139,7 +139,7 @@ export function StationInfoTab({
       longitude?: string;
     }) => api.patch<Station>(`/v1/stations/${stationId}`, body),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['stations', stationId] });
+      void queryClient.invalidateQueries({ queryKey: ['stations'] });
       setEditing(false);
     },
   });

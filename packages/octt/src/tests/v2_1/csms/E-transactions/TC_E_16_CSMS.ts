@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 // Helper: boot station and send initial StatusNotification
 async function bootAndStatus(ctx: {
@@ -89,13 +90,14 @@ export const TC_E_102_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Updated - LimitSet maxEnergy 6000',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(step1Res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Updated - LimitSet maxEnergy 6000',
+      step1Res,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(step1Res).join(', ')}`,
+    );
 
     // Step 3: TransactionEvent Updated (CSMS should override maxEnergy to 10000)
     const step3Res = await ctx.client.sendCall('TransactionEvent', {
@@ -107,13 +109,14 @@ export const TC_E_102_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 2,
-      description: 'TransactionEvent Updated - CSMS should set maxEnergy 10000',
-      status: 'passed',
-      expected: 'TransactionEventResponse with transactionLimit.maxEnergy 10000',
-      actual: `Response keys: ${Object.keys(step3Res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'TransactionEvent Updated - CSMS should set maxEnergy 10000',
+      step3Res,
+      'TransactionEventResponse with transactionLimit.maxEnergy 10000',
+      `Response keys: ${Object.keys(step3Res).join(', ')}`,
+    );
 
     // Step 5: TransactionEvent Updated with LimitSet, maxEnergy 10000
     const step5Res = await ctx.client.sendCall('TransactionEvent', {
@@ -128,13 +131,14 @@ export const TC_E_102_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 3,
-      description: 'TransactionEvent Updated - LimitSet maxEnergy 10000',
-      status: 'passed',
-      expected: 'TransactionEventResponse with transactionLimit omitted',
-      actual: `Response keys: ${Object.keys(step5Res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'TransactionEvent Updated - LimitSet maxEnergy 10000',
+      step5Res,
+      'TransactionEventResponse with transactionLimit omitted',
+      `Response keys: ${Object.keys(step5Res).join(', ')}`,
+    );
 
     // Step 7: TransactionEvent Ended with EnergyLimitReached
     const endRes = await ctx.client.sendCall('TransactionEvent', {
@@ -146,13 +150,14 @@ export const TC_E_102_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 4,
-      description: 'TransactionEvent Ended - EnergyLimitReached',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      4,
+      'TransactionEvent Ended - EnergyLimitReached',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -201,13 +206,14 @@ export const TC_E_106_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Updated - LimitSet maxEnergy 6000',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(step1Res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Updated - LimitSet maxEnergy 6000',
+      step1Res,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(step1Res).join(', ')}`,
+    );
 
     // Step 3: TransactionEvent Ended with EnergyLimitReached
     const endRes = await ctx.client.sendCall('TransactionEvent', {
@@ -219,13 +225,14 @@ export const TC_E_106_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 2,
-      description: 'TransactionEvent Ended - EnergyLimitReached',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'TransactionEvent Ended - EnergyLimitReached',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -274,13 +281,14 @@ export const TC_E_107_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Updated - LimitSet maxTime 120',
-      status: 'passed',
-      expected: 'TransactionEventResponse received (transactionLimit omitted)',
-      actual: `Response keys: ${Object.keys(step1Res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Updated - LimitSet maxTime 120',
+      step1Res,
+      'TransactionEventResponse received (transactionLimit omitted)',
+      `Response keys: ${Object.keys(step1Res).join(', ')}`,
+    );
 
     // Step 3: TransactionEvent Ended with TimeLimitReached
     const endRes = await ctx.client.sendCall('TransactionEvent', {
@@ -292,13 +300,14 @@ export const TC_E_107_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 2,
-      description: 'TransactionEvent Ended - TimeLimitReached',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'TransactionEvent Ended - TimeLimitReached',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -403,13 +412,14 @@ export const TC_E_108_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 2,
-      description: 'TransactionEvent Updated - LimitSet maxCost 2.00',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(step4Res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'TransactionEvent Updated - LimitSet maxCost 2.00',
+      step4Res,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(step4Res).join(', ')}`,
+    );
 
     // Step 6: TransactionEvent Updated with RunningCost
     const step6Res = await ctx.client.sendCall('TransactionEvent', {
@@ -430,13 +440,14 @@ export const TC_E_108_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 3,
-      description: 'TransactionEvent Updated - RunningCost 1.50 EUR',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(step6Res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'TransactionEvent Updated - RunningCost 1.50 EUR',
+      step6Res,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(step6Res).join(', ')}`,
+    );
 
     // Step 8: TransactionEvent Ended with CostLimitReached
     const endRes = await ctx.client.sendCall('TransactionEvent', {
@@ -457,13 +468,14 @@ export const TC_E_108_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 4,
-      description: 'TransactionEvent Ended - CostLimitReached 2.00 EUR',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      4,
+      'TransactionEvent Ended - CostLimitReached 2.00 EUR',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -537,13 +549,14 @@ export const TC_E_109_CSMS: TestCase = {
       idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
     });
 
-    steps.push({
-      step: 2,
-      description: 'TransactionEvent Started - Charging',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(startRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'TransactionEvent Started - Charging',
+      startRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(startRes).join(', ')}`,
+    );
 
     // Step 5: TransactionEvent Updated with LimitSet, maxCost 10
     const step5Res = await ctx.client.sendCall('TransactionEvent', {
@@ -558,13 +571,14 @@ export const TC_E_109_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 3,
-      description: 'TransactionEvent Updated - LimitSet maxCost 10',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(step5Res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'TransactionEvent Updated - LimitSet maxCost 10',
+      step5Res,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(step5Res).join(', ')}`,
+    );
 
     // Wait for optional CostUpdated
     await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -572,7 +586,7 @@ export const TC_E_109_CSMS: TestCase = {
     steps.push({
       step: 4,
       description: 'CSMS sends CostUpdatedRequest (optional)',
-      status: 'passed',
+      status: step5Res != null ? 'passed' : 'failed',
       expected: 'CostUpdatedRequest (optional)',
       actual: receivedCostUpdated
         ? 'CostUpdatedRequest received'
@@ -646,13 +660,14 @@ export const TC_E_110_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 2,
-      description: 'TransactionEvent Updated - LimitSet maxEnergy',
-      status: 'passed',
-      expected: 'TransactionEventResponse received (transactionLimit omitted)',
-      actual: `Response keys: ${Object.keys(step3Res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'TransactionEvent Updated - LimitSet maxEnergy',
+      step3Res,
+      'TransactionEventResponse received (transactionLimit omitted)',
+      `Response keys: ${Object.keys(step3Res).join(', ')}`,
+    );
 
     // Step 5: TransactionEvent Updated with EnergyLimitReached, SuspendedEVSE
     const step5Res = await ctx.client.sendCall('TransactionEvent', {
@@ -668,13 +683,14 @@ export const TC_E_110_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 3,
-      description: 'TransactionEvent Updated - EnergyLimitReached SuspendedEVSE',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(step5Res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'TransactionEvent Updated - EnergyLimitReached SuspendedEVSE',
+      step5Res,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(step5Res).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -741,13 +757,14 @@ export const TC_E_111_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 2,
-      description: 'TransactionEvent Updated - LimitSet maxTime',
-      status: 'passed',
-      expected: 'TransactionEventResponse received (transactionLimit omitted)',
-      actual: `Response keys: ${Object.keys(step3Res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'TransactionEvent Updated - LimitSet maxTime',
+      step3Res,
+      'TransactionEventResponse received (transactionLimit omitted)',
+      `Response keys: ${Object.keys(step3Res).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

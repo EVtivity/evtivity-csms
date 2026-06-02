@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { randomUUID } from 'node:crypto';
 import { client } from '@evtivity/database';
 import type { Logger } from 'pino';
 import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
@@ -80,11 +81,17 @@ export async function certificateExpirationCheckHandler(log: Logger): Promise<vo
       'Certificate within critical expiry window, triggering auto-renewal',
     );
 
+    // CommandListener requires `action` (not `commandName`) and parses
+    // commandId for tracking. The earlier payload used `commandName` so the
+    // listener rejected it as malformed and silently dropped the renewal —
+    // certificates in the critical window never got their TriggerMessage,
+    // and auto-renewal effectively didn't work.
     await pubsub.publish(
       'ocpp_commands',
       JSON.stringify({
+        commandId: randomUUID(),
         stationId: stationOcppId,
-        commandName: 'TriggerMessage',
+        action: 'TriggerMessage',
         payload: {
           requestedMessage: 'SignChargingStationCertificate',
         },

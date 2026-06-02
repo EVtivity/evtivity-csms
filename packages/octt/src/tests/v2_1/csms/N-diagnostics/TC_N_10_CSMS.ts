@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 const makeClearCustomerTest = (id: string, name: string, desc: string): TestCase => ({
   id,
@@ -45,20 +46,14 @@ const makeClearCustomerTest = (id: string, name: string, desc: string): TestCase
     });
     if (received) {
       try {
-        await ctx.client.sendCall('NotifyCustomerInformation', {
+        const resp2 = await ctx.client.sendCall('NotifyCustomerInformation', {
           data: 'customer-data',
           seqNo: 0,
           tbc: false,
           requestId: 1,
           generatedAt: new Date().toISOString(),
         });
-        steps.push({
-          step: 2,
-          description: 'Send NotifyCustomerInformationRequest',
-          status: 'passed',
-          expected: 'Response received',
-          actual: 'Response received',
-        });
+        pushSendAckStep(steps, 2, 'Send NotifyCustomerInformationRequest', resp2);
       } catch {
         steps.push({
           step: 2,

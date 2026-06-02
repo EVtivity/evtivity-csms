@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_N_105_CSMS: TestCase = {
   id: 'TC_N_105_CSMS',
@@ -18,20 +19,14 @@ export const TC_N_105_CSMS: TestCase = {
       reason: 'PowerUp',
     });
     try {
-      await ctx.client.sendCall('OpenPeriodicEventStream', {
+      const resp1 = await ctx.client.sendCall('OpenPeriodicEventStream', {
         constantStreamData: {
           id: 2,
           variableMonitoringId: 3,
           params: { interval: 10, values: 30 },
         },
       });
-      steps.push({
-        step: 1,
-        description: 'Send OpenPeriodicEventStreamRequest',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 1, 'Send OpenPeriodicEventStreamRequest', resp1);
     } catch {
       steps.push({
         step: 1,
@@ -66,14 +61,8 @@ export const TC_N_105_CSMS: TestCase = {
       actual: adjustReceived ? 'Received' : 'Not received',
     });
     try {
-      await ctx.client.sendCall('ClosePeriodicEventStream', { id: 2 });
-      steps.push({
-        step: 3,
-        description: 'Send ClosePeriodicEventStreamRequest',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      const resp3 = await ctx.client.sendCall('ClosePeriodicEventStream', { id: 2 });
+      pushSendAckStep(steps, 3, 'Send ClosePeriodicEventStreamRequest', resp3);
     } catch {
       steps.push({
         step: 3,

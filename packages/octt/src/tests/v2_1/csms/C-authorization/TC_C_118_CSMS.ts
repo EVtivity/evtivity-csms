@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { TestCase, StepResult } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_C_118_CSMS: TestCase = {
   id: 'TC_C_118_CSMS',
@@ -57,13 +58,14 @@ export const TC_C_118_CSMS: TestCase = {
       },
     });
 
-    steps.push({
-      step: 2,
-      description: 'Send TransactionEvent Started with DirectPayment',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(txStartRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'Send TransactionEvent Started with DirectPayment',
+      txStartRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(txStartRes).join(', ')}`,
+    );
 
     // Step 3: Send TransactionEvent Ended with cost details
     const txEndRes = await ctx.client.sendCall('TransactionEvent', {
@@ -95,13 +97,14 @@ export const TC_C_118_CSMS: TestCase = {
       },
     });
 
-    steps.push({
-      step: 3,
-      description: 'Send TransactionEvent Ended with cost details',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(txEndRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'Send TransactionEvent Ended with cost details',
+      txEndRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(txEndRes).join(', ')}`,
+    );
 
     // Step 4: Send NotifySettlement with status Settled (CS settled the amount)
     try {
@@ -113,13 +116,14 @@ export const TC_C_118_CSMS: TestCase = {
         settlementAmount: 18.15,
       });
 
-      steps.push({
-        step: 4,
-        description: 'Send NotifySettlement with status Settled and amount 18.15',
-        status: 'passed',
-        expected: 'NotifySettlementResponse received',
-        actual: `Response keys: ${Object.keys(settlementRes).join(', ')}`,
-      });
+      pushSendAckStep(
+        steps,
+        4,
+        'Send NotifySettlement with status Settled and amount 18.15',
+        settlementRes,
+        'NotifySettlementResponse received',
+        `Response keys: ${Object.keys(settlementRes).join(', ')}`,
+      );
     } catch {
       steps.push({
         step: 4,

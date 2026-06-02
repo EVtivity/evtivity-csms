@@ -94,9 +94,16 @@ export async function authenticateConnection(
   if (securityProfile === 3) {
     const isTls = 'encrypted' in req.socket && req.socket.encrypted === true;
     if (!isTls) {
-      await logAuthEvent(sql, station.id, 'auth_failed', remoteAddress, {
-        reason: 'SP3 requires TLS',
-      });
+      await logAuthEvent(
+        sql,
+        station.id,
+        'auth_failed',
+        remoteAddress,
+        {
+          reason: 'SP3 requires TLS',
+        },
+        logger,
+      );
       return {
         authenticated: false,
         stationId,
@@ -108,9 +115,16 @@ export async function authenticateConnection(
     const tlsSocket = req.socket as import('node:tls').TLSSocket;
     const cert = tlsSocket.getPeerCertificate();
     if (Object.keys(cert).length === 0) {
-      await logAuthEvent(sql, station.id, 'auth_failed', remoteAddress, {
-        reason: 'No client certificate presented',
-      });
+      await logAuthEvent(
+        sql,
+        station.id,
+        'auth_failed',
+        remoteAddress,
+        {
+          reason: 'No client certificate presented',
+        },
+        logger,
+      );
       return {
         authenticated: false,
         stationId,
@@ -121,10 +135,17 @@ export async function authenticateConnection(
 
     if (!tlsSocket.authorized) {
       const authError = tlsSocket.authorizationError;
-      await logAuthEvent(sql, station.id, 'auth_failed', remoteAddress, {
-        reason: 'Client certificate rejected',
-        error: String(authError),
-      });
+      await logAuthEvent(
+        sql,
+        station.id,
+        'auth_failed',
+        remoteAddress,
+        {
+          reason: 'Client certificate rejected',
+          error: String(authError),
+        },
+        logger,
+      );
       return {
         authenticated: false,
         stationId,
@@ -144,9 +165,16 @@ export async function authenticateConnection(
     // not registered" instead of the real "no serial" reason. Cover both.
     const certSerial = cert.serialNumber as string | undefined;
     if (certSerial == null || certSerial === '') {
-      await logAuthEvent(sql, station.id, 'auth_failed', remoteAddress, {
-        reason: 'Client certificate missing serial number',
-      });
+      await logAuthEvent(
+        sql,
+        station.id,
+        'auth_failed',
+        remoteAddress,
+        {
+          reason: 'Client certificate missing serial number',
+        },
+        logger,
+      );
       return {
         authenticated: false,
         stationId,
@@ -166,10 +194,17 @@ export async function authenticateConnection(
       LIMIT 1
     `;
     if (certRows.length === 0) {
-      await logAuthEvent(sql, station.id, 'auth_failed', remoteAddress, {
-        reason: 'Client certificate serial not registered for this station',
-        certSerial: normalizedSerial,
-      });
+      await logAuthEvent(
+        sql,
+        station.id,
+        'auth_failed',
+        remoteAddress,
+        {
+          reason: 'Client certificate serial not registered for this station',
+          certSerial: normalizedSerial,
+        },
+        logger,
+      );
       return {
         authenticated: false,
         stationId,
@@ -189,9 +224,16 @@ export async function authenticateConnection(
   if (securityProfile === 2) {
     const isTls = 'encrypted' in req.socket && req.socket.encrypted === true;
     if (!isTls) {
-      await logAuthEvent(sql, station.id, 'auth_failed', remoteAddress, {
-        reason: 'SP2 requires TLS',
-      });
+      await logAuthEvent(
+        sql,
+        station.id,
+        'auth_failed',
+        remoteAddress,
+        {
+          reason: 'SP2 requires TLS',
+        },
+        logger,
+      );
       return {
         authenticated: false,
         stationId,
@@ -204,9 +246,16 @@ export async function authenticateConnection(
   // SP1 and SP2: require Basic auth
   const authHeader = req.headers['authorization'];
   if (authHeader == null) {
-    await logAuthEvent(sql, station.id, 'auth_failed', remoteAddress, {
-      reason: 'Missing credentials',
-    });
+    await logAuthEvent(
+      sql,
+      station.id,
+      'auth_failed',
+      remoteAddress,
+      {
+        reason: 'Missing credentials',
+      },
+      logger,
+    );
     return {
       authenticated: false,
       stationId,
@@ -216,9 +265,16 @@ export async function authenticateConnection(
   }
 
   if (!authHeader.startsWith('Basic ')) {
-    await logAuthEvent(sql, station.id, 'auth_failed', remoteAddress, {
-      reason: 'Invalid auth scheme',
-    });
+    await logAuthEvent(
+      sql,
+      station.id,
+      'auth_failed',
+      remoteAddress,
+      {
+        reason: 'Invalid auth scheme',
+      },
+      logger,
+    );
     return {
       authenticated: false,
       stationId,
@@ -237,9 +293,16 @@ export async function authenticateConnection(
   // station presenting valid credentials for station A could connect to
   // station B's URL and inherit B's identity for the session.
   if (username !== stationId) {
-    await logAuthEvent(sql, station.id, 'auth_failed', remoteAddress, {
-      reason: 'Username does not equal ChargingStationId',
-    });
+    await logAuthEvent(
+      sql,
+      station.id,
+      'auth_failed',
+      remoteAddress,
+      {
+        reason: 'Username does not equal ChargingStationId',
+      },
+      logger,
+    );
     return {
       authenticated: false,
       stationId,
@@ -249,9 +312,16 @@ export async function authenticateConnection(
   }
 
   if (station.basic_auth_password_hash == null) {
-    await logAuthEvent(sql, station.id, 'auth_failed', remoteAddress, {
-      reason: 'No password configured',
-    });
+    await logAuthEvent(
+      sql,
+      station.id,
+      'auth_failed',
+      remoteAddress,
+      {
+        reason: 'No password configured',
+      },
+      logger,
+    );
     return {
       authenticated: false,
       stationId,
@@ -263,9 +333,16 @@ export async function authenticateConnection(
   try {
     const valid = await verify(station.basic_auth_password_hash, password);
     if (!valid) {
-      await logAuthEvent(sql, station.id, 'auth_failed', remoteAddress, {
-        reason: 'Invalid password',
-      });
+      await logAuthEvent(
+        sql,
+        station.id,
+        'auth_failed',
+        remoteAddress,
+        {
+          reason: 'Invalid password',
+        },
+        logger,
+      );
       return {
         authenticated: false,
         stationId,
@@ -296,13 +373,16 @@ async function logAuthEvent(
   event: string,
   remoteAddress: string | null,
   metadata: Record<string, unknown>,
+  logger: Logger,
 ): Promise<void> {
   try {
     await sql`
       INSERT INTO connection_logs (station_id, event, remote_address, metadata)
       VALUES (${stationDbId}, ${event}, ${remoteAddress}, ${sql.json(metadata as Parameters<postgres.Sql['json']>[0])})
     `;
-  } catch {
-    // Best-effort logging; do not fail the auth flow
+  } catch (err) {
+    // Best-effort logging; do not fail the auth flow, but surface the failure
+    // so operators notice when forensic logs go missing.
+    logger.warn({ err, stationDbId, event }, 'Failed to write connection_logs row');
   }
 }

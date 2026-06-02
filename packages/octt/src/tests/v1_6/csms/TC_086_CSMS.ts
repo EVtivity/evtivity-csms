@@ -26,7 +26,7 @@ export const TC_086_CSMS: TestCase = {
       actual: `status = ${String(bootResp['status'])}`,
     });
 
-    await ctx.client.sendCall('StatusNotification', {
+    const statusResp = await ctx.client.sendCall('StatusNotification', {
       connectorId: 0,
       status: 'Available',
       errorCode: 'NoError',
@@ -35,9 +35,9 @@ export const TC_086_CSMS: TestCase = {
     steps.push({
       step: 2,
       description: 'Send StatusNotification (Available)',
-      status: 'passed',
+      status: statusResp != null ? 'passed' : 'failed',
       expected: 'Response received',
-      actual: 'Response received',
+      actual: statusResp != null ? 'Response received' : 'No response',
     });
 
     return {

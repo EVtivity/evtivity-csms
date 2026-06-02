@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../types.js';
+import { pushSendAckStep } from '../../../csms-test-helpers.js';
 
 export const TC_085_CSMS: TestCase = {
   id: 'TC_085_CSMS',
@@ -29,19 +30,19 @@ export const TC_085_CSMS: TestCase = {
       actual: `status = ${bootStatus}`,
     });
 
-    await ctx.client.sendCall('StatusNotification', {
+    const resp2 = await ctx.client.sendCall('StatusNotification', {
       connectorId: 0,
       status: 'Available',
       errorCode: 'NoError',
       timestamp: new Date().toISOString(),
     });
-    steps.push({
-      step: 2,
-      description: 'Send StatusNotification (Available)',
-      status: 'passed',
-      expected: 'StatusNotification.conf received',
-      actual: 'Response received',
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'Send StatusNotification (Available)',
+      resp2,
+      'StatusNotification.conf received',
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

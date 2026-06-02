@@ -97,7 +97,10 @@ export class AnthropicProvider implements AiProvider {
 
     for (const block of response.content) {
       if (block.type === 'text') {
-        content = block.text;
+        // Claude can return multiple text blocks (a thought, then a final
+        // answer). Concatenate so callers see the full reply, not just
+        // whichever block happened to come last.
+        content = (content ?? '') + block.text;
       } else if (block.type === 'tool_use') {
         toolCalls.push({
           id: block.id,

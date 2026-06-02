@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../types.js';
+import { pushSendAckStep } from '../../../csms-test-helpers.js';
 
 export const TC_079_CSMS: TestCase = {
   id: 'TC_079_CSMS',
@@ -49,23 +50,11 @@ export const TC_079_CSMS: TestCase = {
       actual: received ? `Received, logType=${logType}` : 'Not received',
     });
 
-    await ctx.client.sendCall('LogStatusNotification', { status: 'Uploading' });
-    steps.push({
-      step: 2,
-      description: 'Send LogStatusNotification (Uploading)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'Response received',
-    });
+    const resp2 = await ctx.client.sendCall('LogStatusNotification', { status: 'Uploading' });
+    pushSendAckStep(steps, 2, 'Send LogStatusNotification (Uploading)', resp2);
 
-    await ctx.client.sendCall('LogStatusNotification', { status: 'Uploaded' });
-    steps.push({
-      step: 3,
-      description: 'Send LogStatusNotification (Uploaded)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'Response received',
-    });
+    const resp3 = await ctx.client.sendCall('LogStatusNotification', { status: 'Uploaded' });
+    pushSendAckStep(steps, 3, 'Send LogStatusNotification (Uploaded)', resp3);
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

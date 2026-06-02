@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 /**
  * TC_K_50_CSMS: EMS Control - Reset / release external charging limit - Without ongoing transaction
@@ -28,13 +29,14 @@ export const TC_K_50_CSMS: TestCase = {
       chargingLimitSource: 'EMS',
     });
 
-    steps.push({
-      step: 1,
-      description: 'Send ClearedChargingLimitRequest with chargingLimitSource EMS',
-      status: 'passed',
-      expected: 'ClearedChargingLimitResponse received',
-      actual: `Response keys: ${Object.keys(res).join(', ') || 'empty (accepted)'}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'Send ClearedChargingLimitRequest with chargingLimitSource EMS',
+      res,
+      'ClearedChargingLimitResponse received',
+      `Response keys: ${Object.keys(res).join(', ') || 'empty (accepted)'}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -89,13 +91,14 @@ export const TC_K_51_CSMS: TestCase = {
       chargingLimitSource: 'EMS',
     });
 
-    steps.push({
-      step: 1,
-      description: 'Send ClearedChargingLimitRequest with chargingLimitSource EMS',
-      status: 'passed',
-      expected: 'ClearedChargingLimitResponse received',
-      actual: `Response keys: ${Object.keys(clearRes).join(', ') || 'empty (accepted)'}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'Send ClearedChargingLimitRequest with chargingLimitSource EMS',
+      clearRes,
+      'ClearedChargingLimitResponse received',
+      `Response keys: ${Object.keys(clearRes).join(', ') || 'empty (accepted)'}`,
+    );
 
     // Step 3-4: TransactionEvent Updated with ChargingRateChanged
     const txRes = await ctx.client.sendCall('TransactionEvent', {
@@ -107,13 +110,14 @@ export const TC_K_51_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 2,
-      description: 'TransactionEvent Updated with ChargingRateChanged',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(txRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'TransactionEvent Updated with ChargingRateChanged',
+      txRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(txRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

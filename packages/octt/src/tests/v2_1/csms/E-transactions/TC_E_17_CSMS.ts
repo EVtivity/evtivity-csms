@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 // Helper: boot station and send initial StatusNotification
 async function bootAndStatus(ctx: {
@@ -99,7 +100,7 @@ export const TC_E_113_CSMS: TestCase = {
     });
 
     // Step 3: NotifyEvent connector AvailabilityState Occupied
-    await ctx.client.sendCall('NotifyEvent', {
+    const resp2 = await ctx.client.sendCall('NotifyEvent', {
       generatedAt: new Date().toISOString(),
       seqNo: 0,
       eventData: [
@@ -118,27 +119,29 @@ export const TC_E_113_CSMS: TestCase = {
       ],
     });
 
-    steps.push({
-      step: 2,
-      description: 'NotifyEvent - connector AvailabilityState Occupied',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'NotifyEvent sent',
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'NotifyEvent - connector AvailabilityState Occupied',
+      resp2,
+      'Response received',
+      'NotifyEvent sent',
+    );
 
     // Step 5: SecurityEventNotification
-    await ctx.client.sendCall('SecurityEventNotification', {
+    const resp3 = await ctx.client.sendCall('SecurityEventNotification', {
       type: 'StartupOfTheDevice',
       timestamp: new Date().toISOString(),
     });
 
-    steps.push({
-      step: 3,
-      description: 'SecurityEventNotification - StartupOfTheDevice',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'SecurityEventNotification sent',
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'SecurityEventNotification - StartupOfTheDevice',
+      resp3,
+      'Response received',
+      'SecurityEventNotification sent',
+    );
 
     // Step 7: NotifyEvent ElectricalFeed Problem true
     await ctx.client.sendCall('NotifyEvent', {
@@ -160,7 +163,7 @@ export const TC_E_113_CSMS: TestCase = {
     });
 
     // Step 9: NotifyEvent ElectricalFeed Problem false
-    await ctx.client.sendCall('NotifyEvent', {
+    const resp4 = await ctx.client.sendCall('NotifyEvent', {
       generatedAt: new Date().toISOString(),
       seqNo: 2,
       eventData: [
@@ -178,13 +181,14 @@ export const TC_E_113_CSMS: TestCase = {
       ],
     });
 
-    steps.push({
-      step: 4,
-      description: 'NotifyEvent - ElectricalFeed Problem true then false',
-      status: 'passed',
-      expected: 'Responses received',
-      actual: 'Both NotifyEvent messages sent',
-    });
+    pushSendAckStep(
+      steps,
+      4,
+      'NotifyEvent - ElectricalFeed Problem true then false',
+      resp4,
+      'Responses received',
+      'Both NotifyEvent messages sent',
+    );
 
     // Step 11: TransactionEvent Updated with TxResumed
     const resumeRes = await ctx.client.sendCall('TransactionEvent', {
@@ -196,13 +200,14 @@ export const TC_E_113_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 5,
-      description: 'TransactionEvent Updated - TxResumed Charging',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(resumeRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      5,
+      'TransactionEvent Updated - TxResumed Charging',
+      resumeRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(resumeRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -359,7 +364,7 @@ export const TC_E_117_CSMS: TestCase = {
     });
 
     // Step 11: NotifyEvent ElectricalFeed Problem false
-    await ctx.client.sendCall('NotifyEvent', {
+    const resp3 = await ctx.client.sendCall('NotifyEvent', {
       generatedAt: new Date().toISOString(),
       seqNo: 2,
       eventData: [
@@ -377,13 +382,14 @@ export const TC_E_117_CSMS: TestCase = {
       ],
     });
 
-    steps.push({
-      step: 3,
-      description: 'Reconnect sequence: NotifyEvent + SecurityEvent + ElectricalFeed',
-      status: 'passed',
-      expected: 'All messages sent and acknowledged',
-      actual: 'Reconnect sequence completed',
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'Reconnect sequence: NotifyEvent + SecurityEvent + ElectricalFeed',
+      resp3,
+      'All messages sent and acknowledged',
+      'Reconnect sequence completed',
+    );
 
     // Reset profile count to track the restored profile
     const profileCountBefore = setProfileCount;
@@ -398,13 +404,14 @@ export const TC_E_117_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 4,
-      description: 'TransactionEvent Updated - TxResumed Charging',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(resumeRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      4,
+      'TransactionEvent Updated - TxResumed Charging',
+      resumeRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(resumeRes).join(', ')}`,
+    );
 
     // Wait for CSMS to restore the charging profile
     if (ctx.triggerCommand != null) {

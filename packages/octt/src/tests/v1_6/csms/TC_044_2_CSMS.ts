@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../types.js';
+import { pushSendAckStep } from '../../../csms-test-helpers.js';
 
 export const TC_044_2_CSMS: TestCase = {
   id: 'TC_044_2_CSMS',
@@ -46,23 +47,15 @@ export const TC_044_2_CSMS: TestCase = {
       actual: received ? 'Received' : 'Not received',
     });
 
-    await ctx.client.sendCall('FirmwareStatusNotification', { status: 'Downloading' });
-    steps.push({
-      step: 2,
-      description: 'Send FirmwareStatusNotification (Downloading)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'Response received',
+    const resp2 = await ctx.client.sendCall('FirmwareStatusNotification', {
+      status: 'Downloading',
     });
+    pushSendAckStep(steps, 2, 'Send FirmwareStatusNotification (Downloading)', resp2);
 
-    await ctx.client.sendCall('FirmwareStatusNotification', { status: 'DownloadFailed' });
-    steps.push({
-      step: 3,
-      description: 'Send FirmwareStatusNotification (DownloadFailed)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'Response received',
+    const resp3 = await ctx.client.sendCall('FirmwareStatusNotification', {
+      status: 'DownloadFailed',
     });
+    pushSendAckStep(steps, 3, 'Send FirmwareStatusNotification (DownloadFailed)', resp3);
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

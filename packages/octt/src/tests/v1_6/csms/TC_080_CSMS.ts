@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../types.js';
+import { pushSendAckStep } from '../../../csms-test-helpers.js';
 
 export const TC_080_CSMS: TestCase = {
   id: 'TC_080_CSMS',
@@ -80,14 +81,10 @@ export const TC_080_CSMS: TestCase = {
       errorCode: 'NoError',
       timestamp: new Date().toISOString(),
     });
-    await ctx.client.sendCall('SignedFirmwareStatusNotification', { status: 'Installed' });
-    steps.push({
-      step: 3,
-      description: 'Send SignedFirmwareStatusNotification (Installed)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'Response received',
+    const resp3 = await ctx.client.sendCall('SignedFirmwareStatusNotification', {
+      status: 'Installed',
     });
+    pushSendAckStep(steps, 3, 'Send SignedFirmwareStatusNotification (Installed)', resp3);
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

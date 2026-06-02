@@ -44,7 +44,7 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const { data: mapping, isLoading } = useQuery({
-    queryKey: ['ocpi-tariff-mappings', id],
+    queryKey: ['ocpi-tariff-mappings'],
     queryFn: () => api.get<TariffMapping>(`/v1/ocpi/tariff-mappings/${id ?? ''}`),
     enabled: id != null,
   });
@@ -53,7 +53,7 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
     mutationFn: (body: { ocpiTariffId?: string; currency?: string }) =>
       api.patch<TariffMapping>(`/v1/ocpi/tariff-mappings/${id ?? ''}`, body),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['ocpi-tariff-mappings', id] });
+      void queryClient.invalidateQueries({ queryKey: ['ocpi-tariff-mappings'] });
       void queryClient.invalidateQueries({ queryKey: ['ocpi-tariff-mappings'] });
       setEditing(false);
       setHasSubmitted(false);

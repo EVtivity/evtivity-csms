@@ -60,7 +60,7 @@ export const TC_004_1_CSMS: TestCase = {
     });
 
     // Step 4: StatusNotification Charging
-    await ctx.client.sendCall('StatusNotification', {
+    const chgResp = await ctx.client.sendCall('StatusNotification', {
       connectorId,
       status: 'Charging',
       errorCode: 'NoError',
@@ -69,9 +69,9 @@ export const TC_004_1_CSMS: TestCase = {
     steps.push({
       step: 3,
       description: 'Send StatusNotification (Charging)',
-      status: 'passed',
+      status: chgResp != null ? 'passed' : 'failed',
       expected: 'StatusNotification.conf received',
-      actual: 'Response received',
+      actual: chgResp != null ? 'Response received' : 'No response',
     });
 
     return {

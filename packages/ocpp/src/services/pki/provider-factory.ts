@@ -10,49 +10,66 @@ import { config } from '../../lib/config.js';
 
 const logger = createLogger('pki-provider-factory');
 
-let cachedProvider: { type: string; instance: PkiProvider } | null = null;
-let settingsCachedAt = 0;
-const SETTINGS_TTL_MS = 60_000;
+const PROVIDER_KEYS = [
+  'pnc.provider',
+  'pnc.hubject.baseUrl',
+  'pnc.hubject.clientId',
+  'pnc.hubject.clientSecretEnc',
+  'pnc.hubject.tokenUrl',
+];
+
+interface ProviderCache {
+  type: string;
+  instance: PkiProvider;
+  // Latest settings.updated_at across the rows that contributed to the
+  // current instance. Used to detect any operator change since we built
+  // the provider, including secret rotations / baseUrl swaps where the
+  // provider type itself stayed the same.
+  latestUpdatedAtMs: number;
+}
+
+let cachedProvider: ProviderCache | null = null;
 
 function getEncryptionKey(): string {
   return config.SETTINGS_ENCRYPTION_KEY;
 }
 
 export async function getPkiProvider(): Promise<PkiProvider> {
-  const now = Date.now();
-  if (cachedProvider != null && now - settingsCachedAt < SETTINGS_TTL_MS) {
-    return cachedProvider.instance;
+  // Always query settings to detect operator changes. The HubjectProvider
+  // holds an OAuth2 token cache so the previous in-process cache existed
+  // to avoid losing that token across calls — we preserve that by reusing
+  // the same instance whenever none of the PnC settings rows have changed
+  // since we built it. The earlier logic only checked TTL (60s stale
+  // window) and provider-type match, so a secret rotation or baseUrl swap
+  // wouldn't reach OCPP handlers until the TTL expired.
+  const rows = await client`
+    SELECT key, value, updated_at FROM settings
+    WHERE key IN ${client(PROVIDER_KEYS)}
+  `;
+
+  const configMap = new Map<string, string>();
+  let latestUpdatedAtMs = 0;
+  for (const row of rows) {
+    const val = row.value as unknown;
+    configMap.set(row.key as string, typeof val === 'string' ? val : '');
+    const ts = row.updated_at as Date | string;
+    const ms = typeof ts === 'string' ? Date.parse(ts) : ts.getTime();
+    if (ms > latestUpdatedAtMs) latestUpdatedAtMs = ms;
   }
 
-  // Use the shared connection pool from @evtivity/database. A new
-  // postgres() per call would create + tear down a connection on every
-  // cache miss (every 60s under typical load) and violates the one-pool-
-  // per-process rule.
-  const [providerRow] = await client`
-    SELECT value FROM settings WHERE key = 'pnc.provider'
-  `;
-  const providerType =
-    providerRow != null && typeof providerRow.value === 'string' ? providerRow.value : 'manual';
+  const providerType = configMap.get('pnc.provider') ?? 'manual';
 
-  if (cachedProvider != null && cachedProvider.type === providerType) {
-    settingsCachedAt = now;
+  if (
+    cachedProvider != null &&
+    cachedProvider.type === providerType &&
+    cachedProvider.latestUpdatedAtMs === latestUpdatedAtMs
+  ) {
     return cachedProvider.instance;
   }
 
   let instance: PkiProvider;
 
   if (providerType === 'hubject') {
-    const rows = await client`
-      SELECT key, value FROM settings
-      WHERE key IN ('pnc.hubject.baseUrl', 'pnc.hubject.clientId', 'pnc.hubject.clientSecretEnc', 'pnc.hubject.tokenUrl')
-    `;
-
-    const configMap = new Map<string, string>();
-    for (const row of rows) {
-      const val = row.value as unknown;
-      configMap.set(row.key as string, typeof val === 'string' ? val : '');
-    }
-
     const clientSecretEnc = configMap.get('pnc.hubject.clientSecretEnc') ?? '';
     let clientSecret = '';
     if (clientSecretEnc !== '') {
@@ -76,7 +93,6 @@ export async function getPkiProvider(): Promise<PkiProvider> {
     logger.info('Manual PKI provider initialized');
   }
 
-  cachedProvider = { type: providerType, instance };
-  settingsCachedAt = now;
+  cachedProvider = { type: providerType, instance, latestUpdatedAtMs };
   return instance;
 }

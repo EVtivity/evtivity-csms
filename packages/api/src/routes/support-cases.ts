@@ -84,8 +84,8 @@ const supportCaseItem = z
 
 const attachmentItem = z
   .object({
-    id: z.string().describe('Attachment ID'),
-    messageId: z.string().describe('Message ID this attachment belongs to'),
+    id: z.number().int().describe('Attachment ID'),
+    messageId: z.number().int().describe('Message ID this attachment belongs to'),
     fileName: z.string().max(255).describe('Original uploaded file name'),
     fileSize: z.number().int().min(0).describe('File size in bytes'),
     contentType: z.string().max(100).describe('MIME content type'),
@@ -95,7 +95,7 @@ const attachmentItem = z
 
 const supportCaseMessageItem = z
   .object({
-    id: z.string().describe('Message ID'),
+    id: z.number().int().describe('Message ID'),
     senderType: z
       .enum(supportCaseMessageSenderEnum.enumValues)
       .describe('Message sender (driver, operator, system)'),
@@ -281,7 +281,12 @@ const requestUploadUrlBody = z.object({
 
 const confirmAttachmentBody = z.object({
   fileName: z.string().min(1).max(255),
-  fileSize: z.number().int().min(1).describe('File size in bytes'),
+  fileSize: z
+    .number()
+    .int()
+    .min(1)
+    .max(10 * 1024 * 1024)
+    .describe('File size in bytes, max 10 MB (matches upload URL limit)'),
   contentType: z.string().min(1).max(100).describe('MIME type of the file'),
   s3Key: z.string().min(1).describe('S3 object key returned from the upload URL request'),
   s3Bucket: z.string().min(1).describe('S3 bucket name returned from the upload URL request'),
@@ -303,6 +308,29 @@ async function getNextCaseNumber(): Promise<string> {
   const result = await db.execute(sql`SELECT nextval('support_case_number_seq') as val`);
   const seq = Number((result as unknown as Array<{ val: string }>)[0]?.val ?? 1);
   return `CASE-${String(seq).padStart(5, '0')}`;
+}
+
+// "Is this case unread for `userId`?" -- no read row at all, OR a driver
+// message arrived after the last read timestamp. Shared by the list endpoint
+// (as a CASE column) and the unread-count endpoint (as a WHERE condition).
+function unreadCondition(userId: string) {
+  return sql`(
+    NOT EXISTS (
+      SELECT 1 FROM ${supportCaseReads}
+      WHERE ${supportCaseReads.caseId} = ${supportCases.id}
+      AND ${supportCaseReads.userId} = ${userId}
+    )
+    OR EXISTS (
+      SELECT 1 FROM ${supportCaseMessages}
+      WHERE ${supportCaseMessages.caseId} = ${supportCases.id}
+      AND ${supportCaseMessages.senderType} = 'driver'
+      AND ${supportCaseMessages.createdAt} > (
+        SELECT ${supportCaseReads.lastReadAt} FROM ${supportCaseReads}
+        WHERE ${supportCaseReads.caseId} = ${supportCases.id}
+        AND ${supportCaseReads.userId} = ${userId}
+      )
+    )
+  )`;
 }
 
 /**
@@ -415,24 +443,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
             >`CASE WHEN ${users.id} IS NOT NULL THEN ${users.firstName} || ' ' || ${users.lastName} ELSE NULL END`,
             assignedTo: supportCases.assignedTo,
             driverId: supportCases.driverId,
-            isRead: sql<boolean>`CASE
-              WHEN NOT EXISTS (
-                SELECT 1 FROM ${supportCaseReads}
-                WHERE ${supportCaseReads.caseId} = ${supportCases.id}
-                AND ${supportCaseReads.userId} = ${userId}
-              ) THEN false
-              WHEN EXISTS (
-                SELECT 1 FROM ${supportCaseMessages}
-                WHERE ${supportCaseMessages.caseId} = ${supportCases.id}
-                AND ${supportCaseMessages.senderType} = 'driver'
-                AND ${supportCaseMessages.createdAt} > (
-                  SELECT ${supportCaseReads.lastReadAt} FROM ${supportCaseReads}
-                  WHERE ${supportCaseReads.caseId} = ${supportCases.id}
-                  AND ${supportCaseReads.userId} = ${userId}
-                )
-              ) THEN false
-              ELSE true
-            END`,
+            isRead: sql<boolean>`NOT ${unreadCondition(userId)}`,
             createdAt: supportCases.createdAt,
           })
           .from(supportCases)
@@ -482,23 +493,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
       const conditions = [
         eq(supportCases.assignedTo, userId),
         sql`${supportCases.status} NOT IN ('resolved', 'closed')`,
-        sql`(
-          NOT EXISTS (
-            SELECT 1 FROM ${supportCaseReads}
-            WHERE ${supportCaseReads.caseId} = ${supportCases.id}
-            AND ${supportCaseReads.userId} = ${userId}
-          )
-          OR EXISTS (
-            SELECT 1 FROM ${supportCaseMessages}
-            WHERE ${supportCaseMessages.caseId} = ${supportCases.id}
-            AND ${supportCaseMessages.senderType} = 'driver'
-            AND ${supportCaseMessages.createdAt} > (
-              SELECT ${supportCaseReads.lastReadAt} FROM ${supportCaseReads}
-              WHERE ${supportCaseReads.caseId} = ${supportCases.id}
-              AND ${supportCaseReads.userId} = ${userId}
-            )
-          )
-        )`,
+        unreadCondition(userId),
       ];
 
       if (accessibleSiteIds != null) {
@@ -725,19 +720,40 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         body: zodSchema(createCaseBody),
         response: {
           200: itemResponse(supportCaseItem),
-          404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+          404: errorWith('Not found', [
+            ERROR_CODES.STATION_NOT_FOUND,
+            ERROR_CODES.SESSION_NOT_FOUND,
+          ]),
         },
       },
     },
     async (request, reply) => {
       const body = request.body as z.infer<typeof createCaseBody>;
       const { userId } = request.user as JwtPayload;
+      const createSiteIds = await getUserSiteIds(userId);
 
       if (body.stationId != null) {
-        const createSiteIds = await getUserSiteIds(userId);
         if (!(await isCaseAccessible(body.stationId, createSiteIds))) {
           await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
           return;
+        }
+      }
+
+      // Validate site access on every sessionId before linking. Without this
+      // an operator could link sessions from a station they have no access
+      // to, then use the refund endpoint (which only checks case access) to
+      // refund cross-site payments.
+      if (body.sessionIds != null && body.sessionIds.length > 0 && createSiteIds != null) {
+        const sessionStations = await db
+          .select({ sessionId: chargingSessions.id, siteId: chargingStations.siteId })
+          .from(chargingSessions)
+          .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+          .where(inArray(chargingSessions.id, body.sessionIds));
+        for (const row of sessionStations) {
+          if (row.siteId != null && !createSiteIds.includes(row.siteId)) {
+            await reply.status(404).send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
+            return;
+          }
         }
       }
 
@@ -842,7 +858,10 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         body: zodSchema(updateCaseBody),
         response: {
           200: itemResponse(supportCaseItem),
-          404: errorWith('Support case not found', [ERROR_CODES.SUPPORT_CASE_NOT_FOUND]),
+          404: errorWith('Not found', [
+            ERROR_CODES.SUPPORT_CASE_NOT_FOUND,
+            ERROR_CODES.SESSION_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -909,8 +928,26 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         }
       }
 
-      // Handle session link changes
+      // Handle session link changes. Validate site access on every added
+      // sessionId — without it an operator could link sessions from a
+      // station they have no access to, then refund cross-site via the
+      // case's refund endpoint.
       if (body.addSessionIds != null && body.addSessionIds.length > 0) {
+        if (siteIds != null) {
+          const sessionStations = await db
+            .select({ sessionId: chargingSessions.id, siteId: chargingStations.siteId })
+            .from(chargingSessions)
+            .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+            .where(inArray(chargingSessions.id, body.addSessionIds));
+          for (const row of sessionStations) {
+            if (row.siteId != null && !siteIds.includes(row.siteId)) {
+              await reply
+                .status(404)
+                .send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
+              return;
+            }
+          }
+        }
         await db
           .insert(supportCaseSessions)
           .values(body.addSessionIds.map((sid) => ({ caseId: id, sessionId: sid })))
@@ -933,15 +970,18 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         .where(eq(supportCases.id, id))
         .returning();
 
-      // Create system messages for each change
-      for (const msg of systemMessages) {
-        await db.insert(supportCaseMessages).values({
-          caseId: id,
-          senderType: 'system',
-          senderId: userId,
-          body: msg,
-          isInternal: false,
-        });
+      // Create system messages for each change (single round-trip for up to
+      // four field changes in one PATCH).
+      if (systemMessages.length > 0) {
+        await db.insert(supportCaseMessages).values(
+          systemMessages.map((msg) => ({
+            caseId: id,
+            senderType: 'system' as const,
+            senderId: userId,
+            body: msg,
+            isInternal: false,
+          })),
+        );
       }
 
       // Notify driver on resolve
@@ -1232,6 +1272,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         body: zodSchema(confirmAttachmentBody),
         response: {
           200: itemResponse(attachmentItem),
+          400: errorWith('Attachment metadata invalid', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Message not found', [ERROR_CODES.MESSAGE_NOT_FOUND]),
         },
       },
@@ -1268,6 +1309,21 @@ export function supportCaseRoutes(app: FastifyInstance): void {
 
       if (message == null) {
         await reply.status(404).send({ error: 'Message not found', code: 'MESSAGE_NOT_FOUND' });
+        return;
+      }
+
+      // Defense in depth: reject s3Key that doesn't match the expected prefix
+      // for THIS case + message. Without this an operator could call confirm
+      // with an arbitrary s3Key (e.g. from another case) and register it as
+      // their own attachment. The upload URL we minted was scoped to this
+      // case+message; insist the confirm matches.
+      const expectedPrefix = `support-cases/${id}/${String(messageId)}/`;
+      const s3 = await getS3Config();
+      if (!body.s3Key.startsWith(expectedPrefix) || (s3 != null && body.s3Bucket !== s3.bucket)) {
+        await reply.status(400).send({
+          error: 'Attachment metadata does not match issued upload URL',
+          code: 'VALIDATION_ERROR',
+        });
         return;
       }
 
@@ -1323,7 +1379,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const { id, attachmentId } = request.params as z.infer<typeof attachmentIdParams>;
+      const { id, messageId, attachmentId } = request.params as z.infer<typeof attachmentIdParams>;
       const { userId } = request.user as JwtPayload;
 
       const [caseRow] = await db
@@ -1346,10 +1402,26 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Verify the attachment belongs to the message AND the message belongs
+      // to this case. Without this join an operator with access to any case
+      // could download any attachment by guessing its id.
       const [attachment] = await db
-        .select()
+        .select({
+          s3Key: supportCaseAttachments.s3Key,
+          s3Bucket: supportCaseAttachments.s3Bucket,
+        })
         .from(supportCaseAttachments)
-        .where(eq(supportCaseAttachments.id, attachmentId));
+        .innerJoin(
+          supportCaseMessages,
+          eq(supportCaseAttachments.messageId, supportCaseMessages.id),
+        )
+        .where(
+          and(
+            eq(supportCaseAttachments.id, attachmentId),
+            eq(supportCaseAttachments.messageId, messageId),
+            eq(supportCaseMessages.caseId, id),
+          ),
+        );
 
       if (attachment == null) {
         await reply
@@ -1416,13 +1488,24 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Verify the attachment belongs to a message belonging to this case.
+      // Without the join an operator with access to one case could delete
+      // attachments from another case by knowing the attachmentId+messageId.
       const [attachment] = await db
-        .select()
+        .select({
+          s3Key: supportCaseAttachments.s3Key,
+          s3Bucket: supportCaseAttachments.s3Bucket,
+        })
         .from(supportCaseAttachments)
+        .innerJoin(
+          supportCaseMessages,
+          eq(supportCaseAttachments.messageId, supportCaseMessages.id),
+        )
         .where(
           and(
             eq(supportCaseAttachments.id, attachmentId),
             eq(supportCaseAttachments.messageId, messageId),
+            eq(supportCaseMessages.caseId, id),
           ),
         );
 
@@ -1512,6 +1595,35 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Fetch the session's station siteId and transactionId once — used
+      // downstream for the site-access check, the Stripe per-site config
+      // lookup, and the system message label.
+      const [sessionStation] = await db
+        .select({
+          siteId: chargingStations.siteId,
+          transactionId: chargingSessions.transactionId,
+        })
+        .from(chargingSessions)
+        .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+        .where(eq(chargingSessions.id, body.sessionId));
+
+      // Defense in depth: verify the session's station is in the operator's
+      // accessible sites. The link-time validation in create/PATCH should
+      // have caught this already, but historical rows (linked before the
+      // validation was added) could still expose cross-site refunds.
+      if (
+        refundSiteIds != null &&
+        sessionStation != null &&
+        sessionStation.siteId != null &&
+        !refundSiteIds.includes(sessionStation.siteId)
+      ) {
+        await reply.status(400).send({
+          error: 'Session not linked to this case',
+          code: 'SESSION_NOT_LINKED',
+        });
+        return;
+      }
+
       const [record] = await db
         .select()
         .from(paymentRecords)
@@ -1536,14 +1648,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Resolve Stripe config for the session's station
-      const [station] = await db
-        .select({ siteId: chargingStations.siteId })
-        .from(chargingStations)
-        .innerJoin(chargingSessions, eq(chargingSessions.stationId, chargingStations.id))
-        .where(eq(chargingSessions.id, body.sessionId));
-
-      const config = await getStripeConfig(station?.siteId ?? null);
+      const config = await getStripeConfig(sessionStation?.siteId ?? null);
       if (config == null) {
         await reply.status(400).send({
           error: 'No Stripe configuration available',
@@ -1554,6 +1659,17 @@ export function supportCaseRoutes(app: FastifyInstance): void {
 
       const remaining = (record.capturedAmountCents ?? 0) - record.refundedAmountCents;
       const refundAmount = body.amountCents ?? remaining;
+
+      // Reject if nothing remains to refund — without this guard Stripe
+      // gets called with amount=undefined (= full refund), fails on a
+      // zero-balance intent, and we return 500 instead of a meaningful 400.
+      if (remaining <= 0 || refundAmount <= 0) {
+        await reply.status(400).send({
+          error: 'No remaining refundable amount on this payment',
+          code: 'REFUND_EXCEEDS_REMAINING',
+        });
+        return;
+      }
 
       if (refundAmount > remaining) {
         await reply.status(400).send({
@@ -1578,23 +1694,23 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         .where(eq(paymentRecords.id, record.id))
         .returning();
 
-      // Look up transactionId for the system message
-      const [refundedSession] = await db
-        .select({ transactionId: chargingSessions.transactionId })
-        .from(chargingSessions)
-        .where(eq(chargingSessions.id, body.sessionId));
-
-      // Create system message documenting the refund
+      // Create system message documenting the refund. Best-effort: don't
+      // 500 the request after the refund already cleared Stripe and the
+      // payment record was updated.
       const currencyDisplay = record.currency.toUpperCase();
       const amountDisplay = (refundAmount / 100).toFixed(2);
-      const txLabel = refundedSession?.transactionId ?? body.sessionId;
-      await db.insert(supportCaseMessages).values({
-        caseId: id,
-        senderType: 'system',
-        senderId: userId,
-        body: `Refund of ${amountDisplay} ${currencyDisplay} issued for session ${txLabel}`,
-        isInternal: false,
-      });
+      const txLabel = sessionStation?.transactionId ?? body.sessionId;
+      try {
+        await db.insert(supportCaseMessages).values({
+          caseId: id,
+          senderType: 'system',
+          senderId: userId,
+          body: `Refund of ${amountDisplay} ${currencyDisplay} issued for session ${txLabel}`,
+          isInternal: false,
+        });
+      } catch (err) {
+        request.log.warn({ err, caseId: id }, 'Failed to write refund system message');
+      }
 
       // Notify driver
       if (record.driverId != null) {
@@ -1701,20 +1817,10 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Site access check
-      if (caseRow.stationId != null) {
-        const siteIds = await getUserSiteIds(userId);
-        if (siteIds != null) {
-          const [station] = await db
-            .select({ siteId: chargingStations.siteId })
-            .from(chargingStations)
-            .where(eq(chargingStations.id, caseRow.stationId))
-            .limit(1);
-          if (station?.siteId != null && !siteIds.includes(station.siteId)) {
-            await reply.status(404).send({ error: 'Case not found', code: 'CASE_NOT_FOUND' });
-            return;
-          }
-        }
+      const siteIds = await getUserSiteIds(userId);
+      if (!(await isCaseAccessible(caseRow.stationId, siteIds))) {
+        await reply.status(404).send({ error: 'Case not found', code: 'CASE_NOT_FOUND' });
+        return;
       }
 
       // Build auth header from cookie or Authorization header

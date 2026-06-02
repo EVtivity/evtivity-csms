@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 // Helper: boot station and send StatusNotification
 async function bootAndStatus(ctx: {
@@ -115,13 +116,14 @@ export const TC_F_01_CSMS: TestCase = {
         evse: { id: 1, connectorId: 1 },
       });
 
-      steps.push({
-        step: 3,
-        description: 'TransactionEvent Updated with RemoteStart accepted',
-        status: 'passed',
-        expected: 'TransactionEventResponse received',
-        actual: `Response keys: ${Object.keys(txRes).join(', ')}`,
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'TransactionEvent Updated with RemoteStart accepted',
+        txRes,
+        'TransactionEventResponse received',
+        `Response keys: ${Object.keys(txRes).join(', ')}`,
+      );
     }
 
     return {

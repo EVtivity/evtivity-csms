@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 /**
  * TC_K_53_CSMS: Charging with load leveling based on High Level Communication - Success
@@ -157,13 +158,14 @@ export const TC_K_55_CSMS: TestCase = {
         },
       },
     });
-    steps.push({
-      step: 1,
-      description: 'Send NotifyEVChargingNeedsRequest',
-      status: 'passed',
-      expected: 'NotifyEVChargingNeedsResponse received',
-      actual: `status = ${String(needsRes['status'])}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'Send NotifyEVChargingNeedsRequest',
+      needsRes,
+      'NotifyEVChargingNeedsResponse received',
+      `status = ${String(needsRes['status'])}`,
+    );
 
     // Step 3-4: Wait for SetChargingProfile
     let profileCount = 0;
@@ -199,16 +201,17 @@ export const TC_K_55_CSMS: TestCase = {
         chargingSchedulePeriod: [{ startPeriod: 0, limit: 100.0 }],
       },
     });
-    steps.push({
-      step: 3,
-      description: 'Send NotifyEVChargingScheduleRequest exceeding limits',
-      status: 'passed',
-      expected: 'NotifyEVChargingScheduleResponse received',
-      actual: `status = ${String(schedRes['status'])}`,
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'Send NotifyEVChargingScheduleRequest exceeding limits',
+      schedRes,
+      'NotifyEVChargingScheduleResponse received',
+      `status = ${String(schedRes['status'])}`,
+    );
 
     // Step 7-8: TransactionEvent Updated ChargingStateChanged
-    await ctx.client.sendCall('TransactionEvent', {
+    const resp4 = await ctx.client.sendCall('TransactionEvent', {
       eventType: 'Updated',
       timestamp: new Date().toISOString(),
       triggerReason: 'ChargingStateChanged',
@@ -222,13 +225,14 @@ export const TC_K_55_CSMS: TestCase = {
 
     // The CSMS does not generate ISO 15118 charging profiles, so renegotiation is not supported.
     // This step is advisory.
-    steps.push({
-      step: 4,
-      description: 'CSMS renegotiates with new SetChargingProfileRequest (advisory)',
-      status: 'passed',
-      expected: 'Second SetChargingProfileRequest after exceeding (not enforced)',
-      actual: `${String(profileCount)} total received`,
-    });
+    pushSendAckStep(
+      steps,
+      4,
+      'CSMS renegotiates with new SetChargingProfileRequest (advisory)',
+      resp4,
+      'Second SetChargingProfileRequest after exceeding (not enforced)',
+      `${String(profileCount)} total received`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

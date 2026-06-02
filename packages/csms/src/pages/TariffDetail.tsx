@@ -99,7 +99,7 @@ export function TariffDetail(): React.JSX.Element {
   ];
 
   const { data: tariff, isLoading } = useQuery({
-    queryKey: ['tariffs', id, tariffId],
+    queryKey: ['tariffs'],
     queryFn: () => api.get<Tariff>(`/v1/pricing-groups/${id ?? ''}/tariffs/${tariffId ?? ''}`),
     enabled: id != null && tariffId != null,
   });
@@ -118,8 +118,8 @@ export function TariffDetail(): React.JSX.Element {
       isDefault?: boolean;
     }) => api.patch<Tariff>(`/v1/pricing-groups/${id ?? ''}/tariffs/${tariffId ?? ''}`, body),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['tariffs', id, tariffId] });
-      void queryClient.invalidateQueries({ queryKey: ['tariffs', id] });
+      void queryClient.invalidateQueries({ queryKey: ['tariffs'] });
+      void queryClient.invalidateQueries({ queryKey: ['tariffs'] });
       setEditing(false);
       setHasSubmitted(false);
     },
@@ -129,7 +129,7 @@ export function TariffDetail(): React.JSX.Element {
     mutationFn: () =>
       api.delete<undefined>(`/v1/pricing-groups/${id ?? ''}/tariffs/${tariffId ?? ''}`),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['tariffs', id] });
+      void queryClient.invalidateQueries({ queryKey: ['tariffs'] });
       void navigate(`/pricing/${id ?? ''}?tab=tariffs`);
     },
   });

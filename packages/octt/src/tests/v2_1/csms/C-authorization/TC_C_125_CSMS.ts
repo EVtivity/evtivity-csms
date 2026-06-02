@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { TestCase, StepResult } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_C_125_CSMS: TestCase = {
   id: 'TC_C_125_CSMS',
@@ -105,13 +106,14 @@ export const TC_C_125_CSMS: TestCase = {
       ],
     });
 
-    steps.push({
-      step: 3,
-      description: 'Send TransactionEvent Started with meter value 10000',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(txStartRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'Send TransactionEvent Started with meter value 10000',
+      txStartRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(txStartRes).join(', ')}`,
+    );
 
     // Step 4: Send TransactionEvent Ended with meter value
     const txEndRes = await ctx.client.sendCall('TransactionEvent', {
@@ -136,13 +138,14 @@ export const TC_C_125_CSMS: TestCase = {
       ],
     });
 
-    steps.push({
-      step: 4,
-      description: 'Send TransactionEvent Ended with meter value 15000 (5000 Wh delivered)',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(txEndRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      4,
+      'Send TransactionEvent Ended with meter value 15000 (5000 Wh delivered)',
+      txEndRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(txEndRes).join(', ')}`,
+    );
 
     const allPassed = steps.every((s) => s.status === 'passed');
     return { status: allPassed ? 'passed' : 'failed', durationMs: 0, steps };

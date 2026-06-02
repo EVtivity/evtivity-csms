@@ -68,7 +68,13 @@ export const TC_G_02_CS: CsTestCase = {
     const steps: StepResult[] = [];
     setupHandler(ctx);
 
-    // Before: State is EVConnectedPreSession. Disconnect the EV.
+    // Set up precondition: State = EVConnectedPreSession. plugIn() takes the
+    // station from Available to Occupied (cable plugged, no auth yet).
+    await ctx.station.plugIn(1);
+    // Drain the plug-in StatusNotification(Occupied) so the post-unplug
+    // assertion only sees the transition we are testing.
+    await ctx.server.waitForMessage('StatusNotification', 5000).catch(() => {});
+
     await ctx.station.unplug(1);
 
     const statusMsg = await ctx.server.waitForMessage('StatusNotification', 10000);

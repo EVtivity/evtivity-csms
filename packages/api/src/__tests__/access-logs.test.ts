@@ -239,12 +239,13 @@ describe('Access log routes', () => {
 
     it('returns 200 with no filters', async () => {
       const logEntry = {
-        id: 'log-1',
+        id: 1,
         userId: 'test-id',
         driverId: null,
         action: 'login',
         category: 'auth',
         authType: 'session',
+        apiKeyName: null,
         method: null,
         path: null,
         statusCode: null,

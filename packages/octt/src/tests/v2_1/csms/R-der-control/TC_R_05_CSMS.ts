@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_R_108_CSMS: TestCase = {
   id: 'TC_R_108_CSMS',
@@ -18,19 +19,13 @@ export const TC_R_108_CSMS: TestCase = {
       reason: 'PowerUp',
     });
     try {
-      await ctx.client.sendCall('NotifyDERAlarm', {
+      const resp1 = await ctx.client.sendCall('NotifyDERAlarm', {
         controlType: 'LVMustTrip',
         gridEventFault: 'UnderVoltage',
         alarmEnded: false,
         timestamp: new Date().toISOString(),
       });
-      steps.push({
-        step: 1,
-        description: 'Send NotifyDERAlarmRequest (alarm started)',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 1, 'Send NotifyDERAlarmRequest (alarm started)', resp1);
     } catch {
       steps.push({
         step: 1,
@@ -42,19 +37,13 @@ export const TC_R_108_CSMS: TestCase = {
     }
     await new Promise((r) => setTimeout(r, 5000));
     try {
-      await ctx.client.sendCall('NotifyDERAlarm', {
+      const resp2 = await ctx.client.sendCall('NotifyDERAlarm', {
         controlType: 'LVMustTrip',
         gridEventFault: 'UnderVoltage',
         alarmEnded: true,
         timestamp: new Date().toISOString(),
       });
-      steps.push({
-        step: 2,
-        description: 'Send NotifyDERAlarmRequest (alarm ended)',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 2, 'Send NotifyDERAlarmRequest (alarm ended)', resp2);
     } catch {
       steps.push({
         step: 2,

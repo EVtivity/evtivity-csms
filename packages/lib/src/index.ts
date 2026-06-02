@@ -144,3 +144,18 @@ export {
   DEFAULT_MAINTENANCE_MESSAGE_TEMPLATE,
 } from './maintenance-message.js';
 export type { MaintenanceMessageVars } from './maintenance-message.js';
+
+export {
+  CSS_CONNECTOR_TYPES,
+  mapConnectorTypeToCss,
+  mapCssToOcppConnectorType,
+  randomCssConnectorType,
+} from './css-connector-types.js';
+export type { CssConnectorType } from './css-connector-types.js';
+
+export { buildCssConfigDefaults } from './css-config-defaults.js';
+export type {
+  CssConfigDefaultsInput,
+  CssConfigDefaultsEvse,
+  CssConfigDefault,
+} from './css-config-defaults.js';

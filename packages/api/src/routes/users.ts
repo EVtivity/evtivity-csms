@@ -2512,7 +2512,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.get(
     '/users/me/chatbot-ai-config',
     {
-      onRequest: [authorize('users:read')],
+      onRequest: [app.authenticate],
       schema: {
         tags: ['Users'],
         summary: 'Get personal AI configuration',
@@ -2537,7 +2537,10 @@ export function userRoutes(app: FastifyInstance): void {
         .from(chatbotAiConfigs)
         .where(eq(chatbotAiConfigs.userId, userId));
 
-      if (row == null) {
+      // A row exists with empty chatbot fields when the user deleted their
+      // chatbot config but kept a support-ai config in the same row. Treat
+      // that as "not configured" so the UI doesn't show empty fields.
+      if (row == null || row.apiKeyEnc === '' || row.provider === '') {
         return {
           configured: false,
           provider: null,
@@ -2552,7 +2555,7 @@ export function userRoutes(app: FastifyInstance): void {
 
       const encKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
       let apiKey: string | null = null;
-      if (row.apiKeyEnc !== '' && encKey !== '') {
+      if (encKey !== '') {
         apiKey = decryptString(row.apiKeyEnc, encKey);
       }
 
@@ -2576,7 +2579,7 @@ export function userRoutes(app: FastifyInstance): void {
     temperature: z.number().min(0).max(2).optional().describe('Sampling temperature (0-2)'),
     topP: z.number().min(0).max(1).optional().describe('Top-p sampling (0-1)'),
     topK: z.number().int().min(1).optional().describe('Top-k sampling'),
-    systemPrompt: z.string().optional().describe('Custom system prompt'),
+    systemPrompt: z.string().max(8000).optional().describe('Custom system prompt (max 8000 chars)'),
   });
 
   app.put(
@@ -2598,6 +2601,9 @@ export function userRoutes(app: FastifyInstance): void {
         request.body as z.infer<typeof aiConfigBody>;
 
       const encKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
+      if (encKey === '') {
+        throw new Error('SETTINGS_ENCRYPTION_KEY is required to store AI API keys');
+      }
       const apiKeyEnc = encryptString(apiKey, encKey);
 
       await db
@@ -2646,7 +2652,40 @@ export function userRoutes(app: FastifyInstance): void {
     async (request) => {
       const { userId } = request.user as { userId: string; roleId: string };
 
-      await db.delete(chatbotAiConfigs).where(eq(chatbotAiConfigs.userId, userId));
+      // Mirror the support-ai DELETE: clear only the chatbot columns if a
+      // support AI config exists, else drop the whole row. A blind delete
+      // here would also wipe the operator's support AI config, which lives
+      // in the same row.
+      const [row] = await db
+        .select({ supportAiApiKeyEnc: chatbotAiConfigs.supportAiApiKeyEnc })
+        .from(chatbotAiConfigs)
+        .where(eq(chatbotAiConfigs.userId, userId));
+
+      if (row == null) {
+        return { success: true };
+      }
+
+      if (row.supportAiApiKeyEnc == null || row.supportAiApiKeyEnc === '') {
+        await db.delete(chatbotAiConfigs).where(eq(chatbotAiConfigs.userId, userId));
+      } else {
+        // The schema's chatbot columns (provider, apiKeyEnc) are NOT NULL,
+        // so we can't null them out while keeping the support AI columns.
+        // Use empty strings as the cleared marker; resolveConfig checks
+        // truthiness and falls through to system settings when blank.
+        await db
+          .update(chatbotAiConfigs)
+          .set({
+            provider: '',
+            apiKeyEnc: '',
+            model: null,
+            temperature: null,
+            topP: null,
+            topK: null,
+            systemPrompt: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(chatbotAiConfigs.userId, userId));
+      }
 
       return { success: true };
     },
@@ -2680,7 +2719,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.get(
     '/users/me/support-ai-config',
     {
-      onRequest: [authorize('users:read')],
+      onRequest: [app.authenticate],
       schema: {
         tags: ['Users'],
         summary: 'Get personal support AI configuration',
@@ -2749,7 +2788,11 @@ export function userRoutes(app: FastifyInstance): void {
     temperature: z.number().min(0).max(2).optional().describe('Sampling temperature (0-2)'),
     topP: z.number().min(0).max(1).optional().describe('Top-p sampling (0-1)'),
     topK: z.number().int().min(1).optional().describe('Top-k sampling'),
-    systemPrompt: z.string().optional().describe('Custom system prompt for support AI'),
+    systemPrompt: z
+      .string()
+      .max(8000)
+      .optional()
+      .describe('Custom system prompt for support AI (max 8000 chars)'),
     tone: z
       .enum(['professional', 'friendly', 'formal'])
       .optional()
@@ -2775,6 +2818,9 @@ export function userRoutes(app: FastifyInstance): void {
         request.body as z.infer<typeof supportAiConfigBody>;
 
       const encKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
+      if (encKey === '') {
+        throw new Error('SETTINGS_ENCRYPTION_KEY is required to store AI API keys');
+      }
       const supportAiApiKeyEnc = encryptString(apiKey, encKey);
 
       const supportAiFields = {

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_Q_102_CSMS: TestCase = {
   id: 'TC_Q_102_CSMS',
@@ -35,8 +36,9 @@ export const TC_Q_102_CSMS: TestCase = {
     } else {
       await new Promise((r) => setTimeout(r, 3000));
     }
+    let resp1: Record<string, unknown> | undefined;
     if (getBaseReportReceived) {
-      await ctx.client.sendCall('NotifyReport', {
+      resp1 = await ctx.client.sendCall('NotifyReport', {
         requestId: 1,
         seqNo: 0,
         tbc: false,
@@ -50,13 +52,14 @@ export const TC_Q_102_CSMS: TestCase = {
         ],
       });
     }
-    steps.push({
-      step: 1,
-      description: 'Report V2XEnabled via NotifyReport',
-      status: 'passed',
-      expected: 'Completed',
-      actual: 'Completed',
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'Report V2XEnabled via NotifyReport',
+      resp1,
+      'Completed',
+      'Completed',
+    );
     try {
       const resp = await ctx.client.sendCall('Authorize', {
         idToken: { idToken: 'OCTT-TOKEN-V2X', type: 'ISO14443' },

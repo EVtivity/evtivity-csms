@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 // Helper: boot station
 async function boot(ctx: {
@@ -121,13 +122,14 @@ export const TC_F_11_CSMS: TestCase = {
         ],
       });
 
-      steps.push({
-        step: 4,
-        description: 'MeterValues sent and response received',
-        status: 'passed',
-        expected: 'MeterValuesResponse received',
-        actual: `Response keys: ${Object.keys(mvRes).join(', ') || '(empty)'}`,
-      });
+      pushSendAckStep(
+        steps,
+        4,
+        'MeterValues sent and response received',
+        mvRes,
+        'MeterValuesResponse received',
+        `Response keys: ${Object.keys(mvRes).join(', ') || '(empty)'}`,
+      );
     }
 
     return {
@@ -220,13 +222,14 @@ export const TC_F_12_CSMS: TestCase = {
         ],
       });
 
-      steps.push({
-        step: 3,
-        description: 'MeterValues sent and response received',
-        status: 'passed',
-        expected: 'MeterValuesResponse received',
-        actual: `Response keys: ${Object.keys(mvRes).join(', ') || '(empty)'}`,
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'MeterValues sent and response received',
+        mvRes,
+        'MeterValuesResponse received',
+        `Response keys: ${Object.keys(mvRes).join(', ') || '(empty)'}`,
+      );
     }
 
     return {
@@ -338,13 +341,14 @@ export const TC_F_13_CSMS: TestCase = {
         ],
       });
 
-      steps.push({
-        step: 3,
-        description: 'TransactionEvent with triggerReason Trigger sent',
-        status: 'passed',
-        expected: 'TransactionEventResponse received',
-        actual: `Response keys: ${Object.keys(txRes).join(', ')}`,
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'TransactionEvent with triggerReason Trigger sent',
+        txRes,
+        'TransactionEventResponse received',
+        `Response keys: ${Object.keys(txRes).join(', ')}`,
+      );
     }
 
     return {
@@ -447,13 +451,14 @@ export const TC_F_14_CSMS: TestCase = {
         ],
       });
 
-      steps.push({
-        step: 3,
-        description: 'TransactionEvent with triggerReason Trigger sent',
-        status: 'passed',
-        expected: 'TransactionEventResponse received',
-        actual: `Response keys: ${Object.keys(txRes).join(', ')}`,
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'TransactionEvent with triggerReason Trigger sent',
+        txRes,
+        'TransactionEventResponse received',
+        `Response keys: ${Object.keys(txRes).join(', ')}`,
+      );
     }
 
     return {
@@ -528,13 +533,14 @@ export const TC_F_15_CSMS: TestCase = {
         status: 'Idle',
       });
 
-      steps.push({
-        step: 3,
-        description: 'LogStatusNotification sent with status Idle',
-        status: 'passed',
-        expected: 'LogStatusNotificationResponse received',
-        actual: `Response keys: ${Object.keys(logRes).join(', ') || '(empty)'}`,
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'LogStatusNotification sent with status Idle',
+        logRes,
+        'LogStatusNotificationResponse received',
+        `Response keys: ${Object.keys(logRes).join(', ') || '(empty)'}`,
+      );
     }
 
     return {
@@ -609,13 +615,14 @@ export const TC_F_18_CSMS: TestCase = {
         status: 'Idle',
       });
 
-      steps.push({
-        step: 3,
-        description: 'FirmwareStatusNotification sent with status Idle',
-        status: 'passed',
-        expected: 'FirmwareStatusNotificationResponse received',
-        actual: `Response keys: ${Object.keys(fwRes).join(', ') || '(empty)'}`,
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'FirmwareStatusNotification sent with status Idle',
+        fwRes,
+        'FirmwareStatusNotificationResponse received',
+        `Response keys: ${Object.keys(fwRes).join(', ') || '(empty)'}`,
+      );
     }
 
     return {
@@ -688,13 +695,14 @@ export const TC_F_20_CSMS: TestCase = {
     if (receivedTrigger) {
       const hbRes = await ctx.client.sendCall('Heartbeat', {});
 
-      steps.push({
-        step: 3,
-        description: 'Heartbeat sent and response received',
-        status: 'passed',
-        expected: 'HeartbeatResponse received',
-        actual: `Response keys: ${Object.keys(hbRes).join(', ')}`,
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'Heartbeat sent and response received',
+        hbRes,
+        'HeartbeatResponse received',
+        `Response keys: ${Object.keys(hbRes).join(', ')}`,
+      );
     }
 
     return {
@@ -772,20 +780,21 @@ export const TC_F_23_CSMS: TestCase = {
     });
 
     if (receivedTrigger) {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp3 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Available',
         evseId: triggerEvseId ?? 1,
         connectorId: 1,
       });
 
-      steps.push({
-        step: 3,
-        description: 'StatusNotification Available sent',
-        status: 'passed',
-        expected: 'StatusNotificationResponse received',
-        actual: 'StatusNotification sent with connectorStatus Available',
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'StatusNotification Available sent',
+        resp3,
+        'StatusNotificationResponse received',
+        'StatusNotification sent with connectorStatus Available',
+      );
     }
 
     return {
@@ -815,20 +824,21 @@ export const TC_F_24_CSMS: TestCase = {
     await boot(ctx);
 
     // Step 1: Send StatusNotification Occupied first
-    await ctx.client.sendCall('StatusNotification', {
+    const resp1 = await ctx.client.sendCall('StatusNotification', {
       timestamp: new Date().toISOString(),
       connectorStatus: 'Occupied',
       evseId: 1,
       connectorId: 1,
     });
 
-    steps.push({
-      step: 1,
-      description: 'StatusNotification Occupied sent',
-      status: 'passed',
-      expected: 'StatusNotificationResponse received',
-      actual: 'StatusNotification Occupied sent',
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'StatusNotification Occupied sent',
+      resp1,
+      'StatusNotificationResponse received',
+      'StatusNotification Occupied sent',
+    );
 
     let receivedTrigger = false;
     let requestedMessage = '';
@@ -879,20 +889,21 @@ export const TC_F_24_CSMS: TestCase = {
     });
 
     if (receivedTrigger) {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp4 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Occupied',
         evseId: triggerEvseId ?? 1,
         connectorId: 1,
       });
 
-      steps.push({
-        step: 4,
-        description: 'StatusNotification Occupied sent in response to trigger',
-        status: 'passed',
-        expected: 'StatusNotificationResponse received',
-        actual: 'StatusNotification Occupied sent',
-      });
+      pushSendAckStep(
+        steps,
+        4,
+        'StatusNotification Occupied sent in response to trigger',
+        resp4,
+        'StatusNotificationResponse received',
+        'StatusNotification Occupied sent',
+      );
     }
 
     return {

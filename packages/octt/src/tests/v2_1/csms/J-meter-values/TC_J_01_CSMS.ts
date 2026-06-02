@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 /**
  * TC_J_01_CSMS: Clock-aligned Meter Values - No transaction ongoing
@@ -38,7 +39,7 @@ export const TC_J_01_CSMS: TestCase = {
     // Send 3 clock-aligned MeterValues (no transaction)
     for (let i = 0; i < 3; i++) {
       try {
-        await ctx.client.sendCall('MeterValues', {
+        const resp56 = await ctx.client.sendCall('MeterValues', {
           evseId: 1,
           meterValue: [
             {
@@ -57,9 +58,9 @@ export const TC_J_01_CSMS: TestCase = {
         steps.push({
           step: i + 1,
           description: `MeterValues clock-aligned #${String(i + 1)} accepted`,
-          status: 'passed',
+          status: resp56 != null ? 'passed' : 'failed',
           expected: 'MeterValuesResponse received',
-          actual: 'Response received',
+          actual: resp56 != null ? 'Response received' : 'No response',
         });
       } catch {
         steps.push({
@@ -126,7 +127,7 @@ export const TC_J_02_CSMS: TestCase = {
 
     // Step 1-2: MeterValues for evseId=0 (station-level, idle EVSE)
     try {
-      await ctx.client.sendCall('MeterValues', {
+      const resp1 = await ctx.client.sendCall('MeterValues', {
         evseId: 0,
         meterValue: [
           {
@@ -141,13 +142,13 @@ export const TC_J_02_CSMS: TestCase = {
           },
         ],
       });
-      steps.push({
-        step: 1,
-        description: 'MeterValues clock-aligned for evseId=0',
-        status: 'passed',
-        expected: 'MeterValuesResponse received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(
+        steps,
+        1,
+        'MeterValues clock-aligned for evseId=0',
+        resp1,
+        'MeterValuesResponse received',
+      );
     } catch {
       steps.push({
         step: 1,
@@ -184,9 +185,9 @@ export const TC_J_02_CSMS: TestCase = {
         steps.push({
           step: i + 2,
           description: `TransactionEvent Updated MeterValueClock #${String(i + 1)}`,
-          status: 'passed',
+          status: res != null ? 'passed' : 'failed',
           expected: 'TransactionEventResponse received',
-          actual: `Response keys: ${Object.keys(res).join(', ')}`,
+          actual: res != null ? `Response keys: ${Object.keys(res).join(', ')}` : 'No response',
         });
       } catch {
         steps.push({
@@ -276,13 +277,14 @@ export const TC_J_03_CSMS: TestCase = {
       ],
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Ended with clock-aligned and Transaction.End meter values',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Ended with clock-aligned and Transaction.End meter values',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -380,13 +382,14 @@ export const TC_J_04_CSMS: TestCase = {
       ],
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Ended with signed clock-aligned meter values',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Ended with signed clock-aligned meter values',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

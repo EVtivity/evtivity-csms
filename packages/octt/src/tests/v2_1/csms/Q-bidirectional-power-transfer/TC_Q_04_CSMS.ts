@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_Q_109_CSMS: TestCase = {
   id: 'TC_Q_109_CSMS',
@@ -176,13 +177,14 @@ export const TC_Q_110_CSMS: TestCase = {
         });
         const status2 = resp2['status'] as string;
         // The CSMS does not track dynamic schedule profiles. Advisory step.
-        steps.push({
-          step: 3,
-          description: 'Pull with valid profileId (advisory)',
-          status: 'passed',
-          expected: 'status = Accepted (not enforced)',
-          actual: `status = ${status2}`,
-        });
+        pushSendAckStep(
+          steps,
+          3,
+          'Pull with valid profileId (advisory)',
+          resp2,
+          'status = Accepted (not enforced)',
+          `status = ${status2}`,
+        );
       } catch {
         steps.push({
           step: 3,

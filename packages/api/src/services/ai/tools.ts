@@ -26456,11 +26456,18 @@ export function getToolsForCategories(tags: string[]): ExtendedToolDefinition[] 
 /** Flat array of all tools for lookup by name. */
 const ALL_TOOLS: ExtendedToolDefinition[] = Object.values(TOOLS_BY_CATEGORY).flat();
 
+// Indexed by name for O(1) lookup. buildToolRequest fires once per AI
+// tool call, and a linear scan over 600+ tools is wasteful when the
+// name uniquely identifies the tool.
+const TOOL_BY_NAME: Map<string, ExtendedToolDefinition> = new Map(
+  ALL_TOOLS.map((t) => [t.name, t]),
+);
+
 export function buildToolRequest(
   toolName: string,
   args: Record<string, unknown>,
 ): { method: string; url: string; query: Record<string, string>; body?: Record<string, unknown> } {
-  const tool = ALL_TOOLS.find((t) => t.name === toolName);
+  const tool = TOOL_BY_NAME.get(toolName);
   if (!tool) throw new Error(`Unknown tool: ${toolName}`);
 
   let url = tool.pathTemplate;

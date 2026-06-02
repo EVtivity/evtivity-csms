@@ -140,11 +140,10 @@ function getQueryKeysForEvent(event: CsmsEvent): string[][] {
     case 'supportCase.created':
     case 'supportCase.updated':
     case 'supportCase.newMessage':
+      // Prefix invalidation: ['support-cases'] also matches ['support-cases', id]
+      // so the detail page refetches without a more specific push.
       keys.push(['support-cases']);
       keys.push(['support-cases-unread-count']);
-      if (event.caseId != null) {
-        keys.push(['support-cases', event.caseId]);
-      }
       break;
 
     case 'certificate.signed':

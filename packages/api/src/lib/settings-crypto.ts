@@ -14,6 +14,34 @@ export function isEncryptedAtRest(key: string): boolean {
   return key.endsWith('Enc');
 }
 
+// scrypt key derivation costs ~30-50ms per call. GET /v1/settings can decrypt
+// 10+ *Enc keys in a tight loop, blocking the event loop for hundreds of ms.
+// Ciphertexts only change when an operator saves a setting (rare), so a small
+// LRU bounded by ciphertext content is safe and pays back on every refetch.
+const DECRYPT_CACHE_MAX = 256;
+const decryptCache = new Map<string, string>();
+
+function cachedDecrypt(ciphertext: string, encryptionKey: string): string {
+  const cacheKey = `${String(encryptionKey.length)}:${ciphertext}`;
+  const hit = decryptCache.get(cacheKey);
+  if (hit != null) {
+    decryptCache.delete(cacheKey);
+    decryptCache.set(cacheKey, hit);
+    return hit;
+  }
+  const plaintext = decryptString(ciphertext, encryptionKey);
+  if (decryptCache.size >= DECRYPT_CACHE_MAX) {
+    const oldest = decryptCache.keys().next().value;
+    if (oldest != null) decryptCache.delete(oldest);
+  }
+  decryptCache.set(cacheKey, plaintext);
+  return plaintext;
+}
+
+export function clearSettingsDecryptCache(): void {
+  decryptCache.clear();
+}
+
 /**
  * Returns the plaintext for an *Enc key, or the value as-is for any other
  * key. Safe to call on every row in a bulk GET; non-Enc keys pass straight
@@ -24,7 +52,7 @@ export function decryptForRead(key: string, value: unknown): unknown {
   if (typeof value !== 'string' || value === '') return value;
   const encryptionKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
   if (encryptionKey === '') return value;
-  return decryptString(value, encryptionKey);
+  return cachedDecrypt(value, encryptionKey);
 }
 
 /**

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../types.js';
+import { pushSendAckStep } from '../../../csms-test-helpers.js';
 
 export const TC_044_1_CSMS: TestCase = {
   id: 'TC_044_1_CSMS',
@@ -48,49 +49,27 @@ export const TC_044_1_CSMS: TestCase = {
     });
 
     // Downloading
-    await ctx.client.sendCall('FirmwareStatusNotification', { status: 'Downloading' });
-    steps.push({
-      step: 2,
-      description: 'Send FirmwareStatusNotification (Downloading)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'Response received',
+    const resp2 = await ctx.client.sendCall('FirmwareStatusNotification', {
+      status: 'Downloading',
     });
+    pushSendAckStep(steps, 2, 'Send FirmwareStatusNotification (Downloading)', resp2);
 
     // Downloaded
-    await ctx.client.sendCall('FirmwareStatusNotification', { status: 'Downloaded' });
-    steps.push({
-      step: 3,
-      description: 'Send FirmwareStatusNotification (Downloaded)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'Response received',
-    });
+    const resp3 = await ctx.client.sendCall('FirmwareStatusNotification', { status: 'Downloaded' });
+    pushSendAckStep(steps, 3, 'Send FirmwareStatusNotification (Downloaded)', resp3);
 
     // StatusNotification Unavailable
-    await ctx.client.sendCall('StatusNotification', {
+    const resp4 = await ctx.client.sendCall('StatusNotification', {
       connectorId: 1,
       status: 'Unavailable',
       errorCode: 'NoError',
       timestamp: new Date().toISOString(),
     });
-    steps.push({
-      step: 4,
-      description: 'Send StatusNotification (Unavailable)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'Response received',
-    });
+    pushSendAckStep(steps, 4, 'Send StatusNotification (Unavailable)', resp4);
 
     // Installing
-    await ctx.client.sendCall('FirmwareStatusNotification', { status: 'Installing' });
-    steps.push({
-      step: 5,
-      description: 'Send FirmwareStatusNotification (Installing)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'Response received',
-    });
+    const resp5 = await ctx.client.sendCall('FirmwareStatusNotification', { status: 'Installing' });
+    pushSendAckStep(steps, 5, 'Send FirmwareStatusNotification (Installing)', resp5);
 
     // Reboot
     const bootResp = await ctx.client.sendCall('BootNotification', {
@@ -114,14 +93,8 @@ export const TC_044_1_CSMS: TestCase = {
     });
 
     // Installed
-    await ctx.client.sendCall('FirmwareStatusNotification', { status: 'Installed' });
-    steps.push({
-      step: 7,
-      description: 'Send FirmwareStatusNotification (Installed)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'Response received',
-    });
+    const resp7 = await ctx.client.sendCall('FirmwareStatusNotification', { status: 'Installed' });
+    pushSendAckStep(steps, 7, 'Send FirmwareStatusNotification (Installed)', resp7);
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

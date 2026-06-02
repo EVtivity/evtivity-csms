@@ -2505,7 +2505,10 @@
     "aiAssist": "AI 초안",
     "aiAssistTooltip": "AI 답변 초안 생성",
     "aiAssistLoading": "초안 생성 중...",
-    "aiAssistError": "AI 초안 생성에 실패했습니다"
+    "aiAssistError": "AI 초안 생성에 실패했습니다",
+    "aiAssistOverwriteTitle": "기존 초안을 교체하시겠습니까?",
+    "aiAssistOverwriteDescription": "AI 초안을 생성하면 메시지 상자에 이미 있는 텍스트가 덮어쓰여집니다. 계속하시겠습니까?",
+    "aiAssistOverwriteConfirm": "교체"
   },
   "vehicles": {
     "title": "차량",
@@ -2774,6 +2777,7 @@
     "title": "챗봇 AI",
     "placeholder": "충전기, 세션, 매출에 대해 질문하세요...",
     "send": "전송",
+    "resend": "다시 전송",
     "typing": "생각 중...",
     "rateLimited": "요청이 너무 많습니다. 잠시 기다려 주세요.",
     "notConfigured": "챗봇 AI가 구성되지 않았습니다. 프로필에서 API 키를 설정하세요.",

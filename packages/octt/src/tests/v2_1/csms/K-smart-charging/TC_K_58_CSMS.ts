@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 /**
  * TC_K_58_CSMS: Renegotiating a Charging Schedule ISO 15118-2 - Initiated by CSMS
@@ -345,13 +346,14 @@ export const TC_K_113_CSMS: TestCase = {
           chargingSchedulePeriod: [{ startPeriod: 0, limit: 5000.0 }],
         },
       });
-      steps.push({
-        step: 2,
-        description: 'Send NotifyEVChargingScheduleRequest',
-        status: 'passed',
-        expected: 'Response received',
-        actual: `status = ${String(schedRes['status'])}`,
-      });
+      pushSendAckStep(
+        steps,
+        2,
+        'Send NotifyEVChargingScheduleRequest',
+        schedRes,
+        'Response received',
+        `status = ${String(schedRes['status'])}`,
+      );
     }
 
     return {

@@ -84,7 +84,7 @@ export function SiteDetail(): React.JSX.Element {
   const canReadMaintenance = useHasPermission('maintenance:read');
 
   const { data: site, isLoading } = useQuery({
-    queryKey: ['sites', id],
+    queryKey: ['sites'],
     queryFn: () => api.get<Site>(`/v1/sites/${id ?? ''}`),
     enabled: id != null,
   });
@@ -157,7 +157,7 @@ export function SiteDetail(): React.JSX.Element {
     mutationFn: (enabled: boolean) =>
       api.patch<Site>(`/v1/sites/${id ?? ''}`, { reservationsEnabled: enabled }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['sites', id] });
+      void queryClient.invalidateQueries({ queryKey: ['sites'] });
     },
   });
 

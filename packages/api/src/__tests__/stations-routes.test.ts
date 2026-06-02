@@ -139,6 +139,14 @@ vi.mock('@evtivity/database', () => {
     pricingGroups: {},
     guestSessions: {},
     configTemplates: {},
+    cssStations: { id: 'id', stationId: 'stationId' },
+    cssEvses: {
+      cssStationId: 'cssStationId',
+      evseId: 'evseId',
+      connectorId: 'connectorId',
+      connectorType: 'connectorType',
+      maxPowerW: 'maxPowerW',
+    },
     writeAudit: vi.fn().mockResolvedValue(undefined),
     siteAuditLog: {},
     stationAuditLog: {},
@@ -1021,12 +1029,15 @@ describe('Station routes - handler logic', () => {
   describe('GET /v1/stations/:id/ocpp-logs', () => {
     it('returns paginated OCPP logs with actions list', async () => {
       const logRow = {
-        id: 'log-1',
+        id: 1,
         stationId: VALID_STATION_ID,
         action: 'Heartbeat',
         direction: 'inbound',
-        messageId: null,
+        messageType: 2,
+        messageId: 'msg-1',
         payload: null,
+        errorCode: null,
+        errorDescription: null,
         createdAt: '2024-01-01T00:00:00.000Z',
       };
       // Promise.all: data rows, count rows, then distinct actions

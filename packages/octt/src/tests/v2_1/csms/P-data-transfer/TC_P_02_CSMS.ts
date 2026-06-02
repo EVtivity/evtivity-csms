@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_P_02_CSMS: TestCase = {
   id: 'TC_P_02_CSMS',
@@ -63,20 +64,14 @@ export const TC_P_03_CSMS: TestCase = {
       reason: 'PowerUp',
     });
     try {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp1 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Available',
         evseId: 1,
         connectorId: 1,
         customData: { vendorId: 'TestVendor', testField: 'testValue' },
       });
-      steps.push({
-        step: 1,
-        description: 'Send StatusNotification with customData',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 1, 'Send StatusNotification with customData', resp1);
     } catch {
       steps.push({
         step: 1,
@@ -87,7 +82,7 @@ export const TC_P_03_CSMS: TestCase = {
       });
     }
     try {
-      await ctx.client.sendCall('TransactionEvent', {
+      const resp2 = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Started',
         timestamp: new Date().toISOString(),
         triggerReason: 'Authorized',
@@ -99,13 +94,7 @@ export const TC_P_03_CSMS: TestCase = {
         },
         customData: { vendorId: 'TestVendor', customField: 123 },
       });
-      steps.push({
-        step: 2,
-        description: 'Send TransactionEvent with customData',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 2, 'Send TransactionEvent with customData', resp2);
     } catch {
       steps.push({
         step: 2,

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 /**
  * TC_K_48_CSMS: EMS Control - Set / Update External Charging Limit (not on a transaction)
@@ -29,13 +30,14 @@ export const TC_K_48_CSMS: TestCase = {
       chargingLimit: { chargingLimitSource: 'EMS' },
     });
 
-    steps.push({
-      step: 1,
-      description: 'Send NotifyChargingLimitRequest with chargingLimitSource EMS',
-      status: 'passed',
-      expected: 'NotifyChargingLimitResponse received',
-      actual: `Response keys: ${Object.keys(res).join(', ') || 'empty (accepted)'}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'Send NotifyChargingLimitRequest with chargingLimitSource EMS',
+      res,
+      'NotifyChargingLimitResponse received',
+      `Response keys: ${Object.keys(res).join(', ') || 'empty (accepted)'}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -122,13 +124,14 @@ export const TC_K_52_CSMS: TestCase = {
         tbc: false,
       });
 
-      steps.push({
-        step: 2,
-        description: 'Send ReportChargingProfilesRequest with ExternalConstraints',
-        status: 'passed',
-        expected: 'ReportChargingProfilesResponse received',
-        actual: `Response keys: ${Object.keys(reportRes).join(', ')}`,
-      });
+      pushSendAckStep(
+        steps,
+        2,
+        'Send ReportChargingProfilesRequest with ExternalConstraints',
+        reportRes,
+        'ReportChargingProfilesResponse received',
+        `Response keys: ${Object.keys(reportRes).join(', ')}`,
+      );
     }
 
     return {

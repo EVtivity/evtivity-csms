@@ -176,6 +176,21 @@ describe('writeAudit', () => {
     expect(out['meta']?.['other']).toBe('safe');
   });
 
+  it('redactAuditPayload recurses into arrays of objects', () => {
+    const out = redactAuditPayload({
+      tokens: [
+        { id: 't1', tokenHash: 'h1', label: 'main' },
+        { id: 't2', tokenHash: 'h2', label: 'backup' },
+      ],
+      certs: [{ clientCert: 'PEM', clientKey: 'KEY' }],
+    }) as Record<string, Array<Record<string, unknown>>>;
+    expect(out['tokens']?.[0]?.['tokenHash']).toBe('<redacted>');
+    expect(out['tokens']?.[0]?.['label']).toBe('main');
+    expect(out['tokens']?.[1]?.['tokenHash']).toBe('<redacted>');
+    expect(out['certs']?.[0]?.['clientCert']).toBe('<redacted>');
+    expect(out['certs']?.[0]?.['clientKey']).toBe('<redacted>');
+  });
+
   it('null-defaults all optional actor and snapshot fields', async () => {
     const insertedValues: unknown[] = [];
     const fakeDb = {

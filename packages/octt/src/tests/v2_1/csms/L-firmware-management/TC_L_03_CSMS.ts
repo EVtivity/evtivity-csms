@@ -62,13 +62,13 @@ export const TC_L_17_CSMS: TestCase = {
         if (fwStatus === 'Published') {
           payload['location'] = ['https://firmware.example.com/fw-2.0.0.bin'];
         }
-        await ctx.client.sendCall('PublishFirmwareStatusNotification', payload);
+        const resp65 = await ctx.client.sendCall('PublishFirmwareStatusNotification', payload);
         steps.push({
           step: i + 2,
           description: `Send PublishFirmwareStatusNotification with status ${fwStatus}`,
-          status: 'passed',
+          status: resp65 != null ? 'passed' : 'failed',
           expected: 'Response received',
-          actual: 'Response received',
+          actual: resp65 != null ? 'Response received' : 'No response',
         });
       } catch {
         steps.push({
@@ -144,13 +144,15 @@ export const TC_L_24_CSMS: TestCase = {
       const fwStatus = statuses[i];
       if (fwStatus == null) continue;
       try {
-        await ctx.client.sendCall('PublishFirmwareStatusNotification', { status: fwStatus });
+        const resp147 = await ctx.client.sendCall('PublishFirmwareStatusNotification', {
+          status: fwStatus,
+        });
         steps.push({
           step: i + 2,
           description: `Send PublishFirmwareStatusNotification with status ${fwStatus}`,
-          status: 'passed',
+          status: resp147 != null ? 'passed' : 'failed',
           expected: 'Response received',
-          actual: 'Response received',
+          actual: resp147 != null ? 'Response received' : 'No response',
         });
       } catch {
         steps.push({
@@ -226,13 +228,15 @@ export const TC_L_19_CSMS: TestCase = {
       const fwStatus = statuses[i];
       if (fwStatus == null) continue;
       try {
-        await ctx.client.sendCall('PublishFirmwareStatusNotification', { status: fwStatus });
+        const resp229 = await ctx.client.sendCall('PublishFirmwareStatusNotification', {
+          status: fwStatus,
+        });
         steps.push({
           step: i + 2,
           description: `Send PublishFirmwareStatusNotification with status ${fwStatus}`,
-          status: 'passed',
+          status: resp229 != null ? 'passed' : 'failed',
           expected: 'Response received',
-          actual: 'Response received',
+          actual: resp229 != null ? 'Response received' : 'No response',
         });
       } catch {
         steps.push({
@@ -308,13 +312,15 @@ export const TC_L_20_CSMS: TestCase = {
       const fwStatus = statuses[i];
       if (fwStatus == null) continue;
       try {
-        await ctx.client.sendCall('PublishFirmwareStatusNotification', { status: fwStatus });
+        const resp311 = await ctx.client.sendCall('PublishFirmwareStatusNotification', {
+          status: fwStatus,
+        });
         steps.push({
           step: i + 2,
           description: `Send PublishFirmwareStatusNotification with status ${fwStatus}`,
-          status: 'passed',
+          status: resp311 != null ? 'passed' : 'failed',
           expected: 'Response received',
-          actual: 'Response received',
+          actual: resp311 != null ? 'Response received' : 'No response',
         });
       } catch {
         steps.push({

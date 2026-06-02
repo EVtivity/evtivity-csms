@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 /**
  * TC_G_20_CSMS: Connector status Notification - Lock Failure
@@ -56,13 +57,14 @@ export const TC_G_20_CSMS: TestCase = {
       ],
     });
 
-    steps.push({
-      step: 1,
-      description: 'NotifyEventRequest sent with ConnectorPlugRetentionLock Problem = true',
-      status: 'passed',
-      expected: 'NotifyEventResponse received',
-      actual: `Response keys: ${Object.keys(notifyRes).join(', ') || '(empty)'}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'NotifyEventRequest sent with ConnectorPlugRetentionLock Problem = true',
+      notifyRes,
+      'NotifyEventResponse received',
+      `Response keys: ${Object.keys(notifyRes).join(', ') || '(empty)'}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

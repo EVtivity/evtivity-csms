@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 /**
  * TC_I_02_CSMS: Show EV Driver Final Total Cost After Charging
@@ -160,13 +161,14 @@ export const TC_I_02_CSMS: TestCase = {
       ],
     });
 
-    steps.push({
-      step: 3,
-      description: 'TransactionEvent Ended with final meter value',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'TransactionEvent Ended with final meter value',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     // Wait for optional CostUpdatedRequest from CSMS
     let receivedCostUpdated = false;

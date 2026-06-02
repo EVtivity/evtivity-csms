@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../types.js';
+import { pushSendAckStep } from '../../../csms-test-helpers.js';
 
 export const TC_046_CSMS: TestCase = {
   id: 'TC_046_CSMS',
@@ -54,19 +55,13 @@ export const TC_046_CSMS: TestCase = {
     });
 
     // StatusNotification Reserved
-    await ctx.client.sendCall('StatusNotification', {
+    const resp2 = await ctx.client.sendCall('StatusNotification', {
       connectorId,
       status: 'Reserved',
       errorCode: 'NoError',
       timestamp: new Date().toISOString(),
     });
-    steps.push({
-      step: 2,
-      description: 'Send StatusNotification (Reserved)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'Response received',
-    });
+    pushSendAckStep(steps, 2, 'Send StatusNotification (Reserved)', resp2);
 
     // Start charging with the reserved idTag
     const idTag = reserveIdTag || 'OCTT_TAG_001';

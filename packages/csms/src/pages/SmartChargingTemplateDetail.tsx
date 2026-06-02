@@ -174,7 +174,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
   const pushHistoryLimit = 10;
 
   const { data: template, isLoading } = useQuery({
-    queryKey: ['smart-charging-templates', id],
+    queryKey: ['smart-charging-templates'],
     queryFn: () => api.get<TemplateDetail>(`/v1/smart-charging/templates/${id ?? ''}`),
     enabled: id != null,
   });
@@ -198,7 +198,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
     mutationFn: (body: Record<string, unknown>) =>
       api.patch(`/v1/smart-charging/templates/${id ?? ''}`, body),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['smart-charging-templates', id] });
+      void queryClient.invalidateQueries({ queryKey: ['smart-charging-templates'] });
       void queryClient.invalidateQueries({
         queryKey: ['smart-charging-templates', id, 'matching-stations'],
       });

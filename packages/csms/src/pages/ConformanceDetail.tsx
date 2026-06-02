@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTab } from '@/hooks/use-tab';
 import { useQuery } from '@tanstack/react-query';
@@ -10,6 +10,7 @@ import type { TFunction } from 'i18next';
 import {
   CheckCircle,
   XCircle,
+  MinusCircle,
   ChevronDown,
   ChevronRight,
   ChevronLeft,
@@ -50,7 +51,7 @@ interface OcttRun {
 interface StepResult {
   step: number;
   description: string;
-  status: 'passed' | 'failed';
+  status: 'passed' | 'failed' | 'skipped';
   expected?: string;
   actual?: string;
 }
@@ -113,7 +114,9 @@ export function ConformanceDetail(): React.JSX.Element {
   });
 
   const isRunInProgress = detail?.run.status === 'running' || detail?.run.status === 'pending';
-  if (!isRunInProgress && isPolling && detail != null) setIsPolling(false);
+  useEffect(() => {
+    if (!isRunInProgress && isPolling && detail != null) setIsPolling(false);
+  }, [isRunInProgress, isPolling, detail]);
 
   const { data: moduleSummary } = useQuery({
     queryKey: ['octt-runs', runId, 'summary'],
@@ -483,6 +486,8 @@ function ResultRow({
                       <TableCell>
                         {step.status === 'passed' ? (
                           <CheckCircle className="h-4 w-4 text-success" />
+                        ) : step.status === 'skipped' ? (
+                          <MinusCircle className="h-4 w-4 text-muted-foreground" />
                         ) : (
                           <XCircle className="h-4 w-4 text-destructive" />
                         )}

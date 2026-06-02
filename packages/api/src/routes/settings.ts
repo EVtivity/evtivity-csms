@@ -396,13 +396,9 @@ export function settingsRoutes(app: FastifyInstance): void {
       },
     },
     async () => {
-      const rows = await db.select().from(settings);
+      const rows = await db.select().from(settings).where(like(settings.key, 's3.%'));
       const map = new Map<string, unknown>();
-      for (const row of rows) {
-        if (row.key.startsWith('s3.')) {
-          map.set(row.key, row.value);
-        }
-      }
+      for (const row of rows) map.set(row.key, row.value);
       const bucket = map.get('s3.bucket') as string | undefined;
       const region = map.get('s3.region') as string | undefined;
       const accessKeyIdEnc = map.get('s3.accessKeyIdEnc') as string | undefined;

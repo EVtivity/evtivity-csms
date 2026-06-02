@@ -104,9 +104,9 @@ export const TC_I_01_CS: CsTestCase = {
     steps.push({
       step: 8,
       description: 'CostUpdatedRequest sent, CostUpdatedResponse received',
-      status: 'passed',
+      status: costRes != null ? 'passed' : 'failed',
       expected: 'CostUpdatedResponse received',
-      actual: `Response: ${JSON.stringify(costRes)}`,
+      actual: costRes != null ? `Response: ${JSON.stringify(costRes)}` : 'No response',
     });
 
     const allPassed = steps.every((s) => s.status === 'passed');

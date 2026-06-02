@@ -23,7 +23,7 @@ const makeNotifyEventTest = (
       reason: 'PowerUp',
     });
     try {
-      await ctx.client.sendCall('NotifyEvent', {
+      const resp1 = await ctx.client.sendCall('NotifyEvent', {
         generatedAt: new Date().toISOString(),
         seqNo: 0,
         tbc: false,
@@ -42,9 +42,9 @@ const makeNotifyEventTest = (
       steps.push({
         step: 1,
         description: `Send NotifyEventRequest`,
-        status: 'passed',
+        status: resp1 != null ? 'passed' : 'failed',
         expected: 'Response received',
-        actual: 'Response received',
+        actual: resp1 != null ? 'Response received' : 'No response',
       });
     } catch {
       steps.push({

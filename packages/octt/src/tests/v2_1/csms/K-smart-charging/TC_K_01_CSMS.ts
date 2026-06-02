@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 // Helper: boot station
 async function boot(ctx: {
@@ -692,13 +693,14 @@ export const TC_K_101_CSMS: TestCase = {
         transactionInfo: { transactionId: txId, operationMode: 'Idle' },
       });
 
-      steps.push({
-        step: 2,
-        description: 'TransactionEvent Updated with OperationModeChanged Idle',
-        status: 'passed',
-        expected: 'TransactionEventResponse received',
-        actual: `Response keys: ${Object.keys(res).join(', ')}`,
-      });
+      pushSendAckStep(
+        steps,
+        2,
+        'TransactionEvent Updated with OperationModeChanged Idle',
+        res,
+        'TransactionEventResponse received',
+        `Response keys: ${Object.keys(res).join(', ')}`,
+      );
     }
 
     return {

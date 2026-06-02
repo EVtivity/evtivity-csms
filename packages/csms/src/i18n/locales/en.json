@@ -2524,7 +2524,10 @@
     "aiAssist": "AI Draft",
     "aiAssistTooltip": "Generate an AI draft reply",
     "aiAssistLoading": "Generating draft...",
-    "aiAssistError": "Failed to generate AI draft"
+    "aiAssistError": "Failed to generate AI draft",
+    "aiAssistOverwriteTitle": "Replace existing draft?",
+    "aiAssistOverwriteDescription": "Generating an AI draft will overwrite the text already in the message box. Continue?",
+    "aiAssistOverwriteConfirm": "Replace"
   },
   "vehicles": {
     "title": "Vehicles",
@@ -2793,6 +2796,7 @@
     "title": "Chatbot AI",
     "placeholder": "Ask about stations, sessions, revenue...",
     "send": "Send",
+    "resend": "Resend",
     "typing": "Thinking...",
     "rateLimited": "Too many requests. Please wait a moment.",
     "notConfigured": "Chatbot AI is not configured. Set up your API key in Profile.",

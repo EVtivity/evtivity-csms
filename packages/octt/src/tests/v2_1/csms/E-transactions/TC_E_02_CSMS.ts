@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_E_02_CSMS: TestCase = {
   id: 'TC_E_02_CSMS',
@@ -36,19 +37,13 @@ export const TC_E_02_CSMS: TestCase = {
     });
 
     // Step 2: StatusNotification Occupied
-    await ctx.client.sendCall('StatusNotification', {
+    const resp2 = await ctx.client.sendCall('StatusNotification', {
       timestamp: new Date().toISOString(),
       connectorStatus: 'Occupied',
       evseId: 1,
       connectorId: 1,
     });
-    steps.push({
-      step: 2,
-      description: 'Send StatusNotification (Occupied)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'Response received',
-    });
+    pushSendAckStep(steps, 2, 'Send StatusNotification (Occupied)', resp2);
 
     // Step 3: TransactionEvent Started with Charging
     const txId = `OCTT-TX-${String(Date.now())}`;

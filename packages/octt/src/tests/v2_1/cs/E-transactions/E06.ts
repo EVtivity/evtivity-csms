@@ -162,19 +162,27 @@ export const TC_E_17_CS: CsTestCase = {
       actual: `triggerReason=${trigReason}, chargingState=${chState}, stoppedReason=${stoppedReason}, eventType=${txMsg ? 'Ended' : 'timeout'}`,
     });
 
-    // Drain leftover StatusNotifications
-    for (let _d = 0; _d < 3; _d++) {
+    // Step 3: StatusNotification Available. The buffer also holds the two
+    // pre-charge Occupied notifications (plug-in + transaction begin), so
+    // skip past those until we find the post-unplug Available.
+    const deadline3 = Date.now() + 10000;
+    let connStatus: string | undefined;
+    while (Date.now() < deadline3) {
+      const remaining = deadline3 - Date.now();
+      if (remaining <= 0) break;
       try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
+        const msg = await ctx.server.waitForMessage('StatusNotification', remaining);
+        const s = (msg as Record<string, unknown> | null)?.['connectorStatus'] as
+          | string
+          | undefined;
+        if (s === 'Available') {
+          connStatus = s;
+          break;
+        }
       } catch {
         break;
       }
     }
-
-    // Step 3: StatusNotification Available
-    const statusMsg = await ctx.server.waitForMessage('StatusNotification', 10000);
-    const statusPayload = statusMsg as Record<string, unknown> | null;
-    const connStatus = statusPayload?.['connectorStatus'] as string | undefined;
     steps.push({
       step: 3,
       description: 'StatusNotification Available',

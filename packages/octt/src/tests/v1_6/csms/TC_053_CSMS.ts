@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../types.js';
+import { pushSendAckStep } from '../../../csms-test-helpers.js';
 
 export const TC_053_CSMS: TestCase = {
   id: 'TC_053_CSMS',
@@ -53,19 +54,13 @@ export const TC_053_CSMS: TestCase = {
       actual: reserveReceived ? `Received, reservationId=${String(reservationId)}` : 'Not received',
     });
 
-    await ctx.client.sendCall('StatusNotification', {
+    const resp2 = await ctx.client.sendCall('StatusNotification', {
       connectorId,
       status: 'Reserved',
       errorCode: 'NoError',
       timestamp: new Date().toISOString(),
     });
-    steps.push({
-      step: 2,
-      description: 'Send StatusNotification (Reserved)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'Response received',
-    });
+    pushSendAckStep(steps, 2, 'Send StatusNotification (Reserved)', resp2);
 
     // Authorize with a different child idTag.
     // The CSMS does not support parent/child tag relationships. The child tag will not

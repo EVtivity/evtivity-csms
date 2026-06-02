@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 
 interface CompanySettingsProps {
@@ -27,6 +28,9 @@ export function CompanySettings({
 }: CompanySettingsProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const invalidateSettings = (): Promise<void> =>
+    queryClient.invalidateQueries({ queryKey: ['settings'] });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const faviconInputRef = useRef<HTMLInputElement>(null);
@@ -103,139 +107,108 @@ export function CompanySettings({
         api.put('/v1/settings/company.metaKeywords', { value: vals.metaKeywords }),
       ]),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void invalidateSettings();
     },
   });
 
   const logoUploadMutation = useMutation({
     mutationFn: (dataUri: string) => api.put('/v1/settings/company.logo', { value: dataUri }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void invalidateSettings();
     },
   });
 
   const logoRemoveMutation = useMutation({
     mutationFn: () => api.delete('/v1/settings/company.logo'),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void invalidateSettings();
     },
   });
 
   const faviconUploadMutation = useMutation({
     mutationFn: (dataUri: string) => api.put('/v1/settings/company.favicon', { value: dataUri }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void invalidateSettings();
     },
   });
 
   const faviconRemoveMutation = useMutation({
     mutationFn: () => api.delete('/v1/settings/company.favicon'),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void invalidateSettings();
     },
   });
 
   const ogImageUploadMutation = useMutation({
     mutationFn: (dataUri: string) => api.put('/v1/settings/company.ogImage', { value: dataUri }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void invalidateSettings();
     },
   });
 
   const ogImageRemoveMutation = useMutation({
     mutationFn: () => api.delete('/v1/settings/company.ogImage'),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void invalidateSettings();
     },
   });
 
   const uploadMutation = useMutation({
     mutationFn: (svg: string) => api.put('/v1/settings/qr_code_icon', { value: svg }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void invalidateSettings();
     },
   });
 
   const removeMutation = useMutation({
     mutationFn: () => api.delete('/v1/settings/qr_code_icon'),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void invalidateSettings();
     },
   });
 
-  function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>): void {
+  function readImageAsDataUri(
+    e: React.ChangeEvent<HTMLInputElement>,
+    inputRef: React.RefObject<HTMLInputElement | null>,
+    onResult: (dataUri: string) => void,
+  ): void {
     const file = e.target.files?.[0];
     if (file == null) return;
 
     if (!file.type.startsWith('image/')) {
-      alert(t('settings.invalidImage'));
+      toast({ title: t('settings.invalidImage'), variant: 'destructive' });
       return;
     }
-
     if (file.size > 512 * 1024) {
-      alert(t('settings.logoTooLarge'));
+      toast({ title: t('settings.logoTooLarge'), variant: 'destructive' });
       return;
     }
 
     const reader = new FileReader();
     reader.onload = () => {
-      logoUploadMutation.mutate(reader.result as string);
+      onResult(reader.result as string);
     };
     reader.readAsDataURL(file);
 
-    if (logoInputRef.current != null) {
-      logoInputRef.current.value = '';
-    }
+    if (inputRef.current != null) inputRef.current.value = '';
+  }
+
+  function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>): void {
+    readImageAsDataUri(e, logoInputRef, (uri) => {
+      logoUploadMutation.mutate(uri);
+    });
   }
 
   function handleFaviconChange(e: React.ChangeEvent<HTMLInputElement>): void {
-    const file = e.target.files?.[0];
-    if (file == null) return;
-
-    if (!file.type.startsWith('image/')) {
-      alert(t('settings.invalidImage'));
-      return;
-    }
-
-    if (file.size > 512 * 1024) {
-      alert(t('settings.logoTooLarge'));
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      faviconUploadMutation.mutate(reader.result as string);
-    };
-    reader.readAsDataURL(file);
-
-    if (faviconInputRef.current != null) {
-      faviconInputRef.current.value = '';
-    }
+    readImageAsDataUri(e, faviconInputRef, (uri) => {
+      faviconUploadMutation.mutate(uri);
+    });
   }
 
   function handleOgImageChange(e: React.ChangeEvent<HTMLInputElement>): void {
-    const file = e.target.files?.[0];
-    if (file == null) return;
-
-    if (!file.type.startsWith('image/')) {
-      alert(t('settings.invalidImage'));
-      return;
-    }
-
-    if (file.size > 512 * 1024) {
-      alert(t('settings.logoTooLarge'));
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      ogImageUploadMutation.mutate(reader.result as string);
-    };
-    reader.readAsDataURL(file);
-
-    if (ogImageInputRef.current != null) {
-      ogImageInputRef.current.value = '';
-    }
+    readImageAsDataUri(e, ogImageInputRef, (uri) => {
+      ogImageUploadMutation.mutate(uri);
+    });
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>): void {
@@ -246,7 +219,7 @@ export function CompanySettings({
     reader.onload = () => {
       const text = reader.result as string;
       if (!text.trimStart().startsWith('<svg')) {
-        alert(t('settings.invalidSvg'));
+        toast({ title: t('settings.invalidSvg'), variant: 'destructive' });
         return;
       }
       uploadMutation.mutate(text);
@@ -536,7 +509,6 @@ export function CompanySettings({
                 setCompanyThemeColor(e.target.value);
               }}
               className="w-32"
-              maxLength={7}
               placeholder="#2563eb"
             />
           </div>

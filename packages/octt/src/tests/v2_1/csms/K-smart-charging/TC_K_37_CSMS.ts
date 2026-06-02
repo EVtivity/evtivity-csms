@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 /**
  * TC_K_37_CSMS: Remote start transaction with charging profile - Success
@@ -102,13 +103,14 @@ export const TC_K_37_CSMS: TestCase = {
         idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
       });
 
-      steps.push({
-        step: 2,
-        description: 'TransactionEvent Started with RemoteStart',
-        status: 'passed',
-        expected: 'TransactionEventResponse received',
-        actual: `Response keys: ${Object.keys(res).join(', ')}`,
-      });
+      pushSendAckStep(
+        steps,
+        2,
+        'TransactionEvent Started with RemoteStart',
+        res,
+        'TransactionEventResponse received',
+        `Response keys: ${Object.keys(res).join(', ')}`,
+      );
     }
 
     return {

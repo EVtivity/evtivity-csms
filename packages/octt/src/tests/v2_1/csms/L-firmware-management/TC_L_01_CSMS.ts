@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 // L01: Secure Firmware Update - Installation successful
 export const TC_L_01_CSMS: TestCase = {
@@ -75,7 +76,7 @@ export const TC_L_01_CSMS: TestCase = {
       const fwStatus = statuses[i];
       if (fwStatus == null) continue;
       try {
-        await ctx.client.sendCall('FirmwareStatusNotification', {
+        const resp82 = await ctx.client.sendCall('FirmwareStatusNotification', {
           status: fwStatus,
           requestId:
             (updateFirmwarePayload as unknown as Record<string, unknown>)?.['requestId'] ?? 1,
@@ -83,9 +84,9 @@ export const TC_L_01_CSMS: TestCase = {
         steps.push({
           step: i + 2,
           description: `Send FirmwareStatusNotification with status ${fwStatus}`,
-          status: 'passed',
+          status: resp82 != null ? 'passed' : 'failed',
           expected: 'Response received',
-          actual: 'Response received',
+          actual: resp82 != null ? 'Response received' : 'No response',
         });
       } catch {
         steps.push({
@@ -124,19 +125,13 @@ export const TC_L_01_CSMS: TestCase = {
 
     // Step 8: Send StatusNotification Available
     try {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp8 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Available',
         evseId: 1,
         connectorId: 1,
       });
-      steps.push({
-        step: 8,
-        description: 'Send StatusNotification Available after reboot',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 8, 'Send StatusNotification Available after reboot', resp8);
     } catch {
       steps.push({
         step: 8,
@@ -149,18 +144,12 @@ export const TC_L_01_CSMS: TestCase = {
 
     // Step 9: Send final FirmwareStatusNotification Installed
     try {
-      await ctx.client.sendCall('FirmwareStatusNotification', {
+      const resp9 = await ctx.client.sendCall('FirmwareStatusNotification', {
         status: 'Installed',
         requestId:
           (updateFirmwarePayload as unknown as Record<string, unknown>)?.['requestId'] ?? 1,
       });
-      steps.push({
-        step: 9,
-        description: 'Send FirmwareStatusNotification with status Installed',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 9, 'Send FirmwareStatusNotification with status Installed', resp9);
     } catch {
       steps.push({
         step: 9,
@@ -246,13 +235,15 @@ export const TC_L_02_CSMS: TestCase = {
       const fwStatus = statuses[i];
       if (fwStatus == null) continue;
       try {
-        await ctx.client.sendCall('FirmwareStatusNotification', { status: fwStatus });
+        const resp249 = await ctx.client.sendCall('FirmwareStatusNotification', {
+          status: fwStatus,
+        });
         steps.push({
           step: i + 2,
           description: `Send FirmwareStatusNotification with status ${fwStatus}`,
-          status: 'passed',
+          status: resp249 != null ? 'passed' : 'failed',
           expected: 'Response received',
-          actual: 'Response received',
+          actual: resp249 != null ? 'Response received' : 'No response',
         });
       } catch {
         steps.push({
@@ -277,14 +268,8 @@ export const TC_L_02_CSMS: TestCase = {
       actual: `status = ${bootResp['status'] as string}`,
     });
 
-    await ctx.client.sendCall('FirmwareStatusNotification', { status: 'Installed' });
-    steps.push({
-      step: 9,
-      description: 'Send FirmwareStatusNotification Installed',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'Response received',
-    });
+    const resp9 = await ctx.client.sendCall('FirmwareStatusNotification', { status: 'Installed' });
+    pushSendAckStep(steps, 9, 'Send FirmwareStatusNotification Installed', resp9);
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -360,13 +345,15 @@ export const TC_L_03_CSMS: TestCase = {
       const fwStatus = statuses[i];
       if (fwStatus == null) continue;
       try {
-        await ctx.client.sendCall('FirmwareStatusNotification', { status: fwStatus });
+        const resp363 = await ctx.client.sendCall('FirmwareStatusNotification', {
+          status: fwStatus,
+        });
         steps.push({
           step: i + 2,
           description: `Send FirmwareStatusNotification with status ${fwStatus}`,
-          status: 'passed',
+          status: resp363 != null ? 'passed' : 'failed',
           expected: 'Response received',
-          actual: 'Response received',
+          actual: resp363 != null ? 'Response received' : 'No response',
         });
       } catch {
         steps.push({
@@ -578,13 +565,15 @@ export const TC_L_06_CSMS: TestCase = {
       const fwStatus = statuses[i];
       if (fwStatus == null) continue;
       try {
-        await ctx.client.sendCall('FirmwareStatusNotification', { status: fwStatus });
+        const resp581 = await ctx.client.sendCall('FirmwareStatusNotification', {
+          status: fwStatus,
+        });
         steps.push({
           step: i + 2,
           description: `Send FirmwareStatusNotification with status ${fwStatus}`,
-          status: 'passed',
+          status: resp581 != null ? 'passed' : 'failed',
           expected: 'Response received',
-          actual: 'Response received',
+          actual: resp581 != null ? 'Response received' : 'No response',
         });
       } catch {
         steps.push({
@@ -599,17 +588,11 @@ export const TC_L_06_CSMS: TestCase = {
 
     // Send SecurityEventNotification
     try {
-      await ctx.client.sendCall('SecurityEventNotification', {
+      const resp5 = await ctx.client.sendCall('SecurityEventNotification', {
         type: 'InvalidFirmwareSignature',
         timestamp: new Date().toISOString(),
       });
-      steps.push({
-        step: 5,
-        description: 'Send SecurityEventNotification InvalidFirmwareSignature',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 5, 'Send SecurityEventNotification InvalidFirmwareSignature', resp5);
     } catch {
       steps.push({
         step: 5,
@@ -685,13 +668,15 @@ export const TC_L_07_CSMS: TestCase = {
       const fwStatus = statuses[i];
       if (fwStatus == null) continue;
       try {
-        await ctx.client.sendCall('FirmwareStatusNotification', { status: fwStatus });
+        const resp688 = await ctx.client.sendCall('FirmwareStatusNotification', {
+          status: fwStatus,
+        });
         steps.push({
           step: i + 2,
           description: `Send FirmwareStatusNotification with status ${fwStatus}`,
-          status: 'passed',
+          status: resp688 != null ? 'passed' : 'failed',
           expected: 'Response received',
-          actual: 'Response received',
+          actual: resp688 != null ? 'Response received' : 'No response',
         });
       } catch {
         steps.push({
@@ -776,13 +761,15 @@ export const TC_L_08_CSMS: TestCase = {
       const fwStatus = statuses[i];
       if (fwStatus == null) continue;
       try {
-        await ctx.client.sendCall('FirmwareStatusNotification', { status: fwStatus });
+        const resp779 = await ctx.client.sendCall('FirmwareStatusNotification', {
+          status: fwStatus,
+        });
         steps.push({
           step: i + 2,
           description: `Send FirmwareStatusNotification with status ${fwStatus}`,
-          status: 'passed',
+          status: resp779 != null ? 'passed' : 'failed',
           expected: 'Response received',
-          actual: 'Response received',
+          actual: resp779 != null ? 'Response received' : 'No response',
         });
       } catch {
         steps.push({
@@ -882,14 +869,10 @@ export const TC_L_09_CSMS: TestCase = {
     });
 
     try {
-      await ctx.client.sendCall('FirmwareStatusNotification', { status: 'InstallationFailed' });
-      steps.push({
-        step: 3,
-        description: 'Send FirmwareStatusNotification InstallationFailed',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
+      const resp3 = await ctx.client.sendCall('FirmwareStatusNotification', {
+        status: 'InstallationFailed',
       });
+      pushSendAckStep(steps, 3, 'Send FirmwareStatusNotification InstallationFailed', resp3);
     } catch {
       steps.push({
         step: 3,
@@ -968,17 +951,17 @@ export const TC_L_10_CSMS: TestCase = {
 
     // Send FirmwareStatusNotification with InstallationFailed
     try {
-      await ctx.client.sendCall('FirmwareStatusNotification', {
+      const resp2 = await ctx.client.sendCall('FirmwareStatusNotification', {
         status: 'InstallationFailed',
         requestId: requestId ?? 1,
       });
-      steps.push({
-        step: 2,
-        description: 'Send FirmwareStatusNotification with status InstallationFailed',
-        status: 'passed',
-        expected: 'FirmwareStatusNotificationResponse received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(
+        steps,
+        2,
+        'Send FirmwareStatusNotification with status InstallationFailed',
+        resp2,
+        'FirmwareStatusNotificationResponse received',
+      );
     } catch {
       steps.push({
         step: 2,
@@ -1085,14 +1068,8 @@ export const TC_L_11_CSMS: TestCase = {
       actual: `status = ${bootResp['status'] as string}`,
     });
 
-    await ctx.client.sendCall('FirmwareStatusNotification', { status: 'Installed' });
-    steps.push({
-      step: 3,
-      description: 'Send FirmwareStatusNotification Installed',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'Response received',
-    });
+    const resp3 = await ctx.client.sendCall('FirmwareStatusNotification', { status: 'Installed' });
+    pushSendAckStep(steps, 3, 'Send FirmwareStatusNotification Installed', resp3);
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -1175,17 +1152,16 @@ export const TC_L_13_CSMS: TestCase = {
 
     // Send DownloadScheduled status
     try {
-      await ctx.client.sendCall('FirmwareStatusNotification', {
+      const resp2 = await ctx.client.sendCall('FirmwareStatusNotification', {
         status: 'DownloadScheduled',
         requestId: requestId ?? 1,
       });
-      steps.push({
-        step: 2,
-        description: 'Send FirmwareStatusNotification with status DownloadScheduled',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(
+        steps,
+        2,
+        'Send FirmwareStatusNotification with status DownloadScheduled',
+        resp2,
+      );
     } catch {
       steps.push({
         step: 2,
@@ -1198,19 +1174,18 @@ export const TC_L_13_CSMS: TestCase = {
 
     // Send StatusNotification Unavailable for connector without transaction
     try {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp3 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Unavailable',
         evseId: 2,
         connectorId: 1,
       });
-      steps.push({
-        step: 3,
-        description: 'Send StatusNotification Unavailable for non-transaction connector',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'Send StatusNotification Unavailable for non-transaction connector',
+        resp3,
+      );
     } catch {
       steps.push({
         step: 3,
@@ -1223,20 +1198,20 @@ export const TC_L_13_CSMS: TestCase = {
 
     // End the ongoing transaction
     try {
-      await ctx.client.sendCall('TransactionEvent', {
+      const resp4 = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Ended',
         timestamp: new Date().toISOString(),
         triggerReason: 'StopAuthorized',
         seqNo: 1,
         transactionInfo: { transactionId: txId, stoppedReason: 'Local' },
       });
-      steps.push({
-        step: 4,
-        description: 'End the ongoing transaction (StopAuthorized)',
-        status: 'passed',
-        expected: 'TransactionEventResponse received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(
+        steps,
+        4,
+        'End the ongoing transaction (StopAuthorized)',
+        resp4,
+        'TransactionEventResponse received',
+      );
     } catch {
       steps.push({
         step: 4,
@@ -1260,16 +1235,16 @@ export const TC_L_13_CSMS: TestCase = {
       const fwStatus = statuses[i];
       if (fwStatus == null) continue;
       try {
-        await ctx.client.sendCall('FirmwareStatusNotification', {
+        const resp1266 = await ctx.client.sendCall('FirmwareStatusNotification', {
           status: fwStatus,
           requestId: requestId ?? 1,
         });
         steps.push({
           step: 5 + i,
           description: `Send FirmwareStatusNotification with status ${fwStatus}`,
-          status: 'passed',
+          status: resp1266 != null ? 'passed' : 'failed',
           expected: 'Response received',
-          actual: 'Response received',
+          actual: resp1266 != null ? 'Response received' : 'No response',
         });
       } catch {
         steps.push({
@@ -1320,17 +1295,11 @@ export const TC_L_13_CSMS: TestCase = {
 
     // Final Installed status
     try {
-      await ctx.client.sendCall('FirmwareStatusNotification', {
+      const resp11 = await ctx.client.sendCall('FirmwareStatusNotification', {
         status: 'Installed',
         requestId: requestId ?? 1,
       });
-      steps.push({
-        step: 11,
-        description: 'Send FirmwareStatusNotification with status Installed',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 11, 'Send FirmwareStatusNotification with status Installed', resp11);
     } catch {
       steps.push({
         step: 11,

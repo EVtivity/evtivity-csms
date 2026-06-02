@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 /** TC_E_03_CSMS: Local start transaction - Cable plugin first - Success */
 export const TC_E_03_CSMS: TestCase = {
@@ -153,13 +154,14 @@ export const TC_E_04_CSMS: TestCase = {
       idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
     });
 
-    steps.push({
-      step: 3,
-      description: 'TransactionEvent Updated - EnergyTransferStarted',
-      status: 'passed',
-      expected: 'Response received',
-      actual: `Response keys: ${Object.keys(txRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'TransactionEvent Updated - EnergyTransferStarted',
+      txRes,
+      'Response received',
+      `Response keys: ${Object.keys(txRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -227,13 +229,14 @@ export const TC_E_39_CSMS: TestCase = {
       idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
     });
 
-    steps.push({
-      step: 2,
-      description: 'TransactionEvent Started - EnergyTransferStarted',
-      status: 'passed',
-      expected: 'Response received',
-      actual: `Response keys: ${Object.keys(txRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'TransactionEvent Started - EnergyTransferStarted',
+      txRes,
+      'Response received',
+      `Response keys: ${Object.keys(txRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -287,13 +290,14 @@ export const TC_E_38_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Started with triggerReason EVDetected',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(txRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Started with triggerReason EVDetected',
+      txRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(txRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

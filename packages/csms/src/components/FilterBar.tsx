@@ -32,14 +32,19 @@ export function FilterPopover({
 
   useEffect(() => {
     if (!open) return;
-    function handle(e: MouseEvent): void {
+    function handleClick(e: MouseEvent): void {
       if (ref.current != null && !ref.current.contains(e.target as Node)) {
         setOpen(false);
       }
     }
-    document.addEventListener('mousedown', handle);
+    function handleKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
     return () => {
-      document.removeEventListener('mousedown', handle);
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
     };
   }, [open]);
 

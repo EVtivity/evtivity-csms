@@ -30,6 +30,7 @@ export async function tariffBoundaryCheckHandler(log: Logger): Promise<void> {
     const activeSessions = await db
       .select({
         sessionId: chargingSessions.id,
+        transactionId: chargingSessions.transactionId,
         stationUuid: chargingSessions.stationId,
         driverId: chargingSessions.driverId,
         tariffId: chargingSessions.tariffId,
@@ -134,7 +135,12 @@ export async function tariffBoundaryCheckHandler(log: Logger): Promise<void> {
         'Tariff boundary: split session at new tariff',
       );
 
-      // Notify OCPP 2.1 stations of cost update (fire-and-forget)
+      // Notify OCPP 2.1 stations of cost update (fire-and-forget). OCPP
+      // CostUpdated.transactionId is the OCPP-level transaction identifier
+      // the station chose, NOT our internal session UUID. The earlier
+      // payload used session.sessionId (our internal nanoid PK) so stations
+      // couldn't correlate the update with any of their active
+      // transactions and silently dropped it.
       if (session.ocppProtocol != null && session.ocppProtocol.startsWith('ocpp2')) {
         const commandId = crypto.randomUUID();
         await pubsub.publish(
@@ -145,7 +151,7 @@ export async function tariffBoundaryCheckHandler(log: Logger): Promise<void> {
             action: 'CostUpdated',
             payload: {
               totalCost: (session.currentCostCents ?? 0) / 100,
-              transactionId: session.sessionId,
+              transactionId: session.transactionId,
             },
             version: session.ocppProtocol,
           }),

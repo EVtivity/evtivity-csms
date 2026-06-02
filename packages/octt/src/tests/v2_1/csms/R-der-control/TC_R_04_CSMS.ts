@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_R_107_CSMS: TestCase = {
   id: 'TC_R_107_CSMS',
@@ -93,7 +94,7 @@ export const TC_R_107_CSMS: TestCase = {
     });
     if (getCount > 0) {
       try {
-        await ctx.client.sendCall('ReportDERControl', {
+        const resp4 = await ctx.client.sendCall('ReportDERControl', {
           requestId: 1,
           seqNo: 0,
           tbc: false,
@@ -110,13 +111,7 @@ export const TC_R_107_CSMS: TestCase = {
             },
           ],
         });
-        steps.push({
-          step: 4,
-          description: 'Send ReportDERControlRequest',
-          status: 'passed',
-          expected: 'Response received',
-          actual: 'Response received',
-        });
+        pushSendAckStep(steps, 4, 'Send ReportDERControlRequest', resp4);
       } catch {
         steps.push({
           step: 4,
@@ -127,18 +122,12 @@ export const TC_R_107_CSMS: TestCase = {
         });
       }
       try {
-        await ctx.client.sendCall('NotifyDERStartStop', {
+        const resp5 = await ctx.client.sendCall('NotifyDERStartStop', {
           controlId: 'test-ctrl-1',
           started: true,
           timestamp: new Date().toISOString(),
         });
-        steps.push({
-          step: 5,
-          description: 'Send NotifyDERStartStopRequest',
-          status: 'passed',
-          expected: 'Response received',
-          actual: 'Response received',
-        });
+        pushSendAckStep(steps, 5, 'Send NotifyDERStartStopRequest', resp5);
       } catch {
         steps.push({
           step: 5,

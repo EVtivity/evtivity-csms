@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 // E01(S2): Start transaction options - EVConnected
 export const TC_E_09_CSMS: TestCase = {
@@ -24,19 +25,13 @@ export const TC_E_09_CSMS: TestCase = {
 
     // Step 1: Send StatusNotification with Occupied
     try {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp1 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Occupied',
         evseId: 1,
         connectorId: 1,
       });
-      steps.push({
-        step: 1,
-        description: 'Send StatusNotification with connectorStatus Occupied',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 1, 'Send StatusNotification with connectorStatus Occupied', resp1);
     } catch {
       steps.push({
         step: 1,
@@ -65,9 +60,9 @@ export const TC_E_09_CSMS: TestCase = {
         step: 2,
         description:
           'Send TransactionEvent Started with triggerReason CablePluggedIn and chargingState EVConnected',
-        status: 'passed',
+        status: txRes != null ? 'passed' : 'failed',
         expected: 'TransactionEventResponse received',
-        actual: `Response keys: ${Object.keys(txRes).join(', ')}`,
+        actual: txRes != null ? `Response keys: ${Object.keys(txRes).join(', ')}` : 'No response',
       });
     } catch {
       steps.push({
@@ -193,7 +188,7 @@ export const TC_E_11_CSMS: TestCase = {
 
     // Step 4: Send TransactionEvent Updated with ChargingStateChanged
     try {
-      await ctx.client.sendCall('TransactionEvent', {
+      const resp3 = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Updated',
         timestamp: new Date().toISOString(),
         triggerReason: 'ChargingStateChanged',
@@ -203,13 +198,13 @@ export const TC_E_11_CSMS: TestCase = {
           chargingState: 'Charging',
         },
       });
-      steps.push({
-        step: 3,
-        description: 'Send TransactionEvent Updated with chargingState Charging',
-        status: 'passed',
-        expected: 'TransactionEventResponse received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'Send TransactionEvent Updated with chargingState Charging',
+        resp3,
+        'TransactionEventResponse received',
+      );
     } catch {
       steps.push({
         step: 3,
@@ -260,13 +255,14 @@ export const TC_E_12_CSMS: TestCase = {
           chargingState: 'EVConnected',
         },
       });
-      steps.push({
-        step: 1,
-        description: 'Send TransactionEvent Started with triggerReason EVDetected',
-        status: 'passed',
-        expected: 'TransactionEventResponse received',
-        actual: `Response keys: ${Object.keys(txRes).join(', ')}`,
-      });
+      pushSendAckStep(
+        steps,
+        1,
+        'Send TransactionEvent Started with triggerReason EVDetected',
+        txRes,
+        'TransactionEventResponse received',
+        `Response keys: ${Object.keys(txRes).join(', ')}`,
+      );
     } catch {
       steps.push({
         step: 1,
@@ -313,7 +309,7 @@ export const TC_E_53_CSMS: TestCase = {
     // Transaction 1: start with seqNo = 0
     const txId1 = `OCTT-TX-${String(Date.now())}-1`;
     try {
-      await ctx.client.sendCall('TransactionEvent', {
+      const resp1 = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Started',
         timestamp: new Date().toISOString(),
         triggerReason: 'Authorized',
@@ -322,13 +318,13 @@ export const TC_E_53_CSMS: TestCase = {
         evse: { id: 1, connectorId: 1 },
         idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
       });
-      steps.push({
-        step: 1,
-        description: 'Transaction 1: TransactionEvent Started with seqNo = 0',
-        status: 'passed',
-        expected: 'TransactionEventResponse received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(
+        steps,
+        1,
+        'Transaction 1: TransactionEvent Started with seqNo = 0',
+        resp1,
+        'TransactionEventResponse received',
+      );
     } catch {
       steps.push({
         step: 1,
@@ -341,7 +337,7 @@ export const TC_E_53_CSMS: TestCase = {
 
     // End transaction 1
     try {
-      await ctx.client.sendCall('TransactionEvent', {
+      const resp2 = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Ended',
         timestamp: new Date().toISOString(),
         triggerReason: 'EVDeparted',
@@ -349,13 +345,13 @@ export const TC_E_53_CSMS: TestCase = {
         transactionInfo: { transactionId: txId1, stoppedReason: 'EVDisconnected' },
         evse: { id: 1, connectorId: 1 },
       });
-      steps.push({
-        step: 2,
-        description: 'Transaction 1: TransactionEvent Ended',
-        status: 'passed',
-        expected: 'TransactionEventResponse received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(
+        steps,
+        2,
+        'Transaction 1: TransactionEvent Ended',
+        resp2,
+        'TransactionEventResponse received',
+      );
     } catch {
       steps.push({
         step: 2,
@@ -369,7 +365,7 @@ export const TC_E_53_CSMS: TestCase = {
     // Transaction 2: also start with seqNo = 0 (reset per transaction)
     const txId2 = `OCTT-TX-${String(Date.now())}-2`;
     try {
-      await ctx.client.sendCall('TransactionEvent', {
+      const resp3 = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Started',
         timestamp: new Date().toISOString(),
         triggerReason: 'Authorized',
@@ -382,9 +378,9 @@ export const TC_E_53_CSMS: TestCase = {
         step: 3,
         description:
           'Transaction 2: TransactionEvent Started with seqNo = 0 (CSMS must accept reset)',
-        status: 'passed',
+        status: resp3 != null ? 'passed' : 'failed',
         expected: 'CSMS accepts seqNo = 0 for new transaction',
-        actual: 'Response received',
+        actual: resp3 != null ? 'Response received' : 'No response',
       });
     } catch {
       steps.push({
@@ -398,7 +394,7 @@ export const TC_E_53_CSMS: TestCase = {
 
     // End transaction 2
     try {
-      await ctx.client.sendCall('TransactionEvent', {
+      const resp4 = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Ended',
         timestamp: new Date().toISOString(),
         triggerReason: 'EVDeparted',
@@ -406,13 +402,13 @@ export const TC_E_53_CSMS: TestCase = {
         transactionInfo: { transactionId: txId2, stoppedReason: 'EVDisconnected' },
         evse: { id: 1, connectorId: 1 },
       });
-      steps.push({
-        step: 4,
-        description: 'Transaction 2: TransactionEvent Ended',
-        status: 'passed',
-        expected: 'TransactionEventResponse received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(
+        steps,
+        4,
+        'Transaction 2: TransactionEvent Ended',
+        resp4,
+        'TransactionEventResponse received',
+      );
     } catch {
       steps.push({
         step: 4,

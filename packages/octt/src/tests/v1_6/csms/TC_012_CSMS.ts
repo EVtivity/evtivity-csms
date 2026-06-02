@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../types.js';
+import { pushSendAckStep } from '../../../csms-test-helpers.js';
 
 export const TC_012_CSMS: TestCase = {
   id: 'TC_012_CSMS',
@@ -54,7 +55,14 @@ export const TC_012_CSMS: TestCase = {
       return {};
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+    if (ctx.triggerCommand != null) {
+      await ctx.triggerCommand('v16', 'RemoteStopTransaction', {
+        stationId: ctx.stationId,
+        transactionId,
+      });
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
 
     steps.push({
       step: 1,
@@ -81,34 +89,34 @@ export const TC_012_CSMS: TestCase = {
     });
 
     // Step 3: StatusNotification Finishing
-    await ctx.client.sendCall('StatusNotification', {
+    const resp3 = await ctx.client.sendCall('StatusNotification', {
       connectorId,
       status: 'Finishing',
       errorCode: 'NoError',
       timestamp: new Date().toISOString(),
     });
-    steps.push({
-      step: 3,
-      description: 'Send StatusNotification (Finishing)',
-      status: 'passed',
-      expected: 'StatusNotification.conf received',
-      actual: 'Response received',
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'Send StatusNotification (Finishing)',
+      resp3,
+      'StatusNotification.conf received',
+    );
 
     // Step 4: StatusNotification Available
-    await ctx.client.sendCall('StatusNotification', {
+    const resp4 = await ctx.client.sendCall('StatusNotification', {
       connectorId,
       status: 'Available',
       errorCode: 'NoError',
       timestamp: new Date().toISOString(),
     });
-    steps.push({
-      step: 4,
-      description: 'Send StatusNotification (Available)',
-      status: 'passed',
-      expected: 'StatusNotification.conf received',
-      actual: 'Response received',
-    });
+    pushSendAckStep(
+      steps,
+      4,
+      'Send StatusNotification (Available)',
+      resp4,
+      'StatusNotification.conf received',
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

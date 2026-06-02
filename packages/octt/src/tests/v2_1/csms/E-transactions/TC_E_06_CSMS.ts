@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 // Helper: boot station and send initial StatusNotification
 async function bootAndStatus(ctx: {
@@ -92,13 +93,14 @@ export const TC_E_14_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Ended - EVDisconnected (CS side)',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Ended - EVDisconnected (CS side)',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -154,13 +156,14 @@ export const TC_E_20_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Ended - EVDisconnected (EV side)',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Ended - EVDisconnected (EV side)',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -216,13 +219,14 @@ export const TC_E_15_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Ended - StopAuthorized Local',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Ended - StopAuthorized Local',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -306,13 +310,14 @@ export const TC_E_21_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 2,
-      description: 'TransactionEvent Ended - RemoteStop',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'TransactionEvent Ended - RemoteStop',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -358,13 +363,14 @@ export const TC_E_07_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Ended - StopAuthorized Local',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Ended - StopAuthorized Local',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -412,13 +418,14 @@ export const TC_E_08_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Ended - ChargingStateChanged EVConnected Local',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Ended - ChargingStateChanged EVConnected Local',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -465,13 +472,14 @@ export const TC_E_16_CSMS: TestCase = {
       idToken: { idToken: 'INVALID-TOKEN-999', type: 'ISO14443' },
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Started with invalid idToken',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(startRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Started with invalid idToken',
+      startRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(startRes).join(', ')}`,
+    );
 
     // Step 3: TransactionEvent Ended with Deauthorized
     const endRes = await ctx.client.sendCall('TransactionEvent', {
@@ -486,13 +494,14 @@ export const TC_E_16_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 2,
-      description: 'TransactionEvent Ended - Deauthorized',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'TransactionEvent Ended - Deauthorized',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -552,13 +561,14 @@ export const TC_E_17_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Ended - EVCommunicationLost Idle EVDisconnected',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Ended - EVCommunicationLost Idle EVDisconnected',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -606,13 +616,14 @@ export const TC_E_22_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Ended - SuspendedEV StoppedByEV',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Ended - SuspendedEV StoppedByEV',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -675,13 +686,14 @@ export const TC_E_19_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Ended - EVDeparted Local',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Ended - EVDeparted Local',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

@@ -89,7 +89,7 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
     },
   });
 
-  const content = (
+  return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
         {!embedded && (
@@ -117,13 +117,23 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
             onClick={() => {
               triggerRun.mutate({ ocppVersion: selectedVersion, sutType: 'csms' });
             }}
+            className="relative"
           >
-            {triggerRun.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Play className="h-4 w-4" />
+            {triggerRun.isPending && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              </div>
             )}
-            {t('conformance.runTests')}
+            <span
+              className={
+                triggerRun.isPending
+                  ? 'invisible flex items-center gap-2'
+                  : 'flex items-center gap-2'
+              }
+            >
+              <Play className="h-4 w-4" />
+              {t('conformance.runTests')}
+            </span>
           </Button>
         </div>
       </div>
@@ -189,8 +199,4 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
       </Card>
     </div>
   );
-
-  if (embedded) return content;
-
-  return content;
 }

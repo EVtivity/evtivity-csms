@@ -59,8 +59,21 @@ export const TC_A_09_CSMS: TestCase = {
       return { status: 'NotSupported' };
     });
 
-    // Wait for the CSMS to send SetVariables
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+    if (ctx.triggerCommand != null) {
+      await ctx.triggerCommand('v21', 'SetVariables', {
+        stationId: ctx.stationId,
+        setVariableData: [
+          {
+            attributeType: 'Actual',
+            attributeValue: 'NewBasicAuthPassword123',
+            component: { name: 'SecurityCtrlr' },
+            variable: { name: 'BasicAuthPassword' },
+          },
+        ],
+      });
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
 
     steps.push({
       step: 1,

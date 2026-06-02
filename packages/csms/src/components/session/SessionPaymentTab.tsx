@@ -69,7 +69,7 @@ export function SessionPaymentTab({
     mutationFn: (data: { amountCents?: number }) =>
       api.post(`/v1/sessions/${sessionId}/refund`, data),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['sessions', sessionId] });
+      void queryClient.invalidateQueries({ queryKey: ['sessions'] });
       setShowRefund(false);
       setRefundAmount('');
     },

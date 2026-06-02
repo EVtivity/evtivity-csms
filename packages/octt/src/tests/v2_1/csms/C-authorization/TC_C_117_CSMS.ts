@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { TestCase, StepResult } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_C_117_CSMS: TestCase = {
   id: 'TC_C_117_CSMS',
@@ -56,13 +57,14 @@ export const TC_C_117_CSMS: TestCase = {
       },
     });
 
-    steps.push({
-      step: 2,
-      description: 'Send TransactionEvent Started with DirectPayment and maxCost 50.00',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(txStartRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'Send TransactionEvent Started with DirectPayment and maxCost 50.00',
+      txStartRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(txStartRes).join(', ')}`,
+    );
 
     // Step 3: Send TransactionEvent Ended with cost details
     const txEndRes = await ctx.client.sendCall('TransactionEvent', {
@@ -94,13 +96,14 @@ export const TC_C_117_CSMS: TestCase = {
       },
     });
 
-    steps.push({
-      step: 3,
-      description: 'Send TransactionEvent Ended with cost details (18.15 EUR incl. tax)',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(txEndRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'Send TransactionEvent Ended with cost details (18.15 EUR incl. tax)',
+      txEndRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(txEndRes).join(', ')}`,
+    );
 
     // Note: The CSMS settles the total cost with the PSP for 18.15 EUR
     // This is verified externally (the CSMS handles settlement)

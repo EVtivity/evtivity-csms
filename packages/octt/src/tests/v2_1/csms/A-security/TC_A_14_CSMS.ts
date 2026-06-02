@@ -101,7 +101,7 @@ export const TC_A_14_CSMS: TestCase = {
       // Step 7: Send SecurityEventNotification with InvalidChargingStationCertificate
       if (certificateSignedReceived) {
         try {
-          await ctx.client.sendCall('SecurityEventNotification', {
+          const resp4 = await ctx.client.sendCall('SecurityEventNotification', {
             type: 'InvalidChargingStationCertificate',
             timestamp: new Date().toISOString(),
           });
@@ -109,9 +109,9 @@ export const TC_A_14_CSMS: TestCase = {
             step: 4,
             description:
               'Send SecurityEventNotificationRequest with type InvalidChargingStationCertificate',
-            status: 'passed',
+            status: resp4 != null ? 'passed' : 'failed',
             expected: 'SecurityEventNotificationResponse received',
-            actual: 'Response received',
+            actual: resp4 != null ? 'Response received' : 'No response',
           });
         } catch {
           steps.push({

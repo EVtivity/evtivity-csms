@@ -220,7 +220,7 @@ export function AiAssistant(): React.JSX.Element {
                           setEditValue('');
                         }}
                       >
-                        Cancel
+                        {t('common.cancel')}
                       </Button>
                       <Button
                         size="sm"
@@ -230,7 +230,7 @@ export function AiAssistant(): React.JSX.Element {
                           handleEditSave(i);
                         }}
                       >
-                        Send
+                        {t('common.send')}
                       </Button>
                     </div>
                   </div>
@@ -280,7 +280,7 @@ export function AiAssistant(): React.JSX.Element {
                           <button
                             type="button"
                             className="p-1 rounded hover:bg-muted text-muted-foreground"
-                            title="Edit"
+                            title={t('common.edit')}
                             onClick={() => {
                               setEditingIndex(i);
                               setEditValue(msg.content);
@@ -291,7 +291,7 @@ export function AiAssistant(): React.JSX.Element {
                           <button
                             type="button"
                             className="p-1 rounded hover:bg-muted text-muted-foreground"
-                            title="Resend"
+                            title={t('chatbotAi.resend')}
                             onClick={() => {
                               handleResend(i);
                             }}
@@ -303,7 +303,7 @@ export function AiAssistant(): React.JSX.Element {
                       <button
                         type="button"
                         className="p-1 rounded hover:bg-muted text-muted-foreground"
-                        title="Copy"
+                        title={t('common.copy')}
                         onClick={() => {
                           handleCopy(i);
                         }}

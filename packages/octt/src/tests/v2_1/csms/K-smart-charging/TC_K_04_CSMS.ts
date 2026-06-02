@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 async function boot(ctx: {
   client: {
@@ -319,17 +320,17 @@ export const TC_K_118_CSMS: TestCase = {
 
     // Step 3: Send NotifyPriorityCharging
     try {
-      await ctx.client.sendCall('NotifyPriorityCharging', {
+      const resp3 = await ctx.client.sendCall('NotifyPriorityCharging', {
         transactionId: txId,
         activated: true,
       });
-      steps.push({
-        step: 3,
-        description: 'Send NotifyPriorityChargingRequest with activated = true',
-        status: 'passed',
-        expected: 'NotifyPriorityChargingResponse received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'Send NotifyPriorityChargingRequest with activated = true',
+        resp3,
+        'NotifyPriorityChargingResponse received',
+      );
     } catch {
       steps.push({
         step: 3,
@@ -421,13 +422,14 @@ export const TC_K_121_CSMS: TestCase = {
       const pullRes1 = await ctx.client.sendCall('PullDynamicScheduleUpdate', {
         chargingProfileId: 99999,
       });
-      steps.push({
-        step: 2,
-        description: 'Send PullDynamicScheduleUpdate with unknown chargingProfileId',
-        status: 'passed',
-        expected: 'PullDynamicScheduleUpdateResponse received',
-        actual: `Response keys: ${Object.keys(pullRes1).join(', ')}`,
-      });
+      pushSendAckStep(
+        steps,
+        2,
+        'Send PullDynamicScheduleUpdate with unknown chargingProfileId',
+        pullRes1,
+        'PullDynamicScheduleUpdateResponse received',
+        `Response keys: ${Object.keys(pullRes1).join(', ')}`,
+      );
     } catch {
       steps.push({
         step: 2,
@@ -443,13 +445,14 @@ export const TC_K_121_CSMS: TestCase = {
       const pullRes2 = await ctx.client.sendCall('PullDynamicScheduleUpdate', {
         chargingProfileId: dynamicProfileId ?? 1,
       });
-      steps.push({
-        step: 3,
-        description: 'Send PullDynamicScheduleUpdate with correct chargingProfileId from step 1',
-        status: 'passed',
-        expected: 'PullDynamicScheduleUpdateResponse with schedule data',
-        actual: `Response keys: ${Object.keys(pullRes2).join(', ')}`,
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'Send PullDynamicScheduleUpdate with correct chargingProfileId from step 1',
+        pullRes2,
+        'PullDynamicScheduleUpdateResponse with schedule data',
+        `Response keys: ${Object.keys(pullRes2).join(', ')}`,
+      );
     } catch {
       steps.push({
         step: 3,

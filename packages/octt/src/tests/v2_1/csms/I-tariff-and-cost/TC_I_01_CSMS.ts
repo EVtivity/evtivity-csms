@@ -112,9 +112,14 @@ export const TC_I_01_CSMS: TestCase = {
       steps.push({
         step: i + 2,
         description: `TransactionEvent Updated - MeterValuePeriodic #${String(i + 1)}`,
-        status: 'passed',
+        status: txRes != null ? 'passed' : 'failed',
         expected: 'TransactionEventResponse received',
-        actual: totalCost != null ? `totalCost = ${String(totalCost)}` : 'totalCost omitted',
+        actual:
+          txRes != null
+            ? totalCost != null
+              ? `totalCost = ${String(totalCost)}`
+              : 'totalCost omitted'
+            : 'No response',
       });
     }
 

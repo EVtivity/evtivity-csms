@@ -26,10 +26,12 @@ interface SidebarNavProps {
 export function SidebarNav({ items, collapsed, onNavClick }: SidebarNavProps): React.JSX.Element {
   const { t } = useTranslation();
 
+  const hasSupportAccess = items.some((item) => item.to === '/support-cases');
   const { data: unreadCountData } = useQuery({
     queryKey: ['support-cases-unread-count'],
     queryFn: () => api.get<{ count: number }>('/v1/support-cases/unread-count'),
     refetchInterval: 60_000,
+    enabled: hasSupportAccess,
   });
   const unreadCaseCount = unreadCountData?.count ?? 0;
 

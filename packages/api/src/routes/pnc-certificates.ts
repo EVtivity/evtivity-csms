@@ -254,11 +254,33 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         operationId: 'uploadPncCaCertificate',
         security: [{ bearerAuth: [] }],
         body: zodSchema(uploadCaCertBody),
-        response: { 200: itemResponse(caCertItem) },
+        response: {
+          200: itemResponse(caCertItem),
+          400: errorWith('Invalid certificate', [ERROR_CODES.VALIDATION_ERROR]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const body = request.body as z.infer<typeof uploadCaCertBody>;
+
+      // Parse the PEM up front and extract metadata (serial, issuer, subject,
+      // validity window, hashes) so list responses match the declared Zod
+      // shape instead of returning null for every field. The earlier code
+      // accepted any 1-20000 char blob and stored it without checking, which
+      // also let malformed pastes propagate to InstallCertificate.
+      let parsed: crypto.X509Certificate;
+      try {
+        parsed = new crypto.X509Certificate(body.certificate);
+      } catch {
+        await reply.status(400).send({
+          error: 'certificate is not a valid PEM-encoded X.509 certificate',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
+
+      const validFrom = new Date(parsed.validFrom);
+      const validTo = new Date(parsed.validTo);
 
       const [row] = await db
         .insert(pkiCaCertificates)
@@ -266,6 +288,17 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
           certificateType: body.certificateType,
           certificate: body.certificate,
           source: body.source ?? 'manual_upload',
+          serialNumber: parsed.serialNumber,
+          issuer: parsed.issuer,
+          subject: parsed.subject,
+          validFrom: Number.isNaN(validFrom.getTime()) ? null : validFrom,
+          validTo: Number.isNaN(validTo.getTime()) ? null : validTo,
+          // OCSP-spec hashes (issuer Name DER hash, issuer SPKI hash) are
+          // not derivable from the X509Certificate API without ASN.1
+          // re-encoding, and they're not consulted by the OCSP flow on our
+          // side anyway — stations include their own hashes in the
+          // GetCertificateStatus OcspRequestData. Leave null rather than
+          // populate with a wrong-shape hash.
         })
         .returning();
 

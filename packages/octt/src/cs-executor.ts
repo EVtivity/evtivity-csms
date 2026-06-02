@@ -136,12 +136,16 @@ export async function executeCsTest(
 
     // Provision charging_stations row first to satisfy the css_stations FK.
     // Station identity (vendor, model, serial, firmware, ocppProtocol, securityProfile)
-    // lives on charging_stations after the css_stations decouple.
+    // lives on charging_stations after the css_stations decouple. The id column
+    // has no DB-level default (Drizzle applies $defaultFn at the ORM layer),
+    // so raw SQL must supply one. nanoid suffix avoids per-test collisions.
+    const chargingStationDbId = 'sta_' + Math.random().toString(36).slice(2, 14);
     await sql`
       INSERT INTO charging_stations (
-        station_id, model, serial_number, firmware_version,
+        id, station_id, model, serial_number, firmware_version,
         ocpp_protocol, security_profile, is_simulator, onboarding_status
       ) VALUES (
+        ${chargingStationDbId},
         ${stationId},
         ${simulatorConfig.model},
         ${simulatorConfig.serialNumber},

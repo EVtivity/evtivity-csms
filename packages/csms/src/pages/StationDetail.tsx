@@ -107,7 +107,7 @@ export function StationDetail(): React.JSX.Element {
   const sites = sitesResponse?.data;
 
   const { data: station, isLoading } = useQuery({
-    queryKey: ['stations', id],
+    queryKey: ['stations'],
     queryFn: () => api.get<Station>(`/v1/stations/${id ?? ''}`),
     enabled: id != null,
   });
@@ -121,21 +121,21 @@ export function StationDetail(): React.JSX.Element {
   const approveMutation = useMutation({
     mutationFn: () => api.post(`/v1/stations/${id ?? ''}/approve`, {}),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['stations', id] });
+      void queryClient.invalidateQueries({ queryKey: ['stations'] });
     },
   });
 
   const rejectMutation = useMutation({
     mutationFn: () => api.post(`/v1/stations/${id ?? ''}/reject`, {}),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['stations', id] });
+      void queryClient.invalidateQueries({ queryKey: ['stations'] });
     },
   });
 
   const unblockMutation = useMutation({
     mutationFn: () => api.post(`/v1/stations/${id ?? ''}/unblock`, {}),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['stations', id] });
+      void queryClient.invalidateQueries({ queryKey: ['stations'] });
     },
   });
 

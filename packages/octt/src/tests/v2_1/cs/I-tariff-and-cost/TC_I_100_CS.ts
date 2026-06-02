@@ -98,9 +98,9 @@ export const TC_I_100_CS: CsTestCase = {
     steps.push({
       step: 8,
       description: 'ClearTariffsResponse received',
-      status: 'passed',
+      status: res4 != null ? 'passed' : 'failed',
       expected: 'ClearTariffsResponse',
-      actual: `Response: ${JSON.stringify(res4)}`,
+      actual: res4 != null ? `Response: ${JSON.stringify(res4)}` : 'No response',
     });
 
     const allPassed = steps.every((s) => s.status === 'passed');

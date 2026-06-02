@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { client } from '@evtivity/database';
-import { createLogger } from '@evtivity/lib';
+import { createLogger, isPrivateUrl } from '@evtivity/lib';
 import type {
   PkiProvider,
   SignCsrResult,
@@ -43,6 +43,19 @@ export class ManualProvider implements PkiProvider {
   }
 
   async getOcspStatus(ocspRequestData: OcspRequestData): Promise<OcspResult> {
+    // The OCSP responder URL comes from the station's GetCertificateStatus
+    // payload, which is partner-attested (CSR's AIA extension) rather than
+    // operator-controlled. A station with a hostile or compromised cert
+    // could point us at an internal address; without this guard the CSMS
+    // becomes an SSRF probe for partner-supplied URLs.
+    if (isPrivateUrl(ocspRequestData.responderURL)) {
+      logger.error(
+        { url: ocspRequestData.responderURL },
+        'Rejected OCSP responder URL pointing at a private/internal address',
+      );
+      return { status: 'Failed', ocspResult: '' };
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => {
       controller.abort();

@@ -52,7 +52,10 @@ async function resolveConfig(userId: string): Promise<AssistantConfig> {
     .from(chatbotAiConfigs)
     .where(eq(chatbotAiConfigs.userId, userId));
 
-  if (userConfig) {
+  // A row may exist with empty chatbot fields when the operator deleted
+  // their chatbot config but kept a support-ai config (the two configs
+  // share the row). Treat empty chatbot fields as "fall through to system".
+  if (userConfig && userConfig.provider !== '' && userConfig.apiKeyEnc !== '') {
     const encryptionKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
     if (!encryptionKey) {
       throw new Error('SETTINGS_ENCRYPTION_KEY environment variable is required');
@@ -93,25 +96,32 @@ async function resolveConfig(userId: string): Promise<AssistantConfig> {
     throw new Error('SETTINGS_ENCRYPTION_KEY environment variable is required');
   }
 
+  // Use != null so 0 (deterministic temperature, etc.) is preserved. A
+  // truthy check would drop legitimate zero values back to provider defaults.
+  const tempVal = get('chatbotAi.temperature');
+  const topPVal = get('chatbotAi.topP');
+  const topKVal = get('chatbotAi.topK');
   return {
     provider,
     apiKey: decryptString(apiKeyEnc, encryptionKey),
     model: (get('chatbotAi.model') as string) || undefined,
-    temperature: get('chatbotAi.temperature') ? Number(get('chatbotAi.temperature')) : undefined,
-    topP: get('chatbotAi.topP') ? Number(get('chatbotAi.topP')) : undefined,
-    topK: get('chatbotAi.topK') ? Number(get('chatbotAi.topK')) : undefined,
+    temperature: tempVal != null && tempVal !== '' ? Number(tempVal) : undefined,
+    topP: topPVal != null && topPVal !== '' ? Number(topPVal) : undefined,
+    topK: topKVal != null && topKVal !== '' ? Number(topKVal) : undefined,
     systemPrompt: (get('chatbotAi.systemPrompt') as string) || undefined,
   };
 }
+
+// Category list is derived from the codegen output and never changes at
+// runtime, so build it once at module load instead of on every chat.
+const CATEGORY_LIST = TOOL_CATEGORIES.map(
+  (c) => `- ${c.tag} (${String(c.toolCount)} tools): ${c.description}`,
+).join('\n');
 
 /**
  * Build a compact category list for the selection step.
  */
 function buildCategorySelectionPrompt(userMessage: string, history: ChatMessage[]): string {
-  const categoryList = TOOL_CATEGORIES.map(
-    (c) => `- ${c.tag} (${String(c.toolCount)} tools): ${c.description}`,
-  ).join('\n');
-
   const recentContext =
     history.length > 0
       ? `\nRecent conversation context: ${history
@@ -125,7 +135,7 @@ function buildCategorySelectionPrompt(userMessage: string, history: ChatMessage[
 
 Which tool categories are needed to answer? Pick 1-4 categories from this list:
 
-${categoryList}
+${CATEGORY_LIST}
 
 Reply with ONLY the category names separated by commas. Example: "Dashboard, Sessions"
 If the message is just a greeting or doesn't need tools, reply with "NONE".`;
@@ -183,15 +193,18 @@ export async function handleAssistantChat(
   history: ChatMessage[],
   authHeader: string,
 ): Promise<{ reply: string; apiCallsMade: number }> {
-  const config = await resolveConfig(userId);
+  // Both queries hit the same user row but join independently; run in
+  // parallel to shave one round-trip off the chat hot path.
+  const [config, userRows] = await Promise.all([
+    resolveConfig(userId),
+    db
+      .select({ firstName: users.firstName, lastName: users.lastName, language: users.language })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1),
+  ]);
+  const user = userRows[0];
   const provider = createAiProvider(config.provider, config.apiKey, config.model);
-
-  // Look up the operator's name and language for personalization
-  const [user] = await db
-    .select({ firstName: users.firstName, lastName: users.lastName, language: users.language })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
   const userName = user != null ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() : '';
   const userLang = user?.language ?? 'en';
   const userContext = userName !== '' ? `\n\nThe current user is ${userName}.` : '';

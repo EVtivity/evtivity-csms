@@ -69,7 +69,7 @@ export function RoamingPartnerDetail(): React.JSX.Element {
   const [disconnectOpen, setDisconnectOpen] = useState(false);
 
   const { data: partner, isLoading } = useQuery({
-    queryKey: ['ocpi-partners', id],
+    queryKey: ['ocpi-partners'],
     queryFn: () => api.get<PartnerDetail>(`/v1/ocpi/partners/${id ?? ''}`),
     enabled: id != null,
   });
@@ -86,7 +86,7 @@ export function RoamingPartnerDetail(): React.JSX.Element {
   const registerMutation = useMutation({
     mutationFn: () => api.post(`/v1/ocpi/partners/${id ?? ''}/register`, {}),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['ocpi-partners', id] });
+      void queryClient.invalidateQueries({ queryKey: ['ocpi-partners'] });
     },
   });
 

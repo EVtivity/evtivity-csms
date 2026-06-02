@@ -14,12 +14,13 @@ import { authorize } from '../middleware/rbac.js';
 
 const accessLogItem = z
   .object({
-    id: z.string().describe('Identifier'),
+    id: z.number().describe('Identifier'),
     userId: z.string().nullable().describe('Operator user ID, when the actor is an operator'),
     driverId: z.string().nullable().describe('Driver ID, when the actor is a driver'),
     action: z.string().describe('Action name (e.g., login, logout, station.update)'),
     category: z.string().describe('Log category: auth, action, api, or portal'),
     authType: z.string().nullable().describe('Authentication mechanism (jwt, api_key, basic)'),
+    apiKeyName: z.string().nullable().describe('Name of the API key used (when authType=api_key)'),
     method: z.string().nullable().describe('HTTP method when the entry is for an API call'),
     path: z.string().nullable().describe('HTTP request path when the entry is for an API call'),
     statusCode: z.number().nullable().describe('HTTP response status code'),

@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
 import type { SentryConfig } from '@evtivity/lib';
@@ -9,6 +9,7 @@ import type { SentryConfig } from '@evtivity/lib';
 let cached: SentryConfig | undefined;
 let cachedAt = 0;
 const TTL_MS = 60_000;
+const SENTRY_KEYS = ['sentry.enabled', 'sentry.dsn', 'sentry.environment'];
 
 export async function getSentryConfig(): Promise<SentryConfig> {
   const now = Date.now();
@@ -20,20 +21,8 @@ export async function getSentryConfig(): Promise<SentryConfig> {
     const rows = await db
       .select({ key: settings.key, value: settings.value })
       .from(settings)
-      .where(eq(settings.key, 'sentry.enabled'));
-
-    const dsnRows = await db
-      .select({ key: settings.key, value: settings.value })
-      .from(settings)
-      .where(eq(settings.key, 'sentry.dsn'));
-
-    const envRows = await db
-      .select({ key: settings.key, value: settings.value })
-      .from(settings)
-      .where(eq(settings.key, 'sentry.environment'));
-
-    const allRows = [...rows, ...dsnRows, ...envRows];
-    const map = new Map(allRows.map((r) => [r.key, r.value]));
+      .where(inArray(settings.key, SENTRY_KEYS));
+    const map = new Map(rows.map((r) => [r.key, r.value]));
 
     cached = {
       enabled: map.get('sentry.enabled') === true || map.get('sentry.enabled') === 'true',

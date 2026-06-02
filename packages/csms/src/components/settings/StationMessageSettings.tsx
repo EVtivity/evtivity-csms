@@ -385,7 +385,6 @@ export function StationMessageSettings({
                 <Input
                   id="station-message-refresh-seconds"
                   type="number"
-                  min={5}
                   step={1}
                   value={refreshSeconds}
                   onChange={(e) => {
@@ -402,7 +401,6 @@ export function StationMessageSettings({
                 <Input
                   id="station-message-event-ttl-seconds"
                   type="number"
-                  min={5}
                   step={1}
                   value={eventMessageTtlSeconds}
                   onChange={(e) => {

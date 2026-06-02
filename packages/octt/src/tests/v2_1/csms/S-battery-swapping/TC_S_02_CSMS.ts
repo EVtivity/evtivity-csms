@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_S_103_CSMS: TestCase = {
   id: 'TC_S_103_CSMS',
@@ -48,19 +49,13 @@ export const TC_S_103_CSMS: TestCase = {
 
     // Step 3: StatusNotification for slot status change (batteries inserted)
     try {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp3 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Occupied',
         evseId: 1,
         connectorId: 1,
       });
-      steps.push({
-        step: 3,
-        description: 'Send StatusNotification Occupied EVSE 1',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 3, 'Send StatusNotification Occupied EVSE 1', resp3);
     } catch {
       steps.push({
         step: 3,
@@ -73,7 +68,7 @@ export const TC_S_103_CSMS: TestCase = {
 
     // Step 5: TransactionEvent Started for EVSE 1
     try {
-      await ctx.client.sendCall('TransactionEvent', {
+      const resp5 = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Started',
         timestamp: new Date().toISOString(),
         triggerReason: 'CablePluggedIn',
@@ -82,13 +77,7 @@ export const TC_S_103_CSMS: TestCase = {
         evse: { id: 1, connectorId: 1 },
         transactionInfo: { transactionId: '111-222-333-444-3', chargingState: 'EVConnected' },
       });
-      steps.push({
-        step: 5,
-        description: 'Send TransactionEvent Started EVSE 1',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 5, 'Send TransactionEvent Started EVSE 1', resp5);
     } catch {
       steps.push({
         step: 5,
@@ -101,19 +90,13 @@ export const TC_S_103_CSMS: TestCase = {
 
     // Step 7: StatusNotification for slot status change
     try {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp7 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Occupied',
         evseId: 2,
         connectorId: 1,
       });
-      steps.push({
-        step: 7,
-        description: 'Send StatusNotification Occupied EVSE 2',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 7, 'Send StatusNotification Occupied EVSE 2', resp7);
     } catch {
       steps.push({
         step: 7,
@@ -126,7 +109,7 @@ export const TC_S_103_CSMS: TestCase = {
 
     // Step 9: TransactionEvent Started for EVSE 2
     try {
-      await ctx.client.sendCall('TransactionEvent', {
+      const resp9 = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Started',
         timestamp: new Date().toISOString(),
         triggerReason: 'CablePluggedIn',
@@ -135,13 +118,7 @@ export const TC_S_103_CSMS: TestCase = {
         evse: { id: 2, connectorId: 1 },
         transactionInfo: { transactionId: '111-222-333-444-4', chargingState: 'EVConnected' },
       });
-      steps.push({
-        step: 9,
-        description: 'Send TransactionEvent Started EVSE 2',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 9, 'Send TransactionEvent Started EVSE 2', resp9);
     } catch {
       steps.push({
         step: 9,
@@ -154,7 +131,7 @@ export const TC_S_103_CSMS: TestCase = {
 
     // Step 11: BatterySwap BatteryIn
     try {
-      await ctx.client.sendCall('BatterySwap', {
+      const resp11 = await ctx.client.sendCall('BatterySwap', {
         eventType: 'BatteryIn',
         requestId: 1,
         idToken: { idToken: 'OCTT-TOKEN-01', type: 'ISO14443' },
@@ -163,13 +140,7 @@ export const TC_S_103_CSMS: TestCase = {
           { evseId: 2, serialNumber: '5678', soC: 45, soH: 87 },
         ],
       });
-      steps.push({
-        step: 11,
-        description: 'Send BatterySwapRequest BatteryIn',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 11, 'Send BatterySwapRequest BatteryIn', resp11);
     } catch {
       steps.push({
         step: 11,
@@ -182,7 +153,7 @@ export const TC_S_103_CSMS: TestCase = {
 
     // Step 13: TransactionEvent Ended for tx 3 (EVSE 1)
     try {
-      await ctx.client.sendCall('TransactionEvent', {
+      const resp13 = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Ended',
         timestamp: new Date().toISOString(),
         triggerReason: 'EnergyLimitReached',
@@ -194,13 +165,7 @@ export const TC_S_103_CSMS: TestCase = {
           stoppedReason: 'EVDisconnected',
         },
       });
-      steps.push({
-        step: 13,
-        description: 'Send TransactionEvent Ended for tx 3',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 13, 'Send TransactionEvent Ended for tx 3', resp13);
     } catch {
       steps.push({
         step: 13,
@@ -213,19 +178,13 @@ export const TC_S_103_CSMS: TestCase = {
 
     // Step 15: StatusNotification for slot status change (battery extracted from EVSE 1)
     try {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp15 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Available',
         evseId: 1,
         connectorId: 1,
       });
-      steps.push({
-        step: 15,
-        description: 'Send StatusNotification Available EVSE 1',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 15, 'Send StatusNotification Available EVSE 1', resp15);
     } catch {
       steps.push({
         step: 15,
@@ -238,7 +197,7 @@ export const TC_S_103_CSMS: TestCase = {
 
     // Step 17: TransactionEvent Ended for tx 4 (EVSE 2)
     try {
-      await ctx.client.sendCall('TransactionEvent', {
+      const resp17 = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Ended',
         timestamp: new Date().toISOString(),
         triggerReason: 'EnergyLimitReached',
@@ -250,13 +209,7 @@ export const TC_S_103_CSMS: TestCase = {
           stoppedReason: 'EVDisconnected',
         },
       });
-      steps.push({
-        step: 17,
-        description: 'Send TransactionEvent Ended for tx 4',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 17, 'Send TransactionEvent Ended for tx 4', resp17);
     } catch {
       steps.push({
         step: 17,
@@ -269,19 +222,13 @@ export const TC_S_103_CSMS: TestCase = {
 
     // Step 19: StatusNotification for slot status change (battery extracted from EVSE 2)
     try {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp19 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Available',
         evseId: 2,
         connectorId: 1,
       });
-      steps.push({
-        step: 19,
-        description: 'Send StatusNotification Available EVSE 2',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 19, 'Send StatusNotification Available EVSE 2', resp19);
     } catch {
       steps.push({
         step: 19,
@@ -294,7 +241,7 @@ export const TC_S_103_CSMS: TestCase = {
 
     // Step 21: BatterySwap BatteryOut
     try {
-      await ctx.client.sendCall('BatterySwap', {
+      const resp21 = await ctx.client.sendCall('BatterySwap', {
         eventType: 'BatteryOut',
         requestId: 1,
         idToken: { idToken: 'OCTT-TOKEN-01', type: 'ISO14443' },
@@ -303,13 +250,7 @@ export const TC_S_103_CSMS: TestCase = {
           { evseId: 4, serialNumber: '8765', soC: 85, soH: 78 },
         ],
       });
-      steps.push({
-        step: 21,
-        description: 'Send BatterySwapRequest BatteryOut',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 21, 'Send BatterySwapRequest BatteryOut', resp21);
     } catch {
       steps.push({
         step: 21,

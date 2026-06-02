@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 /**
  * TC_K_57_CSMS: Renegotiating a Charging Schedule ISO 15118-20 - Initiated by EV
@@ -185,13 +186,14 @@ export const TC_K_114_CSMS: TestCase = {
         v2xChargingParameters: { maxChargePower: 6000, maxDischargePower: 0 },
       },
     });
-    steps.push({
-      step: 1,
-      description: 'Send NotifyEVChargingNeedsRequest with v2x params',
-      status: 'passed',
-      expected: 'Response received',
-      actual: `status = ${String(needsRes['status'])}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'Send NotifyEVChargingNeedsRequest with v2x params',
+      needsRes,
+      'Response received',
+      `status = ${String(needsRes['status'])}`,
+    );
 
     let receivedProfile = false;
     ctx.client.setIncomingCallHandler(

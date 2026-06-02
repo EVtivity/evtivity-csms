@@ -50,8 +50,8 @@ const portalSupportCaseItem = z
 
 const attachmentItem = z
   .object({
-    id: z.string().describe('Attachment ID'),
-    messageId: z.string().describe('Parent message ID'),
+    id: z.number().int().describe('Attachment ID'),
+    messageId: z.number().int().describe('Parent message ID'),
     fileName: z.string().max(255).describe('Original uploaded file name'),
     fileSize: z.number().int().min(0).describe('File size in bytes'),
     contentType: z.string().max(100).describe('MIME content type'),
@@ -61,7 +61,7 @@ const attachmentItem = z
 
 const messageItem = z
   .object({
-    id: z.string().describe('Message ID'),
+    id: z.number().int().describe('Message ID'),
     senderType: z
       .enum(supportCaseMessageSenderEnum.enumValues)
       .describe('Who sent the message (driver, operator, system)'),
@@ -97,7 +97,7 @@ const portalSupportCaseDetail = portalSupportCaseItem
 
 const portalMessageResponse = z
   .object({
-    id: z.string().describe('Message ID'),
+    id: z.number().int().describe('Message ID'),
     caseId: z.string().describe('Parent case ID'),
     senderType: z
       .enum(supportCaseMessageSenderEnum.enumValues)
@@ -180,7 +180,11 @@ const requestUploadUrlBody = z.object({
 
 const confirmAttachmentBody = z.object({
   fileName: z.string().min(1).max(255),
-  fileSize: z.number().int().min(1),
+  fileSize: z
+    .number()
+    .int()
+    .min(1)
+    .max(10 * 1024 * 1024),
   contentType: z.string().min(1).max(100),
   s3Key: z.string().min(1),
   s3Bucket: z.string().min(1),
@@ -251,7 +255,6 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         params: zodSchema(caseIdParams),
         response: {
           200: itemResponse(portalSupportCaseDetail),
-          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN]),
           404: errorWith('Support case not found', [ERROR_CODES.SUPPORT_CASE_NOT_FOUND]),
         },
       },
@@ -288,7 +291,9 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
       }
 
       if (supportCase.driverId !== driverId) {
-        await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+        await reply
+          .status(404)
+          .send({ error: 'Support case not found', code: 'SUPPORT_CASE_NOT_FOUND' });
         return;
       }
 
@@ -370,7 +375,7 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         body: zodSchema(createCaseBody),
         response: {
           200: itemResponse(portalSupportCaseItem),
-          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN]),
+          404: errorWith('Session not found', [ERROR_CODES.SESSION_NOT_FOUND]),
         },
       },
     },
@@ -381,29 +386,26 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
       // Reject sessionId that does not belong to this driver. Without this
       // guard a driver can attach another driver's session to a case, polluting
       // operator workflows and letting them appear in disputes for sessions
-      // they did not run.
+      // they did not run. 404 (not 403) to avoid leaking session existence.
+      let sessionStationId: string | null = null;
       if (body.sessionId != null) {
         const [session] = await db
-          .select({ driverId: chargingSessions.driverId })
+          .select({
+            driverId: chargingSessions.driverId,
+            stationId: chargingSessions.stationId,
+          })
           .from(chargingSessions)
           .where(eq(chargingSessions.id, body.sessionId));
         if (session == null || session.driverId !== driverId) {
-          await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+          await reply.status(404).send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
           return;
         }
+        sessionStationId = session.stationId;
       }
 
       const caseNumber = await getNextCaseNumber();
 
-      // Auto-populate stationId from session if provided
-      let stationId = body.stationId ?? null;
-      if (stationId == null && body.sessionId != null) {
-        const [session] = await db
-          .select({ stationId: chargingSessions.stationId })
-          .from(chargingSessions)
-          .where(eq(chargingSessions.id, body.sessionId));
-        stationId = session?.stationId ?? null;
-      }
+      const stationId = body.stationId ?? sessionStationId;
 
       const [newCase] = await db
         .insert(supportCases)
@@ -463,7 +465,6 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         body: zodSchema(createMessageBody),
         response: {
           200: itemResponse(portalMessageResponse),
-          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN]),
           404: errorWith('Support case not found', [ERROR_CODES.SUPPORT_CASE_NOT_FOUND]),
         },
       },
@@ -483,7 +484,9 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
       }
 
       if (supportCase.driverId !== driverId) {
-        await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+        await reply
+          .status(404)
+          .send({ error: 'Support case not found', code: 'SUPPORT_CASE_NOT_FOUND' });
         return;
       }
 
@@ -528,8 +531,10 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(uploadUrlResponse),
           400: errorWith('S3 not configured', [ERROR_CODES.STORAGE_NOT_CONFIGURED]),
-          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN]),
-          404: errorWith('Message not found', [ERROR_CODES.MESSAGE_NOT_FOUND]),
+          404: errorWith('Not found', [
+            ERROR_CODES.SUPPORT_CASE_NOT_FOUND,
+            ERROR_CODES.MESSAGE_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -544,14 +549,10 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         .from(supportCases)
         .where(eq(supportCases.id, id));
 
-      if (supportCase == null) {
+      if (supportCase == null || supportCase.driverId !== driverId) {
         await reply
           .status(404)
           .send({ error: 'Support case not found', code: 'SUPPORT_CASE_NOT_FOUND' });
-        return;
-      }
-      if (supportCase.driverId !== driverId) {
-        await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
         return;
       }
 
@@ -595,8 +596,8 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         body: zodSchema(confirmAttachmentBody),
         response: {
           200: itemResponse(attachmentItem),
-          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN]),
-          404: errorWith('Message not found', [ERROR_CODES.MESSAGE_NOT_FOUND]),
+          400: errorWith('Attachment metadata invalid', [ERROR_CODES.VALIDATION_ERROR]),
+          404: errorWith('Support case not found', [ERROR_CODES.SUPPORT_CASE_NOT_FOUND]),
         },
       },
     },
@@ -612,7 +613,9 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         .where(eq(supportCases.id, id));
 
       if (supportCase == null || supportCase.driverId !== driverId) {
-        await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+        await reply
+          .status(404)
+          .send({ error: 'Support case not found', code: 'SUPPORT_CASE_NOT_FOUND' });
         return;
       }
 
@@ -632,13 +635,12 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
       // a driver insert a row whose s3Key points at another driver's file
       // path and then retrieve it via the matching download URL.
       const expectedPrefix = `support-cases/${id}/${String(messageId)}/`;
-      if (!body.s3Key.startsWith(expectedPrefix)) {
-        await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
-        return;
-      }
       const s3 = await getS3Config();
-      if (s3 == null || body.s3Bucket !== s3.bucket) {
-        await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+      if (!body.s3Key.startsWith(expectedPrefix) || s3 == null || body.s3Bucket !== s3.bucket) {
+        await reply.status(400).send({
+          error: 'Attachment metadata does not match issued upload URL',
+          code: 'VALIDATION_ERROR',
+        });
         return;
       }
 
@@ -672,8 +674,11 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(downloadUrlResponse),
           400: errorWith('S3 not configured', [ERROR_CODES.STORAGE_NOT_CONFIGURED]),
-          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN]),
-          404: errorWith('Message not found', [ERROR_CODES.MESSAGE_NOT_FOUND]),
+          404: errorWith('Not found', [
+            ERROR_CODES.SUPPORT_CASE_NOT_FOUND,
+            ERROR_CODES.MESSAGE_NOT_FOUND,
+            ERROR_CODES.ATTACHMENT_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -688,23 +693,22 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         .where(eq(supportCases.id, id));
 
       if (supportCase == null || supportCase.driverId !== driverId) {
-        await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+        await reply
+          .status(404)
+          .send({ error: 'Support case not found', code: 'SUPPORT_CASE_NOT_FOUND' });
         return;
       }
 
-      // Verify message is not internal
+      // Verify message is not internal. Internal messages are filtered out
+      // of the portal detail GET; treat any attempted access here as not
+      // found rather than 403 so the driver can't probe their existence.
       const [message] = await db
         .select({ isInternal: supportCaseMessages.isInternal })
         .from(supportCaseMessages)
         .where(and(eq(supportCaseMessages.id, messageId), eq(supportCaseMessages.caseId, id)));
 
-      if (message == null) {
+      if (message == null || message.isInternal) {
         await reply.status(404).send({ error: 'Message not found', code: 'MESSAGE_NOT_FOUND' });
-        return;
-      }
-
-      if (message.isInternal) {
-        await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
         return;
       }
 

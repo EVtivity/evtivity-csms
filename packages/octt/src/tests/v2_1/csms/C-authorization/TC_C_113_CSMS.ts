@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { TestCase, StepResult } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_C_113_CSMS: TestCase = {
   id: 'TC_C_113_CSMS',
@@ -58,13 +59,14 @@ export const TC_C_113_CSMS: TestCase = {
       },
     });
 
-    steps.push({
-      step: 2,
-      description: 'Send TransactionEvent Started with DirectPayment idToken',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(txStartRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'Send TransactionEvent Started with DirectPayment idToken',
+      txStartRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(txStartRes).join(', ')}`,
+    );
 
     // Step 3: Send TransactionEvent Ended immediately (canceled transaction)
     const txEndRes = await ctx.client.sendCall('TransactionEvent', {
@@ -92,13 +94,14 @@ export const TC_C_113_CSMS: TestCase = {
       },
     });
 
-    steps.push({
-      step: 3,
-      description: 'Send TransactionEvent Ended with zero cost (canceled)',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(txEndRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'Send TransactionEvent Ended with zero cost (canceled)',
+      txEndRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(txEndRes).join(', ')}`,
+    );
 
     // Step 4: Send NotifySettlement with status Canceled
     try {
@@ -110,13 +113,14 @@ export const TC_C_113_CSMS: TestCase = {
         settlementAmount: 0,
       });
 
-      steps.push({
-        step: 4,
-        description: 'Send NotifySettlement with status Canceled',
-        status: 'passed',
-        expected: 'NotifySettlementResponse received',
-        actual: `Response keys: ${Object.keys(settlementRes).join(', ')}`,
-      });
+      pushSendAckStep(
+        steps,
+        4,
+        'Send NotifySettlement with status Canceled',
+        settlementRes,
+        'NotifySettlementResponse received',
+        `Response keys: ${Object.keys(settlementRes).join(', ')}`,
+      );
     } catch {
       steps.push({
         step: 4,

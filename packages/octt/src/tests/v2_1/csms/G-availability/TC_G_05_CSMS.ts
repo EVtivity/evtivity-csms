@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 // Helper: boot station and send StatusNotification
 async function bootAndStatus(ctx: {
@@ -91,20 +92,21 @@ export const TC_G_05_CSMS: TestCase = {
     });
 
     if (receivedChangeAvail) {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp3 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Unavailable',
         evseId: 1,
         connectorId: 1,
       });
 
-      steps.push({
-        step: 3,
-        description: 'StatusNotification Unavailable sent for all connectors',
-        status: 'passed',
-        expected: 'StatusNotificationResponse received',
-        actual: 'StatusNotification Unavailable sent',
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'StatusNotification Unavailable sent for all connectors',
+        resp3,
+        'StatusNotificationResponse received',
+        'StatusNotification Unavailable sent',
+      );
     }
 
     return {
@@ -189,20 +191,21 @@ export const TC_G_06_CSMS: TestCase = {
     });
 
     if (receivedChangeAvail) {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp3 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Available',
         evseId: 1,
         connectorId: 1,
       });
 
-      steps.push({
-        step: 3,
-        description: 'StatusNotification Available sent for all connectors',
-        status: 'passed',
-        expected: 'StatusNotificationResponse received',
-        actual: 'StatusNotification Available sent',
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'StatusNotification Available sent for all connectors',
+        resp3,
+        'StatusNotificationResponse received',
+        'StatusNotification Available sent',
+      );
     }
 
     return {
@@ -295,20 +298,21 @@ export const TC_G_14_CSMS: TestCase = {
     });
 
     // Send Unavailable after transaction ends
-    await ctx.client.sendCall('StatusNotification', {
+    const resp3 = await ctx.client.sendCall('StatusNotification', {
       timestamp: new Date().toISOString(),
       connectorStatus: 'Unavailable',
       evseId: 1,
       connectorId: 1,
     });
 
-    steps.push({
-      step: 3,
-      description: 'StatusNotification Unavailable sent after transaction ends',
-      status: 'passed',
-      expected: 'StatusNotification Unavailable sent',
-      actual: 'StatusNotification Unavailable sent',
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'StatusNotification Unavailable sent after transaction ends',
+      resp3,
+      'StatusNotification Unavailable sent',
+      'StatusNotification Unavailable sent',
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

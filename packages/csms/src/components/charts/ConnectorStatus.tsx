@@ -35,7 +35,17 @@ import { api } from '@/lib/api';
 import { Select } from '@/components/ui/select';
 import { connectorStatusVariant } from '@/lib/status-variants';
 
-const CONNECTOR_TYPES = ['CCS2', 'CHAdeMO', 'Type2', 'Type1', 'GBT', 'Tesla', 'NACS'] as const;
+const CONNECTOR_TYPES = [
+  'CCS2',
+  'CCS1',
+  'CHAdeMO',
+  'Type2',
+  'Type1',
+  'GBT',
+  'Tesla',
+  'NACS',
+  'Unknown',
+] as const;
 
 interface Connector {
   connectorId: number;
@@ -635,6 +645,7 @@ export function ConnectorStatus({
                 }}
                 className="h-9"
               >
+                <option value="">— Select one —</option>
                 {CONNECTOR_TYPES.map((ct) => (
                   <option key={ct} value={ct}>
                     {ct}
@@ -713,6 +724,7 @@ export function ConnectorStatus({
                 }}
                 className="h-9"
               >
+                <option value="">— Select one —</option>
                 {CONNECTOR_TYPES.map((ct) => (
                   <option key={ct} value={ct}>
                     {ct}
@@ -791,6 +803,7 @@ export function ConnectorStatus({
                       }}
                       className="h-9"
                     >
+                      <option value="">— Select one —</option>
                       {CONNECTOR_TYPES.map((ct) => (
                         <option key={ct} value={ct}>
                           {ct}

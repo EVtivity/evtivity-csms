@@ -7,6 +7,7 @@ import { Download, Loader2, Sparkles, X } from 'lucide-react';
 import { FileUploadButton } from '@/components/ui/file-upload-button';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 
@@ -59,6 +60,7 @@ export function MessageThread({
     total: number;
   } | null>(null);
   const [aiAssistLoading, setAiAssistLoading] = useState(false);
+  const [confirmAiOverwrite, setConfirmAiOverwrite] = useState(false);
 
   async function handleSendMessage(e: React.SyntheticEvent): Promise<void> {
     e.preventDefault();
@@ -67,7 +69,7 @@ export function MessageThread({
     setSendError(null);
 
     try {
-      const message = await api.post<{ id: string }>(`/v1/support-cases/${caseId}/messages`, {
+      const message = await api.post<{ id: number }>(`/v1/support-cases/${caseId}/messages`, {
         body: messageBody,
         isInternal,
       });
@@ -81,7 +83,7 @@ export function MessageThread({
           uploadUrl: string;
           s3Key: string;
           s3Bucket: string;
-        }>(`/v1/support-cases/${caseId}/messages/${message.id}/attachments/upload-url`, {
+        }>(`/v1/support-cases/${caseId}/messages/${String(message.id)}/attachments/upload-url`, {
           fileName: file.name,
           contentType: file.type || 'application/octet-stream',
           fileSize: file.size,
@@ -96,7 +98,7 @@ export function MessageThread({
           throw new Error(`Upload failed: ${String(uploadRes.status)}`);
         }
 
-        await api.post(`/v1/support-cases/${caseId}/messages/${message.id}/attachments`, {
+        await api.post(`/v1/support-cases/${caseId}/messages/${String(message.id)}/attachments`, {
           fileName: file.name,
           fileSize: file.size,
           contentType: file.type || 'application/octet-stream',
@@ -134,6 +136,14 @@ export function MessageThread({
     } finally {
       setAiAssistLoading(false);
     }
+  }
+
+  function onAiAssistClick(): void {
+    if (messageBody.trim() !== '') {
+      setConfirmAiOverwrite(true);
+      return;
+    }
+    void handleAiAssist();
   }
 
   async function handleDownload(attachment: Attachment): Promise<void> {
@@ -250,9 +260,7 @@ export function MessageThread({
                   variant="outline"
                   size="sm"
                   disabled={aiAssistLoading}
-                  onClick={() => {
-                    void handleAiAssist();
-                  }}
+                  onClick={onAiAssistClick}
                   title={t('supportCases.aiAssistTooltip')}
                 >
                   {aiAssistLoading ? (
@@ -274,6 +282,17 @@ export function MessageThread({
           </div>
           {sendError != null && <p className="text-sm text-destructive">{sendError}</p>}
         </form>
+        <ConfirmDialog
+          open={confirmAiOverwrite}
+          onOpenChange={setConfirmAiOverwrite}
+          title={t('supportCases.aiAssistOverwriteTitle')}
+          description={t('supportCases.aiAssistOverwriteDescription')}
+          confirmLabel={t('supportCases.aiAssistOverwriteConfirm')}
+          variant="default"
+          onConfirm={() => {
+            void handleAiAssist();
+          }}
+        />
       </CardContent>
     </Card>
   );

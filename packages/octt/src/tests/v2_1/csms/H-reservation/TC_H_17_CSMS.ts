@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 /**
  * TC_H_17_CSMS: Cancel reservation of an EVSE - Success
@@ -86,20 +87,21 @@ export const TC_H_17_CSMS: TestCase = {
 
     if (receivedReserveNow) {
       // StatusNotification Reserved
-      await ctx.client.sendCall('StatusNotification', {
+      const resp2 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Reserved',
         evseId: 1,
         connectorId: 1,
       });
 
-      steps.push({
-        step: 2,
-        description: 'StatusNotification Reserved sent',
-        status: 'passed',
-        expected: 'StatusNotificationResponse received',
-        actual: 'StatusNotification Reserved sent',
-      });
+      pushSendAckStep(
+        steps,
+        2,
+        'StatusNotification Reserved sent',
+        resp2,
+        'StatusNotificationResponse received',
+        'StatusNotification Reserved sent',
+      );
 
       // Wait for CSMS to send CancelReservation
       if (ctx.triggerCommand != null) {
@@ -123,20 +125,21 @@ export const TC_H_17_CSMS: TestCase = {
 
       if (receivedCancelReservation) {
         // StatusNotification Available
-        await ctx.client.sendCall('StatusNotification', {
+        const resp4 = await ctx.client.sendCall('StatusNotification', {
           timestamp: new Date().toISOString(),
           connectorStatus: 'Available',
           evseId: 1,
           connectorId: 1,
         });
 
-        steps.push({
-          step: 4,
-          description: 'StatusNotification Available sent after cancellation',
-          status: 'passed',
-          expected: 'StatusNotificationResponse received',
-          actual: 'StatusNotification Available sent',
-        });
+        pushSendAckStep(
+          steps,
+          4,
+          'StatusNotification Available sent after cancellation',
+          resp4,
+          'StatusNotificationResponse received',
+          'StatusNotification Available sent',
+        );
       }
     }
 

@@ -97,14 +97,14 @@ export function SiteDetailsTab({
     mutationFn: (regionCode: string | null) =>
       api.put(`/v1/sites/${siteId}/carbon-region`, { regionCode }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['sites', siteId] });
+      void queryClient.invalidateQueries({ queryKey: ['sites'] });
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: (body: Record<string, string>) => api.patch<Site>(`/v1/sites/${siteId}`, body),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['sites', siteId] });
+      void queryClient.invalidateQueries({ queryKey: ['sites'] });
       setEditing(false);
       setHasSubmitted(false);
     },

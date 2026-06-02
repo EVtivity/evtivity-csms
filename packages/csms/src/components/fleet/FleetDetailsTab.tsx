@@ -76,7 +76,7 @@ export function FleetDetailsTab({ fleetId, fleet }: FleetDetailsTabProps): React
     mutationFn: (body: { name?: string; description?: string }) =>
       api.patch<Fleet>(`/v1/fleets/${fleetId}`, body),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['fleets', fleetId] });
+      void queryClient.invalidateQueries({ queryKey: ['fleets'] });
       void queryClient.invalidateQueries({ queryKey: ['fleets'] });
       setEditing(false);
       setHasSubmitted(false);

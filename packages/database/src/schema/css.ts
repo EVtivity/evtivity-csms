@@ -126,6 +126,8 @@ export const cssTransactions = pgTable(
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     stoppedAt: timestamp('stopped_at', { withTimezone: true }),
     stoppedReason: varchar('stopped_reason', { length: 50 }),
+    preservedAt: timestamp('preserved_at', { withTimezone: true }),
+    preservedData: jsonb('preserved_data'),
   },
   (table) => [
     unique('css_transactions_station_transaction').on(table.cssStationId, table.transactionId),
@@ -187,12 +189,86 @@ export const cssLocalAuthEntries = pgTable(
     tokenType: varchar('token_type', { length: 50 }),
     authStatus: varchar('auth_status', { length: 50 }).notNull().default('Accepted'),
     listVersion: integer('list_version').notNull().default(0),
+    entryData: jsonb('entry_data'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     unique('css_local_auth_entries_station_token').on(table.cssStationId, table.idToken),
     index('idx_css_local_auth_entries_css_station_id').on(table.cssStationId),
   ],
+);
+
+export const cssVariableMonitors = pgTable(
+  'css_variable_monitors',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId('cssVariableMonitor')),
+    cssStationId: text('css_station_id')
+      .notNull()
+      .references(() => cssStations.id, { onDelete: 'cascade' }),
+    monitorId: integer('monitor_id').notNull(),
+    monitorData: jsonb('monitor_data').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('css_variable_monitors_station_monitor').on(table.cssStationId, table.monitorId),
+    index('idx_css_variable_monitors_css_station_id').on(table.cssStationId),
+  ],
+);
+
+export const cssCustomerData = pgTable(
+  'css_customer_data',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId('cssCustomerData')),
+    cssStationId: text('css_station_id')
+      .notNull()
+      .references(() => cssStations.id, { onDelete: 'cascade' }),
+    key: varchar('key', { length: 255 }).notNull(),
+    value: text('value').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('css_customer_data_station_key').on(table.cssStationId, table.key),
+    index('idx_css_customer_data_css_station_id').on(table.cssStationId),
+  ],
+);
+
+export const cssAuthCache = pgTable(
+  'css_auth_cache',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId('cssAuthCache')),
+    cssStationId: text('css_station_id')
+      .notNull()
+      .references(() => cssStations.id, { onDelete: 'cascade' }),
+    idToken: varchar('id_token', { length: 255 }).notNull(),
+    idTokenInfo: jsonb('id_token_info').notNull(),
+    cachedAt: timestamp('cached_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('css_auth_cache_station_token').on(table.cssStationId, table.idToken),
+    index('idx_css_auth_cache_css_station_id').on(table.cssStationId),
+  ],
+);
+
+export const cssOfflineMessages = pgTable(
+  'css_offline_messages',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId('cssOfflineMessage')),
+    cssStationId: text('css_station_id')
+      .notNull()
+      .references(() => cssStations.id, { onDelete: 'cascade' }),
+    action: varchar('action', { length: 64 }).notNull(),
+    payload: jsonb('payload').notNull(),
+    queuedAt: timestamp('queued_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('idx_css_offline_messages_css_station_id').on(table.cssStationId)],
 );
 
 export const cssInstalledCertificates = pgTable(

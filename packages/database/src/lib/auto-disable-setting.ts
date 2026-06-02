@@ -21,7 +21,10 @@ export async function isAutoDisableOnCriticalEnabled(): Promise<boolean> {
       .from(settings)
       .where(eq(settings.key, 'security.autoDisableOnCritical'));
 
-    cachedValue = row != null && row.value !== false;
+    // Default is enabled. A missing row matches the seed default and the
+    // DB-error fallback below, so callers get consistent "enabled" semantics
+    // unless an operator explicitly stored value === false.
+    cachedValue = row == null || row.value !== false;
     cachedAt = now;
     return cachedValue;
   } catch {

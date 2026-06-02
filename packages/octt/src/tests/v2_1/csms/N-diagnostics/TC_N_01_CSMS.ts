@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_N_25_CSMS: TestCase = {
   id: 'TC_N_25_CSMS',
@@ -49,13 +50,16 @@ export const TC_N_25_CSMS: TestCase = {
     if (!received) return { status: 'failed', durationMs: 0, steps };
     for (const logStatus of ['Uploading', 'Uploaded']) {
       try {
-        await ctx.client.sendCall('LogStatusNotification', { status: logStatus, requestId });
+        const resp52 = await ctx.client.sendCall('LogStatusNotification', {
+          status: logStatus,
+          requestId,
+        });
         steps.push({
           step: steps.length + 1,
           description: `Send LogStatusNotification ${logStatus}`,
-          status: 'passed',
+          status: resp52 != null ? 'passed' : 'failed',
           expected: 'Response received',
-          actual: 'Response received',
+          actual: resp52 != null ? 'Response received' : 'No response',
         });
       } catch {
         steps.push({
@@ -255,7 +259,7 @@ export const TC_N_100_CSMS: TestCase = {
       reason: 'PowerUp',
     });
     try {
-      await ctx.client.sendCall('NotifyEvent', {
+      const resp1 = await ctx.client.sendCall('NotifyEvent', {
         generatedAt: new Date().toISOString(),
         seqNo: 0,
         tbc: false,
@@ -271,13 +275,7 @@ export const TC_N_100_CSMS: TestCase = {
           },
         ],
       });
-      steps.push({
-        step: 1,
-        description: 'Send NotifyEventRequest with trigger Periodic',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 1, 'Send NotifyEventRequest with trigger Periodic', resp1);
     } catch {
       steps.push({
         step: 1,

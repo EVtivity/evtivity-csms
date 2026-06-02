@@ -40,7 +40,8 @@ export async function octtRunnerHandler(
         concurrency: 3,
       },
       (result) => {
-        // Insert each test result as it completes
+        // Insert each test result as it completes. Wrapped to surface errors;
+        // the insert + publish are non-critical to the run loop itself.
         void db
           .insert(octtTestResults)
           .values({
@@ -64,7 +65,13 @@ export async function octtRunnerHandler(
                 status: result.result.status,
               }),
             ),
-          );
+          )
+          .catch((err: unknown) => {
+            log.warn(
+              { err, runId, testId: result.testId },
+              'Failed to persist OCTT test result or publish progress',
+            );
+          });
       },
     );
 

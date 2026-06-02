@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 /**
  * TC_J_07_CSMS: Sampled Meter Values - EventType Started - EVSE known
@@ -50,13 +51,14 @@ export const TC_J_07_CSMS: TestCase = {
       ],
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Started with Transaction.Begin meter value (EVSE known)',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Started with Transaction.Begin meter value (EVSE known)',
+      res,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(res).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -112,13 +114,14 @@ export const TC_J_08_CSMS: TestCase = {
       ],
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Started with Transaction.Begin meter value (EVSE not known)',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Started with Transaction.Begin meter value (EVSE not known)',
+      res,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(res).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -194,9 +197,9 @@ export const TC_J_09_CSMS: TestCase = {
         steps.push({
           step: i + 1,
           description: `TransactionEvent Updated MeterValuePeriodic #${String(i + 1)}`,
-          status: 'passed',
+          status: res != null ? 'passed' : 'failed',
           expected: 'TransactionEventResponse received',
-          actual: `Response keys: ${Object.keys(res).join(', ')}`,
+          actual: res != null ? `Response keys: ${Object.keys(res).join(', ')}` : 'No response',
         });
       } catch {
         steps.push({
@@ -285,13 +288,14 @@ export const TC_J_10_CSMS: TestCase = {
       ],
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Ended with sampled and Transaction.End meter values',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Ended with sampled and Transaction.End meter values',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -389,13 +393,14 @@ export const TC_J_11_CSMS: TestCase = {
       ],
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Ended with signed sampled meter values',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Ended with signed sampled meter values',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

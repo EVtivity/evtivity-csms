@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { createLogger } from '@evtivity/lib';
+import { createLogger, isPrivateUrl } from '@evtivity/lib';
 import type {
   PkiProvider,
   SignCsrResult,
@@ -140,6 +140,17 @@ export class HubjectProvider implements PkiProvider {
   }
 
   async getOcspStatus(ocspRequestData: OcspRequestData): Promise<OcspResult> {
+    // OCSP responder URL is attested by the requesting station via its
+    // certificate's AIA extension. Reject private/internal addresses so a
+    // hostile station cannot weaponize the CSMS into an SSRF probe.
+    if (isPrivateUrl(ocspRequestData.responderURL)) {
+      logger.error(
+        { url: ocspRequestData.responderURL },
+        'Rejected OCSP responder URL pointing at a private/internal address',
+      );
+      return { status: 'Failed', ocspResult: '' };
+    }
+
     const ocspRequest = Buffer.from(
       JSON.stringify({
         hashAlgorithm: ocspRequestData.hashAlgorithm,

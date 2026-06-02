@@ -18,18 +18,17 @@ export interface MfaConfig {
   smsEnabled: boolean;
 }
 
-let recaptchaCache: RecaptchaConfig | null | undefined;
-let recaptchaCachedAt = 0;
-
-let mfaCache: MfaConfig | undefined;
-let mfaCachedAt = 0;
-
-const TTL_MS = 60_000;
-
-function parseSecuritySettings(rows: { key: string; value: unknown }[]): {
+interface ParsedSecurity {
   recaptcha: RecaptchaConfig;
   mfa: MfaConfig;
-} {
+}
+
+let cache: ParsedSecurity | undefined;
+let cachedAt = 0;
+const TTL_MS = 60_000;
+const MFA_FALLBACK: MfaConfig = { emailEnabled: true, totpEnabled: true, smsEnabled: false };
+
+function parseSecuritySettings(rows: { key: string; value: unknown }[]): ParsedSecurity {
   const map = new Map<string, unknown>();
   for (const row of rows) {
     map.set(row.key, row.value);
@@ -59,50 +58,37 @@ function parseSecuritySettings(rows: { key: string; value: unknown }[]): {
   };
 }
 
-async function fetchSecuritySettings(): Promise<{ key: string; value: unknown }[]> {
-  return db
-    .select({ key: settings.key, value: settings.value })
-    .from(settings)
-    .where(like(settings.key, 'security.%'));
+async function loadSecuritySettings(): Promise<ParsedSecurity | undefined> {
+  const now = Date.now();
+  if (cache !== undefined && now - cachedAt < TTL_MS) {
+    return cache;
+  }
+
+  try {
+    const rows = await db
+      .select({ key: settings.key, value: settings.value })
+      .from(settings)
+      .where(like(settings.key, 'security.%'));
+    cache = parseSecuritySettings(rows);
+    cachedAt = now;
+    return cache;
+  } catch {
+    return cache;
+  }
 }
 
 export async function getRecaptchaConfig(): Promise<RecaptchaConfig | null> {
-  const now = Date.now();
-  if (recaptchaCache !== undefined && now - recaptchaCachedAt < TTL_MS) {
-    return recaptchaCache;
-  }
-
-  try {
-    const rows = await fetchSecuritySettings();
-    const parsed = parseSecuritySettings(rows);
-    recaptchaCache = parsed.recaptcha.enabled ? parsed.recaptcha : null;
-    recaptchaCachedAt = now;
-    return recaptchaCache;
-  } catch {
-    return recaptchaCache ?? null;
-  }
+  const parsed = await loadSecuritySettings();
+  if (parsed == null) return null;
+  return parsed.recaptcha.enabled ? parsed.recaptcha : null;
 }
 
 export async function getMfaConfig(): Promise<MfaConfig> {
-  const now = Date.now();
-  if (mfaCache !== undefined && now - mfaCachedAt < TTL_MS) {
-    return mfaCache;
-  }
-
-  try {
-    const rows = await fetchSecuritySettings();
-    const parsed = parseSecuritySettings(rows);
-    mfaCache = parsed.mfa;
-    mfaCachedAt = now;
-    return mfaCache;
-  } catch {
-    return mfaCache ?? { emailEnabled: true, totpEnabled: true, smsEnabled: false };
-  }
+  const parsed = await loadSecuritySettings();
+  return parsed?.mfa ?? MFA_FALLBACK;
 }
 
 export function clearSecuritySettingsCache(): void {
-  recaptchaCache = undefined;
-  recaptchaCachedAt = 0;
-  mfaCache = undefined;
-  mfaCachedAt = 0;
+  cache = undefined;
+  cachedAt = 0;
 }

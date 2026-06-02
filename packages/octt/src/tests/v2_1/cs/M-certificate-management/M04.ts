@@ -68,12 +68,13 @@ export const TC_M_20_CS: CsTestCase = {
     const verifyRes = await ctx.server.sendCommand('GetInstalledCertificateIds', {
       certificateType: ['ManufacturerRootCertificate'],
     });
+    const verifyStatus = String(verifyRes['status']);
     steps.push({
       step: 3,
       description: 'Certificate no longer present after deletion',
-      status: 'passed',
-      expected: 'Deleted certificate absent',
-      actual: `status = ${verifyRes['status']}`,
+      status: verifyStatus === 'NotFound' ? 'passed' : 'failed',
+      expected: 'status = NotFound (deleted certificate absent)',
+      actual: `status = ${verifyStatus}`,
     });
 
     const allPassed = steps.every((s) => s.status === 'passed');

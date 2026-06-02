@@ -449,6 +449,27 @@
       "when": 1778700000045,
       "tag": "0063_reseed_missing_cron_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1778700000046,
+      "tag": "0064_backfill_unknown_connector_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1778700000047,
+      "tag": "0065_add_simulator_persistence_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1778700000048,
+      "tag": "0066_add_simulator_auth_cache_and_preserved_tx",
+      "breakpoints": true
     }
   ]
 }

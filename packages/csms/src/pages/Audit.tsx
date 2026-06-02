@@ -45,6 +45,12 @@ const ENTITY_TYPES = [
   'firmware_campaign',
   'station_image',
   'local_auth_list',
+  'token',
+  'reservation',
+  'pricing_group',
+  'tariff',
+  'holiday',
+  'pricing_assignment',
   'maintenance_event',
 ] as const;
 

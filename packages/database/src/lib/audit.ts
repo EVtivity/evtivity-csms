@@ -59,25 +59,28 @@ const SENSITIVE_AUDIT_FIELDS: ReadonlySet<string> = new Set([
   'client_cert',
   'clientKey',
   'client_key',
+  'codeHash',
+  'code_hash',
+  'sessionToken',
+  'session_token',
 ]);
 
 /**
  * Returns a redacted copy of `obj` with sensitive fields replaced by the
- * literal string '<redacted>'. Recurses into nested plain objects so a
- * sensitive field at any depth is caught (e.g. `before.driver.profile.passwordHash`).
- * Arrays, Dates, and primitives pass through unchanged.
+ * literal string '<redacted>'. Recurses into nested plain objects AND arrays
+ * so a sensitive field at any depth is caught (e.g. `before.driver.profile.passwordHash`
+ * or `before.tokens[0].tokenHash`). Dates and primitives pass through unchanged.
  */
 export function redactAuditPayload(obj: unknown): unknown {
   if (obj == null || typeof obj !== 'object') return obj;
-  if (Array.isArray(obj)) return obj;
+  if (obj instanceof Date) return obj;
+  if (Array.isArray(obj)) return obj.map((item) => redactAuditPayload(item));
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
     if (SENSITIVE_AUDIT_FIELDS.has(k)) {
       out[k] = '<redacted>';
-    } else if (v != null && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date)) {
-      out[k] = redactAuditPayload(v);
     } else {
-      out[k] = v;
+      out[k] = redactAuditPayload(v);
     }
   }
   return out;

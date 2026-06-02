@@ -2516,7 +2516,10 @@
     "aiAssist": "AI 草稿",
     "aiAssistTooltip": "生成 AI 草稿回复",
     "aiAssistLoading": "正在生成草稿...",
-    "aiAssistError": "生成 AI 草稿失败"
+    "aiAssistError": "生成 AI 草稿失败",
+    "aiAssistOverwriteTitle": "替换现有草稿？",
+    "aiAssistOverwriteDescription": "生成 AI 草稿将覆盖消息框中已有的文字。是否继续？",
+    "aiAssistOverwriteConfirm": "替换"
   },
   "vehicles": {
     "title": "车辆",
@@ -2785,6 +2788,7 @@
     "title": "聊天机器人 AI",
     "placeholder": "询问充电站、会话、收入相关问题...",
     "send": "发送",
+    "resend": "重新发送",
     "typing": "思考中...",
     "rateLimited": "请求过多，请稍后再试。",
     "notConfigured": "聊天机器人 AI 未配置。请在个人资料中设置 API 密钥。",

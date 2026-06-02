@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { TestCase, StepResult } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_A_06_CSMS: TestCase = {
   id: 'TC_A_06_CSMS',
@@ -53,19 +54,18 @@ export const TC_A_06_CSMS: TestCase = {
 
     // Step 4: Notify CSMS about connector state
     try {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp4 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Available',
         evseId: 1,
         connectorId: 1,
       });
-      steps.push({
-        step: 4,
-        description: 'Send StatusNotification (Available) and CSMS responds accordingly',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(
+        steps,
+        4,
+        'Send StatusNotification (Available) and CSMS responds accordingly',
+        resp4,
+      );
     } catch {
       steps.push({
         step: 4,
@@ -78,7 +78,7 @@ export const TC_A_06_CSMS: TestCase = {
 
     // Step 5: Send NotifyEventRequest
     try {
-      await ctx.client.sendCall('NotifyEvent', {
+      const resp5 = await ctx.client.sendCall('NotifyEvent', {
         generatedAt: new Date().toISOString(),
         seqNo: 0,
         tbc: false,
@@ -94,13 +94,7 @@ export const TC_A_06_CSMS: TestCase = {
           },
         ],
       });
-      steps.push({
-        step: 5,
-        description: 'Send NotifyEventRequest and CSMS responds accordingly',
-        status: 'passed',
-        expected: 'Response received',
-        actual: 'Response received',
-      });
+      pushSendAckStep(steps, 5, 'Send NotifyEventRequest and CSMS responds accordingly', resp5);
     } catch {
       steps.push({
         step: 5,

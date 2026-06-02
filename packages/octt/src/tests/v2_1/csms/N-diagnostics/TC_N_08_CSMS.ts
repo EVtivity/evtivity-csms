@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_N_24_CSMS: TestCase = {
   id: 'TC_N_24_CSMS',
@@ -18,7 +19,7 @@ export const TC_N_24_CSMS: TestCase = {
       reason: 'PowerUp',
     });
     try {
-      await ctx.client.sendCall('NotifyEvent', {
+      const resp1 = await ctx.client.sendCall('NotifyEvent', {
         generatedAt: new Date().toISOString(),
         seqNo: 0,
         tbc: false,
@@ -34,13 +35,13 @@ export const TC_N_24_CSMS: TestCase = {
           },
         ],
       });
-      steps.push({
-        step: 1,
-        description: 'Send periodic NotifyEventRequest',
-        status: 'passed',
-        expected: 'Empty NotifyEventResponse',
-        actual: 'Response received',
-      });
+      pushSendAckStep(
+        steps,
+        1,
+        'Send periodic NotifyEventRequest',
+        resp1,
+        'Empty NotifyEventResponse',
+      );
     } catch {
       steps.push({
         step: 1,

@@ -37,6 +37,8 @@ import {
   configTemplates,
   guestSessions,
   pricingAssignmentAuditLog,
+  cssStations,
+  cssEvses,
 } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -55,6 +57,7 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds, checkStationSiteAccess, userCanAccessSite } from '../lib/site-access.js';
 import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../lib/ocpp-command.js';
 import { enableCssPair, disableCssPair } from '../lib/css-pairing.js';
+import { mapConnectorTypeToCss } from '@evtivity/lib';
 import { authorize } from '../middleware/rbac.js';
 import type { JwtPayload } from '../plugins/auth.js';
 
@@ -575,7 +578,7 @@ const sessionItem = z
 
 const ocppLogItem = z
   .object({
-    id: z.string().describe('OCPP log row identifier'),
+    id: z.number().describe('OCPP log row identifier'),
     stationId: z.string().describe('Internal station identifier (nanoid) the message belongs to'),
     action: z
       .string()
@@ -584,11 +587,17 @@ const ocppLogItem = z
     direction: z
       .string()
       .describe('Message direction (inbound = from station to CSMS, outbound = CSMS to station)'),
+    messageType: z.number().describe('OCPP message type (2 = CALL, 3 = CALLRESULT, 4 = CALLERROR)'),
     messageId: z
       .string()
       .nullable()
       .describe('OCPP message id used to correlate request and response'),
     payload: z.unknown().describe('Raw OCPP payload object'),
+    errorCode: z.string().nullable().describe('OCPP error code (CALLERROR only)'),
+    errorDescription: z
+      .string()
+      .nullable()
+      .describe('OCPP error description text (CALLERROR only)'),
     createdAt: z.coerce.date().describe('When the message was logged'),
   })
   .passthrough();
@@ -1613,6 +1622,38 @@ export function stationRoutes(app: FastifyInstance): void {
         )
         .returning();
 
+      // Mirror new EVSE/connector pairs into css_evses for paired simulators
+      // so the next simulator boot picks them up. enableCssPair only seeds
+      // one default EVSE; without this mirror, operator-added EVSEs on a
+      // simulator station would be invisible to the simulator. Upsert
+      // because enableCssPair's default seed (evseId=1, connectorId=1,
+      // ac_type2) may already occupy the slot the operator is now
+      // overwriting with their real plug choice.
+      const [cssRow] = await db
+        .select({ id: cssStations.id })
+        .from(cssStations)
+        .where(eq(cssStations.stationId, id));
+      if (cssRow != null) {
+        const cssStationDbId = cssRow.id;
+        const cssRows = body.connectors.map((c) => ({
+          cssStationId: cssStationDbId,
+          evseId: body.evseId,
+          connectorId: c.connectorId,
+          connectorType: mapConnectorTypeToCss(c.connectorType),
+          maxPowerW: c.maxPowerKw * 1000,
+        }));
+        await db
+          .insert(cssEvses)
+          .values(cssRows)
+          .onConflictDoUpdate({
+            target: [cssEvses.cssStationId, cssEvses.evseId, cssEvses.connectorId],
+            set: {
+              connectorType: sql`EXCLUDED.connector_type`,
+              maxPowerW: sql`EXCLUDED.max_power_w`,
+            },
+          });
+      }
+
       await reply.status(201).send({
         evseId: evse.evseId,
         connectors: connectorRows.map((c) => ({
@@ -2067,6 +2108,33 @@ export function stationRoutes(app: FastifyInstance): void {
           .status(500)
           .send({ error: 'Failed to create connector', code: 'INTERNAL_ERROR' });
         return;
+      }
+
+      // Mirror to css_evses for paired simulators (same rationale as the
+      // POST /stations/:id/evses path). Upsert so an existing default seed
+      // for the same (evseId, connectorId) is replaced with the operator's
+      // explicit choice.
+      const [cssRow] = await db
+        .select({ id: cssStations.id })
+        .from(cssStations)
+        .where(eq(cssStations.stationId, id));
+      if (cssRow != null) {
+        await db
+          .insert(cssEvses)
+          .values({
+            cssStationId: cssRow.id,
+            evseId: ocppEvseId,
+            connectorId: body.connectorId,
+            connectorType: mapConnectorTypeToCss(body.connectorType),
+            maxPowerW: body.maxPowerKw * 1000,
+          })
+          .onConflictDoUpdate({
+            target: [cssEvses.cssStationId, cssEvses.evseId, cssEvses.connectorId],
+            set: {
+              connectorType: sql`EXCLUDED.connector_type`,
+              maxPowerW: sql`EXCLUDED.max_power_w`,
+            },
+          });
       }
 
       await reply.status(201).send({
@@ -2990,11 +3058,15 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      await db.insert(connectionLogs).values({
-        stationId: id,
-        event: 'password_changed',
-        metadata: { changedBy: 'operator' },
-      });
+      try {
+        await db.insert(connectionLogs).values({
+          stationId: id,
+          event: 'password_changed',
+          metadata: { changedBy: 'operator' },
+        });
+      } catch (err) {
+        request.log.warn({ err, stationId: id }, 'Failed to write connection_logs row');
+      }
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -3176,12 +3248,16 @@ export function stationRoutes(app: FastifyInstance): void {
         .set({ basicAuthPasswordHash: passwordHash, updatedAt: new Date() })
         .where(eq(chargingStations.id, id));
 
-      // Log the event
-      await db.insert(connectionLogs).values({
-        stationId: id,
-        event: 'credentials_rotated',
-        metadata: { rotatedBy: 'operator' },
-      });
+      // Log the event (best-effort: don't fail the rotation if forensic log fails)
+      try {
+        await db.insert(connectionLogs).values({
+          stationId: id,
+          event: 'credentials_rotated',
+          metadata: { rotatedBy: 'operator' },
+        });
+      } catch (err) {
+        request.log.warn({ err, stationId: id }, 'Failed to write connection_logs row');
+      }
 
       // Reset the station so it reconnects with the new password
       const resetPayload = {
@@ -4677,6 +4753,22 @@ export function stationRoutes(app: FastifyInstance): void {
           502: errorWith('Ocpp command failed', [ERROR_CODES.OCPP_COMMAND_FAILED]),
         },
       },
+      // Same spam vector as the sibling /refresh endpoint: a stuck UI or
+      // debugging script can fire GetCompositeSchedule repeatedly, and the
+      // station has to compute and serialise the schedule each time. Match
+      // the refresh cap so both station-poking endpoints share the budget.
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: '1 minute',
+          keyGenerator: (request) => {
+            const userId = (request.user as unknown as Record<string, unknown> | undefined)?.[
+              'userId'
+            ];
+            return typeof userId === 'string' ? userId : request.ip;
+          },
+        },
+      },
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof stationParams>;
@@ -5508,8 +5600,21 @@ export function stationRoutes(app: FastifyInstance): void {
       try {
         const pubsub = (await import('../lib/pubsub.js')).getPubSub();
         await pubsub.publish('ocpp_commands', JSON.stringify(commandPayload));
-      } catch {
-        // Command dispatch is best-effort; rule is still created
+      } catch (err) {
+        // The DB row is already inserted in 'pending' state and there is no
+        // retry-on-startup mechanism, so a silent dispatch failure means
+        // the rule sits stuck in 'pending' forever with no operator-visible
+        // signal. Log explicitly so the failure surfaces in alerts, and
+        // return 502 to match the declared response schema.
+        request.log.error(
+          { err, ruleId: rule?.id, stationId: station.stationId },
+          'Failed to dispatch SetVariableMonitoring command',
+        );
+        await reply.status(502).send({
+          error: 'Failed to dispatch SetVariableMonitoring to the OCPP command bus',
+          code: 'STATION_REJECTED',
+        });
+        return;
       }
 
       return reply.status(201).send(rule);
@@ -5578,8 +5683,15 @@ export function stationRoutes(app: FastifyInstance): void {
           try {
             const pubsub = (await import('../lib/pubsub.js')).getPubSub();
             await pubsub.publish('ocpp_commands', JSON.stringify(commandPayload));
-          } catch {
-            // Best-effort
+          } catch (err) {
+            // Best-effort dispatch — the local row still flips to 'cleared'
+            // below so the operator's view is consistent. Log so the
+            // station-side orphan (CSMS thinks cleared, station still
+            // monitoring) doesn't go unnoticed in alerts.
+            request.log.warn(
+              { err, ruleId, monitoringId: rule.monitoringId, stationId: station.stationId },
+              'ClearVariableMonitoring dispatch failed; local row marked cleared anyway',
+            );
           }
         }
       }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { TestCase, StepResult } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_C_119_CSMS: TestCase = {
   id: 'TC_C_119_CSMS',
@@ -99,13 +100,14 @@ export const TC_C_119_CSMS: TestCase = {
 
       const receiptUrl = settlementRes['receiptUrl'] as string | undefined;
 
-      steps.push({
-        step: 2,
-        description: 'Send NotifySettlement with status Failed',
-        status: 'passed',
-        expected: 'NotifySettlementResponse received',
-        actual: `Response keys: ${Object.keys(settlementRes).join(', ')}`,
-      });
+      pushSendAckStep(
+        steps,
+        2,
+        'Send NotifySettlement with status Failed',
+        settlementRes,
+        'NotifySettlementResponse received',
+        `Response keys: ${Object.keys(settlementRes).join(', ')}`,
+      );
 
       steps.push({
         step: 3,

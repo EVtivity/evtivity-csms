@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 const makeGetSpecificDisplayTest = (
   id: string,
@@ -47,7 +48,7 @@ const makeGetSpecificDisplayTest = (
     });
     if (received && respondStatus === 'Accepted') {
       try {
-        await ctx.client.sendCall('NotifyDisplayMessages', {
+        const resp2 = await ctx.client.sendCall('NotifyDisplayMessages', {
           requestId: 1,
           messageInfo: [
             {
@@ -58,13 +59,7 @@ const makeGetSpecificDisplayTest = (
             },
           ],
         });
-        steps.push({
-          step: 2,
-          description: 'Send NotifyDisplayMessagesRequest',
-          status: 'passed',
-          expected: 'Response received',
-          actual: 'Response received',
-        });
+        pushSendAckStep(steps, 2, 'Send NotifyDisplayMessagesRequest', resp2);
       } catch {
         steps.push({
           step: 2,

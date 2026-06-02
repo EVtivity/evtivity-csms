@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 // Helper: boot station
 async function boot(ctx: {
@@ -136,13 +137,14 @@ export const TC_F_02_CSMS: TestCase = {
         idToken: { idToken: idTokenValue, type: idTokenType },
       });
 
-      steps.push({
-        step: 4,
-        description: 'TransactionEvent Started with RemoteStart accepted',
-        status: 'passed',
-        expected: 'TransactionEventResponse received',
-        actual: `Response keys: ${Object.keys(txRes).join(', ')}`,
-      });
+      pushSendAckStep(
+        steps,
+        4,
+        'TransactionEvent Started with RemoteStart accepted',
+        txRes,
+        'TransactionEventResponse received',
+        `Response keys: ${Object.keys(txRes).join(', ')}`,
+      );
     }
 
     return {
@@ -351,13 +353,14 @@ export const TC_F_04_CSMS: TestCase = {
         idToken: { idToken: idTokenValue, type: idTokenType },
       });
 
-      steps.push({
-        step: 2,
-        description: 'TransactionEvent Started accepted',
-        status: 'passed',
-        expected: 'TransactionEventResponse received',
-        actual: `Response keys: ${Object.keys(startRes).join(', ')}`,
-      });
+      pushSendAckStep(
+        steps,
+        2,
+        'TransactionEvent Started accepted',
+        startRes,
+        'TransactionEventResponse received',
+        `Response keys: ${Object.keys(startRes).join(', ')}`,
+      );
 
       // Step 5: TransactionEvent Updated with EVConnectTimeout
       const timeoutRes = await ctx.client.sendCall('TransactionEvent', {
@@ -371,13 +374,14 @@ export const TC_F_04_CSMS: TestCase = {
         evse: { id: 1, connectorId: 1 },
       });
 
-      steps.push({
-        step: 3,
-        description: 'TransactionEvent Updated with EVConnectTimeout accepted',
-        status: 'passed',
-        expected: 'TransactionEventResponse received',
-        actual: `Response keys: ${Object.keys(timeoutRes).join(', ')}`,
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'TransactionEvent Updated with EVConnectTimeout accepted',
+        timeoutRes,
+        'TransactionEventResponse received',
+        `Response keys: ${Object.keys(timeoutRes).join(', ')}`,
+      );
     }
 
     return {

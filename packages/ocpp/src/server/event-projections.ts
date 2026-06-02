@@ -85,6 +85,26 @@ const CHARGING_STATE_TO_STATUS: Record<string, string> = {
   Discharging: 'discharging',
 };
 
+// OCPP 2.1 ConnectorType variable values (Connector component) to the
+// canonical UI labels used in connectors.connector_type. Values not in this
+// map are passed through unchanged so vendor-specific plug names remain
+// visible to operators on the connectors tab and stations list.
+const OCPP_CONNECTOR_TYPE_MAP: Record<string, string> = {
+  cCCS1: 'CCS1',
+  cCCS2: 'CCS2',
+  cType1: 'Type1',
+  cType2: 'Type2',
+  cChaoJi: 'CHAdeMO',
+  'cG105-2019': 'CHAdeMO',
+  cTesla: 'NACS',
+  'cGBT-AC': 'GBT',
+  'cGBT-DC': 'GBT',
+};
+
+function mapOcppConnectorType(value: string): string {
+  return OCPP_CONNECTOR_TYPE_MAP[value] ?? value;
+}
+
 function getString(obj: Record<string, unknown>, key: string): string | null {
   const val = obj[key];
   return typeof val === 'string' ? val : null;
@@ -1246,6 +1266,7 @@ export function registerProjections(
     const evseRow = evseRows[0];
     let resolvedEvseUuid: string | undefined;
     let previousDbStatus: string | undefined;
+    let didAutoCreateConnector = false;
 
     if (evseRow == null) {
       // Auto-create EVSE (only if station still exists)
@@ -1262,11 +1283,16 @@ export function registerProjections(
       const newEvseUuid = insertedEvse[0]?.id as string;
       resolvedEvseUuid = newEvseUuid;
 
-      // Auto-create connector
+      // Auto-create connector. OCPP StatusNotification does not carry the
+      // connector type, so default to 'Unknown' rather than NULL — the
+      // stations list aggregation filters out NULL types, which would hide
+      // every connector on auto-discovered stations from the listing.
+      // Operators can edit the type later from the Connectors tab.
       await sql`
-        INSERT INTO connectors (id, evse_id, connector_id, status, auto_created)
-        VALUES (${generateId('connector')}, ${newEvseUuid}, ${connectorIdNum}, ${dbStatus}, true)
+        INSERT INTO connectors (id, evse_id, connector_id, status, auto_created, connector_type)
+        VALUES (${generateId('connector')}, ${newEvseUuid}, ${connectorIdNum}, ${dbStatus}, true, 'Unknown')
       `;
+      didAutoCreateConnector = true;
 
       await sql`
         INSERT INTO port_status_log (station_id, evse_id, connector_id, previous_status, new_status, timestamp)
@@ -1294,12 +1320,14 @@ export function registerProjections(
         `;
       }
 
-      // Check if connector exists; create if missing
+      // Check if connector exists; create if missing. Same 'Unknown' default
+      // for connector_type as the EVSE-creation branch above.
       if (prevRows.length === 0) {
         await sql`
-          INSERT INTO connectors (id, evse_id, connector_id, status, auto_created)
-          VALUES (${generateId('connector')}, ${evseUuid}, ${connectorIdNum}, ${dbStatus}, true)
+          INSERT INTO connectors (id, evse_id, connector_id, status, auto_created, connector_type)
+          VALUES (${generateId('connector')}, ${evseUuid}, ${connectorIdNum}, ${dbStatus}, true, 'Unknown')
         `;
+        didAutoCreateConnector = true;
       } else {
         await sql`
           UPDATE connectors SET status = ${dbStatus}, updated_at = now()
@@ -1312,6 +1340,47 @@ export function registerProjections(
     await notifyChange('station.status', stationUuid, siteId);
     if (siteId != null) {
       await notifyOcpiPush('location', { siteId });
+    }
+
+    // We just learned about a new EVSE/connector by auto-discovery. The
+    // 'Unknown' default in connectors.connector_type lets the listing
+    // surface the row, but the spec-defined way to learn the real plug
+    // shape is to ask the station for its device-model report. OCPP 2.1's
+    // GetBaseReport(ConfigurationInventory) returns a NotifyReport that
+    // includes Connector.ConnectorType variables, which the NotifyReport
+    // projection above writes into connectors.connector_type (guarded so
+    // it only overwrites 'Unknown', never an operator pick). OCPP 1.6 has
+    // no equivalent, so skip there.
+    if (didAutoCreateConnector) {
+      try {
+        const [stationRow] = await sql`
+          SELECT ocpp_protocol FROM charging_stations WHERE id = ${stationUuid}
+        `;
+        const ocppProtocol = stationRow?.['ocpp_protocol'] as string | undefined;
+        if (ocppProtocol === 'ocpp2.1') {
+          // event.aggregateId is the station's OCPP string id (set by the
+          // StatusNotification handler), so we can publish directly without
+          // another DB lookup.
+          await pubsub.publish(
+            'ocpp_commands',
+            JSON.stringify({
+              commandId: crypto.randomUUID(),
+              stationId: event.aggregateId,
+              action: 'GetBaseReport',
+              payload: {
+                requestId: Math.floor(Math.random() * 2_000_000_000),
+                reportBase: 'ConfigurationInventory',
+              },
+              version: 'ocpp2.1',
+            }),
+          );
+        }
+      } catch (err) {
+        logger.warn(
+          { err, stationUuid },
+          'auto-discovery GetBaseReport(ConfigurationInventory) publish failed',
+        );
+      }
     }
 
     // Trigger station-message refresh on real connector-status transitions for
@@ -4494,6 +4563,37 @@ export function registerProjections(
           ON CONFLICT (station_id, component, variable, (COALESCE(evse_id, -1)), (COALESCE(connector_id, -1)), attribute_type)
           DO UPDATE SET value = EXCLUDED.value, source = 'NotifyReport', updated_at = now()
         `;
+
+        // Spec-defined path for learning a connector's plug shape: the
+        // Connector component reports a ConnectorType variable. OCPP 2.1
+        // ConnectorType enum values are prefixed (cCCS2, cType2, etc.); map
+        // the common ones to the canonical UI labels and keep vendor
+        // strings as-is so the operator can still distinguish them.
+        //
+        // The UPDATE is guarded on `connector_type = 'Unknown'` so we never
+        // clobber an operator-picked value on subsequent boots. Once the
+        // operator edits the connector to a concrete type (or accepts an
+        // earlier auto-fill), later reboots no longer touch it.
+        if (
+          attrType === 'Actual' &&
+          value != null &&
+          componentName === 'Connector' &&
+          variableName === 'ConnectorType' &&
+          evseId != null &&
+          connectorId != null
+        ) {
+          const canonical = mapOcppConnectorType(value);
+          await sql`
+            UPDATE connectors
+            SET connector_type = ${canonical}, updated_at = now()
+            FROM evses
+            WHERE connectors.evse_id = evses.id
+              AND evses.station_id = ${stationUuid}
+              AND evses.evse_id = ${evseId}
+              AND connectors.connector_id = ${connectorId}
+              AND connectors.connector_type = 'Unknown'
+          `;
+        }
       }
     }
   });

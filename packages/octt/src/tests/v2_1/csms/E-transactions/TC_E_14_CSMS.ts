@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 // Helper: boot station and send initial StatusNotification
 async function bootAndStatus(ctx: {
@@ -128,13 +129,14 @@ export const TC_E_29_CSMS: TestCase = {
       ],
     });
 
-    steps.push({
-      step: 2,
-      description: 'TransactionEvent Updated with offline meter values',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(updateRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'TransactionEvent Updated with offline meter values',
+      updateRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(updateRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -284,13 +286,14 @@ export const TC_E_31_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Ended offline',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(endRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Ended offline',
+      endRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(endRes).join(', ')}`,
+    );
 
     // Wait for CSMS to send GetTransactionStatus
     if (ctx.triggerCommand != null) {
@@ -320,13 +323,14 @@ export const TC_E_31_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 3,
-      description: 'Offline TransactionEvent Updated seqNo 1',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(update1Res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'Offline TransactionEvent Updated seqNo 1',
+      update1Res,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(update1Res).join(', ')}`,
+    );
 
     // Step 11: Offline TransactionEvent Updated (seqNo 2 - second skipped value)
     const update2Res = await ctx.client.sendCall('TransactionEvent', {
@@ -339,13 +343,14 @@ export const TC_E_31_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 4,
-      description: 'Offline TransactionEvent Updated seqNo 2',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(update2Res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      4,
+      'Offline TransactionEvent Updated seqNo 2',
+      update2Res,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(update2Res).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -432,13 +437,14 @@ export const TC_E_33_CSMS: TestCase = {
       ],
     });
 
-    steps.push({
-      step: 2,
-      description: 'TransactionEvent Updated with offline meter values',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(updateRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'TransactionEvent Updated with offline meter values',
+      updateRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(updateRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

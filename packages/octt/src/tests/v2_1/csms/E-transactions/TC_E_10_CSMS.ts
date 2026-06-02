@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 /** TC_E_10_CSMS: Start transaction options - Authorized - Local */
 export const TC_E_10_CSMS: TestCase = {
@@ -46,13 +47,14 @@ export const TC_E_10_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
       idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
     });
-    steps.push({
-      step: 2,
-      description: 'Send TransactionEvent Started',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(txRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'Send TransactionEvent Started',
+      txRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(txRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
@@ -134,13 +136,14 @@ export const TC_E_26_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent Updated - EVCommunicationLost Idle',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(step1Res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      1,
+      'TransactionEvent Updated - EVCommunicationLost Idle',
+      step1Res,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(step1Res).join(', ')}`,
+    );
 
     // Step 3: StatusNotification Available
     await ctx.client.sendCall('StatusNotification', {
@@ -151,7 +154,7 @@ export const TC_E_26_CSMS: TestCase = {
     });
 
     // NotifyEvent - connector AvailabilityState Available
-    await ctx.client.sendCall('NotifyEvent', {
+    const resp2 = await ctx.client.sendCall('NotifyEvent', {
       generatedAt: new Date().toISOString(),
       seqNo: 0,
       eventData: [
@@ -170,13 +173,14 @@ export const TC_E_26_CSMS: TestCase = {
       ],
     });
 
-    steps.push({
-      step: 2,
-      description: 'StatusNotification Available + NotifyEvent AvailabilityState',
-      status: 'passed',
-      expected: 'Responses received',
-      actual: 'StatusNotification and NotifyEvent sent',
-    });
+    pushSendAckStep(
+      steps,
+      2,
+      'StatusNotification Available + NotifyEvent AvailabilityState',
+      resp2,
+      'Responses received',
+      'StatusNotification and NotifyEvent sent',
+    );
 
     // Step 5: CablePluggedIn, EVConnected (cable reconnected)
     const step5Res = await ctx.client.sendCall('TransactionEvent', {
@@ -188,13 +192,14 @@ export const TC_E_26_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 3,
-      description: 'TransactionEvent Updated - CablePluggedIn EVConnected',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(step5Res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'TransactionEvent Updated - CablePluggedIn EVConnected',
+      step5Res,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(step5Res).join(', ')}`,
+    );
 
     // Step 7: ChargingStateChanged, Charging (resume)
     const step7Res = await ctx.client.sendCall('TransactionEvent', {
@@ -206,13 +211,14 @@ export const TC_E_26_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
     });
 
-    steps.push({
-      step: 4,
-      description: 'TransactionEvent Updated - ChargingStateChanged Charging (resumed)',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(step7Res).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      4,
+      'TransactionEvent Updated - ChargingStateChanged Charging (resumed)',
+      step7Res,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(step7Res).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

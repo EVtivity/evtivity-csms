@@ -8,7 +8,11 @@ const schema = z.object({
   REDIS_URL: z.string().url().default('redis://localhost:6379'),
   OCPP_SERVER_URL: z.string().url().default('ws://localhost:7103'),
   OCPP_TLS_SERVER_URL: z.string().url().default('wss://localhost:8443'),
-  CSS_MODE: z.string().default('standby'),
+  // Enum-constrain so a typo (e.g. 'chaoss', 'CHAOS') fails fast at startup
+  // instead of silently falling through to standby. Default to standby on
+  // missing env. Per the simulator rule the only two valid modes are
+  // 'standby' and 'chaos'.
+  CSS_MODE: z.enum(['standby', 'chaos']).default('standby'),
   CSS_HEALTH_PORT: z.coerce.number().int().positive().default(8082),
   CSS_ACTION_INTERVAL_MS: z.coerce.number().int().positive().default(1000),
   CSS_STATION_LIMIT: z.coerce.number().int().nonnegative().default(0),

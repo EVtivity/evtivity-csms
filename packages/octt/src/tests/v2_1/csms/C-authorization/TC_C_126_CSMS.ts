@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { TestCase, StepResult } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_C_126_CSMS: TestCase = {
   id: 'TC_C_126_CSMS',
@@ -177,13 +178,14 @@ export const TC_C_126_CSMS: TestCase = {
       },
     });
 
-    steps.push({
-      step: 6,
-      description: 'Send TransactionEvent Ended with local cost details (18.15 EUR)',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(txEndRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      6,
+      'Send TransactionEvent Ended with local cost details (18.15 EUR)',
+      txEndRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(txEndRes).join(', ')}`,
+    );
 
     const allPassed = steps.every((s) => s.status === 'passed');
     return { status: allPassed ? 'passed' : 'failed', durationMs: 0, steps };

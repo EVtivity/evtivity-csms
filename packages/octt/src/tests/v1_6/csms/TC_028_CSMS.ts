@@ -30,12 +30,13 @@ export const TC_028_CSMS: TestCase = {
       timestamp,
     });
     await ctx.client.sendCall('Authorize', { idTag });
-    await ctx.client.sendCall('StartTransaction', {
+    const startResp = await ctx.client.sendCall('StartTransaction', {
       connectorId,
       idTag,
       meterStart: 0,
       timestamp,
     });
+    const transactionId = startResp['transactionId'] as number;
     await ctx.client.sendCall('StatusNotification', {
       connectorId,
       status: 'Charging',
@@ -52,7 +53,14 @@ export const TC_028_CSMS: TestCase = {
       return {};
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+    if (ctx.triggerCommand != null) {
+      await ctx.triggerCommand('v16', 'RemoteStopTransaction', {
+        stationId: ctx.stationId,
+        transactionId,
+      });
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
 
     steps.push({
       step: 1,

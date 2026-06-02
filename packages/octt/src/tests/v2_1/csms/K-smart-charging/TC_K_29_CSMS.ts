@@ -103,9 +103,12 @@ function makeGetChargingProfilesTest(
         steps.push({
           step: steps.length + 1,
           description: 'Send ReportChargingProfilesRequest',
-          status: 'passed',
+          status: reportRes != null ? 'passed' : 'failed',
           expected: 'ReportChargingProfilesResponse received',
-          actual: `Response keys: ${Object.keys(reportRes).join(', ')}`,
+          actual:
+            reportRes != null
+              ? `Response keys: ${Object.keys(reportRes).join(', ')}`
+              : 'No response',
         });
       }
 

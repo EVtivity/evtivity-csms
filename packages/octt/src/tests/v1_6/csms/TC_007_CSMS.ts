@@ -24,7 +24,7 @@ export const TC_007_CSMS: TestCase = {
     });
 
     // Step 1: StatusNotification Preparing
-    await ctx.client.sendCall('StatusNotification', {
+    const prepResp = await ctx.client.sendCall('StatusNotification', {
       connectorId,
       status: 'Preparing',
       errorCode: 'NoError',
@@ -33,9 +33,9 @@ export const TC_007_CSMS: TestCase = {
     steps.push({
       step: 1,
       description: 'Send StatusNotification (Preparing)',
-      status: 'passed',
+      status: prepResp != null ? 'passed' : 'failed',
       expected: 'StatusNotification.conf received',
-      actual: 'Response received',
+      actual: prepResp != null ? 'Response received' : 'No response',
     });
 
     // Step 2: StartTransaction (no prior Authorize, using cached id)
@@ -56,7 +56,7 @@ export const TC_007_CSMS: TestCase = {
     });
 
     // Step 3: StatusNotification Charging
-    await ctx.client.sendCall('StatusNotification', {
+    const chgResp = await ctx.client.sendCall('StatusNotification', {
       connectorId,
       status: 'Charging',
       errorCode: 'NoError',
@@ -65,9 +65,9 @@ export const TC_007_CSMS: TestCase = {
     steps.push({
       step: 3,
       description: 'Send StatusNotification (Charging)',
-      status: 'passed',
+      status: chgResp != null ? 'passed' : 'failed',
       expected: 'StatusNotification.conf received',
-      actual: 'Response received',
+      actual: chgResp != null ? 'Response received' : 'No response',
     });
 
     return {

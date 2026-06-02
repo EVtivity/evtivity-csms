@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 // Helper: boot station and send StatusNotification
 async function bootAndStatus(ctx: {
@@ -99,20 +100,21 @@ export const TC_H_01_CSMS: TestCase = {
     });
 
     if (receivedReserveNow) {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp3 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Reserved',
         evseId: 1,
         connectorId: 1,
       });
 
-      steps.push({
-        step: 3,
-        description: 'StatusNotification Reserved sent',
-        status: 'passed',
-        expected: 'StatusNotificationResponse received',
-        actual: 'StatusNotification Reserved sent',
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'StatusNotification Reserved sent',
+        resp3,
+        'StatusNotificationResponse received',
+        'StatusNotification Reserved sent',
+      );
     }
 
     return {
@@ -189,28 +191,30 @@ export const TC_H_07_CSMS: TestCase = {
         reservationUpdateStatus: 'Expired',
       });
 
-      steps.push({
-        step: 2,
-        description: 'ReservationStatusUpdate Expired sent',
-        status: 'passed',
-        expected: 'ReservationStatusUpdateResponse received',
-        actual: `Response keys: ${Object.keys(statusRes).join(', ') || '(empty)'}`,
-      });
+      pushSendAckStep(
+        steps,
+        2,
+        'ReservationStatusUpdate Expired sent',
+        statusRes,
+        'ReservationStatusUpdateResponse received',
+        `Response keys: ${Object.keys(statusRes).join(', ') || '(empty)'}`,
+      );
 
-      await ctx.client.sendCall('StatusNotification', {
+      const resp3 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Available',
         evseId: 1,
         connectorId: 1,
       });
 
-      steps.push({
-        step: 3,
-        description: 'StatusNotification Available sent after reservation expired',
-        status: 'passed',
-        expected: 'StatusNotificationResponse received',
-        actual: 'StatusNotification Available sent',
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'StatusNotification Available sent after reservation expired',
+        resp3,
+        'StatusNotificationResponse received',
+        'StatusNotification Available sent',
+      );
     }
 
     return {
@@ -287,20 +291,21 @@ export const TC_H_08_CSMS: TestCase = {
     });
 
     if (receivedReserveNow) {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp3 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Reserved',
         evseId: 1,
         connectorId: 1,
       });
 
-      steps.push({
-        step: 3,
-        description: 'StatusNotification Reserved sent',
-        status: 'passed',
-        expected: 'StatusNotificationResponse received',
-        actual: 'StatusNotification Reserved sent',
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'StatusNotification Reserved sent',
+        resp3,
+        'StatusNotificationResponse received',
+        'StatusNotification Reserved sent',
+      );
     }
 
     return {
@@ -377,20 +382,21 @@ export const TC_H_14_CSMS: TestCase = {
     });
 
     if (receivedReserveNow) {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp3 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Reserved',
         evseId: 1,
         connectorId: 1,
       });
 
-      steps.push({
-        step: 3,
-        description: 'StatusNotification Reserved sent for all connectors',
-        status: 'passed',
-        expected: 'StatusNotificationResponse received',
-        actual: 'StatusNotification Reserved sent',
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'StatusNotification Reserved sent for all connectors',
+        resp3,
+        'StatusNotificationResponse received',
+        'StatusNotification Reserved sent',
+      );
     }
 
     return {
@@ -467,20 +473,21 @@ export const TC_H_15_CSMS: TestCase = {
     });
 
     if (receivedReserveNow) {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp3 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Reserved',
         evseId: 1,
         connectorId: 1,
       });
 
-      steps.push({
-        step: 3,
-        description: 'StatusNotification Reserved sent',
-        status: 'passed',
-        expected: 'StatusNotificationResponse received',
-        actual: 'StatusNotification Reserved sent',
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'StatusNotification Reserved sent',
+        resp3,
+        'StatusNotificationResponse received',
+        'StatusNotification Reserved sent',
+      );
     }
 
     return {
@@ -559,20 +566,21 @@ export const TC_H_19_CSMS: TestCase = {
     });
 
     if (receivedReserveNow) {
-      await ctx.client.sendCall('StatusNotification', {
+      const resp3 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Reserved',
         evseId: 1,
         connectorId: 1,
       });
 
-      steps.push({
-        step: 3,
-        description: 'StatusNotification Reserved sent',
-        status: 'passed',
-        expected: 'StatusNotificationResponse received',
-        actual: 'StatusNotification Reserved sent',
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'StatusNotification Reserved sent',
+        resp3,
+        'StatusNotificationResponse received',
+        'StatusNotification Reserved sent',
+      );
     }
 
     return {
@@ -639,36 +647,38 @@ export const TC_H_20_CSMS: TestCase = {
 
     if (receivedReserveNow) {
       // Step 3: StatusNotification Reserved
-      await ctx.client.sendCall('StatusNotification', {
+      const resp2 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Reserved',
         evseId: 1,
         connectorId: 1,
       });
 
-      steps.push({
-        step: 2,
-        description: 'StatusNotification Reserved sent',
-        status: 'passed',
-        expected: 'StatusNotificationResponse received',
-        actual: 'StatusNotification Reserved sent',
-      });
+      pushSendAckStep(
+        steps,
+        2,
+        'StatusNotification Reserved sent',
+        resp2,
+        'StatusNotificationResponse received',
+        'StatusNotification Reserved sent',
+      );
 
       // Step 5: StatusNotification Faulted
-      await ctx.client.sendCall('StatusNotification', {
+      const resp3 = await ctx.client.sendCall('StatusNotification', {
         timestamp: new Date().toISOString(),
         connectorStatus: 'Faulted',
         evseId: 1,
         connectorId: 1,
       });
 
-      steps.push({
-        step: 3,
-        description: 'StatusNotification Faulted sent',
-        status: 'passed',
-        expected: 'StatusNotificationResponse received',
-        actual: 'StatusNotification Faulted sent',
-      });
+      pushSendAckStep(
+        steps,
+        3,
+        'StatusNotification Faulted sent',
+        resp3,
+        'StatusNotificationResponse received',
+        'StatusNotification Faulted sent',
+      );
 
       // Step 7: ReservationStatusUpdate Removed
       const statusRes = await ctx.client.sendCall('ReservationStatusUpdate', {
@@ -676,13 +686,14 @@ export const TC_H_20_CSMS: TestCase = {
         reservationUpdateStatus: 'Removed',
       });
 
-      steps.push({
-        step: 4,
-        description: 'ReservationStatusUpdate Removed sent',
-        status: 'passed',
-        expected: 'ReservationStatusUpdateResponse received',
-        actual: `Response keys: ${Object.keys(statusRes).join(', ') || '(empty)'}`,
-      });
+      pushSendAckStep(
+        steps,
+        4,
+        'ReservationStatusUpdate Removed sent',
+        statusRes,
+        'ReservationStatusUpdateResponse received',
+        `Response keys: ${Object.keys(statusRes).join(', ') || '(empty)'}`,
+      );
     }
 
     return {

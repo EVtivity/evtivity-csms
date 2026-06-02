@@ -32,14 +32,13 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
         ? settings['security.recaptcha.siteKey']
         : '',
     );
-    setSecretKey(
-      typeof settings['security.recaptcha.secretKeyEnc'] === 'string'
-        ? settings['security.recaptcha.secretKeyEnc']
-        : '',
-    );
     const th = settings['security.recaptcha.threshold'];
     if (typeof th === 'number') setThreshold(String(th));
   }, [settings]);
+
+  const hasSavedSecret =
+    typeof settings?.['security.recaptcha.secretKeyEnc'] === 'string' &&
+    settings['security.recaptcha.secretKeyEnc'] !== '';
 
   const mutation = useMutation({
     mutationFn: (vals: {
@@ -117,11 +116,7 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
               onChange={(e) => {
                 setSecretKey(e.target.value);
               }}
-              placeholder={
-                settings?.['security.recaptcha.secretKeyEnc'] === '********'
-                  ? '********'
-                  : undefined
-              }
+              placeholder={hasSavedSecret ? '••••••••' : undefined}
             />
             <p className="text-xs text-muted-foreground">{t('settings.recaptchaSecretHint')}</p>
           </div>
@@ -131,8 +126,6 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
             <Input
               id="recaptcha-threshold"
               type="number"
-              min={0}
-              max={1}
               step={0.1}
               value={threshold}
               onChange={(e) => {

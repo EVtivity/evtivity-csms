@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 export const TC_E_01_CSMS: TestCase = {
   id: 'TC_E_01_CSMS',
@@ -36,19 +37,13 @@ export const TC_E_01_CSMS: TestCase = {
     });
 
     // Step 2: StatusNotification Occupied
-    await ctx.client.sendCall('StatusNotification', {
+    const resp2 = await ctx.client.sendCall('StatusNotification', {
       timestamp: new Date().toISOString(),
       connectorStatus: 'Occupied',
       evseId: 1,
       connectorId: 1,
     });
-    steps.push({
-      step: 2,
-      description: 'Send StatusNotification (Occupied)',
-      status: 'passed',
-      expected: 'Response received',
-      actual: 'Response received',
-    });
+    pushSendAckStep(steps, 2, 'Send StatusNotification (Occupied)', resp2);
 
     // Step 3: TransactionEvent Started with SuspendedEVSE
     const txId = `OCTT-TX-${String(Date.now())}`;
@@ -61,13 +56,14 @@ export const TC_E_01_CSMS: TestCase = {
       evse: { id: 1, connectorId: 1 },
       idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
     });
-    steps.push({
-      step: 3,
-      description: 'Send TransactionEvent Started (SuspendedEVSE)',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(txStartRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      3,
+      'Send TransactionEvent Started (SuspendedEVSE)',
+      txStartRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(txStartRes).join(', ')}`,
+    );
 
     // Step 4: TransactionEvent Updated with Charging
     const txUpdateRes = await ctx.client.sendCall('TransactionEvent', {
@@ -77,13 +73,14 @@ export const TC_E_01_CSMS: TestCase = {
       seqNo: 1,
       transactionInfo: { transactionId: txId, chargingState: 'Charging' },
     });
-    steps.push({
-      step: 4,
-      description: 'Send TransactionEvent Updated (Charging)',
-      status: 'passed',
-      expected: 'TransactionEventResponse received',
-      actual: `Response keys: ${Object.keys(txUpdateRes).join(', ')}`,
-    });
+    pushSendAckStep(
+      steps,
+      4,
+      'Send TransactionEvent Updated (Charging)',
+      txUpdateRes,
+      'TransactionEventResponse received',
+      `Response keys: ${Object.keys(txUpdateRes).join(', ')}`,
+    );
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

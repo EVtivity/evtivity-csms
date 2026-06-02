@@ -2505,7 +2505,10 @@
     "aiAssist": "AI 草稿",
     "aiAssistTooltip": "生成 AI 草稿回覆",
     "aiAssistLoading": "正在生成草稿...",
-    "aiAssistError": "生成 AI 草稿失敗"
+    "aiAssistError": "生成 AI 草稿失敗",
+    "aiAssistOverwriteTitle": "替換現有草稿？",
+    "aiAssistOverwriteDescription": "生成 AI 草稿將覆蓋訊息框中已有的文字。是否繼續？",
+    "aiAssistOverwriteConfirm": "替換"
   },
   "vehicles": {
     "title": "車輛",
@@ -2774,6 +2777,7 @@
     "title": "聊天機器人 AI",
     "placeholder": "詢問充電站、會話、收入相關問題...",
     "send": "傳送",
+    "resend": "重新傳送",
     "typing": "思考中...",
     "rateLimited": "請求過多，請稍後再試。",
     "notConfigured": "聊天機器人 AI 未配置。請在個人資料中設定 API 金鑰。",

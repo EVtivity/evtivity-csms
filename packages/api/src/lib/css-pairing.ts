@@ -1,9 +1,23 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { db, cssStations, cssEvses, cssConfigVariables } from '@evtivity/database';
+import {
+  db,
+  cssStations,
+  cssEvses,
+  cssConfigVariables,
+  evses,
+  connectors,
+  chargingStations,
+  vendors,
+} from '@evtivity/database';
 import { eq } from 'drizzle-orm';
-import { OCPP21_CONFIG_DEFAULTS, OCPP16_CONFIG_DEFAULTS } from './css-config-defaults.js';
+import {
+  mapConnectorTypeToCss,
+  randomCssConnectorType,
+  buildCssConfigDefaults,
+} from '@evtivity/lib';
+import type { CssConnectorType } from '@evtivity/lib';
 
 interface PairOptions {
   stationId: string;
@@ -21,6 +35,15 @@ interface PairOptions {
 // instance or a Drizzle transaction. Both expose the same select/insert/update
 // query builders that this helper needs.
 type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+interface PairCssEvse {
+  evseId: number;
+  connectorId: number;
+  connectorType: CssConnectorType;
+  maxPowerW: number;
+  phases: number;
+  voltage: number;
+}
 
 export async function enableCssPair(opts: PairOptions, tx?: Executor): Promise<void> {
   const exec = tx ?? db;
@@ -40,6 +63,27 @@ export async function enableCssPair(opts: PairOptions, tx?: Executor): Promise<v
     return;
   }
 
+  // Parent station metadata feeds the device-identity keys in the config
+  // defaults (ChargingStation.VendorName, ChargePointModel, etc.).
+  const [parent] = await exec
+    .select({
+      model: chargingStations.model,
+      serialNumber: chargingStations.serialNumber,
+      firmwareVersion: chargingStations.firmwareVersion,
+      vendorId: chargingStations.vendorId,
+    })
+    .from(chargingStations)
+    .where(eq(chargingStations.id, opts.stationId));
+
+  let vendorName = 'EVtivity';
+  if (parent?.vendorId != null) {
+    const [vendor] = await exec
+      .select({ name: vendors.name })
+      .from(vendors)
+      .where(eq(vendors.id, parent.vendorId));
+    if (vendor?.name != null && vendor.name !== '') vendorName = vendor.name;
+  }
+
   const doInserts = async (innerTx: Executor): Promise<void> => {
     const [created] = await innerTx
       .insert(cssStations)
@@ -57,25 +101,78 @@ export async function enableCssPair(opts: PairOptions, tx?: Executor): Promise<v
 
     if (created == null) return;
 
-    // Default single EVSE so the simulator can boot
-    await innerTx.insert(cssEvses).values({
-      cssStationId: created.id,
-      evseId: 1,
-      connectorId: 1,
-    });
+    // Build the EVSE set for this device's hardware spec. If the parent
+    // station already has evses/connectors, mirror them. Otherwise create
+    // a single default EVSE with a randomly-picked plug type so the
+    // freshly-provisioned fleet has variety.
+    const existingEvses = await innerTx
+      .select({
+        evseId: evses.evseId,
+        connectorId: connectors.connectorId,
+        connectorType: connectors.connectorType,
+        maxPowerKw: connectors.maxPowerKw,
+      })
+      .from(evses)
+      .innerJoin(connectors, eq(connectors.evseId, evses.id))
+      .where(eq(evses.stationId, opts.stationId));
 
-    // Batch the config-defaults insert. OCPP 2.1 has ~100 default keys; the
-    // previous per-key loop fired one INSERT per key, multiplying the
-    // round-trip cost of every css_stations pair-create by ~100x.
-    const defaults =
-      opts.ocppProtocol === 'ocpp1.6' ? OCPP16_CONFIG_DEFAULTS : OCPP21_CONFIG_DEFAULTS;
-    const configRows = Object.entries(defaults).map(([key, value]) => ({
-      cssStationId: created.id,
-      key,
-      value,
-    }));
-    if (configRows.length > 0) {
-      await innerTx.insert(cssConfigVariables).values(configRows);
+    let pairedEvses: PairCssEvse[];
+    if (existingEvses.length > 0) {
+      pairedEvses = existingEvses.map((e) => ({
+        evseId: e.evseId,
+        connectorId: e.connectorId,
+        connectorType: mapConnectorTypeToCss(e.connectorType),
+        maxPowerW: e.maxPowerKw != null ? Math.round(Number(e.maxPowerKw) * 1000) : 22000,
+        phases: 3,
+        voltage: 230,
+      }));
+    } else {
+      pairedEvses = [
+        {
+          evseId: 1,
+          connectorId: 1,
+          connectorType: randomCssConnectorType(),
+          maxPowerW: 22000,
+          phases: 3,
+          voltage: 230,
+        },
+      ];
+    }
+    await innerTx.insert(cssEvses).values(
+      pairedEvses.map((e) => ({
+        cssStationId: created.id,
+        evseId: e.evseId,
+        connectorId: e.connectorId,
+        connectorType: e.connectorType,
+        maxPowerW: e.maxPowerW,
+        phases: e.phases,
+        voltage: e.voltage,
+      })),
+    );
+
+    // Seed the device's persistent configuration so the simulator boots
+    // from device storage, not in-memory defaults. Includes per-EVSE
+    // Connector[*,*].ConnectorType keyed off the css_evses plug type.
+    const defaults = buildCssConfigDefaults({
+      ocppProtocol: opts.ocppProtocol,
+      stationId: opts.stationId,
+      vendorName,
+      model: parent?.model ?? 'CSS-1000',
+      serialNumber: parent?.serialNumber ?? `SN-${opts.stationId}`,
+      firmwareVersion: parent?.firmwareVersion ?? '1.0.0',
+      securityProfile: opts.securityProfile,
+      targetUrl,
+      evses: pairedEvses,
+    });
+    if (defaults.length > 0) {
+      await innerTx.insert(cssConfigVariables).values(
+        defaults.map((d) => ({
+          cssStationId: created.id,
+          key: d.key,
+          value: d.value,
+          readonly: d.readonly,
+        })),
+      );
     }
   };
 

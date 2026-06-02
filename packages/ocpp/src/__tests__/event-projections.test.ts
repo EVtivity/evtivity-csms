@@ -755,7 +755,8 @@ describe('Event projections', () => {
         [], // INSERT connectors
         [], // INSERT port_status_log
         [{ site_id: null }], // resolveSiteId
-        [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol
+        [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (auto-discovery GetBaseReport branch)
+        [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (station_message_refresh branch)
       );
 
       await eventBus.emit(
