@@ -137,25 +137,44 @@ fail=0
 results=""
 total_start=$(date +%s)
 
+tmpdir=$(mktemp -d -t evtivity-release-XXXXXX)
+trap 'rm -rf "$tmpdir"' EXIT
+
 for entry in $SERVICES; do
   name="${entry%%:*}"
   dockerfile="${entry#*:}"
-  echo "--- Building $name ($dockerfile)"
+  echo "--- Starting $name ($dockerfile)"
+  date +%s > "$tmpdir/$name.start"
+  (
+    if docker build -f "$dockerfile" -t "evtivity-${name}:local-test" . > "$tmpdir/$name.log" 2>&1; then
+      echo OK > "$tmpdir/$name.status"
+    else
+      echo FAIL > "$tmpdir/$name.status"
+    fi
+  ) &
+done
 
-  start=$(date +%s)
-  if docker build -f "$dockerfile" -t "evtivity-${name}:local-test" . 2>&1 | tail -1; then
-    elapsed=$(( $(date +%s) - start ))
+echo ""
+echo "Waiting for $count builds to finish in parallel..."
+wait
+
+echo ""
+for entry in $SERVICES; do
+  name="${entry%%:*}"
+  status=$(cat "$tmpdir/$name.status" 2>/dev/null || echo FAIL)
+  elapsed=$(( $(date +%s) - $(cat "$tmpdir/$name.start") ))
+  if [ "$status" = OK ]; then
     pass=$((pass + 1))
     echo "    $name: OK (${elapsed}s)"
     results="$results\n  $name: OK (${elapsed}s)"
   else
-    elapsed=$(( $(date +%s) - start ))
     fail=$((fail + 1))
     failed="$failed $name"
     echo "    $name: FAILED (${elapsed}s)"
+    echo "    --- last 20 lines of $name build log ---"
+    tail -20 "$tmpdir/$name.log" | sed 's/^/      /'
     results="$results\n  $name: FAILED (${elapsed}s)"
   fi
-  echo ""
 done
 
 total_elapsed=$(( $(date +%s) - total_start ))

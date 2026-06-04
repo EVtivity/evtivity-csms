@@ -12,7 +12,9 @@ COPY packages/csms/package.json packages/csms/
 COPY packages/portal/package.json packages/portal/
 COPY packages/codegen/package.json packages/codegen/
 COPY packages/css/package.json packages/css/
+COPY packages/octt/package.json packages/octt/
 COPY packages/ocpi-simulator/package.json packages/ocpi-simulator/
+COPY packages/worker/package.json packages/worker/
 
 RUN npm ci --ignore-scripts
 
@@ -38,7 +40,9 @@ COPY packages/csms/package.json packages/csms/
 COPY packages/portal/package.json packages/portal/
 COPY packages/codegen/package.json packages/codegen/
 COPY packages/css/package.json packages/css/
+COPY packages/octt/package.json packages/octt/
 COPY packages/ocpi-simulator/package.json packages/ocpi-simulator/
+COPY packages/worker/package.json packages/worker/
 
 RUN npm ci --omit=dev --ignore-scripts
 
