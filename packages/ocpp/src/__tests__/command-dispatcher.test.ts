@@ -98,6 +98,21 @@ describe('CommandDispatcher', () => {
         dispatcher.sendVersionAwareCommand('CS-001', 'UnsupportedCommand', {}),
       ).rejects.toThrow('not supported');
     });
+
+    it('throws a version-aware error when translation yields NotSupported', async () => {
+      const conn = makeConnection('ocpp1.6');
+      connectionManager.get.mockReturnValue(conn);
+
+      const { translateCommand } = await import('../server/command-translation.js');
+      vi.mocked(translateCommand).mockReturnValueOnce({ action: 'NotSupported', payload: {} });
+
+      await expect(
+        dispatcher.sendVersionAwareCommand('CS-001', 'GetChargingProfiles', {}),
+      ).rejects.toThrow('Command GetChargingProfiles is not supported on ocpp1.6 stations');
+
+      // The literal NotSupported action must never be dispatched to the station.
+      expect(correlator.sendCall).not.toHaveBeenCalled();
+    });
   });
 
   describe('convenience methods', () => {

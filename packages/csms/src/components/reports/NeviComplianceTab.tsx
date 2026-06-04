@@ -3,6 +3,7 @@
 
 import { useState, useMemo } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Spinner } from '@/components/ui/spinner';
 import { Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -214,21 +215,7 @@ function EvChartExportSection(): React.JSX.Element {
           <div className="pt-2">
             {(neviReport.status === 'pending' || neviReport.status === 'generating') && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                  />
-                </svg>
+                <Spinner className="h-4 w-4" />
                 <span>{t('nevi.generating')}</span>
               </div>
             )}

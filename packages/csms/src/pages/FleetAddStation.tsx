@@ -6,7 +6,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
-import { Loader2 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent } from '@/components/ui/card';
 import { SearchInput } from '@/components/search-input';
 import { api } from '@/lib/api';
@@ -80,7 +80,7 @@ export function FleetAddStation(): React.JSX.Element {
                     disabled={addStationMutation.isPending}
                   >
                     {mutatingId === station.id && addStationMutation.isPending && (
-                      <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                      <Spinner className="h-4 w-4 shrink-0" />
                     )}
                     <span>{station.stationId}</span>
                     {station.model != null && (

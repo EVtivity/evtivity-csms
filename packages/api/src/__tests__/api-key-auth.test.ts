@@ -75,6 +75,7 @@ vi.mock('@evtivity/database', () => ({
     permission: 'permission',
     userId: 'userId',
   },
+  OCTT_API_KEY_NAME: 'OCTT Runner (temporary)',
 }));
 
 vi.mock('drizzle-orm', () => ({

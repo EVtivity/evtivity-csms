@@ -5,8 +5,9 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Play, Loader2 } from 'lucide-react';
+import { Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
@@ -130,7 +131,7 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
           >
             {triggerRun.isPending && (
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                <Spinner className="h-4 w-4" />
               </div>
             )}
             <span
@@ -151,7 +152,7 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
         <CardContent className="overflow-x-auto p-0">
           {isLoading ? (
             <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <Spinner className="h-6 w-6" />
             </div>
           ) : (data?.data.length ?? 0) === 0 ? (
             <p className="text-center text-sm text-muted-foreground py-8">

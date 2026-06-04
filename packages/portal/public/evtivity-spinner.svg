@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-label="Loading">
+  <defs>
+    <mask id="spinnerRingGaps">
+      <rect width="120" height="120" fill="white"/>
+      <polygon points="68.82,-8.24 76.70,-6.86 69.82,32.54 61.94,31.16" fill="black"/>
+      <polygon points="52.08,87.46 59.96,88.84 53.08,128.24 45.20,126.86" fill="black"/>
+    </mask>
+
+    <style>
+      @keyframes evtivity-spin {
+        to { transform: rotate(360deg); }
+      }
+      @keyframes evtivity-pulse {
+        0%, 100% { opacity: 1; transform: scale(0.95); }
+        50%      { opacity: 0.55; transform: scale(0.78); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .evtivity-ring { animation: none; }
+        .evtivity-bolt { animation: none; opacity: 1; transform: scale(0.95); }
+      }
+      .evtivity-ring {
+        transform-origin: 60px 60px;
+        animation: evtivity-spin 2.4s linear infinite;
+      }
+      .evtivity-bolt {
+        transform-origin: 60px 60px;
+        animation: evtivity-pulse 2.4s ease-in-out infinite;
+      }
+    </style>
+  </defs>
+
+  <!-- Ring: spins around the icon center -->
+  <g class="evtivity-ring">
+    <circle cx="60" cy="60" r="50" fill="none" stroke="#22c55e" stroke-width="12" mask="url(#spinnerRingGaps)"/>
+  </g>
+
+  <!-- Lightning bolt: pulses (opacity + slight scale) -->
+  <g class="evtivity-bolt">
+    <path d="M68 20L38 68h22l-6 32 30-48H62l6-32z" fill="#22c55e"/>
+  </g>
+</svg>

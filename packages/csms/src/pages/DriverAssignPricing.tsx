@@ -6,7 +6,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
-import { Loader2 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
@@ -67,7 +67,7 @@ export function DriverAssignPricing(): React.JSX.Element {
                   disabled={assignMutation.isPending}
                 >
                   {mutatingId === group.id && assignMutation.isPending && (
-                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                    <Spinner className="h-4 w-4 shrink-0" />
                   )}
                   <span className="font-medium">{group.name}</span>
                   {group.description != null && (

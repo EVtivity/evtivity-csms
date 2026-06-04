@@ -79,6 +79,32 @@ describe('validateNoOverlap', () => {
       );
       expect(result.valid).toBe(true);
     });
+
+    it('detects overlap when the NEW range crosses midnight and the existing is normal', () => {
+      // New tariff is midnight-crossing (a-side decompose), existing is normal.
+      const existing = [
+        makeTariff('trf_1', 10, { timeRange: { startTime: '05:00', endTime: '08:00' } }),
+      ];
+      const result = validateNoOverlap(
+        existing,
+        { timeRange: { startTime: '22:00', endTime: '06:00' } },
+        10,
+      );
+      expect(result.valid).toBe(false);
+      expect(result.conflictingTariffId).toBe('trf_1');
+    });
+
+    it('ignores existing priority-10 tariffs that have no timeRange restriction', () => {
+      // Candidate at priority 10 but with null restrictions -> the
+      // `existing.restrictions?.timeRange != null` guard is false, no conflict.
+      const existing = [makeTariff('trf_1', 10, null)];
+      const result = validateNoOverlap(
+        existing,
+        { timeRange: { startTime: '09:00', endTime: '17:00' } },
+        10,
+      );
+      expect(result.valid).toBe(true);
+    });
   });
 
   describe('priority 20 (day+time)', () => {
@@ -135,6 +161,19 @@ describe('validateNoOverlap', () => {
       );
       expect(result.valid).toBe(true);
     });
+
+    it('ignores existing priority-20 tariffs missing daysOfWeek/timeRange restriction', () => {
+      const existing = [makeTariff('trf_1', 20, null)];
+      const result = validateNoOverlap(
+        existing,
+        {
+          daysOfWeek: [1, 2, 3],
+          timeRange: { startTime: '09:00', endTime: '17:00' },
+        },
+        20,
+      );
+      expect(result.valid).toBe(true);
+    });
   });
 
   describe('priority 30 (date range)', () => {
@@ -179,6 +218,30 @@ describe('validateNoOverlap', () => {
       );
       expect(result.valid).toBe(false);
     });
+
+    it('detects overlap when the NEW date range wraps and the existing is normal', () => {
+      // New tariff wraps the year boundary (a-side decompose), existing is normal.
+      const existing = [
+        makeTariff('trf_1', 30, { dateRange: { startDate: '02-01', endDate: '05-31' } }),
+      ];
+      const result = validateNoOverlap(
+        existing,
+        { dateRange: { startDate: '11-01', endDate: '03-31' } },
+        30,
+      );
+      expect(result.valid).toBe(false);
+      expect(result.conflictingTariffId).toBe('trf_1');
+    });
+
+    it('ignores existing priority-30 tariffs that have no dateRange restriction', () => {
+      const existing = [makeTariff('trf_1', 30, null)];
+      const result = validateNoOverlap(
+        existing,
+        { dateRange: { startDate: '06-01', endDate: '09-30' } },
+        30,
+      );
+      expect(result.valid).toBe(true);
+    });
   });
 
   describe('priority 40 (holiday)', () => {
@@ -212,6 +275,33 @@ describe('validateNoOverlap', () => {
       ];
       // Adding a default (priority 0) should not conflict with time (priority 10)
       const result = validateNoOverlap(existing, null, 0);
+      expect(result.valid).toBe(true);
+    });
+  });
+
+  describe('unhandled priority / restriction shapes fall through to valid', () => {
+    it('returns valid for an unknown priority that matches no branch', () => {
+      const existing = [makeTariff('trf_1', 25, null)];
+      const result = validateNoOverlap(existing, null, 25);
+      expect(result.valid).toBe(true);
+      expect(result.conflictingTariffId).toBeUndefined();
+    });
+
+    it('returns valid for priority 10 when newRestrictions has no timeRange', () => {
+      // Priority 10 branch is guarded by `newRestrictions?.timeRange != null`.
+      // A null restriction skips that branch and falls through to valid.
+      const existing = [
+        makeTariff('trf_1', 10, { timeRange: { startTime: '09:00', endTime: '17:00' } }),
+      ];
+      const result = validateNoOverlap(existing, null, 10);
+      expect(result.valid).toBe(true);
+    });
+
+    it('returns valid for priority 30 when newRestrictions has no dateRange', () => {
+      const existing = [
+        makeTariff('trf_1', 30, { dateRange: { startDate: '01-01', endDate: '03-31' } }),
+      ];
+      const result = validateNoOverlap(existing, { holidays: true }, 30);
       expect(result.valid).toBe(true);
     });
   });

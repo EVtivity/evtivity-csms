@@ -9,6 +9,7 @@ type Instance = {
   publish: ReturnType<typeof vi.fn>;
   subscribe: ReturnType<typeof vi.fn>;
   unsubscribe: ReturnType<typeof vi.fn>;
+  ping: ReturnType<typeof vi.fn>;
   quit: ReturnType<typeof vi.fn>;
   emit: (event: string, ...args: unknown[]) => boolean;
 };
@@ -43,6 +44,7 @@ vi.mock('ioredis', () => {
     publish = vi.fn().mockResolvedValue(1);
     subscribe = vi.fn().mockResolvedValue(undefined);
     unsubscribe = vi.fn().mockResolvedValue(undefined);
+    ping = vi.fn().mockResolvedValue('PONG');
     quit = vi.fn().mockResolvedValue('OK');
 
     constructor() {
@@ -208,6 +210,47 @@ describe('RedisPubSubClient', () => {
       await sub1.unsubscribe();
 
       expect(subscriber.unsubscribe).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('ping', () => {
+    it('connects publisher when status is wait, pings, and returns true', async () => {
+      const client = await makeClient();
+      const publisher = getPublisher();
+      publisher.status = 'wait';
+      const ok = await client.ping();
+      expect(ok).toBe(true);
+      expect(publisher.connect).toHaveBeenCalled();
+      expect(publisher.ping).toHaveBeenCalled();
+    });
+
+    it('skips connect when publisher is already connected and returns true', async () => {
+      const client = await makeClient();
+      const publisher = getPublisher();
+      publisher.status = 'ready';
+      const ok = await client.ping();
+      expect(ok).toBe(true);
+      expect(publisher.connect).not.toHaveBeenCalled();
+      expect(publisher.ping).toHaveBeenCalled();
+    });
+
+    it('returns false when ping rejects', async () => {
+      const client = await makeClient();
+      const publisher = getPublisher();
+      publisher.status = 'ready';
+      publisher.ping.mockRejectedValueOnce(new Error('connection refused'));
+      const ok = await client.ping();
+      expect(ok).toBe(false);
+    });
+
+    it('returns false when connect rejects', async () => {
+      const client = await makeClient();
+      const publisher = getPublisher();
+      publisher.status = 'wait';
+      publisher.connect.mockRejectedValueOnce(new Error('unreachable'));
+      const ok = await client.ping();
+      expect(ok).toBe(false);
+      expect(publisher.ping).not.toHaveBeenCalled();
     });
   });
 

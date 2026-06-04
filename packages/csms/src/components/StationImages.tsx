@@ -4,7 +4,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight, Trash2, Plus, Loader2, ImageIcon, X, Star } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Trash2, Plus, ImageIcon, X, Star } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -318,7 +319,7 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
         <div className="flex items-center gap-2">
           {uploading && uploadProgress != null && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Spinner className="h-4 w-4" />
               {t('stations.uploading', {
                 current: uploadProgress.current,
                 total: uploadProgress.total,
@@ -342,7 +343,7 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
           {/* Main image */}
           <div className="relative flex items-center justify-center min-h-[300px] rounded-lg bg-muted">
             {mainImageLoading ? (
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              <Spinner className="h-8 w-8" />
             ) : mainImageUrl != null ? (
               <button
                 type="button"
@@ -416,7 +417,7 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
                     />
                   ) : (
                     <div className="h-full w-full flex items-center justify-center bg-muted">
-                      <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                      <Spinner className="h-3 w-3" />
                     </div>
                   )}
                 </button>

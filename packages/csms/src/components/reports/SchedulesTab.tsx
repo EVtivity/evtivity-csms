@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
+import { Spinner } from '@/components/ui/spinner';
 import { useToast } from '@/components/ui/toast';
 import {
   Dialog,
@@ -296,7 +297,7 @@ export function SchedulesTab(): React.JSX.Element {
                       >
                         {runningId === schedule.id && (
                           <span className="absolute inset-0 flex items-center justify-center">
-                            <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                            <Spinner className="h-4 w-4" />
                           </span>
                         )}
                         <span className={runningId === schedule.id ? 'invisible' : ''}>

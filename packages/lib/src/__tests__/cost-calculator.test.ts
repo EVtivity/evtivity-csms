@@ -281,6 +281,47 @@ describe('calculateSplitSessionCost', () => {
     expect(result.currency).toBe('USD');
   });
 
+  it('distributes idle grace-period reduction from the last segment backward', () => {
+    const idleTariff: TariffInput = { ...peakTariff, idleFeePricePerMinute: '0.50' };
+    const segments: TariffSegment[] = [
+      {
+        tariff: idleTariff,
+        durationMinutes: 30,
+        energyDeliveredWh: 0,
+        idleMinutes: 8,
+        isFirstSegment: true,
+      },
+      {
+        tariff: idleTariff,
+        durationMinutes: 30,
+        energyDeliveredWh: 0,
+        idleMinutes: 12,
+        isFirstSegment: false,
+      },
+    ];
+    // total idle = 20, grace = 15 -> billable idle = 5. The reduction (15) comes
+    // off the last segment first (12 -> 0) then the first (8 -> 5), so 5 billable
+    // idle minutes remain, all on the first segment: 5 * $0.50 = $2.50.
+    const result = calculateSplitSessionCost(segments, 15);
+    expect(result.idleFeeCents).toBe(250);
+  });
+
+  it('charges no idle fee when total idle is within the grace period', () => {
+    const idleTariff: TariffInput = { ...peakTariff, idleFeePricePerMinute: '0.50' };
+    const segments: TariffSegment[] = [
+      {
+        tariff: idleTariff,
+        durationMinutes: 30,
+        energyDeliveredWh: 0,
+        idleMinutes: 6,
+        isFirstSegment: true,
+      },
+    ];
+    // total idle = 6, grace = 10 -> billable idle = 0.
+    const result = calculateSplitSessionCost(segments, 10);
+    expect(result.idleFeeCents).toBe(0);
+  });
+
   it('calculates single segment same as calculateSessionCost', () => {
     const segments: TariffSegment[] = [
       {
@@ -461,6 +502,65 @@ describe('calculateSplitSessionCost', () => {
     // energy: (5 kWh * $0.30) + (5 kWh * $0.50) = $1.50 + $2.50 = $4.00 = 400 cents
     expect(result.energyCostCents).toBe(400);
     expect(result.subtotalCents).toBe(550); // 400 + 150
+  });
+
+  it('treats null per-segment taxRate as zero tax', () => {
+    const noTaxTariff: TariffInput = {
+      pricePerKwh: '0.40',
+      pricePerMinute: null,
+      pricePerSession: null,
+      idleFeePricePerMinute: null,
+      reservationFeePerMinute: null,
+      taxRate: null,
+      currency: 'USD',
+    };
+    const segments: TariffSegment[] = [
+      {
+        tariff: noTaxTariff,
+        durationMinutes: 30,
+        energyDeliveredWh: 5000,
+        idleMinutes: 0,
+        isFirstSegment: true,
+      },
+      {
+        tariff: noTaxTariff,
+        durationMinutes: 30,
+        energyDeliveredWh: 5000,
+        idleMinutes: 0,
+        isFirstSegment: false,
+      },
+    ];
+    const result = calculateSplitSessionCost(segments, 0);
+    // energy: 2 * (5 kWh * $0.40 = 200) = 400, no tax
+    expect(result.energyCostCents).toBe(400);
+    expect(result.taxCents).toBe(0);
+    expect(result.totalCents).toBe(400);
+  });
+
+  it('treats null first-segment taxRate as zero when taxing the reservation holding fee', () => {
+    const noTaxWithReservation: TariffInput = {
+      pricePerKwh: '0.00',
+      pricePerMinute: null,
+      pricePerSession: null,
+      idleFeePricePerMinute: null,
+      reservationFeePerMinute: '1.00',
+      taxRate: null,
+      currency: 'USD',
+    };
+    const segments: TariffSegment[] = [
+      {
+        tariff: noTaxWithReservation,
+        durationMinutes: 30,
+        energyDeliveredWh: 0,
+        idleMinutes: 0,
+        isFirstSegment: true,
+      },
+    ];
+    // 10 min holding * $1.00 = 1000 cents, null taxRate -> 0 tax on the holding fee
+    const result = calculateSplitSessionCost(segments, 0, 10);
+    expect(result.reservationHoldingFeeCents).toBe(1000);
+    expect(result.taxCents).toBe(0);
+    expect(result.totalCents).toBe(1000);
   });
 
   it('throws on mixed currencies across segments', () => {

@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   CSS_CONNECTOR_TYPES,
   mapConnectorTypeToCss,
@@ -56,6 +56,28 @@ describe('mapCssToOcppConnectorType', () => {
 });
 
 describe('randomCssConnectorType', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns the first type when random lands at index 0', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    expect(randomCssConnectorType()).toBe('ac_type2');
+  });
+
+  it('returns the last type when random lands at the final index', () => {
+    // 0.999... * 5 = 4.99 -> floor 4 -> last element
+    vi.spyOn(Math, 'random').mockReturnValue(0.9999);
+    expect(randomCssConnectorType()).toBe('dc_chademo');
+  });
+
+  it('falls back to ac_type2 when the computed index is out of bounds', () => {
+    // Math.random contractually returns [0,1); mocking it to 1 forces
+    // idx === length, hitting the defensive `?? ac_type2` fallback.
+    vi.spyOn(Math, 'random').mockReturnValue(1);
+    expect(randomCssConnectorType()).toBe('ac_type2');
+  });
+
   it('always returns one of the CSS_CONNECTOR_TYPES', () => {
     const seen = new Set<string>();
     for (let i = 0; i < 200; i++) {

@@ -4,9 +4,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Mail, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Mail, CheckCircle, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Spinner } from '@/components/ui/spinner';
 import { useAuth } from '@/lib/auth';
 import { api, ApiError } from '@/lib/api';
 
@@ -89,7 +90,7 @@ export function VerifyEmail(): React.JSX.Element {
           <CardContent className="flex flex-col items-center gap-4">
             {status === 'loading' && (
               <>
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <Spinner className="h-8 w-8" />
                 <p className="text-sm text-muted-foreground">{t('auth.verifyEmailChecking')}</p>
               </>
             )}

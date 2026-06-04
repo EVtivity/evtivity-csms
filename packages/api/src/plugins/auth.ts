@@ -4,7 +4,13 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import jwt from '@fastify/jwt';
 import { db } from '@evtivity/database';
-import { refreshTokens, users, drivers, userPermissions } from '@evtivity/database';
+import {
+  refreshTokens,
+  users,
+  drivers,
+  userPermissions,
+  OCTT_API_KEY_NAME,
+} from '@evtivity/database';
 import { eq, and, isNull } from 'drizzle-orm';
 import { config } from '../lib/config.js';
 import { isApiKeyRateLimited } from '../lib/rate-limiters.js';
@@ -174,8 +180,10 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
             );
 
           if (row != null && row.userId != null) {
-            // Per-API-key rate limiting
-            if (isApiKeyRateLimited(tokenHash)) {
+            // Per-API-key rate limiting. The OCTT conformance runner is exempt
+            // because it dispatches CSMS-initiated OCPP commands in bursts that
+            // legitimately exceed the per-key limit.
+            if (row.name !== OCTT_API_KEY_NAME && isApiKeyRateLimited(tokenHash)) {
               await reply
                 .status(429)
                 .send({ error: 'API key rate limit exceeded', code: 'API_KEY_RATE_LIMITED' });

@@ -20,11 +20,16 @@ const PRIVATE_IPV4_RANGES = [
 const PRIVATE_IPV6_PATTERNS = [/^::1$/, /^::$/, /^fc/, /^fd/, /^fe[89ab]/];
 
 function ipv6MappedIpv4(hostname: string): string | null {
-  // ::ffff:1.2.3.4 (IPv4-mapped IPv6) and ::1.2.3.4 (IPv4-compatible) embed
-  // IPv4 inside an IPv6 literal; surface the IPv4 portion so the IPv4
-  // private-range check still fires.
-  const match = /^::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/i.exec(hostname);
-  return match?.[1] ?? null;
+  // ::ffff:1.2.3.4 (IPv4-mapped) and ::1.2.3.4 (IPv4-compatible) embed IPv4 in
+  // an IPv6 literal. Node's URL parser normalizes the trailing dotted IPv4 to
+  // two hex groups (::ffff:127.0.0.1 -> ::ffff:7f00:1, ::192.168.1.1 ->
+  // ::c0a8:101), so decode those groups back to dotted IPv4 and surface it so
+  // the IPv4 private-range check still fires.
+  const match = /^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(hostname);
+  if (match?.[1] == null || match[2] == null) return null;
+  const high = parseInt(match[1], 16);
+  const low = parseInt(match[2], 16);
+  return `${String(high >> 8)}.${String(high & 0xff)}.${String(low >> 8)}.${String(low & 0xff)}`;
 }
 
 export function isPrivateUrl(urlString: string): boolean {
@@ -37,19 +42,27 @@ export function isPrivateUrl(urlString: string): boolean {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return true;
     const hostname = parsed.hostname;
     if (hostname === '' || hostname === 'localhost') return true;
-    const ipVersion = isIP(hostname);
+    // node's URL parser returns IPv6 hosts wrapped in brackets ([::1]), which
+    // isIP() does not recognize. Strip them so the IPv6 private-range checks
+    // below actually run (otherwise a private IPv6 host like http://[::1] would
+    // fall through and be treated as public — an SSRF bypass).
+    const host =
+      hostname.length > 1 && hostname.startsWith('[') && hostname.endsWith(']')
+        ? hostname.slice(1, -1)
+        : hostname;
+    const ipVersion = isIP(host);
     if (ipVersion === 4) {
-      return PRIVATE_IPV4_RANGES.some((r) => r.test(hostname));
+      return PRIVATE_IPV4_RANGES.some((r) => r.test(host));
     }
     if (ipVersion === 6) {
-      const embeddedV4 = ipv6MappedIpv4(hostname);
+      const embeddedV4 = ipv6MappedIpv4(host);
       if (embeddedV4 != null) {
         return PRIVATE_IPV4_RANGES.some((r) => r.test(embeddedV4));
       }
-      return PRIVATE_IPV6_PATTERNS.some((r) => r.test(hostname));
+      return PRIVATE_IPV6_PATTERNS.some((r) => r.test(host));
     }
     // Block known internal hostname patterns
-    if (hostname.endsWith('.local') || hostname.endsWith('.internal')) return true;
+    if (host.endsWith('.local') || host.endsWith('.internal')) return true;
     return false;
   } catch {
     return true; // Invalid URL = treat as private

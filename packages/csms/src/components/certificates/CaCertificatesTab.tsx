@@ -4,8 +4,9 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, RefreshCw, Trash2, Loader2, Info } from 'lucide-react';
+import { Upload, RefreshCw, Trash2, Info } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -114,7 +115,7 @@ export function CaCertificatesTab(): React.JSX.Element {
                   disabled={refreshRootsMutation.isPending}
                 >
                   {refreshRootsMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Spinner className="h-4 w-4" />
                   ) : (
                     <RefreshCw className="h-4 w-4" />
                   )}

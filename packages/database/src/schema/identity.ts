@@ -86,6 +86,11 @@ export const userTokens = pgTable(
   ],
 );
 
+// Name of the temporary API key the OCTT conformance runner creates. The auth
+// layer exempts this key from the per-key rate limit because the runner fires
+// CSMS-initiated OCPP commands in bursts that legitimately exceed the limit.
+export const OCTT_API_KEY_NAME = 'OCTT Runner (temporary)';
+
 export const refreshTokens = pgTable(
   'refresh_tokens',
   {

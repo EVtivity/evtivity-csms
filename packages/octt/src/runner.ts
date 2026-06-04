@@ -4,9 +4,9 @@
 import crypto from 'node:crypto';
 import pino from 'pino';
 import { db, chargingStations, drivers, driverTokens } from '@evtivity/database';
-import { refreshTokens, users } from '@evtivity/database';
+import { refreshTokens, users, OCTT_API_KEY_NAME } from '@evtivity/database';
 import { createId } from '@evtivity/database/src/lib/id.js';
-import { like, inArray, eq, sql } from 'drizzle-orm';
+import { like, eq, sql } from 'drizzle-orm';
 
 import type { RunConfig, RunSummary, TestCaseResult, TestCase, TriggerCommandFn } from './types.js';
 import { getRegistry } from './registry.js';
@@ -25,15 +25,8 @@ export async function runTests(
 
   const provisionStations = config.provisionStations ?? true;
   if (provisionStations) {
-    // Clean up any OCTT stations left over from a previous crashed run
-    const stale = await db
-      .select({ id: chargingStations.id })
-      .from(chargingStations)
-      .where(like(chargingStations.stationId, 'OCTT-%'));
-    if (stale.length > 0) {
-      const staleIds = stale.map((s) => s.id);
-      await db.delete(chargingStations).where(inArray(chargingStations.id, staleIds));
-    }
+    // Remove any OCTT artifacts left over from a previous crashed run.
+    await deleteOcttStationsAndArtifacts();
     logger.info('Stations will be auto-provisioned per test');
   }
 
@@ -41,6 +34,7 @@ export async function runTests(
   let testDriverId = createId('driver');
   let octtPricingGroupId: string | null = null;
   let octtTariffId: string | null = null;
+  let pncBackup: { key: string; value: unknown }[] = [];
   if (provisionStations) {
     testDriverId = await provisionTestDriverAndTokens(testDriverId);
     logger.info('Test driver and tokens provisioned');
@@ -50,6 +44,11 @@ export async function runTests(
     octtPricingGroupId = ids.pricingGroupId;
     octtTariffId = ids.tariffId;
     logger.info('Test pricing group and tariff provisioned');
+
+    // Capture prior PnC settings so the run can restore them afterwards.
+    pncBackup = (await db.execute(sql`
+      SELECT key, value FROM settings WHERE key IN ('pnc.enabled', 'pnc.provider')
+    `)) as unknown as { key: string; value: unknown }[];
 
     // Enable PnC for M-certificate-management tests
     await db.execute(sql`
@@ -67,16 +66,21 @@ export async function runTests(
   // Create a temporary API key for triggering CSMS-initiated commands
   let triggerCommand: TriggerCommandFn | undefined;
   let apiKeyId: number | undefined;
+  let adminUserId: string | undefined;
+  let priorAdminAllSiteAccess = false;
   if (config.apiUrl != null) {
     try {
       // Find the first active admin user with all-site access
       const [admin] = await db
-        .select({ id: users.id })
+        .select({ id: users.id, hasAllSiteAccess: users.hasAllSiteAccess })
         .from(users)
         .where(eq(users.isActive, true))
         .limit(1);
       if (admin != null) {
-        // Ensure the user has all-site access for OCTT commands
+        // Grant all-site access for OCTT commands, remembering the prior value so
+        // it can be restored after the run.
+        adminUserId = admin.id;
+        priorAdminAllSiteAccess = admin.hasAllSiteAccess;
         await db.update(users).set({ hasAllSiteAccess: true }).where(eq(users.id, admin.id));
         // Create a temporary API key
         const raw = crypto.randomBytes(32).toString('hex');
@@ -87,7 +91,7 @@ export async function runTests(
             userId: admin.id,
             tokenHash,
             type: 'api_key' as const,
-            name: 'OCTT Runner (temporary)',
+            name: OCTT_API_KEY_NAME,
           })
           .returning({ id: refreshTokens.id });
         if (row != null) {
@@ -156,21 +160,21 @@ export async function runTests(
 
   summary.durationMs = Date.now() - start;
 
-  // Clean up temporary API key
+  // Remove the temporary API key and restore the admin's prior site access.
   if (apiKeyId != null) {
-    await db
-      .update(refreshTokens)
-      .set({ revokedAt: new Date() })
-      .where(eq(refreshTokens.id, apiKeyId));
-    logger.info('Temporary API key revoked');
+    await db.delete(refreshTokens).where(eq(refreshTokens.id, apiKeyId));
+    logger.info('Temporary API key removed');
+  }
+  if (adminUserId != null && !priorAdminAllSiteAccess) {
+    await db.update(users).set({ hasAllSiteAccess: false }).where(eq(users.id, adminUserId));
   }
 
   // Clean up test driver and tokens (FK is ON DELETE SET NULL, so delete tokens first for clarity)
   if (provisionStations) {
-    // Remove every OCTT test station created during this run. Cleanup is deferred
-    // to run end (not per-test) so the OCPP server's async projections finish
-    // before the parent row is deleted; ON DELETE CASCADE clears the child rows.
-    await db.delete(chargingStations).where(like(chargingStations.stationId, 'OCTT-%'));
+    // Deferred to run end (not per-test) so the OCPP server's async projections
+    // finish before the rows are deleted. Removes OCTT stations plus the artifacts
+    // that do not cascade from them (CSRs, tariff segments, domain/authorize logs).
+    await deleteOcttStationsAndArtifacts();
     logger.info('OCTT test stations cleaned up');
 
     // Clean up tariff and pricing group (cascade deletes handle child records)
@@ -182,10 +186,48 @@ export async function runTests(
     }
     await db.delete(driverTokens).where(eq(driverTokens.driverId, testDriverId));
     await db.delete(drivers).where(eq(drivers.id, testDriverId));
-    logger.info('Test driver, tokens, and tariff cleaned up');
+
+    // Restore the PnC settings overwritten for the certificate tests.
+    await restorePncSettings(pncBackup);
+    logger.info('Test driver, tokens, tariff, and PnC settings cleaned up');
   }
 
   return summary;
+}
+
+async function deleteOcttStationsAndArtifacts(): Promise<void> {
+  // Rows that do not cascade from the station must be removed first, while the
+  // station and session rows still exist to identify them: session_tariff_segments
+  // has no session FK, and pki_csr_requests is ON DELETE SET NULL.
+  await db.execute(sql`
+    DELETE FROM session_tariff_segments
+    WHERE session_id IN (
+      SELECT cs.id FROM charging_sessions cs
+      JOIN charging_stations st ON st.id = cs.station_id
+      WHERE st.station_id LIKE 'OCTT-%'
+    )
+  `);
+  await db.execute(sql`
+    DELETE FROM pki_csr_requests
+    WHERE station_id IN (SELECT id FROM charging_stations WHERE station_id LIKE 'OCTT-%')
+  `);
+  // Keyed by the OCPP station id string / aggregate id (no FK), removable directly.
+  await db.execute(sql`DELETE FROM authorize_attempts WHERE station_id LIKE 'OCTT-%'`);
+  await db.execute(sql`DELETE FROM domain_events WHERE aggregate_id LIKE 'OCTT-%'`);
+  // Cascade clears evses, connectors, sessions, projection rows, and station certs.
+  await db.delete(chargingStations).where(like(chargingStations.stationId, 'OCTT-%'));
+}
+
+async function restorePncSettings(backup: { key: string; value: unknown }[]): Promise<void> {
+  const saved = new Map(backup.map((row) => [row.key, row.value]));
+  for (const key of ['pnc.enabled', 'pnc.provider']) {
+    if (saved.has(key)) {
+      const value = JSON.stringify(saved.get(key) ?? null);
+      await db.execute(sql`UPDATE settings SET value = ${value}::jsonb WHERE key = ${key}`);
+    } else {
+      await db.execute(sql`DELETE FROM settings WHERE key = ${key}`);
+    }
+  }
 }
 
 const OCTT_TEST_TOKENS = [

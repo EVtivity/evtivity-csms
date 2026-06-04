@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { api } from '@/lib/api';
+import { Spinner } from '@/components/ui/spinner';
 
 interface ImageItem {
   id: number;
@@ -161,7 +162,7 @@ function ImageOverlay({
           />
         ) : (
           <div className="flex h-64 w-64 items-center justify-center rounded-lg bg-muted">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <Spinner className="h-8 w-8" />
           </div>
         )}
         {currentImage?.caption != null && (

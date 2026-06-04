@@ -14,9 +14,9 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronLeft,
-  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
@@ -136,7 +136,7 @@ export function ConformanceDetail(): React.JSX.Element {
   if (isLoading) {
     return (
       <div className="flex justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <Spinner className="h-8 w-8" />
       </div>
     );
   }

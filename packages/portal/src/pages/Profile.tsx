@@ -4,8 +4,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Loader2, LogOut } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -397,7 +398,7 @@ export function Profile(): React.JSX.Element {
                   >
                     {mfaLoading ? (
                       <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <Spinner className="mr-2 h-4 w-4" />
                         {t('profile.mfaDisabling')}
                       </>
                     ) : (
@@ -434,7 +435,7 @@ export function Profile(): React.JSX.Element {
                 <Button type="submit" className="w-full" disabled={mfaLoading}>
                   {mfaLoading ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Spinner className="mr-2 h-4 w-4" />
                       {t('profile.mfaSettingUp')}
                     </>
                   ) : (
@@ -479,7 +480,7 @@ export function Profile(): React.JSX.Element {
                 <Button type="submit" className="w-full" disabled={mfaLoading}>
                   {mfaLoading ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Spinner className="mr-2 h-4 w-4" />
                       {t('profile.mfaVerifying')}
                     </>
                   ) : (

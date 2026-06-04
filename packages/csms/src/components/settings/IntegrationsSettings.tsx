@@ -5,8 +5,9 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTab } from '@/hooks/use-tab';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Send, Loader2, ChevronDown } from 'lucide-react';
+import { Send, ChevronDown } from 'lucide-react';
 import { SaveButton } from '@/components/save-button';
+import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -807,7 +808,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                     }}
                     disabled={pncTestMutation.isPending}
                   >
-                    {pncTestMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {pncTestMutation.isPending && <Spinner className="h-4 w-4" />}
                     {t('settings.pncTestConnection')}
                   </Button>
                 </div>

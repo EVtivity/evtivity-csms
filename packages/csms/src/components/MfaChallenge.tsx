@@ -3,8 +3,8 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -116,7 +116,7 @@ export function MfaChallenge(): React.JSX.Element {
               />
             </div>
             <Button type="submit" className="w-full" disabled={loading || code.length < 6}>
-              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              {loading && <Spinner className="h-4 w-4" />}
               {t('auth.mfaVerify')}
             </Button>
             <div className="flex items-center justify-between">

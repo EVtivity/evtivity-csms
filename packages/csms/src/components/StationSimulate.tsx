@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ClearableInput } from '@/components/ui/clearable-input';
@@ -258,10 +259,8 @@ export function StationSimulate({
             const isLoading = activeAction === config.action && actionMutation.isPending;
             const isInvalidForState = !validActions.has(config.action);
             const disabled = actionMutation.isPending || isInvalidForState;
-            // Per the UI rule (feedback/ui.md): use the CSS border-spinner
-            // absolutely positioned over invisible text; Loader2 inside a
-            // disabled button stops animating in Safari/Firefox. The label
-            // stays in the DOM so the button width doesn't shift on click.
+            // The spinner is absolutely positioned over invisible text so the
+            // label stays in the DOM and the button width doesn't shift on click.
             const button = (
               <Button
                 key={config.action}
@@ -274,7 +273,7 @@ export function StationSimulate({
               >
                 {isLoading && (
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    <Spinner className="h-4 w-4" />
                   </div>
                 )}
                 <span className={isLoading ? 'invisible' : ''}>{config.label}</span>

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { csvEscape, buildCsv } from '../csv-escape.js';
+import { csvEscape, buildCsv, neutraliseSpreadsheetFormula } from '../csv-escape.js';
 
 describe('csvEscape', () => {
   it('returns plain ASCII unchanged', () => {
@@ -19,6 +19,11 @@ describe('csvEscape', () => {
   it('null and undefined become empty strings', () => {
     expect(csvEscape(null)).toBe('');
     expect(csvEscape(undefined)).toBe('');
+  });
+
+  it('empty string passes through the formula-neutralise step unchanged', () => {
+    // Hits the early `value === ''` return inside neutraliseSpreadsheetFormula.
+    expect(csvEscape('')).toBe('');
   });
 
   it('numbers and booleans are stringified', () => {
@@ -95,5 +100,19 @@ describe('buildCsv', () => {
 
   it('returns BOM + header-only output when rows is empty', () => {
     expect(buildCsv(['a'], [])).toBe(`${BOM}a`);
+  });
+});
+
+describe('neutraliseSpreadsheetFormula', () => {
+  it('returns empty string untouched without prefixing', () => {
+    expect(neutraliseSpreadsheetFormula('')).toBe('');
+  });
+
+  it('prefixes a leading formula trigger and leaves the rest intact', () => {
+    expect(neutraliseSpreadsheetFormula('=1+1')).toBe("'=1+1");
+  });
+
+  it('leaves a safe leading character unchanged', () => {
+    expect(neutraliseSpreadsheetFormula('hello')).toBe('hello');
   });
 });

@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './dialog';
 import { Button } from './button';
+import { Spinner } from '@/components/ui/spinner';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -69,7 +70,7 @@ export function ConfirmDialog({
           >
             {isPending && (
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                <Spinner className="h-4 w-4" />
               </div>
             )}
             <span className={`inline-flex items-center gap-1.5 ${isPending ? 'invisible' : ''}`}>

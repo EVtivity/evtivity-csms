@@ -5,8 +5,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTab } from '@/hooks/use-tab';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
 import { SaveButton } from '@/components/save-button';
+import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -298,7 +298,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
                 }}
                 disabled={stripeTestMutation.isPending}
               >
-                {stripeTestMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                {stripeTestMutation.isPending && <Spinner className="h-4 w-4" />}
                 {t('settings.stripeTestConnection')}
               </Button>
             </div>

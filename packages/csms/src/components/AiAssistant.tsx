@@ -8,6 +8,7 @@ import { Sparkles, X, Send, Pencil, Copy, Check, RotateCcw } from 'lucide-react'
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { api, ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -323,12 +324,7 @@ export function AiAssistant(): React.JSX.Element {
           {chatMutation.isPending && (
             <div className="flex justify-start">
               <div className="rounded-lg px-3 py-2 max-w-[80%] bg-muted text-sm text-muted-foreground flex items-center gap-2">
-                <img
-                  src="/evtivity-spinner.svg"
-                  alt=""
-                  aria-hidden="true"
-                  className="h-4 w-4 shrink-0"
-                />
+                <Spinner className="h-4 w-4" />
                 {t('chatbotAi.typing')}
               </div>
             </div>

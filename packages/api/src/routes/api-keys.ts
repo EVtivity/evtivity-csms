@@ -15,7 +15,14 @@ import { authorize } from '../middleware/rbac.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { createApiKey, listApiKeys, revokeApiKey } from '../services/api-key.service.js';
 import { PERMISSIONS, isSubsetOf } from '@evtivity/lib';
-import { db, userPermissions, refreshTokens, writeAudit, apiKeyAuditLog } from '@evtivity/database';
+import {
+  db,
+  userPermissions,
+  refreshTokens,
+  writeAudit,
+  apiKeyAuditLog,
+  OCTT_API_KEY_NAME,
+} from '@evtivity/database';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getAuditActor } from '../lib/audit-actor.js';
 
@@ -124,6 +131,15 @@ export function apiKeyRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { userId } = request.user as JwtPayload;
       const body = request.body as z.infer<typeof createApiKeyBody>;
+
+      // Reserve the OCTT runner's key name. The auth layer exempts that name
+      // from the per-key rate limit, so it must not be operator-creatable.
+      if (body.name.trim().toLowerCase() === OCTT_API_KEY_NAME.toLowerCase()) {
+        await reply
+          .status(400)
+          .send({ error: 'This API key name is reserved', code: 'VALIDATION_ERROR' });
+        return;
+      }
 
       const expiresAt =
         body.expiresInDays != null

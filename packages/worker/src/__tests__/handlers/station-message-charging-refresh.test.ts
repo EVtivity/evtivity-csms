@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Logger } from 'pino';
 
 // -- DB mock helpers --
 
@@ -99,7 +100,7 @@ const log = {
   warn: vi.fn(),
   error: vi.fn(),
   debug: vi.fn(),
-} as never;
+} as unknown as Logger;
 
 describe('stationMessageChargingRefreshHandler', () => {
   beforeEach(() => {
@@ -198,6 +199,71 @@ describe('stationMessageChargingRefreshHandler', () => {
     expect(mockPublish).toHaveBeenCalledTimes(1);
     const body = JSON.parse(mockPublish.mock.calls[0]![1] as string) as { sessionId: string };
     expect(body.sessionId).toBe('ses_old');
+  });
+
+  it('logs a warning and excludes failed publishes from the published count', async () => {
+    setupDbResults(
+      [
+        {
+          sessionId: 'ses_ok',
+          stationUuid: 'sta_ok',
+          stationOcppId: 'CS-OK',
+          ocppProtocol: 'ocpp2.1',
+        },
+        {
+          sessionId: 'ses_fail',
+          stationUuid: 'sta_fail',
+          stationOcppId: 'CS-FAIL',
+          ocppProtocol: 'ocpp2.1',
+        },
+      ],
+      [],
+    );
+    mockPublish.mockImplementation((_channel: string, body: string) => {
+      const parsed = JSON.parse(body) as { sessionId: string };
+      if (parsed.sessionId === 'ses_fail') {
+        return Promise.reject(new Error('redis publish failed'));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const { stationMessageChargingRefreshHandler } =
+      await import('../../handlers/station-message-charging-refresh.js');
+    await stationMessageChargingRefreshHandler(log);
+
+    expect(mockPublish).toHaveBeenCalledTimes(2);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'ses_fail' }),
+      'Failed to publish station_message_transaction refresh event',
+    );
+    // Only the successful publish increments the count; the rejected one is
+    // filtered out, so the info log reports exactly one publish.
+    expect(log.info).toHaveBeenCalledWith(
+      { published: 1 },
+      'Station message charging refresh published',
+    );
+  });
+
+  it('skips the info log when every session is within the refresh window', async () => {
+    const recentPush = new Date(Date.now() - 1_000);
+    setupDbResults(
+      [
+        {
+          sessionId: 'ses_only',
+          stationUuid: 'sta_only',
+          stationOcppId: 'CS-ONLY',
+          ocppProtocol: 'ocpp2.1',
+        },
+      ],
+      [{ stationId: 'sta_only', pushedAt: recentPush }],
+    );
+
+    const { stationMessageChargingRefreshHandler } =
+      await import('../../handlers/station-message-charging-refresh.js');
+    await stationMessageChargingRefreshHandler(log);
+
+    expect(mockPublish).not.toHaveBeenCalled();
+    expect(log.info).not.toHaveBeenCalled();
   });
 
   it('does not publish when there are no active sessions', async () => {

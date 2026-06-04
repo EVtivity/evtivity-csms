@@ -5,7 +5,8 @@ import { useState, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { useTranslation, Trans } from 'react-i18next';
-import { Info, Loader2 } from 'lucide-react';
+import { Info } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1298,7 +1299,7 @@ export function StationCommands({
                 </div>
                 {schemaLoading ? (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Spinner className="h-4 w-4" />
                     {t('common.loading')}
                   </div>
                 ) : rawMode || schemaError ? (
@@ -1328,7 +1329,7 @@ export function StationCommands({
                 }}
                 disabled={advancedMutation.isPending}
               >
-                {advancedMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                {advancedMutation.isPending && <Spinner className="h-4 w-4" />}
                 {t('common.send')}
               </Button>
             </>
@@ -1385,7 +1386,7 @@ export function StationCommands({
                 {t('common.close')}
               </Button>
               <Button onClick={handleQuickSubmit} disabled={mutation.isPending}>
-                {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                {mutation.isPending && <Spinner className="h-4 w-4" />}
                 {t('common.send')}
               </Button>
             </DialogFooter>
@@ -1420,7 +1421,7 @@ export function StationCommands({
             <div>
               {advancedMutation.isPending && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Spinner className="h-4 w-4" />
                   {t('commands.waitingForResponse')}
                 </div>
               )}

@@ -3,8 +3,8 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Select } from '@/components/ui/select';
@@ -198,7 +198,7 @@ export function AccountSecurity(): React.JSX.Element {
                 >
                   {mfaLoading ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Spinner className="mr-2 h-4 w-4" />
                       {t('profile.mfaDisabling')}
                     </>
                   ) : (
@@ -235,7 +235,7 @@ export function AccountSecurity(): React.JSX.Element {
               <Button type="submit" className="w-full" disabled={mfaLoading}>
                 {mfaLoading ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Spinner className="mr-2 h-4 w-4" />
                     {t('profile.mfaSettingUp')}
                   </>
                 ) : (
@@ -278,7 +278,7 @@ export function AccountSecurity(): React.JSX.Element {
               <Button type="submit" className="w-full" disabled={mfaLoading}>
                 {mfaLoading ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Spinner className="mr-2 h-4 w-4" />
                     {t('profile.mfaVerifying')}
                   </>
                 ) : (

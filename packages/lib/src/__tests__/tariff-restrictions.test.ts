@@ -165,6 +165,66 @@ describe('tariffMatchesNow', () => {
     });
   });
 
+  describe('timezone-aware matching', () => {
+    it('evaluates the time range in the supplied timezone, not server local', () => {
+      const restrictions: TariffRestrictions = {
+        timeRange: { startTime: '09:00', endTime: '17:00' },
+      };
+      // 2026-01-15T20:00:00Z is 12:00 in America/Los_Angeles (UTC-8) -> inside
+      // the 09:00-17:00 window, but 20:00 UTC -> outside without the zone.
+      const utcInstant = new Date('2026-01-15T20:00:00Z');
+      expect(tariffMatchesNow(restrictions, utcInstant, [], 0, 'America/Los_Angeles')).toBe(true);
+    });
+
+    it('does not match when the zoned local time is outside the range', () => {
+      const restrictions: TariffRestrictions = {
+        timeRange: { startTime: '09:00', endTime: '17:00' },
+      };
+      // 2026-01-15T06:00:00Z is 22:00 the previous day in America/Los_Angeles
+      // (UTC-8) -> outside the 09:00-17:00 window.
+      const utcInstant = new Date('2026-01-15T06:00:00Z');
+      expect(tariffMatchesNow(restrictions, utcInstant, [], 0, 'America/Los_Angeles')).toBe(false);
+    });
+
+    it('matches day-of-week computed in the supplied timezone', () => {
+      const restrictions: TariffRestrictions = {
+        daysOfWeek: [3], // Wednesday only
+        timeRange: { startTime: '00:00', endTime: '23:59' },
+      };
+      // 2026-01-15 is a Thursday in UTC, but at 01:00 UTC it is still Wednesday
+      // 17:00 in America/Los_Angeles (UTC-8).
+      const utcInstant = new Date('2026-01-15T01:00:00Z');
+      expect(tariffMatchesNow(restrictions, utcInstant, [], 0, 'America/Los_Angeles')).toBe(true);
+    });
+
+    it('matches a holiday using the zoned calendar date', () => {
+      const restrictions: TariffRestrictions = { holidays: true };
+      // 2026-12-26T03:00:00Z is Dec 25 19:00 in America/Los_Angeles.
+      const utcInstant = new Date('2026-12-26T03:00:00Z');
+      // Holiday stored as midnight UTC of Dec 25.
+      const holidays = [new Date('2026-12-25T00:00:00Z')];
+      expect(tariffMatchesNow(restrictions, utcInstant, holidays, 0, 'America/Los_Angeles')).toBe(
+        true,
+      );
+    });
+  });
+
+  describe('falls through to false', () => {
+    it('returns false when daysOfWeek matches the day but no timeRange is set', () => {
+      // daysOfWeek present and the current day is in the list, but with no
+      // timeRange the function falls through past every branch to `return false`.
+      const restrictions: TariffRestrictions = {
+        daysOfWeek: [3], // Wednesday
+      };
+      const wednesday = new Date(2026, 0, 14, 12, 0, 0); // 2026-01-14 is a Wednesday
+      expect(tariffMatchesNow(restrictions, wednesday, [], 0)).toBe(false);
+    });
+
+    it('returns false for an empty restriction object', () => {
+      expect(tariffMatchesNow({}, new Date(2026, 0, 15, 12, 0, 0), [], 0)).toBe(false);
+    });
+  });
+
   describe('energy threshold matching', () => {
     it('matches when energy exceeds threshold', () => {
       const restrictions: TariffRestrictions = { energyThresholdKwh: 50 };
@@ -267,5 +327,54 @@ describe('tariffRestrictionsSchema', () => {
     if (!result.success) {
       expect(result.error.issues[0]?.message).toContain('daysOfWeek requires timeRange');
     }
+  });
+
+  it('accepts an empty restriction object (the default/no-restriction tariff)', () => {
+    // Exercises the `keys.length === 0` early-return in the combination refine.
+    const result = tariffRestrictionsSchema.safeParse({});
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts holidays standalone', () => {
+    // Exercises the true branch of the holidays-standalone refine.
+    const result = tariffRestrictionsSchema.safeParse({ holidays: true });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a standalone energy threshold', () => {
+    const result = tariffRestrictionsSchema.safeParse({ energyThresholdKwh: 50 });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a standalone date range', () => {
+    const result = tariffRestrictionsSchema.safeParse({
+      dateRange: { startDate: '06-01', endDate: '09-30' },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects combining holidays with daysOfWeek+timeRange', () => {
+    const result = tariffRestrictionsSchema.safeParse({
+      holidays: true,
+      daysOfWeek: [1, 2, 3],
+      timeRange: { startTime: '09:00', endTime: '17:00' },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects combining dateRange with timeRange', () => {
+    const result = tariffRestrictionsSchema.safeParse({
+      dateRange: { startDate: '06-01', endDate: '09-30' },
+      timeRange: { startTime: '09:00', endTime: '17:00' },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects combining energyThreshold with dateRange', () => {
+    const result = tariffRestrictionsSchema.safeParse({
+      energyThresholdKwh: 50,
+      dateRange: { startDate: '06-01', endDate: '09-30' },
+    });
+    expect(result.success).toBe(false);
   });
 });

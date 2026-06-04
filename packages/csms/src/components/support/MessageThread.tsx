@@ -3,8 +3,9 @@
 
 import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Download, Loader2, Sparkles, X } from 'lucide-react';
+import { Download, Sparkles, X } from 'lucide-react';
 import { FileUploadButton } from '@/components/ui/file-upload-button';
+import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -264,7 +265,7 @@ export function MessageThread({
                   title={t('supportCases.aiAssistTooltip')}
                 >
                   {aiAssistLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Spinner className="h-4 w-4" />
                   ) : (
                     <Sparkles className="h-4 w-4" />
                   )}

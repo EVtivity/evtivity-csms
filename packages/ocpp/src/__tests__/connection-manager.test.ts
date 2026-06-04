@@ -125,6 +125,29 @@ describe('ConnectionManager', () => {
     expect(cmWithRegistry.has('CS-001')).toBe(true);
   });
 
+  it('does not fail when registry.unregister rejects on remove', async () => {
+    const registry = {
+      register: vi.fn().mockResolvedValue(undefined),
+      unregister: vi.fn().mockRejectedValue(new Error('Redis down')),
+      getInstanceId: vi.fn().mockResolvedValue(null),
+    };
+    const cmWithRegistry = new ConnectionManager(logger, {
+      registry,
+      instanceId: 'instance-1',
+    });
+
+    cmWithRegistry.add('CS-001', mockWs(), createSessionState('CS-001'));
+    cmWithRegistry.remove('CS-001');
+
+    await vi.waitFor(() => {
+      expect(registry.unregister).toHaveBeenCalledWith('CS-001');
+    });
+
+    // The connection is removed from the in-memory map regardless of the
+    // registry failure (fail-open on the registry side effect).
+    expect(cmWithRegistry.has('CS-001')).toBe(false);
+  });
+
   it('setRegistry configures registry after construction', async () => {
     const registry = {
       register: vi.fn().mockResolvedValue(undefined),

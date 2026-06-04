@@ -176,5 +176,45 @@ describe('renderStationMessage', () => {
       expect(first).toBe('EVtivity\nCS-1234\n$0.30/kWh + $0.02/min\nPlug in to start');
       expect(mod.__mocks.selectFn).toHaveBeenCalledTimes(1);
     });
+
+    it('re-fetches after TTL expiry but reuses the compiled template when updatedAt is unchanged', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-03-01T00:00:00Z'));
+      try {
+        const mod = (await import('@evtivity/database')) as unknown as {
+          __mocks: {
+            selectFn: ReturnType<typeof vi.fn>;
+            whereFn: ReturnType<typeof vi.fn>;
+          };
+        };
+        const stableUpdatedAt = new Date(2026, 0, 1);
+        mod.__mocks.whereFn.mockResolvedValue([
+          { body: STATE_BODIES.available, updatedAt: stableUpdatedAt },
+        ]);
+
+        const first = await renderStationMessage('available', baseContext);
+
+        // Advance past the 60s cache TTL so the cached entry is expired, but the
+        // DB still returns the same updatedAt -> same cacheKey. This exercises
+        // the "expired-but-key-matches" branch: refresh expiresAt, reuse the
+        // already-compiled template (no recompile).
+        vi.advanceTimersByTime(61_000);
+
+        const second = await renderStationMessage('available', baseContext);
+
+        expect(second).toBe(first);
+        expect(second).toBe('EVtivity\nCS-1234\n$0.30/kWh + $0.02/min\nPlug in to start');
+        // The row was re-fetched (cache expired) so select ran twice.
+        expect(mod.__mocks.selectFn).toHaveBeenCalledTimes(2);
+
+        // The refreshed cache entry is now valid again: a third call within the
+        // new TTL window hits the in-memory cache and does not re-fetch.
+        const third = await renderStationMessage('available', baseContext);
+        expect(third).toBe(first);
+        expect(mod.__mocks.selectFn).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

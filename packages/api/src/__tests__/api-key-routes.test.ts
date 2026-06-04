@@ -65,6 +65,7 @@ vi.mock('@evtivity/database', () => ({
   },
   refreshTokens: {},
   userPermissions: {},
+  OCTT_API_KEY_NAME: 'OCTT Runner (temporary)',
   writeAudit: vi.fn().mockResolvedValue(undefined),
   siteAuditLog: {},
   stationAuditLog: {},

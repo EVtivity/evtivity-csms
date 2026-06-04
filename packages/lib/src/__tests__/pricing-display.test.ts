@@ -1,8 +1,13 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect } from 'vitest';
-import { formatPricingDisplay } from '../pricing-display.js';
+import { describe, it, expect, afterEach } from 'vitest';
+import {
+  formatPricingDisplay,
+  setCurrencySymbols,
+  getCurrencySymbols,
+  currencySymbol,
+} from '../pricing-display.js';
 import type { TariffInput } from '../cost-calculator.js';
 
 describe('formatPricingDisplay', () => {
@@ -130,5 +135,44 @@ describe('formatPricingDisplay', () => {
       const result = formatPricingDisplay(tariff, 'compact', 'JPY');
       expect(result).toBe('JPY 0.30/kWh');
     });
+  });
+});
+
+describe('setCurrencySymbols', () => {
+  afterEach(() => {
+    // Reset the module-level override so later tests see only defaults.
+    setCurrencySymbols({});
+  });
+
+  it('overrides a default symbol and adds a brand-new currency', () => {
+    setCurrencySymbols({ USD: 'US$', BTC: '₿' });
+
+    const symbols = getCurrencySymbols();
+    expect(symbols['USD']).toBe('US$'); // override wins over the built-in '$'
+    expect(symbols['BTC']).toBe('₿'); // brand-new entry
+    expect(symbols['EUR']).toBe('€'); // untouched default still present
+
+    expect(currencySymbol('USD')).toBe('US$');
+    expect(currencySymbol('BTC')).toBe('₿');
+  });
+
+  it('a custom symbol flows through into formatPricingDisplay output', () => {
+    setCurrencySymbols({ USD: 'US$' });
+    const tariff: TariffInput = {
+      pricePerKwh: '0.30',
+      pricePerMinute: null,
+      pricePerSession: null,
+      idleFeePricePerMinute: null,
+      reservationFeePerMinute: null,
+      taxRate: null,
+      currency: 'USD',
+    };
+    expect(formatPricingDisplay(tariff, 'compact', 'USD')).toBe('US$0.30/kWh');
+  });
+
+  it('clearing custom symbols restores the default symbol', () => {
+    setCurrencySymbols({ USD: 'US$' });
+    setCurrencySymbols({});
+    expect(currencySymbol('USD')).toBe('$');
   });
 });

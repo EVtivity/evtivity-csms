@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
-import { Loader2 } from 'lucide-react';
 import { Button } from './button';
+import { Spinner } from '@/components/ui/spinner';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -82,7 +82,7 @@ export function ConfirmDialog({
               })();
             }}
           >
-            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {isPending && <Spinner className="mr-2 h-4 w-4" />}
             {confirmLabel}
           </Button>
         </div>

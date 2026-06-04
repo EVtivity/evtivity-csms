@@ -110,21 +110,23 @@ export function calculateSplitSessionCost(
   const billableTotalIdle = Math.max(0, totalIdleMinutes - gracePeriodMinutes);
   let remainingReduction = totalIdleMinutes - billableTotalIdle;
 
-  // Reduce idle from segments, starting from the last
-  const adjustedSegments = [...segments];
-  for (let i = adjustedSegments.length - 1; i >= 0 && remainingReduction > 0; i--) {
-    const seg = adjustedSegments[i];
-    if (seg == null) continue;
-    const deduct = Math.min(seg.idleMinutes, remainingReduction);
-    adjustedSegments[i] = { ...seg, idleMinutes: seg.idleMinutes - deduct };
-    remainingReduction -= deduct;
-  }
+  // Reduce idle from segments, starting from the last. Mapping over reversed
+  // values (not indices) keeps each element non-nullable for the type checker.
+  const adjustedSegments = [...segments]
+    .reverse()
+    .map((seg) => {
+      const deduct = Math.min(seg.idleMinutes, remainingReduction);
+      remainingReduction -= deduct;
+      return { ...seg, idleMinutes: seg.idleMinutes - deduct };
+    })
+    .reverse();
 
   let totalEnergyCostCents = 0;
   let totalTimeCostCents = 0;
   let totalSessionFeeCents = 0;
   let totalIdleFeeCents = 0;
   let totalTaxCents = 0;
+  // segments is non-empty here (the empty-array case returns early above).
   const currency = segments[0]?.tariff.currency ?? 'USD';
 
   for (const segment of adjustedSegments) {
