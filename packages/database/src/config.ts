@@ -37,16 +37,9 @@ const client = postgres(connectionString, {
 
 export const db = drizzle(client);
 
-// drizzle-orm/postgres-js installs transparent pass-through serializers
-// (`(val) => val`) for the OIDs it pre-formats itself: every timestamp/date
-// type AND json (114) + jsonb (3802). The pass-through breaks raw
-// `client`-tag callers in this codebase (worker cron handlers, mfa.ts,
-// station-message.service.ts, the OCPP event projections, etc.) that bind
-// Date or Object directly: the bind path ends up calling
-// Buffer.byteLength on a Date or plain Object and throws
-// ERR_INVALID_ARG_TYPE. Restore the original serializers for raw tag use.
-// Drizzle's own code path pre-stringifies Dates and JSON values, so the
-// `typeof x === 'string'` short-circuit makes this a no-op for drizzle.
+// drizzle-orm/postgres-js overrides postgres-js serializers with `(v) => v`
+// for date/timestamp OIDs and json/jsonb (114, 3802). Raw `client`-tag
+// callers bind Date/Object directly and trip Buffer.byteLength(Object).
 const dateToIso = (x: unknown): string =>
   typeof x === 'string' ? x : (x instanceof Date ? x : new Date(x as string)).toISOString();
 for (const oid of ['1184', '1082', '1083', '1114', '1182', '1185', '1115', '1231'] as const) {
