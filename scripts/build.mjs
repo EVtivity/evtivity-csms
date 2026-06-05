@@ -17,7 +17,14 @@ const SERVICES = {
   'ocpi-simulator': { entry: 'packages/ocpi-simulator/src/index.ts' },
 };
 
-const EXTERNAL = ['argon2', 'pino', 'pino-pretty', '@fastify/swagger-ui', 'pg-native'];
+const EXTERNAL = [
+  'argon2',
+  'pino',
+  'pino-pretty',
+  '@fastify/swagger-ui',
+  'pg-native',
+  '@resvg/resvg-js',
+];
 
 // Map workspace @evtivity/* imports to source directories so esbuild reads .ts
 const WORKSPACE_PACKAGES = {

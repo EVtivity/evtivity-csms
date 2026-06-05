@@ -253,6 +253,14 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
   }
 
   y += 6;
+
+  // Totals block (divider + subtotal + tax + total) must not split across pages.
+  const TOTALS_BLOCK_HEIGHT = 10 + 16 + 16 + 20;
+  if (y + TOTALS_BLOCK_HEIGHT > 760) {
+    doc.addPage();
+    y = MARGIN;
+  }
+
   doc
     .moveTo(MARGIN + CONTENT_WIDTH / 2, y)
     .lineTo(MARGIN + CONTENT_WIDTH, y)
