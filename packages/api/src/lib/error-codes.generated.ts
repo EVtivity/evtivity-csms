@@ -88,6 +88,8 @@ export const ERROR_CODES = {
   INVALID_SITE_IDS: 'INVALID_SITE_IDS',
   INVALID_TOKEN: 'INVALID_TOKEN',
   INVOICE_CREATION_FAILED: 'INVOICE_CREATION_FAILED',
+  INVOICE_NO_DRIVER: 'INVOICE_NO_DRIVER',
+  INVOICE_NO_SESSIONS: 'INVOICE_NO_SESSIONS',
   INVOICE_NOT_FOUND: 'INVOICE_NOT_FOUND',
   LOAD_NOT_FOUND: 'LOAD_NOT_FOUND',
   LOCATION_NOT_FOUND: 'LOCATION_NOT_FOUND',
@@ -318,6 +320,8 @@ export type ErrorCode =
   | 'INVALID_SITE_IDS'
   | 'INVALID_TOKEN'
   | 'INVOICE_CREATION_FAILED'
+  | 'INVOICE_NO_DRIVER'
+  | 'INVOICE_NO_SESSIONS'
   | 'INVOICE_NOT_FOUND'
   | 'LOAD_NOT_FOUND'
   | 'LOCATION_NOT_FOUND'
@@ -555,6 +559,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   INVALID_SITE_IDS: 'One or more siteIds do not exist',
   INVALID_TOKEN: 'Invalid or expired reset link',
   INVOICE_CREATION_FAILED: 'Failed to create invoice',
+  INVOICE_NO_DRIVER: 'This invoice has no driver to send to',
+  INVOICE_NO_SESSIONS: 'No uninvoiced sessions found for this driver in the selected date range',
   INVOICE_NOT_FOUND: 'Invoice not found',
   LOAD_NOT_FOUND: 'Load not found',
   LOCATION_NOT_FOUND: 'Location not found',

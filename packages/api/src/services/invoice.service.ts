@@ -9,8 +9,9 @@ import {
   chargingSessions,
   tariffs,
   sessionTariffSegments,
+  drivers,
 } from '@evtivity/database';
-import { calculateSessionCost, calculateSplitSessionCost } from '@evtivity/lib';
+import { calculateSessionCost, calculateSplitSessionCost, AppError } from '@evtivity/lib';
 import type { CostBreakdown, TariffInput, TariffSegment } from '@evtivity/lib';
 import { getIdlingGracePeriodMinutes } from '@evtivity/database';
 
@@ -30,9 +31,20 @@ export async function generateInvoiceNumber(): Promise<string> {
   return `${prefix}${String(seq).padStart(4, '0')}`;
 }
 
+export interface InvoiceDriver {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string | null;
+}
+
 export interface InvoiceWithLineItems {
   invoice: typeof invoices.$inferSelect;
   lineItems: Array<typeof invoiceLineItems.$inferSelect>;
+}
+
+export interface InvoiceDetail extends InvoiceWithLineItems {
+  driver: InvoiceDriver | null;
 }
 
 export async function createSessionInvoice(sessionId: string): Promise<InvoiceWithLineItems> {
@@ -426,7 +438,11 @@ export async function createAggregatedInvoice(
     );
 
   if (sessions.length === 0) {
-    throw new Error('No uninvoiced sessions found for this driver in the given date range');
+    throw new AppError(
+      'No uninvoiced sessions found for this driver in the given date range',
+      400,
+      'INVOICE_NO_SESSIONS',
+    );
   }
 
   const now = new Date();
@@ -514,7 +530,7 @@ export async function createAggregatedInvoice(
   return { invoice, lineItems: createdLineItems };
 }
 
-export async function getInvoice(invoiceId: string): Promise<InvoiceWithLineItems | null> {
+export async function getInvoice(invoiceId: string): Promise<InvoiceDetail | null> {
   const [invoice] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
 
   if (invoice == null) {
@@ -526,7 +542,21 @@ export async function getInvoice(invoiceId: string): Promise<InvoiceWithLineItem
     .from(invoiceLineItems)
     .where(eq(invoiceLineItems.invoiceId, invoiceId));
 
-  return { invoice, lineItems };
+  let driver: InvoiceDriver | null = null;
+  if (invoice.driverId != null) {
+    const [row] = await db
+      .select({
+        id: drivers.id,
+        firstName: drivers.firstName,
+        lastName: drivers.lastName,
+        email: drivers.email,
+      })
+      .from(drivers)
+      .where(eq(drivers.id, invoice.driverId));
+    driver = row ?? null;
+  }
+
+  return { invoice, lineItems, driver };
 }
 
 export async function voidInvoice(invoiceId: string): Promise<typeof invoices.$inferSelect | null> {

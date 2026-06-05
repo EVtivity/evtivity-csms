@@ -97,6 +97,39 @@ describe('notification-dispatch', () => {
     });
   });
 
+  describe('formatDateVariables', () => {
+    it('formats ISO date variables into the given timezone', async () => {
+      const { formatDateVariables } = await import('../notification-dispatch.js');
+      const iso = '2026-07-05T00:00:00.000Z';
+      const result = formatDateVariables({ startedAt: iso }, 'America/New_York');
+      expect(result['startedAt']).not.toBe(iso);
+      expect(result['startedAt']).toContain('2026');
+    });
+
+    it('formats issuedAt and dueAt the same way as startedAt', async () => {
+      const { formatDateVariables } = await import('../notification-dispatch.js');
+      const iso = '2026-07-05T00:00:00.000Z';
+      const result = formatDateVariables(
+        { startedAt: iso, issuedAt: iso, dueAt: iso },
+        'America/New_York',
+      );
+      expect(result['issuedAt']).toBe(result['startedAt']);
+      expect(result['dueAt']).toBe(result['startedAt']);
+      expect(result['issuedAt']).not.toContain('T');
+      expect(result['issuedAt']).not.toContain('Z');
+    });
+
+    it('leaves non-date variables untouched', async () => {
+      const { formatDateVariables } = await import('../notification-dispatch.js');
+      const result = formatDateVariables(
+        { invoiceNumber: 'INV-001', issuedAt: '' },
+        'America/New_York',
+      );
+      expect(result['invoiceNumber']).toBe('INV-001');
+      expect(result['issuedAt']).toBe('');
+    });
+  });
+
   describe('resolveRecipients', () => {
     it('returns literal address as single recipient', async () => {
       const { resolveRecipients } = await import('../notification-dispatch.js');

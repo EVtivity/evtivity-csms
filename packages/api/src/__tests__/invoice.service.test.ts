@@ -78,6 +78,16 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 vi.mock('@evtivity/lib', () => ({
+  AppError: class AppError extends Error {
+    statusCode: number;
+    code: string;
+    constructor(message: string, statusCode: number, code: string) {
+      super(message);
+      this.name = 'AppError';
+      this.statusCode = statusCode;
+      this.code = code;
+    }
+  },
   calculateSessionCost: vi.fn().mockReturnValue({
     energyCostCents: 500,
     timeCostCents: 200,
@@ -598,12 +608,16 @@ describe('Invoice Service', () => {
       expect(result.lineItems).toHaveLength(2);
     });
 
-    it('throws when no uninvoiced sessions found', async () => {
+    it('throws an AppError with INVOICE_NO_SESSIONS when no uninvoiced sessions found', async () => {
       setupDbResults([]);
 
       await expect(
         createAggregatedInvoice('driver-789', new Date('2026-01-01'), new Date('2026-01-31')),
-      ).rejects.toThrow('No uninvoiced sessions found');
+      ).rejects.toMatchObject({
+        message: 'No uninvoiced sessions found for this driver in the given date range',
+        statusCode: 400,
+        code: 'INVOICE_NO_SESSIONS',
+      });
     });
 
     it('handles a zero-tax session and a null endedAt/null energy session', async () => {
@@ -663,7 +677,23 @@ describe('Invoice Service', () => {
 
       const result = await getInvoice('inv-1');
 
-      expect(result).toEqual({ invoice, lineItems });
+      expect(result).toEqual({ invoice, lineItems, driver: null });
+    });
+
+    it('includes the driver when the invoice has a driverId', async () => {
+      const invoice = {
+        id: 'inv-2',
+        invoiceNumber: 'INV-202601-0002',
+        status: 'issued',
+        driverId: 'drv-1',
+      };
+      const lineItems = [{ id: 'li-2', invoiceId: 'inv-2', description: 'Energy charge' }];
+      const driver = { id: 'drv-1', firstName: 'Ada', lastName: 'Lovelace', email: 'ada@test.com' };
+      setupDbResults([invoice], lineItems, [driver]);
+
+      const result = await getInvoice('inv-2');
+
+      expect(result).toEqual({ invoice, lineItems, driver });
     });
 
     it('returns null when the invoice does not exist', async () => {

@@ -59,7 +59,7 @@ LABEL org.opencontainers.image.vendor="EVtivity"
 USER node
 EXPOSE 3001
 
-ENV NODE_OPTIONS="--enable-source-maps"
+ENV NODE_OPTIONS="--enable-source-maps --max-old-space-size=1536"
 ENV API_TEMPLATES_DIR="/app/templates/api"
 ENV OCPP_TEMPLATES_DIR="/app/templates/ocpp"
 

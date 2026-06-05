@@ -4,12 +4,20 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, and, count } from 'drizzle-orm';
-import { db, invoices, invoiceStatusEnum } from '@evtivity/database';
+import { db, client, invoices, invoiceStatusEnum } from '@evtivity/database';
+import { dispatchDriverNotification, AppError } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
-import { paginatedResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
+import {
+  paginatedResponse,
+  itemResponse,
+  errorWith,
+  successResponse,
+} from '../lib/response-schemas.js';
+import { getPubSub } from '../lib/pubsub.js';
+import { ALL_TEMPLATES_DIRS } from '../lib/template-dirs.js';
 
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 const invoiceListItem = z
@@ -67,10 +75,25 @@ const invoiceLineItem = z
   })
   .passthrough();
 
+const invoiceDriver = z
+  .object({
+    id: z.string().describe('Driver ID'),
+    firstName: z.string().describe('Driver first name'),
+    lastName: z.string().describe('Driver last name'),
+    email: z.string().nullable().describe('Driver email address'),
+  })
+  .passthrough();
+
 const invoiceDetailItem = z
   .object({
     invoice: invoiceRecord.describe('Invoice header record'),
     lineItems: z.array(invoiceLineItem).describe('Line items associated with the invoice'),
+    driver: invoiceDriver
+      .nullable()
+      .optional()
+      .describe(
+        'Driver this invoice is billed to (null when unassigned). Present on the detail response; omitted on create responses.',
+      ),
   })
   .passthrough();
 import { authorize } from '../middleware/rbac.js';
@@ -80,6 +103,7 @@ import {
   getInvoice,
   voidInvoice,
 } from '../services/invoice.service.js';
+import { generateInvoicePdf } from '../services/invoice-pdf.service.js';
 
 const invoiceIdParams = z.object({ id: ID_PARAMS.invoiceId.describe('Invoice ID') });
 const sessionIdParams = z.object({
@@ -236,7 +260,10 @@ export function invoiceRoutes(app: FastifyInstance): void {
         body: zodSchema(aggregatedInvoiceBody),
         response: {
           201: itemResponse(invoiceDetailItem),
-          400: errorWith('Invoice creation failed', [ERROR_CODES.INVOICE_CREATION_FAILED]),
+          400: errorWith('Invoice creation failed', [
+            ERROR_CODES.INVOICE_NO_SESSIONS,
+            ERROR_CODES.INVOICE_CREATION_FAILED,
+          ]),
         },
       },
     },
@@ -251,6 +278,10 @@ export function invoiceRoutes(app: FastifyInstance): void {
         );
         await reply.status(201).send(result);
       } catch (err: unknown) {
+        if (err instanceof AppError) {
+          await reply.status(400).send({ error: err.message, code: err.code });
+          return;
+        }
         const message = err instanceof Error ? err.message : 'Failed to create invoice';
         await reply.status(400).send({ error: message, code: 'INVOICE_CREATION_FAILED' });
       }
@@ -286,6 +317,94 @@ export function invoiceRoutes(app: FastifyInstance): void {
       }
 
       return result;
+    },
+  );
+
+  // Email an invoice to its driver
+  app.post(
+    '/invoices/:id/send',
+    {
+      onRequest: [authorize('payments:write')],
+      schema: {
+        tags: ['Invoices'],
+        summary: 'Email an invoice to its driver',
+        description:
+          'Renders the invoice.Sent driver notification and dispatches it via the configured channels. Safe to call repeatedly; each call sends again (deliberate resend semantics).',
+        operationId: 'sendInvoice',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(invoiceIdParams),
+        response: {
+          200: successResponse,
+          400: errorWith('Invoice has no driver', [ERROR_CODES.INVOICE_NO_DRIVER]),
+          404: errorWith('Invoice not found', [ERROR_CODES.INVOICE_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof invoiceIdParams>;
+      const result = await getInvoice(id);
+
+      if (result == null) {
+        await reply.status(404).send({ error: 'Invoice not found', code: 'INVOICE_NOT_FOUND' });
+        return;
+      }
+
+      const { invoice } = result;
+      if (invoice.driverId == null) {
+        await reply.status(400).send({ error: 'Invoice has no driver', code: 'INVOICE_NO_DRIVER' });
+        return;
+      }
+
+      await dispatchDriverNotification(
+        client,
+        'invoice.Sent',
+        invoice.driverId,
+        {
+          invoiceNumber: invoice.invoiceNumber,
+          status: invoice.status,
+          issuedAt: invoice.issuedAt?.toISOString() ?? '',
+          dueAt: invoice.dueAt?.toISOString() ?? '',
+          total: `${(invoice.totalCents / 100).toFixed(2)} ${invoice.currency}`,
+        },
+        ALL_TEMPLATES_DIRS,
+        getPubSub(),
+      );
+
+      return { success: true };
+    },
+  );
+
+  // Download invoice as a PDF
+  app.get(
+    '/invoices/:id/pdf',
+    {
+      onRequest: [authorize('payments:read')],
+      schema: {
+        tags: ['Invoices'],
+        summary: 'Download an invoice as a PDF',
+        description:
+          'Renders a portrait A4 PDF of the invoice with the company logo, billed-to driver, line items, and totals. Streams application/pdf as an attachment.',
+        operationId: 'downloadInvoicePdf',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(invoiceIdParams),
+        response: { 404: errorWith('Invoice not found', [ERROR_CODES.INVOICE_NOT_FOUND]) },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof invoiceIdParams>;
+      const result = await getInvoice(id);
+
+      if (result == null) {
+        await reply.status(404).send({ error: 'Invoice not found', code: 'INVOICE_NOT_FOUND' });
+        return;
+      }
+
+      const pdf = await generateInvoicePdf(result);
+
+      await reply
+        .header('Content-Type', 'application/pdf')
+        .header('Content-Disposition', `attachment; filename="${result.invoice.invoiceNumber}.pdf"`)
+        .send(pdf);
     },
   );
 

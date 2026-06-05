@@ -99,7 +99,7 @@ export function AuthBranding({
   const inner = (
     <div className="mb-4 flex flex-col items-center gap-2">
       <img
-        src={companyLogo ?? '/evtivity-logo.svg'}
+        src={companyLogo ?? '/evtivity-logo-animated.svg'}
         alt={companyName ?? 'EVtivity'}
         className="h-20 w-20 object-contain"
       />

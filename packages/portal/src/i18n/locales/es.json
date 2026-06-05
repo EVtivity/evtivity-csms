@@ -528,6 +528,8 @@
     "INVALID_SITE_IDS": "Uno o más siteIds no existen",
     "INVALID_TOKEN": "Enlace de restablecimiento invalido o expirado",
     "INVOICE_CREATION_FAILED": "Error al crear la factura",
+    "INVOICE_NO_SESSIONS": "No hay sesiones sin facturar en el rango de fechas seleccionado",
+    "INVOICE_NO_DRIVER": "Esta factura no tiene un conductor al que enviarla",
     "INVOICE_NOT_FOUND": "Factura no encontrada",
     "LOAD_NOT_FOUND": "Carga no encontrada",
     "LOCATION_NOT_FOUND": "Ubicacion no encontrada",

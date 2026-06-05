@@ -21,6 +21,7 @@ import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { useUserTimezone } from '@/lib/timezone';
 import { DriverDetailsTab } from '@/components/driver/DriverDetailsTab';
+import { DriverInvoicesTab } from '@/components/driver/DriverInvoicesTab';
 import { DriverPaymentMethodsTab } from '@/components/driver/DriverPaymentMethodsTab';
 import { DriverPricingTab } from '@/components/driver/DriverPricingTab';
 import { DriverReservationsTab } from '@/components/driver/DriverReservationsTab';
@@ -50,6 +51,7 @@ export function DriverDetail(): React.JSX.Element {
   const timezone = useUserTimezone();
   const { t } = useTranslation();
   const canReadAudit = useHasPermission('audit:read');
+  const canReadPayments = useHasPermission('payments:read');
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -119,6 +121,7 @@ export function DriverDetail(): React.JSX.Element {
           <TabsTrigger value="payment-methods">{t('payments.paymentMethods')}</TabsTrigger>
           <TabsTrigger value="vehicles">{t('vehicles.title')}</TabsTrigger>
           <TabsTrigger value="sessions">{t('sessions.title')}</TabsTrigger>
+          {canReadPayments && <TabsTrigger value="invoices">{t('invoices.title')}</TabsTrigger>}
           {reservationEnabled && (
             <TabsTrigger value="reservations">{t('reservations.title')}</TabsTrigger>
           )}
@@ -203,6 +206,12 @@ export function DriverDetail(): React.JSX.Element {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {canReadPayments && (
+          <TabsContent value="invoices">
+            <DriverInvoicesTab driverId={id ?? ''} timezone={timezone} />
+          </TabsContent>
+        )}
 
         {reservationEnabled && (
           <TabsContent value="reservations">

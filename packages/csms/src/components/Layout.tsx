@@ -159,7 +159,7 @@ function SidebarContent({
         <div className={cn('flex items-center gap-2', collapsed && 'justify-center')}>
           <Link to="/" className="flex items-center gap-2">
             <img
-              src={companyLogo ?? '/evtivity-logo.svg'}
+              src={companyLogo ?? '/evtivity-logo-animated.svg'}
               alt={companyName}
               className="h-8 w-8 shrink-0 object-contain"
             />
@@ -356,7 +356,7 @@ export function Layout(): React.JSX.Element {
           </Button>
           <div className="flex items-center gap-2">
             <img
-              src={companyLogo ?? '/evtivity-logo.svg'}
+              src={companyLogo ?? '/evtivity-logo-animated.svg'}
               alt={companyName}
               className="h-7 w-7 object-contain"
             />

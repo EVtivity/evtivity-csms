@@ -528,6 +528,8 @@
     "INVALID_SITE_IDS": "One or more siteIds do not exist",
     "INVALID_TOKEN": "This reset link is invalid or has expired.",
     "INVOICE_CREATION_FAILED": "Failed to create invoice",
+    "INVOICE_NO_SESSIONS": "No uninvoiced sessions in the selected date range",
+    "INVOICE_NO_DRIVER": "This invoice has no driver to send to",
     "INVOICE_NOT_FOUND": "Invoice not found",
     "LOAD_NOT_FOUND": "Load not found",
     "LOCATION_NOT_FOUND": "Location not found",

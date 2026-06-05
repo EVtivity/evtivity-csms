@@ -76,7 +76,7 @@ export function Layout(): React.JSX.Element {
           className="flex items-center gap-2"
         >
           <img
-            src={companyLogo ?? '/evtivity-logo.svg'}
+            src={companyLogo ?? '/evtivity-logo-animated.svg'}
             alt={companyName ?? 'EVtivity'}
             className="h-6 w-6 object-contain"
           />

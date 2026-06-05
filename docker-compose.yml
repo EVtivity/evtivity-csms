@@ -3,6 +3,7 @@ name: evtivity
 services:
   postgres:
     image: postgres:17
+    restart: unless-stopped
     ports:
       - '5433:5432'
     environment:
@@ -21,6 +22,7 @@ services:
 
   redis:
     image: redis:8-alpine
+    restart: unless-stopped
     ports:
       - '6379:6379'
     volumes:
@@ -56,11 +58,13 @@ services:
     build:
       context: .
       dockerfile: packages/api/Dockerfile.dev
+    restart: unless-stopped
     ports:
       - '${BIND_IP:-0.0.0.0}:${API_PORT:-7102}:${API_PORT:-7102}'
-    mem_limit: 1g
+    mem_limit: 2g
     cpus: 1.0
     environment:
+      NODE_OPTIONS: --max-old-space-size=1536
       DATABASE_URL: postgres://evtivity:evtivity@postgres:5432/evtivity
       REDIS_URL: redis://redis:6379
       API_PORT: ${API_PORT:-7102}
@@ -101,6 +105,7 @@ services:
     build:
       context: .
       dockerfile: packages/ocpp/Dockerfile.dev
+    restart: unless-stopped
     ports:
       - '${BIND_IP:-0.0.0.0}:${OCPP_PORT:-7103}:${OCPP_PORT:-7103}'
       - '${BIND_IP:-0.0.0.0}:8443:8443'
@@ -108,6 +113,7 @@ services:
     mem_limit: 4g
     cpus: 2.0
     environment:
+      NODE_OPTIONS: --max-old-space-size=3072
       DATABASE_URL: postgres://evtivity:evtivity@postgres:5432/evtivity
       REDIS_URL: redis://redis:6379
       SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-dev-encryption-key-32chars-long!}
@@ -145,6 +151,7 @@ services:
       dockerfile: packages/csms/Dockerfile.dev
       args:
         VITE_CSMS_AUTO_LOGIN: ${VITE_CSMS_AUTO_LOGIN:-}
+    restart: unless-stopped
     ports:
       - '${BIND_IP:-0.0.0.0}:${CSMS_PORT:-7100}:${CSMS_PORT:-7100}'
     mem_limit: 1g
@@ -168,6 +175,7 @@ services:
       dockerfile: packages/portal/Dockerfile.dev
       args:
         VITE_PORTAL_AUTO_LOGIN: ${VITE_PORTAL_AUTO_LOGIN:-}
+    restart: unless-stopped
     ports:
       - '${BIND_IP:-0.0.0.0}:${PORTAL_PORT:-7101}:${PORTAL_PORT:-7101}'
     mem_limit: 1g
@@ -194,6 +202,7 @@ services:
     build:
       context: .
       dockerfile: packages/css/Dockerfile.dev
+    restart: unless-stopped
     mem_limit: 1g
     cpus: 0.5
     environment:
@@ -215,6 +224,7 @@ services:
     build:
       context: .
       dockerfile: packages/ocpi/Dockerfile.dev
+    restart: unless-stopped
     ports:
       - '${BIND_IP:-0.0.0.0}:${OCPI_PORT:-7104}:${OCPI_PORT:-7104}'
     mem_limit: 1g
@@ -253,6 +263,7 @@ services:
     build:
       context: .
       dockerfile: packages/ocpi-simulator/Dockerfile.dev
+    restart: unless-stopped
     mem_limit: 1g
     cpus: 0.5
     environment:
@@ -272,6 +283,7 @@ services:
     build:
       context: .
       dockerfile: packages/ocpi-simulator/Dockerfile.dev
+    restart: unless-stopped
     mem_limit: 1g
     cpus: 0.5
     environment:
@@ -294,6 +306,7 @@ services:
     build:
       context: .
       dockerfile: packages/worker/Dockerfile.dev
+    restart: unless-stopped
     mem_limit: 1g
     cpus: 0.5
     environment:
@@ -314,6 +327,7 @@ services:
 
   pgadmin:
     image: dpage/pgadmin4:latest
+    restart: unless-stopped
     ports:
       - '${BIND_IP:-0.0.0.0}:${PGADMIN_PORT:-7109}:80'
     mem_limit: 1g
@@ -333,6 +347,7 @@ services:
 
   mailpit:
     image: axllent/mailpit:latest
+    restart: unless-stopped
     ports:
       - '${BIND_IP:-0.0.0.0}:${MAILPIT_PORT:-7108}:8025'
       - '1025:1025'
@@ -344,6 +359,7 @@ services:
   ftp:
     image: stilliard/pure-ftpd:latest
     platform: linux/amd64
+    restart: unless-stopped
     mem_limit: 1g
     cpus: 0.25
     ports:
@@ -362,6 +378,7 @@ services:
 
   prometheus:
     image: prom/prometheus:v3.2.1
+    restart: unless-stopped
     ports:
       - '${BIND_IP:-0.0.0.0}:9090:9090'
     mem_limit: 1g
@@ -374,6 +391,7 @@ services:
 
   grafana:
     image: grafana/grafana:11.5.2
+    restart: unless-stopped
     ports:
       - '${BIND_IP:-0.0.0.0}:${GRAFANA_PORT:-7107}:3000'
     mem_limit: 1g
@@ -398,6 +416,7 @@ services:
 
   loki:
     image: grafana/loki:3.4.2
+    restart: unless-stopped
     ports:
       - '${BIND_IP:-0.0.0.0}:3100:3100'
     mem_limit: 1g
@@ -411,6 +430,7 @@ services:
 
   alloy:
     image: grafana/alloy:v1.8.1
+    restart: unless-stopped
     mem_limit: 1g
     cpus: 0.5
     volumes:

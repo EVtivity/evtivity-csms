@@ -106,6 +106,8 @@ export const DRIVER_TOKEN_EVENTS = ['token.Added', 'token.Removed', 'token.Deact
 
 export const DRIVER_MFA_EVENTS = ['mfa.VerificationCode'] as const;
 
+export const DRIVER_INVOICE_EVENTS = ['invoice.Sent'] as const;
+
 // All driver-facing event types (for backward compat)
 export const DRIVER_EVENT_TYPES = [
   ...DRIVER_SESSION_EVENTS,
@@ -116,6 +118,7 @@ export const DRIVER_EVENT_TYPES = [
   ...DRIVER_TOKEN_EVENTS,
   ...DRIVER_MFA_EVENTS,
   ...DRIVER_MAINTENANCE_EVENTS,
+  ...DRIVER_INVOICE_EVENTS,
 ] as const;
 
 // Keep old names for imports that haven't been updated
@@ -520,6 +523,16 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'durationMinutes', description: 'Duration in minutes' },
     { name: 'startedAt', description: 'Start timestamp' },
     { name: 'endedAt', description: 'End timestamp' },
+  ],
+  'invoice.Sent': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'invoiceNumber', description: 'Invoice number' },
+    { name: 'status', description: 'Invoice status' },
+    { name: 'issuedAt', description: 'Issued timestamp' },
+    { name: 'dueAt', description: 'Due timestamp' },
+    { name: 'total', description: 'Invoice total amount' },
+    { name: 'companyName', description: 'Company name' },
   ],
   'supportCase.Created': [
     { name: 'firstName', description: 'Driver first name' },

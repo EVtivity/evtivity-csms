@@ -67,6 +67,9 @@ const UserDetail = lazy(() =>
 const SessionDetail = lazy(() =>
   import('@/pages/SessionDetail').then((m) => ({ default: m.SessionDetail })),
 );
+const InvoiceDetail = lazy(() =>
+  import('@/pages/InvoiceDetail').then((m) => ({ default: m.InvoiceDetail })),
+);
 const Fleets = lazy(() => import('@/pages/Fleets').then((m) => ({ default: m.Fleets })));
 const FleetCreate = lazy(() =>
   import('@/pages/FleetCreate').then((m) => ({ default: m.FleetCreate })),
@@ -294,6 +297,7 @@ export function App(): React.JSX.Element {
                   <Route path="stations/:id/pricing/add" element={<StationAssignPricing />} />
                   <Route path="sessions" element={<Sessions />} />
                   <Route path="sessions/:id" element={<SessionDetail />} />
+                  <Route path="invoices/:id" element={<InvoiceDetail />} />
                   <Route path="reservations" element={<Reservations />} />
                   <Route path="reservations/new" element={<ReservationCreate />} />
                   <Route path="reservations/:id" element={<ReservationDetail />} />

@@ -528,6 +528,8 @@
     "INVALID_SITE_IDS": "하나 이상의 siteId가 존재하지 않습니다",
     "INVALID_TOKEN": "유효하지 않거나 만료된 재설정 링크입니다",
     "INVOICE_CREATION_FAILED": "송장 생성에 실패했습니다",
+    "INVOICE_NO_SESSIONS": "선택한 기간에 미청구 세션이 없습니다",
+    "INVOICE_NO_DRIVER": "이 송장에는 보낼 운전자가 없습니다",
     "INVOICE_NOT_FOUND": "송장을 찾을 수 없습니다",
     "LOAD_NOT_FOUND": "부하를 찾을 수 없습니다",
     "LOCATION_NOT_FOUND": "위치를 찾을 수 없습니다",

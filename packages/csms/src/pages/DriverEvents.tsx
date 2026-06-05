@@ -8,6 +8,7 @@ import {
   DRIVER_ACCOUNT_EVENTS,
   DRIVER_PAYMENT_EVENTS,
   DRIVER_RESERVATION_EVENTS,
+  DRIVER_INVOICE_EVENTS,
   DRIVER_SUPPORT_EVENTS,
   DRIVER_MFA_EVENTS,
 } from '@/lib/template-variables';
@@ -26,6 +27,7 @@ export function DriverEvents(): React.JSX.Element {
         { title: t('notifications.driverAccountEvents'), events: DRIVER_ACCOUNT_EVENTS },
         { title: t('notifications.paymentEvents'), events: DRIVER_PAYMENT_EVENTS },
         { title: t('notifications.reservationEvents'), events: DRIVER_RESERVATION_EVENTS },
+        { title: t('notifications.invoiceEvents'), events: DRIVER_INVOICE_EVENTS },
         { title: t('notifications.supportEvents'), events: DRIVER_SUPPORT_EVENTS },
         { title: t('notifications.mfaEvents'), events: DRIVER_MFA_EVENTS },
       ]}

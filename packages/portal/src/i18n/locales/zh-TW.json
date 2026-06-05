@@ -528,6 +528,8 @@
     "INVALID_SITE_IDS": "一個或多個 siteId 不存在",
     "INVALID_TOKEN": "重設連結無效或已過期",
     "INVOICE_CREATION_FAILED": "建立發票失敗",
+    "INVOICE_NO_SESSIONS": "所選日期範圍內沒有未開立發票的充電記錄",
+    "INVOICE_NO_DRIVER": "此發票沒有可傳送的駕駛",
     "INVOICE_NOT_FOUND": "找不到發票",
     "LOAD_NOT_FOUND": "找不到負載",
     "LOCATION_NOT_FOUND": "找不到地點",

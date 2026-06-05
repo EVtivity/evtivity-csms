@@ -477,6 +477,20 @@
       "when": 1778700000049,
       "tag": "0067_add_missing_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1780683708302,
+      "tag": "0068_seed_invoice_driver_event",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1780692448960,
+      "tag": "0069_animated_default_logo",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,9 @@
+<h2 style='color:#1a1a1a;margin:0 0 16px 0;'>帳單 {{invoiceNumber}}</h2>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>您好 {{firstName}}，</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>您來自 {{companyName}} 的帳單已準備就緒。</p>
+<table style='width:100%;border-collapse:collapse;margin:0 0 16px 0;'>
+  <tr><td style='padding:6px 0;color:#6b7280;'>狀態</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{status}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>開立日期</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{issuedAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>到期日期</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{dueAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#1a1a1a;'><strong>總計</strong></td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'><strong>{{total}}</strong></td></tr>
+</table>

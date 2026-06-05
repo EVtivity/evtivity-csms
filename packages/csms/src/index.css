@@ -263,3 +263,21 @@
 .wysiwyg-email-editor .ProseMirror li {
   margin-bottom: 4px;
 }
+
+@media print {
+  body:has(.invoice-print-area) * {
+    visibility: hidden;
+  }
+  body:has(.invoice-print-area) .invoice-print-area,
+  body:has(.invoice-print-area) .invoice-print-area * {
+    visibility: visible;
+  }
+  body:has(.invoice-print-area) .invoice-print-area {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+  }
+  .print-hidden {
+    display: none !important;
+  }
+}

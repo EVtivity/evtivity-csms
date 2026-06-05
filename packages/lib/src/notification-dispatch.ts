@@ -90,7 +90,14 @@ export function redactSensitiveNotificationContent(text: string, eventType: stri
 
 // --- Date formatting for notifications ---
 
-export const DATE_VARIABLE_NAMES = ['startedAt', 'endedAt', 'expiresAt', 'occurredAt'];
+export const DATE_VARIABLE_NAMES = [
+  'startedAt',
+  'endedAt',
+  'expiresAt',
+  'occurredAt',
+  'issuedAt',
+  'dueAt',
+];
 
 export function formatDateVariables(
   variables: Record<string, unknown>,
@@ -413,6 +420,7 @@ const FRIENDLY_SUBJECTS: Record<string, string> = {
   'reservation.Expiring': '{{{companyName}}} - Your reservation is expiring soon',
   'reservation.Expired': '{{{companyName}}} - Your reservation has expired',
   'reservation.StationFaulted': '{{{companyName}}} - Reserved station is unavailable',
+  'invoice.Sent': '{{{companyName}}} - Invoice {{invoiceNumber}}',
   'token.Added': '{{{companyName}}} - New RFID card added to your account',
   'token.Removed': '{{{companyName}}} - RFID card removed from your account',
   'token.Deactivated': '{{{companyName}}} - RFID card deactivated',

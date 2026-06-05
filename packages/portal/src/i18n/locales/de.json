@@ -524,6 +524,8 @@
     "INVALID_SITE_IDS": "Eine oder mehrere siteIds existieren nicht",
     "INVALID_TOKEN": "Ungültiger oder abgelaufener Zurücksetzungslink",
     "INVOICE_CREATION_FAILED": "Rechnung konnte nicht erstellt werden",
+    "INVOICE_NO_SESSIONS": "Keine nicht abgerechneten Sitzungen im ausgewählten Zeitraum",
+    "INVOICE_NO_DRIVER": "Diese Rechnung hat keinen Fahrer, an den sie gesendet werden kann",
     "INVOICE_NOT_FOUND": "Rechnung nicht gefunden",
     "LOAD_NOT_FOUND": "Last nicht gefunden",
     "LOCATION_NOT_FOUND": "Standort nicht gefunden",
