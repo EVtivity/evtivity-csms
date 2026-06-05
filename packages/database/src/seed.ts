@@ -14,7 +14,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, client } from './config.js';
-import { sql, eq, and, isNotNull, isNull, notInArray } from 'drizzle-orm';
+import { sql, eq, and, isNotNull, isNull } from 'drizzle-orm';
 import { createId } from './lib/id.js';
 import {
   settings,
@@ -737,28 +737,16 @@ async function seed(): Promise<void> {
     return;
   }
 
-  // Demo generation only seeds into an empty inventory. The demo rows have no
-  // natural keys (random sessions, generated IDs), so re-running on top of
-  // existing data would duplicate them instead of converging. Skip rather
-  // than delete: this seed must never destroy existing data. The baseline
-  // fixtures from migration 0001 (Main Office site, CS-0001/CS-0002) exist on
-  // every fresh install and do not count as inventory.
-  const BASELINE_SITE_IDS = ['sit_000000000001'];
-  const BASELINE_STATION_IDS = ['sta_000000000001', 'sta_000000000002'];
-  const [existingSite] = await db
-    .select({ id: sites.id })
-    .from(sites)
-    .where(notInArray(sites.id, BASELINE_SITE_IDS))
-    .limit(1);
-  const [existingStation] = await db
+  // The demo rows have no natural keys (random sessions, generated IDs), so
+  // a second demo run would duplicate them instead of converging. CS-0003 is
+  // the first demo station id; its presence marks an already-seeded demo.
+  const [demoMarker] = await db
     .select({ id: chargingStations.id })
     .from(chargingStations)
-    .where(notInArray(chargingStations.id, BASELINE_STATION_IDS))
+    .where(eq(chargingStations.stationId, 'CS-0003'))
     .limit(1);
-  if (existingSite != null || existingStation != null) {
-    console.log('  Existing sites or stations found; skipping demo data generation.');
-    console.log('  For a fresh demo dataset: drop and recreate the database (or the');
-    console.log('  docker volume), run db:migrate, then re-run db:seed.');
+  if (demoMarker != null) {
+    console.log('  Demo dataset already present (CS-0003 exists); skipping demo generation.');
     console.log('Seed complete (demo data skipped).');
     await client.end();
     return;

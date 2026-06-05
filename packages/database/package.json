@@ -17,10 +17,10 @@
     "build": "tsc -b",
     "generate": "node --import tsx ../../node_modules/drizzle-kit/bin.cjs generate && node ../../scripts/check-migrations.mjs --fix-last",
     "migrate": "node --import tsx ../../node_modules/drizzle-kit/bin.cjs migrate && node ../../scripts/verify-migrations-applied.mjs && node --import=tsx/esm src/sync-admin-permissions.ts",
-    "seed": "node --env-file=../../.env --import=tsx/esm src/seed.ts",
+    "seed": "node --env-file-if-exists=../../.env --import=tsx/esm src/seed.ts",
     "seed:admin": "node --import=tsx/esm src/seed-admin.ts",
     "seed:driver": "node --import=tsx/esm src/seed-driver.ts",
-    "seed:dev": "node --env-file=../../.env --import=tsx/esm src/seed-dev-stations.ts",
+    "seed:dev": "node --env-file-if-exists=../../.env --import=tsx/esm src/seed-dev-stations.ts",
     "studio": "node --import tsx ../../node_modules/drizzle-kit/bin.cjs studio",
     "test": "vitest run"
   },
