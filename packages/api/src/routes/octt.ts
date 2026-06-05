@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, and, sql } from 'drizzle-orm';
+import { eq, desc, and, sql, inArray } from 'drizzle-orm';
 import { db, octtRuns, octtTestResults } from '@evtivity/database';
 import { itemResponse, paginatedResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
@@ -181,7 +181,7 @@ export function octtRoutes(app: FastifyInstance): void {
             errors: sql<number>`count(*) filter (where ${octtTestResults.status} = 'error')::int`,
           })
           .from(octtTestResults)
-          .where(sql`${octtTestResults.runId} = any(${inProgressIds})`)
+          .where(inArray(octtTestResults.runId, inProgressIds))
           .groupBy(octtTestResults.runId);
 
         const countsMap = new Map(liveCounts.map((c) => [c.runId, c]));

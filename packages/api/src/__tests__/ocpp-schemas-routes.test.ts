@@ -42,6 +42,9 @@ vi.mock('@evtivity/ocpp', () => ({
     ChangeAvailability: {
       validateRequest: vi.fn().mockReturnValue(true),
     },
+    SetVariables: {
+      validateRequest: vi.fn().mockReturnValue(true),
+    },
   },
   ActionRegistry16: {
     Reset: {
@@ -235,6 +238,53 @@ describe('OCPP command schema routes', () => {
     expect(body.example).toHaveProperty('type', 'Immediate');
     expect(body.example).not.toHaveProperty('evseId');
     expect(response.headers['cache-control']).toBe('public, max-age=86400');
+  });
+
+  it('GET /ocpp/commands/v21/:action/schema passes through min/max/maxLength constraints', async () => {
+    const schemaJson = JSON.stringify({
+      type: 'object',
+      definitions: {
+        StatusInfoType: {
+          type: 'object',
+          properties: {
+            reasonCode: { type: 'string', maxLength: 20 },
+          },
+          required: ['reasonCode'],
+        },
+      },
+      properties: {
+        evseId: { type: 'integer', minimum: 0, maximum: 100 },
+        ratio: { type: 'number', minimum: 0.5 },
+        note: { type: 'string', maxLength: 50 },
+        statusInfo: { $ref: '#/definitions/StatusInfoType' },
+      },
+      required: ['evseId'],
+    });
+    mockReadFile.mockResolvedValueOnce(schemaJson);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/ocpp/commands/v21/SetVariables/schema',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    const byName = Object.fromEntries(
+      body.fields.map((f: { name: string }) => [f.name, f]),
+    ) as Record<
+      string,
+      {
+        minimum?: number;
+        maximum?: number;
+        maxLength?: number;
+        fields?: { name: string; maxLength?: number }[];
+      }
+    >;
+    expect(byName['evseId']?.minimum).toBe(0);
+    expect(byName['evseId']?.maximum).toBe(100);
+    expect(byName['ratio']?.minimum).toBe(0.5);
+    expect(byName['note']?.maxLength).toBe(50);
+    expect(byName['statusInfo']?.fields?.[0]?.maxLength).toBe(20);
   });
 
   it('GET /ocpp/commands/v21/:action/schema returns 404 for unknown action', async () => {

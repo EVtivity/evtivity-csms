@@ -41,6 +41,7 @@ interface SchemaDefinition {
   type?: string;
   enum?: string[];
   description?: string;
+  maxLength?: number;
   properties?: Record<string, SchemaProperty>;
   required?: string[];
 }
@@ -58,6 +59,9 @@ interface CommandFieldDef {
   values?: string[];
   default?: unknown;
   description: string;
+  minimum?: number;
+  maximum?: number;
+  maxLength?: number;
   fields?: CommandFieldDef[] | undefined;
 }
 
@@ -122,7 +126,13 @@ function resolvePropertyField(
       };
     }
 
-    return { name, type: 'string', required, description: cleanDescription(def.description) };
+    return {
+      name,
+      type: 'string',
+      required,
+      description: cleanDescription(def.description),
+      ...(def.maxLength != null && { maxLength: def.maxLength }),
+    };
   }
 
   if (prop.type === 'array' && prop.items != null) {
@@ -159,18 +169,38 @@ function resolvePropertyField(
   }
 
   if (prop.type === 'integer') {
-    return { name, type: 'integer', required, description: cleanDescription(prop.description) };
+    return {
+      name,
+      type: 'integer',
+      required,
+      description: cleanDescription(prop.description),
+      ...(prop.minimum != null && { minimum: prop.minimum }),
+      ...(prop.maximum != null && { maximum: prop.maximum }),
+    };
   }
 
   if (prop.type === 'number') {
-    return { name, type: 'number', required, description: cleanDescription(prop.description) };
+    return {
+      name,
+      type: 'number',
+      required,
+      description: cleanDescription(prop.description),
+      ...(prop.minimum != null && { minimum: prop.minimum }),
+      ...(prop.maximum != null && { maximum: prop.maximum }),
+    };
   }
 
   if (prop.type === 'boolean') {
     return { name, type: 'boolean', required, description: cleanDescription(prop.description) };
   }
 
-  return { name, type: 'string', required, description: cleanDescription(prop.description) };
+  return {
+    name,
+    type: 'string',
+    required,
+    description: cleanDescription(prop.description),
+    ...(prop.maxLength != null && { maxLength: prop.maxLength }),
+  };
 }
 
 function resolveProperties(

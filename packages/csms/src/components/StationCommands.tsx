@@ -24,7 +24,13 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api';
 import { useOcppSchema } from '@/hooks/use-ocpp-schema';
-import { resolveFields, formValuesToPayload, generateJsonStub } from '@/lib/ocpp-schema';
+import {
+  resolveFields,
+  formValuesToPayload,
+  generateJsonStub,
+  validatePayload,
+} from '@/lib/ocpp-schema';
+import type { ValidationErrors } from '@/lib/ocpp-schema';
 import { SchemaForm } from '@/components/SchemaForm';
 import { OCPP_21_VARIABLES, OCPP_16_KEYS } from '@/lib/ocpp-variables';
 
@@ -1086,6 +1092,7 @@ export function StationCommands({
   const [advancedResult, setAdvancedResult] = useState<CommandResponse | null>(null);
   const [rawMode, setRawMode] = useState(false);
   const [schemaFormValues, setSchemaFormValues] = useState<Record<string, unknown>>({});
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
 
   const schemaVersion = is16 ? 'ocpp1.6' : undefined;
   const {
@@ -1206,12 +1213,23 @@ export function StationCommands({
     performQuickSubmit();
   }
 
+  function translateIssues(errors: ValidationErrors): Record<string, string> {
+    return Object.fromEntries(
+      Object.entries(errors).map(([path, issue]) => {
+        const key = issue.key as 'validation.required';
+        return [path, t(key, issue.params ?? {})];
+      }),
+    );
+  }
+
   function handleAdvancedSubmit(): void {
     let parsed: Record<string, unknown>;
-    if (rawMode || schemaError) {
+    const usingRawInput = rawMode || schemaError;
+    if (usingRawInput) {
       try {
         parsed = JSON.parse(advancedPayload) as Record<string, unknown>;
       } catch {
+        setAdvancedOpen(true);
         setAdvancedResult({
           status: 'error',
           stationId,
@@ -1223,6 +1241,31 @@ export function StationCommands({
     } else {
       parsed = formValuesToPayload(schemaFormValues, resolvedFields);
     }
+
+    // Schema-derived validation: catch missing/invalid fields locally instead
+    // of letting the OCPP validator on the API return a bare 400.
+    if (!schemaError && resolvedFields.length > 0) {
+      const errors = validatePayload(parsed, resolvedFields);
+      if (Object.keys(errors).length > 0) {
+        setValidationErrors(errors);
+        if (usingRawInput) {
+          const summary = Object.entries(translateIssues(errors))
+            .map(([path, message]) => `${path}: ${message}`)
+            .join('\n');
+          setAdvancedOpen(true);
+          setAdvancedResult({
+            status: 'error',
+            stationId,
+            action: advancedAction,
+            error: `${t('commands.validationFailed')}\n${summary}`,
+          });
+        }
+        return;
+      }
+    }
+
+    setValidationErrors({});
+    setAdvancedOpen(true);
     setAdvancedResult(null);
     advancedMutation.mutate({ action: advancedAction, payload: parsed });
   }
@@ -1261,6 +1304,7 @@ export function StationCommands({
               onChange={(e) => {
                 setAdvancedAction(e.target.value);
                 setSchemaFormValues({});
+                setValidationErrors({});
                 setAdvancedPayload('{}');
                 setRawMode(false);
                 setAdvancedResult(null);
@@ -1290,6 +1334,7 @@ export function StationCommands({
                         } else {
                           syncFormToJson();
                         }
+                        setValidationErrors({});
                         setRawMode((prev) => !prev);
                       }}
                     >
@@ -1315,15 +1360,26 @@ export function StationCommands({
                   <SchemaForm
                     fields={resolvedFields}
                     values={schemaFormValues}
-                    onChange={setSchemaFormValues}
+                    errors={translateIssues(validationErrors)}
+                    onChange={(values) => {
+                      setSchemaFormValues(values);
+                      // Re-validate live once errors are showing so fixed
+                      // fields clear as the operator types.
+                      if (Object.keys(validationErrors).length > 0) {
+                        setValidationErrors(
+                          validatePayload(
+                            formValuesToPayload(values, resolvedFields),
+                            resolvedFields,
+                          ),
+                        );
+                      }
+                    }}
                   />
                 )}
               </div>
               <Button
                 size="sm"
                 onClick={() => {
-                  setAdvancedOpen(true);
-                  setAdvancedResult(null);
                   advancedMutation.reset();
                   handleAdvancedSubmit();
                 }}

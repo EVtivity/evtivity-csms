@@ -1286,7 +1286,8 @@
     "customKeyHint": "사용자 정의 또는 공급업체 키는 <configTab>구성</configTab> 탭으로 이동하세요.",
     "connectorIdRequired": "커넥터 ID",
     "retries": "재시도 (선택 사항)",
-    "retryInterval": "재시도 간격 (선택 사항)"
+    "retryInterval": "재시도 간격 (선택 사항)",
+    "validationFailed": "페이로드 검증 실패"
   },
   "ocppLogs": {
     "title": "OCPP 메시지 로그",
@@ -2700,7 +2701,11 @@
     "maxLength": "최대 {{max}}자 이하여야 합니다",
     "passwordMismatch": "비밀번호가 일치하지 않습니다",
     "selectRequired": "옵션을 선택하세요",
-    "invalidUrl": "유효한 URL을 입력하세요"
+    "invalidUrl": "유효한 URL을 입력하세요",
+    "min": "{{min}} 이상이어야 합니다",
+    "max": "{{max}} 이하여야 합니다",
+    "invalidNumber": "유효한 숫자를 입력하세요",
+    "invalidValue": "유효하지 않은 값"
   },
   "simulate": {
     "tab": "시뮬레이션",
@@ -2831,7 +2836,8 @@
     "showing": "표시 중",
     "of": "/",
     "prev": "이전",
-    "next": "다음"
+    "next": "다음",
+    "runStarted": "테스트 실행이 시작되었습니다"
   },
   "updateCheck": {
     "title": "업데이트 사용 가능",

@@ -1286,7 +1286,8 @@
     "customKeyHint": "For custom or vendor-specific keys, go to the <configTab>Configurations</configTab> tab.",
     "connectorIdRequired": "Connector ID",
     "retries": "Retries (optional)",
-    "retryInterval": "Retry Interval (optional)"
+    "retryInterval": "Retry Interval (optional)",
+    "validationFailed": "Payload validation failed"
   },
   "ocppLogs": {
     "title": "OCPP Message Log",
@@ -2719,7 +2720,11 @@
     "maxLength": "Must be at most {{max}} characters",
     "passwordMismatch": "Passwords do not match",
     "selectRequired": "Select an option",
-    "invalidUrl": "Enter a valid URL"
+    "invalidUrl": "Enter a valid URL",
+    "min": "Must be at least {{min}}",
+    "max": "Must be at most {{max}}",
+    "invalidNumber": "Enter a valid number",
+    "invalidValue": "Invalid value"
   },
   "simulate": {
     "tab": "Simulate",
@@ -2850,7 +2855,8 @@
     "showing": "Showing",
     "of": "of",
     "prev": "Previous",
-    "next": "Next"
+    "next": "Next",
+    "runStarted": "Test run started"
   },
   "updateCheck": {
     "title": "Update available",

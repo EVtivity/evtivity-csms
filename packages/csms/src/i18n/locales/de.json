@@ -1262,7 +1262,8 @@
     "customKeyHint": "Für benutzerdefinierte oder herstellerspezifische Schlüssel den Tab <configTab>Konfigurationen</configTab> verwenden.",
     "connectorIdRequired": "Anschluss-ID",
     "retries": "Wiederholungen (optional)",
-    "retryInterval": "Wiederholungsintervall (optional)"
+    "retryInterval": "Wiederholungsintervall (optional)",
+    "validationFailed": "Payload-Validierung fehlgeschlagen"
   },
   "ocppLogs": {
     "title": "OCPP-Nachrichtenprotokoll",
@@ -2685,7 +2686,11 @@
     "maxLength": "Darf höchstens {{max}} Zeichen lang sein",
     "passwordMismatch": "Passwörter stimmen nicht überein",
     "selectRequired": "Wählen Sie eine Option aus",
-    "invalidUrl": "Geben Sie eine gültige URL ein"
+    "invalidUrl": "Geben Sie eine gültige URL ein",
+    "min": "Muss mindestens {{min}} sein",
+    "max": "Darf höchstens {{max}} sein",
+    "invalidNumber": "Geben Sie eine gültige Zahl ein",
+    "invalidValue": "Ungültiger Wert"
   },
   "simulate": {
     "tab": "Simulieren",
@@ -2816,7 +2821,8 @@
     "showing": "Zeigt",
     "of": "von",
     "prev": "Zurück",
-    "next": "Weiter"
+    "next": "Weiter",
+    "runStarted": "Testlauf gestartet"
   },
   "updateCheck": {
     "title": "Update verfügbar",

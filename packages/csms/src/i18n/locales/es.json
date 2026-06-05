@@ -1291,7 +1291,8 @@
     "customKeyHint": "Para claves personalizadas o de proveedor, vaya a la pestana <configTab>Configuraciones</configTab>.",
     "connectorIdRequired": "ID de conector",
     "retries": "Reintentos (opcional)",
-    "retryInterval": "Intervalo de reintento (opcional)"
+    "retryInterval": "Intervalo de reintento (opcional)",
+    "validationFailed": "La validación del payload falló"
   },
   "ocppLogs": {
     "title": "Registro de mensajes OCPP",
@@ -2716,7 +2717,11 @@
     "maxLength": "Debe tener como maximo {{max}} caracteres",
     "passwordMismatch": "Las contrasenas no coinciden",
     "selectRequired": "Seleccione una opcion",
-    "invalidUrl": "Ingrese una URL valida"
+    "invalidUrl": "Ingrese una URL valida",
+    "min": "Debe ser al menos {{min}}",
+    "max": "Debe ser como máximo {{max}}",
+    "invalidNumber": "Ingrese un número válido",
+    "invalidValue": "Valor inválido"
   },
   "simulate": {
     "tab": "Simular",
@@ -2847,7 +2852,8 @@
     "showing": "Mostrando",
     "of": "de",
     "prev": "Anterior",
-    "next": "Siguiente"
+    "next": "Siguiente",
+    "runStarted": "Ejecución de pruebas iniciada"
   },
   "updateCheck": {
     "title": "Actualizacion disponible",

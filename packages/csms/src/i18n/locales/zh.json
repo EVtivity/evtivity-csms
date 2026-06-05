@@ -1286,7 +1286,8 @@
     "customKeyHint": "自定义或厂商特定键，请前往 <configTab>配置</configTab> 标签页。",
     "connectorIdRequired": "连接器 ID",
     "retries": "重试次数 (可选)",
-    "retryInterval": "重试间隔 (可选)"
+    "retryInterval": "重试间隔 (可选)",
+    "validationFailed": "负载验证失败"
   },
   "ocppLogs": {
     "title": "OCPP 消息日志",
@@ -2711,7 +2712,11 @@
     "maxLength": "最多 {{max}} 个字符",
     "passwordMismatch": "密码不匹配",
     "selectRequired": "请选择一个选项",
-    "invalidUrl": "请输入有效的URL"
+    "invalidUrl": "请输入有效的URL",
+    "min": "必须至少为 {{min}}",
+    "max": "必须最多为 {{max}}",
+    "invalidNumber": "请输入有效数字",
+    "invalidValue": "无效值"
   },
   "simulate": {
     "tab": "模拟",
@@ -2842,7 +2847,8 @@
     "showing": "显示",
     "of": "共",
     "prev": "上一页",
-    "next": "下一页"
+    "next": "下一页",
+    "runStarted": "测试运行已启动"
   },
   "updateCheck": {
     "title": "有可用更新",

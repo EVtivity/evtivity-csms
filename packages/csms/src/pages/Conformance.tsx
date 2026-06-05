@@ -88,6 +88,7 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
     mutationFn: (body: { ocppVersion: string; sutType: string }) =>
       api.post<OcttRun>('/v1/octt/runs', body),
     onSuccess: () => {
+      toast({ variant: 'success', title: t('conformance.runStarted') });
       void queryClient.invalidateQueries({ queryKey: ['octt-runs'] });
     },
     onError: (err: unknown) => {

@@ -30,6 +30,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { FilterPopover } from '@/components/FilterBar';
+import { BackButton } from '@/components/back-button';
 import { api } from '@/lib/api';
 
 interface OcttRun {
@@ -149,9 +150,12 @@ export function ConformanceDetail(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl md:text-3xl font-bold">
-        {t('conformance.runDetail')} #{run.id}
-      </h1>
+      <div className="flex items-center gap-4">
+        <BackButton to="/conformance" />
+        <h1 className="text-2xl md:text-3xl font-bold">
+          {t('conformance.runDetail')} #{run.id}
+        </h1>
+      </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
