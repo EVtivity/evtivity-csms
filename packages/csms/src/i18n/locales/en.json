@@ -2980,7 +2980,6 @@
     "allStations": "All stations at this site",
     "previewRangeInvalid": "Set a valid end time to preview station impact.",
     "previewLoading": "Loading station list…",
-    "chargingBadge": "Charging",
     "reservationsBadge": "{{count}} reservation(s)",
     "previewSummary": "Will stop {{sessions}} active session(s) and cancel {{reservations}} reservation(s).",
     "acknowledge": "I understand and want to proceed",

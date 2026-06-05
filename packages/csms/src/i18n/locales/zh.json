@@ -2972,7 +2972,6 @@
     "allStations": "本站点的所有充电桩",
     "previewRangeInvalid": "设置有效的结束时间以预览影响。",
     "previewLoading": "加载充电桩列表中…",
-    "chargingBadge": "充电中",
     "reservationsBadge": "{{count}} 个预订",
     "previewSummary": "将停止 {{sessions}} 个活动会话并取消 {{reservations}} 个预订。",
     "acknowledge": "我已了解并希望继续",

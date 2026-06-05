@@ -231,6 +231,18 @@ export function stationStatusVariant(
   }
 }
 
+/** Station status -> badge className override.
+ *
+ * `stationStatusVariant` covers most statuses, but a few target colors (orange
+ * for reserved, violet for finishing) have no matching Badge variant and need a
+ * className override. Returns undefined when the variant already supplies the
+ * right color. */
+export function stationStatusClassName(status: string): string | undefined {
+  if (status === 'reserved') return 'bg-orange-500 text-orange-50 hover:bg-orange-500/80';
+  if (status === 'finishing') return 'bg-violet-500 text-violet-50 hover:bg-violet-500/80';
+  return undefined;
+}
+
 /** Station card connector status -> badge variant (simplified, for load management card) */
 export function stationCardConnectorStatusVariant(
   status: string,

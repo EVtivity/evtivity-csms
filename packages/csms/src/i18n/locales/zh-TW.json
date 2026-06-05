@@ -2961,7 +2961,6 @@
     "allStations": "本站點的所有充電樁",
     "previewRangeInvalid": "請設定有效的結束時間以預覽影響。",
     "previewLoading": "正在載入充電樁清單…",
-    "chargingBadge": "充電中",
     "reservationsBadge": "{{count}} 筆預約",
     "previewSummary": "將停止 {{sessions}} 個進行中的會話並取消 {{reservations}} 筆預約。",
     "acknowledge": "我已了解並希望繼續",

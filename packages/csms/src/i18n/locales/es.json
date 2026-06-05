@@ -2977,7 +2977,6 @@
     "allStations": "Todas las estaciones de este sitio",
     "previewRangeInvalid": "Establece una hora de fin válida para previsualizar el impacto.",
     "previewLoading": "Cargando lista de estaciones…",
-    "chargingBadge": "Cargando",
     "reservationsBadge": "{{count}} reserva(s)",
     "previewSummary": "Detendrá {{sessions}} sesion(es) activa(s) y cancelará {{reservations}} reserva(s).",
     "acknowledge": "Entiendo y quiero continuar",

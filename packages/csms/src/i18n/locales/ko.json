@@ -2961,7 +2961,6 @@
     "allStations": "이 사이트의 모든 스테이션",
     "previewRangeInvalid": "유효한 종료 시간을 설정하여 영향을 미리 봅니다.",
     "previewLoading": "스테이션 목록 로딩 중…",
-    "chargingBadge": "충전 중",
     "reservationsBadge": "예약 {{count}}건",
     "previewSummary": "활성 세션 {{sessions}}개 중지 및 예약 {{reservations}}건 취소.",
     "acknowledge": "이해했으며 계속 진행합니다",

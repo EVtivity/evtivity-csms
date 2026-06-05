@@ -26,6 +26,7 @@ import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/timezone';
 import { useHasPermission } from '@/lib/auth';
+import { stationStatusVariant, stationStatusClassName } from '@/lib/status-variants';
 
 interface MaintenanceEvent {
   id: string;
@@ -46,6 +47,7 @@ interface StationPreviewRow {
   id: string;
   stationId: string;
   model: string | null;
+  status: string;
   isOnline: boolean;
   hasActiveSession: boolean;
   activeSession: { id: string; transactionId: string | null; driverName: string | null } | null;
@@ -1137,14 +1139,14 @@ function MaintenanceStationFilterToolbar({
 }
 
 interface MaintenanceStationStatusBadgesProps {
+  status: string;
   isOnline?: boolean | undefined;
-  hasActiveSession?: boolean | undefined;
   upcomingReservationCount?: number | undefined;
 }
 
 function MaintenanceStationStatusBadges({
+  status,
   isOnline,
-  hasActiveSession,
   upcomingReservationCount,
 }: MaintenanceStationStatusBadgesProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -1152,9 +1154,9 @@ function MaintenanceStationStatusBadges({
     <div className="flex flex-wrap justify-end gap-1">
       {isOnline === true && <Badge variant="success">{t('status.online')}</Badge>}
       {isOnline === false && <Badge variant="destructive">{t('status.offline')}</Badge>}
-      {hasActiveSession === true && (
-        <Badge variant="warning">{t('maintenance.chargingBadge')}</Badge>
-      )}
+      <Badge variant={stationStatusVariant(status)} className={stationStatusClassName(status)}>
+        {t(`status.${status}`, status)}
+      </Badge>
       {upcomingReservationCount != null && upcomingReservationCount > 0 && (
         <Badge variant="outline">
           {t('maintenance.reservationsBadge', { count: upcomingReservationCount })}
@@ -1168,24 +1170,24 @@ interface MaintenanceStationRowProps {
   id: string;
   stationId: string;
   model: string | null;
+  status: string;
   checked: boolean;
   disabled?: boolean;
   onToggle: (checked: boolean) => void;
   inputId: string;
   isOnline?: boolean | undefined;
-  hasActiveSession?: boolean | undefined;
   upcomingReservationCount?: number | undefined;
 }
 
 function MaintenanceStationRow({
   stationId,
   model,
+  status,
   checked,
   disabled,
   onToggle,
   inputId,
   isOnline,
-  hasActiveSession,
   upcomingReservationCount,
 }: MaintenanceStationRowProps): React.JSX.Element {
   return (
@@ -1206,8 +1208,8 @@ function MaintenanceStationRow({
         </div>
       </label>
       <MaintenanceStationStatusBadges
+        status={status}
         isOnline={isOnline}
-        hasActiveSession={hasActiveSession}
         upcomingReservationCount={upcomingReservationCount}
       />
     </div>
@@ -1370,6 +1372,7 @@ function MaintenanceStationSelector({
                     id={s.id}
                     stationId={s.stationId}
                     model={s.model}
+                    status={s.status}
                     checked={effectiveSelected.has(s.id)}
                     disabled={selectAllStations}
                     inputId={`${inputIdPrefix}-${s.id}`}
@@ -1377,7 +1380,6 @@ function MaintenanceStationSelector({
                       toggleOne(s.id, checked);
                     }}
                     isOnline={s.isOnline}
-                    hasActiveSession={s.hasActiveSession}
                     upcomingReservationCount={s.upcomingReservationCount}
                   />
                 </li>

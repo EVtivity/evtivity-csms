@@ -2956,7 +2956,6 @@
     "allStations": "Alle Stationen an diesem Standort",
     "previewRangeInvalid": "Setzen Sie eine gültige Endzeit, um die Stationsauswirkungen anzuzeigen.",
     "previewLoading": "Stationsliste wird geladen…",
-    "chargingBadge": "Lädt",
     "reservationsBadge": "{{count}} Reservierung(en)",
     "previewSummary": "Stoppt {{sessions}} aktive Sitzung(en) und storniert {{reservations}} Reservierung(en).",
     "acknowledge": "Ich verstehe und möchte fortfahren",

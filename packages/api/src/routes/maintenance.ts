@@ -27,6 +27,7 @@ import {
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { buildDerivedStatusSubquery } from '../lib/station-derived-status.js';
 import {
   createEvent,
   cancelEvent,
@@ -118,6 +119,11 @@ const stationPreviewItem = z
     id: z.string(),
     stationId: z.string(),
     model: z.string().nullable(),
+    status: z
+      .string()
+      .describe(
+        'Derived station status from connector statuses (charging/reserved/faulted/unknown/available/unavailable), matching the station list',
+      ),
     isOnline: z.boolean(),
     hasActiveSession: z.boolean(),
     activeSession: z
@@ -747,6 +753,7 @@ export function maintenanceRoutes(app: FastifyInstance): void {
           id: chargingStations.id,
           stationId: chargingStations.stationId,
           model: chargingStations.model,
+          status: buildDerivedStatusSubquery(chargingStations.id),
           isOnline: chargingStations.isOnline,
         })
         .from(chargingStations)
@@ -819,6 +826,7 @@ export function maintenanceRoutes(app: FastifyInstance): void {
           id: s.id,
           stationId: s.stationId,
           model: s.model,
+          status: s.status,
           isOnline: s.isOnline,
           hasActiveSession: session != null,
           activeSession:

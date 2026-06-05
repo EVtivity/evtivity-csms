@@ -18,7 +18,7 @@ import {
 import { SecurityProfileBadge } from '@/components/SecurityProfileBadge';
 import { SVG_COLORS } from '@/lib/chart-theme';
 import { formatDateTime, formatRelativeTime } from '@/lib/timezone';
-import { stationStatusVariant } from '@/lib/status-variants';
+import { stationStatusVariant, stationStatusClassName } from '@/lib/status-variants';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
 
 export const STATIONS_COLUMNS: ColumnMeta[] = [
@@ -95,12 +95,6 @@ export interface Station {
   siteFreeVendEnabled?: boolean;
   lastHeartbeat: string | null;
   createdAt: string;
-}
-
-function statusClassName(status: string): string | undefined {
-  if (status === 'reserved') return 'bg-orange-500 text-orange-50 hover:bg-orange-500/80';
-  if (status === 'finishing') return 'bg-violet-500 text-violet-50 hover:bg-violet-500/80';
-  return undefined;
 }
 
 function connectorTypeKey(type: string): string {
@@ -497,7 +491,7 @@ export function StationsTable({
                 <TableCell>
                   <Badge
                     variant={stationStatusVariant(station.status)}
-                    className={statusClassName(station.status)}
+                    className={stationStatusClassName(station.status)}
                   >
                     {t(`status.${station.status}`, station.status)}
                   </Badge>

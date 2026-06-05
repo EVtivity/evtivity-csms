@@ -128,11 +128,20 @@ export function DriverInvoicesTab({ driverId, timezone }: Props): React.JSX.Elem
     generateMutation.reset();
   }
 
+  function openGenerate(): void {
+    // YYYY-MM-DD in the browser's local timezone (en-CA formats as ISO-like).
+    const today = new Date().toLocaleDateString('en-CA');
+    setStartDate(today);
+    setEndDate(today);
+    setGenerateOpen(true);
+  }
+
   function getValidationErrors(): Record<string, string> {
     const errs: Record<string, string> = {};
     if (startDate === '') errs['startDate'] = t('validation.required');
     if (endDate === '') errs['endDate'] = t('validation.required');
-    if (startDate !== '' && endDate !== '' && new Date(endDate) <= new Date(startDate)) {
+    // Same-day ranges are valid: the end date is inclusive of the whole day.
+    if (startDate !== '' && endDate !== '' && new Date(endDate) < new Date(startDate)) {
       errs['endDate'] = t('validation.invalidValue');
     }
     return errs;
@@ -154,15 +163,7 @@ export function DriverInvoicesTab({ driverId, timezone }: Props): React.JSX.Elem
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle>{t('invoices.title')}</CardTitle>
-        {canWrite && (
-          <Button
-            onClick={() => {
-              setGenerateOpen(true);
-            }}
-          >
-            {t('invoices.generateInvoice')}
-          </Button>
-        )}
+        {canWrite && <Button onClick={openGenerate}>{t('invoices.generateInvoice')}</Button>}
       </CardHeader>
       <CardContent>
         {isLoading ? (
