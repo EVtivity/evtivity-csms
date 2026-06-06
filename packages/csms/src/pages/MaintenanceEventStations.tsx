@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/table';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
+import { stationStatusVariant, stationStatusClassName } from '@/lib/status-variants';
 
 interface MaintenanceEventDetail {
   id: string;
@@ -193,14 +194,23 @@ export function MaintenanceEventStations(): React.JSX.Element {
                         {r.error != null && r.error.length > 0 ? (
                           r.error
                         ) : (
-                          <span className="text-muted-foreground">—</span>
+                          <span className="text-muted-foreground">{t('common.na')}</span>
                         )}
                       </TableCell>
                       <TableCell className="text-sm whitespace-nowrap">
-                        {r.statusBefore ?? '—'} → {r.statusAfter ?? '—'}
+                        {r.statusBefore ?? t('common.na')} → {r.statusAfter ?? t('common.na')}
                       </TableCell>
-                      <TableCell className="text-sm whitespace-nowrap">
-                        {r.currentStatus ?? '—'}
+                      <TableCell>
+                        {r.currentStatus != null ? (
+                          <Badge
+                            variant={stationStatusVariant(r.currentStatus)}
+                            className={stationStatusClassName(r.currentStatus)}
+                          >
+                            {t(`status.${r.currentStatus}`, r.currentStatus)}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">{t('common.na')}</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-sm whitespace-nowrap">
                         {formatDateTime(r.createdAt, timezone)}

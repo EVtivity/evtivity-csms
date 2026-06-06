@@ -1,7 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { randomUUID } from 'node:crypto';
 import { Worker, type Queue, type ConnectionOptions } from 'bullmq';
+import type { Redis } from 'ioredis';
 import type { PubSubClient } from '@evtivity/lib';
 import { createLogger } from '@evtivity/lib';
 import {
@@ -70,17 +72,69 @@ export async function startMaintenanceFanoutBridge(
   };
 }
 
+// Distributed per-site lock so fan-outs for the same site serialize across
+// worker replicas, not just within one process: with two replicas, a cancel's
+// release job on pod A and a new event's enter job on pod B could otherwise
+// interleave Operative/Inoperative on the same fleet. With a single replica
+// the lock is always free and adds one Redis round-trip per job.
+const SITE_LOCK_TTL_MS = 60_000;
+const SITE_LOCK_RENEW_MS = 20_000;
+const SITE_LOCK_ACQUIRE_TIMEOUT_MS = 15 * 60_000;
+const SITE_LOCK_RETRY_MS = 2_000;
+const RELEASE_IF_OWNER_LUA =
+  "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+const RENEW_IF_OWNER_LUA =
+  "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end";
+
+async function withSiteLock(redis: Redis, lockKey: string, fn: () => Promise<void>): Promise<void> {
+  const token = randomUUID();
+  const deadline = Date.now() + SITE_LOCK_ACQUIRE_TIMEOUT_MS;
+  while ((await redis.set(lockKey, token, 'PX', SITE_LOCK_TTL_MS, 'NX')) == null) {
+    if (Date.now() > deadline) {
+      throw new Error(`Timed out acquiring maintenance fan-out lock ${lockKey}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, SITE_LOCK_RETRY_MS));
+  }
+  // Renew while the fan-out runs (jobs can take minutes on offline-heavy
+  // sites); renewal is owner-checked so an expired-and-stolen lock is never
+  // extended by the previous holder.
+  const renew = setInterval(() => {
+    void redis
+      .eval(RENEW_IF_OWNER_LUA, 1, lockKey, token, String(SITE_LOCK_TTL_MS))
+      .catch(() => {});
+  }, SITE_LOCK_RENEW_MS);
+  try {
+    await fn();
+  } finally {
+    clearInterval(renew);
+    try {
+      await redis.eval(RELEASE_IF_OWNER_LUA, 1, lockKey, token);
+    } catch {
+      // lock expires via TTL if the release is lost
+    }
+  }
+}
+
 /**
  * Creates the BullMQ Worker that runs the detached maintenance station fan-out.
  */
-export function createMaintenanceFanoutWorker(connection: ConnectionOptions): Worker {
+export function createMaintenanceFanoutWorker(
+  connection: ConnectionOptions,
+  lockRedis?: Redis,
+): Worker {
   const worker = new Worker(
     QUEUE_NAMES.MAINTENANCE_FANOUT,
     async (job) => {
       const logId = await logJobStarted(job.name, QUEUE_NAMES.MAINTENANCE_FANOUT);
       const startTime = Date.now();
       try {
-        await runMaintenanceFanout(job.data as MaintenanceFanoutJob, log);
+        const data = job.data as MaintenanceFanoutJob;
+        const run = () => runMaintenanceFanout(data, log);
+        if (lockRedis != null) {
+          await withSiteLock(lockRedis, `mfl:${data.siteId ?? data.eventId}`, run);
+        } else {
+          await run();
+        }
         await logJobCompleted(logId, Date.now() - startTime);
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Unknown error';
@@ -88,10 +142,8 @@ export function createMaintenanceFanoutWorker(connection: ConnectionOptions): Wo
         throw err;
       }
     },
-    // concurrency 1 serializes fan-outs in enqueue order: a cancel-then-recreate
-    // on the same site must finish releasing (Operative) before the new event
-    // starts entering (Inoperative), or interleaved commands can leave a station
-    // operative under active maintenance.
+    // concurrency 1 serializes fan-outs in enqueue order within this process;
+    // the per-site lock above extends the guarantee across replicas.
     { connection, concurrency: 1 },
   );
 

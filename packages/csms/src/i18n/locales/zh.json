@@ -90,7 +90,8 @@
     "filterBySite": "按站点筛选",
     "filterByReportType": "按报告类型筛选",
     "filterByStation": "按充电站筛选",
-    "filterByModule": "按模块筛选"
+    "filterByModule": "按模块筛选",
+    "na": "n/a"
   },
   "status": {
     "online": "在线",
@@ -3004,7 +3005,6 @@
     "updatedToast": "维护事件已更新",
     "updateFailed": "更新维护事件失败",
     "removesAllStationsHint": "事件中至少需要保留一个充电桩。请重新选择一个充电桩，或者直接取消整个事件。",
-    "colRollout": "下发进度",
     "rolloutPending": "等待中",
     "stationResults": "充电站结果",
     "filterByPhase": "按阶段筛选",
@@ -3025,8 +3025,14 @@
     "phaseReassert": "重新应用",
     "colError": "错误",
     "colCurrentStatus": "当前状态",
-    "rolloutHint": "每个维护操作作为单独的后台任务运行。徽章显示已接受命令的充电站数 / 已下发命令的充电站数。",
-    "rolloutChipTooltip": "{{phase}}：{{total}} 个充电站中 {{accepted}} 个已接受命令。点击查看每个充电站的结果。"
+    "colTakenOffline": "已停用",
+    "colRestored": "已恢复",
+    "nOfM": "{{m}} 个中的 {{n}} 个",
+    "takenOfflineHint": "维护开始时（或加入维护时）确认已停止服务的充电站数 / 已下发停用命令的充电站总数。",
+    "restoredHint": "维护结束后（或被移出维护后）确认恢复服务的充电站数 / 已下发恢复命令的充电站总数。",
+    "colReasserted": "已重新应用",
+    "reassertedHint": "在维护时段内重新连接并再次被停用的充电站数 / 此类重连总数。错过首次执行的充电站可在此被覆盖。",
+    "rollingOut": "正在停用充电站…"
   },
   "invoices": {
     "title": "发票",

@@ -933,6 +933,7 @@ describe('detached side effects', () => {
       'maintenance_fanout',
       JSON.stringify({
         eventId: 'mne_1',
+        siteId: 'sit_1',
         phase: 'enter',
         actor: { type: 'operator', userId: 'usr_1', label: null },
       }),
@@ -954,6 +955,7 @@ describe('detached side effects', () => {
       'maintenance_fanout',
       JSON.stringify({
         eventId: 'mne_1',
+        siteId: 'sit_1',
         phase: 'release',
         actor: { type: 'operator', userId: 'usr_1', label: null },
       }),
@@ -976,6 +978,7 @@ describe('detached side effects', () => {
       'maintenance_fanout',
       JSON.stringify({
         eventId: 'mne_1',
+        siteId: 'sit_1',
         phase: 'add',
         stationDbIds: ['sta_2'],
         actor: { type: 'operator', userId: 'usr_1', label: null },
@@ -998,6 +1001,7 @@ describe('detached side effects', () => {
       'maintenance_fanout',
       JSON.stringify({
         eventId: 'mne_1',
+        siteId: 'sit_1',
         phase: 'remove',
         stationDbIds: ['sta_2'],
         actor: { type: 'operator', userId: 'usr_1', label: null },
@@ -1150,6 +1154,50 @@ describe('runMaintenanceFanout', () => {
       'Unavailable',
       expect.any(String),
     );
+  });
+
+  it('enter phase skips when the event was cancelled while the job sat queued', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'cancelled', affectedStationIds: ['sta_1'] }),
+    ]);
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never;
+
+    await runMaintenanceFanout({ eventId: 'mne_1', phase: 'enter' }, logger);
+
+    expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
+    expect(h.applyReservationCancellation).not.toHaveBeenCalled();
+  });
+
+  it('add phase skips when the event is no longer active', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'completed', affectedStationIds: ['sta_1', 'sta_2'] }),
+    ]);
+
+    await runMaintenanceFanout({ eventId: 'mne_1', phase: 'add', stationDbIds: ['sta_2'] });
+
+    expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
+  });
+
+  it('enter run aborts mid-flight when the event stops being active', async () => {
+    // Job-start load sees the event active; the in-run abort check re-reads
+    // and finds it cancelled, so no station is commanded and the
+    // reservation/session steps are skipped.
+    queueSelect('maintenanceEvents', [
+      [makeEventRow({ status: 'active', startedAt: new Date(), affectedStationIds: ['sta_1'] })],
+      [makeEventRow({ status: 'cancelled', affectedStationIds: ['sta_1'] })],
+    ]);
+    setSelect('sites', [{ name: 'Site One' }]);
+    setSelect('chargingStations', [{ id: 'sta_1', stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }]);
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never;
+
+    await runMaintenanceFanout(
+      { eventId: 'mne_1', phase: 'enter', actor: { type: 'system' } },
+      logger,
+    );
+
+    expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
+    expect(h.applyReservationCancellation).not.toHaveBeenCalled();
+    expect(auditCallsByAction('started')).toHaveLength(0);
   });
 
   it('reassert phase skips when the event is no longer active', async () => {

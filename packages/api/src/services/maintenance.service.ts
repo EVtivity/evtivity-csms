@@ -76,6 +76,9 @@ export interface MaintenanceFanoutActor {
 
 export interface MaintenanceFanoutJob {
   eventId: string;
+  // Lets the worker take a per-site lock so fan-outs for the same site
+  // serialize across worker replicas, not just within one process.
+  siteId?: string;
   phase: MaintenanceFanoutPhase;
   stationDbIds?: string[];
   actor?: MaintenanceFanoutActor;
@@ -226,6 +229,32 @@ async function sendAvailabilityCommand(
       error: err instanceof Error ? err.message : 'Unknown error',
     };
   }
+}
+
+// Periodic cancellation check for take-offline fan-outs. An End-now or cancel
+// that lands while the enter/add run is mid-flight flips the event row
+// immediately, but the run loaded the event at job start and would otherwise
+// keep commanding stations offline (and cancel reservations / stop sessions)
+// for a window that no longer exists. Re-reads the row at most every
+// ABORT_RECHECK_MS; once not-active, stays aborted.
+const ABORT_RECHECK_MS = 5000;
+
+function makeActiveAbortCheck(eventId: string): () => Promise<boolean> {
+  let lastCheckAt = 0;
+  let aborted = false;
+  return async () => {
+    if (aborted) return true;
+    const now = Date.now();
+    if (now - lastCheckAt < ABORT_RECHECK_MS) return false;
+    lastCheckAt = now;
+    try {
+      const fresh = await loadEventById(eventId);
+      aborted = fresh == null || fresh.status !== 'active';
+    } catch {
+      // a transient read failure must not abort a legitimate fan-out
+    }
+    return aborted;
+  };
 }
 
 // Hand the station fan-out to the worker via the `maintenance_fanout` channel.
@@ -466,7 +495,10 @@ export async function enterMaintenance(
   await publishStateChange(event.siteId, event.id);
 
   if (options.detachSideEffects === true) {
-    await publishFanout({ eventId: event.id, phase: 'enter', actor: fanoutActor(actor) }, logger);
+    await publishFanout(
+      { eventId: event.id, siteId: event.siteId, phase: 'enter', actor: fanoutActor(actor) },
+      logger,
+    );
     return;
   }
   await runEnterSideEffects(event, actor, logger);
@@ -486,7 +518,13 @@ export async function runEnterSideEffects(
 
   const statusBefore = await loadDerivedStatuses(stations.map((s) => s.id));
   const outcomes: FanoutStationOutcome[] = [];
+  const shouldAbort = makeActiveAbortCheck(event.id);
+  let abortedEarly = false as boolean;
   await mapWithConcurrency(stations, STATION_FANOUT_CONCURRENCY, async (station) => {
+    if (abortedEarly || (await shouldAbort())) {
+      abortedEarly = true;
+      return;
+    }
     const sent = await sendAvailabilityCommand(station.stationId, 'Inoperative', logger);
     outcomes.push({
       stationDbId: station.id,
@@ -505,6 +543,22 @@ export async function runEnterSideEffects(
       logger?.warn({ err, stationId: station.stationId }, 'maintenance message push failed');
     }
   });
+  if (abortedEarly) {
+    // The event was ended/cancelled mid-run. Record what was actually
+    // commanded, then stop: no reservation cancels, session stops, counters,
+    // or started-audit for a window that no longer exists. The release job
+    // queued by the cancel restores the stations commanded so far.
+    const commandedIds = outcomes.map((o) => o.stationDbId);
+    const statusAfter = await loadDerivedStatuses(commandedIds);
+    await recordFanoutOutcomes(event.id, 'enter', outcomes, statusBefore, statusAfter, logger);
+    logger?.info(
+      { eventId: event.id, commanded: outcomes.length, total: stations.length },
+      'maintenance enter fan-out aborted: event no longer active',
+    );
+    invalidateMaintenanceCheckCache();
+    await publishStateChange(event.siteId, event.id);
+    return;
+  }
   const statusAfter = await loadDerivedStatusesAfterSettle(stations.map((s) => s.id));
   await recordFanoutOutcomes(event.id, 'enter', outcomes, statusBefore, statusAfter, logger);
 
@@ -773,7 +827,10 @@ export async function exitMaintenance(
   await publishStateChange(event.siteId, event.id);
 
   if (options.detachSideEffects === true) {
-    await publishFanout({ eventId: event.id, phase: 'release', actor: fanoutActor(actor) }, logger);
+    await publishFanout(
+      { eventId: event.id, siteId: event.siteId, phase: 'release', actor: fanoutActor(actor) },
+      logger,
+    );
     return;
   }
   await runReleaseStations(event, 'exit', logger);
@@ -1095,7 +1152,13 @@ export async function addStationsToMaintenance(
   if (after.status === 'active') {
     if (options.detachSideEffects === true) {
       await publishFanout(
-        { eventId: after.id, phase: 'add', stationDbIds: trulyNew, actor: fanoutActor(actor) },
+        {
+          eventId: after.id,
+          siteId: after.siteId,
+          phase: 'add',
+          stationDbIds: trulyNew,
+          actor: fanoutActor(actor),
+        },
         logger,
       );
     } else {
@@ -1130,7 +1193,13 @@ async function runAddStationSideEffects(
 
   const statusBefore = await loadDerivedStatuses(newStations.map((s) => s.id));
   const outcomes: FanoutStationOutcome[] = [];
+  const shouldAbort = makeActiveAbortCheck(after.id);
+  let abortedEarly = false as boolean;
   await mapWithConcurrency(newStations, STATION_FANOUT_CONCURRENCY, async (station) => {
+    if (abortedEarly || (await shouldAbort())) {
+      abortedEarly = true;
+      return;
+    }
     const sent = await sendAvailabilityCommand(station.stationId, 'Inoperative', logger);
     outcomes.push({
       stationDbId: station.id,
@@ -1152,6 +1221,18 @@ async function runAddStationSideEffects(
       );
     }
   });
+  if (abortedEarly) {
+    const commandedIds = outcomes.map((o) => o.stationDbId);
+    const statusAfter = await loadDerivedStatuses(commandedIds);
+    await recordFanoutOutcomes(after.id, 'add', outcomes, statusBefore, statusAfter, logger);
+    logger?.info(
+      { eventId: after.id, commanded: outcomes.length, total: newStations.length },
+      'maintenance add fan-out aborted: event no longer active',
+    );
+    invalidateMaintenanceCheckCache();
+    await publishStateChange(after.siteId, after.id);
+    return;
+  }
   const statusAfter = await loadDerivedStatusesAfterSettle(newStations.map((s) => s.id));
   await recordFanoutOutcomes(after.id, 'add', outcomes, statusBefore, statusAfter, logger);
 
@@ -1317,7 +1398,13 @@ export async function removeStationsFromMaintenance(
   if (before.status === 'active' && removed.length > 0) {
     if (options.detachSideEffects === true) {
       await publishFanout(
-        { eventId: after.id, phase: 'remove', stationDbIds: removed, actor: fanoutActor(actor) },
+        {
+          eventId: after.id,
+          siteId: after.siteId,
+          phase: 'remove',
+          stationDbIds: removed,
+          actor: fanoutActor(actor),
+        },
         logger,
       );
     } else {
@@ -1407,7 +1494,7 @@ export async function cancelEvent(
   if (wasActive) {
     if (options.detachSideEffects === true) {
       await publishFanout(
-        { eventId: event.id, phase: 'release', actor: fanoutActor(actor) },
+        { eventId: event.id, siteId: event.siteId, phase: 'release', actor: fanoutActor(actor) },
         logger,
       );
     } else {
@@ -1438,6 +1525,19 @@ export async function runMaintenanceFanout(
     userId: job.actor?.userId ?? null,
     label: job.actor?.label ?? null,
   };
+
+  // Take-offline phases only make sense on an active event: an End-now or
+  // cancel that landed while this job sat in the queue must not command a
+  // fleet offline for a window that no longer exists. Release phases are the
+  // cleanup and always run.
+  const takeOfflinePhase = job.phase === 'enter' || job.phase === 'add';
+  if (takeOfflinePhase && event.status !== 'active') {
+    logger?.info(
+      { eventId: event.id, phase: job.phase, status: event.status },
+      'maintenance fan-out skipped: event no longer active',
+    );
+    return;
+  }
 
   switch (job.phase) {
     case 'enter':
@@ -1515,7 +1615,12 @@ export async function runReassertStations(
       );
     }
   });
-  const statusAfter = await loadDerivedStatusesAfterSettle(targets.map((s) => s.id));
+  // No settle here: reasserts are single-station and arrive in bursts after a
+  // fleet reconnect; the 5s settle made each queued job ~5s and a wave of
+  // reconnects monopolized the serialized fan-out queue for minutes. The
+  // drill-down's live currentStatus column is the accurate after-the-fact
+  // reading for these rows.
+  const statusAfter = await loadDerivedStatuses(targets.map((s) => s.id));
   await recordFanoutOutcomes(event.id, 'reassert', outcomes, statusBefore, statusAfter, logger);
   logger?.info({ eventId: event.id, stations: targets.length }, 'maintenance re-assert complete');
 }

@@ -127,6 +127,56 @@ describe('createMaintenanceFanoutWorker', () => {
     expect(mockLogJobFailed.mock.calls[0]?.[2]).toBe('Unknown error');
   });
 
+  it('takes and releases a per-site lock when a lock client is provided', async () => {
+    const { createMaintenanceFanoutWorker } = await import('../maintenance-fanout-worker.js');
+    const lockRedis = {
+      set: vi.fn().mockResolvedValue('OK'),
+      eval: vi.fn().mockResolvedValue(1),
+    };
+    createMaintenanceFanoutWorker({}, lockRedis as never);
+
+    const data = { eventId: 'mne_1', siteId: 'sit_1', phase: 'enter' };
+    await capturedProcessor?.(makeJob('maintenance-fanout', data));
+
+    expect(lockRedis.set).toHaveBeenCalledWith('mfl:sit_1', expect.any(String), 'PX', 60000, 'NX');
+    expect(mockRunMaintenanceFanout).toHaveBeenCalledWith(data, mockLog);
+    // release-if-owner is the last eval call
+    const lastEval = lockRedis.eval.mock.calls.at(-1);
+    expect(lastEval?.[2]).toBe('mfl:sit_1');
+  });
+
+  it('falls back to the eventId lock key when the job carries no siteId', async () => {
+    const { createMaintenanceFanoutWorker } = await import('../maintenance-fanout-worker.js');
+    const lockRedis = {
+      set: vi.fn().mockResolvedValue('OK'),
+      eval: vi.fn().mockResolvedValue(1),
+    };
+    createMaintenanceFanoutWorker({}, lockRedis as never);
+
+    await capturedProcessor?.(
+      makeJob('maintenance-fanout', { eventId: 'mne_2', phase: 'release' }),
+    );
+
+    expect(lockRedis.set).toHaveBeenCalledWith('mfl:mne_2', expect.any(String), 'PX', 60000, 'NX');
+  });
+
+  it('releases the lock even when the fan-out throws', async () => {
+    mockRunMaintenanceFanout.mockRejectedValueOnce(new Error('boom'));
+    const { createMaintenanceFanoutWorker } = await import('../maintenance-fanout-worker.js');
+    const lockRedis = {
+      set: vi.fn().mockResolvedValue('OK'),
+      eval: vi.fn().mockResolvedValue(1),
+    };
+    createMaintenanceFanoutWorker({}, lockRedis as never);
+
+    await expect(
+      capturedProcessor?.(makeJob('maintenance-fanout', { eventId: 'mne_3', phase: 'enter' })),
+    ).rejects.toThrow('boom');
+
+    const lastEval = lockRedis.eval.mock.calls.at(-1);
+    expect(lastEval?.[2]).toBe('mfl:mne_3');
+  });
+
   it('registers a failed listener that logs jobs and ignores null jobs', async () => {
     const { createMaintenanceFanoutWorker } = await import('../maintenance-fanout-worker.js');
     createMaintenanceFanoutWorker({});

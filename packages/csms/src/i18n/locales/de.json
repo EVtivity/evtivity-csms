@@ -90,7 +90,8 @@
     "filterBySite": "Nach Standort filtern",
     "filterByReportType": "Nach Berichtstyp filtern",
     "filterByStation": "Nach Station filtern",
-    "filterByModule": "Nach Modul filtern"
+    "filterByModule": "Nach Modul filtern",
+    "na": "n/a"
   },
   "status": {
     "online": "Online",
@@ -2988,7 +2989,6 @@
     "updatedToast": "Wartungsereignis aktualisiert",
     "updateFailed": "Wartungsereignis konnte nicht aktualisiert werden",
     "removesAllStationsHint": "Mindestens eine Station muss im Ereignis verbleiben. Wählen Sie eine Station erneut aus, oder brechen Sie das Ereignis ab.",
-    "colRollout": "Rollout",
     "rolloutPending": "Ausstehend",
     "stationResults": "Stationsergebnisse",
     "filterByPhase": "Nach Phase filtern",
@@ -3009,8 +3009,14 @@
     "phaseReassert": "Erneut anwenden",
     "colError": "Fehler",
     "colCurrentStatus": "Aktueller Status",
-    "rolloutHint": "Jede Wartungsaktion läuft als eigener Hintergrund-Job. Ein Chip zeigt, wie viele der angesteuerten Stationen den Befehl angenommen haben.",
-    "rolloutChipTooltip": "{{phase}}: {{accepted}} von {{total}} Stationen haben den Befehl angenommen. Klicken für Details pro Station."
+    "colTakenOffline": "Außer Betrieb genommen",
+    "colRestored": "Wiederhergestellt",
+    "nOfM": "{{n}} von {{m}}",
+    "takenOfflineHint": "Stationen, die zu Beginn des Fensters (oder beim Hinzufügen) bestätigt außer Betrieb genommen wurden, von allen angesteuerten Stationen.",
+    "restoredHint": "Stationen, die nach Ende des Fensters (oder nach dem Entfernen) bestätigt wieder in Betrieb sind, von allen zurückbefohlenen Stationen.",
+    "colReasserted": "Erneut angewendet",
+    "reassertedHint": "Stationen, die sich während des aktiven Fensters neu verbunden haben und erneut außer Betrieb gesetzt wurden, von allen solchen Wiederverbindungen. Eine Station, die den ersten Lauf verpasst hat, kann hier noch abgedeckt werden.",
+    "rollingOut": "Stationen werden außer Betrieb genommen…"
   },
   "invoices": {
     "title": "Rechnungen",

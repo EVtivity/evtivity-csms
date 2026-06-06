@@ -60,7 +60,10 @@ async function start(): Promise<void> {
   const loadWorker = createLoadManagementWorker(createBullMQConnection(REDIS_URL), loadQueue);
   const guestWorker = createGuestSessionWorker(createBullMQConnection(REDIS_URL));
   const reservationWorker = createReservationWorker(createBullMQConnection(REDIS_URL), pubsub);
-  const maintenanceFanoutWorker = createMaintenanceFanoutWorker(createBullMQConnection(REDIS_URL));
+  const maintenanceFanoutWorker = createMaintenanceFanoutWorker(
+    createBullMQConnection(REDIS_URL),
+    createBullMQConnection(REDIS_URL),
+  );
 
   // OCTT conformance test worker
   const octtWorker = new Worker<OcttJobData>(

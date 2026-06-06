@@ -90,7 +90,8 @@
     "filterBySite": "Filter by site",
     "filterByReportType": "Filter by report type",
     "filterByStation": "Filter by station",
-    "filterByModule": "Filter by module"
+    "filterByModule": "Filter by module",
+    "na": "n/a"
   },
   "status": {
     "online": "Online",
@@ -3012,7 +3013,6 @@
     "updatedToast": "Maintenance event updated",
     "updateFailed": "Failed to update maintenance event",
     "removesAllStationsHint": "At least one station must remain in the event. Re-select a station, or cancel the event entirely.",
-    "colRollout": "Rollout",
     "rolloutPending": "Pending",
     "stationResults": "Station Results",
     "filterByPhase": "Filter by phase",
@@ -3033,8 +3033,14 @@
     "phaseReassert": "Re-assert",
     "colError": "Error",
     "colCurrentStatus": "Current Status",
-    "rolloutHint": "Each maintenance action runs as a separate background job. A chip shows stations that accepted the command out of stations commanded.",
-    "rolloutChipTooltip": "{{phase}}: {{accepted}} of {{total}} stations accepted the command. Click for per-station results."
+    "colTakenOffline": "Taken Offline",
+    "colRestored": "Restored",
+    "nOfM": "{{n}} of {{m}}",
+    "takenOfflineHint": "Stations confirmed out of service when the window started (or when added to it), out of all stations commanded offline.",
+    "restoredHint": "Stations confirmed back in service after the window ended (or after being removed from it), out of all stations commanded back.",
+    "colReasserted": "Re-asserted",
+    "reassertedHint": "Stations that reconnected while the window was active and were commanded offline again, out of all such reconnects. A station that misses the initial run can still be covered here.",
+    "rollingOut": "Taking stations offline…"
   },
   "invoices": {
     "title": "Invoices",

@@ -217,6 +217,32 @@ export function registerProjections(
 
   const stationIdCache = createTtlCache<string>();
   const siteIdCache = createTtlCache<string | null>();
+
+  // Per-station debounce for maintenance re-assert publishes. 30s: long enough
+  // to collapse a flapping connection or a fleet-wide reconnect wave into one
+  // fan-out job per station, short enough that a genuine reboot-and-rejoin
+  // still gets re-asserted promptly.
+  const REASSERT_DEBOUNCE_MS = 30_000;
+  const reassertDebounceStore = new Map<string, number>();
+  const reassertDebounce = {
+    get(key: string): true | undefined {
+      const expiresAt = reassertDebounceStore.get(key);
+      if (expiresAt == null) return undefined;
+      if (Date.now() > expiresAt) {
+        reassertDebounceStore.delete(key);
+        return undefined;
+      }
+      return true;
+    },
+    set(key: string): void {
+      if (reassertDebounceStore.size >= CACHE_MAX_SIZE && !reassertDebounceStore.has(key)) {
+        const firstKey = reassertDebounceStore.keys().next().value;
+        if (firstKey != null) reassertDebounceStore.delete(firstKey);
+      }
+      reassertDebounceStore.set(key, Date.now() + REASSERT_DEBOUNCE_MS);
+    },
+  };
+
   const txBuffer = new TransactionBuffer({ logger });
 
   const SESSION_UPDATE_THROTTLE_MS = 15 * 60 * 1000;
@@ -869,30 +895,37 @@ export function registerProjections(
     // Available; without this it stays operative for the rest of the window.
     // The worker bridge picks this up and re-sends ChangeAvailability
     // (Inoperative) plus the maintenance display message for this station.
+    // Debounced per station: a flapping connection (or a fleet-wide reconnect
+    // wave) would otherwise enqueue one fan-out job per reconnect.
     try {
-      const maintRows = await sql`
-        SELECT me.id
-        FROM maintenance_events me
-        JOIN charging_stations cs ON cs.site_id = me.site_id
-        WHERE cs.id = ${stationUuid}
-          AND me.status = 'active'
-          AND me.planned_start_at < now() AND me.planned_end_at > now()
-          AND (me.affected_station_ids IS NULL
-               OR me.affected_station_ids = '{}'::text[]
-               OR ${stationUuid} = ANY(me.affected_station_ids))
-        LIMIT 1
-      `;
-      const activeEvent = maintRows[0];
-      if (activeEvent != null) {
-        await pubsub.publish(
-          'maintenance_fanout',
-          JSON.stringify({
-            eventId: activeEvent.id as string,
-            phase: 'reassert',
-            stationDbIds: [stationUuid],
-            nonce: Date.now().toString(36),
-          }),
-        );
+      const lastPublished = reassertDebounce.get(stationUuid);
+      if (lastPublished == null) {
+        const maintRows = await sql`
+          SELECT me.id, me.site_id
+          FROM maintenance_events me
+          JOIN charging_stations cs ON cs.site_id = me.site_id
+          WHERE cs.id = ${stationUuid}
+            AND me.status = 'active'
+            AND me.planned_start_at < now() AND me.planned_end_at > now()
+            AND (me.affected_station_ids IS NULL
+                 OR me.affected_station_ids = '{}'::text[]
+                 OR ${stationUuid} = ANY(me.affected_station_ids))
+          LIMIT 1
+        `;
+        const activeEvent = maintRows[0];
+        if (activeEvent != null) {
+          reassertDebounce.set(stationUuid);
+          await pubsub.publish(
+            'maintenance_fanout',
+            JSON.stringify({
+              eventId: activeEvent.id as string,
+              siteId: activeEvent.site_id as string,
+              phase: 'reassert',
+              stationDbIds: [stationUuid],
+              nonce: Date.now().toString(36),
+            }),
+          );
+        }
       }
     } catch (err) {
       logger.warn({ err, stationOcppId }, 'Maintenance re-assert publish failed; continuing');

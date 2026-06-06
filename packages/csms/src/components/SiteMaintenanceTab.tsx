@@ -14,7 +14,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select } from '@/components/ui/select';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
-import { Tooltip } from '@/components/ui/tooltip';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import {
@@ -44,21 +43,11 @@ interface MaintenanceEvent {
   reason: string | null;
   reservationsCancelledCount: number;
   sessionsStoppedCount: number;
-  fanout?: Array<{ phase: string; total: number; accepted: number }>;
-}
-
-const PHASE_I18N_KEY = {
-  enter: 'maintenance.phaseEnter',
-  exit: 'maintenance.phaseExit',
-  cancel: 'maintenance.phaseCancel',
-  release: 'maintenance.phaseRelease',
-  add: 'maintenance.phaseAdd',
-  'remove-stations': 'maintenance.phaseRemoveStations',
-  reassert: 'maintenance.phaseReassert',
-} as const;
-
-function phaseI18nKey(phase: string): (typeof PHASE_I18N_KEY)[keyof typeof PHASE_I18N_KEY] {
-  return PHASE_I18N_KEY[(phase in PHASE_I18N_KEY ? phase : 'enter') as keyof typeof PHASE_I18N_KEY];
+  rollout?: {
+    offline: { accepted: number; total: number } | null;
+    reasserted: { accepted: number; total: number } | null;
+    restored: { accepted: number; total: number } | null;
+  };
 }
 
 interface StationPreviewRow {
@@ -364,6 +353,12 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                   <div className="flex items-start justify-between gap-2">
                     <div className="space-y-1">
                       <p className="font-semibold text-sm">{t('maintenance.activeNow')}</p>
+                      {cur.rollout?.offline == null && (
+                        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                          {t('maintenance.rollingOut')}
+                        </p>
+                      )}
                       <p className="text-sm">
                         {t('maintenance.endsAt', {
                           time: formatDateTime(cur.plannedEndAt, timezone),
@@ -724,8 +719,20 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                   <TableHead>{t('maintenance.colType')}</TableHead>
                   <TableHead>
                     <span className="inline-flex items-center gap-1">
-                      {t('maintenance.colRollout')}
-                      <InfoTooltip content={t('maintenance.rolloutHint')} />
+                      {t('maintenance.colTakenOffline')}
+                      <InfoTooltip content={t('maintenance.takenOfflineHint')} />
+                    </span>
+                  </TableHead>
+                  <TableHead>
+                    <span className="inline-flex items-center gap-1">
+                      {t('maintenance.colReasserted')}
+                      <InfoTooltip content={t('maintenance.reassertedHint')} />
+                    </span>
+                  </TableHead>
+                  <TableHead>
+                    <span className="inline-flex items-center gap-1">
+                      {t('maintenance.colRestored')}
+                      <InfoTooltip content={t('maintenance.restoredHint')} />
                     </span>
                   </TableHead>
                   <TableHead>{t('maintenance.reason')}</TableHead>
@@ -740,7 +747,7 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
               <TableBody>
                 {events.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground py-6">
+                    <TableCell colSpan={10} className="text-center text-muted-foreground py-6">
                       {t('maintenance.empty')}
                     </TableCell>
                   </TableRow>
@@ -767,39 +774,71 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                           : t('maintenance.typeOneOff')}
                       </TableCell>
                       <TableCell>
-                        {e.fanout != null && e.fanout.length > 0 ? (
-                          <span className="inline-flex flex-wrap items-center gap-1">
-                            {e.fanout.map((f) => (
-                              <Tooltip
-                                key={f.phase}
-                                content={t('maintenance.rolloutChipTooltip', {
-                                  phase: t(phaseI18nKey(f.phase)),
-                                  accepted: f.accepted,
-                                  total: f.total,
-                                })}
-                              >
-                                <Badge
-                                  variant={f.accepted === f.total ? 'success' : 'warning'}
-                                  className="text-[10px] px-1.5 py-0 whitespace-nowrap"
-                                >
-                                  {t(phaseI18nKey(f.phase))} {f.accepted}/{f.total}
-                                </Badge>
-                              </Tooltip>
-                            ))}
-                          </span>
+                        {e.rollout?.offline != null ? (
+                          <Badge
+                            variant={
+                              e.rollout.offline.accepted === e.rollout.offline.total
+                                ? 'success'
+                                : 'warning'
+                            }
+                            className="whitespace-nowrap normal-case"
+                          >
+                            {t('maintenance.nOfM', {
+                              n: e.rollout.offline.accepted,
+                              m: e.rollout.offline.total,
+                            })}
+                          </Badge>
                         ) : e.status === 'active' || e.status === 'scheduled' ? (
                           <span className="text-muted-foreground text-sm">
                             {t('maintenance.rolloutPending')}
                           </span>
                         ) : (
-                          <span className="text-muted-foreground">—</span>
+                          <span className="text-muted-foreground">{t('common.na')}</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {e.rollout?.reasserted != null ? (
+                          <Badge
+                            variant={
+                              e.rollout.reasserted.accepted === e.rollout.reasserted.total
+                                ? 'success'
+                                : 'warning'
+                            }
+                            className="whitespace-nowrap normal-case"
+                          >
+                            {t('maintenance.nOfM', {
+                              n: e.rollout.reasserted.accepted,
+                              m: e.rollout.reasserted.total,
+                            })}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">{t('common.na')}</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {e.rollout?.restored != null ? (
+                          <Badge
+                            variant={
+                              e.rollout.restored.accepted === e.rollout.restored.total
+                                ? 'success'
+                                : 'warning'
+                            }
+                            className="whitespace-nowrap normal-case"
+                          >
+                            {t('maintenance.nOfM', {
+                              n: e.rollout.restored.accepted,
+                              m: e.rollout.restored.total,
+                            })}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">{t('common.na')}</span>
                         )}
                       </TableCell>
                       <TableCell className="max-w-xs truncate" title={e.reason ?? ''}>
                         {e.reason != null && e.reason.length > 0 ? (
                           e.reason
                         ) : (
-                          <span className="text-muted-foreground">—</span>
+                          <span className="text-muted-foreground">{t('common.na')}</span>
                         )}
                       </TableCell>
                       <TableCell className="text-right">{e.sessionsStoppedCount}</TableCell>

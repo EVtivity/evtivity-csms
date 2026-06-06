@@ -22,6 +22,9 @@ const ALL_TEMPLATES_DIRS = [OCPP_TEMPLATES_DIR, API_TEMPLATES_DIR];
 
 const EXPIRY_WARNING_MINUTES = 15;
 
+// Timestamp columns arrive as raw strings: drizzle(client) in
+// @evtivity/database overrides the postgres-js date parsers with identity,
+// so raw client-tag queries never get Date objects back.
 interface ExpiredRow {
   id: string;
   driver_id: string | null;
@@ -30,16 +33,16 @@ interface ExpiredRow {
   station_ocpp_id: string;
   station_uuid: string;
   site_id: string | null;
-  starts_at: Date | null;
-  expires_at: Date;
-  created_at: Date;
+  starts_at: string | null;
+  expires_at: string;
+  created_at: string;
   has_session: boolean;
 }
 
 interface ExpiringRow {
   id: string;
   driver_id: string | null;
-  expires_at: Date;
+  expires_at: string;
 }
 
 export async function reservationExpiryCheckHandler(log: Logger): Promise<void> {
@@ -155,7 +158,7 @@ export async function reservationExpiryCheckHandler(log: Logger): Promise<void> 
           // session-end path in event-projections.ts which uses created_at as
           // the same fallback so both paths bill consistent hold durations.
           const referenceStart = row.starts_at ?? row.created_at;
-          const holdingMs = row.expires_at.getTime() - new Date(referenceStart).getTime();
+          const holdingMs = new Date(row.expires_at).getTime() - new Date(referenceStart).getTime();
           const holdingMinutes = Math.max(0, Math.ceil(holdingMs / 60_000));
           const amountCents = Math.round(holdingMinutes * ratePerMinute * 100);
           if (amountCents > 0) {
@@ -215,7 +218,7 @@ export async function reservationExpiryCheckHandler(log: Logger): Promise<void> 
         row.driver_id,
         {
           reservationId: row.id,
-          expiresAt: row.expires_at.toISOString(),
+          expiresAt: new Date(row.expires_at).toISOString(),
         },
         ALL_TEMPLATES_DIRS,
         pubsub,

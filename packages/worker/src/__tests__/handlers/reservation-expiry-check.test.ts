@@ -69,9 +69,9 @@ describe('reservationExpiryCheckHandler', () => {
           station_ocpp_id: 'CS-001',
           station_uuid: 'sta_1',
           site_id: 'site_1',
-          starts_at: new Date('2026-01-01T10:00:00Z'),
-          expires_at: new Date('2026-01-01T11:00:00Z'),
-          created_at: new Date('2026-01-01T10:00:00Z'),
+          starts_at: '2026-01-01T10:00:00Z',
+          expires_at: '2026-01-01T11:00:00Z',
+          created_at: '2026-01-01T10:00:00Z',
           has_session: false,
         },
       ])
@@ -120,7 +120,7 @@ describe('reservationExpiryCheckHandler', () => {
           station_uuid: 'sta_1',
           site_id: 'site_1',
           starts_at: null,
-          expires_at: new Date(),
+          expires_at: new Date().toISOString(),
           has_session: true,
         },
       ])
@@ -146,7 +146,7 @@ describe('reservationExpiryCheckHandler', () => {
           station_uuid: 'sta_1',
           site_id: 'site_1',
           starts_at: null,
-          expires_at: new Date(),
+          expires_at: new Date().toISOString(),
           has_session: false,
         },
       ])
@@ -172,7 +172,7 @@ describe('reservationExpiryCheckHandler', () => {
           station_uuid: 'sta_1',
           site_id: 'site_1',
           starts_at: null,
-          expires_at: new Date(),
+          expires_at: new Date().toISOString(),
           has_session: false,
         },
       ])
@@ -198,7 +198,7 @@ describe('reservationExpiryCheckHandler', () => {
           station_uuid: 'sta_a',
           site_id: null,
           starts_at: null,
-          expires_at: new Date(),
+          expires_at: new Date().toISOString(),
           has_session: true,
         },
         {
@@ -210,7 +210,7 @@ describe('reservationExpiryCheckHandler', () => {
           station_uuid: 'sta_b',
           site_id: null,
           starts_at: null,
-          expires_at: new Date(),
+          expires_at: new Date().toISOString(),
           has_session: true,
         },
       ])
@@ -237,9 +237,9 @@ describe('reservationExpiryCheckHandler', () => {
           station_ocpp_id: 'CS-SCHED',
           station_uuid: 'sta_sched',
           site_id: 'site_sched',
-          starts_at: new Date('2026-01-01T10:00:00Z'),
-          expires_at: new Date('2026-01-01T11:00:00Z'),
-          created_at: new Date('2026-01-01T09:00:00Z'),
+          starts_at: '2026-01-01T10:00:00Z',
+          expires_at: '2026-01-01T11:00:00Z',
+          created_at: '2026-01-01T09:00:00Z',
           has_session: false,
         },
       ])
@@ -269,8 +269,8 @@ describe('reservationExpiryCheckHandler', () => {
           station_uuid: 'sta_nr',
           site_id: 'site_nr',
           starts_at: null,
-          expires_at: new Date(),
-          created_at: new Date(),
+          expires_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
           has_session: false,
         },
       ])
@@ -297,8 +297,8 @@ describe('reservationExpiryCheckHandler', () => {
           station_uuid: 'sta_inst',
           site_id: 'site_inst',
           starts_at: null,
-          expires_at: new Date('2026-01-01T10:30:00Z'),
-          created_at: new Date('2026-01-01T10:00:00Z'),
+          expires_at: '2026-01-01T10:30:00Z',
+          created_at: '2026-01-01T10:00:00Z',
           has_session: false,
         },
       ])
@@ -317,7 +317,7 @@ describe('reservationExpiryCheckHandler', () => {
   });
 
   it('does not charge when computed hold duration rounds to zero minutes', async () => {
-    const sameInstant = new Date('2026-01-01T10:00:00Z');
+    const sameInstant = '2026-01-01T10:00:00Z';
     mockClient
       .mockResolvedValueOnce([
         {
@@ -348,7 +348,7 @@ describe('reservationExpiryCheckHandler', () => {
   });
 
   it('skips expiring notification dispatch for upcoming reservations with no driver', async () => {
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
     mockClient
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 'rsv_nodriver', driver_id: null, expires_at: expiresAt }]);
@@ -372,8 +372,8 @@ describe('reservationExpiryCheckHandler', () => {
           station_uuid: 'sta_pf',
           site_id: 'site_pf',
           starts_at: null,
-          expires_at: new Date(),
-          created_at: new Date(),
+          expires_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
           has_session: true,
         },
       ])
@@ -404,9 +404,9 @@ describe('reservationExpiryCheckHandler', () => {
           station_ocpp_id: 'CS-FEEFAIL',
           station_uuid: 'sta_ff',
           site_id: 'site_ff',
-          starts_at: new Date('2026-01-01T10:00:00Z'),
-          expires_at: new Date('2026-01-01T11:00:00Z'),
-          created_at: new Date('2026-01-01T10:00:00Z'),
+          starts_at: '2026-01-01T10:00:00Z',
+          expires_at: '2026-01-01T11:00:00Z',
+          created_at: '2026-01-01T10:00:00Z',
           has_session: false,
         },
       ])
@@ -432,7 +432,7 @@ describe('reservationExpiryCheckHandler', () => {
   });
 
   it('dispatches reservation.Expiring notification for upcoming reservations', async () => {
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
     mockClient
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 'rsv_soon', driver_id: 'drv_x', expires_at: expiresAt }]);

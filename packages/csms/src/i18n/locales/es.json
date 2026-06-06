@@ -90,7 +90,8 @@
     "filterBySite": "Filtrar por sitio",
     "filterByReportType": "Filtrar por tipo de informe",
     "filterByStation": "Filtrar por estacion",
-    "filterByModule": "Filtrar por modulo"
+    "filterByModule": "Filtrar por modulo",
+    "na": "n/a"
   },
   "status": {
     "online": "En linea",
@@ -3009,7 +3010,6 @@
     "updatedToast": "Evento de mantenimiento actualizado",
     "updateFailed": "No se pudo actualizar el evento de mantenimiento",
     "removesAllStationsHint": "Al menos una estación debe permanecer en el evento. Vuelve a seleccionar una estación, o cancela el evento por completo.",
-    "colRollout": "Despliegue",
     "rolloutPending": "Pendiente",
     "stationResults": "Resultados por estación",
     "filterByPhase": "Filtrar por fase",
@@ -3030,8 +3030,14 @@
     "phaseReassert": "Reaplicación",
     "colError": "Error",
     "colCurrentStatus": "Estado actual",
-    "rolloutHint": "Cada acción de mantenimiento se ejecuta como un trabajo en segundo plano separado. Cada chip muestra cuántas estaciones aceptaron el comando del total comandado.",
-    "rolloutChipTooltip": "{{phase}}: {{accepted}} de {{total}} estaciones aceptaron el comando. Haga clic para ver resultados por estación."
+    "colTakenOffline": "Fuera de servicio",
+    "colRestored": "Restauradas",
+    "nOfM": "{{n}} de {{m}}",
+    "takenOfflineHint": "Estaciones confirmadas fuera de servicio al iniciar la ventana (o al ser añadidas), del total de estaciones comandadas.",
+    "restoredHint": "Estaciones confirmadas de nuevo en servicio tras finalizar la ventana (o tras ser eliminadas de ella), del total de estaciones comandadas de vuelta.",
+    "colReasserted": "Reaplicadas",
+    "reassertedHint": "Estaciones que se reconectaron durante la ventana activa y fueron puestas fuera de servicio de nuevo, del total de esas reconexiones. Una estación que no recibió el primer intento puede quedar cubierta aquí.",
+    "rollingOut": "Poniendo estaciones fuera de servicio…"
   },
   "invoices": {
     "title": "Facturas",

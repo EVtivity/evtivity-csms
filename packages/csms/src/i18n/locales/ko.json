@@ -90,7 +90,8 @@
     "filterBySite": "사이트별 필터",
     "filterByReportType": "보고서 유형별 필터",
     "filterByStation": "스테이션별 필터",
-    "filterByModule": "모듈별 필터"
+    "filterByModule": "모듈별 필터",
+    "na": "n/a"
   },
   "status": {
     "online": "온라인",
@@ -2993,7 +2994,6 @@
     "updatedToast": "유지보수 이벤트가 업데이트되었습니다",
     "updateFailed": "유지보수 이벤트 업데이트 실패",
     "removesAllStationsHint": "이벤트에 최소한 하나의 스테이션이 남아 있어야 합니다. 스테이션을 다시 선택하거나 전체 이벤트를 취소하세요.",
-    "colRollout": "롤아웃",
     "rolloutPending": "대기 중",
     "stationResults": "스테이션 결과",
     "filterByPhase": "단계별 필터",
@@ -3014,8 +3014,14 @@
     "phaseReassert": "재적용",
     "colError": "오류",
     "colCurrentStatus": "현재 상태",
-    "rolloutHint": "각 유지보수 작업은 별도의 백그라운드 작업으로 실행됩니다. 칩은 명령을 받은 스테이션 중 수락한 수를 표시합니다.",
-    "rolloutChipTooltip": "{{phase}}: {{total}}개 스테이션 중 {{accepted}}개가 명령을 수락했습니다. 클릭하면 스테이션별 결과를 볼 수 있습니다."
+    "colTakenOffline": "운영 중지됨",
+    "colRestored": "복원됨",
+    "nOfM": "{{m}}개 중 {{n}}개",
+    "takenOfflineHint": "기간 시작 시(또는 추가 시) 서비스 중지가 확인된 스테이션 수 / 중지 명령을 받은 전체 스테이션 수.",
+    "restoredHint": "기간 종료 후(또는 제외된 후) 서비스 복귀가 확인된 스테이션 수 / 복귀 명령을 받은 전체 스테이션 수.",
+    "colReasserted": "재적용됨",
+    "reassertedHint": "기간 중 재접속하여 다시 운영 중지 명령을 받은 스테이션 수 / 해당 재접속 전체 수. 첫 실행을 놓친 스테이션도 여기서 처리될 수 있습니다.",
+    "rollingOut": "스테이션을 운영 중지하는 중…"
   },
   "invoices": {
     "title": "청구서",

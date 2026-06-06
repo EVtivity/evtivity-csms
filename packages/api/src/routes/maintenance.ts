@@ -70,20 +70,52 @@ const maintenanceItem = z
     createdByUserId: z.string().nullable().describe('Operator who created the event'),
     createdAt: z.coerce.date().describe('Created at'),
     updatedAt: z.coerce.date().describe('Updated at'),
-    fanout: z
-      .array(
-        z
+    rollout: z
+      .object({
+        offline: z
           .object({
-            phase: z
-              .string()
-              .describe('Fan-out phase (enter, exit, cancel, add, remove-stations, reassert)'),
-            total: z.number().int().describe('Stations commanded in this phase'),
-            accepted: z.number().int().describe('Stations that accepted the command'),
+            accepted: z
+              .number()
+              .int()
+              .describe(
+                'Stations whose latest take-offline command (initial run or add) was accepted',
+              ),
+            total: z.number().int().describe('Distinct stations commanded offline'),
           })
-          .passthrough(),
-      )
+          .passthrough()
+          .nullable()
+          .describe('Net take-offline outcome; null until the first run records results'),
+        reasserted: z
+          .object({
+            accepted: z
+              .number()
+              .int()
+              .describe('Reconnected stations whose latest re-assert command was accepted'),
+            total: z
+              .number()
+              .int()
+              .describe('Distinct stations re-commanded offline after reconnecting mid-window'),
+          })
+          .passthrough()
+          .nullable()
+          .describe('Net re-assert outcome; null when no station reconnected mid-window'),
+        restored: z
+          .object({
+            accepted: z
+              .number()
+              .int()
+              .describe('Stations whose latest restore command was accepted'),
+            total: z.number().int().describe('Distinct stations commanded back into service'),
+          })
+          .passthrough()
+          .nullable()
+          .describe('Net restore outcome; null until a release run records results'),
+      })
+      .passthrough()
       .optional()
-      .describe('Per-phase worker fan-out summary (list endpoint only)'),
+      .describe(
+        'Per-station net fan-out outcome, aggregated by the latest command per station per direction (list endpoint only)',
+      ),
   })
   .passthrough();
 
@@ -204,6 +236,76 @@ const previewMessageBody = z.object({
   reason: z.string().max(500).optional(),
 });
 
+interface RolloutCount {
+  accepted: number;
+  total: number;
+}
+
+interface RolloutSummary {
+  offline: RolloutCount | null;
+  reasserted: RolloutCount | null;
+  restored: RolloutCount | null;
+}
+
+// Net per-station fan-out outcome for the rollout columns. Runs overlap per
+// station (a re-assert retries a station the enter run failed), so per-run
+// counts mislead; the truthful number is each station's LATEST command outcome
+// per bucket (initial offline, reassert, restore).
+async function loadRolloutSummaries(eventIds: string[]): Promise<Map<string, RolloutSummary>> {
+  const summaries = new Map<string, RolloutSummary>();
+  if (eventIds.length === 0) return summaries;
+  // postgres-js client (not drizzle sql) because the array must travel as a
+  // single Postgres array param for = ANY(); drizzle's template expands
+  // arrays into scalar params and breaks the query.
+  const agg = (await client`
+    SELECT event_id, bucket, count(*)::int AS total,
+           count(*) FILTER (WHERE command_status = 'accepted')::int AS accepted
+    FROM (
+      SELECT DISTINCT ON (
+          event_id, station_id_snapshot,
+          CASE
+            WHEN phase = 'reassert' THEN 'reasserted'
+            WHEN command LIKE '%Inoperative%' THEN 'offline'
+            ELSE 'restored'
+          END
+        )
+        event_id,
+        CASE
+          WHEN phase = 'reassert' THEN 'reasserted'
+          WHEN command LIKE '%Inoperative%' THEN 'offline'
+          ELSE 'restored'
+        END AS bucket,
+        command_status
+      FROM maintenance_event_stations
+      WHERE event_id = ANY(${eventIds})
+      ORDER BY
+        event_id, station_id_snapshot,
+        CASE
+          WHEN phase = 'reassert' THEN 'reasserted'
+          WHEN command LIKE '%Inoperative%' THEN 'offline'
+          ELSE 'restored'
+        END,
+        created_at DESC, id DESC
+    ) latest
+    GROUP BY event_id, bucket
+  `) as unknown as Array<{
+    event_id: string;
+    bucket: 'offline' | 'reasserted' | 'restored';
+    total: number;
+    accepted: number;
+  }>;
+  for (const row of agg) {
+    const entry = summaries.get(row.event_id) ?? {
+      offline: null,
+      reasserted: null,
+      restored: null,
+    };
+    entry[row.bucket] = { accepted: row.accepted, total: row.total };
+    summaries.set(row.event_id, entry);
+  }
+  return summaries;
+}
+
 async function checkSiteAccess(siteId: string, userId: string): Promise<boolean> {
   const siteIds = await getUserSiteIds(userId);
   if (siteIds == null) return true;
@@ -273,32 +375,12 @@ export function maintenanceRoutes(app: FastifyInstance): void {
           .from(maintenanceEvents)
           .where(and(...conditions)),
       ]);
-      // Per-phase worker fan-out summary so the history list can show what the
-      // fan-out actually did per run (start and end are separate worker runs).
-      const eventIds = data.map((e) => e.id);
-      const fanoutByEvent = new Map<
-        string,
-        Array<{ phase: string; total: number; accepted: number }>
-      >();
-      if (eventIds.length > 0) {
-        const agg = await db
-          .select({
-            eventId: maintenanceEventStations.eventId,
-            phase: maintenanceEventStations.phase,
-            total: sql<number>`count(*)::int`,
-            accepted: sql<number>`count(*) FILTER (WHERE ${maintenanceEventStations.commandStatus} = 'accepted')::int`,
-          })
-          .from(maintenanceEventStations)
-          .where(inArray(maintenanceEventStations.eventId, eventIds))
-          .groupBy(maintenanceEventStations.eventId, maintenanceEventStations.phase);
-        for (const row of agg) {
-          const list = fanoutByEvent.get(row.eventId) ?? [];
-          list.push({ phase: row.phase, total: row.total, accepted: row.accepted });
-          fanoutByEvent.set(row.eventId, list);
-        }
-      }
+      const rolloutByEvent = await loadRolloutSummaries(data.map((e) => e.id));
       return {
-        data: data.map((e) => ({ ...e, fanout: fanoutByEvent.get(e.id) ?? [] })),
+        data: data.map((e) => ({
+          ...e,
+          rollout: rolloutByEvent.get(e.id) ?? { offline: null, reasserted: null, restored: null },
+        })),
         total: totalRow[0]?.c ?? 0,
       };
     },
@@ -866,8 +948,19 @@ export function maintenanceRoutes(app: FastifyInstance): void {
           .orderBy(maintenanceEvents.plannedStartAt)
           .limit(20),
       ]);
+      const current = currentRows[0] ?? null;
+      // Rollout summary lets the UI show a rolling-out indicator while the
+      // worker fan-out is still commanding stations (no offline results yet).
+      const rollout =
+        current != null
+          ? ((await loadRolloutSummaries([current.id])).get(current.id) ?? {
+              offline: null,
+              reasserted: null,
+              restored: null,
+            })
+          : null;
       return {
-        current: currentRows[0] ?? null,
+        current: current != null ? { ...current, rollout } : null,
         upcoming: upcomingRows,
       };
     },
