@@ -82,6 +82,18 @@ const TABLE_DEFAULTS = [
     defaultDays: 30,
     cutoffColumn: 'completed_at',
   },
+  {
+    table: 'domain_events',
+    settingKey: 'logs.domainEvents.retentionDays',
+    defaultDays: 30,
+    cutoffColumn: 'occurred_at',
+  },
+  {
+    table: 'meter_values',
+    settingKey: 'logs.meterValues.retentionDays',
+    defaultDays: 90,
+    cutoffColumn: 'timestamp',
+  },
 ];
 
 beforeEach(() => {

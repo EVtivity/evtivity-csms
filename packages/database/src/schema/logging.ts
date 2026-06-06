@@ -39,7 +39,6 @@ export const ocppMessageLogs = pgTable(
     index('idx_ocpp_message_logs_station_id').on(table.stationId),
     index('idx_ocpp_message_logs_action').on(table.action),
     index('idx_ocpp_message_logs_created_at').on(table.createdAt),
-    index('idx_ocpp_message_logs_message_id').on(table.messageId),
   ],
 );
 

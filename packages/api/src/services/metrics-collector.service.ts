@@ -204,11 +204,14 @@ export async function collectBusinessMetrics(): Promise<void> {
       `),
 
       // Total heartbeats received (last 24h)
+      // ocpp.Heartbeat events are no longer archived in domain_events
+      // (persistence denylist); the message log carries the same frames.
       db.execute(sql`
         SELECT count(*)::int AS count
-        FROM domain_events
-        WHERE event_type = 'ocpp.Heartbeat'
-          AND occurred_at >= NOW() - INTERVAL '24 hours'
+        FROM ocpp_message_logs
+        WHERE action = 'Heartbeat'
+          AND direction = 'inbound'
+          AND created_at >= NOW() - INTERVAL '24 hours'
       `),
     ]);
 

@@ -110,7 +110,14 @@ export class OcppServer {
     this.correlator = new MessageCorrelator(this.logger);
     this.router = new MessageRouter(this.logger);
     this.eventBus =
-      options?.eventBus ?? new InMemoryEventBus(this.logger, options?.eventPersistence);
+      options?.eventBus ??
+      new InMemoryEventBus(this.logger, options?.eventPersistence, {
+        // Per-frame telemetry already lands in its own queryable table
+        // (ocpp_message_logs, meter_values, charging_stations.last_heartbeat)
+        // via projections; archiving it again in domain_events accounted for
+        // ~87% of that table's rows with no readers.
+        persistDenylist: ['ocpp.MessageLog', 'ocpp.MeterValues', 'ocpp.Heartbeat'],
+      });
     this.lifecycle = new MessageLifecycle(this.logger);
     this.dispatcher = new CommandDispatcher(this.connectionManager, this.correlator, this.logger);
     this.pingMonitor = new PingMonitor(this.connectionManager, this.logger);

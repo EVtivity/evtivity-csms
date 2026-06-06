@@ -243,6 +243,32 @@ export function registerProjections(
     },
   };
 
+  // Per-station debounce for the boot-time OCPP config push. A reconnect
+  // storm (server restart, crash loop) re-boots the whole fleet within
+  // seconds; re-pushing 5-7 config commands per station each time multiplies
+  // the storm. A station that legitimately reboots twice inside the window
+  // skips the second push; the free-vend enforcement is multi-layered
+  // (authorize handler + payment gate), so the worst case is tap-to-start
+  // until the next push, not a billing hole.
+  const BOOT_CONFIG_DEBOUNCE_MS = 10 * 60_000;
+  const bootConfigDebounceStore = new Map<string, number>();
+  function bootConfigRecentlyPushed(stationOcppId: string): boolean {
+    const expiresAt = bootConfigDebounceStore.get(stationOcppId);
+    if (expiresAt != null && Date.now() <= expiresAt) return true;
+    if (expiresAt != null) bootConfigDebounceStore.delete(stationOcppId);
+    return false;
+  }
+  function markBootConfigPushed(stationOcppId: string): void {
+    if (
+      bootConfigDebounceStore.size >= CACHE_MAX_SIZE &&
+      !bootConfigDebounceStore.has(stationOcppId)
+    ) {
+      const firstKey = bootConfigDebounceStore.keys().next().value;
+      if (firstKey != null) bootConfigDebounceStore.delete(firstKey);
+    }
+    bootConfigDebounceStore.set(stationOcppId, Date.now() + BOOT_CONFIG_DEBOUNCE_MS);
+  }
+
   const txBuffer = new TransactionBuffer({ logger });
 
   const SESSION_UPDATE_THROTTLE_MS = 15 * 60 * 1000;
@@ -1070,8 +1096,35 @@ export function registerProjections(
     const siteId = await resolveSiteId(stationUuid);
     await notifyChange('station.status', stationUuid, siteId);
 
+    // Refresh display-message slots before the config push: the push block
+    // below early-returns when debounced and must stay the LAST block in this
+    // handler.
+    try {
+      const [msgStationRow] = await sql`
+        SELECT ocpp_protocol FROM charging_stations WHERE id = ${stationUuid}
+      `;
+      const msgProtocol = msgStationRow?.ocpp_protocol as string | null;
+      if (msgProtocol != null && msgProtocol.startsWith('ocpp2')) {
+        await pubsub.publish(
+          'station_message_refresh',
+          JSON.stringify({
+            stationOcppId: event.aggregateId,
+            internalStationId: stationUuid,
+            ocppProtocol: msgProtocol,
+          }),
+        );
+      }
+    } catch (err) {
+      logger.debug({ err }, 'Station-message refresh publish failed; continuing');
+    }
+
     // Push OCPP configuration to station after boot
     try {
+      if (bootConfigRecentlyPushed(event.aggregateId)) {
+        logger.debug({ stationId: event.aggregateId }, 'Boot config push skipped: pushed recently');
+        return;
+      }
+      markBootConfigPushed(event.aggregateId);
       const meterValueInterval = await getMeterValueIntervalSeconds();
       const clockAlignedInterval = await getClockAlignedIntervalSeconds();
       const sampledMeasurands = await getSampledMeasurands();
@@ -1271,25 +1324,6 @@ export function registerProjections(
         { stationId: event.aggregateId, error: err instanceof Error ? err.message : String(err) },
         'Failed to push OCPP configuration on boot',
       );
-    }
-
-    try {
-      const [stationRow] = await sql`
-        SELECT ocpp_protocol FROM charging_stations WHERE id = ${stationUuid}
-      `;
-      const protocol = stationRow?.ocpp_protocol as string | null;
-      if (protocol != null && protocol.startsWith('ocpp2')) {
-        await pubsub.publish(
-          'station_message_refresh',
-          JSON.stringify({
-            stationOcppId: event.aggregateId,
-            internalStationId: stationUuid,
-            ocppProtocol: protocol,
-          }),
-        );
-      }
-    } catch (err) {
-      logger.debug({ err }, 'Station-message refresh publish failed; continuing');
     }
   });
 

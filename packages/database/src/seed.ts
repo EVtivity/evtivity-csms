@@ -509,6 +509,8 @@ async function seed(): Promise<void> {
     // low volume.
     'logs.access.retentionDays': 30,
     'logs.ocppMessage.retentionDays': 30,
+    'logs.domainEvents.retentionDays': 30,
+    'logs.meterValues.retentionDays': 90,
     'logs.connection.retentionDays': 90,
     'logs.notifications.retentionDays': 90,
     'logs.securityEvents.retentionDays': 365,

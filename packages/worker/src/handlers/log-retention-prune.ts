@@ -76,6 +76,22 @@ const LOG_TABLES: readonly LogTable[] = [
     defaultDays: 30,
     cutoffColumn: 'completed_at',
   },
+  {
+    table: 'domain_events',
+    settingKey: 'logs.domainEvents.retentionDays',
+    defaultDays: 30,
+    // `occurred_at` is indexed (idx_domain_events_occurred_at) and immutable.
+    cutoffColumn: 'occurred_at',
+  },
+  {
+    table: 'meter_values',
+    settingKey: 'logs.meterValues.retentionDays',
+    defaultDays: 90,
+    // `timestamp` is indexed (idx_meter_values_timestamp) and is the meter
+    // reading time, set on insert. Sessions read only recent rows; energy
+    // totals live on charging_sessions, so old samples are safe to drop.
+    cutoffColumn: 'timestamp',
+  },
 ];
 
 export async function logRetentionPruneHandler(log: Logger): Promise<void> {

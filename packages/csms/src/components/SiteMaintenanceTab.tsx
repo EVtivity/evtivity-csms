@@ -15,6 +15,7 @@ import { Select } from '@/components/ui/select';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { Pagination } from '@/components/ui/pagination';
+import { Spinner } from '@/components/ui/spinner';
 import { useToast } from '@/components/ui/toast';
 import {
   Table,
@@ -355,7 +356,7 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                       <p className="font-semibold text-sm">{t('maintenance.activeNow')}</p>
                       {cur.rollout?.offline == null && (
                         <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                          <Spinner />
                           {t('maintenance.rollingOut')}
                         </p>
                       )}

@@ -2,7 +2,6 @@
   "settings": {
     "system.name": "EVtivity CSMS",
     "system.timezone": "America/New_York",
-
     "ocpp.heartbeatInterval": 300,
     "ocpp.meterValueInterval": 60,
     "ocpp.clockAlignedInterval": 60,
@@ -13,9 +12,7 @@
     "ocpp.resetRetries": 3,
     "ocpp.offlineCommandTtlHours": 24,
     "ocpp.registrationPolicy": "approval-required",
-
     "security.autoDisableOnCritical": true,
-
     "company.name": "EVtivity",
     "company.currency": "USD",
     "company.contactEmail": "contact@evtivity.local",
@@ -31,7 +28,6 @@
     "company.ogImage": "",
     "company.portalUrl": "",
     "company.themeColor": "#2563eb",
-
     "pricing.currency": "USD",
     "pricing.splitBillingEnabled": true,
     "stationMessage.enabled": false,
@@ -41,40 +37,31 @@
     "stationMessage.brandLine": "",
     "idling.gracePeriodMinutes": 30,
     "session.staleTimeoutHours": 24,
-
     "maintenance.defaultMessageTemplate": "This site is temporarily unavailable for maintenance. {{reason}}",
-
     "notifications.emailEnabled": true,
-
     "smtp.host": "localhost",
     "smtp.port": 1025,
     "smtp.username": "",
     "smtp.password": "",
     "smtp.from": "noreply@evtivity.local",
-
     "twilio.accountSid": "",
     "twilio.authToken": "",
     "twilio.fromNumber": "",
-
     "s3.bucket": "",
     "s3.region": "",
     "s3.accessKeyId": "",
     "s3.secretAccessKey": "",
-
     "stripe.secretKey": "",
     "stripe.publishableKey": "",
     "stripe.currency": "USD",
     "stripe.preAuthAmountCents": 5000,
     "stripe.platformFeePercent": 0,
-
     "ftp.host": "ftp",
     "ftp.port": 21,
     "ftp.username": "evtivity",
     "ftp.password": "evtivity",
     "ftp.path": "/logs",
-
     "roaming.enabled": false,
-
     "pnc.enabled": false,
     "pnc.provider": "manual",
     "pnc.hubject.baseUrl": "",
@@ -83,7 +70,6 @@
     "pnc.hubject.tokenUrl": "",
     "pnc.expirationWarningDays": 30,
     "pnc.expirationCriticalDays": 7,
-
     "security.recaptcha.enabled": false,
     "security.recaptcha.siteKey": "",
     "security.recaptcha.secretKey": "",
@@ -91,20 +77,18 @@
     "security.mfa.emailEnabled": true,
     "security.mfa.totpEnabled": true,
     "security.mfa.smsEnabled": false,
-
     "portal.registrationEnabled": true,
-
     "audit.retentionDays": 1095,
     "refreshTokens.retentionDays": 30,
-
     "logs.access.retentionDays": 30,
     "logs.ocppMessage.retentionDays": 30,
+    "logs.domainEvents.retentionDays": 30,
+    "logs.meterValues.retentionDays": 90,
     "logs.connection.retentionDays": 90,
     "logs.notifications.retentionDays": 90,
     "logs.securityEvents.retentionDays": 365,
     "logs.portStatus.retentionDays": 30,
     "logs.workerJob.retentionDays": 30,
-
     "reservation.enabled": true,
     "reservation.bufferMinutes": 0,
     "reservation.cancellationWindowMinutes": 0,
@@ -114,27 +98,22 @@
     "fleet.enabled": true,
     "support.enabled": true,
     "guest.enabled": true,
-
     "ocpp.commandRetryMaxAttempts": 3,
     "ocpp.commandRetryBaseDelayMs": 1000,
     "ocpp.commandRetryMaxDelayMs": 30000,
     "smartCharging.iso15118Enabled": true,
     "smartCharging.defaultMaxPowerW": 22000,
-
     "sentry.enabled": false,
     "sentry.dsn": "",
     "sentry.environment": "production",
-
     "sustainability.gridEmissionFactor": "0.386",
     "sustainability.evEfficiency": "3.3",
     "sustainability.gasolineEmissionFactor": "8.887",
     "sustainability.avgMpg": "25.4",
-
     "googleMaps.apiKey": "",
     "googleMaps.defaultLat": "39.8283",
     "googleMaps.defaultLng": "-98.5795",
     "googleMaps.defaultZoom": "4",
-
     "chatbotAi.enabled": false,
     "chatbotAi.provider": "anthropic",
     "chatbotAi.apiKey": "",
@@ -143,7 +122,6 @@
     "chatbotAi.topP": "",
     "chatbotAi.topK": "",
     "chatbotAi.systemPrompt": "",
-
     "supportAi.enabled": true,
     "supportAi.provider": "",
     "supportAi.apiKey": "",
@@ -153,7 +131,6 @@
     "supportAi.topK": "",
     "supportAi.systemPrompt": "",
     "supportAi.tone": "professional",
-
     "sso.enabled": false,
     "sso.provider": "",
     "sso.entryPoint": "",

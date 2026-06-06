@@ -505,6 +505,20 @@
       "when": 1780714457034,
       "tag": "0071_maintenance_event_stations",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1780715457034,
+      "tag": "0072_seed_event_retention_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1780716457034,
+      "tag": "0073_meter_values_index_rationalization",
+      "breakpoints": true
     }
   ]
 }

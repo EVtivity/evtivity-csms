@@ -23,14 +23,25 @@ export interface EventBus {
   subscribe(eventType: string, handler: EventHandler): void;
 }
 
+export interface EventBusOptions {
+  // Event types to dispatch to subscribers but NOT archive via the
+  // persistence hook. High-volume telemetry types (per-frame message logs,
+  // meter values, heartbeats) have dedicated queryable tables written by
+  // their projections; archiving them again in domain_events tripled the
+  // database write load and grew an unread 10 GB table in days.
+  persistDenylist?: Iterable<string>;
+}
+
 export class InMemoryEventBus implements EventBus {
   private readonly handlers = new Map<string, EventHandler[]>();
   private readonly logger: Logger;
   private readonly persistence: EventPersistence | null;
+  private readonly persistDenylist: Set<string>;
 
-  constructor(logger: Logger, persistence?: EventPersistence) {
+  constructor(logger: Logger, persistence?: EventPersistence, options?: EventBusOptions) {
     this.logger = logger;
     this.persistence = persistence ?? null;
+    this.persistDenylist = new Set(options?.persistDenylist ?? []);
   }
 
   subscribe(eventType: string, handler: EventHandler): void {
@@ -45,7 +56,7 @@ export class InMemoryEventBus implements EventBus {
       occurredAt: event.occurredAt ?? new Date(),
     };
 
-    if (this.persistence != null) {
+    if (this.persistence != null && !this.persistDenylist.has(event.eventType)) {
       // Fail-open: domain-event persistence is an audit trail, not the source
       // of truth (projections update the domain tables). Callers fire publish
       // with `void`, so a rejection here is an unhandledRejection that kills

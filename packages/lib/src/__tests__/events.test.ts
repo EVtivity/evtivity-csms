@@ -95,6 +95,27 @@ describe('InMemoryEventBus', () => {
     expect(handler).toHaveBeenCalledOnce();
   });
 
+  it('skips persistence for denylisted event types but still dispatches handlers', async () => {
+    const persistence: EventPersistence = {
+      persist: vi.fn().mockResolvedValue(undefined),
+    };
+    const bus = new InMemoryEventBus(logger, persistence, {
+      persistDenylist: ['ocpp.MeterValues'],
+    });
+    const handler = vi.fn().mockResolvedValue(undefined);
+    bus.subscribe('ocpp.MeterValues', handler);
+    bus.subscribe('ocpp.StatusNotification', handler);
+
+    await bus.publish({ ...makeEvent(), eventType: 'ocpp.MeterValues' });
+    await bus.publish({ ...makeEvent(), eventType: 'ocpp.StatusNotification' });
+
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(persistence.persist).toHaveBeenCalledOnce();
+    expect((persistence.persist as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toMatchObject({
+      eventType: 'ocpp.StatusNotification',
+    });
+  });
+
   it('sets occurredAt if not provided', async () => {
     const bus = new InMemoryEventBus(logger);
     const handler = vi.fn().mockResolvedValue(undefined);

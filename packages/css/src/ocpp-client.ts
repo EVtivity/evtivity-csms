@@ -51,6 +51,12 @@ export class OcppClient {
 
   private static readonly BASE_RECONNECT_DELAY_MS = 2000;
   private static readonly MAX_RECONNECT_DELAY_MS = 300_000; // 5 minutes cap
+  // When the OCPP server restarts, every simulator in a 2000-station fleet
+  // sees the close at the same instant; with only the 20% backoff jitter they
+  // all reconnect (and re-run the full boot sequence) within ~2 seconds,
+  // which saturates postgres on the server side. The first attempt spreads
+  // uniformly over this window instead.
+  private static readonly RECONNECT_SPREAD_MS = 15_000;
   private static readonly CALL_TIMEOUT_MS = 30_000;
 
   constructor(options: OcppClientOptions) {
@@ -237,7 +243,8 @@ export class OcppClient {
         MAX_RECONNECT_DELAY_MS,
       );
       const jitter = Math.random() * delay * 0.2;
-      const waitMs = delay + jitter;
+      const spread = attempt === 1 ? Math.random() * OcppClient.RECONNECT_SPREAD_MS : 0;
+      const waitMs = delay + jitter + spread;
 
       console.log(
         `[${this._stationId}] Reconnect attempt ${String(attempt)} in ${String(Math.round(waitMs))}ms...`,

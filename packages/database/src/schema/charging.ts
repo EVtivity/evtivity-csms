@@ -141,8 +141,17 @@ export const meterValues = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index('idx_meter_values_station_id').on(table.stationId),
-    index('idx_meter_values_session_id').on(table.sessionId),
+    // Station-scoped reads always filter by measurand and a time window
+    // (load management power, sites totalDrawKw, station live data); the
+    // composite serves station-only lookups via its leading column, so a
+    // plain station_id index would be pure insert overhead. Same reasoning
+    // dropped the session_id-only index: the (session_id, measurand,
+    // timestamp) composite below covers session-only filters.
+    index('idx_meter_values_station_measurand_ts').on(
+      table.stationId,
+      table.measurand,
+      table.timestamp,
+    ),
     index('idx_meter_values_timestamp').on(table.timestamp),
     // Latest-reading-per-session lookups (e.g. station-message power refresh)
     // run `WHERE session_id = ? AND measurand = ? ORDER BY timestamp DESC
