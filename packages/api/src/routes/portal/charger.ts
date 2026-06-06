@@ -2196,7 +2196,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .from(reservations)
         .innerJoin(chargingStations, eq(reservations.stationId, chargingStations.id))
         .where(eq(reservations.driverId, driverId))
-        .orderBy(desc(reservations.createdAt))
+        .orderBy(desc(reservations.createdAt), desc(reservations.id))
         .limit(50);
 
       return { data };

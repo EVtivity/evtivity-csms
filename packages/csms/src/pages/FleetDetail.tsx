@@ -6,6 +6,7 @@ import { useTab } from '@/hooks/use-tab';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
+import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { CopyableId } from '@/components/copyable-id';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
@@ -57,6 +58,7 @@ export function FleetDetail(): React.JSX.Element {
           <h1 className="text-2xl md:text-3xl font-bold">{fleet.name}</h1>
           <CopyableId id={fleet.id} />
         </div>
+        <EntityNavButtons resource="fleets" basePath="/fleets" currentId={id} />
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>

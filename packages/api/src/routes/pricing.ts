@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, ne, count, sql } from 'drizzle-orm';
+import { eq, and, ne, count, sql, desc } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import {
   pricingGroups,
@@ -259,7 +259,10 @@ export function pricingRoutes(app: FastifyInstance): void {
       },
     },
     async () => {
-      return db.select().from(pricingGroups);
+      return db
+        .select()
+        .from(pricingGroups)
+        .orderBy(desc(pricingGroups.createdAt), desc(pricingGroups.id));
     },
   );
 
@@ -509,7 +512,10 @@ export function pricingRoutes(app: FastifyInstance): void {
       },
     },
     async () => {
-      const rows = await db.select().from(tariffs);
+      const rows = await db
+        .select()
+        .from(tariffs)
+        .orderBy(desc(tariffs.createdAt), desc(tariffs.id));
       return { data: rows, total: rows.length };
     },
   );
@@ -530,7 +536,11 @@ export function pricingRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { id } = request.params as z.infer<typeof groupParams>;
-      return db.select().from(tariffs).where(eq(tariffs.pricingGroupId, id));
+      return db
+        .select()
+        .from(tariffs)
+        .where(eq(tariffs.pricingGroupId, id))
+        .orderBy(desc(tariffs.createdAt), desc(tariffs.id));
     },
   );
 

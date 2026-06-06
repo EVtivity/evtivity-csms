@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Download, Mail, Printer } from 'lucide-react';
 import { BackButton } from '@/components/back-button';
+import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { API_BASE_URL } from '@/lib/config';
 import { DriverInvoice, INVOICE_STATUS_VARIANT } from '@/components/driver/DriverInvoicesTab';
 import { Badge } from '@/components/ui/badge';
@@ -218,6 +219,7 @@ export function InvoiceDetail(): React.JSX.Element {
               {t('invoices.voidInvoice')}
             </Button>
           )}
+          <EntityNavButtons resource="invoices" basePath="/invoices" currentId={id} />
         </div>
       </div>
 

@@ -394,7 +394,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         db
           .select()
           .from(chargingProfileTemplates)
-          .orderBy(desc(chargingProfileTemplates.createdAt))
+          .orderBy(desc(chargingProfileTemplates.createdAt), desc(chargingProfileTemplates.id))
           .limit(limit)
           .offset(offset),
         db.select({ total: count() }).from(chargingProfileTemplates),
@@ -1179,7 +1179,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
           .select()
           .from(chargingProfilePushes)
           .where(eq(chargingProfilePushes.templateId, id))
-          .orderBy(desc(chargingProfilePushes.createdAt))
+          .orderBy(desc(chargingProfilePushes.createdAt), desc(chargingProfilePushes.id))
           .limit(limit)
           .offset(offset),
         db

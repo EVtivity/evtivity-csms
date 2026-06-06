@@ -143,7 +143,7 @@ export function authorizeAttemptRoutes(app: FastifyInstance): void {
           .from(authorizeAttempts)
           .leftJoin(chargingStations, eq(chargingStations.stationId, authorizeAttempts.stationId))
           .where(where)
-          .orderBy(desc(authorizeAttempts.createdAt))
+          .orderBy(desc(authorizeAttempts.createdAt), desc(authorizeAttempts.id))
           .limit(limit)
           .offset(offset),
         db

@@ -90,7 +90,7 @@ export function ocpiSessionRoutes(app: FastifyInstance): void {
           .from(ocpiRoamingSessions)
           .leftJoin(ocpiPartners, eq(ocpiRoamingSessions.partnerId, ocpiPartners.id))
           .where(where)
-          .orderBy(desc(ocpiRoamingSessions.createdAt))
+          .orderBy(desc(ocpiRoamingSessions.createdAt), desc(ocpiRoamingSessions.id))
           .limit(limit)
           .offset(offset),
         db

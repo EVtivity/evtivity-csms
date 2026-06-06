@@ -203,7 +203,7 @@ export function localAuthListRoutes(app: FastifyInstance): void {
           .leftJoin(driverTokens, eq(stationLocalAuthEntries.driverTokenId, driverTokens.id))
           .leftJoin(drivers, eq(driverTokens.driverId, drivers.id))
           .where(eq(stationLocalAuthEntries.stationId, stationId))
-          .orderBy(desc(stationLocalAuthEntries.addedAt))
+          .orderBy(desc(stationLocalAuthEntries.addedAt), desc(stationLocalAuthEntries.id))
           .limit(limit)
           .offset(offset),
         db

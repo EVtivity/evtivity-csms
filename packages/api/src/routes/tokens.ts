@@ -331,7 +331,7 @@ export function tokenRoutes(app: FastifyInstance): void {
           .leftJoin(sites, eq(chargingStations.siteId, sites.id))
           .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
           .where(where)
-          .orderBy(desc(chargingSessions.createdAt))
+          .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))
           .limit(limit)
           .offset(offset),
         db

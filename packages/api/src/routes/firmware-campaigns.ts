@@ -219,7 +219,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         db
           .select()
           .from(firmwareCampaigns)
-          .orderBy(desc(firmwareCampaigns.createdAt))
+          .orderBy(desc(firmwareCampaigns.createdAt), desc(firmwareCampaigns.id))
           .limit(limit)
           .offset(offset),
         db.select({ total: count() }).from(firmwareCampaigns),

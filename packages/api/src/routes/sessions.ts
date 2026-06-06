@@ -380,7 +380,7 @@ export function sessionRoutes(app: FastifyInstance): void {
         .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
         .leftJoin(guestSessions, eq(guestSessions.chargingSessionId, chargingSessions.id))
         .where(where)
-        .orderBy(desc(chargingSessions.createdAt))
+        .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))
         .limit(limit)
         .offset(offset);
 

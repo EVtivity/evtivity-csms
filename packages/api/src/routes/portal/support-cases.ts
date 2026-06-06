@@ -230,7 +230,7 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
           })
           .from(supportCases)
           .where(eq(supportCases.driverId, driverId))
-          .orderBy(desc(supportCases.createdAt))
+          .orderBy(desc(supportCases.createdAt), desc(supportCases.id))
           .limit(limit)
           .offset(offset),
         db.select({ count: count() }).from(supportCases).where(eq(supportCases.driverId, driverId)),

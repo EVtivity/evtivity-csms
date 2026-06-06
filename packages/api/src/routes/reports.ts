@@ -181,7 +181,7 @@ export function reportRoutes(app: FastifyInstance): void {
           })
           .from(reports)
           .where(whereClause)
-          .orderBy(desc(reports.createdAt))
+          .orderBy(desc(reports.createdAt), desc(reports.id))
           .limit(limit)
           .offset(offset),
         db.select({ count: count() }).from(reports).where(whereClause),
@@ -393,7 +393,10 @@ export function reportRoutes(app: FastifyInstance): void {
       },
     },
     async () => {
-      const rows = await db.select().from(reportSchedules).orderBy(desc(reportSchedules.createdAt));
+      const rows = await db
+        .select()
+        .from(reportSchedules)
+        .orderBy(desc(reportSchedules.createdAt), desc(reportSchedules.id));
       return { data: rows };
     },
   );

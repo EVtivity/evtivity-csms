@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/table';
 import { FilterPopover } from '@/components/FilterBar';
 import { BackButton } from '@/components/back-button';
+import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { api } from '@/lib/api';
 
 interface OcttRun {
@@ -155,6 +156,7 @@ export function ConformanceDetail(): React.JSX.Element {
         <h1 className="text-2xl md:text-3xl font-bold">
           {t('conformance.runDetail')} #{run.id}
         </h1>
+        <EntityNavButtons resource="octt/runs" basePath="/conformance" currentId={runId} />
       </div>
 
       {/* Summary cards */}
@@ -455,7 +457,7 @@ function ResultRow({
         <TableCell data-testid="row-click-target">
           {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         </TableCell>
-        <TableCell className="text-xs">{result.testId}</TableCell>
+        <TableCell>{result.testId}</TableCell>
         <TableCell>{result.testName}</TableCell>
         <TableCell>{result.module}</TableCell>
         <TableCell>{testStatusBadge(result.status)}</TableCell>

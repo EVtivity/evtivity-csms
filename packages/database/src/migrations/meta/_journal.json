@@ -519,6 +519,13 @@
       "when": 1780716457034,
       "tag": "0073_meter_values_index_rationalization",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1780717457034,
+      "tag": "0074_ocpp_message_logs_station_indexes",
+      "breakpoints": true
     }
   ]
 }

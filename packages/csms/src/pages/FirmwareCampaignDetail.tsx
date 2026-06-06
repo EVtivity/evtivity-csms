@@ -5,6 +5,7 @@ import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
+import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { CopyableId } from '@/components/copyable-id';
 import {
   FirmwareCampaignDetailsTab,
@@ -69,6 +70,11 @@ export function FirmwareCampaignDetail(): React.JSX.Element {
           <CopyableId id={campaign.id} />
         </div>
         <Badge variant={STATUS_VARIANT[campaign.status] ?? 'outline'}>{campaign.status}</Badge>
+        <EntityNavButtons
+          resource="firmware-campaigns"
+          basePath="/firmware-campaigns"
+          currentId={id}
+        />
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>

@@ -93,7 +93,7 @@ export function portalVehicleRoutes(app: FastifyInstance): void {
         })
         .from(vehicles)
         .where(eq(vehicles.driverId, driverId))
-        .orderBy(desc(vehicles.createdAt), asc(vehicles.id));
+        .orderBy(desc(vehicles.createdAt), desc(vehicles.id));
     },
   );
 

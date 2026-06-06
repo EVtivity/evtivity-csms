@@ -5,6 +5,7 @@ import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
+import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { CopyableId } from '@/components/copyable-id';
 import { ConfigTemplateDetailsTab } from '@/components/config-template/DetailsTab';
 import type { TemplateDetail } from '@/components/config-template/DetailsTab';
@@ -57,6 +58,11 @@ export function ConfigTemplateDetail(): React.JSX.Element {
           <h1 className="text-2xl md:text-3xl font-bold">{template.name}</h1>
           <CopyableId id={template.id} />
         </div>
+        <EntityNavButtons
+          resource="config-templates"
+          basePath="/station-configurations"
+          currentId={id}
+        />
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>

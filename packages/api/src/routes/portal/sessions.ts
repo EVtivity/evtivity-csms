@@ -315,7 +315,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           .leftJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
           .leftJoin(sites, eq(chargingStations.siteId, sites.id))
           .where(whereClause)
-          .orderBy(desc(chargingSessions.startedAt))
+          .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))
           .limit(limit)
           .offset(offset),
         db

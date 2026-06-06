@@ -781,7 +781,7 @@ export function stationRoutes(app: FastifyInstance): void {
         // Stable sort: newest first, then id as tiebreaker so two rows with
         // the same createdAt millisecond don't swap order between pages and
         // cause the user to see duplicates or skips on the boundary.
-        .orderBy(desc(chargingStations.createdAt), chargingStations.id);
+        .orderBy(desc(chargingStations.createdAt), desc(chargingStations.id));
 
       const [data, countResult] = await Promise.all([
         baseQuery.limit(limit).offset(offset),
@@ -2919,7 +2919,7 @@ export function stationRoutes(app: FastifyInstance): void {
           .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
           .leftJoin(guestSessions, eq(guestSessions.chargingSessionId, chargingSessions.id))
           .where(where)
-          .orderBy(desc(chargingSessions.startedAt))
+          .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))
           .limit(limit)
           .offset(offset),
         db
@@ -2985,18 +2985,33 @@ export function stationRoutes(app: FastifyInstance): void {
           .select()
           .from(ocppMessageLogs)
           .where(where)
-          .orderBy(desc(ocppMessageLogs.createdAt))
+          .orderBy(desc(ocppMessageLogs.createdAt), desc(ocppMessageLogs.id))
           .limit(query.limit)
           .offset(offset),
         db
           .select({ count: sql<number>`count(*)::int` })
           .from(ocppMessageLogs)
           .where(where),
-        db
-          .selectDistinct({ action: ocppMessageLogs.action })
-          .from(ocppMessageLogs)
-          .where(eq(ocppMessageLogs.stationId, id))
-          .orderBy(ocppMessageLogs.action),
+        // Skip-scan emulation: a plain SELECT DISTINCT walks every log row for
+        // the station (~500ms at a few thousand rows, worse as the table
+        // grows); this recursive CTE probes the (station_id, action) index
+        // once per distinct action (~40 probes) regardless of row count.
+        db.execute<{ action: string | null }>(sql`
+          WITH RECURSIVE distinct_actions AS (
+            (SELECT action FROM ocpp_message_logs
+             WHERE station_id = ${id} AND action IS NOT NULL
+             ORDER BY action LIMIT 1)
+            UNION ALL
+            SELECT (
+              SELECT action FROM ocpp_message_logs
+              WHERE station_id = ${id} AND action > da.action
+              ORDER BY action LIMIT 1
+            )
+            FROM distinct_actions da
+            WHERE da.action IS NOT NULL
+          )
+          SELECT action FROM distinct_actions WHERE action IS NOT NULL
+        `),
       ]);
 
       return {
@@ -3502,7 +3517,7 @@ export function stationRoutes(app: FastifyInstance): void {
           .select()
           .from(stationCertificates)
           .where(where)
-          .orderBy(desc(stationCertificates.createdAt))
+          .orderBy(desc(stationCertificates.createdAt), desc(stationCertificates.id))
           .limit(query.limit)
           .offset(offset),
         db.select({ count: count() }).from(stationCertificates).where(where),
@@ -4500,7 +4515,7 @@ export function stationRoutes(app: FastifyInstance): void {
           .from(firmwareUpdates)
           .leftJoin(firmwareCampaigns, eq(firmwareCampaigns.id, firmwareUpdates.campaignId))
           .where(where)
-          .orderBy(desc(firmwareUpdates.createdAt))
+          .orderBy(desc(firmwareUpdates.createdAt), desc(firmwareUpdates.id))
           .limit(limit)
           .offset(offset),
         db.select({ total: count() }).from(firmwareUpdates).where(where),
@@ -4596,7 +4611,7 @@ export function stationRoutes(app: FastifyInstance): void {
           .from(chargingProfiles)
           .leftJoin(chargingProfileTemplates, eq(chargingProfileTemplates.profileId, profileIdExpr))
           .where(where)
-          .orderBy(desc(chargingProfiles.createdAt))
+          .orderBy(desc(chargingProfiles.createdAt), desc(chargingProfiles.id))
           .limit(limit)
           .offset(offset),
         db.select({ total: count() }).from(chargingProfiles).where(where),
@@ -5508,7 +5523,7 @@ export function stationRoutes(app: FastifyInstance): void {
           .select()
           .from(variableMonitoringRules)
           .where(where)
-          .orderBy(desc(variableMonitoringRules.createdAt))
+          .orderBy(desc(variableMonitoringRules.createdAt), desc(variableMonitoringRules.id))
           .limit(limit)
           .offset(offset),
         db.select({ total: count() }).from(variableMonitoringRules).where(where),
@@ -5786,7 +5801,7 @@ export function stationRoutes(app: FastifyInstance): void {
           .select()
           .from(eventAlerts)
           .where(where)
-          .orderBy(desc(eventAlerts.createdAt))
+          .orderBy(desc(eventAlerts.createdAt), desc(eventAlerts.id))
           .limit(limit)
           .offset(offset),
         db.select({ total: count() }).from(eventAlerts).where(where),

@@ -6,6 +6,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
+import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { Copy, Upload, Eraser } from 'lucide-react';
 import { EditButton } from '@/components/edit-button';
 import { RemoveButton } from '@/components/remove-button';
@@ -328,6 +329,11 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
           <h1 className="text-2xl md:text-3xl font-bold">{template.name}</h1>
           <CopyableId id={template.id} />
         </div>
+        <EntityNavButtons
+          resource="smart-charging/templates"
+          basePath="/smart-charging"
+          currentId={id}
+        />
       </div>
 
       <Card>

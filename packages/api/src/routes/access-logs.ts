@@ -193,7 +193,7 @@ export function accessLogRoutes(app: FastifyInstance): void {
           .leftJoin(users, eq(accessLogs.userId, users.id))
           .leftJoin(drivers, eq(accessLogs.driverId, drivers.id))
           .where(where)
-          .orderBy(desc(accessLogs.createdAt))
+          .orderBy(desc(accessLogs.createdAt), desc(accessLogs.id))
           .limit(limit)
           .offset(offset),
         db

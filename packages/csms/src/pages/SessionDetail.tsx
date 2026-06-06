@@ -6,6 +6,7 @@ import { useTab } from '@/hooks/use-tab';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
+import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { CopyableId } from '@/components/copyable-id';
 import { MeterValuesTable } from '@/components/MeterValuesTable';
 import { SessionDetailsTab } from '@/components/session/SessionDetailsTab';
@@ -149,6 +150,7 @@ export function SessionDetail(): React.JSX.Element {
             {t('sessions.reservationTokenMismatch')}
           </Badge>
         )}
+        <EntityNavButtons resource="sessions" basePath="/sessions" currentId={id} />
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>

@@ -749,7 +749,7 @@ export function notificationRoutes(app: FastifyInstance): void {
           .select()
           .from(notifications)
           .where(where)
-          .orderBy(desc(notifications.createdAt))
+          .orderBy(desc(notifications.createdAt), desc(notifications.id))
           .limit(params.limit)
           .offset(offset),
         db.select({ count: count() }).from(notifications).where(where),

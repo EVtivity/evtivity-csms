@@ -78,7 +78,7 @@ export async function listTokens(
       .from(driverTokens)
       .leftJoin(drivers, eq(driverTokens.driverId, drivers.id))
       .where(where)
-      .orderBy(desc(driverTokens.createdAt))
+      .orderBy(desc(driverTokens.createdAt), desc(driverTokens.id))
       .limit(limit)
       .offset(offset),
     db

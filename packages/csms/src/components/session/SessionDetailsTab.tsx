@@ -203,15 +203,10 @@ export function SessionDetailsTab({
             </Row>
             {session.token != null && (
               <Row label={t('sessions.token')}>
-                <Link
-                  to={`/tokens/${session.token.id}`}
-                  className="text-primary hover:underline text-xs"
-                >
+                <Link to={`/tokens/${session.token.id}`} className="text-primary hover:underline">
                   {session.token.idToken}
                 </Link>
-                <span className="ml-2 text-xs text-muted-foreground">
-                  {session.token.tokenType}
-                </span>
+                <span className="ml-2 text-muted-foreground">{session.token.tokenType}</span>
               </Row>
             )}
             <Row label={t('sessions.stoppedReason')}>{session.stoppedReason ?? 'n/a'}</Row>

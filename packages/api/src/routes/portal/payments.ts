@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, asc, sql } from 'drizzle-orm';
+import { eq, and, asc, desc, sql } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { drivers, driverPaymentMethods } from '@evtivity/database';
 import { zodSchema } from '../../lib/zod-schema.js';
@@ -118,7 +118,8 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
       const internalRows = await db
         .select()
         .from(driverPaymentMethods)
-        .where(eq(driverPaymentMethods.driverId, driverId));
+        .where(eq(driverPaymentMethods.driverId, driverId))
+        .orderBy(desc(driverPaymentMethods.createdAt), desc(driverPaymentMethods.id));
 
       // Backfill cardBrand/cardLast4 from Stripe for legacy rows where the
       // frontend stored null (the SetupIntent.payment_method was a string ID,

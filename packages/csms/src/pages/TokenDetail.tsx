@@ -6,6 +6,7 @@ import { useTab } from '@/hooks/use-tab';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
+import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { CopyableId } from '@/components/copyable-id';
 import { Badge } from '@/components/ui/badge';
@@ -73,6 +74,7 @@ export function TokenDetail(): React.JSX.Element {
         <Badge variant={token.isActive ? 'default' : 'outline'}>
           {token.isActive ? t('common.active') : t('common.inactive')}
         </Badge>
+        <EntityNavButtons resource="tokens" basePath="/tokens" currentId={id} />
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>

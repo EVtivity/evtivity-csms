@@ -303,7 +303,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         db
           .select()
           .from(configTemplates)
-          .orderBy(desc(configTemplates.createdAt))
+          .orderBy(desc(configTemplates.createdAt), desc(configTemplates.id))
           .limit(limit)
           .offset(offset),
         db.select({ total: count() }).from(configTemplates),
@@ -809,7 +809,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
           .select()
           .from(configTemplatePushes)
           .where(eq(configTemplatePushes.templateId, id))
-          .orderBy(desc(configTemplatePushes.createdAt))
+          .orderBy(desc(configTemplatePushes.createdAt), desc(configTemplatePushes.id))
           .limit(limit)
           .offset(offset),
         db

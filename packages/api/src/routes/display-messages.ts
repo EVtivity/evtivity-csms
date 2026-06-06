@@ -141,7 +141,7 @@ export function displayMessageRoutes(app: FastifyInstance): void {
           .select()
           .from(displayMessages)
           .where(where)
-          .orderBy(desc(displayMessages.createdAt))
+          .orderBy(desc(displayMessages.createdAt), desc(displayMessages.id))
           .limit(limit)
           .offset(offset),
         db.select({ count: count() }).from(displayMessages).where(where),

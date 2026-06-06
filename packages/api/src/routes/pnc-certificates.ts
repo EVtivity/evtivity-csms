@@ -232,7 +232,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
           .select()
           .from(pkiCaCertificates)
           .where(where)
-          .orderBy(desc(pkiCaCertificates.createdAt))
+          .orderBy(desc(pkiCaCertificates.createdAt), desc(pkiCaCertificates.id))
           .limit(query.limit)
           .offset(offset),
         db.select({ count: count() }).from(pkiCaCertificates).where(where),
@@ -607,7 +607,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
           .select()
           .from(stationCertificates)
           .where(where)
-          .orderBy(desc(stationCertificates.createdAt))
+          .orderBy(desc(stationCertificates.createdAt), desc(stationCertificates.id))
           .limit(query.limit)
           .offset(offset),
         db.select({ count: count() }).from(stationCertificates).where(where),

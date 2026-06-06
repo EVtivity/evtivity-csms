@@ -6,6 +6,7 @@ import { useTab } from '@/hooks/use-tab';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
+import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { CopyableId } from '@/components/copyable-id';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { PricingGroupDetailsTab } from '@/components/pricing/PricingGroupDetailsTab';
@@ -48,6 +49,7 @@ export function PricingGroupDetail(): React.JSX.Element {
           <h1 className="text-2xl font-bold md:text-3xl">{group.name}</h1>
           <CopyableId id={group.id} />
         </div>
+        <EntityNavButtons resource="pricing-groups" basePath="/pricing" currentId={id} />
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>

@@ -184,7 +184,7 @@ export function MaintenanceEventStations(): React.JSX.Element {
                     <TableRow key={r.id} data-testid={`maintenance-station-row-${String(r.id)}`}>
                       <TableCell className="font-medium">{r.stationOcppId}</TableCell>
                       <TableCell>{t(phaseI18nKey(r.phase))}</TableCell>
-                      <TableCell className="text-xs">{r.command}</TableCell>
+                      <TableCell>{r.command}</TableCell>
                       <TableCell>
                         <Badge variant={COMMAND_STATUS_VARIANT[r.commandStatus] ?? 'outline'}>
                           {r.commandStatus}

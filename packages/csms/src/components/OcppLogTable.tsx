@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { Spinner } from '@/components/ui/spinner';
 import {
   Table,
   TableBody,
@@ -41,6 +42,7 @@ export interface OcppLogTableProps {
   onPageChange: (page: number) => void;
   timezone: string;
   emptyMessage: string;
+  isLoading?: boolean;
   rowTestIdPrefix?: string;
   showStationColumn?: boolean;
   showResponseTimeColumn?: boolean;
@@ -63,6 +65,7 @@ export function OcppLogTable({
   onPageChange,
   timezone,
   emptyMessage,
+  isLoading = false,
   rowTestIdPrefix = 'ocpp-log-row',
   showStationColumn = false,
   showResponseTimeColumn = false,
@@ -104,7 +107,11 @@ export function OcppLogTable({
         </div>
       </CardHeader>
       <CardContent>
-        {entries.length === 0 ? (
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <Spinner className="h-6 w-6" />
+          </div>
+        ) : entries.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">{emptyMessage}</p>
         ) : (
           <>
@@ -139,17 +146,12 @@ export function OcppLogTable({
                             setExpandedId(isExpanded ? null : log.id);
                           }}
                         >
-                          <TableCell
-                            className="whitespace-nowrap text-xs"
-                            data-testid="row-click-target"
-                          >
+                          <TableCell className="whitespace-nowrap" data-testid="row-click-target">
                             {formatDateTime(log.createdAt, timezone)}
                           </TableCell>
-                          {showStationColumn && (
-                            <TableCell className="text-xs">{log.stationOcppId ?? 'n/a'}</TableCell>
-                          )}
+                          {showStationColumn && <TableCell>{log.stationOcppId ?? 'n/a'}</TableCell>}
                           <TableCell>
-                            <span className="flex items-center gap-1 text-xs">
+                            <span className="flex items-center gap-1">
                               <span className="font-medium text-blue-600 dark:text-blue-400">
                                 CSMS
                               </span>
@@ -171,7 +173,7 @@ export function OcppLogTable({
                             </Badge>
                           </TableCell>
                           {showResponseTimeColumn && (
-                            <TableCell className="text-right text-xs">
+                            <TableCell className="text-right">
                               {log.responseTimeMs != null
                                 ? `${String(log.responseTimeMs)}ms`
                                 : 'n/a'}

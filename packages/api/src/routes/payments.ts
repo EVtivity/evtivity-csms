@@ -1683,7 +1683,7 @@ export function paymentRoutes(app: FastifyInstance): void {
         db
           .select()
           .from(paymentReconciliationRuns)
-          .orderBy(desc(paymentReconciliationRuns.createdAt))
+          .orderBy(desc(paymentReconciliationRuns.createdAt), desc(paymentReconciliationRuns.id))
           .limit(limit)
           .offset(offset),
         db.select({ count: sql<number>`count(*)::int` }).from(paymentReconciliationRuns),

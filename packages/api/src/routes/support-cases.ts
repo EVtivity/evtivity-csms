@@ -450,7 +450,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
           .leftJoin(drivers, eq(supportCases.driverId, drivers.id))
           .leftJoin(users, eq(supportCases.assignedTo, users.id))
           .where(where)
-          .orderBy(desc(supportCases.createdAt))
+          .orderBy(desc(supportCases.createdAt), desc(supportCases.id))
           .limit(limit)
           .offset(offset),
         db.select({ count: count() }).from(supportCases).where(where),

@@ -160,7 +160,7 @@ export const authorizeAttempts = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index('idx_authorize_attempts_station_id').on(table.stationId),
+    index('idx_authorize_attempts_station_created_at').on(table.stationId, table.createdAt),
     index('idx_authorize_attempts_id_token').on(table.idToken),
     index('idx_authorize_attempts_outcome').on(table.outcome),
     index('idx_authorize_attempts_created_at').on(table.createdAt),

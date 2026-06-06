@@ -36,7 +36,11 @@ export const ocppMessageLogs = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index('idx_ocpp_message_logs_station_id').on(table.stationId),
+    // The log viewer pages per station ordered by time and builds its action
+    // filter per station; both composites serve station-only lookups via the
+    // leading column, so a plain station_id index would be insert overhead.
+    index('idx_ocpp_message_logs_station_created_at').on(table.stationId, table.createdAt),
+    index('idx_ocpp_message_logs_station_action').on(table.stationId, table.action),
     index('idx_ocpp_message_logs_action').on(table.action),
     index('idx_ocpp_message_logs_created_at').on(table.createdAt),
   ],
@@ -56,7 +60,9 @@ export const connectionLogs = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index('idx_connection_logs_station_id').on(table.stationId),
+    // The security/connection log pages per station ordered by time; the
+    // composite serves station-only lookups via its leading column.
+    index('idx_connection_logs_station_created_at').on(table.stationId, table.createdAt),
     index('idx_connection_logs_created_at').on(table.createdAt),
   ],
 );
@@ -137,7 +143,10 @@ export const portStatusLog = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index('idx_port_status_log_station_id').on(table.stationId),
+    // Uptime/NEVI queries are always `station_id + timestamp window`
+    // (station metrics, dashboard uptime, snapshot cron); the composite also
+    // serves station-only lookups via its leading column.
+    index('idx_port_status_log_station_timestamp').on(table.stationId, table.timestamp),
     index('idx_port_status_log_timestamp').on(table.timestamp),
     index('idx_port_status_log_station_evse').on(table.stationId, table.evseId),
   ],

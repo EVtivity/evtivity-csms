@@ -6,6 +6,7 @@ import { useTab } from '@/hooks/use-tab';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
+import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { CopyableId } from '@/components/copyable-id';
 import { CreateButton } from '@/components/create-button';
 import { Badge } from '@/components/ui/badge';
@@ -112,6 +113,7 @@ export function DriverDetail(): React.JSX.Element {
         <Badge variant={driver.isActive ? 'default' : 'outline'}>
           {driver.isActive ? t('common.active') : t('common.inactive')}
         </Badge>
+        <EntityNavButtons resource="drivers" basePath="/drivers" currentId={id} />
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>

@@ -406,7 +406,7 @@ export function reservationRoutes(app: FastifyInstance): void {
           .leftJoin(evses, eq(reservations.evseId, evses.id))
           .leftJoin(chargingSessions, eq(chargingSessions.reservationId, reservations.id))
           .where(where)
-          .orderBy(desc(reservations.createdAt))
+          .orderBy(desc(reservations.createdAt), desc(reservations.id))
           .limit(limit)
           .offset(offset),
         db
@@ -591,7 +591,7 @@ export function reservationRoutes(app: FastifyInstance): void {
           .leftJoin(users, eq(users.id, reservationAuditLog.actorUserId))
           .leftJoin(drivers, eq(drivers.id, reservationAuditLog.actorDriverId))
           .where(eq(reservationAuditLog.reservationId, id))
-          .orderBy(desc(reservationAuditLog.createdAt))
+          .orderBy(desc(reservationAuditLog.createdAt), desc(reservationAuditLog.id))
           .limit(limit)
           .offset(offset),
         db
@@ -749,7 +749,7 @@ export function reservationRoutes(app: FastifyInstance): void {
           .from(ocppMessageLogs)
           .leftJoin(chargingStations, eq(ocppMessageLogs.stationId, chargingStations.id))
           .where(conditions)
-          .orderBy(desc(ocppMessageLogs.createdAt))
+          .orderBy(desc(ocppMessageLogs.createdAt), desc(ocppMessageLogs.id))
           .limit(limit)
           .offset(offset),
         db.select({ count: count() }).from(ocppMessageLogs).where(conditions),

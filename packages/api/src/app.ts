@@ -24,6 +24,7 @@ import { registerRateLimit } from './plugins/rate-limit.js';
 import { registerAuth } from './plugins/auth.js';
 import { config } from './lib/config.js';
 import { registerOpenApi } from './plugins/openapi.js';
+import { registerResponseCache, cacheRoutes } from './plugins/response-cache.js';
 import { healthRoutes } from './routes/health.js';
 import { siteRoutes } from './routes/sites.js';
 import { stationRoutes } from './routes/stations.js';
@@ -97,6 +98,7 @@ import { unmanagedLoadRoutes } from './routes/unmanaged-loads.js';
 import { assistantRoutes } from './routes/assistant.js';
 import { octtRoutes } from './routes/octt.js';
 import { auditRoutes } from './routes/audit.js';
+import { entityNeighborRoutes } from './routes/entity-neighbors.js';
 
 function csrfTokensMatch(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -121,6 +123,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
   await registerRateLimit(app);
   await registerAuth(app);
   await registerOpenApi(app);
+  registerResponseCache(app);
 
   // Error handler
   app.setErrorHandler((error: unknown, _request, reply) => {
@@ -241,6 +244,8 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(assistantRoutes);
       await v1.register(octtRoutes);
       await v1.register(auditRoutes);
+      await v1.register(cacheRoutes);
+      await v1.register(entityNeighborRoutes);
     },
     { prefix: '/v1' },
   );

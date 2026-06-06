@@ -193,7 +193,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
           .select()
           .from(ocpiPartners)
           .where(where)
-          .orderBy(desc(ocpiPartners.createdAt))
+          .orderBy(desc(ocpiPartners.createdAt), desc(ocpiPartners.id))
           .limit(limit)
           .offset(offset),
         db
@@ -664,7 +664,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
           })
           .from(ocpiSyncLog)
           .where(where)
-          .orderBy(desc(ocpiSyncLog.createdAt))
+          .orderBy(desc(ocpiSyncLog.createdAt), desc(ocpiSyncLog.id))
           .limit(limit)
           .offset(offset),
         db

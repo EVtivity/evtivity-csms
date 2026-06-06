@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, asc, sql, inArray } from 'drizzle-orm';
+import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import {
   driverFavoriteStations,
@@ -82,7 +82,7 @@ export function portalFavoriteRoutes(app: FastifyInstance): void {
         .innerJoin(chargingStations, eq(driverFavoriteStations.stationId, chargingStations.id))
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
         .where(eq(driverFavoriteStations.driverId, driverId))
-        .orderBy(asc(driverFavoriteStations.createdAt));
+        .orderBy(desc(driverFavoriteStations.createdAt), desc(driverFavoriteStations.id));
 
       // Batch fetch EVSE counts
       const stationUuids = rows.map((r) => r.stationUuid);

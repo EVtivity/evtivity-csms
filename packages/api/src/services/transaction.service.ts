@@ -30,7 +30,11 @@ export async function listTransactionEvents(
     .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id));
 
   const [data, countRows] = await Promise.all([
-    baseQuery.where(where).orderBy(desc(transactionEvents.createdAt)).limit(limit).offset(offset),
+    baseQuery
+      .where(where)
+      .orderBy(desc(transactionEvents.createdAt), desc(transactionEvents.id))
+      .limit(limit)
+      .offset(offset),
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(transactionEvents)

@@ -49,7 +49,7 @@ export async function listFleets(params: PaginationParams) {
       .leftJoin(fleetStations, eq(fleetStations.fleetId, fleets.id))
       .where(where)
       .groupBy(fleets.id)
-      .orderBy(desc(fleets.createdAt))
+      .orderBy(desc(fleets.createdAt), desc(fleets.id))
       .limit(limit)
       .offset(offset),
     db
@@ -105,9 +105,7 @@ export async function getFleetDrivers(fleetId: string, page: number, limit: numb
       .from(fleetDrivers)
       .innerJoin(drivers, eq(fleetDrivers.driverId, drivers.id))
       .where(eq(fleetDrivers.fleetId, fleetId))
-      // Secondary sort on id keeps pagination stable when two drivers
-      // share a first name (without it, rows can shuffle between pages).
-      .orderBy(drivers.firstName, drivers.id)
+      .orderBy(desc(drivers.createdAt), desc(drivers.id))
       .limit(limit)
       .offset(offset),
     db
@@ -149,33 +147,29 @@ export async function getFleetStations(fleetId: string) {
     ELSE 'unavailable'
   END`;
 
-  return (
-    db
-      .select({
-        id: chargingStations.id,
-        stationId: chargingStations.stationId,
-        siteId: chargingStations.siteId,
-        model: chargingStations.model,
-        securityProfile: chargingStations.securityProfile,
-        ocppProtocol: chargingStations.ocppProtocol,
-        status: derivedStatus,
-        connectorCount: sql<number>`COUNT(${connectors.id})::int`,
-        connectorTypes: sql<
-          string[]
-        >`array_agg(DISTINCT ${connectors.connectorType}) FILTER (WHERE ${connectors.connectorType} IS NOT NULL)`,
-        isOnline: chargingStations.isOnline,
-        lastHeartbeat: chargingStations.lastHeartbeat,
-      })
-      .from(fleetStations)
-      .innerJoin(chargingStations, eq(fleetStations.stationId, chargingStations.id))
-      .leftJoin(evses, eq(evses.stationId, chargingStations.id))
-      .leftJoin(connectors, eq(connectors.evseId, evses.id))
-      .where(eq(fleetStations.fleetId, fleetId))
-      .groupBy(chargingStations.id)
-      // Stable ordering — UI displays this list and rows would otherwise
-      // shuffle between requests. Matches the getFleetDrivers pattern.
-      .orderBy(chargingStations.stationId, chargingStations.id)
-  );
+  return db
+    .select({
+      id: chargingStations.id,
+      stationId: chargingStations.stationId,
+      siteId: chargingStations.siteId,
+      model: chargingStations.model,
+      securityProfile: chargingStations.securityProfile,
+      ocppProtocol: chargingStations.ocppProtocol,
+      status: derivedStatus,
+      connectorCount: sql<number>`COUNT(${connectors.id})::int`,
+      connectorTypes: sql<
+        string[]
+      >`array_agg(DISTINCT ${connectors.connectorType}) FILTER (WHERE ${connectors.connectorType} IS NOT NULL)`,
+      isOnline: chargingStations.isOnline,
+      lastHeartbeat: chargingStations.lastHeartbeat,
+    })
+    .from(fleetStations)
+    .innerJoin(chargingStations, eq(fleetStations.stationId, chargingStations.id))
+    .leftJoin(evses, eq(evses.stationId, chargingStations.id))
+    .leftJoin(connectors, eq(connectors.evseId, evses.id))
+    .where(eq(fleetStations.fleetId, fleetId))
+    .groupBy(chargingStations.id)
+    .orderBy(desc(chargingStations.createdAt), desc(chargingStations.id));
 }
 
 export async function addStationToFleet(fleetId: string, stationId: string) {
@@ -216,7 +210,7 @@ export async function getFleetVehicles(fleetId: string, page: number, limit: num
       .innerJoin(drivers, eq(fleetDrivers.driverId, drivers.id))
       .innerJoin(vehicles, eq(vehicles.driverId, drivers.id))
       .where(eq(fleetDrivers.fleetId, fleetId))
-      .orderBy(drivers.firstName)
+      .orderBy(desc(vehicles.createdAt), desc(vehicles.id))
       .limit(limit)
       .offset(offset),
     db
@@ -288,7 +282,7 @@ export async function getFleetSessions(fleetId: string, page: number, limit: num
       .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
       .leftJoin(sites, eq(chargingStations.siteId, sites.id))
       .where(driverFilter)
-      .orderBy(desc(chargingSessions.startedAt))
+      .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))
       .limit(limit)
       .offset(offset),
     db

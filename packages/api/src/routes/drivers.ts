@@ -320,7 +320,7 @@ export function driverRoutes(app: FastifyInstance): void {
           .from(drivers)
           .where(where)
           // Stable ordering so pagination doesn't shuffle rows between pages.
-          .orderBy(desc(drivers.createdAt), asc(drivers.id))
+          .orderBy(desc(drivers.createdAt), desc(drivers.id))
           .limit(limit)
           .offset(offset),
         db
@@ -555,7 +555,7 @@ export function driverRoutes(app: FastifyInstance): void {
         .select()
         .from(driverTokens)
         .where(eq(driverTokens.driverId, id))
-        .orderBy(desc(driverTokens.createdAt), asc(driverTokens.id));
+        .orderBy(desc(driverTokens.createdAt), desc(driverTokens.id));
     },
   );
 
@@ -619,7 +619,7 @@ export function driverRoutes(app: FastifyInstance): void {
         .select()
         .from(vehicles)
         .where(eq(vehicles.driverId, id))
-        .orderBy(desc(vehicles.createdAt), asc(vehicles.id));
+        .orderBy(desc(vehicles.createdAt), desc(vehicles.id));
     },
   );
 
@@ -1013,7 +1013,7 @@ export function driverRoutes(app: FastifyInstance): void {
           .leftJoin(sites, eq(chargingStations.siteId, sites.id))
           .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
           .where(where)
-          .orderBy(desc(chargingSessions.startedAt))
+          .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))
           .limit(limit)
           .offset(offset),
         db
@@ -1082,7 +1082,7 @@ export function driverRoutes(app: FastifyInstance): void {
           .innerJoin(chargingStations, eq(reservations.stationId, chargingStations.id))
           .leftJoin(sites, eq(chargingStations.siteId, sites.id))
           .where(where)
-          .orderBy(desc(reservations.createdAt))
+          .orderBy(desc(reservations.createdAt), desc(reservations.id))
           .limit(limit)
           .offset(offset),
         db

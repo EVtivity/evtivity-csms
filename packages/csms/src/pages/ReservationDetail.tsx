@@ -5,6 +5,7 @@ import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
+import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { CopyableId } from '@/components/copyable-id';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -110,6 +111,7 @@ export function ReservationDetail(): React.JSX.Element {
         <Badge variant={reservationStatusVariant(reservation.status)}>
           {getStatusLabel(reservation.status, t as (key: string) => string)}
         </Badge>
+        <EntityNavButtons resource="reservations" basePath="/reservations" currentId={id} />
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>

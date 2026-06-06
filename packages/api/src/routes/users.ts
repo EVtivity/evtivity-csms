@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { eq, and, or, isNull, ilike, sql, inArray } from 'drizzle-orm';
+import { eq, and, or, isNull, ilike, sql, inArray, desc } from 'drizzle-orm';
 import argon2 from 'argon2';
 import { db, client, getMfaConfig, writeAudit, userAuditLog } from '@evtivity/database';
 import {
@@ -1114,7 +1114,13 @@ export function userRoutes(app: FastifyInstance): void {
       const where = conditions.length > 0 ? and(...conditions) : undefined;
 
       const [data, countRows] = await Promise.all([
-        db.select(userSelect).from(users).where(where).limit(limit).offset(offset),
+        db
+          .select(userSelect)
+          .from(users)
+          .where(where)
+          .orderBy(desc(users.createdAt), desc(users.id))
+          .limit(limit)
+          .offset(offset),
         db
           .select({ count: sql<number>`count(*)::int` })
           .from(users)

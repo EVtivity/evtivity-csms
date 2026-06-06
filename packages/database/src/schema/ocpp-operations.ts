@@ -79,7 +79,9 @@ export const securityEvents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index('idx_security_events_station_id').on(table.stationId),
+    // The security log pages per station ordered by time; the composite
+    // serves station-only lookups via its leading column.
+    index('idx_security_events_station_timestamp').on(table.stationId, table.timestamp),
     index('idx_security_events_type').on(table.type),
     index('idx_security_events_severity').on(table.severity),
     index('idx_security_events_timestamp').on(table.timestamp),
@@ -100,7 +102,7 @@ export const stationEvents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index('idx_station_events_station_id').on(table.stationId),
+    index('idx_station_events_station_generated_at').on(table.stationId, table.generatedAt),
     index('idx_station_events_generated_at').on(table.generatedAt),
   ],
 );

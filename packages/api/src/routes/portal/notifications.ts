@@ -73,7 +73,7 @@ export function portalNotificationRoutes(app: FastifyInstance): void {
           })
           .from(notifications)
           .where(baseFilter)
-          .orderBy(desc(notifications.createdAt))
+          .orderBy(desc(notifications.createdAt), desc(notifications.id))
           .limit(limit)
           .offset(offset),
         db

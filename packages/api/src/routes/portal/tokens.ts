@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { driverTokens } from '@evtivity/database';
 import * as tokenService from '../../services/token.service.js';
@@ -84,7 +84,8 @@ export function portalTokenRoutes(app: FastifyInstance): void {
           createdAt: driverTokens.createdAt,
         })
         .from(driverTokens)
-        .where(eq(driverTokens.driverId, driverId));
+        .where(eq(driverTokens.driverId, driverId))
+        .orderBy(desc(driverTokens.createdAt), desc(driverTokens.id));
     },
   );
 

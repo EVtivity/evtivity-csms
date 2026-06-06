@@ -156,7 +156,7 @@ export function octtRoutes(app: FastifyInstance): void {
           .select()
           .from(octtRuns)
           .where(where)
-          .orderBy(desc(octtRuns.createdAt))
+          .orderBy(desc(octtRuns.createdAt), desc(octtRuns.id))
           .limit(query.limit)
           .offset(query.offset),
         db

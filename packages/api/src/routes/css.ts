@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, count, sql, inArray, or, isNull } from 'drizzle-orm';
+import { eq, and, count, sql, inArray, or, isNull, desc } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import {
   cssStations,
@@ -1194,7 +1194,7 @@ export function cssRoutes(app: FastifyInstance): void {
           .from(cssStations)
           .leftJoin(chargingStations, eq(chargingStations.stationId, cssStations.stationId))
           .where(accessCondition)
-          .orderBy(cssStations.createdAt)
+          .orderBy(desc(cssStations.createdAt), desc(cssStations.id))
           .limit(limit)
           .offset(offset),
         db

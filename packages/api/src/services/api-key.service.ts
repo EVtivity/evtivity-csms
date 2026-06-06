@@ -82,7 +82,7 @@ export async function listApiKeys(userId: string): Promise<ApiKeyRow[]> {
         isNull(refreshTokens.revokedAt),
       ),
     )
-    .orderBy(desc(refreshTokens.createdAt));
+    .orderBy(desc(refreshTokens.createdAt), desc(refreshTokens.id));
 }
 
 export async function revokeApiKey(id: number, userId: string): Promise<boolean> {

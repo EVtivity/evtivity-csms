@@ -101,7 +101,7 @@ export function ocpiCdrRoutes(app: FastifyInstance): void {
           .from(ocpiCdrs)
           .leftJoin(ocpiPartners, eq(ocpiCdrs.partnerId, ocpiPartners.id))
           .where(where)
-          .orderBy(desc(ocpiCdrs.createdAt))
+          .orderBy(desc(ocpiCdrs.createdAt), desc(ocpiCdrs.id))
           .limit(limit)
           .offset(offset),
         db

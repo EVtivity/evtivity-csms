@@ -201,8 +201,8 @@ export function AuthorizeLogView({
                         )}
                       </TableCell>
                     )}
-                    <TableCell className="text-xs">{row.idToken}</TableCell>
-                    <TableCell className="text-xs">{row.tokenType ?? 'n/a'}</TableCell>
+                    <TableCell>{row.idToken}</TableCell>
+                    <TableCell>{row.tokenType ?? 'n/a'}</TableCell>
                     <TableCell>
                       <Badge variant={outcomeVariant(row.outcome)}>{row.outcome}</Badge>
                     </TableCell>
@@ -214,7 +214,7 @@ export function AuthorizeLogView({
                         {row.matchedTokenId != null ? (
                           <Link
                             to={`/tokens/${row.matchedTokenId}`}
-                            className="text-primary hover:underline text-xs"
+                            className="text-primary hover:underline"
                           >
                             {row.matchedTokenId}
                           </Link>
@@ -228,7 +228,7 @@ export function AuthorizeLogView({
                         {row.sessionId != null ? (
                           <Link
                             to={`/sessions/${row.sessionId}`}
-                            className="text-primary hover:underline text-xs"
+                            className="text-primary hover:underline"
                           >
                             {row.sessionId}
                           </Link>

@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { CopyableId } from '@/components/copyable-id';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
@@ -143,6 +144,7 @@ export function RoamingPartnerDetail(): React.JSX.Element {
               {t('roaming.partners.disconnect')}
             </Button>
           )}
+          <EntityNavButtons resource="ocpi/partners" basePath="/roaming/partners" currentId={id} />
         </div>
       </div>
 

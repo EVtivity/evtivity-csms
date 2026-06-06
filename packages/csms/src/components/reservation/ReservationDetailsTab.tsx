@@ -477,7 +477,7 @@ export function ReservationDetailsTab({
                       to={`/tokens/${reservation.tokenId}`}
                       className="text-primary hover:underline"
                     >
-                      <span className="text-xs">{reservation.tokenIdToken}</span>
+                      <span>{reservation.tokenIdToken}</span>
                       {reservation.tokenType != null && (
                         <span className="ml-1 text-xs text-muted-foreground">
                           ({reservation.tokenType})

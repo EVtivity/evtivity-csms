@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import { RotateCcw, Search, X } from 'lucide-react';
 import { BackButton } from '@/components/back-button';
+import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { AddIconButton } from '@/components/add-icon-button';
 import { CopyableId } from '@/components/copyable-id';
 import { RefundButton } from '@/components/refund-button';
@@ -259,6 +260,7 @@ export function SupportCaseDetail(): React.JSX.Element {
           <CopyableId id={caseDetail.id} />
         </div>
         <Badge>{t(`supportCases.statuses.${caseDetail.status}`, caseDetail.status)}</Badge>
+        <EntityNavButtons resource="support-cases" basePath="/support-cases" currentId={id} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -246,7 +246,7 @@ export function StationLocalAuthList({
                 <TableBody>
                   {entries.map((entry) => (
                     <TableRow key={entry.id}>
-                      <TableCell className="text-xs">{entry.idToken}</TableCell>
+                      <TableCell>{entry.idToken}</TableCell>
                       <TableCell>{entry.tokenType}</TableCell>
                       <TableCell>{entry.driverName ?? 'n/a'}</TableCell>
                       <TableCell>

@@ -6,6 +6,7 @@ import { useTab } from '@/hooks/use-tab';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
+import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { CopyableId } from '@/components/copyable-id';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -170,6 +171,7 @@ export function StationDetail(): React.JSX.Element {
             <Badge variant="destructive">{t('status.blocked')}</Badge>
           )}
         </div>
+        <EntityNavButtons resource="stations" basePath="/stations" currentId={id} />
       </div>
 
       {station.onboardingStatus === 'pending' && (

@@ -114,7 +114,7 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
           .leftJoin(tariffs, eq(ocpiTariffMappings.tariffId, tariffs.id))
           .leftJoin(ocpiPartners, eq(ocpiTariffMappings.partnerId, ocpiPartners.id))
           .where(where)
-          .orderBy(desc(ocpiTariffMappings.createdAt))
+          .orderBy(desc(ocpiTariffMappings.createdAt), desc(ocpiTariffMappings.id))
           .limit(limit)
           .offset(offset),
         db

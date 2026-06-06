@@ -7,6 +7,7 @@ import { useTab } from '@/hooks/use-tab';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
+import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { CopyableId } from '@/components/copyable-id';
 import { CreateButton } from '@/components/create-button';
 import { Badge } from '@/components/ui/badge';
@@ -189,6 +190,7 @@ export function SiteDetail(): React.JSX.Element {
           </div>
           <CopyableId id={site.id} />
         </div>
+        <EntityNavButtons resource="sites" basePath="/sites" currentId={id} />
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>

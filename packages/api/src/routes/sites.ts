@@ -612,6 +612,7 @@ export function siteRoutes(app: FastifyInstance): void {
           .leftJoin(siteLoadManagement, eq(siteLoadManagement.siteId, sites.id))
           .where(where)
           .groupBy(sites.id, siteLoadManagement.isEnabled)
+          .orderBy(desc(sites.createdAt), desc(sites.id))
           .limit(limit)
           .offset(offset),
         db
@@ -1576,7 +1577,7 @@ export function siteRoutes(app: FastifyInstance): void {
           .leftJoin(sites, eq(chargingStations.siteId, sites.id))
           .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
           .where(where)
-          .orderBy(desc(chargingSessions.startedAt))
+          .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))
           .limit(limit)
           .offset(offset),
         db

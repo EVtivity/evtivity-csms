@@ -170,7 +170,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
           })
           .from(invoices)
           .where(whereClause)
-          .orderBy(desc(invoices.createdAt))
+          .orderBy(desc(invoices.createdAt), desc(invoices.id))
           .limit(limit)
           .offset(offset),
         db.select({ count: count() }).from(invoices).where(whereClause),
