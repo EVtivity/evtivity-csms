@@ -93,6 +93,7 @@ export interface Station {
   isOnline: boolean;
   isSimulator?: boolean;
   siteFreeVendEnabled?: boolean;
+  underMaintenance?: boolean;
   lastHeartbeat: string | null;
   createdAt: string;
 }
@@ -446,6 +447,11 @@ export function StationsTable({
                     {station.siteFreeVendEnabled === true && (
                       <Badge variant="info" className="text-[10px] px-1.5 py-0">
                         {t('stations.freeVend')}
+                      </Badge>
+                    )}
+                    {station.underMaintenance === true && (
+                      <Badge variant="warning" className="text-[10px] px-1.5 py-0">
+                        {t('nav.maintenance')}
                       </Badge>
                     )}
                   </span>

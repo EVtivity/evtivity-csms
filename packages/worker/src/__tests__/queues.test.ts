@@ -23,7 +23,7 @@ describe('createQueues', () => {
     vi.clearAllMocks();
   });
 
-  it('creates all five queues with the expected names', async () => {
+  it('creates all six queues with the expected names', async () => {
     const { createQueues, QUEUE_NAMES } = await import('../queues.js');
     const queues = createQueues('redis://localhost:6379');
 
@@ -32,6 +32,7 @@ describe('createQueues', () => {
     expect(queues.guestSessionQueue).toBeDefined();
     expect(queues.reservationQueue).toBeDefined();
     expect(queues.octtQueue).toBeDefined();
+    expect(queues.maintenanceFanoutQueue).toBeDefined();
 
     const names = queueCalls.map((c) => c.name);
     expect(names).toEqual([
@@ -40,6 +41,7 @@ describe('createQueues', () => {
       QUEUE_NAMES.GUEST_SESSION_EVENTS,
       QUEUE_NAMES.RESERVATIONS,
       QUEUE_NAMES.OCTT,
+      QUEUE_NAMES.MAINTENANCE_FANOUT,
     ]);
     expect(names).toEqual([
       'cron-jobs',
@@ -47,6 +49,7 @@ describe('createQueues', () => {
       'guest-session-events',
       'reservations',
       'octt',
+      'maintenance-fanout',
     ]);
   });
 
@@ -55,7 +58,7 @@ describe('createQueues', () => {
     const { createQueues } = await import('../queues.js');
     createQueues('redis://localhost:6379');
 
-    expect(createBullMQConnection).toHaveBeenCalledTimes(5);
+    expect(createBullMQConnection).toHaveBeenCalledTimes(6);
     expect(createBullMQConnection).toHaveBeenCalledWith('redis://localhost:6379');
     for (const call of queueCalls) {
       expect(call.opts.connection).toBe(mockConnection);
@@ -79,6 +82,11 @@ describe('createQueues', () => {
     expect(byName['octt']?.['defaultJobOptions']).toEqual({
       removeOnComplete: 50,
       removeOnFail: { count: 100 },
+    });
+    expect(byName['maintenance-fanout']?.['defaultJobOptions']).toEqual({
+      removeOnComplete: 100,
+      removeOnFail: { count: 500 },
+      attempts: 1,
     });
   });
 

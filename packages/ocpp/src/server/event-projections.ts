@@ -863,6 +863,40 @@ export function registerProjections(
         logger.debug({ err, stationOcppId }, 'Station-message refresh publish failed; continuing');
       }
     }
+
+    // Re-assert active maintenance. A station that was offline during the
+    // maintenance fan-out (or rebooted and lost state) reconnects reporting
+    // Available; without this it stays operative for the rest of the window.
+    // The worker bridge picks this up and re-sends ChangeAvailability
+    // (Inoperative) plus the maintenance display message for this station.
+    try {
+      const maintRows = await sql`
+        SELECT me.id
+        FROM maintenance_events me
+        JOIN charging_stations cs ON cs.site_id = me.site_id
+        WHERE cs.id = ${stationUuid}
+          AND me.status = 'active'
+          AND me.planned_start_at < now() AND me.planned_end_at > now()
+          AND (me.affected_station_ids IS NULL
+               OR me.affected_station_ids = '{}'::text[]
+               OR ${stationUuid} = ANY(me.affected_station_ids))
+        LIMIT 1
+      `;
+      const activeEvent = maintRows[0];
+      if (activeEvent != null) {
+        await pubsub.publish(
+          'maintenance_fanout',
+          JSON.stringify({
+            eventId: activeEvent.id as string,
+            phase: 'reassert',
+            stationDbIds: [stationUuid],
+            nonce: Date.now().toString(36),
+          }),
+        );
+      }
+    } catch (err) {
+      logger.warn({ err, stationOcppId }, 'Maintenance re-assert publish failed; continuing');
+    }
   });
 
   safeSubscribe('station.Disconnected', async (event: DomainEvent) => {

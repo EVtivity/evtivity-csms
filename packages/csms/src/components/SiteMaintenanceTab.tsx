@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -12,6 +13,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select } from '@/components/ui/select';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { Tooltip } from '@/components/ui/tooltip';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import {
@@ -41,6 +44,21 @@ interface MaintenanceEvent {
   reason: string | null;
   reservationsCancelledCount: number;
   sessionsStoppedCount: number;
+  fanout?: Array<{ phase: string; total: number; accepted: number }>;
+}
+
+const PHASE_I18N_KEY = {
+  enter: 'maintenance.phaseEnter',
+  exit: 'maintenance.phaseExit',
+  cancel: 'maintenance.phaseCancel',
+  release: 'maintenance.phaseRelease',
+  add: 'maintenance.phaseAdd',
+  'remove-stations': 'maintenance.phaseRemoveStations',
+  reassert: 'maintenance.phaseReassert',
+} as const;
+
+function phaseI18nKey(phase: string): (typeof PHASE_I18N_KEY)[keyof typeof PHASE_I18N_KEY] {
+  return PHASE_I18N_KEY[(phase in PHASE_I18N_KEY ? phase : 'enter') as keyof typeof PHASE_I18N_KEY];
 }
 
 interface StationPreviewRow {
@@ -87,6 +105,7 @@ function toDatetimeLocal(d: Date): string {
 export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('maintenance:write');
 
@@ -703,6 +722,12 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                   <TableHead>{t('maintenance.colEnd')}</TableHead>
                   <TableHead>{t('maintenance.colStatus')}</TableHead>
                   <TableHead>{t('maintenance.colType')}</TableHead>
+                  <TableHead>
+                    <span className="inline-flex items-center gap-1">
+                      {t('maintenance.colRollout')}
+                      <InfoTooltip content={t('maintenance.rolloutHint')} />
+                    </span>
+                  </TableHead>
                   <TableHead>{t('maintenance.reason')}</TableHead>
                   <TableHead className="text-right">
                     {t('maintenance.colSessionsStopped')}
@@ -715,14 +740,23 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
               <TableBody>
                 {events.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
+                    <TableCell colSpan={8} className="text-center text-muted-foreground py-6">
                       {t('maintenance.empty')}
                     </TableCell>
                   </TableRow>
                 ) : (
                   events.map((e) => (
-                    <TableRow key={e.id}>
-                      <TableCell>{formatDateTime(e.plannedStartAt, timezone)}</TableCell>
+                    <TableRow
+                      key={e.id}
+                      className="cursor-pointer"
+                      data-testid={`maintenance-row-${e.id}`}
+                      onClick={() => {
+                        void navigate(`/sites/${siteId}/maintenance/${e.id}`);
+                      }}
+                    >
+                      <TableCell data-testid="row-click-target">
+                        {formatDateTime(e.plannedStartAt, timezone)}
+                      </TableCell>
                       <TableCell>{formatDateTime(e.plannedEndAt, timezone)}</TableCell>
                       <TableCell>
                         <Badge variant="outline">{t(STATUS_I18N_KEY[e.status])}</Badge>
@@ -731,6 +765,35 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                         {e.eventType === 'immediate'
                           ? t('maintenance.typeImmediate')
                           : t('maintenance.typeOneOff')}
+                      </TableCell>
+                      <TableCell>
+                        {e.fanout != null && e.fanout.length > 0 ? (
+                          <span className="inline-flex flex-wrap items-center gap-1">
+                            {e.fanout.map((f) => (
+                              <Tooltip
+                                key={f.phase}
+                                content={t('maintenance.rolloutChipTooltip', {
+                                  phase: t(phaseI18nKey(f.phase)),
+                                  accepted: f.accepted,
+                                  total: f.total,
+                                })}
+                              >
+                                <Badge
+                                  variant={f.accepted === f.total ? 'success' : 'warning'}
+                                  className="text-[10px] px-1.5 py-0 whitespace-nowrap"
+                                >
+                                  {t(phaseI18nKey(f.phase))} {f.accepted}/{f.total}
+                                </Badge>
+                              </Tooltip>
+                            ))}
+                          </span>
+                        ) : e.status === 'active' || e.status === 'scheduled' ? (
+                          <span className="text-muted-foreground text-sm">
+                            {t('maintenance.rolloutPending')}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="max-w-xs truncate" title={e.reason ?? ''}>
                         {e.reason != null && e.reason.length > 0 ? (

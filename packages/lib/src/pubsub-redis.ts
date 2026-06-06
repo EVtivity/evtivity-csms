@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { Redis } from 'ioredis';
+import { createLogger } from './logger.js';
 import type { PubSubClient, Subscription } from './pubsub.js';
+
+const logger = createLogger('pubsub-redis');
 
 export class RedisPubSubClient implements PubSubClient {
   private readonly publisher: Redis;
@@ -16,8 +19,18 @@ export class RedisPubSubClient implements PubSubClient {
     this.subscriber.on('message', (channel: string, message: string) => {
       const channelHandlers = this.handlers.get(channel);
       if (channelHandlers == null) return;
+      // Each handler runs inside its own try/catch. ioredis dispatches this
+      // 'message' event synchronously from inside the subscriber connection's
+      // packet parse loop; a handler throwing here (e.g. an SSE writer hitting a
+      // half-closed socket) would otherwise escape parse and drop any
+      // subscribe/unsubscribe replies riding the same TCP packet, wedging every
+      // later subscribe() on the shared connection forever.
       for (const handler of channelHandlers) {
-        handler(message);
+        try {
+          handler(message);
+        } catch (err: unknown) {
+          logger.warn({ err, channel }, 'pubsub message handler threw; isolating');
+        }
       }
     });
   }

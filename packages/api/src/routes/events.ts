@@ -4,8 +4,12 @@
 import type { FastifyInstance } from 'fastify';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Subscription } from '@evtivity/lib';
+import { createLogger } from '@evtivity/lib';
 import { getPubSub } from '../lib/pubsub.js';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { writeSseClient } from '../lib/sse-broadcast.js';
+
+const logger = createLogger('events-sse');
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
 const EVENTS_CHANNEL = 'csms_events';
@@ -20,6 +24,16 @@ let nextClientId = 1;
 const clients = new Set<SseClient>();
 let subscription: Subscription | null = null;
 let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+
+export function writeToClient(client: SseClient, payload: string): void {
+  writeSseClient({
+    client,
+    payload,
+    logger,
+    onDeadClient: removeClient,
+    describe: (c) => ({ clientId: c.id }),
+  });
+}
 
 async function ensureListener(): Promise<void> {
   if (subscription != null) return;
@@ -43,7 +57,7 @@ async function ensureListener(): Promise<void> {
         eventSiteId == null ||
         client.allowedSiteIds.includes(eventSiteId)
       ) {
-        client.reply.raw.write(message);
+        writeToClient(client, message);
       }
     }
   });
@@ -51,7 +65,7 @@ async function ensureListener(): Promise<void> {
   keepaliveTimer = setInterval(() => {
     const comment = `: keepalive\n\n`;
     for (const client of clients) {
-      client.reply.raw.write(comment);
+      writeToClient(client, comment);
     }
   }, KEEPALIVE_INTERVAL_MS);
 }

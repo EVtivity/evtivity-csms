@@ -4,7 +4,11 @@
 import type { FastifyInstance } from 'fastify';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Subscription } from '@evtivity/lib';
+import { createLogger } from '@evtivity/lib';
 import { getPubSub } from '../../lib/pubsub.js';
+import { writeSseClient } from '../../lib/sse-broadcast.js';
+
+const logger = createLogger('portal-events-sse');
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
 const PORTAL_EVENTS_CHANNEL = 'portal_events';
@@ -19,6 +23,16 @@ let nextClientId = 1;
 const clients = new Set<PortalSseClient>();
 let subscription: Subscription | null = null;
 let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+
+export function writeToClient(client: PortalSseClient, payload: string): void {
+  writeSseClient({
+    client,
+    payload,
+    logger,
+    onDeadClient: removeClient,
+    describe: (c) => ({ clientId: c.id, driverId: c.driverId }),
+  });
+}
 
 async function ensureListener(): Promise<void> {
   if (subscription != null) return;
@@ -35,7 +49,7 @@ async function ensureListener(): Promise<void> {
     const message = `data: ${payload}\n\n`;
     for (const client of clients) {
       if (parsed.driverId === client.driverId) {
-        client.reply.raw.write(message);
+        writeToClient(client, message);
       }
     }
   });
@@ -43,7 +57,7 @@ async function ensureListener(): Promise<void> {
   keepaliveTimer = setInterval(() => {
     const comment = `: keepalive\n\n`;
     for (const client of clients) {
-      client.reply.raw.write(comment);
+      writeToClient(client, comment);
     }
   }, KEEPALIVE_INTERVAL_MS);
 }

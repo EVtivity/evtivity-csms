@@ -446,7 +446,7 @@ export class SimulatorManager {
           await sim.sendHeartbeat();
           break;
         case 'sendStatusNotification':
-          await sim.sendStatusNotification(
+          await sim.dispatchStatusNotification(
             params.evseId as number,
             params.connectorId as number,
             params.status as string,

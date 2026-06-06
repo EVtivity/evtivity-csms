@@ -9,6 +9,7 @@ import {
   db,
   client,
   maintenanceEvents,
+  maintenanceEventStations,
   chargingStations,
   chargingSessions,
   reservations,
@@ -69,8 +70,55 @@ const maintenanceItem = z
     createdByUserId: z.string().nullable().describe('Operator who created the event'),
     createdAt: z.coerce.date().describe('Created at'),
     updatedAt: z.coerce.date().describe('Updated at'),
+    fanout: z
+      .array(
+        z
+          .object({
+            phase: z
+              .string()
+              .describe('Fan-out phase (enter, exit, cancel, add, remove-stations, reassert)'),
+            total: z.number().int().describe('Stations commanded in this phase'),
+            accepted: z.number().int().describe('Stations that accepted the command'),
+          })
+          .passthrough(),
+      )
+      .optional()
+      .describe('Per-phase worker fan-out summary (list endpoint only)'),
   })
   .passthrough();
+
+const fanoutStationItem = z
+  .object({
+    id: z.number().int().describe('Tracking row ID'),
+    eventId: z.string().describe('Maintenance event ID'),
+    stationId: z.string().nullable().describe('Station DB ID (null when station was deleted)'),
+    stationIdSnapshot: z.string().describe('Station DB ID snapshot preserved across deletes'),
+    stationOcppId: z.string().describe('Station OCPP identity (e.g. CS-0001)'),
+    phase: z.string().describe('Fan-out phase that produced this row'),
+    command: z.string().describe('OCPP command sent (e.g. ChangeAvailability(Inoperative))'),
+    commandStatus: z
+      .string()
+      .describe('Command outcome: accepted, rejected, scheduled, offline, or failed'),
+    error: z.string().nullable().describe('Error detail when the command did not succeed'),
+    statusBefore: z
+      .string()
+      .nullable()
+      .describe('Derived station status captured before the fan-out'),
+    statusAfter: z
+      .string()
+      .nullable()
+      .describe('Derived station status captured after the fan-out completed'),
+    currentStatus: z
+      .string()
+      .nullable()
+      .describe('Live derived station status right now (null when the station was deleted)'),
+    createdAt: z.coerce.date().describe('When the fan-out recorded this row'),
+  })
+  .passthrough();
+
+const fanoutStationsQuery = paginationQuery.extend({
+  phase: z.string().max(20).optional().describe('Filter by fan-out phase'),
+});
 
 const listQuery = paginationQuery.extend({
   status: z
@@ -225,6 +273,110 @@ export function maintenanceRoutes(app: FastifyInstance): void {
           .from(maintenanceEvents)
           .where(and(...conditions)),
       ]);
+      // Per-phase worker fan-out summary so the history list can show what the
+      // fan-out actually did per run (start and end are separate worker runs).
+      const eventIds = data.map((e) => e.id);
+      const fanoutByEvent = new Map<
+        string,
+        Array<{ phase: string; total: number; accepted: number }>
+      >();
+      if (eventIds.length > 0) {
+        const agg = await db
+          .select({
+            eventId: maintenanceEventStations.eventId,
+            phase: maintenanceEventStations.phase,
+            total: sql<number>`count(*)::int`,
+            accepted: sql<number>`count(*) FILTER (WHERE ${maintenanceEventStations.commandStatus} = 'accepted')::int`,
+          })
+          .from(maintenanceEventStations)
+          .where(inArray(maintenanceEventStations.eventId, eventIds))
+          .groupBy(maintenanceEventStations.eventId, maintenanceEventStations.phase);
+        for (const row of agg) {
+          const list = fanoutByEvent.get(row.eventId) ?? [];
+          list.push({ phase: row.phase, total: row.total, accepted: row.accepted });
+          fanoutByEvent.set(row.eventId, list);
+        }
+      }
+      return {
+        data: data.map((e) => ({ ...e, fanout: fanoutByEvent.get(e.id) ?? [] })),
+        total: totalRow[0]?.c ?? 0,
+      };
+    },
+  );
+
+  app.get(
+    '/sites/:siteId/maintenance/events/:id/stations',
+    {
+      onRequest: [authorize('maintenance:read')],
+      schema: {
+        tags: ['Maintenance'],
+        summary: 'Per-station fan-out results for a maintenance event',
+        description:
+          'Lists the OCPP command outcome recorded for every station in every fan-out phase of the event (enter, exit, cancel, add, remove-stations, reassert), including the derived station status before and after each run.',
+        operationId: 'listMaintenanceEventStations',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(eventIdParams),
+        querystring: zodSchema(fanoutStationsQuery),
+        response: {
+          200: paginatedResponse(fanoutStationItem),
+          404: errorWith('Not found', [
+            ERROR_CODES.SITE_NOT_FOUND,
+            ERROR_CODES.MAINTENANCE_NOT_FOUND,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { siteId, id } = request.params as z.infer<typeof eventIdParams>;
+      const q = request.query as z.infer<typeof fanoutStationsQuery>;
+      const { userId } = request.user as { userId: string };
+      if (!(await checkSiteAccess(siteId, userId))) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
+      if (!(await eventBelongsToSite(id, siteId))) {
+        await reply
+          .status(404)
+          .send({ error: 'Maintenance event not found', code: 'MAINTENANCE_NOT_FOUND' });
+        return;
+      }
+      const conditions = [eq(maintenanceEventStations.eventId, id)];
+      if (q.phase != null) conditions.push(eq(maintenanceEventStations.phase, q.phase));
+      const offset = (q.page - 1) * q.limit;
+      // currentStatus is the live derived status: the stored statusAfter is a
+      // snapshot taken shortly after the fan-out and can lag the station's
+      // StatusNotification, so the live value is the ground truth the UI shows
+      // alongside it.
+      const [data, totalRow] = await Promise.all([
+        db
+          .select({
+            id: maintenanceEventStations.id,
+            eventId: maintenanceEventStations.eventId,
+            stationId: maintenanceEventStations.stationId,
+            stationIdSnapshot: maintenanceEventStations.stationIdSnapshot,
+            stationOcppId: maintenanceEventStations.stationOcppId,
+            phase: maintenanceEventStations.phase,
+            command: maintenanceEventStations.command,
+            commandStatus: maintenanceEventStations.commandStatus,
+            error: maintenanceEventStations.error,
+            statusBefore: maintenanceEventStations.statusBefore,
+            statusAfter: maintenanceEventStations.statusAfter,
+            currentStatus: sql<
+              string | null
+            >`CASE WHEN ${chargingStations.id} IS NULL THEN NULL ELSE ${buildDerivedStatusSubquery(chargingStations.id)} END`,
+            createdAt: maintenanceEventStations.createdAt,
+          })
+          .from(maintenanceEventStations)
+          .leftJoin(chargingStations, eq(chargingStations.id, maintenanceEventStations.stationId))
+          .where(and(...conditions))
+          .orderBy(desc(maintenanceEventStations.createdAt), desc(maintenanceEventStations.id))
+          .limit(q.limit)
+          .offset(offset),
+        db
+          .select({ c: sql<number>`count(*)` })
+          .from(maintenanceEventStations)
+          .where(and(...conditions)),
+      ]);
       return { data, total: totalRow[0]?.c ?? 0 };
     },
   );
@@ -292,18 +444,21 @@ export function maintenanceRoutes(app: FastifyInstance): void {
         body.eventType === 'immediate' ? new Date() : new Date(body.plannedStartAt);
       const plannedEndAt = new Date(body.plannedEndAt);
       try {
-        const created = await createEvent({
-          siteId,
-          eventType: body.eventType,
-          plannedStartAt,
-          plannedEndAt,
-          affectedStationIds: body.affectedStationIds ?? null,
-          activeSessionPolicy: body.activeSessionPolicy,
-          customMessage: body.customMessage ?? null,
-          reason: body.reason ?? null,
-          actor: { type: 'operator', userId },
-          logger: request.log,
-        });
+        const created = await createEvent(
+          {
+            siteId,
+            eventType: body.eventType,
+            plannedStartAt,
+            plannedEndAt,
+            affectedStationIds: body.affectedStationIds ?? null,
+            activeSessionPolicy: body.activeSessionPolicy,
+            customMessage: body.customMessage ?? null,
+            reason: body.reason ?? null,
+            actor: { type: 'operator', userId },
+            logger: request.log,
+          },
+          { detachSideEffects: true },
+        );
         return created;
       } catch (err) {
         if (err instanceof AppError) {
@@ -506,7 +661,9 @@ export function maintenanceRoutes(app: FastifyInstance): void {
         return;
       }
       try {
-        return await cancelEvent(id, { type: 'operator', userId }, request.log);
+        return await cancelEvent(id, { type: 'operator', userId }, request.log, {
+          detachSideEffects: true,
+        });
       } catch (err) {
         if (err instanceof AppError && err.statusCode === 404) {
           await reply.status(404).send({ error: err.message, code: err.code });
@@ -566,6 +723,7 @@ export function maintenanceRoutes(app: FastifyInstance): void {
           body.stationIds,
           { type: 'operator', userId },
           request.log,
+          { detachSideEffects: true },
         );
       } catch (err) {
         if (err instanceof AppError) {
@@ -636,6 +794,7 @@ export function maintenanceRoutes(app: FastifyInstance): void {
           body.stationIds,
           { type: 'operator', userId },
           request.log,
+          { detachSideEffects: true },
         );
       } catch (err) {
         if (err instanceof AppError) {

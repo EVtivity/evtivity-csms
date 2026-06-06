@@ -80,6 +80,21 @@ describe('InMemoryEventBus', () => {
     expect(persistence.persist).toHaveBeenCalledBefore(handler);
   });
 
+  it('still dispatches handlers when persistence fails (fail-open)', async () => {
+    const persistence: EventPersistence = {
+      persist: vi.fn().mockRejectedValue(new Error('CONNECT_TIMEOUT')),
+    };
+    const bus = new InMemoryEventBus(logger, persistence);
+    const handler = vi.fn().mockResolvedValue(undefined);
+
+    bus.subscribe('test.event', handler);
+    // Must not reject: callers fire publish with `void`, so a rejection here
+    // becomes an unhandledRejection that kills the process.
+    await expect(bus.publish(makeEvent())).resolves.toBeUndefined();
+
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
   it('sets occurredAt if not provided', async () => {
     const bus = new InMemoryEventBus(logger);
     const handler = vi.fn().mockResolvedValue(undefined);

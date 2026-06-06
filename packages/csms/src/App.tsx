@@ -86,6 +86,9 @@ const FleetAddStation = lazy(() =>
 const FleetAssignPricing = lazy(() =>
   import('@/pages/FleetAssignPricing').then((m) => ({ default: m.FleetAssignPricing })),
 );
+const MaintenanceEventStations = lazy(() =>
+  import('@/pages/MaintenanceEventStations').then((m) => ({ default: m.MaintenanceEventStations })),
+);
 const SiteAssignPricing = lazy(() =>
   import('@/pages/SiteAssignPricing').then((m) => ({ default: m.SiteAssignPricing })),
 );
@@ -291,6 +294,10 @@ export function App(): React.JSX.Element {
                   <Route path="sites/new" element={<SiteCreate />} />
                   <Route path="sites/:id" element={<SiteDetail />} />
                   <Route path="sites/:id/pricing/add" element={<SiteAssignPricing />} />
+                  <Route
+                    path="sites/:siteId/maintenance/:eventId"
+                    element={<MaintenanceEventStations />}
+                  />
                   <Route path="stations" element={<Stations />} />
                   <Route path="stations/new" element={<StationCreate />} />
                   <Route path="stations/:id" element={<StationDetail />} />

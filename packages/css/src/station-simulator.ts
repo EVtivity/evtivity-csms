@@ -51,6 +51,16 @@ interface EvseContext {
   cablePlugged: boolean;
 }
 
+// A real station keeps reporting Unavailable until the operator restores
+// Operative. A chaos or manual StatusNotification must never contradict
+// administrative unavailability by reporting Available/Occupied/etc. Faulted
+// is allowed through because a fault can occur while administratively down.
+export function clampStatusForAdminAvailability(status: string, adminUnavailable: boolean): string {
+  if (!adminUnavailable) return status;
+  if (status === 'Unavailable' || status === 'Faulted') return status;
+  return 'Unavailable';
+}
+
 export class StationSimulator {
   readonly client: OcppClient;
   private readonly config: StationConfig;
@@ -83,6 +93,12 @@ export class StationSimulator {
   private readonly evseSeqNo = new Map<number, number>();
   private readonly evseMeterTick = new Map<number, number>();
   private readonly evseConnectorStatus = new Map<number, string>();
+  // EVSEs the operator has administratively taken down via ChangeAvailability.
+  // Tracked separately from evseConnectorStatus because the connector status
+  // churns through Finishing/EVConnected during a stop sequence; this set is
+  // the authoritative source for whether the post-transaction resting status
+  // must clamp to Unavailable.
+  private readonly evseAdminUnavailable = new Set<number>();
 
   // Clock-aligned meter value timer
   private clockAlignedTimer: ReturnType<typeof setInterval> | null = null;
@@ -1364,9 +1380,28 @@ export class StationSimulator {
     ctx.authorizedTokenType = null;
     ctx.remoteStartId = null;
 
-    // Transition status after stop
+    // Transition status after stop. A scheduled ChangeAvailability(Inoperative)
+    // that returned Scheduled while this transaction was running must be applied
+    // now that the blocking transaction has ended: the EVSE rests at Unavailable
+    // instead of Finishing/Occupied. hasAnyActiveTransaction guards the case
+    // where another EVSE on the station is still mid-transaction.
     const connectorId = this.getConnectorId(evseId);
-    if (this.is16) {
+    const applyScheduledDown =
+      this.isEvseAdminUnavailable(evseId) && !(await this.hasAnyActiveTransaction());
+
+    if (applyScheduledDown) {
+      ctx.state = 'Unavailable';
+      this.evseConnectorStatus.set(evseId, 'Unavailable');
+      const seqNo = (this.evseSeqNo.get(evseId) ?? 0) + 1;
+      this.evseSeqNo.set(evseId, seqNo);
+      this.evseChargingState.set(evseId, 'Idle');
+      try {
+        await this.sendStatusNotification(evseId, connectorId, 'Unavailable');
+      } catch {
+        // Offline - status will be reported on reconnect
+      }
+      await this.updateEvseStatus(evseId, 'Unavailable').catch(() => {});
+    } else if (this.is16) {
       // 1.6: send Finishing (cable still connected), Available comes on unplug
       ctx.state = 'Finishing';
       this.evseConnectorStatus.set(evseId, 'Finishing');
@@ -1377,34 +1412,17 @@ export class StationSimulator {
       }
       await this.updateEvseStatus(evseId, 'Finishing').catch(() => {});
     } else {
-      // Check if there is a pending scheduled availability change
-      const pendingInoperative =
-        this.availabilityState === 'Inoperative' || this.availabilityState === 'Unavailable';
-      const hasOtherActiveTx = await this.hasAnyActiveTransaction();
-
-      if (pendingInoperative && !hasOtherActiveTx) {
-        // Apply the scheduled availability change now that all transactions ended
-        ctx.state = 'Unavailable';
-        this.evseConnectorStatus.set(evseId, 'Unavailable');
-        try {
-          await this.sendStatusNotification(evseId, connectorId, 'Unavailable');
-        } catch {
-          // Offline
-        }
-        await this.updateEvseStatus(evseId, 'Unavailable').catch(() => {});
-      } else {
-        // OCPP 2.1: connectorStatus has been Occupied since plug-in and stays
-        // Occupied until unplug -- no StatusNotification is due here, the
-        // status hasn't changed. The post-stop chargingState (EVConnected)
-        // was already reported on the TransactionEvent Ended emitted above.
-        // The unplug() method handles the eventual transition to Available.
-        ctx.state = 'EVConnected';
-        this.evseConnectorStatus.set(evseId, 'Occupied');
-        const seqNo = (this.evseSeqNo.get(evseId) ?? 0) + 1;
-        this.evseSeqNo.set(evseId, seqNo);
-        this.evseChargingState.set(evseId, 'EVConnected');
-        await this.updateEvseStatus(evseId, 'Occupied').catch(() => {});
-      }
+      // OCPP 2.1: connectorStatus has been Occupied since plug-in and stays
+      // Occupied until unplug -- no StatusNotification is due here, the
+      // status hasn't changed. The post-stop chargingState (EVConnected)
+      // was already reported on the TransactionEvent Ended emitted above.
+      // The unplug() method handles the eventual transition to Available.
+      ctx.state = 'EVConnected';
+      this.evseConnectorStatus.set(evseId, 'Occupied');
+      const seqNo = (this.evseSeqNo.get(evseId) ?? 0) + 1;
+      this.evseSeqNo.set(evseId, seqNo);
+      this.evseChargingState.set(evseId, 'EVConnected');
+      await this.updateEvseStatus(evseId, 'Occupied').catch(() => {});
     }
 
     // Handle pending reset
@@ -1442,16 +1460,10 @@ export class StationSimulator {
         : this.configVariables.get('TxCtrlr.StopTxOnEVSideDisconnect')?.value !== 'false';
 
       if (stopOnDisconnect) {
-        // Stop the transaction and send Available
+        // Stop the transaction and send Available (clamped to Unavailable when
+        // the operator scheduled a ChangeAvailability(Inoperative)).
         await this.stopCharging(evseId, 'EVDisconnected');
-        ctx.state = 'Available';
-        this.evseConnectorStatus.set(evseId, 'Available');
-        try {
-          await this.sendStatusNotification(evseId, connectorId, 'Available');
-        } catch {
-          // Offline - status will be reported on reconnect
-        }
-        await this.updateEvseStatus(evseId, 'Available').catch(() => {});
+        await this.restoreConnectorStatus(evseId, connectorId, 'Available');
       } else if (!this.is16) {
         // OCPP 2.1: Suspend the transaction - send TransactionEvent Updated
         // with EVCommunicationLost and chargingState Idle
@@ -1466,41 +1478,46 @@ export class StationSimulator {
           chargingState: 'Idle',
           seqNo,
         });
-        // Send StatusNotification Available (cable disconnected)
-        this.evseConnectorStatus.set(evseId, 'Available');
+        // Send StatusNotification Available (cable disconnected); clamped to
+        // Unavailable when administratively down. ctx.state stays SuspendedEV
+        // because the transaction is suspended, not ended.
+        const disconnectedStatus = clampStatusForAdminAvailability(
+          'Available',
+          this.isEvseAdminUnavailable(evseId),
+        );
+        this.evseConnectorStatus.set(evseId, disconnectedStatus);
         try {
-          await this.sendStatusNotification(evseId, connectorId, 'Available');
+          await this.sendStatusNotification(evseId, connectorId, disconnectedStatus);
         } catch {
           // Offline
         }
-        await this.updateEvseStatus(evseId, 'Available').catch(() => {});
+        await this.updateEvseStatus(evseId, disconnectedStatus).catch(() => {});
 
         // Start EVConnectionTimeout timer for the suspended transaction.
         // If cable is not re-plugged within the timeout, end the transaction.
         this.startEvConnectTimeoutTimer(evseId, ctx.transactionId);
       } else {
-        // 1.6: Suspend the transaction (EV disconnected but tx continues)
-        ctx.state = 'SuspendedEV';
-        this.evseConnectorStatus.set(evseId, 'SuspendedEV');
+        // 1.6: Suspend the transaction (EV disconnected but tx continues).
+        // Clamp to Unavailable when administratively down.
+        const suspendStatus = clampStatusForAdminAvailability(
+          'SuspendedEV',
+          this.isEvseAdminUnavailable(evseId),
+        );
+        ctx.state = suspendStatus;
+        this.evseConnectorStatus.set(evseId, suspendStatus);
         try {
-          await this.sendStatusNotification(evseId, connectorId, 'SuspendedEV');
+          await this.sendStatusNotification(evseId, connectorId, suspendStatus);
         } catch {
           // Offline - status will be reported on reconnect
         }
-        await this.updateEvseStatus(evseId, 'SuspendedEV').catch(() => {});
+        await this.updateEvseStatus(evseId, suspendStatus).catch(() => {});
       }
     } else {
-      // No active transaction - just go to Available
-      ctx.state = 'Available';
+      // No active transaction - just go to Available (clamped to Unavailable
+      // when the operator has the EVSE administratively down).
       ctx.authorizedToken = null;
       ctx.authorizedTokenType = null;
-      this.evseConnectorStatus.set(evseId, 'Available');
-      try {
-        await this.sendStatusNotification(evseId, connectorId, 'Available');
-      } catch {
-        // Offline - status will be reported on reconnect
-      }
-      await this.updateEvseStatus(evseId, 'Available').catch(() => {});
+      await this.restoreConnectorStatus(evseId, connectorId, 'Available');
     }
   }
 
@@ -1793,6 +1810,61 @@ export class StationSimulator {
     console.log(
       `[${this.config.stationId}] StatusNotification: EVSE ${String(evseId)} connector ${String(connectorId)} = ${status}`,
     );
+  }
+
+  // True when the station or the specific EVSE is administratively down, so a
+  // status that would contradict that (Available/Occupied/etc.) must clamp to
+  // Unavailable. evseAdminUnavailable is the authoritative per-EVSE flag set by
+  // the ChangeAvailability handler; the connector-status check is a fallback for
+  // paths that set Unavailable without going through that handler.
+  private isEvseAdminUnavailable(evseId: number): boolean {
+    return (
+      this.availabilityState === 'Inoperative' ||
+      this.availabilityState === 'Unavailable' ||
+      this.evseAdminUnavailable.has(evseId) ||
+      this.evseConnectorStatus.get(evseId) === 'Unavailable'
+    );
+  }
+
+  // Apply a post-transaction resting status (unplug, EV-disconnect, etc.),
+  // clamping it to Unavailable when the EVSE is administratively down so the
+  // restoration never contradicts a pending ChangeAvailability(Inoperative).
+  // Updates ctx.state, the connector-status map, the wire, and css_evses
+  // together so reported and tracked state agree. Returns the applied status.
+  private async restoreConnectorStatus(
+    evseId: number,
+    connectorId: number,
+    desired: string,
+  ): Promise<string> {
+    const applied = clampStatusForAdminAvailability(desired, this.isEvseAdminUnavailable(evseId));
+    const ctx = this.evseContexts.get(evseId) as EvseContext;
+    ctx.state = applied;
+    this.evseConnectorStatus.set(evseId, applied);
+    try {
+      await this.sendStatusNotification(evseId, connectorId, applied);
+    } catch {
+      // Offline - status will be reported on reconnect
+    }
+    await this.updateEvseStatus(evseId, applied).catch(() => {});
+    return applied;
+  }
+
+  // Public action entry for chaos/manual StatusNotification triggers. Internal
+  // callers (boot, reset, ChangeAvailability, transaction lifecycle) use
+  // sendStatusNotification directly and manage their own state ordering. This
+  // path clamps a requested status that would contradict administrative
+  // unavailability down to Unavailable BEFORE the wire send and the css_evses
+  // write, so reported state and internal state stay consistent.
+  async dispatchStatusNotification(
+    evseId: number,
+    connectorId: number,
+    status: string,
+    errorCode?: string,
+  ): Promise<void> {
+    const clamped = clampStatusForAdminAvailability(status, this.isEvseAdminUnavailable(evseId));
+    this.evseConnectorStatus.set(evseId, clamped);
+    await this.sendStatusNotification(evseId, connectorId, clamped, errorCode);
+    await this.updateEvseStatus(evseId, clamped).catch(() => {});
   }
 
   async sendMeterValues(
@@ -3154,13 +3226,7 @@ export class StationSimulator {
         }
         this.availabilityState = newAvail;
 
-        const anyActiveTx = await this.hasAnyActiveTransaction();
-        if (anyActiveTx) {
-          return { status: 'Scheduled' };
-        }
-
-        const statusValue =
-          newAvail === 'Inoperative' || newAvail === 'Unavailable' ? 'Unavailable' : 'Available';
+        const goingUnavailable = newAvail === 'Inoperative' || newAvail === 'Unavailable';
 
         // Determine target EVSEs from the payload
         let targetEvseId: number | undefined;
@@ -3168,6 +3234,26 @@ export class StationSimulator {
           const evseObj = payload['evse'] as Record<string, unknown> | undefined;
           targetEvseId = evseObj?.['id'] as number | undefined;
         }
+
+        // Track per-EVSE administrative state regardless of whether the change
+        // applies now or is scheduled. The clamp on the transaction-end
+        // restoration paths reads this set, so it must be set before returning
+        // Scheduled while a transaction is still active.
+        for (const evse of this.config.evses) {
+          if (targetEvseId != null && targetEvseId !== 0 && evse.evseId !== targetEvseId) continue;
+          if (goingUnavailable) {
+            this.evseAdminUnavailable.add(evse.evseId);
+          } else {
+            this.evseAdminUnavailable.delete(evse.evseId);
+          }
+        }
+
+        const anyActiveTx = await this.hasAnyActiveTransaction();
+        if (anyActiveTx) {
+          return { status: 'Scheduled' };
+        }
+
+        const statusValue = goingUnavailable ? 'Unavailable' : 'Available';
 
         for (const evse of this.config.evses) {
           // If a specific EVSE was targeted, only change that one

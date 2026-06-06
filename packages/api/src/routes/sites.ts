@@ -56,6 +56,7 @@ import {
   importSitesCsv,
 } from '../services/site-import.service.js';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.js';
 import { pushTemplateToSiteStations } from '../lib/config-push.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
@@ -399,6 +400,9 @@ const siteStationItem = z
       .array(z.string())
       .nullable()
       .describe('Distinct connector types present on this station (e.g. CCS2, CHAdeMO, Type2)'),
+    underMaintenance: z
+      .boolean()
+      .describe('Whether an active maintenance event currently covers this station'),
   })
   .passthrough();
 
@@ -1209,6 +1213,10 @@ export function siteRoutes(app: FastifyInstance): void {
             connectorTypes: sql<
               string[]
             >`array_agg(DISTINCT ${connectors.connectorType}) FILTER (WHERE ${connectors.connectorType} IS NOT NULL)`,
+            underMaintenance: buildUnderMaintenanceSubquery(
+              chargingStations.id,
+              chargingStations.siteId,
+            ),
           })
           .from(chargingStations)
           .leftJoin(evses, eq(evses.stationId, chargingStations.id))

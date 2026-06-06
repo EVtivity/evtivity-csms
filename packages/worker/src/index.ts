@@ -17,6 +17,10 @@ import { scheduleCronJobs } from './scheduler.js';
 import { createLoadManagementWorker } from './load-management-worker.js';
 import { createGuestSessionWorker, startGuestSessionBridge } from './guest-session-worker.js';
 import { createReservationWorker, startReservationBridge } from './reservation-worker.js';
+import {
+  createMaintenanceFanoutWorker,
+  startMaintenanceFanoutBridge,
+} from './maintenance-fanout-worker.js';
 import { octtRunnerHandler } from './handlers/octt-runner.js';
 import type { OcttJobData } from './handlers/octt-runner.js';
 
@@ -32,8 +36,14 @@ async function start(): Promise<void> {
 
   const pubsub = new RedisPubSubClient(REDIS_URL);
   setPubSub(pubsub);
-  const { cronQueue, loadQueue, guestSessionQueue, reservationQueue, octtQueue } =
-    createQueues(REDIS_URL);
+  const {
+    cronQueue,
+    loadQueue,
+    guestSessionQueue,
+    reservationQueue,
+    octtQueue,
+    maintenanceFanoutQueue,
+  } = createQueues(REDIS_URL);
 
   // Schedule cron jobs from database
   await scheduleCronJobs(cronQueue);
@@ -50,6 +60,7 @@ async function start(): Promise<void> {
   const loadWorker = createLoadManagementWorker(createBullMQConnection(REDIS_URL), loadQueue);
   const guestWorker = createGuestSessionWorker(createBullMQConnection(REDIS_URL));
   const reservationWorker = createReservationWorker(createBullMQConnection(REDIS_URL), pubsub);
+  const maintenanceFanoutWorker = createMaintenanceFanoutWorker(createBullMQConnection(REDIS_URL));
 
   // OCTT conformance test worker
   const octtWorker = new Worker<OcttJobData>(
@@ -66,6 +77,10 @@ async function start(): Promise<void> {
   // Start bridges (pub/sub -> BullMQ)
   const stopGuestBridge = await startGuestSessionBridge(pubsub, guestSessionQueue);
   const stopReservationBridge = await startReservationBridge(pubsub, reservationQueue);
+  const stopMaintenanceFanoutBridge = await startMaintenanceFanoutBridge(
+    pubsub,
+    maintenanceFanoutQueue,
+  );
 
   // Listen for credential-rotation invalidations from the API so the next
   // dispatchDriverNotification / scheduled report email reads fresh SMTP and
@@ -103,18 +118,21 @@ async function start(): Promise<void> {
     log.info('Worker shutting down...');
     await stopGuestBridge();
     await stopReservationBridge();
+    await stopMaintenanceFanoutBridge();
     await octtSubscription.unsubscribe();
     await cacheInvalidateSubscription.unsubscribe();
     await cronWorker.close();
     await loadWorker.close();
     await guestWorker.close();
     await reservationWorker.close();
+    await maintenanceFanoutWorker.close();
     await octtWorker.close();
     await cronQueue.close();
     await loadQueue.close();
     await guestSessionQueue.close();
     await reservationQueue.close();
     await octtQueue.close();
+    await maintenanceFanoutQueue.close();
     await pubsub.close();
     log.info('Worker shutdown complete');
     process.exit(0);

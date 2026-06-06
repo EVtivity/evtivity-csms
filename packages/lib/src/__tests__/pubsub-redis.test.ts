@@ -149,6 +149,40 @@ describe('RedisPubSubClient', () => {
       expect(h2).toHaveBeenCalledWith('payload');
     });
 
+    it('a throwing handler does not prevent other handlers from receiving the message', async () => {
+      const client = await makeClient();
+      const subscriber = getSubscriber();
+      subscriber.status = 'ready';
+      const throwing = vi.fn(() => {
+        throw new Error('handler boom');
+      });
+      const healthy = vi.fn();
+      await client.subscribe('ch1', throwing);
+      await client.subscribe('ch1', healthy);
+
+      subscriber.emit('message', 'ch1', 'payload');
+
+      expect(throwing).toHaveBeenCalledWith('payload');
+      expect(healthy).toHaveBeenCalledWith('payload');
+    });
+
+    it('a throwing handler does not propagate out of the message dispatch', async () => {
+      const client = await makeClient();
+      const subscriber = getSubscriber();
+      subscriber.status = 'ready';
+      await client.subscribe('ch1', () => {
+        throw new Error('handler boom');
+      });
+
+      // A handler throwing must not escape the message listener. In the real
+      // ioredis subscriber connection this exception would abort parsing the
+      // rest of the TCP packet and drop unrelated subscribe/unsubscribe replies,
+      // wedging every later subscribe() on the shared connection forever.
+      expect(() => {
+        subscriber.emit('message', 'ch1', 'payload');
+      }).not.toThrow();
+    });
+
     it('ignores messages for unregistered channels', async () => {
       const client = await makeClient();
       const subscriber = getSubscriber();

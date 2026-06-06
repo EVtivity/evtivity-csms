@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
 import { CopyableId } from '@/components/copyable-id';
 import { CreateButton } from '@/components/create-button';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
@@ -88,6 +89,14 @@ export function SiteDetail(): React.JSX.Element {
     queryFn: () => api.get<Site>(`/v1/sites/${id ?? ''}`),
     enabled: id != null,
   });
+
+  const { data: maintenanceStatus } = useQuery({
+    queryKey: ['maintenance', 'status', id],
+    queryFn: () =>
+      api.get<{ current: { id: string } | null }>(`/v1/sites/${id ?? ''}/maintenance/status`),
+    enabled: id != null && canReadMaintenance,
+  });
+  const underMaintenance = maintenanceStatus?.current != null;
 
   const { data: settingsData } = useQuery({
     queryKey: ['settings'],
@@ -174,7 +183,10 @@ export function SiteDetail(): React.JSX.Element {
       <div className="flex items-center gap-4">
         <BackButton to="/sites" />
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">{site.name}</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl md:text-3xl font-bold">{site.name}</h1>
+            {underMaintenance && <Badge variant="warning">{t('nav.maintenance')}</Badge>}
+          </div>
           <CopyableId id={site.id} />
         </div>
       </div>

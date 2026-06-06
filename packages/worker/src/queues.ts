@@ -10,6 +10,7 @@ export const QUEUE_NAMES = {
   GUEST_SESSION_EVENTS: 'guest-session-events',
   RESERVATIONS: 'reservations',
   OCTT: 'octt',
+  MAINTENANCE_FANOUT: 'maintenance-fanout',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -25,6 +26,7 @@ export function createQueues(redisUrl: string): {
   guestSessionQueue: Queue;
   reservationQueue: Queue;
   octtQueue: Queue;
+  maintenanceFanoutQueue: Queue;
 } {
   // Each queue needs its own connection for BullMQ blocking commands
   return {
@@ -65,6 +67,18 @@ export function createQueues(redisUrl: string): {
       defaultJobOptions: {
         removeOnComplete: 50,
         removeOnFail: { count: 100 },
+      },
+    }),
+    // attempts: 1 — the fan-out increments reservations_cancelled_count /
+    // sessions_stopped_count via non-idempotent SQL increments, so a retry after
+    // a partial failure would double-count. A failed job is logged and left for
+    // the maintenance-scheduler cron or an operator re-save to re-trigger.
+    maintenanceFanoutQueue: new Queue(QUEUE_NAMES.MAINTENANCE_FANOUT, {
+      connection: createBullMQConnection(redisUrl),
+      defaultJobOptions: {
+        removeOnComplete: 100,
+        removeOnFail: { count: 500 },
+        attempts: 1,
       },
     }),
   };

@@ -217,6 +217,63 @@ describe('Event projections', () => {
       expect(sqlCalls.length).toBe(1);
     });
 
+    it('publishes a maintenance re-assert when the station reconnects under an active event', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{}], // UPDATE charging_stations
+        [{}], // INSERT connection_logs
+        [], // SELECT evse_id FROM evses
+        [{ site_id: 'site-m' }], // resolveSiteId
+        [], // offline command queue drain
+        [{ id: 'mne_maint1' }], // active maintenance event covering this station
+      );
+
+      await eventBus.emit(
+        'station.Connected',
+        makeDomainEvent('station.Connected', 'CS-MAINT', {
+          ocppProtocol: 'ocpp1.6',
+          stationDbId: 'sta_maint_test1',
+        }),
+      );
+
+      const fanoutCall = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c: unknown[]) => c[0] === 'maintenance_fanout',
+      );
+      expect(fanoutCall).toBeDefined();
+      const payload = JSON.parse(fanoutCall?.[1] as string) as Record<string, unknown>;
+      expect(payload.eventId).toBe('mne_maint1');
+      expect(payload.phase).toBe('reassert');
+      expect(payload.stationDbIds).toEqual(['sta_maint_test1']);
+      expect(typeof payload.nonce).toBe('string');
+    });
+
+    it('does not publish a maintenance re-assert when no active event covers the station', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{}], // UPDATE charging_stations
+        [{}], // INSERT connection_logs
+        [], // SELECT evse_id FROM evses
+        [{ site_id: 'site-m2' }], // resolveSiteId
+        [], // offline command queue drain
+        [], // no active maintenance event
+      );
+
+      await eventBus.emit(
+        'station.Connected',
+        makeDomainEvent('station.Connected', 'CS-NOMAINT', {
+          ocppProtocol: 'ocpp1.6',
+          stationDbId: 'sta_nomaint_test1',
+        }),
+      );
+
+      const fanoutCall = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c: unknown[]) => c[0] === 'maintenance_fanout',
+      );
+      expect(fanoutCall).toBeUndefined();
+    });
+
     it('logs port status transitions for existing EVSEs', async () => {
       await setup();
 

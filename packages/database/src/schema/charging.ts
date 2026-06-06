@@ -144,6 +144,17 @@ export const meterValues = pgTable(
     index('idx_meter_values_station_id').on(table.stationId),
     index('idx_meter_values_session_id').on(table.sessionId),
     index('idx_meter_values_timestamp').on(table.timestamp),
+    // Latest-reading-per-session lookups (e.g. station-message power refresh)
+    // run `WHERE session_id = ? AND measurand = ? ORDER BY timestamp DESC
+    // LIMIT 1`. Without this composite, the planner walks
+    // idx_meter_values_timestamp backwards filtering row-by-row, which scans
+    // the entire index when a session has no matching measurand and starves
+    // the connection pool under concurrent refreshes.
+    index('idx_meter_values_session_measurand_ts').on(
+      table.sessionId,
+      table.measurand,
+      table.timestamp,
+    ),
     // Dedup retransmits: OCPP allows the station to resend a MeterValues batch
     // if the CALLRESULT is lost. Without this, duplicate rows inflate energy
     // sums in dashboards, cost calculations, and OCPI CDRs. The backing

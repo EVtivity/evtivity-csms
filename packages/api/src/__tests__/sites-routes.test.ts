@@ -95,7 +95,11 @@ vi.mock('@evtivity/database', () => ({
     ),
   },
   sites: {},
-  chargingStations: {},
+  chargingStations: {
+    id: { name: 'id', table: {} },
+    siteId: { name: 'site_id', table: {} },
+  },
+  maintenanceEvents: {},
   chargingSessions: {},
   drivers: {},
   meterValues: {},
@@ -131,7 +135,11 @@ vi.mock('drizzle-orm', () => {
     and: vi.fn(),
     or: vi.fn(),
     ilike: vi.fn(),
-    sql: Object.assign(vi.fn(sqlFn), { raw: vi.fn(sqlFn) }),
+    sql: Object.assign(vi.fn(sqlFn), {
+      raw: vi.fn(sqlFn),
+      identifier: vi.fn(sqlFn),
+    }),
+    getTableName: vi.fn(() => 'charging_stations'),
     gte: vi.fn(),
     desc: vi.fn(),
     count: vi.fn(),
@@ -497,6 +505,7 @@ describe('Site routes - handler logic', () => {
         status: 'available',
         connectorCount: 0,
         connectorTypes: null,
+        underMaintenance: false,
       };
       // 1: site exists, 2: data, 3: count
       setupDbResults([{ id: VALID_SITE_ID }], [stationRow], [{ count: 1 }]);

@@ -36,6 +36,7 @@ const h = vi.hoisted(() => {
     selectResults: new Map<string, unknown[][]>(),
     executeHandler: { fn: (_sqlText: string) => [] as unknown[] },
     insertReturning: { rows: [] as unknown[] },
+    insertCalls: [] as Array<{ table: string | null; values: unknown }>,
     updateReturning: { rows: [] as unknown[] },
     // ---- spies ----
     writeAudit: vi.fn(
@@ -72,7 +73,7 @@ const h = vi.hoisted(() => {
       ) => {},
     ),
     renderMaintenanceMessage: vi.fn(async () => 'MAINT MSG'),
-    publish: vi.fn(async () => {}),
+    publish: vi.fn(async (_channel: string, _payload: string) => {}),
   };
 });
 
@@ -125,9 +126,16 @@ vi.mock('@evtivity/database', () => {
     return chain;
   };
 
-  const insertChain = {
-    values: () => insertChain,
-    returning: () => Promise.resolve(h.insertReturning.rows),
+  const makeInsertChain = (tbl: { __table?: string } | undefined): Record<string, unknown> => {
+    const chain: Record<string, unknown> = {
+      values: (v: unknown) => {
+        h.insertCalls.push({ table: tbl?.__table ?? null, values: v });
+        return chain;
+      },
+      returning: () => Promise.resolve(h.insertReturning.rows),
+      then: (resolve: (v: unknown) => unknown) => Promise.resolve(undefined).then(resolve),
+    };
+    return chain;
   };
 
   const updateChain = {
@@ -140,7 +148,7 @@ vi.mock('@evtivity/database', () => {
 
   const db = {
     select: () => makeSelectChain(),
-    insert: () => insertChain,
+    insert: (tbl: { __table?: string } | undefined) => makeInsertChain(tbl),
     update: () => updateChain,
     execute: (arg: { __sqlText?: string } | undefined) => {
       const text = arg?.__sqlText ?? '';
@@ -157,6 +165,7 @@ vi.mock('@evtivity/database', () => {
     chargingSessions: h.table('chargingSessions'),
     sites: h.table('sites'),
     reservations: h.table('reservations'),
+    maintenanceEventStations: h.table('maintenanceEventStations'),
     writeAudit: h.writeAudit,
   };
 });
@@ -193,6 +202,12 @@ vi.mock('../lib/template-dirs.js', () => ({
   ALL_TEMPLATES_DIRS: ['/tpl/ocpp', '/tpl/api'],
 }));
 
+// The status-after settle is a real 5s wait in production; tests resolve it
+// immediately so runner tests stay fast.
+vi.mock('../lib/sleep.js', () => ({
+  sleep: vi.fn(async () => {}),
+}));
+
 import {
   createEvent,
   updateEvent,
@@ -201,6 +216,7 @@ import {
   cancelEvent,
   enterMaintenance,
   exitMaintenance,
+  runMaintenanceFanout,
   getActiveMaintenanceForStation,
   getActiveMaintenanceForSite,
   type MaintenanceEventRow,
@@ -253,6 +269,7 @@ beforeEach(() => {
   h.selectResults.clear();
   h.executeHandler.fn = () => [];
   h.insertReturning.rows = [];
+  h.insertCalls.length = 0;
   h.updateReturning.rows = [];
   // Sensible defaults so awaited chains never throw.
   setSelect('maintenanceEvents', []);
@@ -422,12 +439,9 @@ describe('createEvent', () => {
 
     expect(result.status).toBe('active');
     // ChangeAvailability Inoperative pushed to the station
-    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith(
-      'CS-001',
-      'ChangeAvailability',
-      { operationalStatus: 'Inoperative' },
-      'ocpp2.1',
-    );
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-001', 'ChangeAvailability', {
+      operationalStatus: 'Inoperative',
+    });
     // slot 9005 pushed
     expect(h.pushStationMessageSlot).toHaveBeenCalledWith(
       'CS-001',
@@ -516,19 +530,13 @@ describe('enterMaintenance', () => {
     await enterMaintenance('mne_1', SYSTEM_ACTOR);
 
     // ChangeAvailability Inoperative
-    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith(
-      'CS-001',
-      'ChangeAvailability',
-      { operationalStatus: 'Inoperative' },
-      'ocpp2.1',
-    );
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-001', 'ChangeAvailability', {
+      operationalStatus: 'Inoperative',
+    });
     // RequestStopTransaction for the active session
-    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith(
-      'CS-001',
-      'RequestStopTransaction',
-      { transactionId: 'tx_1' },
-      'ocpp2.1',
-    );
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-001', 'RequestStopTransaction', {
+      transactionId: 'tx_1',
+    });
     // reservation cancelled via helper, with system actor + maintenance note
     expect(h.applyReservationCancellation).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -848,12 +856,9 @@ describe('enterMaintenance', () => {
 
     await enterMaintenance('mne_1', SYSTEM_ACTOR);
 
-    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith(
-      'CS-001',
-      'ChangeAvailability',
-      { operationalStatus: 'Inoperative' },
-      undefined,
-    );
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-001', 'ChangeAvailability', {
+      operationalStatus: 'Inoperative',
+    });
   });
 
   it('uses empty reason and undefined protocol when stopping a session on a null-reason event', async () => {
@@ -875,12 +880,9 @@ describe('enterMaintenance', () => {
     await enterMaintenance('mne_1', SYSTEM_ACTOR);
 
     // RequestStopTransaction sent with undefined protocol
-    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith(
-      'CS-001',
-      'RequestStopTransaction',
-      { transactionId: 'tx_1' },
-      undefined,
-    );
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-001', 'RequestStopTransaction', {
+      transactionId: 'tx_1',
+    });
     // reservation notify uses '' reason fallback
     expect(h.dispatchDriverNotification).toHaveBeenCalledWith(
       { __client: true },
@@ -899,6 +901,343 @@ describe('enterMaintenance', () => {
       ['/tpl/ocpp', '/tpl/api'],
       expect.anything(),
     );
+  });
+});
+
+// ===========================================================================
+// Detached side effects (HTTP-route mode -> maintenance_fanout publish)
+// ===========================================================================
+describe('detached side effects', () => {
+  it('enterMaintenance publishes the fan-out instead of running it when detached', async () => {
+    h.executeHandler.fn = (text) => (text.includes("status = 'active'") ? [{ id: 'mne_1' }] : []);
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'active', startedAt: new Date(), affectedStationIds: ['sta_1'] }),
+    ]);
+    setSelect('sites', [{ name: 'Site One' }]);
+    setSelect('chargingStations', [{ id: 'sta_1', stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }]);
+    setSelect('reservations', []);
+
+    await enterMaintenance('mne_1', OPERATOR_ACTOR, undefined, { detachSideEffects: true });
+
+    // The activation UPDATE + first SSE landed but the fan-out was handed to the
+    // worker: no slot push, no started audit, no OCPP command in-process.
+    expect(h.pushStationMessageSlot).not.toHaveBeenCalled();
+    expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
+    expect(auditCallsByAction('started')).toHaveLength(0);
+    // First SSE (sync state change) + fan-out publish.
+    expect(h.publish).toHaveBeenCalledWith(
+      'csms_events',
+      JSON.stringify({ eventType: 'maintenance.changed', siteId: 'sit_1', eventId: 'mne_1' }),
+    );
+    expect(h.publish).toHaveBeenCalledWith(
+      'maintenance_fanout',
+      JSON.stringify({
+        eventId: 'mne_1',
+        phase: 'enter',
+        actor: { type: 'operator', userId: 'usr_1', label: null },
+      }),
+    );
+  });
+
+  it('cancelEvent publishes a release fan-out for an active event when detached', async () => {
+    h.executeHandler.fn = (text) =>
+      text.includes('WITH old') ? [{ id: 'mne_1', status_before: 'active' }] : [];
+    queueSelect('maintenanceEvents', [
+      [makeEventRow({ status: 'active', affectedStationIds: ['sta_1'] })],
+      [makeEventRow({ status: 'cancelled', affectedStationIds: ['sta_1'] })],
+    ]);
+
+    await cancelEvent('mne_1', OPERATOR_ACTOR, undefined, { detachSideEffects: true });
+
+    expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
+    expect(h.publish).toHaveBeenCalledWith(
+      'maintenance_fanout',
+      JSON.stringify({
+        eventId: 'mne_1',
+        phase: 'release',
+        actor: { type: 'operator', userId: 'usr_1', label: null },
+      }),
+    );
+  });
+
+  it('addStationsToMaintenance publishes an add fan-out for an active event when detached', async () => {
+    const before = makeEventRow({ status: 'active', affectedStationIds: ['sta_1'] });
+    const after = makeEventRow({ status: 'active', affectedStationIds: ['sta_1', 'sta_2'] });
+    setSelect('maintenanceEvents', [before]);
+    h.updateReturning.rows = [after];
+    setSelect('chargingStations', [{ id: 'sta_2' }]); // ownership ok
+
+    await addStationsToMaintenance('mne_1', ['sta_2'], OPERATOR_ACTOR, undefined, {
+      detachSideEffects: true,
+    });
+
+    expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
+    expect(h.publish).toHaveBeenCalledWith(
+      'maintenance_fanout',
+      JSON.stringify({
+        eventId: 'mne_1',
+        phase: 'add',
+        stationDbIds: ['sta_2'],
+        actor: { type: 'operator', userId: 'usr_1', label: null },
+      }),
+    );
+  });
+
+  it('removeStationsFromMaintenance publishes a remove fan-out when detached', async () => {
+    const before = makeEventRow({ status: 'active', affectedStationIds: ['sta_1', 'sta_2'] });
+    const after = makeEventRow({ status: 'active', affectedStationIds: ['sta_1'] });
+    setSelect('maintenanceEvents', [before]);
+    h.updateReturning.rows = [after];
+
+    await removeStationsFromMaintenance('mne_1', ['sta_2'], OPERATOR_ACTOR, undefined, {
+      detachSideEffects: true,
+    });
+
+    expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
+    expect(h.publish).toHaveBeenCalledWith(
+      'maintenance_fanout',
+      JSON.stringify({
+        eventId: 'mne_1',
+        phase: 'remove',
+        stationDbIds: ['sta_2'],
+        actor: { type: 'operator', userId: 'usr_1', label: null },
+      }),
+    );
+  });
+
+  it('logs at error when the fan-out publish fails but still returns', async () => {
+    h.executeHandler.fn = (text) => (text.includes("status = 'active'") ? [{ id: 'mne_1' }] : []);
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'active', startedAt: new Date(), affectedStationIds: ['sta_1'] }),
+    ]);
+    // First publish (sync SSE) succeeds, second publish (fan-out) rejects.
+    h.publish.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('redis down'));
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never;
+
+    await enterMaintenance('mne_1', SYSTEM_ACTOR, logger, { detachSideEffects: true });
+
+    expect((logger as unknown as { error: ReturnType<typeof vi.fn> }).error).toHaveBeenCalled();
+  });
+
+  it('enterMaintenance awaits the fan-out when not detached (worker mode)', async () => {
+    h.executeHandler.fn = (text) => (text.includes("status = 'active'") ? [{ id: 'mne_1' }] : []);
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'active', startedAt: new Date(), affectedStationIds: ['sta_1'] }),
+    ]);
+    setSelect('sites', [{ name: 'Site One' }]);
+    setSelect('chargingStations', [{ id: 'sta_1', stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }]);
+    setSelect('reservations', []);
+
+    await enterMaintenance('mne_1', SYSTEM_ACTOR);
+
+    // Worker path awaits: by the time the call resolves the fan-out is done and
+    // no maintenance_fanout publish was made.
+    expect(h.pushStationMessageSlot).toHaveBeenCalled();
+    expect(auditCallsByAction('started')).toHaveLength(1);
+    expect(h.publish).toHaveBeenCalledTimes(2);
+    const fanoutPublishes = h.publish.mock.calls.filter((c) => c[0] === 'maintenance_fanout');
+    expect(fanoutPublishes).toHaveLength(0);
+  });
+});
+
+// ===========================================================================
+// runMaintenanceFanout (worker entrypoint)
+// ===========================================================================
+describe('runMaintenanceFanout', () => {
+  it('no-ops when the event vanished', async () => {
+    setSelect('maintenanceEvents', []);
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never;
+
+    await runMaintenanceFanout({ eventId: 'mne_gone', phase: 'enter' }, logger);
+
+    expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
+    expect((logger as unknown as { info: ReturnType<typeof vi.fn> }).info).toHaveBeenCalled();
+  });
+
+  it('enter phase runs the full activation fan-out', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'active', startedAt: new Date(), affectedStationIds: ['sta_1'] }),
+    ]);
+    setSelect('sites', [{ name: 'Site One' }]);
+    setSelect('chargingStations', [{ id: 'sta_1', stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }]);
+    setSelect('reservations', []);
+
+    await runMaintenanceFanout({
+      eventId: 'mne_1',
+      phase: 'enter',
+      actor: { type: 'operator', userId: 'usr_1', label: null },
+    });
+
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-001', 'ChangeAvailability', {
+      operationalStatus: 'Inoperative',
+    });
+    expect(auditCallsByAction('started')).toHaveLength(1);
+  });
+
+  it('release phase sends Operative + clears slot for affected stations', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'cancelled', affectedStationIds: ['sta_1'] }),
+    ]);
+    setSelect('chargingStations', [{ id: 'sta_1', stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }]);
+
+    await runMaintenanceFanout({ eventId: 'mne_1', phase: 'release' });
+
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-001', 'ChangeAvailability', {
+      operationalStatus: 'Operative',
+    });
+    expect(h.clearStationMessageSlot).toHaveBeenCalledWith('CS-001', 'ocpp2.1', 9005);
+  });
+
+  it('add phase runs the add-station fan-out on the given station ids', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({
+        status: 'active',
+        affectedStationIds: ['sta_1', 'sta_2'],
+        activeSessionPolicy: 'ignore',
+      }),
+    ]);
+    setSelect('chargingStations', [{ id: 'sta_2', stationId: 'CS-002', ocppProtocol: 'ocpp2.1' }]);
+    setSelect('sites', [{ name: 'Site One' }]);
+    setSelect('reservations', []);
+
+    await runMaintenanceFanout({
+      eventId: 'mne_1',
+      phase: 'add',
+      stationDbIds: ['sta_2'],
+      actor: { type: 'system' },
+    });
+
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-002', 'ChangeAvailability', {
+      operationalStatus: 'Inoperative',
+    });
+  });
+
+  it('remove phase releases the given station ids', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'active', affectedStationIds: ['sta_1'] }),
+    ]);
+    setSelect('chargingStations', [{ id: 'sta_2', stationId: 'CS-002', ocppProtocol: 'ocpp2.1' }]);
+
+    await runMaintenanceFanout({ eventId: 'mne_1', phase: 'remove', stationDbIds: ['sta_2'] });
+
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-002', 'ChangeAvailability', {
+      operationalStatus: 'Operative',
+    });
+    expect(h.clearStationMessageSlot).toHaveBeenCalledWith('CS-002', 'ocpp2.1', 9005);
+  });
+
+  it('reassert phase re-sends Inoperative + slot message for the reconnected station', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'active', affectedStationIds: ['sta_1', 'sta_2'] }),
+    ]);
+    setSelect('sites', [{ name: 'Site One' }]);
+    setSelect('chargingStations', [{ id: 'sta_2', stationId: 'CS-002', ocppProtocol: 'ocpp2.1' }]);
+
+    await runMaintenanceFanout({
+      eventId: 'mne_1',
+      phase: 'reassert',
+      stationDbIds: ['sta_2'],
+      nonce: 'abc123',
+    });
+
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-002', 'ChangeAvailability', {
+      operationalStatus: 'Inoperative',
+    });
+    expect(h.pushStationMessageSlot).toHaveBeenCalledWith(
+      'CS-002',
+      'ocpp2.1',
+      9005,
+      'Unavailable',
+      expect.any(String),
+    );
+  });
+
+  it('reassert phase skips when the event is no longer active', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'cancelled', affectedStationIds: ['sta_2'] }),
+    ]);
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never;
+
+    await runMaintenanceFanout(
+      { eventId: 'mne_1', phase: 'reassert', stationDbIds: ['sta_2'] },
+      logger,
+    );
+
+    expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
+    expect(h.pushStationMessageSlot).not.toHaveBeenCalled();
+  });
+
+  it('records one tracking row per station with the classified command outcome', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'active', affectedStationIds: ['sta_1'] }),
+    ]);
+    setSelect('sites', [{ name: 'Site One' }]);
+    setSelect('chargingStations', [{ id: 'sta_1', stationId: 'CS-001', ocppProtocol: 'ocpp1.6' }]);
+    h.sendOcppCommandAndWait.mockResolvedValueOnce({
+      commandId: 'c1',
+      response: { status: 'Accepted' },
+    });
+
+    await runMaintenanceFanout({
+      eventId: 'mne_1',
+      phase: 'reassert',
+      stationDbIds: ['sta_1'],
+    });
+
+    const tracking = h.insertCalls.filter((c) => c.table === 'maintenanceEventStations');
+    expect(tracking).toHaveLength(1);
+    const rows = tracking[0]?.values as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      eventId: 'mne_1',
+      stationId: 'sta_1',
+      stationOcppId: 'CS-001',
+      phase: 'reassert',
+      command: 'ChangeAvailability(Inoperative)',
+      commandStatus: 'accepted',
+      error: null,
+    });
+  });
+
+  it('classifies a not-connected command error as offline in the tracking row', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'active', affectedStationIds: ['sta_1'] }),
+    ]);
+    setSelect('sites', [{ name: 'Site One' }]);
+    setSelect('chargingStations', [{ id: 'sta_1', stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }]);
+    h.sendOcppCommandAndWait.mockResolvedValueOnce({
+      commandId: 'c1',
+      error: 'Station CS-001 is not connected',
+    });
+
+    await runMaintenanceFanout({
+      eventId: 'mne_1',
+      phase: 'reassert',
+      stationDbIds: ['sta_1'],
+    });
+
+    const tracking = h.insertCalls.filter((c) => c.table === 'maintenanceEventStations');
+    const rows = tracking[0]?.values as Array<Record<string, unknown>>;
+    expect(rows[0]).toMatchObject({
+      commandStatus: 'offline',
+      error: 'Station CS-001 is not connected',
+    });
+  });
+
+  it('reassert phase skips stations the event does not cover', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'active', affectedStationIds: ['sta_1'] }),
+    ]);
+    setSelect('sites', [{ name: 'Site One' }]);
+    setSelect('chargingStations', [{ id: 'sta_1', stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }]);
+
+    await runMaintenanceFanout({
+      eventId: 'mne_1',
+      phase: 'reassert',
+      stationDbIds: ['sta_99'],
+    });
+
+    expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
   });
 });
 
@@ -945,12 +1284,9 @@ describe('exitMaintenance', () => {
 
     await exitMaintenance('mne_1', OPERATOR_ACTOR);
 
-    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith(
-      'CS-001',
-      'ChangeAvailability',
-      { operationalStatus: 'Operative' },
-      'ocpp2.1',
-    );
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-001', 'ChangeAvailability', {
+      operationalStatus: 'Operative',
+    });
     expect(h.clearStationMessageSlot).toHaveBeenCalledWith('CS-001', 'ocpp2.1', 9005);
     expect(auditCallsByAction('ended')).toHaveLength(1);
     expect(auditCallsByAction('ended')[0]).toMatchObject({ actor: 'operator' });
@@ -972,12 +1308,9 @@ describe('exitMaintenance', () => {
 
     await exitMaintenance('mne_1', SYSTEM_ACTOR, logger);
 
-    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith(
-      'CS-001',
-      'ChangeAvailability',
-      { operationalStatus: 'Operative' },
-      undefined,
-    );
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-001', 'ChangeAvailability', {
+      operationalStatus: 'Operative',
+    });
     expect(auditCallsByAction('ended')).toHaveLength(1);
     expect((logger as unknown as { warn: ReturnType<typeof vi.fn> }).warn).toHaveBeenCalled();
   });
@@ -1275,18 +1608,12 @@ describe('addStationsToMaintenance', () => {
 
     expect(result.affectedStationIds).toEqual(['sta_1', 'sta_2']);
     // Inoperative + stop only for CS-002 (the new station)
-    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith(
-      'CS-002',
-      'ChangeAvailability',
-      { operationalStatus: 'Inoperative' },
-      'ocpp2.1',
-    );
-    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith(
-      'CS-002',
-      'RequestStopTransaction',
-      { transactionId: 'tx_2' },
-      'ocpp2.1',
-    );
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-002', 'ChangeAvailability', {
+      operationalStatus: 'Inoperative',
+    });
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-002', 'RequestStopTransaction', {
+      transactionId: 'tx_2',
+    });
     // never touches CS-001 (already on the list)
     const touchedCs001 = h.sendOcppCommandAndWait.mock.calls.some((c) => c[0] === 'CS-001');
     expect(touchedCs001).toBe(false);
@@ -1405,12 +1732,9 @@ describe('removeStationsFromMaintenance', () => {
     const result = await removeStationsFromMaintenance('mne_1', ['sta_2'], OPERATOR_ACTOR);
 
     expect(result.affectedStationIds).toEqual(['sta_1']);
-    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith(
-      'CS-002',
-      'ChangeAvailability',
-      { operationalStatus: 'Operative' },
-      'ocpp2.1',
-    );
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-002', 'ChangeAvailability', {
+      operationalStatus: 'Operative',
+    });
     expect(h.clearStationMessageSlot).toHaveBeenCalledWith('CS-002', 'ocpp2.1', 9005);
     expect(auditCallsByAction('updated')).toHaveLength(1);
   });
@@ -1514,12 +1838,9 @@ describe('cancelEvent', () => {
     const result = await cancelEvent('mne_1', SYSTEM_ACTOR);
 
     expect(result.status).toBe('cancelled');
-    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith(
-      'CS-001',
-      'ChangeAvailability',
-      { operationalStatus: 'Operative' },
-      'ocpp2.1',
-    );
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-001', 'ChangeAvailability', {
+      operationalStatus: 'Operative',
+    });
     expect(h.clearStationMessageSlot).toHaveBeenCalledWith('CS-001', 'ocpp2.1', 9005);
     expect(auditCallsByAction('cancelled')).toHaveLength(1);
     expect(h.invalidateMaintenanceCheckCache).toHaveBeenCalled();
@@ -1542,12 +1863,9 @@ describe('cancelEvent', () => {
 
     expect(result.status).toBe('cancelled');
     // null protocol passed through as undefined to OCPP
-    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith(
-      'CS-001',
-      'ChangeAvailability',
-      { operationalStatus: 'Operative' },
-      undefined,
-    );
+    expect(h.sendOcppCommandAndWait).toHaveBeenCalledWith('CS-001', 'ChangeAvailability', {
+      operationalStatus: 'Operative',
+    });
     expect(auditCallsByAction('cancelled')).toHaveLength(1);
     expect((logger as unknown as { warn: ReturnType<typeof vi.fn> }).warn).toHaveBeenCalled();
   });

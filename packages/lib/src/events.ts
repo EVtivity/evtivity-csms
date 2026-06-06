@@ -46,7 +46,19 @@ export class InMemoryEventBus implements EventBus {
     };
 
     if (this.persistence != null) {
-      await this.persistence.persist(eventWithTime);
+      // Fail-open: domain-event persistence is an audit trail, not the source
+      // of truth (projections update the domain tables). Callers fire publish
+      // with `void`, so a rejection here is an unhandledRejection that kills
+      // the whole process -- a transient DB connect timeout during a
+      // reconnect storm crash-looped the OCPP server this way.
+      try {
+        await this.persistence.persist(eventWithTime);
+      } catch (err) {
+        this.logger.warn(
+          { eventType: event.eventType, aggregateId: event.aggregateId, err },
+          'Domain event persistence failed; continuing with handler dispatch',
+        );
+      }
     }
 
     const handlers = this.handlers.get(event.eventType) ?? [];

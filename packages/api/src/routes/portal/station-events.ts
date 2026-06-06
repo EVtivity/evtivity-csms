@@ -3,10 +3,14 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Subscription } from '@evtivity/lib';
+import { createLogger } from '@evtivity/lib';
 import { db } from '@evtivity/database';
 import { chargingStations } from '@evtivity/database';
 import { eq } from 'drizzle-orm';
 import { getPubSub } from '../../lib/pubsub.js';
+import { writeSseClient } from '../../lib/sse-broadcast.js';
+
+const logger = createLogger('portal-station-events-sse');
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
 const CSMS_EVENTS_CHANNEL = 'csms_events';
@@ -23,6 +27,16 @@ let subscription: Subscription | null = null;
 let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
 
 const FORWARDED_EVENTS = new Set(['station.status']);
+
+export function writeToClient(client: StationSseClient, payload: string): void {
+  writeSseClient({
+    client,
+    payload,
+    logger,
+    onDeadClient: removeClient,
+    describe: (c) => ({ clientId: c.id, stationDbId: c.stationDbId }),
+  });
+}
 
 async function ensureListener(): Promise<void> {
   if (subscription != null) return;
@@ -41,7 +55,7 @@ async function ensureListener(): Promise<void> {
     const message = `data: ${payload}\n\n`;
     for (const client of clients) {
       if (parsed.stationId === client.stationDbId) {
-        client.reply.raw.write(message);
+        writeToClient(client, message);
       }
     }
   });
@@ -49,7 +63,7 @@ async function ensureListener(): Promise<void> {
   keepaliveTimer = setInterval(() => {
     const comment = `: keepalive\n\n`;
     for (const client of clients) {
-      client.reply.raw.write(comment);
+      writeToClient(client, comment);
     }
   }, KEEPALIVE_INTERVAL_MS);
 }

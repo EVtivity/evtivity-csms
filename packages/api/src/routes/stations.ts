@@ -57,6 +57,7 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds, checkStationSiteAccess, userCanAccessSite } from '../lib/site-access.js';
 import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../lib/ocpp-command.js';
 import { buildDerivedStatusSubquery } from '../lib/station-derived-status.js';
+import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.js';
 import { enableCssPair, disableCssPair } from '../lib/css-pairing.js';
 import { mapConnectorTypeToCss } from '@evtivity/lib';
 import { authorize } from '../middleware/rbac.js';
@@ -282,6 +283,9 @@ const stationItem = z
     siteFreeVendEnabled: z
       .boolean()
       .describe("Whether the station's site has free vend mode enabled"),
+    underMaintenance: z
+      .boolean()
+      .describe('Whether an active maintenance event currently covers this station'),
   })
   .passthrough();
 
@@ -357,6 +361,9 @@ const stationDetail = z
     siteFreeVendEnabled: z
       .boolean()
       .describe("Whether the station's site has free vend mode enabled"),
+    underMaintenance: z
+      .boolean()
+      .describe('Whether an active maintenance event currently covers this station'),
   })
   .passthrough();
 
@@ -762,6 +769,10 @@ export function stationRoutes(app: FastifyInstance): void {
             AND c4.connector_type IS NOT NULL
           )`,
           siteFreeVendEnabled: sql<boolean>`coalesce(${sites.freeVendEnabled}, false)`,
+          underMaintenance: buildUnderMaintenanceSubquery(
+            chargingStations.id,
+            chargingStations.siteId,
+          ),
         })
         .from(chargingStations)
         .leftJoin(vendors, eq(vendors.id, chargingStations.vendorId))
@@ -830,6 +841,10 @@ export function stationRoutes(app: FastifyInstance): void {
           status: derivedStatus,
           siteHoursOfOperation: sites.hoursOfOperation,
           siteFreeVendEnabled: sql<boolean>`coalesce(${sites.freeVendEnabled}, false)`,
+          underMaintenance: buildUnderMaintenanceSubquery(
+            chargingStations.id,
+            chargingStations.siteId,
+          ),
           latitude: chargingStations.latitude,
           longitude: chargingStations.longitude,
           reservationsEnabled: chargingStations.reservationsEnabled,

@@ -124,13 +124,19 @@ vi.mock('@evtivity/database', () => {
   dbMock['transaction'] = vi.fn((cb: (tx: unknown) => Promise<unknown>) => cb(dbMock));
   return {
     db: dbMock,
-    chargingStations: {},
+    // buildDerivedStatusSubquery and buildUnderMaintenanceSubquery read
+    // .table and .name off the correlated columns.
+    chargingStations: {
+      id: { name: 'id', table: {} },
+      siteId: { name: 'site_id', table: {} },
+    },
     evses: {},
     connectors: {},
     chargingSessions: {},
     drivers: {},
     meterValues: {},
     sites: {},
+    maintenanceEvents: {},
     vendors: { id: 'id', name: 'name' },
     ocppMessageLogs: {},
     connectionLogs: {},
@@ -175,7 +181,12 @@ vi.mock('drizzle-orm', () => {
     and: vi.fn(),
     or: vi.fn(),
     ilike: vi.fn(),
-    sql: Object.assign(vi.fn(sqlFn), { raw: vi.fn(sqlFn), join: vi.fn(() => '') }),
+    sql: Object.assign(vi.fn(sqlFn), {
+      raw: vi.fn(sqlFn),
+      join: vi.fn(() => ''),
+      identifier: vi.fn(sqlFn),
+    }),
+    getTableName: vi.fn(() => 'charging_stations'),
     gte: vi.fn(),
     desc: vi.fn(),
     count: vi.fn(),
@@ -277,6 +288,7 @@ describe('Station routes - handler logic', () => {
         connectorCount: 2,
         connectorTypes: ['CCS2'],
         siteFreeVendEnabled: false,
+        underMaintenance: false,
       };
       // First call: data query, second call: count subquery
       setupDbResults([stationRow], [{ count: 1 }]);
@@ -349,6 +361,7 @@ describe('Station routes - handler logic', () => {
         status: 'available',
         siteHoursOfOperation: null,
         siteFreeVendEnabled: false,
+        underMaintenance: false,
       };
       setupDbResults([station]);
 

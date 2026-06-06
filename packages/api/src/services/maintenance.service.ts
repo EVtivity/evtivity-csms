@@ -8,6 +8,7 @@ import {
   client,
   maintenanceEvents,
   maintenanceEventAuditLog,
+  maintenanceEventStations,
   chargingStations,
   chargingSessions,
   sites,
@@ -16,6 +17,8 @@ import {
 } from '@evtivity/database';
 import { dispatchDriverNotification, AppError, renderMaintenanceMessage } from '@evtivity/lib';
 import { getPubSub } from '../lib/pubsub.js';
+import { buildDerivedStatusSubquery } from '../lib/station-derived-status.js';
+import { sleep } from '../lib/sleep.js';
 import { sendOcppCommandAndWait } from '../lib/ocpp-command.js';
 import { applyReservationCancellation } from '../lib/reservation-cancel.js';
 import { invalidateMaintenanceCheckCache } from '../lib/maintenance-check.js';
@@ -47,6 +50,203 @@ export interface CreateMaintenanceInput {
   reason?: string | null;
   actor: MaintenanceActor;
   logger?: FastifyBaseLogger;
+}
+
+// When `detachSideEffects` is true the caller is on an HTTP request path and the
+// per-station OCPP fan-out (90 stations x ChangeAvailability round-trip + slot
+// push + reservation cancels + session stops + driver notifications) must NOT
+// run inside the request: it would blow past the nginx 60s proxy timeout and
+// the operator would see a 504 even though the state mutation already landed.
+// Instead the request publishes the `maintenance_fanout` channel and the worker
+// runs the fan-out through BullMQ, so it survives an API restart. When
+// false/absent (worker scheduler, tests) the side effects are awaited inline
+// because there is no timeout pressure and effects must complete before the
+// call resolves.
+export interface SideEffectOptions {
+  detachSideEffects?: boolean;
+}
+
+export type MaintenanceFanoutPhase = 'enter' | 'release' | 'add' | 'remove' | 'reassert';
+
+export interface MaintenanceFanoutActor {
+  type: 'operator' | 'system';
+  userId?: string | null;
+  label?: string | null;
+}
+
+export interface MaintenanceFanoutJob {
+  eventId: string;
+  phase: MaintenanceFanoutPhase;
+  stationDbIds?: string[];
+  actor?: MaintenanceFanoutActor;
+  // Reassert publishes carry a per-reconnect nonce so the worker's
+  // deterministic jobId does not collapse a later reconnect's re-assert into
+  // an already-completed job for the same station.
+  nonce?: string;
+}
+
+export const MAINTENANCE_FANOUT_CHANNEL = 'maintenance_fanout';
+
+// Concurrency-bound the per-station fan-out so a site with ~90 stations does not
+// open 90 simultaneous OCPP waits. The pool keeps `limit` tasks in flight.
+const STATION_FANOUT_CONCURRENCY = 10;
+
+async function mapWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      await fn(items[index] as T);
+    }
+  };
+  const size = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: size }, () => worker()));
+}
+
+// Per-station fan-out result tracking. Each runner classifies the
+// ChangeAvailability outcome per station and writes one row per station per
+// phase to maintenance_event_stations, with the derived station status
+// captured before the fan-out started and after it completed. Tracking is
+// fail-open: a failed insert must not fail a fan-out that already commanded
+// the fleet.
+interface FanoutStationOutcome {
+  stationDbId: string;
+  stationOcppId: string;
+  command: string;
+  commandStatus: string;
+  error: string | null;
+}
+
+function classifyCommandResult(result: { response?: Record<string, unknown>; error?: string }): {
+  commandStatus: string;
+  error: string | null;
+} {
+  if (result.error != null) {
+    const offline = result.error.includes('is not connected');
+    return { commandStatus: offline ? 'offline' : 'failed', error: result.error };
+  }
+  const status = (result.response as { status?: string } | undefined)?.status;
+  return { commandStatus: (status ?? 'accepted').toLowerCase(), error: null };
+}
+
+// Stations send the StatusNotification that reflects a ChangeAvailability a
+// moment after replying Accepted. Snapshotting statusAfter immediately after
+// the command loop recorded the pre-command status (e.g. available -> available
+// for a station that did go unavailable seconds later), so wait for the
+// notifications to land before reading.
+const STATUS_AFTER_SETTLE_MS = 5000;
+
+async function loadDerivedStatusesAfterSettle(
+  stationDbIds: string[],
+): Promise<Map<string, string>> {
+  if (stationDbIds.length === 0) return new Map();
+  await sleep(STATUS_AFTER_SETTLE_MS);
+  return loadDerivedStatuses(stationDbIds);
+}
+
+async function loadDerivedStatuses(stationDbIds: string[]): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (stationDbIds.length === 0) return map;
+  try {
+    const rows = await db
+      .select({
+        id: chargingStations.id,
+        status: buildDerivedStatusSubquery(chargingStations.id),
+      })
+      .from(chargingStations)
+      .where(inArray(chargingStations.id, stationDbIds));
+    for (const row of rows) map.set(row.id, row.status);
+  } catch {
+    // status snapshots are diagnostic; the fan-out proceeds without them
+  }
+  return map;
+}
+
+async function recordFanoutOutcomes(
+  eventId: string,
+  // Richer than MaintenanceFanoutPhase on purpose: the release runner labels
+  // its callers ('exit', 'cancel', 'remove-stations', 'release') so the
+  // drill-down distinguishes why stations were released.
+  phase: string,
+  outcomes: FanoutStationOutcome[],
+  statusBefore: Map<string, string>,
+  statusAfter: Map<string, string>,
+  logger?: FastifyBaseLogger,
+): Promise<void> {
+  if (outcomes.length === 0) return;
+  try {
+    await db.insert(maintenanceEventStations).values(
+      outcomes.map((o) => ({
+        eventId,
+        stationId: o.stationDbId,
+        stationIdSnapshot: o.stationDbId,
+        stationOcppId: o.stationOcppId,
+        phase,
+        command: o.command,
+        commandStatus: o.commandStatus,
+        error: o.error,
+        statusBefore: statusBefore.get(o.stationDbId) ?? null,
+        statusAfter: statusAfter.get(o.stationDbId) ?? null,
+      })),
+    );
+  } catch (err) {
+    logger?.warn({ err, eventId, phase }, 'maintenance fan-out result tracking insert failed');
+  }
+}
+
+// Canonical 2.1 payload with no version arg: the OCPP dispatcher translates
+// per the station's live protocol (1.6 gets { connectorId: 0, type }).
+// Passing a version would skip translation and send this payload raw to 1.6
+// stations, which silently ignore it.
+async function sendAvailabilityCommand(
+  stationOcppId: string,
+  operationalStatus: 'Inoperative' | 'Operative',
+  logger?: FastifyBaseLogger,
+): Promise<{ command: string; commandStatus: string; error: string | null }> {
+  const command = `ChangeAvailability(${operationalStatus})`;
+  try {
+    const result = await sendOcppCommandAndWait(stationOcppId, 'ChangeAvailability', {
+      operationalStatus,
+    });
+    const classified = classifyCommandResult(result);
+    if (classified.error != null) {
+      logger?.warn({ stationId: stationOcppId, error: classified.error }, `${command} failed`);
+    }
+    return { command, ...classified };
+  } catch (err) {
+    logger?.warn({ err, stationId: stationOcppId }, `${command} failed`);
+    return {
+      command,
+      commandStatus: 'failed',
+      error: err instanceof Error ? err.message : 'Unknown error',
+    };
+  }
+}
+
+// Hand the station fan-out to the worker via the `maintenance_fanout` channel.
+// A publish failure leaves the event in its committed state (active/completed/
+// cancelled) with the fleet uncommanded, so it is logged at ERROR — not warn —
+// even though the request still returns success (the state mutation already
+// landed). The maintenance-scheduler cron and an operator re-save are the
+// recovery paths that re-trigger the fan-out.
+async function publishFanout(job: MaintenanceFanoutJob, logger?: FastifyBaseLogger): Promise<void> {
+  try {
+    await getPubSub().publish(MAINTENANCE_FANOUT_CHANNEL, JSON.stringify(job));
+  } catch (err) {
+    logger?.error(
+      { err, eventId: job.eventId, phase: job.phase },
+      'maintenance fan-out publish failed; fleet left uncommanded until re-trigger',
+    );
+  }
+}
+
+function fanoutActor(actor: MaintenanceActor): MaintenanceFanoutActor {
+  return { type: actor.type, userId: actor.userId ?? null, label: actor.label ?? null };
 }
 
 export interface MaintenanceEventRow {
@@ -158,7 +358,10 @@ async function findOverlappingScheduledEvents(
   return filtered.map((r) => rowFromDb(r as Record<string, unknown>));
 }
 
-export async function createEvent(input: CreateMaintenanceInput): Promise<MaintenanceEventRow> {
+export async function createEvent(
+  input: CreateMaintenanceInput,
+  options: SideEffectOptions = {},
+): Promise<MaintenanceEventRow> {
   if (input.plannedEndAt.getTime() <= input.plannedStartAt.getTime()) {
     throw new AppError('Maintenance end must be after start', 400, 'MAINTENANCE_INVALID_RANGE');
   }
@@ -218,7 +421,7 @@ export async function createEvent(input: CreateMaintenanceInput): Promise<Mainte
   const isImmediate =
     input.eventType === 'immediate' || created.plannedStartAt.getTime() <= Date.now();
   if (isImmediate) {
-    await enterMaintenance(created.id, input.actor, input.logger);
+    await enterMaintenance(created.id, input.actor, input.logger, options);
     const refreshed = await loadEventById(created.id);
     return refreshed ?? created;
   }
@@ -230,6 +433,7 @@ export async function enterMaintenance(
   eventId: string,
   actor: MaintenanceActor,
   logger?: FastifyBaseLogger,
+  options: SideEffectOptions = {},
 ): Promise<void> {
   const updated = await db.execute<{ id: string }>(
     sql`
@@ -255,6 +459,24 @@ export async function enterMaintenance(
   const event = await loadEventById(eventId);
   if (event == null) return;
 
+  // Sync state mutation has landed (status='active'). Cache invalidation and the
+  // first SSE publish stay in the request so peers see the active state and the
+  // UI flips immediately. The station fan-out runs detached on the HTTP path.
+  invalidateMaintenanceCheckCache();
+  await publishStateChange(event.siteId, event.id);
+
+  if (options.detachSideEffects === true) {
+    await publishFanout({ eventId: event.id, phase: 'enter', actor: fanoutActor(actor) }, logger);
+    return;
+  }
+  await runEnterSideEffects(event, actor, logger);
+}
+
+export async function runEnterSideEffects(
+  event: MaintenanceEventRow,
+  actor: MaintenanceActor,
+  logger?: FastifyBaseLogger,
+): Promise<void> {
   const [[site], stations] = await Promise.all([
     db.select({ name: sites.name }).from(sites).where(eq(sites.id, event.siteId)),
     loadSiteStations(event.siteId, event.affectedStationIds),
@@ -262,34 +484,29 @@ export async function enterMaintenance(
   const siteName = site?.name ?? '';
   const message = await renderMaintenanceMessage(client, event, siteName);
 
-  await Promise.all(
-    stations.map(async (station) => {
-      try {
-        await sendOcppCommandAndWait(
-          station.stationId,
-          'ChangeAvailability',
-          { operationalStatus: 'Inoperative' },
-          station.ocppProtocol ?? undefined,
-        );
-      } catch (err) {
-        logger?.warn(
-          { err, stationId: station.stationId },
-          'ChangeAvailability(Inoperative) failed',
-        );
-      }
-      try {
-        await pushStationMessageSlot(
-          station.stationId,
-          station.ocppProtocol,
-          STATION_MESSAGE_SLOT_UNAVAILABLE,
-          'Unavailable',
-          message,
-        );
-      } catch (err) {
-        logger?.warn({ err, stationId: station.stationId }, 'maintenance message push failed');
-      }
-    }),
-  );
+  const statusBefore = await loadDerivedStatuses(stations.map((s) => s.id));
+  const outcomes: FanoutStationOutcome[] = [];
+  await mapWithConcurrency(stations, STATION_FANOUT_CONCURRENCY, async (station) => {
+    const sent = await sendAvailabilityCommand(station.stationId, 'Inoperative', logger);
+    outcomes.push({
+      stationDbId: station.id,
+      stationOcppId: station.stationId,
+      ...sent,
+    });
+    try {
+      await pushStationMessageSlot(
+        station.stationId,
+        station.ocppProtocol,
+        STATION_MESSAGE_SLOT_UNAVAILABLE,
+        'Unavailable',
+        message,
+      );
+    } catch (err) {
+      logger?.warn({ err, stationId: station.stationId }, 'maintenance message push failed');
+    }
+  });
+  const statusAfter = await loadDerivedStatusesAfterSettle(stations.map((s) => s.id));
+  await recordFanoutOutcomes(event.id, 'enter', outcomes, statusBefore, statusAfter, logger);
 
   const stationIds = stations.map((s) => s.id);
   const [reservationsCancelled, sessionsStopped] = await Promise.all([
@@ -351,6 +568,18 @@ export async function enterMaintenance(
     );
   }
 
+  logger?.info(
+    {
+      eventId: event.id,
+      stations: stations.length,
+      reservationsCancelled,
+      sessionsStopped,
+    },
+    'maintenance enter side effects complete',
+  );
+
+  // Second SSE publish: the fan-out has finished and the counters are now
+  // committed, so the UI refreshes its badges/counters off the same channel.
   invalidateMaintenanceCheckCache();
   await publishStateChange(event.siteId, event.id);
 }
@@ -461,8 +690,9 @@ async function stopActiveSessionsForStations(
         const result = await sendOcppCommandAndWait(
           stationInfo.stationId,
           'RequestStopTransaction',
-          { transactionId: sess.transactionId },
-          stationInfo.ocppProtocol ?? undefined,
+          {
+            transactionId: sess.transactionId,
+          },
         );
         if (result.error != null) return false;
         if (sess.driverId != null) {
@@ -501,6 +731,7 @@ export async function exitMaintenance(
   eventId: string,
   actor: MaintenanceActor,
   logger?: FastifyBaseLogger,
+  options: SideEffectOptions = {},
 ): Promise<void> {
   const event = await loadEventById(eventId);
   if (event == null) return;
@@ -526,31 +757,6 @@ export async function exitMaintenance(
   const rows = updated as unknown as Array<{ id: string }>;
   if (rows.length === 0) return;
 
-  const stations = await loadSiteStations(event.siteId, event.affectedStationIds);
-  await Promise.all(
-    stations.map(async (station) => {
-      try {
-        await sendOcppCommandAndWait(
-          station.stationId,
-          'ChangeAvailability',
-          { operationalStatus: 'Operative' },
-          station.ocppProtocol ?? undefined,
-        );
-      } catch (err) {
-        logger?.warn({ err, stationId: station.stationId }, 'ChangeAvailability(Operative) failed');
-      }
-      try {
-        await clearStationMessageSlot(
-          station.stationId,
-          station.ocppProtocol,
-          STATION_MESSAGE_SLOT_UNAVAILABLE,
-        );
-      } catch (err) {
-        logger?.warn({ err, stationId: station.stationId }, 'maintenance message clear failed');
-      }
-    }),
-  );
-
   await writeAudit(
     { table: maintenanceEventAuditLog, idColumn: 'maintenance_event_id' },
     {
@@ -563,6 +769,53 @@ export async function exitMaintenance(
     logger,
   );
 
+  invalidateMaintenanceCheckCache();
+  await publishStateChange(event.siteId, event.id);
+
+  if (options.detachSideEffects === true) {
+    await publishFanout({ eventId: event.id, phase: 'release', actor: fanoutActor(actor) }, logger);
+    return;
+  }
+  await runReleaseStations(event, 'exit', logger);
+}
+
+// Shared Operative + clear-slot fan-out for the three release paths
+// (exit/cancel/remove). Concurrency-bound and per-station fail-open. Publishes a
+// second SSE so detached callers refresh the UI once the stations are released.
+async function runReleaseStations(
+  event: MaintenanceEventRow,
+  phase: string,
+  logger?: FastifyBaseLogger,
+  stationsOverride?: Array<{ id: string; stationId: string; ocppProtocol: string | null }>,
+): Promise<void> {
+  const stations =
+    stationsOverride ?? (await loadSiteStations(event.siteId, event.affectedStationIds));
+  const statusBefore = await loadDerivedStatuses(stations.map((s) => s.id));
+  const outcomes: FanoutStationOutcome[] = [];
+  await mapWithConcurrency(stations, STATION_FANOUT_CONCURRENCY, async (station) => {
+    const sent = await sendAvailabilityCommand(station.stationId, 'Operative', logger);
+    outcomes.push({
+      stationDbId: station.id,
+      stationOcppId: station.stationId,
+      ...sent,
+    });
+    try {
+      await clearStationMessageSlot(
+        station.stationId,
+        station.ocppProtocol,
+        STATION_MESSAGE_SLOT_UNAVAILABLE,
+      );
+    } catch (err) {
+      logger?.warn({ err, stationId: station.stationId }, 'maintenance message clear failed');
+    }
+  });
+  const statusAfter = await loadDerivedStatusesAfterSettle(stations.map((s) => s.id));
+  await recordFanoutOutcomes(event.id, phase, outcomes, statusBefore, statusAfter, logger);
+
+  logger?.info(
+    { eventId: event.id, stations: stations.length, phase },
+    'maintenance release side effects complete',
+  );
   invalidateMaintenanceCheckCache();
   await publishStateChange(event.siteId, event.id);
 }
@@ -753,6 +1006,7 @@ export async function addStationsToMaintenance(
   stationIdsToAdd: string[],
   actor: MaintenanceActor,
   logger?: FastifyBaseLogger,
+  options: SideEffectOptions = {},
 ): Promise<MaintenanceEventRow> {
   const before = await loadEventById(eventId);
   if (before == null) {
@@ -819,89 +1073,13 @@ export async function addStationsToMaintenance(
   }
   const after = rowFromDb(updated);
 
-  let extraSessionsStopped = 0;
-  let extraReservationsCancelled = 0;
-  if (after.status === 'active') {
-    const newStations = await db
-      .select({
-        id: chargingStations.id,
-        stationId: chargingStations.stationId,
-        ocppProtocol: chargingStations.ocppProtocol,
-      })
-      .from(chargingStations)
-      .where(inArray(chargingStations.id, trulyNew));
-
-    const [site] = await db
-      .select({ name: sites.name })
-      .from(sites)
-      .where(eq(sites.id, after.siteId));
-    const siteName = site?.name ?? '';
-    const message = await renderMaintenanceMessage(client, after, siteName);
-
-    await Promise.all(
-      newStations.map(async (station) => {
-        try {
-          await sendOcppCommandAndWait(
-            station.stationId,
-            'ChangeAvailability',
-            { operationalStatus: 'Inoperative' },
-            station.ocppProtocol ?? undefined,
-          );
-        } catch (err) {
-          logger?.warn(
-            { err, stationId: station.stationId },
-            'ChangeAvailability(Inoperative) failed when adding station to active event',
-          );
-        }
-        try {
-          await pushStationMessageSlot(
-            station.stationId,
-            station.ocppProtocol,
-            STATION_MESSAGE_SLOT_UNAVAILABLE,
-            'Unavailable',
-            message,
-          );
-        } catch (err) {
-          logger?.warn(
-            { err, stationId: station.stationId },
-            'slot push failed when adding station to active event',
-          );
-        }
-      }),
-    );
-
-    const newStationDbIds = newStations.map((s) => s.id);
-    const [reservationsCancelled, sessionsStopped] = await Promise.all([
-      cancelOverlappingReservations(after, newStationDbIds, logger),
-      after.activeSessionPolicy === 'stop_graceful' && newStations.length > 0
-        ? stopActiveSessionsForStations(after, newStations, logger)
-        : Promise.resolve(0),
-    ]);
-    extraReservationsCancelled = reservationsCancelled;
-    extraSessionsStopped = sessionsStopped;
-
-    if (extraReservationsCancelled > 0 || extraSessionsStopped > 0) {
-      const counterSet: Record<string, unknown> = {};
-      if (extraReservationsCancelled > 0) {
-        counterSet['reservationsCancelledCount'] =
-          sql`${maintenanceEvents.reservationsCancelledCount} + ${extraReservationsCancelled}`;
-      }
-      if (extraSessionsStopped > 0) {
-        counterSet['sessionsStoppedCount'] =
-          sql`${maintenanceEvents.sessionsStoppedCount} + ${extraSessionsStopped}`;
-      }
-      await db.update(maintenanceEvents).set(counterSet).where(eq(maintenanceEvents.id, eventId));
-    }
-  }
-
-  const auditActorBase = auditActorFromActor(actor);
   await writeAudit(
     { table: maintenanceEventAuditLog, idColumn: 'maintenance_event_id' },
     {
       entityId: after.id,
       entityIdSnapshot: after.id,
       action: 'updated',
-      ...auditActorBase,
+      ...auditActorFromActor(actor),
       before,
       after,
       notes: `Added ${String(trulyNew.length)} station(s) to event`,
@@ -909,6 +1087,96 @@ export async function addStationsToMaintenance(
     db,
     logger,
   );
+
+  invalidateMaintenanceCheckCache();
+  await publishStateChange(after.siteId, after.id);
+
+  // Only an active event needs to take the newly added stations offline.
+  if (after.status === 'active') {
+    if (options.detachSideEffects === true) {
+      await publishFanout(
+        { eventId: after.id, phase: 'add', stationDbIds: trulyNew, actor: fanoutActor(actor) },
+        logger,
+      );
+    } else {
+      await runAddStationSideEffects(after, trulyNew, actor, logger);
+    }
+  }
+
+  return after;
+}
+
+async function runAddStationSideEffects(
+  after: MaintenanceEventRow,
+  newStationIds: string[],
+  actor: MaintenanceActor,
+  logger?: FastifyBaseLogger,
+): Promise<void> {
+  const newStations = await db
+    .select({
+      id: chargingStations.id,
+      stationId: chargingStations.stationId,
+      ocppProtocol: chargingStations.ocppProtocol,
+    })
+    .from(chargingStations)
+    .where(inArray(chargingStations.id, newStationIds));
+
+  const [site] = await db
+    .select({ name: sites.name })
+    .from(sites)
+    .where(eq(sites.id, after.siteId));
+  const siteName = site?.name ?? '';
+  const message = await renderMaintenanceMessage(client, after, siteName);
+
+  const statusBefore = await loadDerivedStatuses(newStations.map((s) => s.id));
+  const outcomes: FanoutStationOutcome[] = [];
+  await mapWithConcurrency(newStations, STATION_FANOUT_CONCURRENCY, async (station) => {
+    const sent = await sendAvailabilityCommand(station.stationId, 'Inoperative', logger);
+    outcomes.push({
+      stationDbId: station.id,
+      stationOcppId: station.stationId,
+      ...sent,
+    });
+    try {
+      await pushStationMessageSlot(
+        station.stationId,
+        station.ocppProtocol,
+        STATION_MESSAGE_SLOT_UNAVAILABLE,
+        'Unavailable',
+        message,
+      );
+    } catch (err) {
+      logger?.warn(
+        { err, stationId: station.stationId },
+        'slot push failed when adding station to active event',
+      );
+    }
+  });
+  const statusAfter = await loadDerivedStatusesAfterSettle(newStations.map((s) => s.id));
+  await recordFanoutOutcomes(after.id, 'add', outcomes, statusBefore, statusAfter, logger);
+
+  const newStationDbIds = newStations.map((s) => s.id);
+  const [extraReservationsCancelled, extraSessionsStopped] = await Promise.all([
+    cancelOverlappingReservations(after, newStationDbIds, logger),
+    after.activeSessionPolicy === 'stop_graceful' && newStations.length > 0
+      ? stopActiveSessionsForStations(after, newStations, logger)
+      : Promise.resolve(0),
+  ]);
+
+  if (extraReservationsCancelled > 0 || extraSessionsStopped > 0) {
+    const counterSet: Record<string, unknown> = {};
+    if (extraReservationsCancelled > 0) {
+      counterSet['reservationsCancelledCount'] =
+        sql`${maintenanceEvents.reservationsCancelledCount} + ${extraReservationsCancelled}`;
+    }
+    if (extraSessionsStopped > 0) {
+      counterSet['sessionsStoppedCount'] =
+        sql`${maintenanceEvents.sessionsStoppedCount} + ${extraSessionsStopped}`;
+    }
+    await db.update(maintenanceEvents).set(counterSet).where(eq(maintenanceEvents.id, after.id));
+  }
+
+  const auditActorBase = auditActorFromActor(actor);
   if (extraReservationsCancelled > 0) {
     await writeAudit(
       { table: maintenanceEventAuditLog, idColumn: 'maintenance_event_id' },
@@ -938,9 +1206,17 @@ export async function addStationsToMaintenance(
     );
   }
 
+  logger?.info(
+    {
+      eventId: after.id,
+      stations: newStations.length,
+      reservationsCancelled: extraReservationsCancelled,
+      sessionsStopped: extraSessionsStopped,
+    },
+    'maintenance add-station side effects complete',
+  );
   invalidateMaintenanceCheckCache();
   await publishStateChange(after.siteId, after.id);
-  return after;
 }
 
 /**
@@ -959,6 +1235,7 @@ export async function removeStationsFromMaintenance(
   stationIdsToRemove: string[],
   actor: MaintenanceActor,
   logger?: FastifyBaseLogger,
+  options: SideEffectOptions = {},
 ): Promise<MaintenanceEventRow> {
   const before = await loadEventById(eventId);
   if (before == null) {
@@ -997,53 +1274,13 @@ export async function removeStationsFromMaintenance(
 
   const removed = currentList.filter((id) => toRemove.has(id));
 
-  if (before.status === 'active' && removed.length > 0) {
-    const releasedStations = await db
-      .select({
-        id: chargingStations.id,
-        stationId: chargingStations.stationId,
-        ocppProtocol: chargingStations.ocppProtocol,
-      })
-      .from(chargingStations)
-      .where(inArray(chargingStations.id, removed));
-
-    await Promise.all(
-      releasedStations.map(async (station) => {
-        try {
-          await sendOcppCommandAndWait(
-            station.stationId,
-            'ChangeAvailability',
-            { operationalStatus: 'Operative' },
-            station.ocppProtocol ?? undefined,
-          );
-        } catch (err) {
-          logger?.warn(
-            { err, stationId: station.stationId },
-            'ChangeAvailability(Operative) failed on station release',
-          );
-        }
-        try {
-          await clearStationMessageSlot(
-            station.stationId,
-            station.ocppProtocol,
-            STATION_MESSAGE_SLOT_UNAVAILABLE,
-          );
-        } catch (err) {
-          logger?.warn(
-            { err, stationId: station.stationId },
-            'slot clear failed on station release',
-          );
-        }
-      }),
-    );
-  }
-
-  // Tight status guard: the `before.status === 'active'` branch above gates
-  // whether the Operative side effects ran. If status flipped between load
-  // and UPDATE, the cron's enterMaintenance/cancelEvent would have already
-  // acted on the old list, and a permissive WHERE here would silently shrink
-  // the committed list, stranding the removed stations Inoperative without
-  // an event to ever Operative them again.
+  // Tight status guard: the post-UPDATE active branch gates whether the
+  // Operative side effects run. If status flipped between load and UPDATE, the
+  // cron's enterMaintenance/cancelEvent would have already acted on the old
+  // list, and a permissive WHERE here would silently shrink the committed list,
+  // stranding the removed stations Inoperative without an event to ever
+  // Operative them again. The DB UPDATE lands first so a lost race throws 409
+  // before any OCPP command goes out.
   const [updated] = await db
     .update(maintenanceEvents)
     .set({ affectedStationIds: nextList, updatedAt: new Date() })
@@ -1075,13 +1312,44 @@ export async function removeStationsFromMaintenance(
 
   invalidateMaintenanceCheckCache();
   await publishStateChange(after.siteId, after.id);
+
+  // Only an active event left the removed stations Inoperative; release them.
+  if (before.status === 'active' && removed.length > 0) {
+    if (options.detachSideEffects === true) {
+      await publishFanout(
+        { eventId: after.id, phase: 'remove', stationDbIds: removed, actor: fanoutActor(actor) },
+        logger,
+      );
+    } else {
+      await runRemoveStationSideEffects(after, removed, logger);
+    }
+  }
+
   return after;
+}
+
+async function runRemoveStationSideEffects(
+  after: MaintenanceEventRow,
+  removedStationIds: string[],
+  logger?: FastifyBaseLogger,
+): Promise<void> {
+  const releasedStations = await db
+    .select({
+      id: chargingStations.id,
+      stationId: chargingStations.stationId,
+      ocppProtocol: chargingStations.ocppProtocol,
+    })
+    .from(chargingStations)
+    .where(inArray(chargingStations.id, removedStationIds));
+
+  await runReleaseStations(after, 'remove-stations', logger, releasedStations);
 }
 
 export async function cancelEvent(
   eventId: string,
   actor: MaintenanceActor,
   logger?: FastifyBaseLogger,
+  options: SideEffectOptions = {},
 ): Promise<MaintenanceEventRow> {
   const event = await loadEventById(eventId);
   if (event == null) {
@@ -1119,39 +1387,6 @@ export async function cancelEvent(
   }
   const wasActive = winner.status_before === 'active';
 
-  if (wasActive) {
-    const stations = await loadSiteStations(event.siteId, event.affectedStationIds);
-    await Promise.all(
-      stations.map(async (station) => {
-        try {
-          await sendOcppCommandAndWait(
-            station.stationId,
-            'ChangeAvailability',
-            { operationalStatus: 'Operative' },
-            station.ocppProtocol ?? undefined,
-          );
-        } catch (err) {
-          logger?.warn(
-            { err, stationId: station.stationId },
-            'ChangeAvailability(Operative) failed on cancel',
-          );
-        }
-        try {
-          await clearStationMessageSlot(
-            station.stationId,
-            station.ocppProtocol,
-            STATION_MESSAGE_SLOT_UNAVAILABLE,
-          );
-        } catch (err) {
-          logger?.warn(
-            { err, stationId: station.stationId },
-            'maintenance message clear on cancel failed',
-          );
-        }
-      }),
-    );
-  }
-
   await writeAudit(
     { table: maintenanceEventAuditLog, idColumn: 'maintenance_event_id' },
     {
@@ -1167,8 +1402,122 @@ export async function cancelEvent(
   invalidateMaintenanceCheckCache();
   await publishStateChange(event.siteId, event.id);
 
+  // Only an active event left stations Inoperative. The Operative fan-out is the
+  // slow leg, so detach it on the HTTP path and await it on the worker path.
+  if (wasActive) {
+    if (options.detachSideEffects === true) {
+      await publishFanout(
+        { eventId: event.id, phase: 'release', actor: fanoutActor(actor) },
+        logger,
+      );
+    } else {
+      await runReleaseStations(event, 'cancel', logger);
+    }
+  }
+
   const refreshed = await loadEventById(event.id);
   return refreshed ?? event;
+}
+
+// Worker entrypoint for the detached station fan-out. The worker bridge enqueues
+// a BullMQ job carrying a MaintenanceFanoutJob; this reloads the event fresh
+// (the row may have moved on since the publish) and dispatches to the matching
+// runner. The runners reload station rows themselves, so only ids travel on the
+// wire. No-ops when the event vanished between publish and processing.
+export async function runMaintenanceFanout(
+  job: MaintenanceFanoutJob,
+  logger?: FastifyBaseLogger,
+): Promise<void> {
+  const event = await loadEventById(job.eventId);
+  if (event == null) {
+    logger?.info({ eventId: job.eventId, phase: job.phase }, 'maintenance fan-out event vanished');
+    return;
+  }
+  const actor: MaintenanceActor = {
+    type: job.actor?.type ?? 'system',
+    userId: job.actor?.userId ?? null,
+    label: job.actor?.label ?? null,
+  };
+
+  switch (job.phase) {
+    case 'enter':
+      await runEnterSideEffects(event, actor, logger);
+      return;
+    case 'release':
+      await runReleaseStations(event, 'release', logger);
+      return;
+    case 'add':
+      await runAddStationSideEffects(event, job.stationDbIds ?? [], actor, logger);
+      return;
+    case 'remove':
+      await runRemoveStationSideEffects(event, job.stationDbIds ?? [], logger);
+      return;
+    case 'reassert':
+      // The event may have completed or been cancelled between the station's
+      // reconnect and this job running; re-asserting then would wrongly take
+      // the station out of service.
+      if (event.status !== 'active') {
+        logger?.info(
+          { eventId: event.id, status: event.status },
+          'maintenance re-assert skipped: event no longer active',
+        );
+        return;
+      }
+      await runReassertStations(event, job.stationDbIds ?? [], logger);
+      return;
+  }
+}
+
+// Re-applies the maintenance state to stations that reconnected mid-window.
+// A station offline during the enter fan-out (or one that rebooted and lost
+// state) comes back reporting Available; this sends ChangeAvailability
+// (Inoperative) and the slot 9005 message again for just those stations.
+// Reservation cancels, session stops, counters, and audits already ran in the
+// enter fan-out and are intentionally not repeated here.
+export async function runReassertStations(
+  event: MaintenanceEventRow,
+  stationDbIds: string[],
+  logger?: FastifyBaseLogger,
+): Promise<void> {
+  if (stationDbIds.length === 0) return;
+  const [[site], covered] = await Promise.all([
+    db.select({ name: sites.name }).from(sites).where(eq(sites.id, event.siteId)),
+    loadSiteStations(event.siteId, event.affectedStationIds),
+  ]);
+  // Only re-assert stations the event actually covers; the reconnect publish
+  // carries whatever station came back, which may have been removed from the
+  // event since.
+  const targets = covered.filter((s) => stationDbIds.includes(s.id));
+  if (targets.length === 0) return;
+  const message = await renderMaintenanceMessage(client, event, site?.name ?? '');
+
+  const statusBefore = await loadDerivedStatuses(targets.map((s) => s.id));
+  const outcomes: FanoutStationOutcome[] = [];
+  await mapWithConcurrency(targets, STATION_FANOUT_CONCURRENCY, async (station) => {
+    const sent = await sendAvailabilityCommand(station.stationId, 'Inoperative', logger);
+    outcomes.push({
+      stationDbId: station.id,
+      stationOcppId: station.stationId,
+      ...sent,
+    });
+    try {
+      await pushStationMessageSlot(
+        station.stationId,
+        station.ocppProtocol,
+        STATION_MESSAGE_SLOT_UNAVAILABLE,
+        'Unavailable',
+        message,
+      );
+    } catch (err) {
+      logger?.warn(
+        { err, stationId: station.stationId },
+        'maintenance message push failed during re-assert',
+      );
+    }
+  });
+  const statusAfter = await loadDerivedStatusesAfterSettle(targets.map((s) => s.id));
+  await recordFanoutOutcomes(event.id, 'reassert', outcomes, statusBefore, statusAfter, logger);
+  logger?.info({ eventId: event.id, stations: targets.length }, 'maintenance re-assert complete');
 }
 
 export async function getActiveMaintenanceForStation(

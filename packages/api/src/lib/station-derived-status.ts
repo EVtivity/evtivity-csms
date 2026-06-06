@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql, type SQL, type Column } from 'drizzle-orm';
+import { sql, getTableName, type SQL, type Column } from 'drizzle-orm';
 import { evses, connectors } from '@evtivity/database';
 
 /**
@@ -15,6 +15,11 @@ import { evses, connectors } from '@evtivity/database';
  * mapping depends on these exact values.
  */
 export function buildDerivedStatusSubquery(stationIdColumn: Column): SQL<string> {
+  // Always table-qualify the correlated column. In a no-join outer query
+  // drizzle renders columns unqualified, and an unqualified "id" inside this
+  // subquery is ambiguous (both e2.id and c2.id exist), which Postgres
+  // rejects at runtime.
+  const outerColumn = sql`${sql.identifier(getTableName(stationIdColumn.table))}.${sql.identifier(stationIdColumn.name)}`;
   return sql<string>`(
     SELECT CASE
       WHEN COUNT(c2.id) FILTER (WHERE c2.status IN ('occupied', 'charging', 'preparing', 'ev_connected', 'suspended_ev', 'suspended_evse')) > 0 THEN 'charging'
@@ -26,6 +31,6 @@ export function buildDerivedStatusSubquery(stationIdColumn: Column): SQL<string>
     END
     FROM ${evses} e2
     JOIN ${connectors} c2 ON c2.evse_id = e2.id
-    WHERE e2.station_id = ${stationIdColumn}
+    WHERE e2.station_id = ${outerColumn}
   )`;
 }
