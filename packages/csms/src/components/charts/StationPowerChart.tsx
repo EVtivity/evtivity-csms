@@ -71,6 +71,9 @@ export function StationPowerChart({ data }: StationPowerChartProps): React.JSX.E
         },
       },
       yaxis: {
+        // Anchor at zero so an idle station draws a visible flat line on the
+        // baseline instead of an apparently empty chart.
+        min: 0,
         title: { text: t('charts.kW') },
         labels: {
           formatter: (val: number) => val.toFixed(1),

@@ -96,7 +96,7 @@ export interface Station {
   siteFreeVendEnabled?: boolean;
   underMaintenance?: boolean;
   lastHeartbeat: string | null;
-  createdAt: string;
+  createdAt: string | null;
 }
 
 function connectorTypeKey(type: string): string {
@@ -533,9 +533,13 @@ export function StationsTable({
               )}
               {isVisible('createdAt') && (
                 <TableCell>
-                  <span title={formatDateTime(station.createdAt, timezone)}>
-                    {formatRelativeTime(station.createdAt, timezone)}
-                  </span>
+                  {station.createdAt != null ? (
+                    <span title={formatDateTime(station.createdAt, timezone)}>
+                      {formatRelativeTime(station.createdAt, timezone)}
+                    </span>
+                  ) : (
+                    t('common.na')
+                  )}
                 </TableCell>
               )}
               {hasActions && (

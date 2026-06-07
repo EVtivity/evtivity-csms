@@ -82,7 +82,11 @@ export function RevenueChart({ data, title, actions, info }: RevenueChartProps):
         {actions}
       </CardHeader>
       <CardContent>
-        <ReactApexChart options={options} series={series} type="line" height={300} />
+        {data.length === 0 ? (
+          <p className="text-center text-sm text-muted-foreground">{t('charts.noRevenueData')}</p>
+        ) : (
+          <ReactApexChart options={options} series={series} type="line" height={300} />
+        )}
       </CardContent>
     </Card>
   );

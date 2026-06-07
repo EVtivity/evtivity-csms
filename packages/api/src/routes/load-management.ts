@@ -54,6 +54,21 @@ const hierarchyStationSchema = z
   })
   .passthrough();
 
+const hierarchyCircuitSchema = z
+  .object({
+    id: z.string().describe('Circuit ID'),
+    name: z.string().describe('Circuit name'),
+    maxContinuousKw: z.number().describe('Maximum continuous power capacity in kW'),
+    currentDrawKw: z.number().describe('Current power draw in kW'),
+    availableKw: z.number().describe('Available power capacity in kW'),
+    stations: z.array(hierarchyStationSchema).describe('Stations attached to this circuit'),
+    unmanagedLoads: z.array(z.record(z.unknown())).describe('Unmanaged loads on this circuit'),
+  })
+  .passthrough();
+
+// Mirrors the shape annotateHierarchy() emits: panels carry `circuits` and
+// `childPanels`, never `stations`/`children`. A mismatch here makes
+// fast-json-stringify reject the response (500) for any site with panels.
 const hierarchyNodeSchema: z.ZodType = z.lazy(() =>
   z
     .object({
@@ -66,8 +81,10 @@ const hierarchyNodeSchema: z.ZodType = z.lazy(() =>
       currentDrawKw: z.number().describe('Current power draw in kW'),
       availableKw: z.number().describe('Available power capacity in kW'),
       utilization: z.number().describe('Utilization ratio (0 to 1)'),
-      stations: z.array(hierarchyStationSchema).describe('Stations attached to this node'),
-      children: z.array(hierarchyNodeSchema).describe('Child hierarchy nodes'),
+      totalConnectedKw: z.number().describe('Sum of connected station capacity in kW'),
+      circuits: z.array(hierarchyCircuitSchema).describe('Circuits on this panel'),
+      childPanels: z.array(hierarchyNodeSchema).describe('Nested sub-panels'),
+      unmanagedLoads: z.array(z.record(z.unknown())).describe('Unmanaged loads on this panel'),
     })
     .passthrough(),
 );

@@ -566,6 +566,7 @@ describe('Fleet routes - handler logic', () => {
           connectorTypes: ['CCS2'],
           isOnline: true,
           lastHeartbeat: null,
+          createdAt: new Date('2026-01-15T10:00:00Z'),
         },
       ];
       mockFleetService.getFleetStations.mockResolvedValue(stations);

@@ -689,7 +689,7 @@ export function CompanySettings({
             </div>
           </div>
 
-          <div className="grid justify-end gap-2">
+          <div className="space-y-2">
             <Label htmlFor="company-portal-url">{t('settings.companyPortalUrl')}</Label>
             <Input
               id="company-portal-url"

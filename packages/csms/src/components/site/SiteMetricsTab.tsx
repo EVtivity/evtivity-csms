@@ -75,7 +75,10 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
 
   const { data: meterData } = useQuery({
     queryKey: ['sites', siteId, 'meter-values'],
-    queryFn: () => api.get<MeterValueSeries[]>(`/v1/sites/${siteId}/meter-values?hours=24`),
+    queryFn: () =>
+      api.get<MeterValueSeries[]>(
+        `/v1/sites/${siteId}/meter-values?hours=24&measurand=Power.Active.Import`,
+      ),
     refetchInterval: 30_000,
   });
 

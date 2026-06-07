@@ -162,6 +162,7 @@ export async function getFleetStations(fleetId: string) {
       >`array_agg(DISTINCT ${connectors.connectorType}) FILTER (WHERE ${connectors.connectorType} IS NOT NULL)`,
       isOnline: chargingStations.isOnline,
       lastHeartbeat: chargingStations.lastHeartbeat,
+      createdAt: chargingStations.createdAt,
     })
     .from(fleetStations)
     .innerJoin(chargingStations, eq(fleetStations.stationId, chargingStations.id))

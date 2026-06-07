@@ -98,6 +98,7 @@ const fleetStationItem = z
       .date()
       .nullable()
       .describe('Timestamp of the most recent OCPP heartbeat'),
+    createdAt: z.coerce.date().describe('Timestamp when the station was registered'),
   })
   .passthrough();
 

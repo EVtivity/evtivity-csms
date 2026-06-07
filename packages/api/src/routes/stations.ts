@@ -69,6 +69,7 @@ import {
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds, checkStationSiteAccess, userCanAccessSite } from '../lib/site-access.js';
 import { dateRangeQuery, parseDateRange } from '../lib/date-range.js';
+import { enumerateLocalDays, zeroFillDays } from '../lib/daily-series.js';
 import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../lib/ocpp-command.js';
 import { buildDerivedStatusSubquery } from '../lib/station-derived-status.js';
 import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.js';
@@ -2467,11 +2468,15 @@ export function stationRoutes(app: FastifyInstance): void {
         .groupBy(sql`1`)
         .orderBy(sql`1`);
 
-      return rows.map((r) => ({
-        date: r.date,
-        revenueCents: r.revenueCents,
-        sessionCount: r.sessionCount,
-      }));
+      return zeroFillDays(
+        enumerateLocalDays(since, until, tz),
+        rows.map((r) => ({
+          date: r.date,
+          revenueCents: r.revenueCents,
+          sessionCount: r.sessionCount,
+        })),
+        (date) => ({ date, revenueCents: 0, sessionCount: 0 }),
+      );
     },
   );
 

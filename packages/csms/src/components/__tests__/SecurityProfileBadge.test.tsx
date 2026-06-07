@@ -42,7 +42,7 @@ describe('SecurityProfileBadge', () => {
     expect(container.textContent).toBe(key);
   });
 
-  it('falls back to SP1 label and warning variant for unknown profiles', () => {
+  it('falls back to the Basic Auth label and warning variant for unknown profiles', () => {
     const { container } = render(<SecurityProfileBadge profile={9} />);
     expect(container.textContent).toBe('stations.sp1');
     expect(container.firstElementChild?.className).toContain('bg-warning');

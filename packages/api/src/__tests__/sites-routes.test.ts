@@ -141,6 +141,7 @@ vi.mock('drizzle-orm', () => {
     }),
     getTableName: vi.fn(() => 'charging_stations'),
     gte: vi.fn(),
+    lte: vi.fn(),
     desc: vi.fn(),
     count: vi.fn(),
     inArray: vi.fn(),
@@ -560,23 +561,35 @@ describe('Site routes - handler logic', () => {
   // --- GET /v1/sites/:id/revenue-history ---
 
   describe('GET /v1/sites/:id/revenue-history', () => {
-    it('returns daily revenue history', async () => {
+    it('returns daily revenue history zero-filled across the range', async () => {
       setupDbResults(
-        [{ timezone: 'America/Chicago' }],
-        [{ date: '2025-01-01', revenueCents: 5000, sessionCount: 10 }],
+        [{ timezone: 'UTC' }],
+        [{ date: '2025-01-02', revenueCents: 5000, sessionCount: 10 }],
       );
 
       const response = await app.inject({
         method: 'GET',
-        url: `/sites/${VALID_SITE_ID}/revenue-history`,
+        url: `/sites/${VALID_SITE_ID}/revenue-history?from=2025-01-01&to=2025-01-03`,
         headers: { authorization: 'Bearer ' + token },
       });
 
       expect(response.statusCode).toBe(200);
-      const body = response.json();
-      expect(body).toHaveLength(1);
-      expect(body[0]).toHaveProperty('revenueCents');
-      expect(body[0]).toHaveProperty('sessionCount');
+      const body: { date: string; revenueCents: number; sessionCount: number }[] = response.json();
+      // Every requested day is present; days without rows are zero-filled.
+      const dates = body.map((r) => r.date);
+      expect(dates).toContain('2025-01-01');
+      expect(dates).toContain('2025-01-02');
+      expect(dates).toContain('2025-01-03');
+      expect(body.find((r) => r.date === '2025-01-02')).toEqual({
+        date: '2025-01-02',
+        revenueCents: 5000,
+        sessionCount: 10,
+      });
+      expect(body.find((r) => r.date === '2025-01-01')).toEqual({
+        date: '2025-01-01',
+        revenueCents: 0,
+        sessionCount: 0,
+      });
     });
   });
 

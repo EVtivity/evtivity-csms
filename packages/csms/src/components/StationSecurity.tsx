@@ -408,7 +408,7 @@ export function StationSecurity({
                 <p className="text-xs text-muted-foreground">{t('stations.sp3CertNote')}</p>
               )}
 
-              {/* Inline password form when upgrading to SP1/SP2 without a password */}
+              {/* Inline password form when upgrading to a password-based profile */}
               {needsPassword && (
                 <div className="rounded-md border p-4 space-y-3">
                   <p className="text-sm font-medium">{t('stations.passwordRequiredForProfile')}</p>

@@ -57,6 +57,7 @@ import {
 } from '../services/site-import.service.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { dateRangeQuery, parseDateRange } from '../lib/date-range.js';
+import { enumerateLocalDays, zeroFillDays } from '../lib/daily-series.js';
 import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.js';
 import { pushTemplateToSiteStations } from '../lib/config-push.js';
 import type { JwtPayload } from '../plugins/auth.js';
@@ -1347,11 +1348,15 @@ export function siteRoutes(app: FastifyInstance): void {
         .groupBy(sql`1`)
         .orderBy(sql`1`);
 
-      return rows.map((r) => ({
-        date: r.date,
-        revenueCents: r.revenueCents,
-        sessionCount: r.sessionCount,
-      }));
+      return zeroFillDays(
+        enumerateLocalDays(since, until, tz),
+        rows.map((r) => ({
+          date: r.date,
+          revenueCents: r.revenueCents,
+          sessionCount: r.sessionCount,
+        })),
+        (date) => ({ date, revenueCents: 0, sessionCount: 0 }),
+      );
     },
   );
 
@@ -1438,6 +1443,11 @@ export function siteRoutes(app: FastifyInstance): void {
       .max(168)
       .default(24)
       .describe('Number of hours to look back'),
+    measurand: z
+      .string()
+      .max(100)
+      .optional()
+      .describe('Limit to one measurand, summed per minute across stations'),
   });
 
   app.get(
@@ -1465,8 +1475,39 @@ export function siteRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
-      const { hours } = request.query as z.infer<typeof meterValuesQuery>;
+      const { hours, measurand } = request.query as z.infer<typeof meterValuesQuery>;
       const since = new Date(Date.now() - hours * 3600 * 1000);
+
+      // With a measurand filter, aggregate per minute across the site's
+      // stations: raw rows from many stations interleave into one zigzag
+      // series, and a 25-station site can emit hundreds of thousands of rows
+      // per day. The site-level reading is the per-bucket sum.
+      if (measurand != null) {
+        const bucketRows = await db
+          .select({
+            timestamp: sql<Date>`date_trunc('minute', ${meterValues.timestamp})`,
+            value: sql<string>`sum(${meterValues.value}::numeric)::text`,
+            unit: sql<string | null>`max(${meterValues.unit})`,
+          })
+          .from(meterValues)
+          .innerJoin(chargingStations, eq(meterValues.stationId, chargingStations.id))
+          .where(
+            and(
+              eq(chargingStations.siteId, id),
+              eq(meterValues.measurand, measurand),
+              gte(meterValues.timestamp, since),
+            ),
+          )
+          .groupBy(sql`1`)
+          .orderBy(sql`1`);
+        return [
+          {
+            measurand,
+            unit: bucketRows[0]?.unit ?? null,
+            values: bucketRows.map((r) => ({ timestamp: r.timestamp, value: r.value })),
+          },
+        ];
+      }
 
       const rows = await db
         .select({

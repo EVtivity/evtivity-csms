@@ -15,6 +15,7 @@ import {
   index,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { createId } from '../lib/id.js';
 import { tariffs } from './pricing.js';
 import { chargingStations, evses, connectors } from './assets.js';
@@ -146,8 +147,12 @@ export const meterValues = pgTable(
     // composite serves station-only lookups via its leading column, so a
     // plain station_id index would be pure insert overhead. Same reasoning
     // dropped the session_id-only index: the (session_id, measurand,
-    // timestamp) composite below covers session-only filters.
-    index('idx_meter_values_station_measurand_ts').on(
+    // timestamp) composite below covers session-only filters. Migration 0076
+    // creates this index with INCLUDE ("value") so site-wide power
+    // aggregations run as index-only scans; drizzle's index builder cannot
+    // express INCLUDE in this version, so the declaration here carries only
+    // the key columns.
+    index('idx_meter_values_station_measurand_ts_cov').on(
       table.stationId,
       table.measurand,
       table.timestamp,
@@ -164,6 +169,14 @@ export const meterValues = pgTable(
       table.measurand,
       table.timestamp,
     ),
+    // Standalone (non-session) meter values per station, newest first. The
+    // station Meter Values tab runs `WHERE station_id = ? AND session_id IS
+    // NULL ORDER BY timestamp DESC LIMIT n`; without this partial index the
+    // planner walks idx_meter_values_timestamp backwards across the whole
+    // table (measured 42s on 22M rows for a station with no standalone rows).
+    index('idx_meter_values_station_standalone_ts')
+      .on(table.stationId, table.timestamp)
+      .where(sql`session_id IS NULL`),
     // Dedup retransmits: OCPP allows the station to resend a MeterValues batch
     // if the CALLRESULT is lost. Without this, duplicate rows inflate energy
     // sums in dashboards, cost calculations, and OCPI CDRs. The backing

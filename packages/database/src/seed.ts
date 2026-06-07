@@ -69,6 +69,21 @@ import {
   stationMessageTemplates,
   cssStations,
   cssEvses,
+  tariffs,
+  displayMessages,
+  firmwareUpdates,
+  stationLocalAuthVersions,
+  stationLocalAuthEntries,
+  ocpiRoamingSessions,
+  ocpiCdrs,
+  ocpiTariffMappings,
+  stationAuditLog,
+  siteAuditLog,
+  securityEvents,
+  chargingProfiles,
+  fleetReservations,
+  invoices,
+  invoiceLineItems,
 } from './schema/index.js';
 import argon2 from 'argon2';
 import {
@@ -2329,25 +2344,26 @@ async function seed(): Promise<void> {
     stoppedReason: string;
   }> = [];
 
+  // Dates are relative to the seed run so the portal Activity page (which
+  // defaults to the current month) always has sessions to show: 7 sessions
+  // two months ago, 7 last month, 8 spread across the current month.
+  const seedNow = new Date();
+  const curYear = seedNow.getUTCFullYear();
+  const curMonth = seedNow.getUTCMonth();
   for (let i = 0; i < 22; i++) {
-    let year: number;
-    let month: number;
-    let day: number;
+    let startedAt: Date;
     if (i < 7) {
-      year = 2025;
-      month = 11; // Dec 2025 (0-indexed)
-      day = i * 4 + 1;
+      startedAt = new Date(Date.UTC(curYear, curMonth - 2, i * 4 + 1, 18 + (i % 6)));
     } else if (i < 14) {
-      year = 2026;
-      month = 0; // Jan 2026
-      day = (i - 7) * 4 + 1;
+      startedAt = new Date(Date.UTC(curYear, curMonth - 1, (i - 7) * 4 + 1, 18 + (i % 6)));
     } else {
-      year = 2026;
-      month = 1; // Feb 2026
-      day = (i - 14) * 3 + 1;
+      const day = Math.max(1, Math.ceil(((i - 13) / 8) * seedNow.getUTCDate()));
+      startedAt = new Date(Date.UTC(curYear, curMonth, day, 18 + (i % 6)));
     }
-
-    const startedAt = new Date(Date.UTC(year, month, day, 18 + (i % 6)));
+    // Never seed a session in the future relative to the seed run.
+    if (startedAt.getTime() > seedNow.getTime() - 2 * 3600_000) {
+      startedAt = new Date(seedNow.getTime() - (23 - i) * 2 * 3600_000);
+    }
     const endedAt = new Date(startedAt.getTime() + (30 + ((i * 7) % 90)) * 60 * 1000);
     const energyWh = 5000 + i * 1500;
     const costCents = 200 + i * 150;
@@ -2404,6 +2420,514 @@ async function seed(): Promise<void> {
     isDefault: true,
   });
   console.log('  Portal test driver payment method created.');
+
+  // Portal driver support cases (the portal Support page should show data)
+  const portalCaseRows = [
+    {
+      caseNumber: `CASE-${padNum(1010, 5)}`,
+      subject: 'Charging stopped at 80%',
+      description:
+        'My session ended early before reaching full charge. The connector showed a fault light afterwards.',
+      status: 'in_progress' as const,
+      category: 'charging_failure' as const,
+      priority: 'medium' as const,
+      driverId: portalDriverId,
+      createdByDriver: true,
+      createdAt: new Date(seedNow.getTime() - 2 * 86400000),
+      updatedAt: new Date(seedNow.getTime() - 4 * 3600000),
+    },
+    {
+      caseNumber: `CASE-${padNum(1011, 5)}`,
+      subject: 'Question about idle fee on my receipt',
+      description:
+        'I was charged an idle fee but I unplugged within a few minutes of the session ending.',
+      status: 'resolved' as const,
+      category: 'billing_dispute' as const,
+      priority: 'low' as const,
+      driverId: portalDriverId,
+      createdByDriver: true,
+      createdAt: new Date(seedNow.getTime() - 8 * 86400000),
+      updatedAt: new Date(seedNow.getTime() - 5 * 86400000),
+      resolvedAt: new Date(seedNow.getTime() - 5 * 86400000),
+    },
+  ];
+  const portalCreatedCases = await db
+    .insert(supportCases)
+    .values(portalCaseRows)
+    .returning({ id: supportCases.id });
+  const latestPortalSession = portalCreatedSessions[portalCreatedSessions.length - 1];
+  const firstPortalCase = portalCreatedCases[0];
+  if (firstPortalCase != null && latestPortalSession != null) {
+    await db.insert(supportCaseSessions).values({
+      caseId: firstPortalCase.id,
+      sessionId: latestPortalSession.id,
+    });
+  }
+  const portalCaseMessages = [
+    {
+      caseIdx: 0,
+      senderType: 'driver' as const,
+      body: 'The session stopped after about 40 minutes and the screen showed an error. Can you check what happened?',
+      offsetMs: -2 * 86400000,
+    },
+    {
+      caseIdx: 0,
+      senderType: 'operator' as const,
+      body: 'Thanks for the report. We are reviewing the station logs for that session and will follow up shortly.',
+      offsetMs: -4 * 3600000,
+    },
+    {
+      caseIdx: 1,
+      senderType: 'driver' as const,
+      body: 'Could you take a look at the idle fee on my last receipt? I left within the grace period.',
+      offsetMs: -8 * 86400000,
+    },
+    {
+      caseIdx: 1,
+      senderType: 'operator' as const,
+      body: 'We reviewed the session timeline and refunded the idle fee. The credit will appear in 3-5 business days.',
+      offsetMs: -5 * 86400000,
+    },
+  ];
+  await db.insert(supportCaseMessages).values(
+    portalCaseMessages.flatMap((m) => {
+      const caseRow = portalCreatedCases[m.caseIdx];
+      if (caseRow == null) return [];
+      return [
+        {
+          caseId: caseRow.id,
+          senderType: m.senderType,
+          body: m.body,
+          isInternal: false,
+          createdAt: new Date(seedNow.getTime() + m.offsetMs),
+        },
+      ];
+    }),
+  );
+  console.log('  Portal test driver support cases created.');
+
+  // Invoices for the portal test driver (the driver detail Invoices tab and
+  // the invoice detail page should show data). Numbers use a 9xxx suffix so
+  // they never collide with app-generated invoice_number_seq values.
+  const invoiceMonth = (offset: number): string => {
+    const d = new Date(Date.UTC(curYear, curMonth - offset, 1));
+    return `${String(d.getUTCFullYear())}${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  };
+  const invoiceSessions = portalCreatedSessions.slice(0, 3);
+  const subtotal = portalSessionRows.slice(0, 3).reduce((sum, row) => sum + row.finalCostCents, 0);
+  const [issuedInvoice] = await db
+    .insert(invoices)
+    .values([
+      {
+        invoiceNumber: `INV-${invoiceMonth(1)}-9001`,
+        driverId: portalDriverId,
+        status: 'issued' as const,
+        issuedAt: new Date(Date.UTC(curYear, curMonth, 1)),
+        dueAt: new Date(Date.UTC(curYear, curMonth, 1) + 30 * 86400000),
+        currency: 'USD',
+        subtotalCents: subtotal,
+        taxCents: Math.round(subtotal * 0.08),
+        totalCents: subtotal + Math.round(subtotal * 0.08),
+      },
+      {
+        invoiceNumber: `INV-${invoiceMonth(2)}-9001`,
+        driverId: portalDriverId,
+        status: 'paid' as const,
+        issuedAt: new Date(Date.UTC(curYear, curMonth - 1, 1)),
+        dueAt: new Date(Date.UTC(curYear, curMonth - 1, 1) + 30 * 86400000),
+        currency: 'USD',
+        subtotalCents: 3185,
+        taxCents: 255,
+        totalCents: 3440,
+      },
+    ])
+    .returning({ id: invoices.id });
+  if (issuedInvoice != null && invoiceSessions.length > 0) {
+    await db.insert(invoiceLineItems).values(
+      invoiceSessions.map((session, i) => {
+        const row = at(portalSessionRows, i);
+        return {
+          invoiceId: issuedInvoice.id,
+          sessionId: session.id,
+          description: `Charging session ${row.transactionId}`,
+          quantity: '1',
+          unitPriceCents: row.finalCostCents,
+          totalCents: row.finalCostCents,
+          taxCents: Math.round(row.finalCostCents * 0.08),
+        };
+      }),
+    );
+  }
+  console.log('  Portal test driver invoices created.');
+
+  // ------ Operational demo data (station tabs and roaming pages) ------
+  // Local auth lists: curate tokens onto the first five 2.1 stations so the
+  // station Local Auth List tab has entries. One station keeps unpushed
+  // changes (lastModifiedAt > lastSyncAt) so the banner state is visible.
+  const seededTokens = await db
+    .select({
+      id: driverTokens.id,
+      idToken: driverTokens.idToken,
+      tokenType: driverTokens.tokenType,
+    })
+    .from(driverTokens)
+    .limit(25);
+  if (seededTokens.length >= 5) {
+    const localAuthStations = createdStations.slice(0, 5);
+    const versionRows = localAuthStations.map((station, i) => ({
+      stationId: station.id,
+      localVersion: i + 1,
+      reportedVersion: i === 0 ? i : i + 1,
+      lastSyncAt: new Date(seedNow.getTime() - (i + 1) * 86400000),
+      lastModifiedAt:
+        i === 0
+          ? new Date(seedNow.getTime() - 3600000)
+          : new Date(seedNow.getTime() - (i + 1) * 86400000),
+    }));
+    await db.insert(stationLocalAuthVersions).values(versionRows);
+    const entryRows = localAuthStations.flatMap((station, i) =>
+      seededTokens.slice(i * 5, i * 5 + 5).map((token, j) => ({
+        stationId: station.id,
+        driverTokenId: token.id,
+        idToken: token.idToken,
+        tokenType: token.tokenType,
+        authStatus: 'Accepted',
+        addedAt: new Date(seedNow.getTime() - (i + 2) * 86400000),
+        // Last entry on the first station is pending (not yet pushed).
+        pushedAt: i === 0 && j === 4 ? null : new Date(seedNow.getTime() - (i + 1) * 86400000),
+      })),
+    );
+    await db.insert(stationLocalAuthEntries).values(entryRows);
+    console.log(`  ${String(entryRows.length)} local auth list entries created.`);
+  }
+
+  // Firmware update history for the first eight stations (Firmware History tab).
+  const firmwareStatuses = [
+    'Installed',
+    'Installed',
+    'Installed',
+    'InstallationFailed',
+    'Installed',
+    'Downloading',
+    'Installed',
+    'DownloadFailed',
+  ] as const;
+  const firmwareRows = createdStations.slice(0, 8).map((station, i) => {
+    const initiatedAt = new Date(seedNow.getTime() - (i + 1) * 7 * 86400000);
+    return {
+      stationId: station.id,
+      requestId: 9000 + i,
+      firmwareUrl: `https://firmware.evtivity.example/ev-fw/1.${String(4 - (i % 3))}.${String(i % 10)}.bin`,
+      retrieveDateTime: initiatedAt,
+      status: firmwareStatuses[i % firmwareStatuses.length],
+      campaignId: null,
+      initiatedAt,
+      lastStatusAt: new Date(initiatedAt.getTime() + 45 * 60000),
+    };
+  });
+  await db.insert(firmwareUpdates).values(firmwareRows);
+  console.log(`  ${String(firmwareRows.length)} firmware update history rows created.`);
+
+  // Display messages on the first two 2.1 stations (Messages tab).
+  const displayMessageRows = createdStations.slice(0, 2).flatMap((station, i) => [
+    {
+      stationId: station.id,
+      ocppMessageId: 100 + i * 10,
+      priority: 'NormalCycle' as const,
+      status: 'accepted' as const,
+      state: 'Idle' as const,
+      format: 'UTF8' as const,
+      language: 'en',
+      content: 'Welcome to EVtivity. Plug in to start charging.',
+      createdAt: new Date(seedNow.getTime() - 3 * 86400000),
+    },
+    {
+      stationId: station.id,
+      ocppMessageId: 101 + i * 10,
+      priority: 'InFront' as const,
+      status: 'accepted' as const,
+      state: 'Charging' as const,
+      format: 'UTF8' as const,
+      language: 'en',
+      content: 'Charging in progress. Track your session in the EVtivity app.',
+      createdAt: new Date(seedNow.getTime() - 2 * 86400000),
+    },
+    {
+      stationId: station.id,
+      ocppMessageId: 102 + i * 10,
+      priority: 'NormalCycle' as const,
+      status: 'cleared' as const,
+      state: 'Idle' as const,
+      format: 'UTF8' as const,
+      language: 'en',
+      content: 'Holiday promotion: 10% off charging this weekend.',
+      createdAt: new Date(seedNow.getTime() - 10 * 86400000),
+    },
+  ]);
+  await db.insert(displayMessages).values(displayMessageRows);
+  console.log(`  ${String(displayMessageRows.length)} display messages created.`);
+
+  // Roaming demo data so the OCPI sessions, CDRs, and tariff-mapping pages
+  // have rows. Linked to the simulator partners seeded above. The demo
+  // dataset ships roaming rows, so enable the feature toggle for demo
+  // installs (the production default stays false).
+  await db
+    .insert(settings)
+    .values({ key: 'roaming.enabled', value: true })
+    .onConflictDoUpdate({ target: settings.key, set: { value: true, updatedAt: new Date() } });
+  const roamingSessionRows = Array.from({ length: 5 }, (_, i) => {
+    const kwh = 8 + i * 4.5;
+    return {
+      partnerId: i % 2 === 0 ? simPartner.id : cpoSimPartner.id,
+      ocpiSessionId: `ocpi-ses-${padNum(i + 1, 4)}`,
+      tokenUid: `NL-SIM-TOKEN-${padNum(i + 1, 3)}`,
+      status: i === 0 ? 'ACTIVE' : 'COMPLETED',
+      kwh: kwh.toFixed(4),
+      totalCost: (kwh * 0.32).toFixed(2),
+      currency: 'USD',
+      sessionData: {
+        country_code: 'NL',
+        party_id: 'SIM',
+        start_date_time: new Date(seedNow.getTime() - (i + 1) * 86400000).toISOString(),
+      },
+      createdAt: new Date(seedNow.getTime() - (i + 1) * 86400000),
+    };
+  });
+  await db.insert(ocpiRoamingSessions).values(roamingSessionRows);
+
+  const cdrRows = Array.from({ length: 4 }, (_, i) => {
+    const energy = 12 + i * 6;
+    return {
+      partnerId: i % 2 === 0 ? simPartner.id : cpoSimPartner.id,
+      ocpiCdrId: `ocpi-cdr-${padNum(i + 1, 4)}`,
+      totalEnergy: energy.toFixed(4),
+      totalCost: (energy * 0.32).toFixed(2),
+      currency: 'USD',
+      cdrData: {
+        country_code: 'NL',
+        party_id: 'SIM',
+        start_date_time: new Date(seedNow.getTime() - (i + 2) * 86400000).toISOString(),
+        end_date_time: new Date(seedNow.getTime() - (i + 2) * 86400000 + 90 * 60000).toISOString(),
+      },
+      isCredit: false,
+      pushStatus: i % 2 === 0 ? ('confirmed' as const) : ('pending' as const),
+      createdAt: new Date(seedNow.getTime() - (i + 2) * 86400000),
+    };
+  });
+  await db.insert(ocpiCdrs).values(cdrRows);
+
+  const mappableTariffs = await db
+    .select({ id: tariffs.id, currency: tariffs.currency })
+    .from(tariffs)
+    .limit(2);
+  if (mappableTariffs.length > 0) {
+    await db.insert(ocpiTariffMappings).values(
+      mappableTariffs.map((tariff, i) => ({
+        tariffId: tariff.id,
+        partnerId: i === 0 ? simPartner.id : cpoSimPartner.id,
+        ocpiTariffId: `EVT-TARIFF-${padNum(i + 1, 3)}`,
+        currency: tariff.currency,
+        ocpiTariffData: {
+          country_code: 'US',
+          party_id: 'EVT',
+          id: `EVT-TARIFF-${padNum(i + 1, 3)}`,
+          currency: tariff.currency,
+        },
+      })),
+    );
+  }
+  console.log('  Roaming demo data created (sessions, CDRs, tariff mappings).');
+
+  // Audit history rows so the station and site History tabs have entries.
+  const [seedAdmin] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, initialAdminEmail));
+  const auditActorId = seedAdmin?.id ?? null;
+  const auditStations = createdStations.slice(0, 3);
+  await db.insert(stationAuditLog).values(
+    auditStations.flatMap((station, i) => {
+      const input = at(stationRows, i);
+      return [
+        {
+          stationId: station.id,
+          stationIdSnapshot: station.id,
+          action: 'created' as const,
+          actor: 'operator' as const,
+          actorUserId: auditActorId,
+          before: null,
+          after: { stationId: input.stationId, model: input.model, siteId: input.siteId },
+          createdAt: new Date(seedNow.getTime() - (10 - i) * 86400000),
+        },
+        {
+          stationId: station.id,
+          stationIdSnapshot: station.id,
+          action: 'updated' as const,
+          actor: 'operator' as const,
+          actorUserId: auditActorId,
+          before: { loadPriority: 5 },
+          after: { loadPriority: input.loadPriority },
+          notes: 'Adjusted load priority',
+          createdAt: new Date(seedNow.getTime() - (4 - i) * 86400000),
+        },
+      ];
+    }),
+  );
+  const auditSites = createdSites.slice(0, 3);
+  await db.insert(siteAuditLog).values(
+    auditSites.flatMap((site, i) => [
+      {
+        siteId: site.id,
+        siteIdSnapshot: site.id,
+        action: 'created' as const,
+        actor: 'operator' as const,
+        actorUserId: auditActorId,
+        before: null,
+        after: { name: at(siteRows, i).name },
+        createdAt: new Date(seedNow.getTime() - (12 - i) * 86400000),
+      },
+      {
+        siteId: site.id,
+        siteIdSnapshot: site.id,
+        action: 'updated' as const,
+        actor: 'operator' as const,
+        actorUserId: auditActorId,
+        before: { hoursOfOperation: null },
+        after: { hoursOfOperation: 'Mon-Sun 5:00 AM - 11:00 PM' },
+        notes: 'Set hours of operation',
+        createdAt: new Date(seedNow.getTime() - (5 - i) * 86400000),
+      },
+    ]),
+  );
+  console.log('  Station and site audit history created.');
+
+  // Charging profiles so the station Charging Profiles tab has entries.
+  const profileStations = createdStations.slice(0, 2);
+  await db.insert(chargingProfiles).values(
+    profileStations.flatMap((station, i) => [
+      {
+        stationId: station.id,
+        source: 'csms_set' as const,
+        evseId: 0,
+        chargingLimitSource: 'CSO',
+        profileData: {
+          id: 9100 + i * 10,
+          stackLevel: 0,
+          chargingProfilePurpose: 'ChargingStationMaxProfile',
+          chargingProfileKind: 'Recurring',
+          recurrencyKind: 'Daily',
+          chargingSchedule: [
+            {
+              id: 1,
+              chargingRateUnit: 'W',
+              chargingSchedulePeriod: [
+                { startPeriod: 0, limit: 22000 },
+                { startPeriod: 28800, limit: 11000 },
+                { startPeriod: 72000, limit: 22000 },
+              ],
+            },
+          ],
+        },
+        sentAt: new Date(seedNow.getTime() - (6 - i) * 86400000),
+      },
+      {
+        stationId: station.id,
+        source: 'csms_set' as const,
+        evseId: 0,
+        chargingLimitSource: 'CSO',
+        profileData: {
+          id: 9101 + i * 10,
+          stackLevel: 1,
+          chargingProfilePurpose: 'TxDefaultProfile',
+          chargingProfileKind: 'Absolute',
+          chargingSchedule: [
+            {
+              id: 1,
+              chargingRateUnit: 'W',
+              chargingSchedulePeriod: [{ startPeriod: 0, limit: 11000 }],
+            },
+          ],
+        },
+        sentAt: new Date(seedNow.getTime() - (3 - i) * 86400000),
+      },
+    ]),
+  );
+  console.log('  Charging profiles created.');
+
+  // Security events so the station Events tab shows a realistic log.
+  const securityStations = createdStations.slice(0, 3);
+  const securityEventTypes = [
+    { type: 'StartupOfTheDevice', severity: 'info', ageHours: 240 },
+    { type: 'SettingSystemTime', severity: 'info', ageHours: 168 },
+    { type: 'ReconfigurationOfSecurityParameters', severity: 'warning', ageHours: 96 },
+    { type: 'FirmwareUpdated', severity: 'info', ageHours: 48 },
+    { type: 'InvalidCredentials', severity: 'critical', ageHours: 12 },
+  ];
+  await db.insert(securityEvents).values(
+    securityStations.flatMap((station) =>
+      securityEventTypes.map((e) => ({
+        stationId: station.id,
+        type: e.type,
+        severity: e.severity,
+        timestamp: new Date(seedNow.getTime() - e.ageHours * 3600000),
+      })),
+    ),
+  );
+  console.log('  Security events created.');
+
+  // Bulk fleet reservations so the fleet Bulk Reservations tab has batches.
+  const [bulkFleet] = createdFleets;
+  if (bulkFleet != null) {
+    const bulkFleetStations = await db
+      .select({ stationId: fleetStations.stationId })
+      .from(fleetStations)
+      .where(eq(fleetStations.fleetId, bulkFleet.id))
+      .limit(3);
+    if (bulkFleetStations.length > 0) {
+      const morningStart = new Date(seedNow.getTime() + 86400000);
+      morningStart.setHours(6, 0, 0, 0);
+      const morningEnd = new Date(morningStart.getTime() + 4 * 3600000);
+      const pastStart = new Date(seedNow.getTime() - 3 * 86400000);
+      pastStart.setHours(6, 0, 0, 0);
+      const [activeBatch] = await db
+        .insert(fleetReservations)
+        .values([
+          {
+            fleetId: bulkFleet.id,
+            name: 'Morning shift pre-charge',
+            status: 'active',
+            startsAt: morningStart,
+            expiresAt: morningEnd,
+          },
+          {
+            fleetId: bulkFleet.id,
+            name: 'Weekend depot top-up',
+            status: 'completed',
+            startsAt: pastStart,
+            expiresAt: new Date(pastStart.getTime() + 4 * 3600000),
+          },
+        ])
+        .returning({ id: fleetReservations.id });
+      if (activeBatch != null) {
+        await db.insert(reservations).values(
+          bulkFleetStations.map((row, i) => {
+            const stationEvses = createdEvses.filter((e) => e.stationId === row.stationId);
+            return {
+              reservationId: 200 + i,
+              stationId: row.stationId,
+              evseId: stationEvses[0]?.id ?? null,
+              driverId: pick(createdDrivers).id,
+              status: 'scheduled' as const,
+              startsAt: morningStart,
+              expiresAt: morningEnd,
+              fleetReservationId: activeBatch.id,
+            };
+          }),
+        );
+      }
+      console.log('  Bulk fleet reservations created.');
+    }
+  }
 
   // Portal driver notifications
   const now = new Date();

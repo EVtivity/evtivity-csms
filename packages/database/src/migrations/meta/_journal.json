@@ -526,6 +526,20 @@
       "when": 1780717457034,
       "tag": "0074_ocpp_message_logs_station_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1780803326766,
+      "tag": "0075_meter_values_standalone_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1780805579649,
+      "tag": "0076_meter_values_covering_index",
+      "breakpoints": true
     }
   ]
 }
