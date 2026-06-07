@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, or, ilike, sql, gte, and, desc, count, inArray, isNotNull } from 'drizzle-orm';
+import { eq, or, ilike, sql, gte, lte, and, desc, count, inArray, isNotNull } from 'drizzle-orm';
 import {
   db,
   writeAudit,
@@ -56,6 +56,7 @@ import {
   importSitesCsv,
 } from '../services/site-import.service.js';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { dateRangeQuery, parseDateRange } from '../lib/date-range.js';
 import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.js';
 import { pushTemplateToSiteStations } from '../lib/config-push.js';
 import type { JwtPayload } from '../plugins/auth.js';
@@ -1236,10 +1237,6 @@ export function siteRoutes(app: FastifyInstance): void {
     },
   );
 
-  const energyHistoryQuery = z.object({
-    days: z.coerce.number().int().min(1).max(90).default(7).describe('Number of days to look back'),
-  });
-
   app.get(
     '/sites/:id/energy-history',
     {
@@ -1250,7 +1247,7 @@ export function siteRoutes(app: FastifyInstance): void {
         operationId: 'getSiteEnergyHistory',
         security: [{ bearerAuth: [] }],
         params: zodSchema(siteParams),
-        querystring: zodSchema(energyHistoryQuery),
+        querystring: zodSchema(dateRangeQuery),
         response: {
           200: arrayResponse(energyHistoryItem),
           404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
@@ -1265,9 +1262,9 @@ export function siteRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
-      const { days } = request.query as z.infer<typeof energyHistoryQuery>;
-      const since = new Date();
-      since.setDate(since.getDate() - days);
+      const { since, until } = parseDateRange(
+        request.query as { days?: string; from?: string; to?: string },
+      );
 
       const [siteRow] = await db
         .select({ timezone: sites.timezone })
@@ -1282,17 +1279,19 @@ export function siteRoutes(app: FastifyInstance): void {
         })
         .from(chargingSessions)
         .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-        .where(and(eq(chargingStations.siteId, id), gte(chargingSessions.startedAt, since)))
+        .where(
+          and(
+            eq(chargingStations.siteId, id),
+            gte(chargingSessions.startedAt, since),
+            until ? lte(chargingSessions.startedAt, until) : undefined,
+          ),
+        )
         .groupBy(sql`1`)
         .orderBy(sql`1`);
 
       return rows.map((r) => ({ date: r.date, energyWh: r.energyWh }));
     },
   );
-
-  const revenueHistoryQuery = z.object({
-    days: z.coerce.number().int().min(1).max(90).default(7).describe('Number of days to look back'),
-  });
 
   app.get(
     '/sites/:id/revenue-history',
@@ -1304,7 +1303,7 @@ export function siteRoutes(app: FastifyInstance): void {
         operationId: 'getSiteRevenueHistory',
         security: [{ bearerAuth: [] }],
         params: zodSchema(siteParams),
-        querystring: zodSchema(revenueHistoryQuery),
+        querystring: zodSchema(dateRangeQuery),
         response: {
           200: arrayResponse(revenueHistoryItem),
           404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
@@ -1319,9 +1318,9 @@ export function siteRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
-      const { days } = request.query as z.infer<typeof revenueHistoryQuery>;
-      const since = new Date();
-      since.setDate(since.getDate() - days);
+      const { since, until } = parseDateRange(
+        request.query as { days?: string; from?: string; to?: string },
+      );
 
       const [siteRow] = await db
         .select({ timezone: sites.timezone })
@@ -1341,6 +1340,7 @@ export function siteRoutes(app: FastifyInstance): void {
           and(
             eq(chargingStations.siteId, id),
             gte(chargingSessions.startedAt, since),
+            until ? lte(chargingSessions.startedAt, until) : undefined,
             sql`coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null`,
           ),
         )

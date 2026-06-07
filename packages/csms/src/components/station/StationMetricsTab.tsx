@@ -9,6 +9,8 @@ import { StationEnergyChart } from '@/components/charts/StationEnergyChart';
 import { RevenueChart } from '@/components/charts/RevenueChart';
 import { PopularTimesChart } from '@/components/charts/PopularTimesChart';
 import { StationUptimeChart } from '@/components/charts/StationUptimeChart';
+import { DateRangeControl } from '@/components/DateRangeControl';
+import { useDateRange } from '@/hooks/useDateRange';
 import { api } from '@/lib/api';
 import { formatEnergy, formatDurationMinutes } from '@/lib/formatting';
 
@@ -50,6 +52,21 @@ function uptimeColor(pct: number): string {
 export function StationMetricsTab({ stationId }: StationMetricsTabProps): React.JSX.Element {
   const { t } = useTranslation();
 
+  const energyRange = useDateRange();
+  const revenueRange = useDateRange();
+
+  function dateControl(range: ReturnType<typeof useDateRange>): React.JSX.Element {
+    return (
+      <DateRangeControl
+        days={range.days}
+        from={range.customFrom}
+        to={range.customTo}
+        onPresetChange={range.handlePreset}
+        onCustomChange={range.handleCustom}
+      />
+    );
+  }
+
   const { data: metrics } = useQuery({
     queryKey: ['stations', stationId, 'metrics'],
     queryFn: () => api.get<StationMetrics>(`/v1/stations/${stationId}/metrics`),
@@ -63,18 +80,18 @@ export function StationMetricsTab({ stationId }: StationMetricsTabProps): React.
   });
 
   const { data: energyData } = useQuery({
-    queryKey: ['stations', stationId, 'energy-history'],
+    queryKey: ['stations', stationId, 'energy-history', energyRange.dateQuery],
     queryFn: () =>
       api.get<{ date: string; energyWh: number }[]>(
-        `/v1/stations/${stationId}/energy-history?days=7`,
+        `/v1/stations/${stationId}/energy-history?${energyRange.dateQuery}`,
       ),
   });
 
   const { data: revenueData } = useQuery({
-    queryKey: ['stations', stationId, 'revenue-history'],
+    queryKey: ['stations', stationId, 'revenue-history', revenueRange.dateQuery],
     queryFn: () =>
       api.get<{ date: string; revenueCents: number; sessionCount: number }[]>(
-        `/v1/stations/${stationId}/revenue-history?days=7`,
+        `/v1/stations/${stationId}/revenue-history?${revenueRange.dateQuery}`,
       ),
   });
 
@@ -173,10 +190,10 @@ export function StationMetricsTab({ stationId }: StationMetricsTabProps): React.
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {meterData != null && <StationPowerChart data={meterData} />}
-        {energyData != null && <StationEnergyChart data={energyData} />}
+        <StationEnergyChart data={energyData ?? []} actions={dateControl(energyRange)} />
       </div>
 
-      {revenueData != null && revenueData.length > 0 && <RevenueChart data={revenueData} />}
+      <RevenueChart data={revenueData ?? []} actions={dateControl(revenueRange)} />
 
       {uptimeData != null && uptimeData.length > 0 && <StationUptimeChart data={uptimeData} />}
 

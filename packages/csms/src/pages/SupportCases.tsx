@@ -25,6 +25,7 @@ import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { cn } from '@/lib/utils';
 import { supportCaseStatusVariant, supportCasePriorityVariant } from '@/lib/status-variants';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface User {
   id: string;
@@ -216,7 +217,7 @@ export function SupportCases(): React.JSX.Element {
               {isLoading && (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center text-muted-foreground">
-                    {t('common.loading')}
+                    <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               )}

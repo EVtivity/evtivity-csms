@@ -36,6 +36,7 @@ import { TimeSlotEditor, type SchedulePeriod } from '@/components/smart-charging
 import { api, getApiErrorCode, getApiErrorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 import { useUserTimezone } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 type OcppVersion = '2.1' | '1.6';
 
@@ -306,7 +307,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
   }
 
   if (isLoading) {
-    return <p className="text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (template == null) {

@@ -17,6 +17,7 @@ import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { useUserTimezone } from '@/lib/timezone';
 import type { PricingGroup } from '@/lib/types';
+import { LoadingLogo } from '@/components/loading-logo';
 
 export function PricingGroupDetail(): React.JSX.Element {
   const { id } = useParams<{ id: string }>();
@@ -34,7 +35,7 @@ export function PricingGroupDetail(): React.JSX.Element {
   });
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (group == null) {

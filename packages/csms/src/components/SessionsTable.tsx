@@ -17,6 +17,7 @@ import { formatDuration } from '@/lib/formatting';
 import { formatDateTime } from '@/lib/timezone';
 import { sessionStatusVariant } from '@/lib/status-variants';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
+import { LoadingLogo } from '@/components/loading-logo';
 
 export const SESSIONS_COLUMNS: ColumnMeta[] = [
   {
@@ -160,7 +161,7 @@ export const SessionsTable = memo(function SessionsTable({
             {isLoading === true && (
               <TableRow>
                 <TableCell colSpan={colCount} className="text-center text-muted-foreground">
-                  {t('common.loading')}
+                  <LoadingLogo size="inline" />
                 </TableCell>
               </TableRow>
             )}

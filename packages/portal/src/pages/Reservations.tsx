@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { formatCents, formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface Reservation {
   id: string;
@@ -120,7 +121,7 @@ export function Reservations(): React.JSX.Element {
         </Button>
       </div>
 
-      {isLoading && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
+      {isLoading && <LoadingLogo size="inline" />}
 
       {data != null && data.data.length === 0 && (
         <p className="text-center text-sm text-muted-foreground">

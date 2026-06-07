@@ -22,6 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { api, ApiError } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface TariffRestrictions {
   timeRange?: { startTime: string; endTime: string };
@@ -276,7 +277,7 @@ export function TariffDetail(): React.JSX.Element {
       : null;
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (tariff == null) {

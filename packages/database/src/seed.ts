@@ -77,6 +77,7 @@ import {
   ADMIN_DEFAULT_PERMISSIONS,
   OPERATOR_DEFAULT_PERMISSIONS,
   STATION_MESSAGE_DEFAULTS,
+  mapConnectorTypeToCss,
 } from '@evtivity/lib';
 
 // Helper data
@@ -940,6 +941,11 @@ async function seed(): Promise<void> {
   const ocppWsUrl = process.env['SEED_CSS_TARGET_URL'] ?? 'ws://ocpp:7103';
   const ocppTlsUrl = process.env['SEED_CSS_TLS_TARGET_URL'] ?? 'wss://ocpp:8443';
   const simulatorRows = stationRows.filter((s) => s.isSimulator);
+  // css_evses (the simulator's hardware spec) is seeded after the EVSE and
+  // connector inventory is built below, so the simulator mirrors the exact
+  // same hardware. A mismatch leaves CSMS connectors permanently unavailable:
+  // the simulator never sends StatusNotification for EVSEs it does not have.
+  const cssStationIdByOcppId = new Map<string, string>();
   if (simulatorRows.length > 0) {
     const cssStationRows = simulatorRows.map((s) => ({
       stationId: s.stationId,
@@ -951,14 +957,10 @@ async function seed(): Promise<void> {
     const createdCssStations = await db
       .insert(cssStations)
       .values(cssStationRows)
-      .returning({ id: cssStations.id });
-    await db.insert(cssEvses).values(
-      createdCssStations.map((row) => ({
-        cssStationId: row.id,
-        evseId: 1,
-        connectorId: 1,
-      })),
-    );
+      .returning({ id: cssStations.id, stationId: cssStations.stationId });
+    for (const row of createdCssStations) {
+      cssStationIdByOcppId.set(row.stationId, row.id);
+    }
     console.log(`  ${String(createdCssStations.length)} css_stations rows seeded for simulators.`);
   }
 
@@ -1085,6 +1087,9 @@ async function seed(): Promise<void> {
   }> = [];
   const evseStationIdx: number[] = [];
   let autoCreateGapCount = 0;
+  // EVSEs deliberately absent from the CSMS inventory but present on the
+  // simulator hardware, so the simulator reports them and CSMS auto-creates.
+  const autoCreateGapEvses: Array<{ stationIdx: number; evseId: number }> = [];
   for (let i = 0; i < createdStations.length; i++) {
     const is16 = i >= 160;
     // 1.6 stations get 1-2 connectors, each with its own EVSE (1:1 mapping)
@@ -1092,7 +1097,10 @@ async function seed(): Promise<void> {
     const numEvses = is16 ? randomInt(1, 2) : i % 5 === 0 ? 3 : 2;
     // For every 10th 2.1 station, skip the last EVSE so the simulator triggers auto-creation
     const maxEvse = !is16 && i % 10 === 0 ? numEvses - 1 : numEvses;
-    if (!is16 && i % 10 === 0) autoCreateGapCount++;
+    if (!is16 && i % 10 === 0) {
+      autoCreateGapCount++;
+      autoCreateGapEvses.push({ stationIdx: i, evseId: numEvses });
+    }
     for (let e = 1; e <= maxEvse; e++) {
       evseRows.push({
         stationId: at(createdStations, i).id,
@@ -1174,6 +1182,67 @@ async function seed(): Promise<void> {
   }
   await db.insert(connectors).values(connectorRows);
   console.log(`  ${String(connectorRows.length)} connectors created.`);
+
+  // ------ CSS EVSEs (simulator hardware spec) ------
+  // Mirror the CSMS EVSE/connector inventory onto each simulator, plus the
+  // deliberately-skipped auto-creation EVSEs (the simulator must have those
+  // so it reports them and CSMS auto-creates the missing rows).
+  if (cssStationIdByOcppId.size > 0) {
+    const evseMetaByUuid = new Map(
+      createdEvses.map((evse, i) => [
+        evse.id,
+        { stationIdx: at(evseStationIdx, i), evseId: at(evseRows, i).evseId },
+      ]),
+    );
+    const cssEvseSpecs: Array<{
+      stationIdx: number;
+      evseId: number;
+      connectorId: number;
+      connectorType: string;
+      maxPowerKw: number;
+    }> = [];
+    for (const conn of connectorRows) {
+      const meta = evseMetaByUuid.get(conn.evseId);
+      if (meta == null) continue;
+      cssEvseSpecs.push({
+        stationIdx: meta.stationIdx,
+        evseId: meta.evseId,
+        connectorId: conn.connectorId,
+        connectorType: conn.connectorType,
+        maxPowerKw: Number(conn.maxPowerKw),
+      });
+    }
+    for (const gap of autoCreateGapEvses) {
+      const modelInfo = at(stationModels, gap.stationIdx);
+      cssEvseSpecs.push({
+        stationIdx: gap.stationIdx,
+        evseId: gap.evseId,
+        connectorId: 1,
+        connectorType: modelInfo.type,
+        maxPowerKw: modelInfo.power,
+      });
+    }
+    const cssEvseRows = cssEvseSpecs.flatMap((spec) => {
+      const ocppStationId = at(stationRows, spec.stationIdx).stationId;
+      const cssStationId = cssStationIdByOcppId.get(ocppStationId);
+      if (cssStationId == null) return [];
+      return [
+        {
+          cssStationId,
+          evseId: spec.evseId,
+          connectorId: spec.connectorId,
+          connectorType: mapConnectorTypeToCss(spec.connectorType),
+          maxPowerW: Math.round(spec.maxPowerKw * 1000),
+        },
+      ];
+    });
+    if (cssEvseRows.length > 0) {
+      await db.insert(cssEvses).values(cssEvseRows);
+      console.log(
+        `  ${String(cssEvseRows.length)} css_evses rows seeded (mirroring station hardware).`,
+      );
+    }
+  }
 
   // ------ Roles ------
   // Upsert by name: the migrate container's seed:admin step may have already

@@ -26,6 +26,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { FilterPopover } from '@/components/FilterBar';
 import { reportStatusVariant } from '@/lib/status-variants';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface Report {
   id: string;
@@ -159,7 +160,7 @@ export function HistoryTab(): React.JSX.Element {
               {isLoading && (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center text-muted-foreground">
-                    {t('common.loading')}
+                    <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               )}

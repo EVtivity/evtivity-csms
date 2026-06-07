@@ -16,6 +16,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { cdrPushStatusVariant } from '@/lib/status-variants';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface CdrEntry {
   id: number;
@@ -62,7 +63,7 @@ export function RoamingCdrs(): React.JSX.Element {
               {isLoading ? (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center">
-                    {t('common.loading')}
+                    <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               ) : cdrs == null || cdrs.length === 0 ? (

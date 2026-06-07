@@ -9,6 +9,8 @@ import { StationPowerChart } from '@/components/charts/StationPowerChart';
 import { StationEnergyChart } from '@/components/charts/StationEnergyChart';
 import { RevenueChart } from '@/components/charts/RevenueChart';
 import { PopularTimesChart } from '@/components/charts/PopularTimesChart';
+import { DateRangeControl } from '@/components/DateRangeControl';
+import { useDateRange } from '@/hooks/useDateRange';
 import { api } from '@/lib/api';
 import { formatEnergy, formatDurationMinutes } from '@/lib/formatting';
 
@@ -50,6 +52,21 @@ export interface SiteMetricsTabProps {
 export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Element {
   const { t } = useTranslation();
 
+  const energyRange = useDateRange();
+  const revenueRange = useDateRange();
+
+  function dateControl(range: ReturnType<typeof useDateRange>): React.JSX.Element {
+    return (
+      <DateRangeControl
+        days={range.days}
+        from={range.customFrom}
+        to={range.customTo}
+        onPresetChange={range.handlePreset}
+        onCustomChange={range.handleCustom}
+      />
+    );
+  }
+
   const { data: metrics } = useQuery({
     queryKey: ['sites', siteId, 'metrics'],
     queryFn: () => api.get<SiteMetrics>(`/v1/sites/${siteId}/metrics`),
@@ -63,16 +80,16 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
   });
 
   const { data: energyData } = useQuery({
-    queryKey: ['sites', siteId, 'energy-history'],
+    queryKey: ['sites', siteId, 'energy-history', energyRange.dateQuery],
     queryFn: () =>
       api.get<{ date: string; energyWh: number }[]>(`/v1/sites/${siteId}/energy-history?days=7`),
   });
 
   const { data: revenueData } = useQuery({
-    queryKey: ['sites', siteId, 'revenue-history'],
+    queryKey: ['sites', siteId, 'revenue-history', revenueRange.dateQuery],
     queryFn: () =>
       api.get<{ date: string; revenueCents: number; sessionCount: number }[]>(
-        `/v1/sites/${siteId}/revenue-history?days=7`,
+        `/v1/sites/${siteId}/revenue-history?${revenueRange.dateQuery}`,
       ),
   });
 
@@ -163,10 +180,10 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {meterData != null && <StationPowerChart data={meterData} />}
-        {energyData != null && <StationEnergyChart data={energyData} />}
+        <StationEnergyChart data={energyData ?? []} actions={dateControl(energyRange)} />
       </div>
 
-      {revenueData != null && revenueData.length > 0 && <RevenueChart data={revenueData} />}
+      <RevenueChart data={revenueData ?? []} actions={dateControl(revenueRange)} />
 
       {popularTimesData != null && popularTimesData.length > 0 && (
         <PopularTimesChart data={popularTimesData} />

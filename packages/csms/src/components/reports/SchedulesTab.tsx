@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface Schedule {
   id: number;
@@ -252,7 +253,7 @@ export function SchedulesTab(): React.JSX.Element {
           <CreateButton label={t('reports.createSchedule')} onClick={openCreate} />
         </div>
 
-        {isLoading && <p className="text-muted-foreground">{t('common.loading')}</p>}
+        {isLoading && <LoadingLogo size="inline" />}
 
         {schedules != null && schedules.length === 0 && (
           <p className="text-sm text-muted-foreground text-center py-8">

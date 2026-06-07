@@ -18,6 +18,7 @@ import { CreateButton } from '@/components/create-button';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { useRoamingTabAction } from './RoamingLayout';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface TariffMapping {
   id: number;
@@ -76,7 +77,7 @@ export function RoamingTariffs(): React.JSX.Element {
               {isLoading ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center">
-                    {t('common.loading')}
+                    <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               ) : mappings == null || mappings.length === 0 ? (

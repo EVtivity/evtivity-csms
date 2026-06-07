@@ -13,6 +13,7 @@ import { ProfileNotifications } from '@/components/profile/ProfileNotifications'
 import { ProfileChatbotAi } from '@/components/profile/ProfileChatbotAi';
 import { ProfileSupportAi } from '@/components/profile/ProfileSupportAi';
 import { api } from '@/lib/api';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface SettingValue {
   value: unknown;
@@ -55,7 +56,7 @@ export function Profile(): React.JSX.Element {
   const supportAiEnabled = supportAiSetting?.value === true || supportAiSetting?.value === 'true';
 
   if (isLoading) {
-    return <p className="text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (user == null) {

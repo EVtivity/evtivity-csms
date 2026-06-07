@@ -33,6 +33,7 @@ import {
 import type { ValidationErrors } from '@/lib/ocpp-schema';
 import { SchemaForm } from '@/components/SchemaForm';
 import { OCPP_21_VARIABLES, OCPP_16_KEYS } from '@/lib/ocpp-variables';
+import { LoadingLogo } from '@/components/loading-logo';
 
 const RESET_TYPES = ['Immediate', 'OnIdle'] as const;
 
@@ -1343,10 +1344,7 @@ export function StationCommands({
                   )}
                 </div>
                 {schemaLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                    <Spinner className="h-4 w-4" />
-                    {t('common.loading')}
-                  </div>
+                  <LoadingLogo size="inline" />
                 ) : rawMode || schemaError ? (
                   <textarea
                     value={advancedPayload}

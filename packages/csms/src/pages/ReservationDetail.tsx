@@ -18,6 +18,7 @@ import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { useUserTimezone } from '@/lib/timezone';
 import { reservationStatusVariant } from '@/lib/status-variants';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface ReservationDetail {
   id: string;
@@ -87,7 +88,7 @@ export function ReservationDetail(): React.JSX.Element {
   });
 
   if (isLoading) {
-    return <p className="text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (reservation == null) {

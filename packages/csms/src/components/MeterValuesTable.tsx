@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/table';
 import { FilterPopover } from '@/components/FilterBar';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 export interface MeterValueItem {
   id: number;
@@ -116,7 +117,7 @@ export function MeterValuesTable({
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <p className="text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+          <LoadingLogo size="inline" />
         ) : meterData == null || meterData.length === 0 ? (
           <p className="text-center text-sm text-muted-foreground">{t('sessions.noMeterValues')}</p>
         ) : (

@@ -3,6 +3,7 @@
 
 import { useTranslation } from 'react-i18next';
 import { Select } from '@/components/ui/select';
+import { presetRange } from '@/lib/date-range';
 
 interface DateRangeControlProps {
   days: number;
@@ -10,6 +11,10 @@ interface DateRangeControlProps {
   to: string | null;
   onPresetChange: (days: number) => void;
   onCustomChange: (from: string, to: string) => void;
+  /** Earliest selectable date (e.g. oldest snapshot). */
+  minDate?: string | undefined;
+  /** Latest selectable date (defaults to the derived range's end). */
+  maxDate?: string | undefined;
 }
 
 const PRESETS = [
@@ -26,9 +31,17 @@ export function DateRangeControl({
   to,
   onPresetChange,
   onCustomChange,
+  minDate,
+  maxDate,
 }: DateRangeControlProps): React.JSX.Element {
   const { t } = useTranslation();
   const isCustom = from != null && to != null;
+
+  // Presets display their implied dates so the inputs are never blank; the
+  // range only becomes custom once the user edits a date.
+  const derived = presetRange(days);
+  const displayFrom = from ?? derived.from;
+  const displayTo = to ?? derived.to;
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -53,19 +66,17 @@ export function DateRangeControl({
         <input
           type="date"
           aria-label="Start date"
-          value={from ?? ''}
-          // max={to} stops the user from picking a start that comes after
-          // the end. Without it the chart endpoints (energy-history,
+          value={displayFrom}
+          min={minDate}
+          // max stops the user from picking a start that comes after the
+          // end. Without it the chart endpoints (energy-history,
           // session-history, revenue-history, peak-usage, utilization) saw
           // diffDays < 1 in parseDateRange and silently fell back to a
           // 7-day window, so the picker and the rendered data disagreed.
-          max={to ?? undefined}
+          max={displayTo}
           onChange={(e) => {
-            if (e.target.value && to) {
-              onCustomChange(e.target.value, to);
-            } else if (e.target.value) {
-              const toDate = new Date().toISOString().split('T')[0];
-              if (toDate) onCustomChange(e.target.value, toDate);
+            if (e.target.value) {
+              onCustomChange(e.target.value, displayTo);
             }
           }}
           className="h-8 w-[130px] rounded-md border bg-background px-1.5 text-xs"
@@ -74,11 +85,12 @@ export function DateRangeControl({
         <input
           type="date"
           aria-label="End date"
-          value={to ?? ''}
-          min={from ?? undefined}
+          value={displayTo}
+          min={displayFrom}
+          max={maxDate}
           onChange={(e) => {
-            if (from && e.target.value) {
-              onCustomChange(from, e.target.value);
+            if (e.target.value) {
+              onCustomChange(displayFrom, e.target.value);
             }
           }}
           className="h-8 w-[130px] rounded-md border bg-background px-1.5 text-xs"

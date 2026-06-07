@@ -46,6 +46,10 @@ export function UtilizationChart({
         },
       },
       xaxis: {
+        // Explicit categories: horizontal bars with {x,y} series data fall
+        // back to numeric row indexes for the category labels.
+        type: 'category',
+        categories: data.map((d) => d.site),
         labels: {
           formatter: (val: string) => `${val}%`,
         },
@@ -75,17 +79,14 @@ export function UtilizationChart({
         },
       ],
     }),
-    [isDark],
+    [isDark, data],
   );
 
   const series = useMemo(
     () => [
       {
         name: t('charts.utilization'),
-        data: data.map((d) => ({
-          x: d.site,
-          y: d.utilization,
-        })),
+        data: data.map((d) => d.utilization),
       },
     ],
     [t, data],

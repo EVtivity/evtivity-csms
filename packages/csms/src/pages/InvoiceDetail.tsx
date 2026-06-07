@@ -29,6 +29,7 @@ import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatCents } from '@/lib/formatting';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface InvoiceRecord extends DriverInvoice {
   metadata: Record<string, unknown> | null;
@@ -140,7 +141,7 @@ export function InvoiceDetail(): React.JSX.Element {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <p className="text-muted-foreground">{t('common.loading')}</p>
+        <LoadingLogo size="inline" />
       </div>
     );
   }

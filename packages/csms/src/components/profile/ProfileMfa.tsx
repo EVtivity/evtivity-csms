@@ -5,7 +5,6 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { CancelButton } from '@/components/cancel-button';
-import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +12,7 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api';
+import { LoadingLogo } from '@/components/loading-logo';
 
 const MFA_METHOD_LABELS: Record<string, string> = {
   email: 'profile.mfaMethodEmail',
@@ -94,10 +94,7 @@ export function ProfileMfa(): React.JSX.Element {
       </CardHeader>
       <CardContent>
         {mfaLoading ? (
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Spinner className="h-4 w-4" />
-            {t('common.loading')}
-          </div>
+          <LoadingLogo size="inline" />
         ) : mfaStatus == null ? null : mfaStatus.mfaEnabled ? (
           <div className="space-y-4 max-w-md">
             <div className="flex items-center gap-2">

@@ -24,6 +24,7 @@ import { api } from '@/lib/api';
 import { PowerBar } from './PowerBar';
 import { PanelTree } from './PanelTree';
 import { PanelForm } from './PanelForm';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface CircuitStation {
   id: string;
@@ -173,7 +174,7 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
   }
 
   if (isLoading) {
-    return <p className="text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   const hierarchy = data?.hierarchy ?? [];

@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/table';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface DriverReservation {
   id: string;
@@ -99,7 +100,7 @@ export function DriverReservationsTab({ driverId, timezone }: Props): React.JSX.
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <p className="text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+          <LoadingLogo size="inline" />
         ) : reservations.length === 0 ? (
           <p className="text-center text-sm text-muted-foreground">
             {t('reservations.noReservations')}

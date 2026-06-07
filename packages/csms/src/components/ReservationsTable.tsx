@@ -20,6 +20,7 @@ import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { useState } from 'react';
 import { FilterPopover } from '@/components/FilterBar';
 import { reservationStatusVariant } from '@/lib/status-variants';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface Reservation {
   id: string;
@@ -153,7 +154,7 @@ export function ReservationsTable({
                       colSpan={hideStationName === true ? 7 : 8}
                       className="text-center text-muted-foreground"
                     >
-                      {t('common.loading')}
+                      <LoadingLogo size="inline" />
                     </TableCell>
                   </TableRow>
                 )}

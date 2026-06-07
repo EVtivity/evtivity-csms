@@ -26,6 +26,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface User {
   id: string;
@@ -191,7 +192,7 @@ export function UsersPage(): React.JSX.Element {
               {isLoading && (
                 <TableRow>
                   <TableCell colSpan={9} className="text-center text-muted-foreground">
-                    {t('common.loading')}
+                    <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               )}

@@ -15,6 +15,7 @@ import { ErrorCard } from '@/components/ui/error-card';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface ReservationDetailData {
   id: string;
@@ -93,7 +94,7 @@ export function ReservationDetail(): React.JSX.Element {
   });
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (reservation == null) {

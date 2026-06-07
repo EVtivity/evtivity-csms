@@ -5,7 +5,20 @@ import { randomBytes, randomUUID, X509Certificate } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { hash } from 'argon2';
-import { eq, or, ilike, and, sql, gte, desc, count, inArray, isNotNull, isNull } from 'drizzle-orm';
+import {
+  eq,
+  or,
+  ilike,
+  and,
+  sql,
+  gte,
+  lte,
+  desc,
+  count,
+  inArray,
+  isNotNull,
+  isNull,
+} from 'drizzle-orm';
 import { db, writeAudit, stationAuditLog } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
@@ -55,6 +68,7 @@ import {
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds, checkStationSiteAccess, userCanAccessSite } from '../lib/site-access.js';
+import { dateRangeQuery, parseDateRange } from '../lib/date-range.js';
 import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../lib/ocpp-command.js';
 import { buildDerivedStatusSubquery } from '../lib/station-derived-status.js';
 import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.js';
@@ -2345,10 +2359,6 @@ export function stationRoutes(app: FastifyInstance): void {
     },
   );
 
-  const energyHistoryQuery = z.object({
-    days: z.coerce.number().int().min(1).max(90).default(7).describe('Number of days to look back'),
-  });
-
   app.get(
     '/stations/:id/energy-history',
     {
@@ -2359,7 +2369,7 @@ export function stationRoutes(app: FastifyInstance): void {
         operationId: 'getStationEnergyHistory',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
-        querystring: zodSchema(energyHistoryQuery),
+        querystring: zodSchema(dateRangeQuery),
         response: {
           200: arrayResponse(energyHistoryItem),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
@@ -2373,9 +2383,9 @@ export function stationRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
-      const { days } = request.query as z.infer<typeof energyHistoryQuery>;
-      const since = new Date();
-      since.setDate(since.getDate() - days);
+      const { since, until } = parseDateRange(
+        request.query as { days?: string; from?: string; to?: string },
+      );
 
       const [stationRow] = await db
         .select({ siteTimezone: sites.timezone })
@@ -2390,17 +2400,19 @@ export function stationRoutes(app: FastifyInstance): void {
           energyWh: sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric), 0)`,
         })
         .from(chargingSessions)
-        .where(and(eq(chargingSessions.stationId, id), gte(chargingSessions.startedAt, since)))
+        .where(
+          and(
+            eq(chargingSessions.stationId, id),
+            gte(chargingSessions.startedAt, since),
+            until ? lte(chargingSessions.startedAt, until) : undefined,
+          ),
+        )
         .groupBy(sql`1`)
         .orderBy(sql`1`);
 
       return rows.map((r) => ({ date: r.date, energyWh: r.energyWh }));
     },
   );
-
-  const revenueHistoryQuery = z.object({
-    days: z.coerce.number().int().min(1).max(90).default(7).describe('Number of days to look back'),
-  });
 
   app.get(
     '/stations/:id/revenue-history',
@@ -2412,7 +2424,7 @@ export function stationRoutes(app: FastifyInstance): void {
         operationId: 'getStationRevenueHistory',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
-        querystring: zodSchema(revenueHistoryQuery),
+        querystring: zodSchema(dateRangeQuery),
         response: {
           200: arrayResponse(revenueHistoryItem),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
@@ -2426,9 +2438,9 @@ export function stationRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
-      const { days } = request.query as z.infer<typeof revenueHistoryQuery>;
-      const since = new Date();
-      since.setDate(since.getDate() - days);
+      const { since, until } = parseDateRange(
+        request.query as { days?: string; from?: string; to?: string },
+      );
 
       const [stationRow] = await db
         .select({ siteTimezone: sites.timezone })
@@ -2448,6 +2460,7 @@ export function stationRoutes(app: FastifyInstance): void {
           and(
             eq(chargingSessions.stationId, id),
             gte(chargingSessions.startedAt, since),
+            until ? lte(chargingSessions.startedAt, until) : undefined,
             sql`coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null`,
           ),
         )

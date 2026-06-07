@@ -40,6 +40,7 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { LoadingLogo } from '@/components/loading-logo';
 
 // -- Types --
 
@@ -802,7 +803,7 @@ function ExcludedDowntimeSection(): React.JSX.Element {
               {isLoading && (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center text-muted-foreground">
-                    {t('common.loading')}
+                    <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               )}

@@ -18,6 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface TariffMapping {
   id: number;
@@ -95,7 +96,7 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
   }
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (mapping == null) {

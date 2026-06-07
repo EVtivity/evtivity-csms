@@ -16,6 +16,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { roamingSessionStatusVariant } from '@/lib/status-variants';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface RoamingSession {
   id: number;
@@ -62,7 +63,7 @@ export function RoamingSessions(): React.JSX.Element {
               {isLoading ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center">
-                    {t('common.loading')}
+                    <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               ) : sessions == null || sessions.length === 0 ? (

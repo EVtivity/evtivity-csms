@@ -16,6 +16,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { api } from '@/lib/api';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface LocationPublishInfo {
   id: string;
@@ -70,7 +71,7 @@ export function RoamingLocations(): React.JSX.Element {
               {isLoading ? (
                 <TableRow>
                   <TableCell colSpan={4} className="text-center">
-                    {t('common.loading')}
+                    <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               ) : locations == null || locations.length === 0 ? (

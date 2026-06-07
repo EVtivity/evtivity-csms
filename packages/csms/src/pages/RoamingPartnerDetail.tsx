@@ -27,6 +27,7 @@ import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { Pagination } from '@/components/ui/pagination';
 import { useState } from 'react';
 import { roamingPartnerStatusVariant } from '@/lib/status-variants';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface PartnerEndpoint {
   id: number;
@@ -105,7 +106,7 @@ export function RoamingPartnerDetail(): React.JSX.Element {
   });
 
   if (isLoading || partner == null) {
-    return <div className="p-6">{t('common.loading')}</div>;
+    return <LoadingLogo />;
   }
 
   return (

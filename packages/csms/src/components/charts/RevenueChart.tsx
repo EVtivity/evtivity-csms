@@ -34,6 +34,10 @@ export function RevenueChart({ data, title, actions, info }: RevenueChartProps):
       grid: { borderColor: getGridColor(isDark) },
       stroke: { curve: 'smooth', width: 2 },
       xaxis: {
+        // Pin the axis type: line charts otherwise convert date-like string
+        // categories to a numeric axis, which blanks the chart when the
+        // label formatter receives numbers.
+        type: 'category',
         categories: data.map((d) => d.date),
         labels: {
           formatter: formatChartDateLabel,

@@ -30,6 +30,7 @@ import { CaseInfoSidebar } from '@/components/support/CaseInfoSidebar';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface Attachment {
   id: number;
@@ -217,7 +218,7 @@ export function SupportCaseDetail(): React.JSX.Element {
   });
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (caseDetail == null) {

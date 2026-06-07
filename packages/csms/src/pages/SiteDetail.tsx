@@ -31,6 +31,7 @@ import { SiteQrCodesTab } from '@/components/site/SiteQrCodesTab';
 import { SitePricingTab } from '@/components/site/SitePricingTab';
 import { SiteFreeVendTab } from '@/components/site/SiteFreeVendTab';
 import { SiteMaintenanceTab } from '@/components/SiteMaintenanceTab';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface Site {
   id: string;
@@ -172,7 +173,7 @@ export function SiteDetail(): React.JSX.Element {
   });
 
   if (isLoading) {
-    return <p className="text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (site == null) {

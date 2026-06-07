@@ -33,6 +33,7 @@ import { API_BASE_URL } from '@/lib/config';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatCents } from '@/lib/formatting';
 import { formatDateTime } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 export interface DriverInvoice {
   id: string;
@@ -167,7 +168,7 @@ export function DriverInvoicesTab({ driverId, timezone }: Props): React.JSX.Elem
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <p className="text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+          <LoadingLogo size="inline" />
         ) : invoices.length === 0 ? (
           <p className="text-center text-sm text-muted-foreground">{t('invoices.noInvoices')}</p>
         ) : (

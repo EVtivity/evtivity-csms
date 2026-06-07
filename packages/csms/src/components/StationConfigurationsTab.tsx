@@ -30,6 +30,7 @@ import { SearchInput } from '@/components/search-input';
 import { Pagination } from '@/components/ui/pagination';
 import { api, getApiErrorMessage } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface StationVariable {
   id: number;
@@ -230,7 +231,7 @@ export function StationConfigurationsTab({
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <p className="text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+          <LoadingLogo size="inline" />
         ) : data == null || data.data.length === 0 ? (
           <p className="text-center text-sm text-muted-foreground">
             {t('stations.noConfigurations')}

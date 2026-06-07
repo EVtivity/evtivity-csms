@@ -36,6 +36,7 @@ import { StationPricingTab } from '@/components/station/StationPricingTab';
 import { StationReservationsTab } from '@/components/station/StationReservationsTab';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface Site {
   id: string;
@@ -141,7 +142,7 @@ export function StationDetail(): React.JSX.Element {
   });
 
   if (isLoading) {
-    return <p className="text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (station == null) {

@@ -2,12 +2,16 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useCallback } from 'react';
+import { presetRange } from '@/lib/date-range';
 
 interface DateRangeState {
   days: number;
   customFrom: string | null;
   customTo: string | null;
   dateQuery: string;
+  /** Concrete range the current selection covers, custom or preset-derived. */
+  effectiveFrom: string;
+  effectiveTo: string;
   handlePreset: (days: number) => void;
   handleCustom: (from: string, to: string) => void;
 }
@@ -20,6 +24,10 @@ export function useDateRange(defaultDays = 7): DateRangeState {
   const dateQuery =
     customFrom && customTo ? `from=${customFrom}&to=${customTo}` : `days=${String(days)}`;
 
+  const derived = presetRange(days);
+  const effectiveFrom = customFrom ?? derived.from;
+  const effectiveTo = customTo ?? derived.to;
+
   const handlePreset = useCallback((d: number) => {
     setDays(d);
     setCustomFrom(null);
@@ -31,5 +39,14 @@ export function useDateRange(defaultDays = 7): DateRangeState {
     setCustomTo(to);
   }, []);
 
-  return { days, customFrom, customTo, dateQuery, handlePreset, handleCustom };
+  return {
+    days,
+    customFrom,
+    customTo,
+    dateQuery,
+    effectiveFrom,
+    effectiveTo,
+    handlePreset,
+    handleCustom,
+  };
 }

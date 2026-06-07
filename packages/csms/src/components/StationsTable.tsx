@@ -20,6 +20,7 @@ import { SVG_COLORS } from '@/lib/chart-theme';
 import { formatDateTime, formatRelativeTime } from '@/lib/timezone';
 import { stationStatusVariant, stationStatusClassName } from '@/lib/status-variants';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
+import { LoadingLogo } from '@/components/loading-logo';
 
 export const STATIONS_COLUMNS: ColumnMeta[] = [
   {
@@ -416,7 +417,7 @@ export function StationsTable({
           {isLoading === true && (
             <TableRow>
               <TableCell colSpan={colSpan} className="text-center text-muted-foreground">
-                {t('common.loading')}
+                <LoadingLogo size="inline" />
               </TableCell>
             </TableRow>
           )}

@@ -20,6 +20,7 @@ import {
 import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { useUserTimezone, formatDateTime } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface AuthorizeAttempt {
   id: number;
@@ -169,7 +170,7 @@ export function AuthorizeLogView({
                     colSpan={visibleColumns}
                     className="text-center text-sm text-muted-foreground"
                   >
-                    {t('common.loading')}
+                    <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               ) : data == null || data.length === 0 ? (

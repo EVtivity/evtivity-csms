@@ -24,6 +24,7 @@ import { RevenueChart } from '@/components/charts/RevenueChart';
 import { PaymentBreakdownChart } from '@/components/charts/PaymentBreakdownChart';
 import { DateRangeControl } from '@/components/DateRangeControl';
 import { useDateRange } from '@/hooks/useDateRange';
+import { localDateString } from '@/lib/date-range';
 import { useUpdateCheck } from '@/hooks/use-update-check';
 import { useDayDeltaContext, type SnapshotData } from '@/hooks/use-day-delta-context';
 
@@ -349,20 +350,14 @@ function NoDataOverlay({
 function ModeToggle({
   mode,
   onModeChange,
-  fromDate,
-  toDate,
-  onFromChange,
-  onToChange,
+  range,
 }: {
   mode: DashboardMode;
   onModeChange: (m: DashboardMode) => void;
-  fromDate: string;
-  toDate: string;
-  onFromChange: (d: string) => void;
-  onToChange: (d: string) => void;
+  range: ReturnType<typeof useDateRange>;
 }): React.JSX.Element {
   const { t } = useTranslation();
-  const today = new Date().toISOString().split('T')[0] ?? '';
+  const today = localDateString(new Date());
   // Bound the historical date picker to dates that actually have snapshots so
   // operators can't pick pre-history dates that would only render a "No Data"
   // overlay. The endpoint returns dates DESC, so [-1] is the oldest.
@@ -400,31 +395,15 @@ function ModeToggle({
         ))}
       </div>
       {mode === 'historical' && (
-        <div className="flex items-center gap-1.5">
-          <input
-            type="date"
-            aria-label="Start date"
-            value={fromDate}
-            onChange={(e) => {
-              onFromChange(e.target.value);
-            }}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-            min={oldestAvailable || undefined}
-            max={toDate || today}
-          />
-          <span className="text-sm text-muted-foreground">to</span>
-          <input
-            type="date"
-            aria-label="End date"
-            value={toDate}
-            onChange={(e) => {
-              onToChange(e.target.value);
-            }}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-            min={fromDate || oldestAvailable || undefined}
-            max={today}
-          />
-        </div>
+        <DateRangeControl
+          days={range.days}
+          from={range.customFrom}
+          to={range.customTo}
+          onPresetChange={range.handlePreset}
+          onCustomChange={range.handleCustom}
+          minDate={oldestAvailable || undefined}
+          maxDate={today}
+        />
       )}
     </div>
   );
@@ -1169,11 +1148,7 @@ export function Dashboard(): React.JSX.Element {
   const role = useAuth((s) => s.role);
   useUpdateCheck();
   const [mode, setMode] = useState<DashboardMode>('live');
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().split('T')[0] ?? '';
-  const [fromDate, setFromDate] = useState(yesterdayStr);
-  const [toDate, setToDate] = useState(yesterdayStr);
+  const historical = useDateRange();
 
   const { data: stats } = useQuery({
     queryKey: ['dashboard', 'stats'],
@@ -1199,28 +1174,21 @@ export function Dashboard(): React.JSX.Element {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl md:text-3xl font-bold">{t('dashboard.title')}</h1>
-        <ModeToggle
-          mode={mode}
-          onModeChange={setMode}
-          fromDate={fromDate}
-          toDate={toDate}
-          onFromChange={setFromDate}
-          onToChange={setToDate}
-        />
+        <ModeToggle mode={mode} onModeChange={setMode} range={historical} />
       </div>
       {isAdmin ? (
         <AdminDashboard
           stats={stats ?? defaultStats}
           mode={mode}
-          fromDate={fromDate}
-          toDate={toDate}
+          fromDate={historical.effectiveFrom}
+          toDate={historical.effectiveTo}
         />
       ) : (
         <OperatorDashboard
           stats={stats ?? defaultStats}
           mode={mode}
-          fromDate={fromDate}
-          toDate={toDate}
+          fromDate={historical.effectiveFrom}
+          toDate={historical.effectiveTo}
         />
       )}
     </div>

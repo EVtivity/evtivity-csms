@@ -21,6 +21,7 @@ import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { roamingPartnerStatusVariant } from '@/lib/status-variants';
 import { useRoamingTabAction } from './RoamingLayout';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface Partner {
   id: string;
@@ -92,7 +93,7 @@ export function RoamingPartners(): React.JSX.Element {
               {isLoading ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center">
-                    {t('common.loading')}
+                    <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               ) : partners == null || partners.length === 0 ? (

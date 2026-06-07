@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { Badge } from '@/components/ui/badge';
+import { LoadingLogo } from '@/components/loading-logo';
 
 export interface AuditEntry {
   id: number;
@@ -147,7 +148,7 @@ export function EntityHistoryTab({
       )}
       <CardContent className="p-0">
         {isLoading ? (
-          <p className="p-6 text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+          <LoadingLogo size="inline" />
         ) : error != null ? (
           <p className="p-6 text-center text-sm text-destructive">
             {t('audit.loadFailed', 'Failed to load audit history')}

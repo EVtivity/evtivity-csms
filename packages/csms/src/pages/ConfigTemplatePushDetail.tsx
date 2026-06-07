@@ -20,6 +20,7 @@ import {
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 import { useUserTimezone } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface PushStation {
   id: number;
@@ -77,7 +78,7 @@ export function ConfigTemplatePushDetail(): React.JSX.Element {
   });
 
   if (isLoading) {
-    return <p className="text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (push == null) {

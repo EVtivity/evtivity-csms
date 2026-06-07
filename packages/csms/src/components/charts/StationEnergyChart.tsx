@@ -7,27 +7,16 @@ import type { ApexOptions } from 'apexcharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth';
-import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
+import { CHART_COLORS, getGridColor, formatChartDateLabel } from '@/lib/chart-theme';
 
 interface StationEnergyChartProps {
   data: { date: string; energyWh: number }[];
+  actions?: React.ReactNode;
 }
 
-export function StationEnergyChart({ data }: StationEnergyChartProps): React.JSX.Element {
+export function StationEnergyChart({ data, actions }: StationEnergyChartProps): React.JSX.Element {
   const { t } = useTranslation();
   const isDark = useAuth((s) => s.theme) === 'dark';
-  if (data.length === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t('charts.energyKwhPerDay')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-center text-sm text-muted-foreground">{t('charts.noEnergyData')}</p>
-        </CardContent>
-      </Card>
-    );
-  }
 
   const options = useMemo<ApexOptions>(
     () => ({
@@ -48,10 +37,7 @@ export function StationEnergyChart({ data }: StationEnergyChartProps): React.JSX
       xaxis: {
         categories: data.map((d) => d.date),
         labels: {
-          formatter: (val: string) => {
-            const date = new Date(val);
-            return `${String(date.getMonth() + 1)}/${String(date.getDate())}`;
-          },
+          formatter: formatChartDateLabel,
         },
       },
       yaxis: {
@@ -85,11 +71,16 @@ export function StationEnergyChart({ data }: StationEnergyChartProps): React.JSX
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
         <CardTitle className="text-base">{t('charts.energyKwhPerDay')}</CardTitle>
+        {actions}
       </CardHeader>
       <CardContent>
-        <ReactApexChart options={options} series={series} type="bar" height={300} />
+        {data.length === 0 ? (
+          <p className="text-center text-sm text-muted-foreground">{t('charts.noEnergyData')}</p>
+        ) : (
+          <ReactApexChart options={options} series={series} type="bar" height={300} />
+        )}
       </CardContent>
     </Card>
   );

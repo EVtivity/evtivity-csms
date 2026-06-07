@@ -27,6 +27,7 @@ import { DriverPaymentMethodsTab } from '@/components/driver/DriverPaymentMethod
 import { DriverPricingTab } from '@/components/driver/DriverPricingTab';
 import { DriverReservationsTab } from '@/components/driver/DriverReservationsTab';
 import { AuthorizeLogView } from '@/components/AuthorizeLogView';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface Driver {
   id: string;
@@ -93,7 +94,7 @@ export function DriverDetail(): React.JSX.Element {
   });
 
   if (isLoading) {
-    return <p className="text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (driver == null) {

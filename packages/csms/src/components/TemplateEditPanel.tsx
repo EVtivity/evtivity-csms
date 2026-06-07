@@ -12,6 +12,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { TemplateEditor } from '@/components/TemplateEditor';
 import { api } from '@/lib/api';
 import type { TemplateVariable } from '@/lib/template-variables';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface NotificationTemplate {
   eventType: string;
@@ -174,7 +175,7 @@ export const TemplateEditPanel = forwardRef<TemplateEditPanelHandle, TemplateEdi
       return (
         <Card>
           <CardContent className="p-6 text-center text-muted-foreground">
-            {t('common.loading')}
+            <LoadingLogo size="inline" />
           </CardContent>
         </Card>
       );

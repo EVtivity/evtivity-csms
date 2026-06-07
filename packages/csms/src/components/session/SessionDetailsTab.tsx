@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/table';
 import { formatDateTime } from '@/lib/timezone';
 import { eventTypeVariant } from '@/lib/status-variants';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface TransactionEvent {
   id: number;
@@ -244,7 +245,7 @@ export function SessionDetailsTab({
         </CardHeader>
         <CardContent>
           {txEventLoading ? (
-            <p className="text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+            <LoadingLogo size="inline" />
           ) : txEventData == null || txEventData.length === 0 ? (
             <p className="text-center text-sm text-muted-foreground">
               {t('sessions.noTransactionEvents')}

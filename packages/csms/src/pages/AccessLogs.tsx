@@ -22,6 +22,7 @@ import { SearchInput } from '@/components/search-input';
 import { FilterPopover } from '@/components/FilterBar';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { httpMethodVariant, httpStatusVariant, workerStatusVariant } from '@/lib/status-variants';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface AccessLog {
   id: number;
@@ -129,7 +130,7 @@ function BrowserLogTab(): React.JSX.Element {
               {isLoading && (
                 <TableRow>
                   <TableCell colSpan={4} className="text-center text-muted-foreground">
-                    {t('common.loading')}
+                    <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               )}
@@ -213,7 +214,7 @@ function PortalLogTab(): React.JSX.Element {
               {isLoading && (
                 <TableRow>
                   <TableCell colSpan={4} className="text-center text-muted-foreground">
-                    {t('common.loading')}
+                    <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               )}
@@ -383,7 +384,7 @@ function ApiLogTab(): React.JSX.Element {
               {isLoading && (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center text-muted-foreground">
-                    {t('common.loading')}
+                    <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               )}
@@ -567,7 +568,7 @@ function WorkerLogTab(): React.JSX.Element {
               {isLoading && (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center text-muted-foreground">
-                    {t('common.loading')}
+                    <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               )}

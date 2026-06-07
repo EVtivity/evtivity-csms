@@ -30,6 +30,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { api } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { formatDateTime } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface ChargingProfile {
   id: number;
@@ -255,7 +256,7 @@ export function StationChargingProfilesTab({
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <p className="text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+          <LoadingLogo size="inline" />
         ) : data == null || data.data.length === 0 ? (
           <p className="text-center text-sm text-muted-foreground">
             {t('stations.noChargingProfiles')}
@@ -513,7 +514,7 @@ export function StationChargingProfilesTab({
             <DialogTitle>{t('stations.viewComposite')}</DialogTitle>
           </DialogHeader>
           {compositeMutation.isPending ? (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+            <LoadingLogo size="inline" />
           ) : compositeMutation.isError ? (
             <p className="text-sm text-destructive">{t('common.error')}</p>
           ) : compositeSchedule != null ? (

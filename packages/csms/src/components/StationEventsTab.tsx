@@ -21,6 +21,7 @@ import { FilterPopover } from '@/components/FilterBar';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 import { SEVERITY_VARIANT } from '@/lib/severity';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface SecurityEvent {
   id: number;
@@ -106,7 +107,7 @@ function SecurityEventsPanel({ stationId, timezone }: Props): React.JSX.Element 
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <p className="text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+          <LoadingLogo size="inline" />
         ) : data == null || data.data.length === 0 ? (
           <p className="text-center text-sm text-muted-foreground">
             {t('stations.noSecurityEvents')}
@@ -174,7 +175,7 @@ function NotifyEventsPanel({ stationId, timezone }: Props): React.JSX.Element {
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <p className="text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+          <LoadingLogo size="inline" />
         ) : data == null || data.data.length === 0 ? (
           <p className="text-center text-sm text-muted-foreground">{t('stations.noEvents')}</p>
         ) : (

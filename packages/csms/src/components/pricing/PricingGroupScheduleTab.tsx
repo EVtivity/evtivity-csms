@@ -14,6 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { api } from '@/lib/api';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface TariffRestrictions {
   timeRange?: { startTime: string; endTime: string };
@@ -98,7 +99,7 @@ export function PricingGroupScheduleTab({
         <CardTitle>{t('pricing.schedule')}</CardTitle>
       </CardHeader>
       <CardContent>
-        {scheduleLoading && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
+        {scheduleLoading && <LoadingLogo size="inline" />}
 
         {schedule != null && schedule.length === 0 && (
           <p className="text-center text-sm text-muted-foreground">{t('pricing.noTariffsFound')}</p>

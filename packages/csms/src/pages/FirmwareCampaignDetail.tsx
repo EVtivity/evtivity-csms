@@ -19,6 +19,7 @@ import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { useTab } from '@/hooks/use-tab';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
+import { LoadingLogo } from '@/components/loading-logo';
 
 const STATUS_VARIANT: Record<
   string,
@@ -54,7 +55,7 @@ export function FirmwareCampaignDetail(): React.JSX.Element {
   });
 
   if (isLoading) {
-    return <p className="text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (campaign == null) {

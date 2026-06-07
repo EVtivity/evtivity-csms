@@ -13,8 +13,14 @@ export function getGridColor(isDark: boolean): string {
 /** Format a YYYY-MM-DD calendar-date label as "M/D" for chart x-axes.
  * Parses by splitting the string rather than `new Date(val)` because
  * `new Date("2024-03-12")` parses as UTC midnight and would shift the
- * label by one day for browsers west of UTC. */
-export function formatChartDateLabel(val: string): string {
+ * label by one day for browsers west of UTC.
+ *
+ * ApexCharts' types promise a string but line charts convert date-like
+ * categories to a numeric axis and call this with numbers or undefined;
+ * a throw inside the formatter blanks the entire chart, so coerce. */
+export function formatChartDateLabel(val: unknown): string {
+  if (typeof val === 'number') return String(val);
+  if (typeof val !== 'string') return '';
   const parts = val.split('-');
   if (parts.length !== 3) return val;
   return `${String(Number(parts[1]))}/${String(Number(parts[2]))}`;

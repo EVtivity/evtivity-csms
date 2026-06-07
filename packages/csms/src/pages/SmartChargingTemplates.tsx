@@ -20,6 +20,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 import { useUserTimezone } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface SmartChargingTemplate {
   id: string;
@@ -82,7 +83,7 @@ export function SmartChargingTemplates({
         )}
         <CardContent className={embedded ? '' : 'pt-6'}>
           {isLoading ? (
-            <p className="text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+            <LoadingLogo size="inline" />
           ) : data == null || data.data.length === 0 ? (
             <p className="text-center text-sm text-muted-foreground">
               {t('smartCharging.noTemplates')}

@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/table';
 import { actorDisplay, type AuditEntry } from '@/components/EntityHistoryTab';
 import { FilterPopover } from '@/components/FilterBar';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface AuditPage {
   data: AuditEntry[];
@@ -327,7 +328,7 @@ export function Audit(): React.JSX.Element {
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
-            <p className="p-6 text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+            <LoadingLogo size="inline" />
           ) : error != null ? (
             <p className="p-6 text-center text-sm text-destructive">
               {t('audit.loadFailed', 'Failed to load audit log')}

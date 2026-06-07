@@ -12,6 +12,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface SupportCase {
   id: string;
@@ -71,7 +72,7 @@ export function SupportCases(): React.JSX.Element {
         </Button>
       </PageHeader>
 
-      {isLoading && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
+      {isLoading && <LoadingLogo size="inline" />}
 
       {cases.length === 0 && !isLoading && (
         <p className="text-center text-sm text-muted-foreground">{t('supportCases.noCases')}</p>

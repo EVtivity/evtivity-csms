@@ -19,6 +19,7 @@ import { FleetPricingTab } from '@/components/fleet/FleetPricingTab';
 import { FleetReservationsTab } from '@/components/fleet/FleetReservationsTab';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface Fleet {
   id: string;
@@ -41,7 +42,7 @@ export function FleetDetail(): React.JSX.Element {
   });
 
   if (isLoading) {
-    return <p className="text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (fleet == null) {

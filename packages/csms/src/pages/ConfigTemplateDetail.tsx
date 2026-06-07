@@ -16,6 +16,7 @@ import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { useTab } from '@/hooks/use-tab';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
+import { LoadingLogo } from '@/components/loading-logo';
 
 export function ConfigTemplateDetail(): React.JSX.Element {
   const { t } = useTranslation();
@@ -43,7 +44,7 @@ export function ConfigTemplateDetail(): React.JSX.Element {
   });
 
   if (isLoading) {
-    return <p className="text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (template == null) {

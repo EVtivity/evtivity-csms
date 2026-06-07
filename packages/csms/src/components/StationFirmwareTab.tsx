@@ -17,6 +17,7 @@ import {
 import { Pagination } from '@/components/ui/pagination';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface FirmwareUpdate {
   id: number;
@@ -69,7 +70,7 @@ export function StationFirmwareTab({ stationId, timezone }: Props): React.JSX.El
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <p className="text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+          <LoadingLogo size="inline" />
         ) : data == null || data.data.length === 0 ? (
           <p className="text-center text-sm text-muted-foreground">
             {t('stations.noFirmwareUpdates')}

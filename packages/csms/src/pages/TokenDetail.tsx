@@ -20,6 +20,7 @@ import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { useUserTimezone } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface TokenData {
   id: string;
@@ -56,7 +57,7 @@ export function TokenDetail(): React.JSX.Element {
   });
 
   if (isLoading) {
-    return <p className="text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (token == null) {

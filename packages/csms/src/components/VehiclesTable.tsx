@@ -14,6 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
+import { LoadingLogo } from '@/components/loading-logo';
 
 export interface Vehicle {
   id: string;
@@ -77,7 +78,7 @@ export function VehiclesTable({
             {isLoading === true && (
               <TableRow>
                 <TableCell colSpan={colSpan} className="text-center text-muted-foreground">
-                  {t('common.loading')}
+                  <LoadingLogo size="inline" />
                 </TableCell>
               </TableRow>
             )}

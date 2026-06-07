@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api';
 import { formatCents, formatEnergy, formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface Session {
   id: string;
@@ -60,7 +61,7 @@ export function Sessions(): React.JSX.Element {
     <div className="space-y-4">
       <h1 className="text-xl font-bold">{t('sessions.title')}</h1>
 
-      {isLoading && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
+      {isLoading && <LoadingLogo size="inline" />}
 
       {data != null && data.data.length === 0 && (
         <p className="text-center text-sm text-muted-foreground">{t('sessions.noSessions')}</p>

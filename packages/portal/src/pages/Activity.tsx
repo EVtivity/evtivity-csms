@@ -17,6 +17,7 @@ import {
   formatMonthYear,
 } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
+import { LoadingLogo } from '@/components/loading-logo';
 interface Session {
   id: string;
   status: string;
@@ -299,9 +300,7 @@ export function Activity(): React.JSX.Element {
           </Card>
         ))}
         <div ref={sentinelRef} />
-        {isFetchingNextPage && (
-          <p className="py-2 text-center text-xs text-muted-foreground">{t('common.loading')}</p>
-        )}
+        {isFetchingNextPage && <LoadingLogo size="inline" />}
       </div>
     </div>
   );

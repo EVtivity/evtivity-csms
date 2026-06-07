@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { CancelButton } from '@/components/cancel-button';
 import { Button } from '@/components/ui/button';
 import { api, ApiError } from '@/lib/api';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface SetupIntentResponse {
   clientSecret: string;
@@ -196,7 +197,7 @@ export function PaymentMethodForm({
   if (setupData == null || stripePromise == null) {
     return (
       <div className="space-y-4">
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        <LoadingLogo size="inline" />
         <CancelButton onClick={onCancel} />
       </div>
     );

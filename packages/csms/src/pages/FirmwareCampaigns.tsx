@@ -20,6 +20,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 import { useUserTimezone } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface Campaign {
   id: string;
@@ -87,7 +88,7 @@ export function FirmwareCampaigns({ embedded }: { embedded?: boolean } = {}): Re
         )}
         <CardContent className={embedded ? '' : 'pt-6'}>
           {isLoading ? (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+            <LoadingLogo size="inline" />
           ) : data == null || data.data.length === 0 ? (
             <p className="text-sm text-muted-foreground">No firmware campaigns</p>
           ) : (

@@ -18,6 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Combobox } from '@/components/ui/combobox';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { api } from '@/lib/api';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface Vehicle {
   id: string;
@@ -149,7 +150,7 @@ export function VehicleDetail(): React.JSX.Element {
   }
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (vehicle == null) {

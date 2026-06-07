@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface SystemInfo {
   version: string;
@@ -121,7 +122,7 @@ export function SystemInfoDialog({ open, onOpenChange }: Props): React.JSX.Eleme
           <DialogTitle>{t('systemInfo.title')}</DialogTitle>
         </DialogHeader>
         {isLoading || data == null ? (
-          <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+          <LoadingLogo size="inline" />
         ) : (
           <div className="space-y-6">
             <Section title={t('systemInfo.runtime')}>

@@ -31,6 +31,7 @@ import { api } from '@/lib/api';
 import { formatCents, formatEnergy, formatDate, formatDistance } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { useDriverTimezone } from '@/lib/timezone';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface SessionDetailData {
   id: string;
@@ -224,7 +225,7 @@ export function SessionDetail(): React.JSX.Element {
   const elapsed = useElapsedTime(session?.startedAt, isActive);
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (session == null) {

@@ -15,6 +15,7 @@ import {
 import { CopyableId } from '@/components/copyable-id';
 import { formatDate } from '@/lib/timezone';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
+import { LoadingLogo } from '@/components/loading-logo';
 
 export const TOKENS_COLUMNS: ColumnMeta[] = [
   {
@@ -109,7 +110,7 @@ export function TokensTable({
             {isLoading === true && (
               <TableRow>
                 <TableCell colSpan={colSpan} className="text-center text-muted-foreground">
-                  {t('common.loading')}
+                  <LoadingLogo size="inline" />
                 </TableCell>
               </TableRow>
             )}

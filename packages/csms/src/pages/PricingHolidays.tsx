@@ -28,6 +28,7 @@ import {
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface Holiday {
   id: number;
@@ -165,7 +166,7 @@ export function PricingHolidays(): React.JSX.Element {
         </div>
       </div>
 
-      {isLoading && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
+      {isLoading && <LoadingLogo size="inline" />}
 
       {sorted.length === 0 && !isLoading && (
         <p className="text-center text-sm text-muted-foreground">{t('pricing.noHolidays')}</p>

@@ -24,6 +24,7 @@ import { API_BASE_URL } from '@/lib/config';
 import { useAuth } from '@/lib/auth';
 import { formatCo2, formatEnergy } from '@/lib/formatting';
 import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface SustainabilityReportData {
   cumulativeTotal: {
@@ -215,7 +216,7 @@ export function SustainabilityTab(): React.JSX.Element {
         </CardContent>
       </Card>
 
-      {isLoading && <p className="text-muted-foreground">{t('common.loading')}</p>}
+      {isLoading && <LoadingLogo size="inline" />}
 
       {report?.cumulativeTotal != null && (
         <>

@@ -18,6 +18,7 @@ import { UserPermissionsTab } from '@/components/user/UserPermissionsTab';
 import { UserSecurityTab } from '@/components/user/UserSecurityTab';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { LoadingLogo } from '@/components/loading-logo';
 
 export function UserDetail(): React.JSX.Element {
   const { t } = useTranslation();
@@ -47,7 +48,7 @@ export function UserDetail(): React.JSX.Element {
   });
 
   if (isLoading) {
-    return <p className="text-muted-foreground">{t('common.loading')}</p>;
+    return <LoadingLogo />;
   }
 
   if (user == null) {

@@ -23,6 +23,7 @@ import {
   OPERATOR_EVENT_TYPES,
 } from '@/lib/template-variables';
 import { type NotificationRecord, statusBadgeClass, formatTimestamp } from './shared';
+import { LoadingLogo } from '@/components/loading-logo';
 
 const EVENT_CATEGORIES: Record<string, readonly string[]> = {
   driver: DRIVER_EVENT_TYPES,
@@ -182,7 +183,7 @@ export function PushLogTab(): React.JSX.Element {
             {isLoading && (
               <TableRow>
                 <TableCell colSpan={4} className="text-center text-muted-foreground">
-                  {t('common.loading')}
+                  <LoadingLogo size="inline" />
                 </TableCell>
               </TableRow>
             )}

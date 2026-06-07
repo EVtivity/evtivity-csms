@@ -13,6 +13,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { formatFileSize } from '@/lib/formatting';
+import { LoadingLogo } from '@/components/loading-logo';
 
 export { formatFileSize };
 
@@ -119,7 +120,7 @@ export function FileViewerDialog({
 
         <div className="flex items-center justify-center min-h-[200px]">
           {loading ? (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+            <LoadingLogo size="inline" />
           ) : isImage && downloadUrl != null ? (
             <img
               src={downloadUrl}

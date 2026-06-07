@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/table';
 import { formatDate } from '@/lib/timezone';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
+import { LoadingLogo } from '@/components/loading-logo';
 
 export const DRIVERS_COLUMNS: ColumnMeta[] = [
   {
@@ -96,7 +97,7 @@ export function DriversTable({
             {isLoading === true && (
               <TableRow>
                 <TableCell colSpan={colSpan} className="text-center text-muted-foreground">
-                  {t('common.loading')}
+                  <LoadingLogo size="inline" />
                 </TableCell>
               </TableRow>
             )}

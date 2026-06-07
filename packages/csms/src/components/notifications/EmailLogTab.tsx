@@ -30,6 +30,7 @@ import {
   formatRecipient,
 } from './shared';
 import { StatusCell } from './StatusCell';
+import { LoadingLogo } from '@/components/loading-logo';
 
 const EVENT_CATEGORIES: Record<string, readonly string[]> = {
   driver: DRIVER_EVENT_TYPES,
@@ -178,7 +179,7 @@ export function EmailLogTab(): React.JSX.Element {
             {isLoading && (
               <TableRow>
                 <TableCell colSpan={5} className="text-center text-muted-foreground">
-                  {t('common.loading')}
+                  <LoadingLogo size="inline" />
                 </TableCell>
               </TableRow>
             )}

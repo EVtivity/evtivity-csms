@@ -44,6 +44,7 @@ import {
   getDefaultExpiresAt,
   validateReservationDateRange,
 } from '@/lib/reservation-datetime';
+import { LoadingLogo } from '@/components/loading-logo';
 
 interface FleetReservation {
   id: string;
@@ -282,7 +283,7 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
                 {isLoading && (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center text-muted-foreground">
-                      {t('common.loading')}
+                      <LoadingLogo size="inline" />
                     </TableCell>
                   </TableRow>
                 )}
