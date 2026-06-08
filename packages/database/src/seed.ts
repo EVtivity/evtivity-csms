@@ -428,7 +428,7 @@ async function seed(): Promise<void> {
     'system.timezone': 'America/New_York',
     'ocpp.heartbeatInterval': 300,
     'ocpp.meterValueInterval': 60,
-    'ocpp.clockAlignedInterval': 60,
+    'ocpp.clockAlignedInterval': 900,
     'ocpp.sampledMeasurands':
       'Energy.Active.Import.Register,Power.Active.Import,Voltage,SoC,Current.Import',
     'ocpp.alignedMeasurands':

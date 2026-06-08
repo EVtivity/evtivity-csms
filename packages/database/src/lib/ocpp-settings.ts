@@ -95,11 +95,11 @@ export async function getClockAlignedIntervalSeconds(): Promise<number> {
       .from(settings)
       .where(eq(settings.key, 'ocpp.clockAlignedInterval'));
 
-    cachedClockAlignedInterval = row != null && typeof row.value === 'number' ? row.value : 60;
+    cachedClockAlignedInterval = row != null && typeof row.value === 'number' ? row.value : 900;
     cachedClockAlignedIntervalAt = now;
     return cachedClockAlignedInterval;
   } catch {
-    return cachedClockAlignedInterval ?? 60;
+    return cachedClockAlignedInterval ?? 900;
   }
 }
 

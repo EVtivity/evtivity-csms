@@ -72,7 +72,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
   // OCPP defaults
   const [ocppHeartbeatInterval, setOcppHeartbeatInterval] = useState('300');
   const [ocppMeterValueInterval, setOcppMeterValueInterval] = useState('60');
-  const [ocppClockAlignedInterval, setOcppClockAlignedInterval] = useState('60');
+  const [ocppClockAlignedInterval, setOcppClockAlignedInterval] = useState('900');
   const [ocppConnectionTimeout, setOcppConnectionTimeout] = useState('120');
   const [ocppResetRetries, setOcppResetRetries] = useState('3');
   const [ocppApprovalRequired, setOcppApprovalRequired] = useState(true);
@@ -166,7 +166,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     const mvi = settings['ocpp.meterValueInterval'];
     setOcppMeterValueInterval(mvi != null ? Number(mvi).toString() : '60');
     const cai = settings['ocpp.clockAlignedInterval'];
-    setOcppClockAlignedInterval(cai != null ? Number(cai).toString() : '60');
+    setOcppClockAlignedInterval(cai != null ? Number(cai).toString() : '900');
     const ct = settings['ocpp.connectionTimeout'];
     setOcppConnectionTimeout(ct != null ? Number(ct).toString() : '120');
     const rr = settings['ocpp.resetRetries'];
