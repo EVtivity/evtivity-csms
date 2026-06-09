@@ -1399,7 +1399,9 @@
     "maxDowntime": "최대 다운타임",
     "totalRevenue": "총 매출",
     "revenuePerSession": "세션당 매출",
-    "totalTransactions": "총 거래 수"
+    "totalTransactions": "총 거래 수",
+    "electricityCost": "전기 비용",
+    "profit": "이익"
   },
   "payments": {
     "paymentConfiguration": "결제 구성",

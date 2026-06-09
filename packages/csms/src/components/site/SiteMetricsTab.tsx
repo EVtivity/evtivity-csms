@@ -30,6 +30,8 @@ interface SiteMetrics {
   totalRevenueCents: number;
   avgRevenueCentsPerSession: number;
   totalTransactions: number;
+  totalElectricityCostCents: number;
+  totalProfitCents: number;
   periodMonths: number;
 }
 
@@ -175,6 +177,21 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">{t('metrics.totalTransactions')}</p>
                 <p className="text-2xl font-bold">{String(metrics.totalTransactions)}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">{t('metrics.electricityCost')}</p>
+                <p className="text-2xl font-bold">
+                  ${(metrics.totalElectricityCostCents / 100).toFixed(2)}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">{t('metrics.profit')}</p>
+                <p
+                  className={`text-2xl font-bold ${metrics.totalProfitCents >= 0 ? 'text-success' : 'text-destructive'}`}
+                >
+                  {metrics.totalProfitCents < 0 ? '-' : ''}$
+                  {Math.abs(metrics.totalProfitCents / 100).toFixed(2)}
+                </p>
               </div>
             </div>
           </CardContent>

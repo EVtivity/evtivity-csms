@@ -1404,7 +1404,9 @@
     "maxDowntime": "Tiempo inactivo maximo",
     "totalRevenue": "Ingresos totales",
     "revenuePerSession": "Ingreso/sesion",
-    "totalTransactions": "Total de transacciones"
+    "totalTransactions": "Total de transacciones",
+    "electricityCost": "Costo de electricidad",
+    "profit": "Ganancia"
   },
   "payments": {
     "paymentConfiguration": "Configuracion de Pago",

@@ -1399,7 +1399,9 @@
     "maxDowntime": "最長停機時間",
     "totalRevenue": "總收入",
     "revenuePerSession": "每次收入",
-    "totalTransactions": "交易總數"
+    "totalTransactions": "交易總數",
+    "electricityCost": "電費成本",
+    "profit": "利潤"
   },
   "payments": {
     "paymentConfiguration": "支付配置",

@@ -1375,7 +1375,9 @@
     "maxDowntime": "Max. Ausfallzeit",
     "totalRevenue": "Gesamtumsatz",
     "revenuePerSession": "Umsatz/Vorgang",
-    "totalTransactions": "Transaktionen gesamt"
+    "totalTransactions": "Transaktionen gesamt",
+    "electricityCost": "Stromkosten",
+    "profit": "Gewinn"
   },
   "payments": {
     "paymentConfiguration": "Zahlungskonfiguration",

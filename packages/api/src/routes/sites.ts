@@ -373,6 +373,15 @@ const siteMetricsResponse = z
     totalTransactions: z
       .number()
       .describe('Number of billable transactions (sessions with cost data)'),
+    totalElectricityCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Total wholesale electricity cost in cents over the reporting period'),
+    totalProfitCents: z
+      .number()
+      .int()
+      .describe('Total profit in cents (revenue minus electricity cost); may be negative'),
     periodMonths: z.number().describe('Number of months covered by this metrics report'),
   })
   .passthrough();
@@ -1100,6 +1109,7 @@ export function siteRoutes(app: FastifyInstance): void {
           totalRevenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
           avgRevenueCentsPerSession: sql<number>`coalesce(avg(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
           totalTransactions: sql<number>`count(*) filter (where coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null)`,
+          totalElectricityCostCents: sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}), 0)`,
         })
         .from(chargingSessions)
         .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
@@ -1149,6 +1159,10 @@ export function siteRoutes(app: FastifyInstance): void {
         totalRevenueCents: financialStats?.totalRevenueCents ?? 0,
         avgRevenueCentsPerSession: Math.round(financialStats?.avgRevenueCentsPerSession ?? 0),
         totalTransactions: financialStats?.totalTransactions ?? 0,
+        totalElectricityCostCents: financialStats?.totalElectricityCostCents ?? 0,
+        totalProfitCents:
+          (financialStats?.totalRevenueCents ?? 0) -
+          (financialStats?.totalElectricityCostCents ?? 0),
         periodMonths: months,
       };
     },
