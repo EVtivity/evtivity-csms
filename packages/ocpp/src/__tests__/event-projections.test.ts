@@ -593,6 +593,7 @@ describe('Event projections', () => {
         [{ status: 'charging' }], // SELECT status FROM connectors (prevRows)
         [], // INSERT port_status_log
         [], // UPDATE connectors
+        [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
         [], // UPDATE charging_sessions SET idle_started_at
         [{ id: 'session-1', transaction_id: 'tx-1' }], // SELECT active session
@@ -699,6 +700,7 @@ describe('Event projections', () => {
         [{ status: 'available' }], // SELECT status FROM connectors (prev)
         [], // INSERT port_status_log
         [], // UPDATE connectors
+        [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
         [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol for station_message_refresh
       );
@@ -784,6 +786,7 @@ describe('Event projections', () => {
         [{ status: 'available' }], // SELECT status FROM connectors (prev)
         [], // INSERT port_status_log
         [], // UPDATE connectors
+        [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
         [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol
       );
@@ -812,6 +815,7 @@ describe('Event projections', () => {
         [{ id: 'evs_000000000001' }], // INSERT evses RETURNING id
         [], // INSERT connectors
         [], // INSERT port_status_log
+        [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
         [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (auto-discovery GetBaseReport branch)
         [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (station_message_refresh branch)

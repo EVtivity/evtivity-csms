@@ -471,6 +471,7 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'evs_000000000002' }], // INSERT evses
         [], // INSERT connectors
         [], // INSERT port_status_log
+        [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: 'site-status' }], // resolveSiteId
       );
 

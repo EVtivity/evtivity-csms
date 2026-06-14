@@ -1124,6 +1124,7 @@ describe('Event projections - coverage round 2', () => {
         [{ id: 'evs_1' }],
         [{ status: 'occupied' }],
         [], // UPDATE connectors
+        [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: 'site-9' }], // resolveSiteId
       );
       await emit('ocpp.StatusNotification', 'CS-1', {
@@ -1145,6 +1146,7 @@ describe('Event projections - coverage round 2', () => {
         [{ status: 'charging' }],
         [], // INSERT port_status_log (charging -> suspended_ev)
         [], // UPDATE connectors
+        [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
         [], // UPDATE charging_sessions set idle_started_at
         [{ id: 'ses_1', transaction_id: 'tx_1' }], // SELECT active session
