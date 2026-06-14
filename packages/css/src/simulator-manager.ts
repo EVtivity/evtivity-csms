@@ -8,6 +8,7 @@ import type { PubSubClient } from '@evtivity/lib';
 import { StationSimulator, type StationConfig } from './station-simulator.js';
 import { ClockAlignedScheduler } from './clock-aligned-scheduler.js';
 import { config as cssConfig } from './lib/config.js';
+import { isStationStuck, MAX_HEAL_ATTEMPTS, MAX_HEAL_PER_TICK } from './simulator-heal.js';
 
 // Resolve the SP3 PEM bundle from env: prefer the inlined *_PEM variants
 // (CDK/ECS path) over the file-path variants (Helm path). Memoized so each
@@ -67,15 +68,24 @@ export class SimulatorManager {
   private syncing = false;
   private readonly sql: postgres.Sql;
   private readonly tlsProbeFailureCache = new Map<string, number>();
+  // Per-station self-heal restart counter, reset when a station becomes ready.
+  private readonly healAttempts = new Map<string, number>();
   // Optional: when set, dispatchAction publishes a {commandId, success,
   // error?} message to css_command_results so the API can surface
   // simulator-side rejects (e.g. "Cable not plugged in") to the operator.
   private readonly pubsub: PubSubClient | null;
+  // Injectable for tests; defaults to constructing a real StationSimulator.
+  private readonly makeSimulator: (config: StationConfig, sql: postgres.Sql) => StationSimulator;
 
-  constructor(sql: postgres.Sql, pubsub?: PubSubClient) {
+  constructor(
+    sql: postgres.Sql,
+    pubsub?: PubSubClient,
+    simulatorFactory?: (config: StationConfig, sql: postgres.Sql) => StationSimulator,
+  ) {
     this.sql = sql;
     this.pubsub = pubsub ?? null;
     this.clockAlignedScheduler = new ClockAlignedScheduler();
+    this.makeSimulator = simulatorFactory ?? ((config, s) => new StationSimulator(config, s));
   }
 
   async start(): Promise<void> {
@@ -240,6 +250,9 @@ export class SimulatorManager {
 
     // Track which station IDs are currently in the DB
     const currentStationIds = new Set<string>();
+    // Bound self-heal restarts this poll so recovering a large jammed fleet does
+    // not recreate the simultaneous-reconnect herd that jammed it.
+    let healedThisTick = 0;
 
     for (const row of rows) {
       const stationId = row.station_id as string;
@@ -253,10 +266,36 @@ export class SimulatorManager {
       // instance so the boot path below recreates it with the fresh id.
       const existing = this.simulators.get(stationId);
       if (existing != null) {
-        if (existing.cssStationId === (row.id as string)) continue;
-        console.log(
-          `[simulator-manager] css_stations.id changed for ${stationId} (${existing.cssStationId} -> ${row.id as string}), restarting`,
-        );
+        if (existing.cssStationId === (row.id as string)) {
+          // Same station still running. Leave healthy ones alone; restart one
+          // that jammed during a cold-start storm (booted but never finished
+          // its StatusNotification sweep), which otherwise sits with its
+          // connectors stuck at the seeded Unavailable forever.
+          if (existing.isReady()) {
+            this.healAttempts.delete(stationId);
+            continue;
+          }
+          const stuck =
+            healedThisTick < MAX_HEAL_PER_TICK &&
+            isStationStuck({
+              ready: existing.isReady(),
+              notReadyMs: existing.getNotReadyMs(),
+              bootStatus: existing.getBootStatus(),
+              healAttempts: this.healAttempts.get(stationId) ?? 0,
+              offline: existing.isOffline(),
+            });
+          if (!stuck) continue;
+          healedThisTick++;
+          const attempt = (this.healAttempts.get(stationId) ?? 0) + 1;
+          this.healAttempts.set(stationId, attempt);
+          console.log(
+            `[simulator-manager] Self-healing stuck station ${stationId} (attempt ${String(attempt)}/${String(MAX_HEAL_ATTEMPTS)}, bootStatus=${existing.getBootStatus() ?? 'null'}, notReady=${String(Math.round(existing.getNotReadyMs() / 1000))}s)`,
+          );
+        } else {
+          console.log(
+            `[simulator-manager] css_stations.id changed for ${stationId} (${existing.cssStationId} -> ${row.id as string}), restarting`,
+          );
+        }
         try {
           await existing.stop();
         } catch (err: unknown) {
@@ -328,7 +367,7 @@ export class SimulatorManager {
       };
 
       try {
-        const sim = new StationSimulator(config, this.sql);
+        const sim = this.makeSimulator(config, this.sql);
         // Add to map BEFORE start() to prevent duplicate creation during async boot
         this.simulators.set(stationId, sim);
         await sim.start();
@@ -353,6 +392,7 @@ export class SimulatorManager {
         }
         this.clockAlignedScheduler.unregister(stationId);
         this.simulators.delete(stationId);
+        this.healAttempts.delete(stationId);
         console.log(`[simulator-manager] Stopped simulator: ${stationId}`);
       }
     }

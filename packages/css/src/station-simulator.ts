@@ -109,6 +109,12 @@ export class StationSimulator {
   private pendingReset: string | null = null;
   private destroyed = false;
   private offlineFlag = false;
+  // Readiness for the manager's self-heal watchdog. ready is true once the
+  // station has booted Accepted and reported its connector statuses.
+  // notReadySince marks how long it has been continuously not-ready, so a brief
+  // reconnect is not mistaken for a stuck station.
+  private ready = false;
+  private notReadySince: number | null = null;
   // Offline message queue: a FIFO log of OCPP calls deferred while the
   // WebSocket is down. Each item is paired with its DB row id so the shift
   // path can delete the persisted row. Loaded on boot from
@@ -726,6 +732,36 @@ export class StationSimulator {
 
   get isConnected(): boolean {
     return this.client.isConnected;
+  }
+
+  /** True once the station has booted Accepted and reported connector status. */
+  isReady(): boolean {
+    return this.ready;
+  }
+
+  /** Latest BootNotification response status, or null before the first boot. */
+  getBootStatus(): 'Accepted' | 'Pending' | 'Rejected' | null {
+    return this.bootStatus;
+  }
+
+  /** Milliseconds the station has been continuously not-ready (0 when ready). */
+  getNotReadyMs(): number {
+    return this.notReadySince == null ? 0 : Date.now() - this.notReadySince;
+  }
+
+  /** True when chaos goOffline has deliberately parked the station offline. */
+  isOffline(): boolean {
+    return this.offlineFlag;
+  }
+
+  private setReady(value: boolean): void {
+    if (value) {
+      this.ready = true;
+      this.notReadySince = null;
+    } else {
+      this.ready = false;
+      if (this.notReadySince == null) this.notReadySince = Date.now();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -6360,6 +6396,11 @@ export class StationSimulator {
   // ---------------------------------------------------------------------------
 
   private async updateStationStatus(status: string): Promise<void> {
+    // Keep the self-heal readiness signal in lockstep with the station's
+    // lifecycle: ready while operational, not-ready while booting or down. This
+    // single chokepoint covers every boot / reconnect / offline / reset path.
+    if (status === 'available') this.setReady(true);
+    else if (status === 'booting' || status === 'disconnected') this.setReady(false);
     try {
       await this.sql`
         UPDATE css_stations SET status = ${status}, updated_at = NOW()
