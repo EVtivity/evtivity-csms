@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, count, and, or, ilike } from 'drizzle-orm';
 import { readFile } from 'node:fs/promises';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db } from '@evtivity/database';
 import {
@@ -47,8 +47,9 @@ function safeCompile(template: string): HandlebarsTemplateDelegate {
   if (/\{\{>/.test(template)) {
     throw new Error('Partials are not allowed in templates');
   }
-  // Subexpressions: {{helper (subexpr)}}
-  if (/\{\{[^}]*\(/.test(template)) {
+  // Subexpressions: {{helper (subexpr)}}. The inner class excludes braces so the
+  // {{ anchor cannot overlap matched characters (keeps the scan linear).
+  if (/\{\{[^{}]*\(/.test(template)) {
     throw new Error('Subexpressions are not allowed in templates');
   }
   // Lookup/log helpers: {{lookup}}, {{log}}
@@ -262,6 +263,31 @@ const SYSTEM_EVENT_TYPES = [
 
 const ALL_EVENT_TYPES = [...OCPP_EVENT_TYPES, ...DRIVER_EVENT_TYPES, ...SYSTEM_EVENT_TYPES];
 
+const TEMPLATE_LANGUAGES = new Set(['en', 'de', 'es', 'ko', 'zh', 'zh-TW']);
+const TEMPLATE_CHANNELS = new Set(['email', 'sms', 'webhook', 'log']);
+const SAFE_SEGMENT_RE = /^[A-Za-z0-9_-]+$/;
+
+// eventType, channel and language are operator-supplied query params that become
+// path segments (session.Started -> session/Started) when locating a .hbs file.
+// Validate each against an allowlist and assert the resolved path stays inside
+// baseDir, so a crafted value cannot traverse out and read arbitrary files.
+// Returns null when the inputs are unsafe or would escape the base directory.
+function safeTemplatePath(
+  baseDir: string,
+  language: string,
+  eventType: string,
+  channel: string,
+): string | null {
+  if (!TEMPLATE_CHANNELS.has(channel)) return null;
+  if (eventType.length === 0 || eventType.length > 255) return null;
+  if (!eventType.split('.').every((seg) => SAFE_SEGMENT_RE.test(seg))) return null;
+  const lang = TEMPLATE_LANGUAGES.has(language) ? language : 'en';
+  const baseResolved = resolve(baseDir);
+  const filePath = resolve(baseResolved, lang, eventType.replace(/\./g, '/'), `${channel}.hbs`);
+  if (filePath !== baseResolved && !filePath.startsWith(baseResolved + sep)) return null;
+  return filePath;
+}
+
 const eventToggleSettingBody = z.object({
   eventType: z
     .string()
@@ -287,11 +313,18 @@ const testBody = z.object({
 // strips `.refine()` from the published OpenAPI doc, leaving a 400 that
 // looks unmotivated. Validating in the handler lets us return a proper
 // VALIDATION_ERROR with a useful message.
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^[+]?[0-9\s().-]{7,}$/;
 
 function isValidEmail(value: string): boolean {
-  return EMAIL_RE.test(value);
+  // Linear, backtracking-free shape check for local@domain.tld with no
+  // whitespace. Avoids the polynomial backtracking of an `[^\s@]+@[^\s@]+\.`
+  // style regex on adversarial input.
+  if (value.length === 0 || value.length > 254) return false;
+  if (/\s/.test(value)) return false;
+  const at = value.indexOf('@');
+  if (at <= 0 || at !== value.lastIndexOf('@') || at === value.length - 1) return false;
+  const dot = value.indexOf('.', at + 1);
+  return dot > at + 1 && dot < value.length - 1;
 }
 function isValidPhone(value: string): boolean {
   return PHONE_RE.test(value);
@@ -552,28 +585,28 @@ export function notificationRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { eventType, channel, language } = request.query as z.infer<typeof templateQuery>;
-      const eventDir = eventType.replace(/\./g, '/');
       const currentDir = dirname(fileURLToPath(import.meta.url));
       const templatesDir =
         process.env['OCPP_TEMPLATES_DIR'] ??
         resolve(currentDir, '..', '..', '..', 'ocpp', 'src', 'templates');
-      const filePath = resolve(templatesDir, language, eventDir, `${channel}.hbs`);
 
-      try {
-        const content = await readFile(filePath, 'utf-8');
-        return { template: content };
-      } catch {
-        const fallbackPath = resolve(templatesDir, 'en', eventDir, `${channel}.hbs`);
+      const candidates = [
+        safeTemplatePath(templatesDir, language, eventType, channel),
+        safeTemplatePath(templatesDir, 'en', eventType, channel),
+      ];
+      for (const filePath of candidates) {
+        if (filePath == null) continue;
         try {
-          const content = await readFile(fallbackPath, 'utf-8');
+          const content = await readFile(filePath, 'utf-8');
           return { template: content };
         } catch {
-          await reply
-            .status(404)
-            .send({ error: 'No default template found', code: 'TEMPLATE_NOT_FOUND' });
-          return;
+          // try the English fallback / next candidate
         }
       }
+      await reply
+        .status(404)
+        .send({ error: 'No default template found', code: 'TEMPLATE_NOT_FOUND' });
+      return;
     },
   );
 
@@ -1062,7 +1095,6 @@ export function notificationRoutes(app: FastifyInstance): void {
       }
 
       // Fall back to .hbs file for any channel
-      const eventDir = eventType.replace(/\./g, '/');
       const currentDir = dirname(fileURLToPath(import.meta.url));
       const ocppTemplatesDir =
         process.env['OCPP_TEMPLATES_DIR'] ??
@@ -1073,13 +1105,14 @@ export function notificationRoutes(app: FastifyInstance): void {
       const defaultSubject = getDefaultSubject(eventType, channel);
 
       const candidates = [
-        resolve(ocppTemplatesDir, language, eventDir, `${channel}.hbs`),
-        resolve(ocppTemplatesDir, 'en', eventDir, `${channel}.hbs`),
-        resolve(apiTemplatesDir, language, eventDir, `${channel}.hbs`),
-        resolve(apiTemplatesDir, 'en', eventDir, `${channel}.hbs`),
+        safeTemplatePath(ocppTemplatesDir, language, eventType, channel),
+        safeTemplatePath(ocppTemplatesDir, 'en', eventType, channel),
+        safeTemplatePath(apiTemplatesDir, language, eventType, channel),
+        safeTemplatePath(apiTemplatesDir, 'en', eventType, channel),
       ];
 
       for (const filePath of candidates) {
+        if (filePath == null) continue;
         try {
           const content = await readFile(filePath, 'utf-8');
           return {

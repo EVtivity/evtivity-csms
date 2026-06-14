@@ -1,6 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { lookup as dnsLookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import { createLogger } from '@evtivity/lib';
 import { buildRoutingHeaders } from './ocpi-headers.js';
 import type { OcpiResponseEnvelope } from './ocpi-response.js';
@@ -13,13 +15,80 @@ const logger = createLogger('ocpi-client');
 // cascade into pool exhaustion across pull/push/credentials flows.
 const REQUEST_TIMEOUT_MS = 30_000;
 
+// Outbound SSRF guard for OCPI calls. Partner URLs are operator-registered, but
+// a misconfigured or hostile endpoint must never reach the host's own network.
+// Enforce http(s); resolve the hostname and reject if ANY resolved address is
+// link-local (169.254.0.0/16, incl. cloud metadata; fe80::/10) or 0.0.0.0/8;
+// follow redirects manually so every hop is re-checked. Loopback and private
+// ranges stay allowed - private B2B peering and the local test simulators use
+// them. Residual: fetch re-resolves DNS on connect, so a sub-second rebind
+// between check and connect is not fully closed (that needs a pinning dispatcher).
+const MAX_OUTBOUND_REDIRECTS = 5;
+
+function isIpv4Blocked(ip: string): boolean {
+  const octets = ip.split('.').map((p) => Number(p));
+  if (octets.length !== 4 || octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+    return false;
+  }
+  const [a, b] = octets;
+  return a === 0 || (a === 169 && b === 254); // 0.0.0.0/8, 169.254.0.0/16
+}
+
+function isBlockedAddress(ip: string): boolean {
+  const fam = isIP(ip);
+  if (fam === 4) return isIpv4Blocked(ip);
+  if (fam === 6) {
+    const low = ip.toLowerCase();
+    const mapped = low.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/)?.[1];
+    if (mapped != null) return isIpv4Blocked(mapped); // IPv4-mapped IPv6
+    return /^fe[89ab][0-9a-f]:/.test(low); // fe80::/10 link-local
+  }
+  return false;
+}
+
+async function assertSafeOutboundUrl(url: string): Promise<void> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid OCPI target URL: ${url}`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Blocked non-HTTP OCPI target protocol: ${parsed.protocol}`);
+  }
+  const host = parsed.hostname.replace(/^\[/, '').replace(/\]$/, '');
+  let addresses: string[];
+  if (isIP(host) !== 0) {
+    addresses = [host];
+  } else {
+    const resolved = await dnsLookup(host, { all: true }).catch(() => {
+      throw new Error(`Could not resolve OCPI target host: ${host}`);
+    });
+    addresses = resolved.map((r) => r.address);
+  }
+  for (const addr of addresses) {
+    if (isBlockedAddress(addr)) {
+      throw new Error(`Blocked link-local/metadata OCPI target: ${host} -> ${addr}`);
+    }
+  }
+}
+
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => {
     controller.abort();
   }, REQUEST_TIMEOUT_MS);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    let target = url;
+    for (let hop = 0; hop <= MAX_OUTBOUND_REDIRECTS; hop++) {
+      await assertSafeOutboundUrl(target);
+      const res = await fetch(target, { ...init, signal: controller.signal, redirect: 'manual' });
+      if (res.status < 300 || res.status >= 400) return res;
+      const location = res.headers.get('location');
+      if (location == null || location === '') return res;
+      target = new URL(location, target).toString();
+    }
+    throw new Error(`Too many redirects for OCPI target: ${url}`);
   } finally {
     clearTimeout(timer);
   }
