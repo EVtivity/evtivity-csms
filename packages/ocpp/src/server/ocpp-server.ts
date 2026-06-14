@@ -408,6 +408,10 @@ export class OcppServer {
 
     // Handle responses to our outgoing calls
     if (messageType === MESSAGE_TYPE_CALLRESULT || messageType === MESSAGE_TYPE_CALLERROR) {
+      // Station is alive — it responded. Update liveness clock so
+      // PingMonitor.checkHeartbeats() doesn't disconnect stations that
+      // are actively responding to CSMS-initiated commands.
+      session.lastHeartbeat = new Date();
       if (isCallResult(parsed)) {
         // Log the inbound CALLRESULT so operators can see what the station
         // returned for CSMS-initiated commands. Without this the OCPP log
@@ -615,6 +619,10 @@ export class OcppServer {
   }
 
   async stop(): Promise<void> {
+    if (ipMessageCleanupTimer != null) {
+      clearInterval(ipMessageCleanupTimer);
+      ipMessageCleanupTimer = null;
+    }
     await this.pingMonitor.stop();
     if (this.wssSecure != null) {
       const secure = this.wssSecure;
