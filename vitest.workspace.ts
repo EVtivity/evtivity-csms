@@ -6,6 +6,7 @@ const workspaceAliases = {
   '@evtivity/database': path.resolve(__dirname, 'packages/database/src/index.ts'),
   '@evtivity/configs': path.resolve(__dirname, 'packages/configs/src/index.ts'),
   '@evtivity/ocpp': path.resolve(__dirname, 'packages/ocpp/src/index.ts'),
+  '@evtivity/octt': path.resolve(__dirname, 'packages/octt/src/index.ts'),
 };
 
 export default defineConfig({
