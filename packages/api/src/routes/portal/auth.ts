@@ -165,8 +165,12 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const recaptchaOk = await checkRecaptcha(body.recaptchaToken, reply);
-      if (!recaptchaOk) return;
+      // Native apps cannot produce a reCAPTCHA token; mobile relies on the
+      // endpoint rate limit instead.
+      if (!isMobileClient(request)) {
+        const recaptchaOk = await checkRecaptcha(body.recaptchaToken, reply);
+        if (!recaptchaOk) return;
+      }
 
       // Use ilike so jane@x.com cannot register again as Jane@x.com.
       const [existing] = await db
@@ -281,13 +285,16 @@ export function portalAuthRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { email, password, recaptchaToken } = request.body as z.infer<typeof loginBody>;
 
-      // reCAPTCHA is enforced for every client. The X-Client header is
-      // unauthenticated and spoofable, so it must never gate a security control.
-      // checkRecaptcha is a no-op when reCAPTCHA is disabled, so mobile works on
-      // those deployments; where reCAPTCHA is enabled, native login requires
-      // verified device attestation (0b), not a client-supplied header.
-      const recaptchaOk = await checkRecaptcha(recaptchaToken, reply);
-      if (!recaptchaOk) return;
+      // reCAPTCHA v3 is a browser technology; native apps cannot produce a
+      // token, so mobile clients skip it and rely on the per-endpoint rate
+      // limit. The X-Client header is spoofable, so this trades the reCAPTCHA
+      // bot layer for rate limiting on the mobile path. checkRecaptcha is a
+      // no-op when reCAPTCHA is disabled, so web is unaffected on those
+      // deployments.
+      if (!isMobileClient(request)) {
+        const recaptchaOk = await checkRecaptcha(recaptchaToken, reply);
+        if (!recaptchaOk) return;
+      }
 
       // Use ilike so a driver who registered as Jane@x.com can log in
       // typing jane@x.com. The register path already uses ilike for the
@@ -747,9 +754,12 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       const { email, recaptchaToken } = request.body as z.infer<typeof forgotPasswordBody>;
 
       // Gate reset-link dispatch on reCAPTCHA so a bot cannot enumerate
-      // driver emails by triggering reset emails for any account.
-      const recaptchaOk = await checkRecaptcha(recaptchaToken, reply);
-      if (!recaptchaOk) return;
+      // driver emails by triggering reset emails for any account. Native apps
+      // cannot produce a token, so mobile relies on the endpoint rate limit.
+      if (!isMobileClient(request)) {
+        const recaptchaOk = await checkRecaptcha(recaptchaToken, reply);
+        if (!recaptchaOk) return;
+      }
 
       // Match register/login path: ilike so a driver who registered with
       // Jane@x.com can recover via jane@x.com.
