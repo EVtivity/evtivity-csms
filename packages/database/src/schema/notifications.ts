@@ -13,6 +13,7 @@ import {
   index,
   unique,
 } from 'drizzle-orm/pg-core';
+import { drivers } from './drivers.js';
 
 export const notificationChannelEnum = pgEnum('notification_channel', [
   'email',
@@ -99,4 +100,25 @@ export const systemEventSettings = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [unique('uq_system_event_settings_event_type').on(table.eventType)],
+);
+
+// Native push tokens registered by the mobile app (Expo / APNs / FCM). One row
+// per device token; the dispatcher fans a driver notification out to all of a
+// driver's tokens when push is enabled.
+export const driverPushTokens = pgTable(
+  'driver_push_tokens',
+  {
+    id: serial('id').primaryKey(),
+    driverId: text('driver_id')
+      .notNull()
+      .references(() => drivers.id, { onDelete: 'cascade' }),
+    token: text('token').notNull(),
+    platform: varchar('platform', { length: 10 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  },
+  (table) => [
+    unique('uq_driver_push_tokens_token').on(table.token),
+    index('idx_driver_push_tokens_driver').on(table.driverId),
+  ],
 );

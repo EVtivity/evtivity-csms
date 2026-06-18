@@ -18,6 +18,7 @@ export interface CreateRefreshTokenResult {
 export async function createRefreshToken(opts: {
   userId?: string;
   driverId?: string;
+  deviceId?: string | undefined;
 }): Promise<CreateRefreshTokenResult> {
   const raw = crypto.randomBytes(REFRESH_TOKEN_BYTES).toString('hex');
   const tokenHash = hashToken(raw);
@@ -28,6 +29,7 @@ export async function createRefreshToken(opts: {
     driverId: opts.driverId,
     tokenHash,
     type: 'session',
+    deviceId: opts.deviceId,
     expiresAt,
   });
 
@@ -50,12 +52,20 @@ const ROTATION_GRACE_MS = 30 * 1000;
 
 export async function validateAndRotateRefreshToken(
   rawToken: string,
+  opts?: { deviceId?: string | undefined },
 ): Promise<ValidateRefreshTokenResult | null> {
   const tokenHash = hashToken(rawToken);
 
   const [row] = await db.select().from(refreshTokens).where(eq(refreshTokens.tokenHash, tokenHash));
 
   if (row == null) return null;
+
+  // Device-bound tokens (mobile) only validate when presented from the same
+  // device. Web tokens have a null device_id and skip this check, so web is
+  // unaffected. A mismatch is treated as invalid (the caller returns 401).
+  if (row.deviceId != null && row.deviceId !== opts?.deviceId) {
+    return null;
+  }
 
   // OAuth 2.0 refresh-token-rotation theft detection: a revoked token
   // presented after the grace window is strong evidence that someone

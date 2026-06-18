@@ -107,6 +107,9 @@ export type {
 
 export { isPrivateUrl } from './url-validation.js';
 
+export { sendExpoPush, isExpoPushToken } from './push-send.js';
+export type { ExpoPushMessage, ExpoPushResult } from './push-send.js';
+
 export { initSentry } from './sentry.js';
 export type { SentryConfig } from './sentry.js';
 

@@ -105,6 +105,7 @@ export const refreshTokens = pgTable(
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
     permissions: jsonb('permissions'),
     tokenSuffix: varchar('token_suffix', { length: 8 }),
+    deviceId: varchar('device_id', { length: 64 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

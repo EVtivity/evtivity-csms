@@ -260,6 +260,17 @@ export async function createCustomer(
   return config.stripe.customers.create({ email, name });
 }
 
+// Short-lived, single-customer credential the native Stripe PaymentSheet uses
+// to read and manage the driver's saved cards on-device. apiVersion must match
+// the mobile SDK's pinned Stripe API version, supplied by the client.
+export async function createEphemeralKey(
+  config: StripeConfig,
+  customerId: string,
+  apiVersion: string,
+): Promise<Stripe.EphemeralKey> {
+  return config.stripe.ephemeralKeys.create({ customer: customerId }, { apiVersion });
+}
+
 export async function detachPaymentMethod(
   config: StripeConfig,
   paymentMethodId: string,

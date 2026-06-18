@@ -74,6 +74,7 @@ export const driverNotificationPreferences = pgTable(
       .references(() => drivers.id, { onDelete: 'cascade' }),
     emailEnabled: boolean('email_enabled').notNull().default(true),
     smsEnabled: boolean('sms_enabled').notNull().default(true),
+    pushEnabled: boolean('push_enabled').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

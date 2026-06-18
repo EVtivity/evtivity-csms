@@ -62,6 +62,10 @@ const notificationPrefsItem = z
   .object({
     emailEnabled: z.boolean().describe('Whether email notifications are enabled'),
     smsEnabled: z.boolean().describe('Whether SMS notifications are enabled'),
+    pushEnabled: z
+      .boolean()
+      .optional()
+      .describe('Whether native push notifications are enabled (omit to keep current value)'),
   })
   .passthrough();
 
@@ -226,15 +230,20 @@ export function portalDriverRoutes(app: FastifyInstance): void {
         .select({
           emailEnabled: driverNotificationPreferences.emailEnabled,
           smsEnabled: driverNotificationPreferences.smsEnabled,
+          pushEnabled: driverNotificationPreferences.pushEnabled,
         })
         .from(driverNotificationPreferences)
         .where(eq(driverNotificationPreferences.driverId, driverId));
 
       if (row == null) {
-        return { emailEnabled: true, smsEnabled: true };
+        return { emailEnabled: true, smsEnabled: true, pushEnabled: true };
       }
 
-      return { emailEnabled: row.emailEnabled, smsEnabled: row.smsEnabled };
+      return {
+        emailEnabled: row.emailEnabled,
+        smsEnabled: row.smsEnabled,
+        pushEnabled: row.pushEnabled,
+      };
     },
   );
 
@@ -255,23 +264,36 @@ export function portalDriverRoutes(app: FastifyInstance): void {
       const { driverId } = request.user as DriverJwtPayload;
       const body = request.body as z.infer<typeof notificationPrefsItem>;
 
+      // pushEnabled is optional: a client that does not manage native push (the
+      // web portal) omits it, and we must not clobber a value the mobile app set.
+      let pushEnabled = body.pushEnabled;
+      if (pushEnabled === undefined) {
+        const [existing] = await db
+          .select({ pushEnabled: driverNotificationPreferences.pushEnabled })
+          .from(driverNotificationPreferences)
+          .where(eq(driverNotificationPreferences.driverId, driverId));
+        pushEnabled = existing?.pushEnabled ?? true;
+      }
+
       await db
         .insert(driverNotificationPreferences)
         .values({
           driverId,
           emailEnabled: body.emailEnabled,
           smsEnabled: body.smsEnabled,
+          pushEnabled,
         })
         .onConflictDoUpdate({
           target: driverNotificationPreferences.driverId,
           set: {
             emailEnabled: body.emailEnabled,
             smsEnabled: body.smsEnabled,
+            pushEnabled,
             updatedAt: new Date(),
           },
         });
 
-      return { emailEnabled: body.emailEnabled, smsEnabled: body.smsEnabled };
+      return { emailEnabled: body.emailEnabled, smsEnabled: body.smsEnabled, pushEnabled };
     },
   );
 

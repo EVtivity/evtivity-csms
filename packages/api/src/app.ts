@@ -348,6 +348,19 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
     if (CSRF_SKIP_PATHS.has(url)) return;
     if (url.startsWith('/v1/portal/guest/')) return;
 
+    // Bearer-authenticated, cookie-less clients (native mobile app) are not
+    // subject to CSRF: CSRF defends ambient cookie sessions, and a Bearer token
+    // is never auto-attached by a browser to a cross-site request. Requiring no
+    // portal_token cookie keeps CSRF in force for any cookie session.
+    const authz = request.headers.authorization;
+    if (
+      typeof authz === 'string' &&
+      authz.startsWith('Bearer ') &&
+      request.cookies['portal_token'] == null
+    ) {
+      return;
+    }
+
     const cookieToken = request.cookies['portal_csrf'];
     const headerToken = request.headers['x-csrf-token'];
     if (

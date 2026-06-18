@@ -33,6 +33,11 @@ import {
 } from '../../services/refresh-token.service.js';
 import { config as apiConfig } from '../../lib/config.js';
 import {
+  issueDriverSession,
+  isMobileClient,
+  deviceIdFromRequest,
+} from '../../lib/driver-session.js';
+import {
   isMfaChallengeExhausted,
   recordMfaChallengeAttempt,
   clearMfaChallengeAttempts,
@@ -55,7 +60,16 @@ const portalDriverItem = z
   })
   .passthrough();
 
-const portalAuthRegisterResponse = z.object({ driver: portalDriverItem }).passthrough();
+// Mobile clients (X-Client: mobile) receive these in the body instead of cookies.
+const mobileSessionFields = {
+  token: z.string().optional().describe('Access JWT, mobile clients only'),
+  refreshToken: z.string().optional().describe('Opaque refresh token, mobile clients only'),
+  expiresIn: z.number().int().optional().describe('Access token lifetime in seconds'),
+};
+
+const portalAuthRegisterResponse = z
+  .object({ driver: portalDriverItem, ...mobileSessionFields })
+  .passthrough();
 
 const portalAuthLoginResponse = z
   .object({
@@ -64,6 +78,14 @@ const portalAuthLoginResponse = z
     mfaMethod: z.enum(['email', 'sms', 'totp']).optional(),
     mfaToken: z.string().optional(),
     challengeId: z.number().int().min(1).optional(),
+    ...mobileSessionFields,
+  })
+  .passthrough();
+
+const portalRefreshResponse = z
+  .object({
+    success: z.boolean().optional().describe('Web cookie mode'),
+    ...mobileSessionFields,
   })
   .passthrough();
 
@@ -195,14 +217,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
           .send({ error: 'Failed to create driver', code: 'DRIVER_CREATE_FAILED' });
         return;
       }
-      const token = app.jwt.sign(
-        { driverId: driver.id, type: 'driver' } satisfies DriverJwtPayload,
-        { expiresIn: '1h' },
-      );
-      const refreshResult = await createRefreshToken({ driverId: driver.id });
-
-      setAuthCookies('portal', reply, token, refreshResult.rawToken, isSecureRequest(request));
-      await reply.status(201).send({ driver });
+      await issueDriverSession(app, request, reply, driver, { status: 201 });
 
       // Generate email verification token
       const { raw: rawVerifyToken, hash: verifyTokenHash } = generateUserToken();
@@ -266,6 +281,11 @@ export function portalAuthRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { email, password, recaptchaToken } = request.body as z.infer<typeof loginBody>;
 
+      // reCAPTCHA is enforced for every client. The X-Client header is
+      // unauthenticated and spoofable, so it must never gate a security control.
+      // checkRecaptcha is a no-op when reCAPTCHA is disabled, so mobile works on
+      // those deployments; where reCAPTCHA is enabled, native login requires
+      // verified device attestation (0b), not a client-supplied header.
       const recaptchaOk = await checkRecaptcha(recaptchaToken, reply);
       if (!recaptchaOk) return;
 
@@ -331,30 +351,21 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         };
       }
 
-      const token = app.jwt.sign(
-        { driverId: driver.id, type: 'driver' } satisfies DriverJwtPayload,
-        { expiresIn: '1h' },
-      );
-      const refreshResult = await createRefreshToken({ driverId: driver.id });
-
-      setAuthCookies('portal', reply, token, refreshResult.rawToken, isSecureRequest(request));
-
-      return {
-        driver: {
-          id: driver.id,
-          firstName: driver.firstName,
-          lastName: driver.lastName,
-          email: driver.email,
-          phone: driver.phone,
-          language: driver.language,
-          timezone: driver.timezone,
-          themePreference: driver.themePreference,
-          distanceUnit: driver.distanceUnit,
-          isActive: driver.isActive,
-          emailVerified: driver.emailVerified,
-          createdAt: driver.createdAt,
-        },
-      };
+      await issueDriverSession(app, request, reply, {
+        id: driver.id,
+        firstName: driver.firstName,
+        lastName: driver.lastName,
+        email: driver.email,
+        phone: driver.phone,
+        language: driver.language,
+        timezone: driver.timezone,
+        themePreference: driver.themePreference,
+        distanceUnit: driver.distanceUnit,
+        isActive: driver.isActive,
+        emailVerified: driver.emailVerified,
+        createdAt: driver.createdAt,
+      });
+      return;
     },
   );
 
@@ -364,18 +375,23 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       onRequest: [app.authenticateDriver],
       schema: {
         tags: ['Portal Auth'],
-        summary: 'Log out and clear auth cookies',
+        summary: 'Log out',
+        description:
+          'Revokes the refresh token and clears auth cookies. Web clients use the portal_refresh cookie; mobile clients (X-Client: mobile) send { refreshToken } in the body to revoke it server-side.',
         operationId: 'portalLogout',
         security: [{ bearerAuth: [] }],
         response: { 204: { type: 'null' as const } },
       },
     },
     async (request, reply) => {
-      const rawRefreshToken = request.cookies['portal_refresh'];
+      const mobile = isMobileClient(request);
+      const rawRefreshToken = mobile
+        ? (request.body as { refreshToken?: string } | undefined)?.refreshToken
+        : request.cookies['portal_refresh'];
       if (rawRefreshToken) {
         await revokeRefreshToken(rawRefreshToken);
       }
-      clearAuthCookies('portal', reply, isSecureRequest(request));
+      if (!mobile) clearAuthCookies('portal', reply, isSecureRequest(request));
       await reply.status(204).send();
     },
   );
@@ -385,13 +401,13 @@ export function portalAuthRoutes(app: FastifyInstance): void {
     {
       schema: {
         tags: ['Portal Auth'],
-        summary: 'Refresh access token using refresh token cookie',
+        summary: 'Refresh the access token',
         description:
-          'Validates the portal_refresh cookie against refresh_tokens, ensures the driver is still active, rotates the refresh token (revokes old, issues new), and sets new portal session and refresh cookies. Rate limited to 30/min. Returns 401 if the refresh cookie is missing, expired, revoked, or the driver is deactivated.',
+          'Rotates the refresh token and issues a new access token. Web clients use the portal_refresh cookie and receive new cookies. Mobile clients (X-Client: mobile) send { refreshToken } in the body and receive { token, refreshToken, expiresIn }; the token is device-bound via X-Device-Id. Rate limited to 30/min. Returns 401 if the token is missing, invalid, expired, revoked, the device does not match, or the driver is deactivated.',
         operationId: 'portalRefreshToken',
         security: [],
         response: {
-          200: successResponse,
+          200: zodSchema(portalRefreshResponse),
           401: errorWith('Unauthorized', [
             ERROR_CODES.ACCOUNT_DISABLED,
             ERROR_CODES.NO_REFRESH_TOKEN,
@@ -407,15 +423,19 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const rawToken = request.cookies['portal_refresh'];
+      const mobile = isMobileClient(request);
+      const deviceId = mobile ? deviceIdFromRequest(request) : undefined;
+      const rawToken = mobile
+        ? (request.body as { refreshToken?: string } | undefined)?.refreshToken
+        : request.cookies['portal_refresh'];
       if (!rawToken) {
         await reply.status(401).send({ error: 'No refresh token', code: 'NO_REFRESH_TOKEN' });
         return;
       }
 
-      const result = await validateAndRotateRefreshToken(rawToken);
+      const result = await validateAndRotateRefreshToken(rawToken, { deviceId });
       if (result == null || result.driverId == null) {
-        clearAuthCookies('portal', reply, isSecureRequest(request));
+        if (!mobile) clearAuthCookies('portal', reply, isSecureRequest(request));
         await reply
           .status(401)
           .send({ error: 'Invalid refresh token', code: 'INVALID_REFRESH_TOKEN' });
@@ -428,7 +448,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         .where(eq(drivers.id, result.driverId));
 
       if (!driver || !driver.isActive) {
-        clearAuthCookies('portal', reply, isSecureRequest(request));
+        if (!mobile) clearAuthCookies('portal', reply, isSecureRequest(request));
         await reply.status(401).send({ error: 'Account disabled', code: 'ACCOUNT_DISABLED' });
         return;
       }
@@ -437,9 +457,12 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         { driverId: driver.id, type: 'driver' } satisfies DriverJwtPayload,
         { expiresIn: '1h' },
       );
-      const newRefresh = await createRefreshToken({ driverId: driver.id });
-      setAuthCookies('portal', reply, accessToken, newRefresh.rawToken, isSecureRequest(request));
+      const newRefresh = await createRefreshToken({ driverId: driver.id, deviceId });
 
+      if (mobile) {
+        return { token: accessToken, refreshToken: newRefresh.rawToken, expiresIn: 3600 };
+      }
+      setAuthCookies('portal', reply, accessToken, newRefresh.rawToken, isSecureRequest(request));
       return { success: true };
     },
   );
@@ -591,30 +614,20 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         clearMfaChallengeAttempts(challengeId);
       }
 
-      const token = app.jwt.sign(
-        { driverId: driver.id, type: 'driver' } satisfies DriverJwtPayload,
-        { expiresIn: '1h' },
-      );
-      const refreshResult = await createRefreshToken({ driverId: driver.id });
-
-      setAuthCookies('portal', reply, token, refreshResult.rawToken, isSecureRequest(request));
-
-      return {
-        driver: {
-          id: driver.id,
-          firstName: driver.firstName,
-          lastName: driver.lastName,
-          email: driver.email,
-          phone: driver.phone,
-          language: driver.language,
-          timezone: driver.timezone,
-          themePreference: driver.themePreference,
-          distanceUnit: driver.distanceUnit,
-          isActive: driver.isActive,
-          emailVerified: driver.emailVerified,
-          createdAt: driver.createdAt,
-        },
-      };
+      await issueDriverSession(app, request, reply, {
+        id: driver.id,
+        firstName: driver.firstName,
+        lastName: driver.lastName,
+        email: driver.email,
+        phone: driver.phone,
+        language: driver.language,
+        timezone: driver.timezone,
+        themePreference: driver.themePreference,
+        distanceUnit: driver.distanceUnit,
+        isActive: driver.isActive,
+        emailVerified: driver.emailVerified,
+        createdAt: driver.createdAt,
+      });
     },
   );
 

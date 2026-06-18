@@ -9,6 +9,7 @@ import { createLogger } from './logger.js';
 import { decryptString } from './encryption.js';
 import { formatDateTime } from './timezone.js';
 import { isPrivateUrl } from './url-validation.js';
+import { sendExpoPush } from './push-send.js';
 import type { PubSubClient } from './pubsub.js';
 
 const logger = createLogger('notification-dispatch');
@@ -701,7 +702,7 @@ export async function dispatchDriverNotification(
         SELECT first_name, last_name, email, phone, language, timezone FROM drivers WHERE id = ${driverId}
       `,
       sql`
-        SELECT email_enabled, sms_enabled
+        SELECT email_enabled, sms_enabled, push_enabled
         FROM driver_notification_preferences
         WHERE driver_id = ${driverId}
       `,
@@ -734,6 +735,7 @@ export async function dispatchDriverNotification(
     const prefs = prefRows[0];
     const emailEnabled = prefs != null ? (prefs.email_enabled as boolean) : true;
     const smsEnabled = prefs != null ? (prefs.sms_enabled as boolean) : true;
+    const pushEnabled = prefs != null ? (prefs.push_enabled as boolean) : true;
 
     // Email path. Records a row for every attempt the dispatcher could have
     // made -- including the "skipped because no address on file" and
@@ -869,6 +871,42 @@ export async function dispatchDriverNotification(
       eventType,
       metadata: { driverId },
     });
+
+    // Deliver native push to the driver's registered devices. The drawer row
+    // above is the in-app record; this is the OS-level notification. Best-effort:
+    // a failed send never blocks the dispatch, and Expo-reported dead tokens are
+    // pruned so they are not retried.
+    if (pushEnabled) {
+      try {
+        const tokenRows = await sql`
+          SELECT token FROM driver_push_tokens WHERE driver_id = ${driverId}
+        `;
+        if (tokenRows.length > 0) {
+          const pushTitle = redactSensitiveNotificationContent(smsRendered.subject, eventType);
+          const pushMessage = redactSensitiveNotificationContent(smsRendered.body, eventType);
+          const results = await sendExpoPush(
+            tokenRows.map((r) => ({
+              to: r.token as string,
+              title: pushTitle,
+              body: pushMessage,
+              data: { eventType },
+            })),
+          );
+          const dead = results.filter((r) => r.unregistered).map((r) => r.token);
+          const delivered = results.filter((r) => r.ok).map((r) => r.token);
+          if (dead.length > 0) {
+            await sql`DELETE FROM driver_push_tokens WHERE token = ANY(${dead})`;
+          }
+          if (delivered.length > 0) {
+            await sql`
+              UPDATE driver_push_tokens SET last_used_at = NOW() WHERE token = ANY(${delivered})
+            `;
+          }
+        }
+      } catch (err) {
+        logger.warn({ err, eventType, driverId }, 'Native push delivery failed');
+      }
+    }
 
     // Notify the portal SSE channel so the bell icon updates in real time
     if (pubsub != null) {

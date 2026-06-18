@@ -3,9 +3,9 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, sql, desc } from 'drizzle-orm';
+import { eq, and, sql, desc } from 'drizzle-orm';
 import { db } from '@evtivity/database';
-import { notifications, drivers } from '@evtivity/database';
+import { notifications, drivers, driverPushTokens } from '@evtivity/database';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { successResponse, paginatedResponse, itemResponse } from '../../lib/response-schemas.js';
 import { paginationQuery } from '../../lib/pagination.js';
@@ -145,6 +145,71 @@ export function portalNotificationRoutes(app: FastifyInstance): void {
         .set({ lastNotificationReadAt: new Date() })
         .where(eq(drivers.id, driverId));
 
+      return { success: true as const };
+    },
+  );
+
+  const pushTokenBody = z.object({
+    token: z.string().min(1).max(512).describe('Native push token (Expo / APNs / FCM)'),
+    platform: z.enum(['ios', 'android']).describe('Device platform'),
+  });
+  const pushTokenQuery = z.object({
+    token: z.string().min(1).max(512).describe('The push token to remove'),
+  });
+
+  app.post(
+    '/portal/notifications/push-token',
+    {
+      onRequest: [app.authenticateDriver],
+      schema: {
+        tags: ['Portal Notifications'],
+        summary: 'Register or refresh a native push token',
+        operationId: 'portalRegisterPushToken',
+        security: [{ bearerAuth: [] }],
+        body: zodSchema(pushTokenBody),
+        response: { 200: successResponse },
+      },
+    },
+    async (request) => {
+      const { driverId } = request.user as DriverJwtPayload;
+      const { token, platform } = request.body as z.infer<typeof pushTokenBody>;
+      // Only the token's current owner may update it. A plain Bearer does not
+      // prove device ownership, so an upsert that reassigned driver_id would let
+      // any driver hijack another driver's token (silently stealing their push
+      // delivery). The setWhere keeps a conflicting row owned by a different
+      // driver untouched; a device handed to a new user unregisters on logout,
+      // clearing the row so the next register inserts cleanly.
+      await db
+        .insert(driverPushTokens)
+        .values({ driverId, token, platform, lastUsedAt: new Date() })
+        .onConflictDoUpdate({
+          target: driverPushTokens.token,
+          set: { platform, lastUsedAt: new Date() },
+          setWhere: eq(driverPushTokens.driverId, driverId),
+        });
+      return { success: true as const };
+    },
+  );
+
+  app.delete(
+    '/portal/notifications/push-token',
+    {
+      onRequest: [app.authenticateDriver],
+      schema: {
+        tags: ['Portal Notifications'],
+        summary: 'Unregister a native push token',
+        operationId: 'portalUnregisterPushToken',
+        security: [{ bearerAuth: [] }],
+        querystring: zodSchema(pushTokenQuery),
+        response: { 200: successResponse },
+      },
+    },
+    async (request) => {
+      const { driverId } = request.user as DriverJwtPayload;
+      const { token } = request.query as z.infer<typeof pushTokenQuery>;
+      await db
+        .delete(driverPushTokens)
+        .where(and(eq(driverPushTokens.token, token), eq(driverPushTokens.driverId, driverId)));
       return { success: true as const };
     },
   );

@@ -20,6 +20,7 @@ import {
   getStripeConfig,
   createSetupIntent,
   createCustomer,
+  createEphemeralKey,
   detachPaymentMethod,
   retrievePaymentMethod,
 } from '../../services/stripe.service.js';
@@ -54,6 +55,23 @@ const setupIntentResponse = z
       .describe('Stripe publishable key for the configured Stripe account'),
   })
   .passthrough();
+
+const ephemeralKeyResponse = z
+  .object({
+    ephemeralKey: z
+      .string()
+      .describe('Stripe ephemeral key secret used by the native PaymentSheet'),
+    customerId: z.string().max(255).describe('Stripe Customer ID associated with the driver'),
+    publishableKey: z
+      .string()
+      .max(255)
+      .describe('Stripe publishable key for the configured Stripe account'),
+  })
+  .passthrough();
+
+const ephemeralKeyQuery = z.object({
+  stripeVersion: z.string().min(1).describe('Stripe API version pinned by the mobile SDK'),
+});
 
 const paymentMethodParams = z.object({
   pmId: z.coerce.number().int().min(1).describe('Payment method ID'),
@@ -169,6 +187,95 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       }));
+    },
+  );
+
+  app.post(
+    '/portal/payment-methods/ephemeral-key',
+    {
+      onRequest: [app.authenticateDriver],
+      schema: {
+        tags: ['Portal Payments'],
+        summary: 'Create a Stripe ephemeral key for the native PaymentSheet',
+        description:
+          'Returns a short-lived, single-customer Stripe ephemeral key plus the customer id and publishable key so the native Stripe PaymentSheet can read and manage the driver saved cards on-device. Lazily provisions the Stripe customer when missing. apiVersion is supplied by the mobile SDK via the stripeVersion query param.',
+        operationId: 'portalCreateEphemeralKey',
+        security: [{ bearerAuth: [] }],
+        querystring: zodSchema(ephemeralKeyQuery),
+        response: {
+          200: itemResponse(ephemeralKeyResponse),
+          400: errorWith('Stripe not configured', [ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED]),
+          404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { driverId } = request.user as DriverJwtPayload;
+      const { stripeVersion } = request.query as z.infer<typeof ephemeralKeyQuery>;
+
+      const [driver] = await db
+        .select({
+          id: drivers.id,
+          email: drivers.email,
+          firstName: drivers.firstName,
+          lastName: drivers.lastName,
+          stripeCustomerId: drivers.stripeCustomerId,
+        })
+        .from(drivers)
+        .where(eq(drivers.id, driverId));
+      if (driver == null) {
+        await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+        return;
+      }
+
+      const config = await getStripeConfig(null);
+      if (config == null) {
+        await reply.status(400).send({
+          error: 'Payment provider not configured',
+          code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+        });
+        return;
+      }
+
+      try {
+        let customerId = driver.stripeCustomerId;
+        if (customerId == null) {
+          const customer = await createCustomer(
+            config,
+            driver.email ?? '',
+            `${driver.firstName} ${driver.lastName}`,
+          );
+          customerId = customer.id;
+          await db
+            .update(drivers)
+            .set({ stripeCustomerId: customerId, updatedAt: new Date() })
+            .where(eq(drivers.id, driverId));
+        }
+
+        // Simulated customers bypass Stripe entirely (mirrors the pre-auth path).
+        if (isSimulatedCustomer(customerId)) {
+          return {
+            ephemeralKey: `ek_sim_${customerId}`,
+            customerId,
+            publishableKey: config.publishableKey,
+          };
+        }
+
+        const key = await createEphemeralKey(config, customerId, stripeVersion);
+        return {
+          ephemeralKey: key.secret ?? '',
+          customerId,
+          publishableKey: config.publishableKey,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'unknown error';
+        request.log.warn({ err: message }, 'Stripe ephemeral-key failed');
+        await reply.status(400).send({
+          error: 'Payment provider not configured',
+          code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+        });
+        return;
+      }
     },
   );
 
