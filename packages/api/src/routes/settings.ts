@@ -9,6 +9,7 @@ import {
   getReservationSettings,
   isReservationEnabled,
   isSupportEnabled,
+  isRoamingEnabled,
   writeAudit,
   settingAuditLog,
 } from '@evtivity/database';
@@ -113,6 +114,9 @@ export function settingsRoutes(app: FastifyInstance): void {
                 supportEnabled: z
                   .boolean()
                   .describe('Whether the support case feature is enabled in the portal'),
+                roamingEnabled: z
+                  .boolean()
+                  .describe('Whether OCPI roaming charger search is enabled in the portal'),
                 reservationCancellationFeeCents: z
                   .number()
                   .int()
@@ -146,6 +150,7 @@ export function settingsRoutes(app: FastifyInstance): void {
     async () => {
       const reservationEnabled = await isReservationEnabled();
       const supportEnabled = await isSupportEnabled();
+      const roamingEnabled = await isRoamingEnabled();
       const reservationConfig = await getReservationSettings();
       const [currencyRow] = await db
         .select({ value: settings.value })
@@ -158,6 +163,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       return {
         reservationEnabled,
         supportEnabled,
+        roamingEnabled,
         reservationCancellationFeeCents: reservationConfig.cancellationFeeCents,
         reservationCancellationWindowMinutes: reservationConfig.cancellationWindowMinutes,
         reservationMaxHours: reservationConfig.maxHours,

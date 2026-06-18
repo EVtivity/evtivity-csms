@@ -1155,6 +1155,21 @@ export function reservationRoutes(app: FastifyInstance): void {
         request.log,
       );
 
+      // Tell the CSMS so the Reservations page reloads for other operators.
+      void getPubSub()
+        .publish(
+          'csms_events',
+          JSON.stringify({
+            eventType: 'reservation.changed',
+            stationId: null,
+            siteId: station.siteId ?? null,
+            sessionId: null,
+          }),
+        )
+        .catch(() => {
+          /* best-effort */
+        });
+
       if (isFutureScheduled) {
         // Enqueue delayed job via pub/sub bridge to the worker
         const delayMs = new Date(body.startsAt as string).getTime() - Date.now();

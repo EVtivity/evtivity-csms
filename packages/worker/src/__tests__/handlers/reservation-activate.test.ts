@@ -105,6 +105,19 @@ function makeJob(reservationDbId: string): Job {
   return { data: { reservationDbId } } as unknown as Job;
 }
 
+// The handler publishes a reservation.changed SSE on csms_events alongside any
+// ReserveNow command on ocpp_commands. These helpers let tests assert on the
+// command channel without counting the incidental SSE.
+function reserveNowCall(): [string, string] | undefined {
+  return mockPublish.mock.calls.find(([ch]) => ch === 'ocpp_commands') as
+    | [string, string]
+    | undefined;
+}
+
+function reserveNowPublished(): boolean {
+  return reserveNowCall() != null;
+}
+
 describe('handleReservationActivate', () => {
   beforeEach(() => {
     setupDbResults();
@@ -151,7 +164,7 @@ describe('handleReservationActivate', () => {
       pubsub,
     );
     // No ReserveNow published when the station was offline
-    expect(mockPublish).not.toHaveBeenCalled();
+    expect(reserveNowPublished()).toBe(false);
   });
 
   it('does not notify when offline-station UPDATE finds no scheduled row to cancel', async () => {
@@ -298,7 +311,7 @@ describe('handleReservationActivate', () => {
         notes: 'expired before scheduled activation',
       }),
     );
-    expect(mockPublish).not.toHaveBeenCalled();
+    expect(reserveNowPublished()).toBe(false);
   });
 
   it('does not audit expiry when the guarded expire-update matches no row', async () => {
@@ -360,8 +373,9 @@ describe('handleReservationActivate', () => {
       }),
     );
     // ReserveNow published on the ocpp_commands channel with the 2.1 payload.
-    expect(mockPublish).toHaveBeenCalledTimes(1);
-    const [channel, raw] = mockPublish.mock.calls[0] as [string, string];
+    const call = reserveNowCall();
+    expect(call).toBeDefined();
+    const [channel, raw] = call as [string, string];
     expect(channel).toBe('ocpp_commands');
     const msg = JSON.parse(raw);
     expect(msg).toMatchObject({
@@ -403,8 +417,7 @@ describe('handleReservationActivate', () => {
     const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
-    expect(mockPublish).toHaveBeenCalledTimes(1);
-    const [, raw] = mockPublish.mock.calls[0] as [string, string];
+    const [, raw] = reserveNowCall() as [string, string];
     const msg = JSON.parse(raw);
     expect(msg.payload.evseId).toBeUndefined();
     expect(msg.payload.idToken).toEqual({ idToken: 'operator', type: 'Central' });
@@ -474,7 +487,7 @@ describe('handleReservationActivate', () => {
       expect.anything(),
       pubsub,
     );
-    expect(mockPublish).not.toHaveBeenCalled();
+    expect(reserveNowPublished()).toBe(false);
   });
 
   it('cancels with station_faulted reason when every connector is faulted/unavailable', async () => {
@@ -569,7 +582,7 @@ describe('handleReservationActivate', () => {
       }),
     );
     // Fulfilled in person: no ReserveNow and no cancellation notification.
-    expect(mockPublish).not.toHaveBeenCalled();
+    expect(reserveNowPublished()).toBe(false);
     expect(mockDispatchDriver).not.toHaveBeenCalled();
   });
 
@@ -652,8 +665,7 @@ describe('handleReservationActivate', () => {
     const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
-    expect(mockPublish).toHaveBeenCalledTimes(1);
-    const [, raw] = mockPublish.mock.calls[0] as [string, string];
+    const [, raw] = reserveNowCall() as [string, string];
     const msg = JSON.parse(raw);
     expect(msg.action).toBe('ReserveNow');
     expect(msg.payload.evseId).toBeUndefined();

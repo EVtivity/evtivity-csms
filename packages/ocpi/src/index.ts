@@ -9,6 +9,7 @@ import { OcpiPushListener } from './services/push.service.js';
 import { OcpiPullListener } from './services/pull.service.js';
 import { OcpiRegisterListener } from './services/register-listener.service.js';
 import { initCommandCallbackService } from './services/command-callback.service.js';
+import { setPubSub } from './lib/pubsub.js';
 import { config } from './lib/config.js';
 
 async function start(): Promise<void> {
@@ -40,6 +41,7 @@ async function start(): Promise<void> {
   const app = await buildOcpiApp(opts);
 
   const pubsub = new RedisPubSubClient(config.REDIS_URL);
+  setPubSub(pubsub);
 
   // Start push listener for data change notifications
   const pushListener = new OcpiPushListener(pubsub);

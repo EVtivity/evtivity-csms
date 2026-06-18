@@ -7,6 +7,7 @@ import { db } from '@evtivity/database';
 import { sql } from 'drizzle-orm';
 import { zodSchema } from '../lib/zod-schema.js';
 import { getPubSub } from '../lib/pubsub.js';
+import { APP_VERSION } from '../lib/app-version.js';
 
 const healthResponse = z
   .object({
@@ -16,6 +17,8 @@ const healthResponse = z
     redis: z.string(),
   })
   .passthrough();
+
+const versionResponse = z.object({ version: z.string() }).passthrough();
 
 export function healthRoutes(app: FastifyInstance): void {
   app.get(
@@ -56,5 +59,19 @@ export function healthRoutes(app: FastifyInstance): void {
         redis: redisStatus,
       };
     },
+  );
+
+  app.get(
+    '/v1/version',
+    {
+      schema: {
+        tags: ['Health'],
+        summary: 'Get the CSMS backend version',
+        operationId: 'getVersion',
+        security: [],
+        response: { 200: zodSchema(versionResponse) },
+      },
+    },
+    () => ({ version: APP_VERSION }),
   );
 }

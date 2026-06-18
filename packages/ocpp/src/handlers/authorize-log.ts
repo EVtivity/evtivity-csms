@@ -2,7 +2,16 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { db, authorizeAttempts } from '@evtivity/database';
-import type { Logger } from '@evtivity/lib';
+import type { Logger, PubSubClient } from '@evtivity/lib';
+
+// Set once at OCPP server startup so the forensic insert can fan out an SSE
+// notification. Null in tests and until the server wires it up; publish is
+// skipped when null.
+let pubsub: PubSubClient | null = null;
+
+export function setAuthorizeLogPubSub(client: PubSubClient): void {
+  pubsub = client;
+}
 
 /**
  * Pull `valid_thru` out of an OCPI Token's tokenData JSONB. OCPI 2.2.1+ tokens
@@ -57,5 +66,24 @@ export async function logAuthorizeAttempt(
     });
   } catch (err) {
     logger.warn({ err, ...args }, 'Failed to record authorize attempt');
+    return;
+  }
+
+  // Tell the CSMS so the Authorize Log page reloads itself. Best-effort: a
+  // publish failure must not break the station's authorize response.
+  if (pubsub != null) {
+    try {
+      await pubsub.publish(
+        'csms_events',
+        JSON.stringify({
+          eventType: 'authorize.attempt',
+          stationId: args.stationId,
+          siteId: null,
+          sessionId: null,
+        }),
+      );
+    } catch (err) {
+      logger.debug({ err }, 'authorize.attempt SSE publish failed; continuing');
+    }
   }
 }

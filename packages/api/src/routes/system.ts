@@ -1,36 +1,13 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { inArray } from 'drizzle-orm';
 import { db, settings } from '@evtivity/database';
 import { authorize } from '../middleware/rbac.js';
 import { itemResponse } from '../lib/response-schemas.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-function readVersion(): string {
-  for (const candidate of [
-    resolve(__dirname, '../../package.json'),
-    resolve(__dirname, '../package.json'),
-    resolve(__dirname, '../../../package.json'),
-  ]) {
-    try {
-      const pkg = JSON.parse(readFileSync(candidate, 'utf8')) as { version?: string };
-      if (pkg.version != null && pkg.version !== '') return pkg.version;
-    } catch {
-      /* try next candidate */
-    }
-  }
-  return process.env['npm_package_version'] ?? 'unknown';
-}
-
-const APP_VERSION = readVersion();
+import { APP_VERSION } from '../lib/app-version.js';
 
 function envStr(key: string): string {
   return process.env[key] ?? '';

@@ -12,6 +12,7 @@ import { PgEventPersistence, getSentryConfig } from '@evtivity/database';
 import { RedisPubSubClient, RedisConnectionRegistry, initSentry } from '@evtivity/lib';
 import { registerProjections } from './server/event-projections.js';
 import { subscribeOcppEventSettingsInvalidation } from './server/notification-dispatcher.js';
+import { setAuthorizeLogPubSub } from './handlers/authorize-log.js';
 import { config } from './lib/config.js';
 
 const OCPP_PORT = config.OCPP_PORT;
@@ -79,6 +80,7 @@ async function start(): Promise<void> {
   await server.start({ port: OCPP_PORT, host: OCPP_HOST, tls });
 
   pubsub = new RedisPubSubClient(REDIS_URL);
+  setAuthorizeLogPubSub(pubsub);
 
   // Create a separate Redis client for the connection registry (not the pub/sub client)
   registryRedis = new Redis(REDIS_URL);

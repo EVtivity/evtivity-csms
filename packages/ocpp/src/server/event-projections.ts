@@ -1972,6 +1972,7 @@ export function registerProjections(
                   statusAfter: 'in_use',
                   notes: `session ${sessionId}`,
                 });
+                await notifyChange('reservation.changed', stationUuid, null, sessionId);
               }
 
               // If the reservation was bound to a specific token, verify the
@@ -2572,6 +2573,7 @@ export function registerProjections(
           `.catch((err: unknown) => {
             logger.error({ err }, 'failed to transition reservation to used');
           });
+          await notifyChange('reservation.changed', stationUuid, siteId, sessionId);
         }
 
         // Notify guest session service for payment finalization
@@ -3333,6 +3335,7 @@ export function registerProjections(
           undefined,
           logger,
         );
+        await notifyChange('reservation.changed', null, null);
       }
       return;
     }
@@ -3374,6 +3377,7 @@ export function registerProjections(
           undefined,
           logger,
         );
+        await notifyChange('reservation.changed', stationUuid, null);
       }
 
       const driverId = cancelled[0]?.driver_id ?? null;

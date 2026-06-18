@@ -11,6 +11,17 @@ import { successResponse, paginatedResponse } from '../lib/response-schemas.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
+import { getPubSub } from '../lib/pubsub.js';
+
+// Tell the CSMS so the Access Logs page reloads itself. The 'api' category is
+// announced separately (throttled) from app.ts. Best-effort.
+function notifyAccessLog(category: 'csms' | 'portal'): void {
+  void getPubSub()
+    .publish('csms_events', JSON.stringify({ eventType: 'access.log', category }))
+    .catch(() => {
+      /* best-effort */
+    });
+}
 
 const accessLogItem = z
   .object({
@@ -80,6 +91,7 @@ export function accessLogRoutes(app: FastifyInstance): void {
         userAgent: request.headers['user-agent'] ?? null,
         metadata: metadata ?? null,
       });
+      notifyAccessLog('csms');
 
       await reply.status(201).send({ success: true });
     },
@@ -111,6 +123,7 @@ export function accessLogRoutes(app: FastifyInstance): void {
         userAgent: request.headers['user-agent'] ?? null,
         metadata: metadata ?? null,
       });
+      notifyAccessLog('portal');
 
       await reply.status(201).send({ success: true });
     },

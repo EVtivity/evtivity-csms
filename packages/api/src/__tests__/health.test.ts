@@ -30,4 +30,19 @@ describe('Health route', () => {
     expect(body['database']).toBe('ok');
     expect(body['redis']).toBe('ok');
   });
+
+  it('GET /v1/version returns 200 with a non-empty version string', async () => {
+    const app = Fastify();
+    await app.register(healthRoutes);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/version',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as Record<string, unknown>;
+    expect(typeof body['version']).toBe('string');
+    expect((body['version'] as string).length).toBeGreaterThan(0);
+  });
 });

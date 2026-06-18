@@ -23,6 +23,7 @@ import { OcpiClient } from '../lib/ocpi-client.js';
 import { config } from '../lib/config.js';
 import { transformCdr } from '../transformers/cdr.transformer.js';
 import { resolvePartnerVersion } from '../lib/ocpi-version.js';
+import { notifyRoamingCdrChanged } from '../lib/pubsub.js';
 import type { OcpiCdr, OcpiTariff } from '../types/ocpi.js';
 
 const logger = createLogger('ocpi-cdr');
@@ -203,6 +204,9 @@ export async function generateCdr(
     pushStatus: 'pending',
   });
 
+  // Tell the CSMS so the Roaming CDRs page reloads itself.
+  notifyRoamingCdrChanged();
+
   logger.info({ cdrId, chargingSessionId }, 'CDR generated');
   return cdr;
 }
@@ -261,6 +265,9 @@ export async function pushCdr(cdrId: string): Promise<boolean> {
       .update(ocpiCdrs)
       .set({ pushStatus: 'sent', updatedAt: new Date() })
       .where(eq(ocpiCdrs.id, cdr.id));
+
+    // Tell the CSMS so the Roaming CDRs page reloads itself.
+    notifyRoamingCdrChanged();
 
     await db.insert(ocpiSyncLog).values({
       partnerId,
@@ -372,6 +379,9 @@ export async function generateCreditCdr(
     isCredit: true,
     pushStatus: 'pending',
   });
+
+  // Tell the CSMS so the Roaming CDRs page reloads itself.
+  notifyRoamingCdrChanged();
 
   logger.info({ creditCdrId, originalCdrId, reason }, 'Credit CDR generated');
   return creditCdr;

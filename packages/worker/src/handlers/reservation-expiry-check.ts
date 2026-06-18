@@ -186,6 +186,21 @@ export async function reservationExpiryCheckHandler(log: Logger): Promise<void> 
 
   if (expired.length > 0) {
     log.info({ count: expired.length }, 'Expired reservations');
+    // Tell the CSMS so the Reservations page reloads itself. One per batch,
+    // best-effort.
+    void pubsub
+      .publish(
+        'csms_events',
+        JSON.stringify({
+          eventType: 'reservation.changed',
+          stationId: null,
+          siteId: null,
+          sessionId: null,
+        }),
+      )
+      .catch(() => {
+        /* best-effort */
+      });
   }
 
   // Warn drivers about reservations expiring within the warning window.

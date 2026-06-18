@@ -92,6 +92,23 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
     return;
   }
 
+  // Tell the CSMS so the Reservations page reloads itself. Best-effort.
+  const notifyReservationChanged = (): void => {
+    void pubsub
+      .publish(
+        'csms_events',
+        JSON.stringify({
+          eventType: 'reservation.changed',
+          stationId: reservation.stationOcppId,
+          siteId: null,
+          sessionId: null,
+        }),
+      )
+      .catch(() => {
+        /* best-effort */
+      });
+  };
+
   // Check if already expired
   if (reservation.expiresAt <= new Date()) {
     const expiredRows = await db
@@ -110,6 +127,7 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
         statusAfter: 'expired',
         notes: 'expired before scheduled activation',
       });
+      notifyReservationChanged();
     }
     log.info({ reservationDbId }, 'Scheduled reservation expired before activation');
     return;
@@ -148,6 +166,7 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
         statusAfter: 'cancelled',
         notes: 'station_offline_at_activation',
       });
+      notifyReservationChanged();
     }
 
     const driverId = cancelled[0]?.driverId ?? null;
@@ -238,6 +257,7 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
             },
             'Same-driver session active on reserved EVSE; transitioning reservation to in_use without ReserveNow',
           );
+          notifyReservationChanged();
         }
         return;
       }
@@ -277,6 +297,7 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
         statusAfter: 'cancelled',
         notes: cancelReason,
       });
+      notifyReservationChanged();
     }
 
     log.warn(
@@ -361,6 +382,7 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
     );
     return;
   }
+  notifyReservationChanged();
 
   // Conditional UPDATE guarantees exactly one writer wins, so audit fires
   // exactly once per scheduled→active transition.

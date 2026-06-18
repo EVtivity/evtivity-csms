@@ -7,6 +7,7 @@ import { db, ocpiRoamingSessions } from '@evtivity/database';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
 import { ocpiAuthenticate } from '../../middleware/ocpi-auth.js';
 import { namespaceMismatch } from '../../lib/namespace-check.js';
+import { notifyRoamingSessionChanged } from '../../lib/pubsub.js';
 import type { OcpiVersion, OcpiSession } from '../../types/ocpi.js';
 
 function isValidSession(body: unknown): body is OcpiSession {
@@ -141,6 +142,9 @@ function registerEmspSessionRoutes(app: FastifyInstance, version: OcpiVersion): 
         });
       }
 
+      // Tell the CSMS so the Roaming Sessions page reloads itself.
+      notifyRoamingSessionChanged();
+
       return ocpiSuccess(null);
     },
   );
@@ -229,6 +233,9 @@ function registerEmspSessionRoutes(app: FastifyInstance, version: OcpiVersion): 
         .update(ocpiRoamingSessions)
         .set(updateFields)
         .where(eq(ocpiRoamingSessions.id, existing.id));
+
+      // Tell the CSMS so the Roaming Sessions page reloads itself.
+      notifyRoamingSessionChanged();
 
       return ocpiSuccess(null);
     },

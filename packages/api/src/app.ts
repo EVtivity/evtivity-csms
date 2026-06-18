@@ -18,6 +18,7 @@ import {
 } from '@evtivity/database';
 import { accessLogs, drivers } from '@evtivity/database';
 import { eq } from 'drizzle-orm';
+import { getPubSub } from './lib/pubsub.js';
 import { registerCors } from './plugins/cors.js';
 import { registerHelmet } from './plugins/helmet.js';
 import { registerRateLimit } from './plugins/rate-limit.js';
@@ -106,6 +107,11 @@ function csrfTokensMatch(a: string, b: string): boolean {
   if (bufA.length !== bufB.length) return false;
   return crypto.timingSafeEqual(bufA, bufB);
 }
+
+// The 'api' access-log category fires on every request, so its SSE fan-out is
+// throttled to one publish per window to avoid flooding the channel.
+const API_ACCESS_LOG_SSE_THROTTLE_MS = 5_000;
+let lastApiAccessLogSsePublish = 0;
 
 export async function buildApp(opts: FastifyServerOptions = {}): Promise<FastifyInstance> {
   // Default body size limit: 1 MB. Individual routes can override with
@@ -522,6 +528,17 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
         .catch(() => {
           /* best-effort */
         });
+
+      // Throttled SSE so the Access Logs 'api' tab reloads itself.
+      const now = Date.now();
+      if (now - lastApiAccessLogSsePublish >= API_ACCESS_LOG_SSE_THROTTLE_MS) {
+        lastApiAccessLogSsePublish = now;
+        void getPubSub()
+          .publish('csms_events', JSON.stringify({ eventType: 'access.log', category: 'api' }))
+          .catch(() => {
+            /* best-effort */
+          });
+      }
     } catch {
       // Best-effort logging: do not break responses
     }

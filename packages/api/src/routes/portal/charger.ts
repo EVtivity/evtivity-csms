@@ -2601,6 +2601,21 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         request.log,
       );
 
+      // Tell the CSMS so the Reservations page reloads after a portal booking.
+      void getPubSub()
+        .publish(
+          'csms_events',
+          JSON.stringify({
+            eventType: 'reservation.changed',
+            stationId: null,
+            siteId: null,
+            sessionId: null,
+          }),
+        )
+        .catch(() => {
+          /* best-effort */
+        });
+
       if (isFutureScheduled) {
         // Enqueue delayed job via pub/sub bridge to the worker
         const delayMs = new Date(body.startsAt as string).getTime() - Date.now();

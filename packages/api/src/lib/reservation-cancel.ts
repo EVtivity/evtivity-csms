@@ -6,6 +6,7 @@ import { eq, sql } from 'drizzle-orm';
 import { db, reservations } from '@evtivity/database';
 import { getReservationSettings, writeReservationAudit } from '@evtivity/database';
 import { chargeReservationCancellationFee } from './reservation-fees.js';
+import { getPubSub } from './pubsub.js';
 
 /** Who triggered the cancellation. */
 export type ReservationCancelledBy = 'driver' | 'operator' | 'system';
@@ -162,6 +163,22 @@ export async function applyReservationCancellation(
     statusAfter: 'cancelled',
     notes: input.note != null && input.note !== '' ? input.note : null,
   });
+
+  // Tell the CSMS so the Reservations page reloads itself. Covers every cancel
+  // path (operator, portal, fleet, maintenance). Best-effort.
+  void getPubSub()
+    .publish(
+      'csms_events',
+      JSON.stringify({
+        eventType: 'reservation.changed',
+        stationId: null,
+        siteId: input.siteId,
+        sessionId: null,
+      }),
+    )
+    .catch(() => {
+      /* best-effort */
+    });
 
   if (plannedFeeCents === 0) {
     return { feeChargedCents: 0, cancelled: true, feeChargeFailed: false };

@@ -8,6 +8,7 @@ import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.
 import { config } from '../../lib/config.js';
 import { ocpiAuthenticate } from '../../middleware/ocpi-auth.js';
 import { namespaceMismatch } from '../../lib/namespace-check.js';
+import { notifyRoamingCdrChanged } from '../../lib/pubsub.js';
 import type { OcpiVersion, OcpiCdr } from '../../types/ocpi.js';
 
 function isValidCdr(body: unknown): body is OcpiCdr {
@@ -119,6 +120,9 @@ function registerEmspCdrRoutes(app: FastifyInstance, version: OcpiVersion): void
       await reply.status(500).send(ocpiError(OcpiStatusCode.SERVER_ERROR, 'Failed to store CDR'));
       return;
     }
+
+    // Tell the CSMS so the Roaming CDRs page reloads itself.
+    notifyRoamingCdrChanged();
 
     return ocpiSuccess(null);
   });

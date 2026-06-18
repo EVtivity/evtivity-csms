@@ -17,8 +17,10 @@ vi.mock('@evtivity/database', () => ({
 import {
   logAuthorizeAttempt,
   parseOcpiValidThru,
+  setAuthorizeLogPubSub,
   type AuthorizeOutcome,
 } from '../../handlers/authorize-log.js';
+import type { PubSubClient } from '@evtivity/lib';
 
 const logger = pino({ level: 'silent' });
 
@@ -238,5 +240,73 @@ describe('logAuthorizeAttempt', () => {
       'Failed to record authorize attempt',
     );
     warnSpy.mockRestore();
+  });
+});
+
+describe('logAuthorizeAttempt SSE notification', () => {
+  const publish = vi.fn().mockResolvedValue(undefined);
+
+  beforeEach(() => {
+    publish.mockClear();
+    publish.mockResolvedValue(undefined);
+    setAuthorizeLogPubSub({ publish } as unknown as PubSubClient);
+  });
+
+  it('publishes an authorize.attempt csms_events after a successful insert', async () => {
+    await logAuthorizeAttempt(
+      {
+        stationId: 'CS-SSE',
+        idToken: 'TAG-SSE',
+        tokenType: 'ISO14443',
+        outcome: 'unknown',
+        ocppVersion: 'ocpp2.1',
+      },
+      logger,
+    );
+
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledWith(
+      'csms_events',
+      JSON.stringify({
+        eventType: 'authorize.attempt',
+        stationId: 'CS-SSE',
+        siteId: null,
+        sessionId: null,
+      }),
+    );
+  });
+
+  it('does not publish when the insert fails', async () => {
+    mockValuesFn.mockRejectedValueOnce(new Error('db down'));
+
+    await logAuthorizeAttempt(
+      {
+        stationId: 'CS-SSE',
+        idToken: 'TAG-SSE',
+        tokenType: null,
+        outcome: 'db_error',
+        ocppVersion: 'ocpp1.6',
+      },
+      logger,
+    );
+
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('swallows a publish failure without throwing', async () => {
+    publish.mockRejectedValueOnce(new Error('redis down'));
+
+    await expect(
+      logAuthorizeAttempt(
+        {
+          stationId: 'CS-SSE',
+          idToken: 'TAG-SSE',
+          tokenType: null,
+          outcome: 'accepted',
+          ocppVersion: 'ocpp1.6',
+        },
+        logger,
+      ),
+    ).resolves.toBeUndefined();
   });
 });
