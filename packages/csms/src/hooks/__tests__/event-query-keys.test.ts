@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { getQueryKeysForEvent, type CsmsEvent } from '../event-query-keys';
+import { getQueryKeysForEvent, IMMEDIATE_EVENT_TYPES, type CsmsEvent } from '../event-query-keys';
 
 function makeEvent(eventType: string, extra: Partial<CsmsEvent> = {}): CsmsEvent {
   return {
@@ -65,6 +65,21 @@ describe('getQueryKeysForEvent', () => {
       const keys = getQueryKeysForEvent(makeEvent('access.log', { category: 'other' }));
       expect(keys).toHaveLength(0);
     });
+  });
+
+  it('invalidates support-cases list, detail (via prefix), and unread count on supportCase.newMessage', () => {
+    const keys = getQueryKeysForEvent(makeEvent('supportCase.newMessage', { caseId: 'case-1' }));
+    // ['support-cases'] is a prefix of the detail key ['support-cases', id].
+    expect(hasKey(keys, ['support-cases'])).toBe(true);
+    expect(hasKey(keys, ['support-cases-unread-count'])).toBe(true);
+  });
+
+  it('treats support-case events as immediate (bypass the invalidation throttle)', () => {
+    expect(IMMEDIATE_EVENT_TYPES.has('supportCase.newMessage')).toBe(true);
+    expect(IMMEDIATE_EVENT_TYPES.has('supportCase.created')).toBe(true);
+    expect(IMMEDIATE_EVENT_TYPES.has('supportCase.updated')).toBe(true);
+    // High-frequency station events stay throttled.
+    expect(IMMEDIATE_EVENT_TYPES.has('station.status')).toBe(false);
   });
 
   it('returns no keys for an unknown event type', () => {

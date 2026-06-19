@@ -575,6 +575,20 @@
       "when": 1781230951106,
       "tag": "0081_driver_push_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1781230951107,
+      "tag": "0082_mobile_attest_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1781230951108,
+      "tag": "0083_seed_attestation_settings",
+      "breakpoints": true
     }
   ]
 }

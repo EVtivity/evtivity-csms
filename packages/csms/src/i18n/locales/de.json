@@ -2199,6 +2199,7 @@
     "PAYMENT_TOP_UP_FAILED": "Aufstockungs-Zahlung abgelehnt",
     "PERMISSIONS_EXCEED_OWN": "API-Schlüssel-Berechtigungen müssen eine Teilmenge Ihrer eigenen Berechtigungen sein",
     "PNC_DISABLED": "Plug & Charge ist deaktiviert",
+    "ATTESTATION_FAILED": "Die Gerateattestierung ist fehlgeschlagen. Aktualisiere die App und versuche es erneut.",
     "PORTAL_REGISTRATION_DISABLED": "Die Selbstregistrierung von Fahrern ist deaktiviert. Bitte wende dich an deinen Betreiber, um eine Einladung zu erhalten.",
     "PRE_AUTH_FAILED": "Zahlungsvorautorisierung fehlgeschlagen",
     "PRICING_ASSIGNMENT_NOT_FOUND": "Dieser Entität ist keine Preisgruppe zugewiesen",

@@ -428,6 +428,7 @@
     "reportIssue": "报告问题",
     "submitCase": "提交工单",
     "linkedSession": "关联会话",
+    "linkedStation": "关联充电站",
     "caseCreated": "工单创建成功",
     "sendFailed": "发送消息失败，请重试。",
     "downloadFailed": "下载附件失败，请重试。",
@@ -592,6 +593,7 @@
     "PAYMENT_TOP_UP_FAILED": "补足支付被拒绝",
     "PERMISSIONS_EXCEED_OWN": "API 密钥权限必须是您自身权限的子集",
     "PNC_DISABLED": "Plug & Charge 已禁用",
+    "ATTESTATION_FAILED": "设备证明失败。请更新应用后重试。",
     "PORTAL_REGISTRATION_DISABLED": "驾驶员自助注册已禁用。请联系运营商以获取邀请。",
     "PRE_AUTH_FAILED": "支付预授权失败",
     "PRICING_ASSIGNMENT_NOT_FOUND": "此实体未分配定价组",
@@ -702,8 +704,7 @@
     "co2Avoided": "减少的CO₂",
     "co2AvoidedMessage": "本月您减少了 {{amount}} 千克CO₂排放",
     "miles": "英里",
-    "km": "公里",
-    "noChargingThisMonth": "本月无充电记录。"
+    "km": "公里"
   },
   "statement": {
     "title": "月度账单",

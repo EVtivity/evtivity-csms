@@ -2220,6 +2220,7 @@
     "PAYMENT_TOP_UP_FAILED": "Recarga de pago rechazada",
     "PERMISSIONS_EXCEED_OWN": "Los permisos de la clave de API deben ser un subconjunto de sus propios permisos",
     "PNC_DISABLED": "Plug & Charge esta deshabilitado",
+    "ATTESTATION_FAILED": "La verificacion del dispositivo fallo. Actualiza la aplicacion e intentalo de nuevo.",
     "PORTAL_REGISTRATION_DISABLED": "El auto-registro de conductores esta deshabilitado. Contacta a tu operador para ser invitado.",
     "PRE_AUTH_FAILED": "La preautorizacion de pago fallo",
     "PRICING_ASSIGNMENT_NOT_FOUND": "No hay grupo de precios asignado a esta entidad",

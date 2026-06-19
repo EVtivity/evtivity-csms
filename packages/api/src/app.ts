@@ -338,6 +338,8 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
     '/v1/portal/auth/reset-password',
     '/v1/portal/auth/mfa/verify',
     '/v1/portal/auth/mfa/resend',
+    '/v1/portal/auth/attest/challenge',
+    '/v1/portal/auth/attest/register',
   ]);
   const CSRF_SKIP_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 

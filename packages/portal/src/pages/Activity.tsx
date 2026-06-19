@@ -4,10 +4,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueries } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, FileText, Leaf } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { DonutChart } from '@/components/DonutChart';
 import { api } from '@/lib/api';
 import {
   formatCents,
@@ -65,6 +64,22 @@ function formatMonthParam(date: Date): string {
   return `${String(y)}-${m}`;
 }
 
+// Trailing-trend chart height in px (matches the mobile app's 6-month bars).
+const CHART_HEIGHT = 110;
+
+function shiftMonthParam(date: Date, delta: number): string {
+  return formatMonthParam(new Date(date.getFullYear(), date.getMonth() + delta, 1));
+}
+
+function monthParamToDate(param: string): Date {
+  const [y, m] = param.split('-');
+  return new Date(Number(y), Number(m) - 1, 1);
+}
+
+function monthAbbrev(param: string): string {
+  return monthParamToDate(param).toLocaleDateString('en-US', { month: 'short' });
+}
+
 export function Activity(): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -78,6 +93,17 @@ export function Activity(): React.JSX.Element {
     queryKey: ['portal-monthly-summary', monthParam],
     queryFn: () =>
       api.get<MonthlySummary>(`/v1/portal/sessions/monthly-summary?month=${monthParam}`),
+  });
+
+  // Trailing 6 months ending at the selected month, for the trend chart. Each
+  // month shares its cache key with the single-month summary above, so the
+  // selected month is not fetched twice.
+  const trendMonths = Array.from({ length: 6 }, (_, k) => shiftMonthParam(selectedMonth, k - 5));
+  const trendQueries = useQueries({
+    queries: trendMonths.map((m) => ({
+      queryKey: ['portal-monthly-summary', m],
+      queryFn: () => api.get<MonthlySummary>(`/v1/portal/sessions/monthly-summary?month=${m}`),
+    })),
   });
 
   const {
@@ -140,31 +166,30 @@ export function Activity(): React.JSX.Element {
   const totalMiles = (totalEnergyWh / 1000) * efficiency;
   const currency = summary?.currency ?? 'USD';
 
-  let donutValue = 0;
-  let donutMax = 1;
   let centerText = 'n/a';
-
   if (selectedMetric === 'cost') {
-    donutValue = totalCost;
-    donutMax = Math.max(totalCost, 1);
     centerText = formatCents(totalCost, currency);
   } else if (selectedMetric === 'energy') {
-    donutValue = totalEnergyWh;
-    donutMax = Math.max(totalEnergyWh, 1);
     centerText = formatEnergy(totalEnergyWh);
+  } else if (distanceUnit === 'km') {
+    const totalKm = totalMiles * 1.60934;
+    centerText = `${totalKm.toFixed(0)} ${t('activity.km')}`;
   } else {
-    donutValue = totalMiles;
-    donutMax = Math.max(totalMiles, 1);
-    if (distanceUnit === 'km') {
-      const totalKm = totalMiles * 1.60934;
-      centerText = `${totalKm.toFixed(0)} ${t('activity.km')}`;
-    } else {
-      centerText = `${totalMiles.toFixed(0)} ${t('activity.miles')}`;
-    }
+    centerText = `${totalMiles.toFixed(0)} ${t('activity.miles')}`;
   }
 
+  // Per-month value for the trend bars. Energy and distance scale together, so
+  // both use total energy; cost uses total cost.
+  const metricValue = (s: MonthlySummary | undefined): number => {
+    if (s == null) return 0;
+    if (selectedMetric === 'cost') return s.totalCostCents;
+    return s.totalEnergyWh;
+  };
+  const trendValues = trendQueries.map((q) => metricValue(q.data));
+  const trendMax = Math.max(...trendValues, 1);
+  const trendLoading = trendQueries.some((q) => q.isLoading);
+
   const sessionList = sessionsPages?.pages.flatMap((p) => p.data) ?? [];
-  const hasData = (summary?.sessionCount ?? 0) > 0;
 
   return (
     <div className="space-y-4 pb-20">
@@ -215,29 +240,58 @@ export function Activity(): React.JSX.Element {
         </button>
       </div>
 
-      {/* Donut chart */}
-      <div className="flex justify-center">
-        {hasData ? (
-          <DonutChart
-            value={donutValue}
-            max={donutMax}
-            size={160}
-            strokeWidth={12}
-            label={centerText}
-          >
-            <div className="text-center">
-              <p className="text-xl font-bold">{centerText}</p>
-              <p className="text-xs text-muted-foreground">
-                {summary?.sessionCount ?? 0} {t('activity.sessions')}
-              </p>
-            </div>
-          </DonutChart>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-            <p className="text-sm">{t('activity.noChargingThisMonth')}</p>
+      {/* 6-month trend */}
+      <Card>
+        <CardContent className="space-y-4 py-6">
+          <div className="text-center">
+            <p className="text-xl font-bold">{centerText}</p>
+            <p className="text-xs text-muted-foreground">
+              {summary?.sessionCount ?? 0} {t('activity.sessions')}
+            </p>
           </div>
-        )}
-      </div>
+          {trendLoading ? (
+            <div className="flex justify-center">
+              <LoadingLogo size="inline" />
+            </div>
+          ) : (
+            <div
+              className="flex items-end justify-between gap-2"
+              style={{ height: CHART_HEIGHT + 28 }}
+            >
+              {trendMonths.map((m, i) => {
+                const active = m === monthParam;
+                const value = trendValues[i] ?? 0;
+                const barHeight = Math.max((value / trendMax) * CHART_HEIGHT, value > 0 ? 6 : 2);
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    aria-label={m}
+                    onClick={() => {
+                      setSelectedMonth(monthParamToDate(m));
+                    }}
+                    className="flex flex-1 flex-col items-center gap-1.5"
+                  >
+                    <div
+                      style={{ height: barHeight }}
+                      className={`w-full rounded-t-md transition-colors ${
+                        active ? 'bg-primary' : 'bg-muted-foreground/25'
+                      }`}
+                    />
+                    <span
+                      className={`text-xs ${
+                        active ? 'font-semibold text-foreground' : 'text-muted-foreground'
+                      }`}
+                    >
+                      {monthAbbrev(m)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Metric tabs */}
       <div className="flex rounded-lg border">

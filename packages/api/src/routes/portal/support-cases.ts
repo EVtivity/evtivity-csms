@@ -161,7 +161,12 @@ const createCaseBody = z.object({
     ])
     .describe('Support case category'),
   sessionId: ID_PARAMS.sessionId.optional().describe('Related charging session ID'),
-  stationId: ID_PARAMS.stationId.optional().describe('Related station ID'),
+  stationId: z
+    .string()
+    .min(1)
+    .max(255)
+    .optional()
+    .describe('Related station OCPP identity (e.g. CS-0439)'),
 });
 
 const createMessageBody = z.object({
@@ -375,7 +380,10 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         body: zodSchema(createCaseBody),
         response: {
           200: itemResponse(portalSupportCaseItem),
-          404: errorWith('Session not found', [ERROR_CODES.SESSION_NOT_FOUND]),
+          404: errorWith('Session or station not found', [
+            ERROR_CODES.SESSION_NOT_FOUND,
+            ERROR_CODES.STATION_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -403,9 +411,24 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         sessionStationId = session.stationId;
       }
 
+      // The portal speaks the OCPP station identity (e.g. CS-0439), not the
+      // internal sta_ id. Resolve it to the FK the support_cases row stores.
+      let resolvedStationId: string | null = null;
+      if (body.stationId != null) {
+        const [station] = await db
+          .select({ id: chargingStations.id })
+          .from(chargingStations)
+          .where(eq(chargingStations.stationId, body.stationId));
+        if (station == null) {
+          await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+          return;
+        }
+        resolvedStationId = station.id;
+      }
+
       const caseNumber = await getNextCaseNumber();
 
-      const stationId = body.stationId ?? sessionStationId;
+      const stationId = resolvedStationId ?? sessionStationId;
 
       const [newCase] = await db
         .insert(supportCases)

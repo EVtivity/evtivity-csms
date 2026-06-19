@@ -14,6 +14,15 @@ export interface CsmsEvent {
   category?: string | null;
 }
 
+// Events that refresh the UI immediately, bypassing the SSE invalidation
+// throttle. Support-case chat is human-paced and low-volume, so the batch
+// window (meant for station/meter floods) just makes incoming messages lag.
+export const IMMEDIATE_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'supportCase.created',
+  'supportCase.updated',
+  'supportCase.newMessage',
+]);
+
 // Maps an SSE event to the TanStack Query keys to invalidate. Pure so it can be
 // unit-tested without the EventSource machinery.
 export function getQueryKeysForEvent(event: CsmsEvent): string[][] {

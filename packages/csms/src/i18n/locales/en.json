@@ -2223,6 +2223,7 @@
     "PAYMENT_TOP_UP_FAILED": "Payment top-up rejected",
     "PERMISSIONS_EXCEED_OWN": "API key permissions must be a subset of your own permissions",
     "PNC_DISABLED": "Plug & Charge is disabled",
+    "ATTESTATION_FAILED": "Device attestation failed. Update the app and try again.",
     "PORTAL_REGISTRATION_DISABLED": "Driver self-registration is disabled. Contact your operator to be invited.",
     "PRE_AUTH_FAILED": "Payment pre-authorization failed",
     "PRICING_ASSIGNMENT_NOT_FOUND": "No pricing group is assigned to this entity",

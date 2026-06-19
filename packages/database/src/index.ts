@@ -66,3 +66,5 @@ export { isChatbotAiEnabled, clearChatbotAiSettingsCache } from './lib/ai-settin
 export { isSupportAiEnabled, clearSupportAiSettingsCache } from './lib/support-ai-setting.js';
 export { getSsoConfig, clearSsoSettingsCache } from './lib/sso-settings.js';
 export type { SsoConfig } from './lib/sso-settings.js';
+export { getAttestationConfig, clearAttestationConfigCache } from './lib/attestation-settings.js';
+export type { AttestationConfig } from './lib/attestation-settings.js';

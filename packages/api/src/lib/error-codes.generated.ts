@@ -21,6 +21,7 @@ export const ERROR_CODES = {
   API_KEY_NOT_FOUND: 'API_KEY_NOT_FOUND',
   API_KEY_RATE_LIMITED: 'API_KEY_RATE_LIMITED',
   ATTACHMENT_NOT_FOUND: 'ATTACHMENT_NOT_FOUND',
+  ATTESTATION_FAILED: 'ATTESTATION_FAILED',
   AUDIT_ENTITY_TYPE_INVALID: 'AUDIT_ENTITY_TYPE_INVALID',
   CA_CERT_NOT_FOUND: 'CA_CERT_NOT_FOUND',
   CAMPAIGN_NOT_FOUND: 'CAMPAIGN_NOT_FOUND',
@@ -254,6 +255,7 @@ export type ErrorCode =
   | 'API_KEY_NOT_FOUND'
   | 'API_KEY_RATE_LIMITED'
   | 'ATTACHMENT_NOT_FOUND'
+  | 'ATTESTATION_FAILED'
   | 'AUDIT_ENTITY_TYPE_INVALID'
   | 'CA_CERT_NOT_FOUND'
   | 'CAMPAIGN_NOT_FOUND'
@@ -494,6 +496,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   API_KEY_NOT_FOUND: 'API key not found',
   API_KEY_RATE_LIMITED: 'API key rate limit exceeded',
   ATTACHMENT_NOT_FOUND: 'Attachment not found',
+  ATTESTATION_FAILED: 'Device attestation failed. Update the app and try again.',
   AUDIT_ENTITY_TYPE_INVALID: 'Unknown audit entity type',
   CA_CERT_NOT_FOUND: 'CA certificate not found',
   CAMPAIGN_NOT_FOUND: 'Campaign not found',

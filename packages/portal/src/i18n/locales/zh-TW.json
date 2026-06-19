@@ -428,6 +428,7 @@
     "reportIssue": "報告問題",
     "submitCase": "提交工單",
     "linkedSession": "關聯會話",
+    "linkedStation": "關聯充電站",
     "caseCreated": "工單建立成功",
     "sendFailed": "傳送訊息失敗，請重試。",
     "downloadFailed": "下載附件失敗，請重試。",
@@ -592,6 +593,7 @@
     "PAYMENT_TOP_UP_FAILED": "補足支付被拒絕",
     "PERMISSIONS_EXCEED_OWN": "API 金鑰權限必須是您本身權限的子集",
     "PNC_DISABLED": "Plug & Charge 已停用",
+    "ATTESTATION_FAILED": "裝置證明失敗。請更新應用程式後再試一次。",
     "PORTAL_REGISTRATION_DISABLED": "駕駛人自助註冊已停用。請聯絡您的營運商以取得邀請。",
     "PRE_AUTH_FAILED": "付款預先授權失敗",
     "PRICING_ASSIGNMENT_NOT_FOUND": "此實體未指派計價群組",
@@ -702,8 +704,7 @@
     "co2Avoided": "減少的CO₂",
     "co2AvoidedMessage": "本月您減少了 {{amount}} 公斤CO₂排放",
     "miles": "英里",
-    "km": "公里",
-    "noChargingThisMonth": "本月無充電紀錄。"
+    "km": "公里"
   },
   "statement": {
     "title": "月度帳單",

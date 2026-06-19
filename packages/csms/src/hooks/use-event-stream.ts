@@ -5,7 +5,7 @@ import { useEffect, useRef } from 'react';
 import { type QueryClient, useQueryClient } from '@tanstack/react-query';
 import { API_BASE_URL } from '../lib/config';
 import { useAuth } from '../lib/auth';
-import { getQueryKeysForEvent, type CsmsEvent } from './event-query-keys';
+import { getQueryKeysForEvent, IMMEDIATE_EVENT_TYPES, type CsmsEvent } from './event-query-keys';
 
 const BASE_URL = API_BASE_URL;
 
@@ -117,7 +117,13 @@ export function useEventStream(): void {
         }
 
         const keys = getQueryKeysForEvent(event);
-        if (keys.length > 0) {
+        if (keys.length === 0) return;
+        // Chat-like events refresh now; high-frequency station events batch.
+        if (IMMEDIATE_EVENT_TYPES.has(event.eventType)) {
+          for (const key of keys) {
+            void queryClient.invalidateQueries({ queryKey: key });
+          }
+        } else {
           batcher.add(keys);
         }
       };

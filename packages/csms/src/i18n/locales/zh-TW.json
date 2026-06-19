@@ -2204,6 +2204,7 @@
     "PAYMENT_TOP_UP_FAILED": "補足支付被拒絕",
     "PERMISSIONS_EXCEED_OWN": "API 金鑰權限必須是您本身權限的子集",
     "PNC_DISABLED": "Plug & Charge 已停用",
+    "ATTESTATION_FAILED": "裝置證明失敗。請更新應用程式後再試一次。",
     "PORTAL_REGISTRATION_DISABLED": "駕駛人自助註冊已停用。請聯絡您的營運商以取得邀請。",
     "PRE_AUTH_FAILED": "付款預先授權失敗",
     "PRICING_ASSIGNMENT_NOT_FOUND": "此實體未指派計價群組",

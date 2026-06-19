@@ -516,6 +516,18 @@ async function seed(): Promise<void> {
     // closed/managed deployments (drivers admin-provisioned) can flip this
     // off so the portal Register page returns 403 PORTAL_REGISTRATION_DISABLED.
     'portal.registrationEnabled': true,
+    // Mobile device attestation. When enabled, native portal clients prove
+    // themselves with Apple App Attest (iOS) or Google Play Integrity (Android)
+    // on the pre-auth endpoints instead of reCAPTCHA. Disabled by default so the
+    // mobile path keeps relying on the endpoint rate limit until an operator
+    // configures the platform credentials.
+    'attestation.enabled': false,
+    'attestation.ios.teamId': '',
+    'attestation.ios.bundleId': '',
+    'attestation.ios.environment': 'development',
+    'attestation.android.cloudProjectNumber': '',
+    'attestation.android.packageName': '',
+    'attestation.android.serviceAccountEnc': '',
     'audit.retentionDays': 1095,
     'refreshTokens.retentionDays': 30,
     // Per-log retention. Worker prunes each table on the daily cron; set 0 to
@@ -598,6 +610,7 @@ async function seed(): Promise<void> {
     'twilio.authToken': 'twilio.authTokenEnc',
     'ftp.password': 'ftp.passwordEnc',
     'googleMaps.apiKey': 'googleMaps.apiKeyEnc',
+    'attestation.android.serviceAccount': 'attestation.android.serviceAccountEnc',
   };
 
   // Remap config file keys to their Enc DB counterparts

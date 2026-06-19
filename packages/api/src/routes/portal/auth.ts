@@ -38,6 +38,11 @@ import {
   deviceIdFromRequest,
 } from '../../lib/driver-session.js';
 import {
+  issueChallenge,
+  registerIosAttestation,
+  verifyDeviceAttestation,
+} from '../../lib/device-attestation/index.js';
+import {
   isMfaChallengeExhausted,
   recordMfaChallengeAttempt,
   clearMfaChallengeAttempts,
@@ -104,6 +109,16 @@ const loginBody = z.object({
   recaptchaToken: z.string().optional().describe('reCAPTCHA v3 token'),
 });
 
+const attestRegisterBody = z.object({
+  keyId: z.string().min(1).max(512).describe('Base64 App Attest key id'),
+  attestation: z.string().min(1).describe('Base64 CBOR attestation object'),
+  challenge: z.string().min(1).max(128).describe('Challenge nonce from /attest/challenge'),
+});
+
+const attestChallengeResponse = z
+  .object({ challenge: z.string().describe('Single-use base64url nonce, valid 5 minutes') })
+  .passthrough();
+
 const driverSelect = {
   id: drivers.id,
   firstName: drivers.firstName,
@@ -120,6 +135,66 @@ const driverSelect = {
 };
 
 export function portalAuthRoutes(app: FastifyInstance): void {
+  app.post(
+    '/portal/auth/attest/challenge',
+    {
+      schema: {
+        tags: ['Portal Auth'],
+        summary: 'Issue a device-attestation challenge',
+        description:
+          'Returns a single-use nonce the mobile app signs with Apple App Attest or feeds to Google Play Integrity. The nonce expires in 5 minutes and is consumed on the next attested auth request.',
+        operationId: 'portalAttestChallenge',
+        security: [],
+        response: { 200: itemResponse(attestChallengeResponse) },
+      },
+      config: {
+        rateLimit: {
+          max: apiConfig.AUTH_RATE_LIMIT_MAX,
+          timeWindow: apiConfig.AUTH_RATE_LIMIT_WINDOW,
+        },
+      },
+    },
+    async (_request, reply) => {
+      const challenge = await issueChallenge();
+      await reply.status(200).send({ challenge });
+    },
+  );
+
+  app.post(
+    '/portal/auth/attest/register',
+    {
+      schema: {
+        tags: ['Portal Auth'],
+        summary: 'Register an iOS App Attest key',
+        description:
+          'One-time iOS registration. Verifies the App Attest attestation against the Apple root and stores the device public key (keyed by X-Device-Id) so later assertions can be checked. Android Play Integrity is stateless and needs no registration. Returns 403 when verification fails or attestation is disabled.',
+        operationId: 'portalAttestRegister',
+        security: [],
+        body: zodSchema(attestRegisterBody),
+        response: {
+          200: successResponse,
+          403: errorWith('Attestation failed', [ERROR_CODES.ATTESTATION_FAILED]),
+        },
+      },
+      config: {
+        rateLimit: {
+          max: apiConfig.AUTH_RATE_LIMIT_MAX,
+          timeWindow: apiConfig.AUTH_RATE_LIMIT_WINDOW,
+        },
+      },
+    },
+    async (request, reply) => {
+      const result = await registerIosAttestation(request);
+      if (!result.ok) {
+        await reply
+          .status(403)
+          .send({ error: 'Device attestation failed', code: 'ATTESTATION_FAILED' });
+        return;
+      }
+      await reply.status(200).send({ success: true });
+    },
+  );
+
   app.post(
     '/portal/auth/register',
     {
@@ -165,9 +240,18 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Native apps cannot produce a reCAPTCHA token; mobile relies on the
-      // endpoint rate limit instead.
-      if (!isMobileClient(request)) {
+      // Native apps cannot produce a reCAPTCHA token. When device attestation
+      // is enabled they prove themselves with a signed App Attest / Play
+      // Integrity token; otherwise they fall back to the endpoint rate limit.
+      if (isMobileClient(request)) {
+        const attested = await verifyDeviceAttestation(request);
+        if (!attested) {
+          await reply
+            .status(403)
+            .send({ error: 'Device attestation failed', code: 'ATTESTATION_FAILED' });
+          return;
+        }
+      } else {
         const recaptchaOk = await checkRecaptcha(body.recaptchaToken, reply);
         if (!recaptchaOk) return;
       }
@@ -286,12 +370,19 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       const { email, password, recaptchaToken } = request.body as z.infer<typeof loginBody>;
 
       // reCAPTCHA v3 is a browser technology; native apps cannot produce a
-      // token, so mobile clients skip it and rely on the per-endpoint rate
-      // limit. The X-Client header is spoofable, so this trades the reCAPTCHA
-      // bot layer for rate limiting on the mobile path. checkRecaptcha is a
-      // no-op when reCAPTCHA is disabled, so web is unaffected on those
-      // deployments.
-      if (!isMobileClient(request)) {
+      // token. Mobile clients instead present a device-attestation token when
+      // attestation is enabled, and otherwise rely on the per-endpoint rate
+      // limit. checkRecaptcha is a no-op when reCAPTCHA is disabled, so web is
+      // unaffected on those deployments.
+      if (isMobileClient(request)) {
+        const attested = await verifyDeviceAttestation(request);
+        if (!attested) {
+          await reply
+            .status(403)
+            .send({ error: 'Device attestation failed', code: 'ATTESTATION_FAILED' });
+          return;
+        }
+      } else {
         const recaptchaOk = await checkRecaptcha(recaptchaToken, reply);
         if (!recaptchaOk) return;
       }
@@ -753,10 +844,19 @@ export function portalAuthRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { email, recaptchaToken } = request.body as z.infer<typeof forgotPasswordBody>;
 
-      // Gate reset-link dispatch on reCAPTCHA so a bot cannot enumerate
-      // driver emails by triggering reset emails for any account. Native apps
-      // cannot produce a token, so mobile relies on the endpoint rate limit.
-      if (!isMobileClient(request)) {
+      // Gate reset-link dispatch so a bot cannot enumerate driver emails by
+      // triggering reset emails for any account. Native apps cannot produce a
+      // reCAPTCHA token; they present a device-attestation token when
+      // attestation is enabled, otherwise the endpoint rate limit applies.
+      if (isMobileClient(request)) {
+        const attested = await verifyDeviceAttestation(request);
+        if (!attested) {
+          await reply
+            .status(403)
+            .send({ error: 'Device attestation failed', code: 'ATTESTATION_FAILED' });
+          return;
+        }
+      } else {
         const recaptchaOk = await checkRecaptcha(recaptchaToken, reply);
         if (!recaptchaOk) return;
       }

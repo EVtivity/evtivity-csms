@@ -37,3 +37,4 @@ export * from './carbon.js';
 export * from './octt.js';
 export * from './audit.js';
 export * from './maintenance.js';
+export * from './attestation.js';

@@ -807,7 +807,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
         ))}
 
       {/* Report Issue */}
-      <ReportIssue stationName={station.stationId} />
+      <ReportIssue stationId={station.stationId} stationName={station.stationId} />
 
       {/* EV not detected warning -- informational only. Cable must be in
           before charging can start; the simulator hard-rejects RemoteStart

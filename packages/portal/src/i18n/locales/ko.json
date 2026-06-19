@@ -428,6 +428,7 @@
     "reportIssue": "문제 신고",
     "submitCase": "문의 제출",
     "linkedSession": "연결된 세션",
+    "linkedStation": "연결된 충전소",
     "caseCreated": "문의가 성공적으로 생성되었습니다",
     "sendFailed": "메시지를 보내지 못했습니다. 다시 시도해 주세요.",
     "downloadFailed": "첨부 파일을 다운로드하지 못했습니다. 다시 시도해 주세요.",
@@ -592,6 +593,7 @@
     "PAYMENT_TOP_UP_FAILED": "추가 결제가 거부되었습니다",
     "PERMISSIONS_EXCEED_OWN": "API 키 권한은 본인 권한의 부분 집합이어야 합니다",
     "PNC_DISABLED": "Plug & Charge가 사용 중지되었습니다",
+    "ATTESTATION_FAILED": "기기 인증에 실패했습니다. 앱을 업데이트한 후 다시 시도하세요.",
     "PORTAL_REGISTRATION_DISABLED": "운전자 자가 가입이 비활성화되어 있습니다. 초대를 받으려면 운영자에게 문의하세요.",
     "PRE_AUTH_FAILED": "결제 사전 승인에 실패했습니다",
     "PRICING_ASSIGNMENT_NOT_FOUND": "이 항목에 할당된 요금 그룹이 없습니다",
@@ -702,8 +704,7 @@
     "co2Avoided": "CO₂ 절감량",
     "co2AvoidedMessage": "이번 달 {{amount}} kg CO₂를 절감했습니다",
     "miles": "마일",
-    "km": "km",
-    "noChargingThisMonth": "이번 달 충전 세션이 없습니다."
+    "km": "km"
   },
   "statement": {
     "title": "월간 명세서",

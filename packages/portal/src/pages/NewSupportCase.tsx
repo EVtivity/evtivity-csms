@@ -27,6 +27,7 @@ export function NewSupportCase(): React.JSX.Element {
   const [searchParams] = useSearchParams();
 
   const sessionId = searchParams.get('sessionId') ?? undefined;
+  const stationId = searchParams.get('stationId') ?? undefined;
   const stationName = searchParams.get('stationName') ?? undefined;
 
   const [category, setCategory] = useState<string>('general_inquiry');
@@ -60,6 +61,7 @@ export function NewSupportCase(): React.JSX.Element {
     if (Object.keys(errors).length > 0) return;
     const body: Record<string, unknown> = { category, subject, description };
     if (sessionId != null) body.sessionId = sessionId;
+    else if (stationId != null) body.stationId = stationId;
     createMutation.mutate(body);
   }
 
@@ -128,6 +130,12 @@ export function NewSupportCase(): React.JSX.Element {
         {sessionId != null && (
           <p className="text-xs text-muted-foreground">
             {t('supportCases.linkedSession')}: {sessionId}
+          </p>
+        )}
+
+        {sessionId == null && stationId != null && (
+          <p className="text-xs text-muted-foreground">
+            {t('supportCases.linkedStation')}: {stationName ?? stationId}
           </p>
         )}
 
