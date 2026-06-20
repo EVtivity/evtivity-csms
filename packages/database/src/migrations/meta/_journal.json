@@ -603,6 +603,13 @@
       "when": 1781230951110,
       "tag": "0085_seed_ocpi_location_sync_cron",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1781230951111,
+      "tag": "0086_rename_attestation_settings",
+      "breakpoints": true
     }
   ]
 }

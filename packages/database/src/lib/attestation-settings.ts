@@ -23,18 +23,18 @@ function str(map: Map<string, unknown>, key: string): string {
 function parse(rows: { key: string; value: unknown }[]): AttestationConfig {
   const map = new Map<string, unknown>();
   for (const row of rows) map.set(row.key, row.value);
-  const env = str(map, 'attestation.ios.environment');
+  const env = str(map, 'mobile.attestation.ios.environment');
   return {
-    enabled: map.get('attestation.enabled') === true,
+    enabled: map.get('mobile.attestation.enabled') === true,
     ios: {
-      teamId: str(map, 'attestation.ios.teamId'),
-      bundleId: str(map, 'attestation.ios.bundleId'),
+      teamId: str(map, 'mobile.attestation.ios.teamId'),
+      bundleId: str(map, 'mobile.attestation.ios.bundleId'),
       environment: env === 'production' ? 'production' : 'development',
     },
     android: {
-      cloudProjectNumber: str(map, 'attestation.android.cloudProjectNumber'),
-      packageName: str(map, 'attestation.android.packageName'),
-      serviceAccountEnc: str(map, 'attestation.android.serviceAccountEnc'),
+      cloudProjectNumber: str(map, 'mobile.attestation.android.cloudProjectNumber'),
+      packageName: str(map, 'mobile.attestation.android.packageName'),
+      serviceAccountEnc: str(map, 'mobile.attestation.android.serviceAccountEnc'),
     },
   };
 }
@@ -52,7 +52,7 @@ export async function getAttestationConfig(): Promise<AttestationConfig> {
     const rows = await db
       .select({ key: settings.key, value: settings.value })
       .from(settings)
-      .where(like(settings.key, 'attestation.%'));
+      .where(like(settings.key, 'mobile.attestation.%'));
     cache = parse(rows);
     cachedAt = now;
     return cache;

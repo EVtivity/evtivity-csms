@@ -8,7 +8,7 @@ import { verifyAssertion, verifyRegistration } from '../lib/device-attestation/a
 // These cover the fail-closed paths that need no live attestation fixtures: any
 // malformed or forged input must return ok:false, never throw. End-to-end
 // verification against real Apple/Google tokens is exercised manually with a
-// device build before attestation.enabled is flipped on.
+// device build before mobile.attestation.enabled is flipped on.
 
 describe('verifyPlayIntegrity', () => {
   it('returns ok:false on a malformed service account (no network call)', async () => {

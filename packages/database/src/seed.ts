@@ -521,13 +521,13 @@ async function seed(): Promise<void> {
     // on the pre-auth endpoints instead of reCAPTCHA. Disabled by default so the
     // mobile path keeps relying on the endpoint rate limit until an operator
     // configures the platform credentials.
-    'attestation.enabled': false,
-    'attestation.ios.teamId': '',
-    'attestation.ios.bundleId': '',
-    'attestation.ios.environment': 'development',
-    'attestation.android.cloudProjectNumber': '',
-    'attestation.android.packageName': '',
-    'attestation.android.serviceAccountEnc': '',
+    'mobile.attestation.enabled': false,
+    'mobile.attestation.ios.teamId': '',
+    'mobile.attestation.ios.bundleId': '',
+    'mobile.attestation.ios.environment': 'development',
+    'mobile.attestation.android.cloudProjectNumber': '',
+    'mobile.attestation.android.packageName': '',
+    'mobile.attestation.android.serviceAccountEnc': '',
     'audit.retentionDays': 1095,
     'refreshTokens.retentionDays': 30,
     // Per-log retention. Worker prunes each table on the daily cron; set 0 to
@@ -610,7 +610,7 @@ async function seed(): Promise<void> {
     'twilio.authToken': 'twilio.authTokenEnc',
     'ftp.password': 'ftp.passwordEnc',
     'googleMaps.apiKey': 'googleMaps.apiKeyEnc',
-    'attestation.android.serviceAccount': 'attestation.android.serviceAccountEnc',
+    'mobile.attestation.android.serviceAccount': 'mobile.attestation.android.serviceAccountEnc',
   };
 
   // Remap config file keys to their Enc DB counterparts
