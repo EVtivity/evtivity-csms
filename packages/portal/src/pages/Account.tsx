@@ -4,13 +4,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Bell, ChevronDown, LogOut, Shield, User } from 'lucide-react';
+import { Bell, ChevronDown, LayoutGrid, LogOut, Shield, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { AccountPersonalInfo } from '@/components/account/AccountPersonalInfo';
 import { AccountSecurity } from '@/components/account/AccountSecurity';
 import { AccountNotificationPrefs } from '@/components/account/AccountNotificationPrefs';
+import { AccountHomeCards } from '@/components/account/AccountHomeCards';
 
 interface SectionProps {
   title: string;
@@ -40,7 +41,7 @@ function Section({ title, icon, open, onToggle, children }: SectionProps): React
   );
 }
 
-type SectionKey = 'personalInfo' | 'security' | 'preferences';
+type SectionKey = 'personalInfo' | 'homeScreen' | 'security' | 'preferences';
 
 export function Account(): React.JSX.Element {
   const { t } = useTranslation();
@@ -74,6 +75,21 @@ export function Account(): React.JSX.Element {
         }}
       >
         <AccountPersonalInfo />
+      </Section>
+
+      <Section
+        title={t('account.homeScreen')}
+        icon={
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-info">
+            <LayoutGrid className="h-3.5 w-3.5 text-info-foreground" />
+          </span>
+        }
+        open={openSection === 'homeScreen'}
+        onToggle={() => {
+          toggle('homeScreen');
+        }}
+      >
+        <AccountHomeCards />
       </Section>
 
       <Section

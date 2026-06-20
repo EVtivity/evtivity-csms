@@ -97,7 +97,8 @@
     "supportCases": "客服支援",
     "recentSessions": "最近的會話",
     "unknownStation": "未知站點",
-    "activeSession": "充電進行中"
+    "activeSession": "充電進行中",
+    "scanQr": "掃描 QR 碼"
   },
   "sessions": {
     "title": "充電會話",
@@ -730,7 +731,8 @@
     "supportCases": "工單",
     "managePayments": "管理支付方式",
     "totalCases": "個工單",
-    "viewAllCases": "查看全部工單"
+    "viewAllCases": "查看全部工單",
+    "homeScreen": "主畫面"
   },
   "rfid": {
     "addCard": "新增RFID卡",
@@ -828,5 +830,20 @@
     "freeCharging": "免費",
     "connectorPort": "端口 {{id}}",
     "activeSessionWarning": "您已有一個活躍的充電會話，無法啟動另一個。"
+  },
+  "homeCards": {
+    "hint": "選擇要顯示在主畫面上的捷徑及其順序。可設定 2 到 4 個。",
+    "onHome": "在你的主畫面上",
+    "available": "可用",
+    "reorder": "重新排序{{card}}",
+    "remove": "移除{{card}}",
+    "add": "新增{{card}}"
+  },
+  "scanQr": {
+    "title": "掃描 QR 碼",
+    "instruction": "將相機對準充電樁上的 QR 碼即可開始。",
+    "permissionDenied": "相機存取已被封鎖。請在瀏覽器設定中啟用相機權限以進行掃描。",
+    "noCamera": "在此裝置上找不到相機。",
+    "searchInstead": "改為搜尋充電樁"
   }
 }

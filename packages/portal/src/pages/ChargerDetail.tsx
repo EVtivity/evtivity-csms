@@ -36,7 +36,7 @@ import { cn, formatDate } from '@/lib/utils';
 import {
   connectorStatusVariant,
   connectorStatusClassName,
-  isStartable,
+  isEvseSelectable,
 } from '@/lib/connector-status';
 import { formatConnectorType } from '@/lib/charger-utils';
 import { useStationEvents } from '@/hooks/use-station-events';
@@ -367,6 +367,24 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
     );
   }
 
+  // Auto-select the connector when exactly one is selectable, so a single-
+  // connector station is ready to start or reserve without a tap. Runs only
+  // while nothing is selected, so it never overrides a manual pick or the
+  // QR-scanned evse param.
+  if (selectedEvseId == null) {
+    const selectable = station.evses.filter((evse) =>
+      isEvseSelectable(evse, {
+        mode,
+        isOnline: station.isOnline,
+        maintenanceActive: station.maintenance?.active === true,
+        currentDriverId,
+      }),
+    );
+    if (selectable.length === 1 && selectable[0] != null) {
+      setSelectedEvseId(selectable[0].evseId);
+    }
+  }
+
   // Charge-mode payment + start gating only -- reserve mode never needs
   // payment-method selection or active-session checks.
   const showPaymentSection =
@@ -529,27 +547,12 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
         <div className={`grid gap-3 ${station.evses.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
           {station.evses.map((evse) => {
             const connectorStatus = evse.connectors[0]?.status ?? 'unavailable';
-            // Reservation gate: an EVSE with any active reservation is
-            // startable ONLY by the holder. Connector status flips to
-            // `preparing`/`occupied`/`ev_connected` the moment the holder
-            // plugs in, all of which are startable -- without this gate any
-            // other driver could start a session against the holder&#39;s plug.
-            const reservedByOther =
-              evse.reservationDriverId != null && evse.reservationDriverId !== currentDriverId;
-            const reservedForMe =
-              evse.reservationDriverId != null && evse.reservationDriverId === currentDriverId;
-            // Reserve mode: any online connector that doesn't already have an
-            // active reservation is selectable for a future-window reservation
-            // (the backend's time-overlap check will reject a true conflict).
-            // Charge mode keeps the existing startable + reserved-for-me gate.
-            const maintenanceBlocks = station.maintenance?.active === true;
-            const isAvailable =
-              !maintenanceBlocks &&
-              (mode === 'reserve'
-                ? station.isOnline && evse.reservationDriverId == null
-                : station.isOnline &&
-                  !reservedByOther &&
-                  (isStartable(connectorStatus) || reservedForMe));
+            const isAvailable = isEvseSelectable(evse, {
+              mode,
+              isOnline: station.isOnline,
+              maintenanceActive: station.maintenance?.active === true,
+              currentDriverId,
+            });
             const isSelected = selectedEvseId === evse.evseId;
 
             const connectorTypes = [

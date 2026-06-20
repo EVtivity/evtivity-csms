@@ -97,7 +97,8 @@
     "supportCases": "客服支持",
     "recentSessions": "最近的会话",
     "unknownStation": "未知站点",
-    "activeSession": "充电进行中"
+    "activeSession": "充电进行中",
+    "scanQr": "扫描二维码"
   },
   "sessions": {
     "title": "充电会话",
@@ -730,7 +731,8 @@
     "supportCases": "工单",
     "managePayments": "管理支付方式",
     "totalCases": "个工单",
-    "viewAllCases": "查看全部工单"
+    "viewAllCases": "查看全部工单",
+    "homeScreen": "主屏幕"
   },
   "rfid": {
     "addCard": "添加RFID卡",
@@ -828,5 +830,20 @@
     "freeCharging": "免费",
     "connectorPort": "端口 {{id}}",
     "activeSessionWarning": "您已有一个活跃的充电会话，无法启动另一个。"
+  },
+  "homeCards": {
+    "hint": "选择主屏幕上显示的快捷方式及其顺序。可设置 2 到 4 个。",
+    "onHome": "在你的主屏幕上",
+    "available": "可用",
+    "reorder": "重新排序{{card}}",
+    "remove": "移除{{card}}",
+    "add": "添加{{card}}"
+  },
+  "scanQr": {
+    "title": "扫描二维码",
+    "instruction": "将摄像头对准充电桩上的二维码即可开始。",
+    "permissionDenied": "摄像头访问被阻止。请在浏览器设置中启用摄像头权限以进行扫描。",
+    "noCamera": "在此设备上未找到摄像头。",
+    "searchInstead": "改为搜索充电桩"
   }
 }

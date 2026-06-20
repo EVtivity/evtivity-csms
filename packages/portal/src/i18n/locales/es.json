@@ -97,7 +97,8 @@
     "supportCases": "Soporte",
     "recentSessions": "Sesiones recientes",
     "unknownStation": "Estacion desconocida",
-    "activeSession": "Carga en curso"
+    "activeSession": "Carga en curso",
+    "scanQr": "Escanear código QR"
   },
   "sessions": {
     "title": "Sesiones de carga",
@@ -730,7 +731,8 @@
     "supportCases": "Casos de Soporte",
     "managePayments": "Administrar metodos de pago",
     "totalCases": "casos totales",
-    "viewAllCases": "Ver todos los casos"
+    "viewAllCases": "Ver todos los casos",
+    "homeScreen": "Pantalla de inicio"
   },
   "rfid": {
     "addCard": "Agregar tarjeta RFID",
@@ -828,5 +830,20 @@
     "freeCharging": "Gratis",
     "connectorPort": "Puerto {{id}}",
     "activeSessionWarning": "Ya tienes una sesion activa. No puedes iniciar otra."
+  },
+  "homeCards": {
+    "hint": "Elige qué accesos directos aparecen en tu pantalla de inicio y en qué orden. Puedes tener de 2 a 4.",
+    "onHome": "En tu pantalla de inicio",
+    "available": "Disponibles",
+    "reorder": "Reordenar {{card}}",
+    "remove": "Quitar {{card}}",
+    "add": "Agregar {{card}}"
+  },
+  "scanQr": {
+    "title": "Escanear código QR",
+    "instruction": "Apunta la cámara al código QR del cargador para empezar.",
+    "permissionDenied": "El acceso a la cámara está bloqueado. Habilita el permiso de cámara en la configuración de tu navegador para escanear.",
+    "noCamera": "No se encontró ninguna cámara en este dispositivo.",
+    "searchInstead": "Buscar un cargador en su lugar"
   }
 }

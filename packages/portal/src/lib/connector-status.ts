@@ -17,6 +17,35 @@ export function isStartable(status: string | null | undefined): boolean {
   return status != null && STARTABLE_STATUSES.includes(status);
 }
 
+export interface SelectableEvse {
+  connectors: { status: string | null }[];
+  reservationDriverId: string | null;
+}
+
+// Whether the driver can act on an EVSE in the current mode. Charge mode: online,
+// a startable connector, and not reserved by another driver (a reservation flips
+// the connector to a startable status the moment the holder plugs in, so without
+// the reserved-by-other gate any driver could start against the holder's plug).
+// Reserve mode: online and not already reserved.
+export function isEvseSelectable(
+  evse: SelectableEvse,
+  opts: {
+    mode: 'charge' | 'reserve';
+    isOnline: boolean;
+    maintenanceActive: boolean;
+    currentDriverId: string | null;
+  },
+): boolean {
+  if (opts.maintenanceActive || !opts.isOnline) return false;
+  if (opts.mode === 'reserve') return evse.reservationDriverId == null;
+  const connectorStatus = evse.connectors[0]?.status ?? 'unavailable';
+  const reservedByOther =
+    evse.reservationDriverId != null && evse.reservationDriverId !== opts.currentDriverId;
+  const reservedForMe =
+    evse.reservationDriverId != null && evse.reservationDriverId === opts.currentDriverId;
+  return !reservedByOther && (isStartable(connectorStatus) || reservedForMe);
+}
+
 export function connectorStatusVariant(): 'secondary' {
   return 'secondary';
 }

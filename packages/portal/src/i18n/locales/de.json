@@ -97,7 +97,8 @@
     "supportCases": "Support",
     "recentSessions": "Aktuelle Vorgänge",
     "unknownStation": "Unbekannte Station",
-    "activeSession": "Ladevorgang läuft"
+    "activeSession": "Ladevorgang läuft",
+    "scanQr": "QR-Code scannen"
   },
   "sessions": {
     "title": "Ladevorgänge",
@@ -726,7 +727,8 @@
     "supportCases": "Supportfälle",
     "managePayments": "Zahlungsmethoden verwalten",
     "totalCases": "Fälle insgesamt",
-    "viewAllCases": "Alle Fälle anzeigen"
+    "viewAllCases": "Alle Fälle anzeigen",
+    "homeScreen": "Startbildschirm"
   },
   "rfid": {
     "addCard": "RFID-Karte hinzufügen",
@@ -824,5 +826,20 @@
     "freeCharging": "Kostenlos",
     "connectorPort": "Anschluss {{id}}",
     "activeSessionWarning": "Du hast bereits einen aktiven Vorgang. Du kannst keinen weiteren starten."
+  },
+  "homeCards": {
+    "hint": "Wähle, welche Verknüpfungen auf deinem Startbildschirm erscheinen und in welcher Reihenfolge. Du kannst 2 bis 4 haben.",
+    "onHome": "Auf deinem Startbildschirm",
+    "available": "Verfügbar",
+    "reorder": "{{card}} neu anordnen",
+    "remove": "{{card}} entfernen",
+    "add": "{{card}} hinzufügen"
+  },
+  "scanQr": {
+    "title": "QR-Code scannen",
+    "instruction": "Richte deine Kamera auf den QR-Code an der Ladestation, um zu beginnen.",
+    "permissionDenied": "Der Kamerazugriff ist blockiert. Aktiviere die Kameraberechtigung in deinen Browsereinstellungen, um zu scannen.",
+    "noCamera": "Auf diesem Gerät wurde keine Kamera gefunden.",
+    "searchInstead": "Stattdessen eine Ladestation suchen"
   }
 }

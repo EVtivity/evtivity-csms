@@ -51,6 +51,7 @@ const GuestSession = lazy(() =>
 const ChargerSearch = lazy(() =>
   import('@/pages/ChargerSearch').then((m) => ({ default: m.ChargerSearch })),
 );
+const ScanQr = lazy(() => import('@/pages/ScanQr').then((m) => ({ default: m.ScanQr })));
 const ChargerDetail = lazy(() =>
   import('@/pages/ChargerDetail').then((m) => ({ default: m.ChargerDetail })),
 );
@@ -165,6 +166,7 @@ export function App(): React.JSX.Element {
                   <Route path="profile" element={<Profile />} />
                   <Route path="start" element={<ChargerSearch />} />
                   <Route path="start/:stationId" element={<ChargerDetail />} />
+                  <Route path="scan" element={<ScanQr />} />
                   <Route path="*" element={<NotFound />} />
                 </Route>
               </Route>

@@ -97,7 +97,8 @@
     "supportCases": "Support",
     "recentSessions": "Recent sessions",
     "unknownStation": "Unknown station",
-    "activeSession": "Charging in progress"
+    "activeSession": "Charging in progress",
+    "scanQr": "Scan QR Code"
   },
   "sessions": {
     "title": "Charging sessions",
@@ -730,7 +731,8 @@
     "supportCases": "Support Cases",
     "managePayments": "Manage payment methods",
     "totalCases": "total cases",
-    "viewAllCases": "View all cases"
+    "viewAllCases": "View all cases",
+    "homeScreen": "Home Screen"
   },
   "rfid": {
     "addCard": "Add RFID Card",
@@ -828,5 +830,20 @@
     "freeCharging": "Free",
     "connectorPort": "Port {{id}}",
     "activeSessionWarning": "You already have an active session. You cannot start another one."
+  },
+  "homeCards": {
+    "hint": "Choose which shortcuts appear on your home screen and the order they show in. You can have 2 to 4.",
+    "onHome": "On your home screen",
+    "available": "Available",
+    "reorder": "Reorder {{card}}",
+    "remove": "Remove {{card}}",
+    "add": "Add {{card}}"
+  },
+  "scanQr": {
+    "title": "Scan QR Code",
+    "instruction": "Point your camera at the QR code on the charger to start.",
+    "permissionDenied": "Camera access is blocked. Enable camera permission in your browser settings to scan.",
+    "noCamera": "No camera was found on this device.",
+    "searchInstead": "Search for a charger instead"
   }
 }

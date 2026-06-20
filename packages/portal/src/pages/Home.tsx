@@ -5,12 +5,14 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { LucideIcon } from 'lucide-react';
-import { Zap, CreditCard, Wifi, Car, HelpCircle } from 'lucide-react';
+import { Zap } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { formatCents, formatEnergy, formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
+import { useHomeCards } from '@/lib/home-cards-store';
+import { HOME_CARDS, type HomeCardId } from '@/lib/home-cards';
 
 interface Session {
   id: string;
@@ -97,6 +99,14 @@ export function Home(): React.JSX.Element {
   });
   const supportEnabled = features?.supportEnabled ?? true;
 
+  // Driver-chosen quick-action cards. Drop Support when the operator has it off,
+  // then pad three cards with a placeholder so the 2x2 grid keeps its shape; two
+  // cards render as a single row and Recent sessions moves up beneath them.
+  const homeCards = useHomeCards((s) => s.cards);
+  const visibleCards = homeCards.filter((id) => id !== 'support' || supportEnabled);
+  const cardSlots: (HomeCardId | null)[] =
+    visibleCards.length === 3 ? [...visibleCards, null] : visibleCards;
+
   return (
     <div className="space-y-6">
       <div>
@@ -132,11 +142,21 @@ export function Home(): React.JSX.Element {
 
       {/* Quick actions */}
       <div className="grid grid-cols-2 gap-3">
-        <QuickActionCard to="/payment-methods" icon={CreditCard} label={t('home.paymentMethods')} />
-        <QuickActionCard to="/rfid-cards" icon={Wifi} label={t('home.rfidCards')} />
-        <QuickActionCard to="/vehicles" icon={Car} label={t('home.vehicles')} />
-        {supportEnabled && (
-          <QuickActionCard to="/support" icon={HelpCircle} label={t('home.supportCases')} />
+        {cardSlots.map((id, i) =>
+          id == null ? (
+            <div
+              key={`home-card-placeholder-${String(i)}`}
+              aria-hidden="true"
+              className="rounded-lg border border-dashed border-border bg-muted/30"
+            />
+          ) : (
+            <QuickActionCard
+              key={id}
+              to={HOME_CARDS[id].to}
+              icon={HOME_CARDS[id].icon}
+              label={t(HOME_CARDS[id].labelKey)}
+            />
+          ),
         )}
       </div>
 
