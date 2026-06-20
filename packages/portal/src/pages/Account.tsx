@@ -1,57 +1,59 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Bell, ChevronDown, LayoutGrid, LogOut, Shield, User } from 'lucide-react';
+import {
+  User,
+  ShieldCheck,
+  BellRing,
+  LayoutGrid,
+  CreditCard,
+  Nfc,
+  Car,
+  Star,
+  LifeBuoy,
+  ChevronRight,
+  LogOut,
+} from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
-import { AccountPersonalInfo } from '@/components/account/AccountPersonalInfo';
-import { AccountSecurity } from '@/components/account/AccountSecurity';
-import { AccountNotificationPrefs } from '@/components/account/AccountNotificationPrefs';
-import { AccountHomeCards } from '@/components/account/AccountHomeCards';
 
-interface SectionProps {
+interface RowProps {
+  icon: React.ReactNode;
   title: string;
-  icon?: React.ReactNode;
-  open: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
+  to: string;
+  divider?: boolean;
 }
 
-function Section({ title, icon, open, onToggle, children }: SectionProps): React.JSX.Element {
+function Row({ icon, title, to, divider }: RowProps): React.JSX.Element {
+  const navigate = useNavigate();
+
   return (
-    <div className="border-b">
-      <button
-        onClick={onToggle}
-        className="flex w-full items-center justify-between min-h-12 py-3 text-left"
-      >
-        <span className="flex items-center gap-2.5 text-sm font-semibold">
-          {icon}
-          {title}
-        </span>
-        <ChevronDown
-          className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')}
-        />
-      </button>
-      {open && <div className="pb-4">{children}</div>}
-    </div>
+    <button
+      type="button"
+      onClick={() => {
+        void navigate(to);
+      }}
+      className={`flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-accent ${
+        divider ? 'border-t border-border' : ''
+      }`}
+    >
+      <span className="text-muted-foreground">{icon}</span>
+      <span className="flex-1 text-sm font-medium">{title}</span>
+      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+    </button>
   );
 }
-
-type SectionKey = 'personalInfo' | 'homeScreen' | 'security' | 'preferences';
 
 export function Account(): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const driver = useAuth((s) => s.driver);
   const logout = useAuth((s) => s.logout);
-  const [openSection, setOpenSection] = useState<SectionKey | null>('personalInfo');
 
-  function toggle(key: SectionKey): void {
-    setOpenSection((prev) => (prev === key ? null : key));
-  }
+  const fullName = driver != null ? `${driver.firstName} ${driver.lastName}`.trim() : '';
 
   function handleLogout(): void {
     void logout();
@@ -60,74 +62,71 @@ export function Account(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">{t('account.title')}</h1>
-
-      <Section
-        title={t('account.personalInfo')}
-        icon={
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary">
-            <User className="h-3.5 w-3.5 text-primary-foreground" />
-          </span>
-        }
-        open={openSection === 'personalInfo'}
-        onToggle={() => {
-          toggle('personalInfo');
-        }}
-      >
-        <AccountPersonalInfo />
-      </Section>
-
-      <Section
-        title={t('account.homeScreen')}
-        icon={
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-info">
-            <LayoutGrid className="h-3.5 w-3.5 text-info-foreground" />
-          </span>
-        }
-        open={openSection === 'homeScreen'}
-        onToggle={() => {
-          toggle('homeScreen');
-        }}
-      >
-        <AccountHomeCards />
-      </Section>
-
-      <Section
-        title={t('account.security')}
-        icon={
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-success">
-            <Shield className="h-3.5 w-3.5 text-success-foreground" />
-          </span>
-        }
-        open={openSection === 'security'}
-        onToggle={() => {
-          toggle('security');
-        }}
-      >
-        <AccountSecurity />
-      </Section>
-
-      <Section
-        title={t('account.preferences')}
-        icon={
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-warning">
-            <Bell className="h-3.5 w-3.5 text-warning-foreground" />
-          </span>
-        }
-        open={openSection === 'preferences'}
-        onToggle={() => {
-          toggle('preferences');
-        }}
-      >
-        <AccountNotificationPrefs />
-      </Section>
-
-      <div className="pt-4">
-        <Button variant="outline" size="lg" className="w-full" onClick={handleLogout}>
-          <LogOut className="mr-2 h-4 w-4" />
-          {t('profile.signOut')}
-        </Button>
+      <div>
+        <h1 className="text-xl font-bold">{fullName.length > 0 ? fullName : t('account.title')}</h1>
+        {driver?.email != null && <p className="text-sm text-muted-foreground">{driver.email}</p>}
       </div>
+
+      <Card className="overflow-hidden p-0">
+        <Row
+          icon={<User className="h-5 w-5" />}
+          title={t('account.personalInfo')}
+          to="/account/personal"
+        />
+        <Row
+          icon={<ShieldCheck className="h-5 w-5" />}
+          title={t('account.security')}
+          to="/account/security"
+          divider
+        />
+        <Row
+          icon={<BellRing className="h-5 w-5" />}
+          title={t('account.notificationPrefs')}
+          to="/account/notifications"
+          divider
+        />
+        <Row
+          icon={<LayoutGrid className="h-5 w-5" />}
+          title={t('account.homeScreen')}
+          to="/account/home-cards"
+          divider
+        />
+      </Card>
+
+      <Card className="overflow-hidden p-0">
+        <Row
+          icon={<CreditCard className="h-5 w-5" />}
+          title={t('account.paymentMethods')}
+          to="/payment-methods"
+        />
+        <Row
+          icon={<Nfc className="h-5 w-5" />}
+          title={t('account.rfidCards')}
+          to="/rfid-cards"
+          divider
+        />
+        <Row
+          icon={<Car className="h-5 w-5" />}
+          title={t('account.vehicles')}
+          to="/vehicles"
+          divider
+        />
+      </Card>
+
+      <Card className="overflow-hidden p-0">
+        <Row icon={<Star className="h-5 w-5" />} title={t('favorites.title')} to="/favorites" />
+        <Row
+          icon={<LifeBuoy className="h-5 w-5" />}
+          title={t('account.supportCases')}
+          to="/support"
+          divider
+        />
+      </Card>
+
+      <Button variant="outline" size="lg" className="w-full" onClick={handleLogout}>
+        <LogOut className="mr-2 h-4 w-4" />
+        {t('profile.signOut')}
+      </Button>
     </div>
   );
 }

@@ -215,15 +215,23 @@ export class OcpiClient {
     }
   }
 
-  async getPaginated<T>(url: string, correlationId?: string): Promise<T[]> {
-    const results: T[] = [];
+  /**
+   * Walk an OCPI paginated collection, handing each page to `onPage` as it
+   * arrives instead of buffering the whole dataset. Bounds memory for large
+   * partner catalogs: a caller that flushes each page to the DB never holds
+   * more than one page at a time.
+   */
+  async getPaginatedEach(
+    url: string,
+    onPage: (page: unknown[]) => Promise<void>,
+    correlationId?: string,
+  ): Promise<void> {
     let nextUrl: string | null = url;
     // A misbehaving partner endpoint that echoes the same pagination URL in
-    // rel="next" would otherwise spin forever and exhaust memory; the
-    // visited set caps each pull at one trip through each unique URL.
-    // The hard page cap is the second line of defense for the case where
-    // a partner is paginating correctly but the dataset is unreasonably
-    // large (e.g., a buggy partner exporting a tariff per location).
+    // rel="next" would otherwise spin forever; the visited set caps each pull
+    // at one trip through each unique URL. The hard page cap is the second line
+    // of defense for a partner that paginates correctly but returns an
+    // unreasonably large dataset.
     const visited = new Set<string>();
     const MAX_PAGES = 1000;
     let pageCount = 0;
@@ -244,16 +252,27 @@ export class OcpiClient {
       });
 
       const text = await response.text();
-      const parsed = JSON.parse(text) as OcpiResponseEnvelope<T[]>;
+      const parsed = JSON.parse(text) as OcpiResponseEnvelope<unknown[]>;
 
-      if (Array.isArray(parsed.data)) {
-        results.push(...parsed.data);
+      if (Array.isArray(parsed.data) && parsed.data.length > 0) {
+        await onPage(parsed.data);
       }
 
       const linkHeader = response.headers.get('Link');
       nextUrl = parseLinkHeader(linkHeader);
     }
+  }
 
+  async getPaginated<T>(url: string, correlationId?: string): Promise<T[]> {
+    const results: T[] = [];
+    await this.getPaginatedEach(
+      url,
+      (page) => {
+        results.push(...(page as T[]));
+        return Promise.resolve();
+      },
+      correlationId,
+    );
     return results;
   }
 }

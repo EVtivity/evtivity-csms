@@ -15,13 +15,16 @@
     "dismiss": "Schließen",
     "confirm": "Bestätigen",
     "ok": "OK",
-    "offline": "Du bist offline. Einige Funktionen sind möglicherweise nicht verfügbar."
+    "offline": "Du bist offline. Einige Funktionen sind möglicherweise nicht verfügbar.",
+    "add": "Hinzufügen",
+    "deactivate": "Deaktivieren",
+    "remove": "Entfernen"
   },
   "nav": {
     "home": "Startseite",
     "sessions": "Vorgänge",
     "charge": "Laden",
-    "reservations": "Reservierungen",
+    "reservations": "Reservieren",
     "payment": "Zahlung",
     "support": "Support",
     "profile": "Profil",
@@ -364,7 +367,7 @@
     "stopFailed": "Vorgang konnte nicht beendet werden."
   },
   "reservations": {
-    "title": "Reservierungen",
+    "title": "Reservieren",
     "station": "Station",
     "create": "Reservieren",
     "cancel": "Abbrechen",
@@ -400,7 +403,9 @@
     "paymentMethodRequired": "Eine Zahlungsmethode ist erforderlich, um eine Reservierung zu erstellen.",
     "cancellationFeeWarning": "Eine Stornogebühr von {{fee}} wird Ihrer Standard-Zahlungsmethode belastet.",
     "cancellationPolicy": "Stornierungsbedingungen",
-    "cancellationPolicyText": "Bei Stornierung innerhalb von {{minutes}} Minuten vor der Startzeit wird eine Stornogebühr von {{fee}} erhoben."
+    "cancellationPolicyText": "Bei Stornierung innerhalb von {{minutes}} Minuten vor der Startzeit wird eine Stornogebühr von {{fee}} erhoben.",
+    "upcoming": "Anstehend",
+    "past": "Vergangen"
   },
   "reservationDetail": {
     "title": "Reservierung",
@@ -682,7 +687,10 @@
     "MAINTENANCE_ALREADY_ACTIVE": "Wartungsereignis ist bereits aktiv",
     "MAINTENANCE_ACTIVE": "Der Standort befindet sich derzeit in Wartung",
     "RESERVATION_DURING_MAINTENANCE": "Reservierung fällt in ein geplantes Wartungsfenster",
-    "ELECTRICITY_RATE_NOT_FOUND": "Stromtarif nicht gefunden"
+    "ELECTRICITY_RATE_NOT_FOUND": "Stromtarif nicht gefunden",
+    "STATION_ALREADY_AVAILABLE": "Die Ladestation hat bereits einen verfügbaren Anschluss",
+    "TOO_MANY_WATCHES": "Sie beobachten zu viele Ladestationen",
+    "STATION_WATCH_NOT_FOUND": "Beobachtung nicht gefunden"
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",
@@ -733,26 +741,14 @@
   "rfid": {
     "addCard": "RFID-Karte hinzufügen",
     "cardNumber": "Kartennummer",
-    "active": "Aktiv",
-    "inactive": "Inaktiv",
     "noCards": "Keine RFID-Karten registriert.",
-    "cardAdded": "RFID-Karte hinzugefügt.",
     "duplicate": "Diese Karte ist bereits registriert.",
     "addFailed": "Karte konnte nicht hinzugefügt werden.",
-    "confirmActivateTitle": "RFID-Karte aktivieren",
-    "confirmActivateDescription": "Möchtest du diese RFID-Karte wirklich aktivieren?",
     "confirmDeactivateTitle": "RFID-Karte deaktivieren",
     "confirmDeactivateDescription": "Möchtest du diese RFID-Karte wirklich deaktivieren? Sie funktioniert dann nicht mehr an Ladestationen.",
     "removeCard": "Entfernen",
-    "cardRemoved": "RFID-Karte deaktiviert.",
-    "cardReactivated": "RFID-Karte reaktiviert.",
-    "removeFailed": "Karte konnte nicht entfernt werden.",
-    "confirmRemoveTitle": "RFID-Karte entfernen",
-    "confirmRemoveDescription": "Möchtest du diese RFID-Karte wirklich entfernen? Diese Aktion kann nicht rückgängig gemacht werden.",
-    "confirmRemoveSoftDeleteDescription": "Diese RFID-Karte wird deaktiviert und autorisiert keine Ladevorgänge mehr. Deine bisherigen Sitzungen bleiben erhalten.",
     "reactivateCard": "RFID-Karte reaktivieren",
-    "tokenType": "Token-Typ",
-    "inactiveBadge": "Inaktiv"
+    "tokenType": "Token-Typ"
   },
   "vehicles": {
     "addVehicle": "Fahrzeug hinzufügen",
@@ -840,6 +836,20 @@
     "instruction": "Richte deine Kamera auf den QR-Code an der Ladestation, um zu beginnen.",
     "permissionDenied": "Der Kamerazugriff ist blockiert. Aktiviere die Kameraberechtigung in deinen Browsereinstellungen, um zu scannen.",
     "noCamera": "Auf diesem Gerät wurde keine Kamera gefunden.",
-    "searchInstead": "Stattdessen eine Ladestation suchen"
+    "searchInstead": "Stattdessen eine Ladestation suchen",
+    "insecureContext": "Live-Scannen mit der Kamera erfordert eine sichere (HTTPS) Verbindung. Mache stattdessen ein Foto zum Scannen.",
+    "scanPhoto": "Aus einem Foto scannen",
+    "noQrFound": "In diesem Foto wurde kein QR-Code gefunden. Versuche es erneut."
+  },
+  "watch": {
+    "notifyWhenFree": "Benachrichtigen wenn frei",
+    "watching": "Nicht mehr beobachten",
+    "added": "Sie werden benachrichtigt, wenn diese Ladestation frei ist.",
+    "removed": "Beobachtung entfernt.",
+    "addFailed": "Diese Ladestation konnte nicht beobachtet werden.",
+    "title": "Beobachtet",
+    "empty": "Sie beobachten keine Ladestationen.",
+    "removeTitle": "Nicht mehr beobachten",
+    "removeMessage": "Du wirst nicht mehr benachrichtigt, wenn diese Station frei ist."
   }
 }

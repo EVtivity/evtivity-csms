@@ -2312,7 +2312,10 @@
     "MAINTENANCE_ALREADY_ACTIVE": "El evento de mantenimiento ya está activo",
     "MAINTENANCE_ACTIVE": "El sitio está actualmente en mantenimiento",
     "RESERVATION_DURING_MAINTENANCE": "La reserva cae dentro de una ventana de mantenimiento programado",
-    "ELECTRICITY_RATE_NOT_FOUND": "Tarifa de electricidad no encontrada"
+    "ELECTRICITY_RATE_NOT_FOUND": "Tarifa de electricidad no encontrada",
+    "STATION_ALREADY_AVAILABLE": "La estacion ya tiene un conector disponible",
+    "TOO_MANY_WATCHES": "Estas vigilando demasiadas estaciones",
+    "STATION_WATCH_NOT_FOUND": "Vigilancia no encontrada"
   },
   "logs": {
     "title": "Registros",

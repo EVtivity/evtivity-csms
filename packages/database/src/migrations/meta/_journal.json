@@ -589,6 +589,20 @@
       "when": 1781230951108,
       "tag": "0083_seed_attestation_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1781230951109,
+      "tag": "0084_station_watches",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1781230951110,
+      "tag": "0085_seed_ocpi_location_sync_cron",
+      "breakpoints": true
     }
   ]
 }

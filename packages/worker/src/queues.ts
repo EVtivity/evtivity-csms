@@ -11,6 +11,7 @@ export const QUEUE_NAMES = {
   RESERVATIONS: 'reservations',
   OCTT: 'octt',
   MAINTENANCE_FANOUT: 'maintenance-fanout',
+  STATION_WATCH: 'station-watch',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -27,6 +28,7 @@ export function createQueues(redisUrl: string): {
   reservationQueue: Queue;
   octtQueue: Queue;
   maintenanceFanoutQueue: Queue;
+  stationWatchQueue: Queue;
 } {
   // Each queue needs its own connection for BullMQ blocking commands
   return {
@@ -74,6 +76,18 @@ export function createQueues(redisUrl: string): {
     // a partial failure would double-count. A failed job is logged and left for
     // the maintenance-scheduler cron or an operator re-save to re-trigger.
     maintenanceFanoutQueue: new Queue(QUEUE_NAMES.MAINTENANCE_FANOUT, {
+      connection: createBullMQConnection(redisUrl),
+      defaultJobOptions: {
+        removeOnComplete: 100,
+        removeOnFail: { count: 500 },
+        attempts: 1,
+      },
+    }),
+    // attempts: 1 — the dispatch claims watches via DELETE ... RETURNING, so a
+    // retry after a partial failure would find the rows already gone (no resend)
+    // but could re-claim watches added in between. One attempt keeps it simple
+    // and one-shot.
+    stationWatchQueue: new Queue(QUEUE_NAMES.STATION_WATCH, {
       connection: createBullMQConnection(redisUrl),
       defaultJobOptions: {
         removeOnComplete: 100,

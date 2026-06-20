@@ -25,7 +25,9 @@ import { auditRetentionPruneHandler } from './handlers/audit-retention-prune.js'
 import { logRetentionPruneHandler } from './handlers/log-retention-prune.js';
 import { mfaChallengePruneHandler } from './handlers/mfa-challenge-prune.js';
 import { refreshTokenPruneHandler } from './handlers/refresh-token-prune.js';
+import { stationWatchPruneHandler } from './handlers/station-watch-prune.js';
 import { maintenanceSchedulerHandler } from './handlers/maintenance-scheduler.js';
+import { ocpiLocationSyncHandler } from './handlers/ocpi-location-sync.js';
 
 const log = createLogger('cron-worker');
 
@@ -51,7 +53,9 @@ const JOB_HANDLERS = new Map<string, JobHandlerFn>([
   ['log-retention-prune', logRetentionPruneHandler],
   ['mfa-challenge-prune', mfaChallengePruneHandler],
   ['refresh-token-prune', refreshTokenPruneHandler],
+  ['station-watch-prune', stationWatchPruneHandler],
   ['maintenance-scheduler', maintenanceSchedulerHandler],
+  ['ocpi-location-sync', ocpiLocationSyncHandler],
 ]);
 
 export function createCronWorker(connection: ConnectionOptions): Worker {

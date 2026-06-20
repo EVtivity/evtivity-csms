@@ -256,6 +256,32 @@ export const driverFavoriteStations = pgTable(
   ],
 );
 
+export const stationWatches = pgTable(
+  'station_watches',
+  {
+    id: serial('id').primaryKey(),
+    driverId: text('driver_id')
+      .notNull()
+      .references(() => drivers.id, { onDelete: 'cascade' }),
+    stationId: text('station_id')
+      .notNull()
+      .references(() => chargingStations.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    // Unfired watches auto-expire so stale rows do not linger after a driver
+    // forgets about them. The dispatch path filters on expires_at > now().
+    expiresAt: timestamp('expires_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now() + interval '24 hours'`),
+  },
+  (table) => [
+    uniqueIndex('idx_station_watches_unique').on(table.driverId, table.stationId),
+    index('idx_station_watches_driver').on(table.driverId),
+    index('idx_station_watches_station').on(table.stationId),
+    // Supports the cache refresh (expires_at > now()) and the prune cron.
+    index('idx_station_watches_expires').on(table.expiresAt),
+  ],
+);
+
 export const vehicleEfficiencyLookup = pgTable(
   'vehicle_efficiency_lookup',
   {

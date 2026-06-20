@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { loadStripe } from '@stripe/stripe-js/pure';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
-import { CreditCard, Trash2 } from 'lucide-react';
+import { CreditCard, Trash2, Star } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -120,6 +120,11 @@ function AddCardForm({
   );
 }
 
+function formatBrand(brand: string | null): string {
+  if (brand == null || brand.length === 0) return '';
+  return brand.charAt(0).toUpperCase() + brand.slice(1);
+}
+
 export function PaymentMethods(): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -193,6 +198,29 @@ export function PaymentMethods(): React.JSX.Element {
 
       {stripeError !== '' && <p className="text-sm text-destructive">{stripeError}</p>}
 
+      {/* Add entry point sits at the top, matching the mobile app. While the
+          inline Stripe form is open it replaces the button to avoid two
+          simultaneous entry points. */}
+      {showAdd && stripePromise != null ? (
+        <Card>
+          <CardContent className="pt-6">
+            <Elements stripe={stripePromise}>
+              <AddCardForm
+                clientSecret={setupClientSecret}
+                customerId={setupCustomerId}
+                onSuccess={() => {
+                  setShowAdd(false);
+                }}
+              />
+            </Elements>
+          </CardContent>
+        </Card>
+      ) : (
+        <Button className="w-full" onClick={() => void handleShowAdd()}>
+          {t('payments.addCard')}
+        </Button>
+      )}
+
       {isLoading && (
         <div className="space-y-2">
           <Skeleton className="h-16 w-full" />
@@ -208,73 +236,50 @@ export function PaymentMethods(): React.JSX.Element {
       <div className="space-y-2">
         {methods?.map((pm) => (
           <Card key={pm.id}>
-            <CardContent className="flex items-center justify-between p-3">
-              <div className="flex items-center gap-3">
-                <CreditCard className="h-5 w-5 text-muted-foreground" />
-                <p className="text-sm font-medium">
-                  {t('payments.cardEnding', {
-                    brand: pm.cardBrand ?? 'Card',
-                    last4: pm.cardLast4 ?? '****',
-                  })}
-                </p>
+            <CardContent className="space-y-3 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <CreditCard className="h-5 w-5 shrink-0 text-muted-foreground" />
+                  <p className="truncate text-sm font-medium">
+                    {`${formatBrand(pm.cardBrand)} •••• ${pm.cardLast4 ?? '----'}`.trim()}
+                  </p>
+                </div>
+                {pm.isDefault && (
+                  <Badge variant="success" className="shrink-0">
+                    {t('common.default')}
+                  </Badge>
+                )}
               </div>
-              <div className="flex items-center gap-2">
-                {pm.isDefault ? (
-                  <Badge variant="secondary">{t('common.default')}</Badge>
-                ) : (
+              <div className="flex gap-2">
+                {!pm.isDefault && (
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-12"
+                    className="flex-1"
                     onClick={() => {
                       setDefaultMutation.mutate(pm.id);
                     }}
                   >
+                    <Star className="mr-1.5 h-4 w-4" />
                     {t('payments.setAsDefault')}
                   </Button>
                 )}
                 <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-12 w-12"
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
                   onClick={() => {
                     setPendingDeleteId(pm.id);
                   }}
-                  title={t('payments.remove')}
-                  aria-label={t('payments.remove')}
                 >
-                  <Trash2 className="h-4 w-4 text-destructive" />
+                  <Trash2 className="mr-1.5 h-4 w-4 text-destructive" />
+                  {t('payments.remove')}
                 </Button>
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
-
-      {showAdd && stripePromise != null && (
-        <Card>
-          <CardContent className="pt-6">
-            <Elements stripe={stripePromise}>
-              <AddCardForm
-                clientSecret={setupClientSecret}
-                customerId={setupCustomerId}
-                onSuccess={() => {
-                  setShowAdd(false);
-                }}
-              />
-            </Elements>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Action button sits at the bottom so the existing card list and any
-          error/notice render above it. Hidden while the inline add form is
-          open to avoid two simultaneous entry points. */}
-      {!showAdd && (
-        <Button className="w-full" onClick={() => void handleShowAdd()}>
-          {t('payments.addCard')}
-        </Button>
-      )}
 
       <ConfirmDialog
         open={pendingDeleteId != null}

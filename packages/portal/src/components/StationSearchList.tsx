@@ -22,6 +22,8 @@ interface SearchResult {
   model: string | null;
   isOnline: boolean;
   siteName: string | null;
+  siteAddress: string | null;
+  siteCity: string | null;
   evseCount: number;
   availableCount: number;
   connectors: ConnectorSummary[];
@@ -418,6 +420,12 @@ export function StationSearchList({
                     className={`h-2 w-2 rounded-full ${station.isOnline ? 'bg-success' : 'bg-destructive'}`}
                   />
                 </div>
+                {(station.siteAddress != null || station.siteCity != null) && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <MapPin className="h-3 w-3 shrink-0" />
+                    {[station.siteAddress, station.siteCity].filter(Boolean).join(', ')}
+                  </p>
+                )}
                 <ConnectorsRow
                   connectors={station.connectors}
                   availableCount={station.availableCount}

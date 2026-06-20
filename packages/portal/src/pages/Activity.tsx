@@ -193,34 +193,6 @@ export function Activity(): React.JSX.Element {
 
   return (
     <div className="space-y-4 pb-20">
-      {/* Monthly statement banner */}
-      <Card
-        className="cursor-pointer hover:shadow-md transition-shadow"
-        onClick={() => {
-          void navigate(`/activity/statement?month=${monthParam}`);
-        }}
-      >
-        <CardContent className="flex items-center gap-3 p-3">
-          <FileText className="h-5 w-5 text-primary" />
-          <span className="flex-1 text-sm font-medium">{t('activity.monthlyStatement')}</span>
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-        </CardContent>
-      </Card>
-
-      {/* Carbon impact card */}
-      {summary?.totalCo2AvoidedKg != null && summary.totalCo2AvoidedKg > 0 && (
-        <Card>
-          <CardContent className="flex items-center gap-3 p-3">
-            <Leaf className="h-5 w-5 text-success" />
-            <span className="text-sm font-medium text-success">
-              {t('activity.co2AvoidedMessage', {
-                amount: summary.totalCo2AvoidedKg.toFixed(1),
-              })}
-            </span>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Month selector */}
       <div className="flex items-center justify-center gap-4">
         <button
@@ -238,6 +210,25 @@ export function Activity(): React.JSX.Element {
         >
           <ChevronRight className="h-5 w-5" />
         </button>
+      </div>
+
+      {/* Metric tabs */}
+      <div className="flex rounded-lg border">
+        {(['cost', 'energy', 'distance'] as const).map((metric) => (
+          <button
+            key={metric}
+            onClick={() => {
+              setSelectedMetric(metric);
+            }}
+            className={`flex-1 py-2 text-center text-sm font-medium transition-colors ${
+              selectedMetric === metric
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            } ${metric === 'cost' ? 'rounded-l-lg' : ''} ${metric === 'distance' ? 'rounded-r-lg' : ''}`}
+          >
+            {t(`activity.${metric}`)}
+          </button>
+        ))}
       </div>
 
       {/* 6-month trend */}
@@ -293,24 +284,33 @@ export function Activity(): React.JSX.Element {
         </CardContent>
       </Card>
 
-      {/* Metric tabs */}
-      <div className="flex rounded-lg border">
-        {(['cost', 'energy', 'distance'] as const).map((metric) => (
-          <button
-            key={metric}
-            onClick={() => {
-              setSelectedMetric(metric);
-            }}
-            className={`flex-1 py-2 text-center text-sm font-medium transition-colors ${
-              selectedMetric === metric
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            } ${metric === 'cost' ? 'rounded-l-lg' : ''} ${metric === 'distance' ? 'rounded-r-lg' : ''}`}
-          >
-            {t(`activity.${metric}`)}
-          </button>
-        ))}
-      </div>
+      {/* Carbon impact card */}
+      {summary?.totalCo2AvoidedKg != null && summary.totalCo2AvoidedKg > 0 && (
+        <Card>
+          <CardContent className="flex items-center gap-3 p-3">
+            <Leaf className="h-5 w-5 text-success" />
+            <span className="text-sm font-medium text-success">
+              {t('activity.co2AvoidedMessage', {
+                amount: summary.totalCo2AvoidedKg.toFixed(1),
+              })}
+            </span>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Monthly statement banner */}
+      <Card
+        className="cursor-pointer hover:shadow-md transition-shadow"
+        onClick={() => {
+          void navigate(`/activity/statement?month=${monthParam}`);
+        }}
+      >
+        <CardContent className="flex items-center gap-3 p-3">
+          <FileText className="h-5 w-5 text-primary" />
+          <span className="flex-1 text-sm font-medium">{t('activity.monthlyStatement')}</span>
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+        </CardContent>
+      </Card>
 
       {/* Session list */}
       {sessionList.length === 0 && (

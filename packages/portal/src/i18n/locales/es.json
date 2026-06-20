@@ -15,13 +15,16 @@
     "dismiss": "Descartar",
     "confirm": "Confirmar",
     "ok": "OK",
-    "offline": "Estas sin conexion. Algunas funciones pueden no funcionar."
+    "offline": "Estas sin conexion. Algunas funciones pueden no funcionar.",
+    "add": "Añadir",
+    "deactivate": "Desactivar",
+    "remove": "Quitar"
   },
   "nav": {
     "home": "Inicio",
     "sessions": "Sesiones",
     "charge": "Cargar",
-    "reservations": "Reservas",
+    "reservations": "Reservar",
     "payment": "Pago",
     "support": "Soporte",
     "profile": "Perfil",
@@ -368,7 +371,7 @@
     "stopFailed": "Error al detener sesion."
   },
   "reservations": {
-    "title": "Reservas",
+    "title": "Reservar",
     "station": "Estacion",
     "create": "Reservar",
     "cancel": "Cancelar",
@@ -404,7 +407,9 @@
     "paymentMethodRequired": "Se requiere un metodo de pago para crear una reserva.",
     "cancellationFeeWarning": "Se cobrara una tarifa de cancelacion de {{fee}} en tu metodo de pago predeterminado.",
     "cancellationPolicy": "Politica de cancelacion",
-    "cancellationPolicyText": "Si cancelas dentro de los {{minutes}} minutos de la hora de inicio, se cobrara una tarifa de cancelacion de {{fee}}."
+    "cancellationPolicyText": "Si cancelas dentro de los {{minutes}} minutos de la hora de inicio, se cobrara una tarifa de cancelacion de {{fee}}.",
+    "upcoming": "Próximas",
+    "past": "Pasadas"
   },
   "reservationDetail": {
     "title": "Reserva",
@@ -686,7 +691,10 @@
     "MAINTENANCE_ALREADY_ACTIVE": "El evento de mantenimiento ya está activo",
     "MAINTENANCE_ACTIVE": "El sitio está actualmente en mantenimiento",
     "RESERVATION_DURING_MAINTENANCE": "La reserva cae dentro de una ventana de mantenimiento programado",
-    "ELECTRICITY_RATE_NOT_FOUND": "Tarifa de electricidad no encontrada"
+    "ELECTRICITY_RATE_NOT_FOUND": "Tarifa de electricidad no encontrada",
+    "STATION_ALREADY_AVAILABLE": "La estacion ya tiene un conector disponible",
+    "TOO_MANY_WATCHES": "Estas vigilando demasiadas estaciones",
+    "STATION_WATCH_NOT_FOUND": "Vigilancia no encontrada"
   },
   "validation": {
     "required": "Este campo es obligatorio",
@@ -737,26 +745,14 @@
   "rfid": {
     "addCard": "Agregar tarjeta RFID",
     "cardNumber": "Numero de tarjeta",
-    "active": "Activa",
-    "inactive": "Inactiva",
     "noCards": "No hay tarjetas RFID registradas.",
-    "cardAdded": "Tarjeta RFID agregada.",
     "duplicate": "Esta tarjeta ya esta registrada.",
     "addFailed": "Error al agregar tarjeta.",
-    "confirmActivateTitle": "Activar tarjeta RFID",
-    "confirmActivateDescription": "Estas seguro de que deseas activar esta tarjeta RFID?",
     "confirmDeactivateTitle": "Desactivar tarjeta RFID",
     "confirmDeactivateDescription": "Estas seguro de que deseas desactivar esta tarjeta RFID? Ya no funcionara en las estaciones de carga.",
     "removeCard": "Eliminar",
-    "cardRemoved": "Tarjeta RFID desactivada.",
-    "cardReactivated": "Tarjeta RFID reactivada.",
-    "removeFailed": "Error al eliminar tarjeta.",
-    "confirmRemoveTitle": "Eliminar tarjeta RFID",
-    "confirmRemoveDescription": "Estas seguro de que deseas eliminar esta tarjeta RFID? Esta accion no se puede deshacer.",
-    "confirmRemoveSoftDeleteDescription": "Esta tarjeta RFID se desactivara y ya no autorizara la carga. Tus sesiones historicas se conservan.",
     "reactivateCard": "Reactivar tarjeta RFID",
-    "tokenType": "Tipo de token",
-    "inactiveBadge": "Inactiva"
+    "tokenType": "Tipo de token"
   },
   "vehicles": {
     "addVehicle": "Agregar Vehiculo",
@@ -844,6 +840,20 @@
     "instruction": "Apunta la cámara al código QR del cargador para empezar.",
     "permissionDenied": "El acceso a la cámara está bloqueado. Habilita el permiso de cámara en la configuración de tu navegador para escanear.",
     "noCamera": "No se encontró ninguna cámara en este dispositivo.",
-    "searchInstead": "Buscar un cargador en su lugar"
+    "searchInstead": "Buscar un cargador en su lugar",
+    "insecureContext": "El escaneo con cámara en vivo requiere una conexión segura (HTTPS). Toma una foto para escanear.",
+    "scanPhoto": "Escanear desde una foto",
+    "noQrFound": "No se encontró ningún código QR en esa foto. Inténtalo de nuevo."
+  },
+  "watch": {
+    "notifyWhenFree": "Avisarme cuando este libre",
+    "watching": "Dejar de seguir",
+    "added": "Te avisaremos cuando esta estacion este libre.",
+    "removed": "Vigilancia eliminada.",
+    "addFailed": "No se pudo empezar a vigilar esta estacion.",
+    "title": "Vigilando",
+    "empty": "No estas vigilando ninguna estacion.",
+    "removeTitle": "Dejar de seguir",
+    "removeMessage": "Ya no recibiras una notificacion cuando esta estacion este libre."
   }
 }

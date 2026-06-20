@@ -426,6 +426,8 @@ describe('Portal charger routes - handler logic', () => {
             model: 'M1',
             isOnline: true,
             siteName: 'Site A',
+            siteAddress: '500 Congress Ave',
+            siteCity: 'Austin',
             evseCount: 2,
             availableCount: 1,
           },
@@ -435,6 +437,8 @@ describe('Portal charger routes - handler logic', () => {
             model: 'M2',
             isOnline: false,
             siteName: 'Site B',
+            siteAddress: null,
+            siteCity: null,
             evseCount: 1,
             availableCount: 0,
           },
@@ -450,6 +454,8 @@ describe('Portal charger routes - handler logic', () => {
       expect(body).toHaveLength(2);
       expect(body[0].stationId).toBe('CS-001');
       expect(body[0].availableCount).toBe(1);
+      expect(body[0].siteAddress).toBe('500 Congress Ave');
+      expect(body[0].siteCity).toBe('Austin');
       expect(body[0].connectors).toEqual([]);
     });
 

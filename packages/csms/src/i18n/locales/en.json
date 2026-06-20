@@ -2315,7 +2315,10 @@
     "MAINTENANCE_ALREADY_ACTIVE": "Maintenance event is already active",
     "MAINTENANCE_ACTIVE": "Site is currently under maintenance",
     "RESERVATION_DURING_MAINTENANCE": "Reservation falls within a scheduled maintenance window",
-    "ELECTRICITY_RATE_NOT_FOUND": "Electricity rate not found"
+    "ELECTRICITY_RATE_NOT_FOUND": "Electricity rate not found",
+    "STATION_ALREADY_AVAILABLE": "Station already has an available connector",
+    "TOO_MANY_WATCHES": "You are watching too many stations",
+    "STATION_WATCH_NOT_FOUND": "Watch not found"
   },
   "logs": {
     "title": "Logs",

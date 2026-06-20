@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import QrScanner from 'qr-scanner';
-import { AlertCircle, ArrowLeft } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Camera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 // Station QR codes encode a charge link such as
@@ -28,17 +28,27 @@ function parseChargeTarget(raw: string): { stationId: string; evseId?: string } 
   return evseId != null && evseId !== '' ? { stationId, evseId } : { stationId };
 }
 
-type ScanState = 'starting' | 'scanning' | 'denied' | 'noCamera';
+type ScanState = 'starting' | 'scanning' | 'denied' | 'noCamera' | 'insecure';
 
 export function ScanQr(): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<ScanState>('starting');
+  const [photoError, setPhotoError] = useState(false);
 
   useEffect(() => {
     const video = videoRef.current;
     if (video == null) return;
+
+    // The camera APIs exist only in a secure context (HTTPS or localhost). Over
+    // plain HTTP navigator.mediaDevices is undefined and the camera can never
+    // open, so surface that as its own message instead of a misleading "no camera".
+    if (!window.isSecureContext) {
+      setState('insecure');
+      return;
+    }
 
     let cancelled = false;
     const scanner = new QrScanner(
@@ -53,21 +63,18 @@ export function ScanQr(): React.JSX.Element {
       { highlightScanRegion: true, highlightCodeOutline: true, preferredCamera: 'environment' },
     );
 
-    void QrScanner.hasCamera().then((hasCamera) => {
-      if (cancelled) return;
-      if (!hasCamera) {
-        setState('noCamera');
-        return;
-      }
-      scanner.start().then(
-        () => {
-          if (!cancelled) setState('scanning');
-        },
-        () => {
-          if (!cancelled) setState('denied');
-        },
-      );
-    });
+    // start() surfaces the real getUserMedia error, which distinguishes a denied
+    // permission from a device that genuinely has no camera.
+    scanner.start().then(
+      () => {
+        if (!cancelled) setState('scanning');
+      },
+      (err: unknown) => {
+        if (cancelled) return;
+        const name = err instanceof Error ? err.name : '';
+        setState(name === 'NotAllowedError' || name === 'SecurityError' ? 'denied' : 'noCamera');
+      },
+    );
 
     return () => {
       cancelled = true;
@@ -75,7 +82,32 @@ export function ScanQr(): React.JSX.Element {
     };
   }, [navigate]);
 
-  const blocked = state === 'denied' || state === 'noCamera';
+  // Photo fallback: decode a still image instead of a live stream. A file input
+  // with capture="environment" opens the native camera even on an insecure (HTTP)
+  // page, and scanImage() never touches getUserMedia, so this works everywhere.
+  async function decodePhoto(file: File): Promise<void> {
+    setPhotoError(false);
+    try {
+      const result = await QrScanner.scanImage(file, { returnDetailedScanResult: true });
+      const target = parseChargeTarget(result.data);
+      if (target == null) {
+        setPhotoError(true);
+        return;
+      }
+      const query = target.evseId != null ? `?evse=${target.evseId}` : '';
+      void navigate(`/start/${target.stationId}${query}`);
+    } catch {
+      setPhotoError(true);
+    }
+  }
+
+  const blocked = state === 'denied' || state === 'noCamera' || state === 'insecure';
+  const blockedMessage =
+    state === 'denied'
+      ? t('scanQr.permissionDenied')
+      : state === 'insecure'
+        ? t('scanQr.insecureContext')
+        : t('scanQr.noCamera');
 
   return (
     <div className="space-y-4">
@@ -100,12 +132,38 @@ export function ScanQr(): React.JSX.Element {
         {blocked && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
             <AlertCircle className="h-10 w-10 text-destructive" />
-            <p className="text-sm font-medium">
-              {state === 'denied' ? t('scanQr.permissionDenied') : t('scanQr.noCamera')}
-            </p>
+            <p className="text-sm font-medium">{blockedMessage}</p>
           </div>
         )}
       </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file != null) void decodePhoto(file);
+        }}
+      />
+
+      <Button
+        variant={blocked ? 'default' : 'outline'}
+        className="w-full"
+        onClick={() => {
+          fileInputRef.current?.click();
+        }}
+      >
+        <Camera className="mr-2 h-4 w-4" />
+        {t('scanQr.scanPhoto')}
+      </Button>
+
+      {photoError && (
+        <p className="text-center text-sm text-destructive">{t('scanQr.noQrFound')}</p>
+      )}
 
       <Button
         variant="outline"

@@ -4,12 +4,12 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CreditCard, RotateCw, Trash2 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { Nfc } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { Toggle } from '@/components/ui/toggle';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api, ApiError } from '@/lib/api';
 
@@ -32,23 +32,21 @@ interface DriverToken {
   isActive: boolean;
 }
 
-interface Feedback {
-  // tokenId === null anchors the message under the add form (e.g. duplicate
-  // card error). A non-null tokenId centers the message under the matching
-  // card so the driver sees feedback for the specific row they acted on.
-  tokenId: string | null;
-  text: string;
-  type: 'success' | 'error';
+// RFID values authorize charging, so mask all but the last 4 characters
+// (matches the mobile app).
+function maskToken(value: string): string {
+  if (value.length <= 4) return value;
+  return `${'•'.repeat(Math.max(0, value.length - 4))}${value.slice(-4)}`;
 }
 
 export function AccountRfidCards(): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const [addOpen, setAddOpen] = useState(false);
   const [newToken, setNewToken] = useState('');
   const [newTokenType, setNewTokenType] = useState<(typeof PORTAL_TOKEN_TYPES)[number]>('ISO14443');
-  const [feedback, setFeedback] = useState<Feedback | null>(null);
-  const [confirmToken, setConfirmToken] = useState<DriverToken | null>(null);
-  const [deleteToken, setDeleteToken] = useState<DriverToken | null>(null);
+  const [addError, setAddError] = useState('');
+  const [confirmDeactivate, setConfirmDeactivate] = useState<DriverToken | null>(null);
 
   const { data: tokens } = useQuery({
     queryKey: ['portal-tokens'],
@@ -58,237 +56,147 @@ export function AccountRfidCards(): React.JSX.Element {
   const addMutation = useMutation({
     mutationFn: (body: { idToken: string; tokenType: (typeof PORTAL_TOKEN_TYPES)[number] }) =>
       api.post<DriverToken>('/v1/portal/tokens', body),
-    onSuccess: async (created) => {
+    onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['portal-tokens'] });
       setNewToken('');
       setNewTokenType('ISO14443');
-      // Anchor the success message under the newly-created card row.
-      setFeedback({ tokenId: created.id, type: 'success', text: t('rfid.cardAdded') });
+      setAddError('');
+      setAddOpen(false);
     },
     onError: (error) => {
-      if (error instanceof ApiError && error.status === 409) {
-        setFeedback({ tokenId: null, type: 'error', text: t('rfid.duplicate') });
-      } else {
-        setFeedback({ tokenId: null, type: 'error', text: t('rfid.addFailed') });
-      }
+      setAddError(
+        error instanceof ApiError && error.status === 409
+          ? t('rfid.duplicate')
+          : t('rfid.addFailed'),
+      );
     },
   });
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
       api.patch<DriverToken>(`/v1/portal/tokens/${id}`, { isActive }),
-    onSuccess: async (updated) => {
-      await queryClient.invalidateQueries({ queryKey: ['portal-tokens'] });
-      setFeedback({
-        tokenId: updated.id,
-        type: 'success',
-        text: updated.isActive ? t('rfid.cardReactivated') : t('rfid.cardRemoved'),
-      });
-    },
-    onError: (_err, variables) => {
-      setFeedback({ tokenId: variables.id, type: 'error', text: t('rfid.removeFailed') });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/v1/portal/tokens/${id}`),
-    onSuccess: async (_data, id) => {
-      await queryClient.invalidateQueries({ queryKey: ['portal-tokens'] });
-      setDeleteToken(null);
-      // Soft-delete: the row still appears in the list with isActive=false,
-      // so anchor under it.
-      setFeedback({ tokenId: id, type: 'success', text: t('rfid.cardRemoved') });
-    },
-    onError: (_err, id) => {
-      setFeedback({ tokenId: id, type: 'error', text: t('rfid.removeFailed') });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['portal-tokens'] }),
   });
 
   const sortedTokens = tokens
     ?.slice()
     .sort((a, b) => (a.isActive === b.isActive ? 0 : a.isActive ? -1 : 1));
 
+  function onToggle(token: DriverToken, next: boolean): void {
+    if (next) {
+      toggleMutation.mutate({ id: token.id, isActive: true });
+    } else {
+      setConfirmDeactivate(token);
+    }
+  }
+
   return (
     <div className="space-y-4">
+      <Button
+        className="w-full"
+        onClick={() => {
+          setAddError('');
+          setAddOpen(true);
+        }}
+      >
+        {t('rfid.addCard')}
+      </Button>
+
       {sortedTokens != null && sortedTokens.length === 0 && (
-        <p className="text-center text-sm text-muted-foreground">{t('rfid.noCards')}</p>
+        <div className="flex flex-col items-center gap-2 py-8 text-center">
+          <Nfc className="h-10 w-10 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">{t('rfid.noCards')}</p>
+        </div>
       )}
 
-      {/* Card list mirrors the Payment Methods page: icon + identifier on the
-          left, type badge + status + trash on the right. Inactive rows dim and
-          strike-through the number so the soft-delete is visually obvious.
-          Per-card feedback (deactivated / reactivated / removed) renders
-          centered immediately below its anchor card, so the driver sees the
-          confirmation for the specific row they touched. */}
       <div className="space-y-2">
         {sortedTokens?.map((token) => (
-          <div key={token.id} className="space-y-1">
-            <Card className={token.isActive ? '' : 'opacity-60'}>
-              <CardContent className="flex items-center justify-between gap-2 p-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <CreditCard className="h-5 w-5 shrink-0 text-muted-foreground" />
-                  <p
-                    className={`truncate text-sm font-medium ${
-                      token.isActive ? '' : 'line-through'
-                    }`}
-                  >
-                    {token.idToken}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Badge variant="outline">{token.tokenType}</Badge>
-                  <span
-                    className={`text-xs font-medium ${
-                      token.isActive ? 'text-success' : 'text-muted-foreground'
-                    }`}
-                  >
-                    {token.isActive ? t('rfid.active') : t('rfid.inactive')}
-                  </span>
-                  {/* Always render an icon button so active and inactive rows
-                    have the same height. Active row → trash to deactivate.
-                    Inactive row → reactivate icon to restore. Both open a
-                    confirm dialog rather than mutating directly. */}
-                  {token.isActive ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-12 w-12"
-                      onClick={() => {
-                        setDeleteToken(token);
-                      }}
-                      aria-label={t('rfid.removeCard')}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-12 w-12"
-                      onClick={() => {
-                        setConfirmToken(token);
-                      }}
-                      aria-label={t('rfid.reactivateCard')}
-                    >
-                      <RotateCw className="h-4 w-4 text-primary" />
-                    </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-            {feedback != null && feedback.tokenId === token.id && (
-              <p
-                className={`text-center text-sm ${
-                  feedback.type === 'success' ? 'text-success' : 'text-destructive'
-                }`}
-              >
-                {feedback.text}
-              </p>
-            )}
-          </div>
+          <Card key={token.id}>
+            <CardContent className="flex items-center justify-between gap-3 p-4">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{maskToken(token.idToken)}</p>
+                <p className="text-xs text-muted-foreground">{token.tokenType}</p>
+              </div>
+              <Toggle
+                checked={token.isActive}
+                onCheckedChange={(next) => {
+                  onToggle(token, next);
+                }}
+                disabled={toggleMutation.isPending}
+                aria-label={token.isActive ? t('rfid.removeCard') : t('rfid.reactivateCard')}
+              />
+            </CardContent>
+          </Card>
         ))}
       </div>
 
-      {/* Form-level feedback (add errors that don't tie to a specific card,
-          e.g. duplicate or generic failure) lives under the add form below. */}
-      {feedback != null && feedback.tokenId === null && (
-        <p
-          className={`text-center text-sm ${
-            feedback.type === 'success' ? 'text-success' : 'text-destructive'
-          }`}
-        >
-          {feedback.text}
-        </p>
-      )}
-
-      {/* Mobile-first form: input / select / button each occupy their own row
-          on phones (where the card-number field would otherwise truncate to a
-          few characters next to the select), then collapse to a single row at
-          sm+ where there is room. */}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (newToken.trim() !== '') {
-            addMutation.mutate({ idToken: newToken.trim(), tokenType: newTokenType });
-          }
+      <ConfirmDialog
+        open={addOpen}
+        onOpenChange={(open) => {
+          if (!open) setAddOpen(false);
         }}
-        className="flex flex-col gap-2 sm:flex-row"
+        title={t('rfid.addCard')}
+        description={t('rfid.cardNumber')}
+        confirmLabel={t('common.add')}
+        variant="default"
+        isPending={addMutation.isPending}
+        onConfirm={() => {
+          if (newToken.trim() === '') return false;
+          addMutation.mutate({ idToken: newToken.trim(), tokenType: newTokenType });
+          return false;
+        }}
       >
-        <Input
-          value={newToken}
-          onChange={(e) => {
-            setNewToken(e.target.value);
-            setFeedback(null);
-          }}
-          placeholder={t('rfid.cardNumber')}
-          maxLength={64}
-          className="w-full sm:flex-1"
-        />
-        <Select
-          className="h-12 w-full sm:w-32"
-          value={newTokenType}
-          onChange={(e) => {
-            setNewTokenType(e.target.value as (typeof PORTAL_TOKEN_TYPES)[number]);
-            setFeedback(null);
-          }}
-          aria-label={t('rfid.tokenType')}
-        >
-          {PORTAL_TOKEN_TYPES.map((tt) => (
-            <option key={tt} value={tt}>
-              {tt}
-            </option>
-          ))}
-        </Select>
-        <Button
-          type="submit"
-          className="h-12 w-full sm:w-auto"
-          disabled={addMutation.isPending || newToken.trim() === ''}
-        >
-          {t('rfid.addCard')}
-        </Button>
-      </form>
+        <div className="space-y-2">
+          <Input
+            value={newToken}
+            onChange={(e) => {
+              setNewToken(e.target.value);
+              setAddError('');
+            }}
+            placeholder={t('rfid.cardNumber')}
+            maxLength={64}
+            autoFocus
+          />
+          <Select
+            value={newTokenType}
+            onChange={(e) => {
+              setNewTokenType(e.target.value as (typeof PORTAL_TOKEN_TYPES)[number]);
+            }}
+            aria-label={t('rfid.tokenType')}
+          >
+            {PORTAL_TOKEN_TYPES.map((tt) => (
+              <option key={tt} value={tt}>
+                {tt}
+              </option>
+            ))}
+          </Select>
+          {addError !== '' && <p className="text-sm text-destructive">{addError}</p>}
+        </div>
+      </ConfirmDialog>
 
       <ConfirmDialog
-        open={confirmToken != null}
+        open={confirmDeactivate != null}
         onOpenChange={(open) => {
-          if (!open) setConfirmToken(null);
+          if (!open) setConfirmDeactivate(null);
         }}
-        title={
-          confirmToken?.isActive === true
-            ? t('rfid.confirmDeactivateTitle')
-            : t('rfid.confirmActivateTitle')
-        }
-        description={
-          confirmToken?.isActive === true
-            ? t('rfid.confirmDeactivateDescription')
-            : t('rfid.confirmActivateDescription')
-        }
-        confirmLabel={t('common.confirm')}
-        onConfirm={() => {
-          if (confirmToken != null) {
-            toggleMutation.mutate({ id: confirmToken.id, isActive: !confirmToken.isActive });
-          }
-        }}
-        isPending={toggleMutation.isPending}
-      />
-
-      <ConfirmDialog
-        open={deleteToken != null}
-        onOpenChange={(open) => {
-          if (!open) setDeleteToken(null);
-        }}
-        title={t('rfid.confirmRemoveTitle')}
-        description={t('rfid.confirmRemoveSoftDeleteDescription')}
-        confirmLabel={t('rfid.removeCard')}
+        title={t('rfid.confirmDeactivateTitle')}
+        description={t('rfid.confirmDeactivateDescription')}
+        confirmLabel={t('common.deactivate')}
         variant="destructive"
+        isPending={toggleMutation.isPending}
         onConfirm={() => {
-          if (deleteToken != null) {
-            deleteMutation.mutate(deleteToken.id);
+          if (confirmDeactivate != null) {
+            toggleMutation.mutate(
+              { id: confirmDeactivate.id, isActive: false },
+              {
+                onSuccess: () => {
+                  setConfirmDeactivate(null);
+                },
+              },
+            );
           }
+          return false;
         }}
-        isPending={deleteMutation.isPending}
       />
     </div>
   );

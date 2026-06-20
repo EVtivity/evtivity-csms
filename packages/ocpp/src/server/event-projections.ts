@@ -1592,6 +1592,51 @@ export function registerProjections(
           AND evse_id = ${resolvedEvseUuid}
       `;
     }
+
+    // Station-watch alert: a connector just became available. When it is the
+    // ONLY available connector at the station (full -> free edge), a driver is
+    // watching, and the site is not under maintenance, publish so the worker
+    // notifies the watchers. One combined indexed query, run only on this rare
+    // available-edge (never on every StatusNotification). Kept last in the
+    // handler so its query never reorders the writes above. Fail-open.
+    if (dbStatus === 'available' && previousDbStatus !== 'available') {
+      try {
+        const edgeRows = await sql`
+          SELECT
+            (SELECT count(*) FROM connectors c
+               JOIN evses e ON e.id = c.evse_id
+               WHERE e.station_id = ${stationUuid} AND c.status = 'available') AS available_count,
+            EXISTS (
+              SELECT 1 FROM station_watches w
+              WHERE w.station_id = ${stationUuid} AND w.expires_at > now()
+            ) AS has_watchers,
+            EXISTS (
+              SELECT 1 FROM maintenance_events m
+              WHERE m.status = 'active'
+                AND m.site_id = (SELECT site_id FROM charging_stations WHERE id = ${stationUuid})
+                AND (
+                  m.affected_station_ids IS NULL
+                  OR array_length(m.affected_station_ids, 1) IS NULL
+                  OR ${stationUuid} = ANY (m.affected_station_ids)
+                )
+            ) AS under_maintenance
+        `;
+        const edge = edgeRows[0];
+        if (
+          edge != null &&
+          Number(edge.available_count) === 1 &&
+          edge.has_watchers === true &&
+          edge.under_maintenance === false
+        ) {
+          await pubsub.publish(
+            'station_watch_available',
+            JSON.stringify({ stationId: event.aggregateId }),
+          );
+        }
+      } catch (err) {
+        logger.warn({ err, stationUuid }, 'Station-watch edge check failed');
+      }
+    }
   });
 
   safeSubscribe('ocpp.TransactionEvent', async (event: DomainEvent) => {
@@ -2082,6 +2127,23 @@ export function registerProjections(
             guestStatus,
             guestEmail,
           });
+        }
+
+        // A driver who starts charging at a station they were watching no
+        // longer needs the "now free" alert (they can start on a startable but
+        // not-yet-available connector, which never fires the watch). Clears only
+        // the starting driver's own watch; other drivers watching this station
+        // keep theirs. The null-driver subquery matches no rows, so guest/
+        // anonymous starts are a no-op. Kept last in the Started block so it
+        // never reorders the writes above. Fail-open.
+        try {
+          await sql`
+            DELETE FROM station_watches
+            WHERE station_id = ${stationUuid}
+              AND driver_id = (SELECT driver_id FROM charging_sessions WHERE id = ${sessionId})
+          `;
+        } catch (err) {
+          logger.warn({ err, stationUuid }, 'Station-watch clear-on-start failed');
         }
       }
 

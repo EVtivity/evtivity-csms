@@ -76,6 +76,21 @@ export default defineConfig({
       {
         resolve: { alias: workspaceAliases },
         test: {
+          name: '@evtivity/ocpi',
+          root: 'packages/ocpi',
+          include: ['src/**/*.test.ts'],
+          exclude: ['src/__integration__/**'],
+          env: {
+            OCPI_PORT: '3002',
+            SETTINGS_ENCRYPTION_KEY: 'test-encryption-key-32chars!!!!!',
+            DATABASE_URL: 'postgres://evtivity:evtivity@localhost:5433/evtivity',
+            REDIS_URL: 'redis://localhost:6379',
+          },
+        },
+      },
+      {
+        resolve: { alias: workspaceAliases },
+        test: {
           name: '@evtivity/api',
           root: 'packages/api',
           include: ['src/**/*.test.ts'],

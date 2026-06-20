@@ -30,6 +30,16 @@ const MonthlyStatement = lazy(() =>
   import('@/pages/MonthlyStatement').then((m) => ({ default: m.MonthlyStatement })),
 );
 const Account = lazy(() => import('@/pages/Account').then((m) => ({ default: m.Account })));
+const PersonalInfo = lazy(() =>
+  import('@/pages/PersonalInfo').then((m) => ({ default: m.PersonalInfo })),
+);
+const Security = lazy(() => import('@/pages/Security').then((m) => ({ default: m.Security })));
+const NotificationPrefs = lazy(() =>
+  import('@/pages/NotificationPrefs').then((m) => ({ default: m.NotificationPrefs })),
+);
+const HomeScreen = lazy(() =>
+  import('@/pages/HomeScreen').then((m) => ({ default: m.HomeScreen })),
+);
 const PaymentMethods = lazy(() =>
   import('@/pages/PaymentMethods').then((m) => ({ default: m.PaymentMethods })),
 );
@@ -67,6 +77,7 @@ const ReservationSearch = lazy(() =>
 const RfidCards = lazy(() => import('@/pages/RfidCards').then((m) => ({ default: m.RfidCards })));
 const Vehicles = lazy(() => import('@/pages/Vehicles').then((m) => ({ default: m.Vehicles })));
 const Favorites = lazy(() => import('@/pages/Favorites').then((m) => ({ default: m.Favorites })));
+const Watching = lazy(() => import('@/pages/Watching').then((m) => ({ default: m.Watching })));
 const SupportCases = lazy(() =>
   import('@/pages/SupportCases').then((m) => ({ default: m.SupportCases })),
 );
@@ -147,6 +158,10 @@ export function App(): React.JSX.Element {
                   <Route path="activity" element={<Activity />} />
                   <Route path="activity/statement" element={<MonthlyStatement />} />
                   <Route path="account" element={<Account />} />
+                  <Route path="account/personal" element={<PersonalInfo />} />
+                  <Route path="account/security" element={<Security />} />
+                  <Route path="account/notifications" element={<NotificationPrefs />} />
+                  <Route path="account/home-cards" element={<HomeScreen />} />
                   <Route path="sessions" element={<Sessions />} />
                   <Route path="sessions/:id" element={<SessionDetail />} />
                   <Route path="reservations" element={<Reservations />} />
@@ -163,6 +178,7 @@ export function App(): React.JSX.Element {
                   <Route path="rfid-cards" element={<RfidCards />} />
                   <Route path="vehicles" element={<Vehicles />} />
                   <Route path="favorites" element={<Favorites />} />
+                  <Route path="station-watches" element={<Watching />} />
                   <Route path="profile" element={<Profile />} />
                   <Route path="start" element={<ChargerSearch />} />
                   <Route path="start/:stationId" element={<ChargerDetail />} />

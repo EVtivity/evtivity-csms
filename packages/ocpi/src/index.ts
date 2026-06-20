@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyServerOptions } from 'fastify';
-import { RedisPubSubClient, initSentry } from '@evtivity/lib';
+import { RedisPubSubClient, createBullMQConnection, initSentry } from '@evtivity/lib';
 import { getSentryConfig } from '@evtivity/database';
 import { buildOcpiApp } from './app.js';
 import { OcpiPushListener } from './services/push.service.js';
@@ -43,12 +43,16 @@ async function start(): Promise<void> {
   const pubsub = new RedisPubSubClient(config.REDIS_URL);
   setPubSub(pubsub);
 
+  // Raw Redis connection for the per-partner pull lock (pub/sub clients can't
+  // run SET NX / EVAL). Serializes overlapping pulls across OCPI replicas.
+  const lockRedis = createBullMQConnection(config.REDIS_URL);
+
   // Start push listener for data change notifications
   const pushListener = new OcpiPushListener(pubsub);
   await pushListener.start();
 
   // Start pull listener for sync requests
-  const pullListener = new OcpiPullListener(pubsub);
+  const pullListener = new OcpiPullListener(pubsub, lockRedis);
   await pullListener.start();
 
   // Start outbound-registration listener so the operator-triggered
@@ -67,6 +71,7 @@ async function start(): Promise<void> {
     await pullListener.stop();
     await pushListener.stop();
     await pubsub.close();
+    await lockRedis.quit();
     await app.close();
   };
 

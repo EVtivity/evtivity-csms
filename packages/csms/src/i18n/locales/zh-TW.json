@@ -2296,7 +2296,10 @@
     "MAINTENANCE_ALREADY_ACTIVE": "維護事件已啟用",
     "MAINTENANCE_ACTIVE": "站點目前正在維護中",
     "RESERVATION_DURING_MAINTENANCE": "預約時間落在已排定的維護時段內",
-    "ELECTRICITY_RATE_NOT_FOUND": "找不到電價"
+    "ELECTRICITY_RATE_NOT_FOUND": "找不到電價",
+    "STATION_ALREADY_AVAILABLE": "充電站已有可用接口",
+    "TOO_MANY_WATCHES": "您關注的充電樁過多",
+    "STATION_WATCH_NOT_FOUND": "未找到關注"
   },
   "logs": {
     "title": "日誌",

@@ -5,9 +5,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
 
 const mockLog = { info: vi.fn(), error: vi.fn(), warn: vi.fn() };
-vi.mock('@evtivity/lib', () => ({
-  createLogger: vi.fn(() => mockLog),
-}));
+// Keep the real withLock so the redis.set/eval lock assertions below exercise
+// the actual lock take/release path; only the logger is stubbed.
+vi.mock('@evtivity/lib', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@evtivity/lib')>();
+  return {
+    ...actual,
+    createLogger: vi.fn(() => mockLog),
+  };
+});
 
 const mockRunMaintenanceFanout = vi.fn().mockResolvedValue(undefined);
 vi.mock('@evtivity/api/src/services/maintenance.service.js', () => ({

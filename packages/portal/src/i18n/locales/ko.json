@@ -15,7 +15,10 @@
     "dismiss": "닫기",
     "confirm": "확인",
     "ok": "확인",
-    "offline": "오프라인 상태입니다. 일부 기능이 작동하지 않을 수 있습니다."
+    "offline": "오프라인 상태입니다. 일부 기능이 작동하지 않을 수 있습니다.",
+    "add": "추가",
+    "deactivate": "비활성화",
+    "remove": "제거"
   },
   "nav": {
     "home": "홈",
@@ -404,7 +407,9 @@
     "paymentMethodRequired": "예약을 생성하려면 결제 수단이 필요합니다.",
     "cancellationFeeWarning": "{{fee}} 취소 수수료가 기본 결제 수단으로 청구됩니다.",
     "cancellationPolicy": "취소 정책",
-    "cancellationPolicyText": "시작 시간 {{minutes}}분 이내에 취소하면 {{fee}} 취소 수수료가 부과됩니다."
+    "cancellationPolicyText": "시작 시간 {{minutes}}분 이내에 취소하면 {{fee}} 취소 수수료가 부과됩니다.",
+    "upcoming": "예정",
+    "past": "지난 예약"
   },
   "reservationDetail": {
     "title": "예약",
@@ -686,7 +691,10 @@
     "MAINTENANCE_ALREADY_ACTIVE": "유지보수 이벤트가 이미 활성 상태입니다",
     "MAINTENANCE_ACTIVE": "사이트가 현재 유지보수 중입니다",
     "RESERVATION_DURING_MAINTENANCE": "예약이 예정된 유지보수 기간에 포함됩니다",
-    "ELECTRICITY_RATE_NOT_FOUND": "전기 요금을 찾을 수 없습니다"
+    "ELECTRICITY_RATE_NOT_FOUND": "전기 요금을 찾을 수 없습니다",
+    "STATION_ALREADY_AVAILABLE": "충전소에 이미 사용 가능한 커넥터가 있습니다",
+    "TOO_MANY_WATCHES": "너무 많은 충전소를 알림 설정했습니다",
+    "STATION_WATCH_NOT_FOUND": "알림을 찾을 수 없습니다"
   },
   "validation": {
     "required": "필수 항목입니다",
@@ -737,26 +745,14 @@
   "rfid": {
     "addCard": "RFID 카드 추가",
     "cardNumber": "카드 번호",
-    "active": "활성",
-    "inactive": "비활성",
     "noCards": "등록된 RFID 카드가 없습니다.",
-    "cardAdded": "RFID 카드가 추가되었습니다.",
     "duplicate": "이 카드는 이미 등록되어 있습니다.",
     "addFailed": "카드 추가에 실패했습니다.",
-    "confirmActivateTitle": "RFID 카드 활성화",
-    "confirmActivateDescription": "이 RFID 카드를 활성화하시겠습니까?",
     "confirmDeactivateTitle": "RFID 카드 비활성화",
     "confirmDeactivateDescription": "이 RFID 카드를 비활성화하시겠습니까? 비활성화하면 충전소에서 사용할 수 없습니다.",
     "removeCard": "삭제",
-    "cardRemoved": "RFID 카드가 비활성화되었습니다.",
-    "cardReactivated": "RFID 카드가 다시 활성화되었습니다.",
-    "removeFailed": "카드 삭제에 실패했습니다.",
-    "confirmRemoveTitle": "RFID 카드 삭제",
-    "confirmRemoveDescription": "이 RFID 카드를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
-    "confirmRemoveSoftDeleteDescription": "이 RFID 카드는 비활성화되며 더 이상 충전을 승인하지 않습니다. 이전 세션 기록은 보존됩니다.",
     "reactivateCard": "RFID 카드 재활성화",
-    "tokenType": "토큰 유형",
-    "inactiveBadge": "비활성"
+    "tokenType": "토큰 유형"
   },
   "vehicles": {
     "addVehicle": "차량 추가",
@@ -844,6 +840,20 @@
     "instruction": "충전기의 QR 코드에 카메라를 대면 시작됩니다.",
     "permissionDenied": "카메라 접근이 차단되었습니다. 스캔하려면 브라우저 설정에서 카메라 권한을 허용하세요.",
     "noCamera": "이 기기에서 카메라를 찾을 수 없습니다.",
-    "searchInstead": "대신 충전기 검색"
+    "searchInstead": "대신 충전기 검색",
+    "insecureContext": "실시간 카메라 스캔에는 보안(HTTPS) 연결이 필요합니다. 대신 사진을 찍어 스캔하세요.",
+    "scanPhoto": "사진에서 스캔",
+    "noQrFound": "사진에서 QR 코드를 찾을 수 없습니다. 다시 시도하세요."
+  },
+  "watch": {
+    "notifyWhenFree": "사용 가능 시 알림",
+    "watching": "알림 해제",
+    "added": "이 충전소가 비면 알려드립니다.",
+    "removed": "알림이 해제되었습니다.",
+    "addFailed": "이 충전소 알림을 설정할 수 없습니다.",
+    "title": "알림 설정",
+    "empty": "알림을 설정한 충전소가 없습니다.",
+    "removeTitle": "알림 해제",
+    "removeMessage": "이 충전소가 비어도 더 이상 알림을 받지 않습니다."
   }
 }

@@ -2291,7 +2291,10 @@
     "MAINTENANCE_ALREADY_ACTIVE": "Wartungsereignis ist bereits aktiv",
     "MAINTENANCE_ACTIVE": "Der Standort befindet sich derzeit in Wartung",
     "RESERVATION_DURING_MAINTENANCE": "Reservierung fällt in ein geplantes Wartungsfenster",
-    "ELECTRICITY_RATE_NOT_FOUND": "Stromtarif nicht gefunden"
+    "ELECTRICITY_RATE_NOT_FOUND": "Stromtarif nicht gefunden",
+    "STATION_ALREADY_AVAILABLE": "Die Ladestation hat bereits einen verfügbaren Anschluss",
+    "TOO_MANY_WATCHES": "Sie beobachten zu viele Ladestationen",
+    "STATION_WATCH_NOT_FOUND": "Beobachtung nicht gefunden"
   },
   "logs": {
     "title": "Protokolle",

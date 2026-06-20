@@ -2307,7 +2307,10 @@
     "MAINTENANCE_ALREADY_ACTIVE": "维护事件已处于活动状态",
     "MAINTENANCE_ACTIVE": "该站点当前正在维护",
     "RESERVATION_DURING_MAINTENANCE": "预订时间落在已安排的维护时段内",
-    "ELECTRICITY_RATE_NOT_FOUND": "未找到电价"
+    "ELECTRICITY_RATE_NOT_FOUND": "未找到电价",
+    "STATION_ALREADY_AVAILABLE": "充电站已有可用接口",
+    "TOO_MANY_WATCHES": "您关注的充电站过多",
+    "STATION_WATCH_NOT_FOUND": "未找到关注"
   },
   "logs": {
     "title": "日志",

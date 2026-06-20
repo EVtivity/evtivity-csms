@@ -235,6 +235,39 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
   });
 
   const [showRemoveFavorite, setShowRemoveFavorite] = useState(false);
+  const [showRemoveWatch, setShowRemoveWatch] = useState(false);
+
+  // Station Watch: alert me when this station has a free connector. Charge mode
+  // only (reserve mode has its own flow).
+  const { data: watchData } = useQuery({
+    queryKey: ['station-watch-check', stationId],
+    queryFn: () =>
+      api.get<{ isWatching: boolean; watchId: number | null }>(
+        `/v1/portal/station-watches/check/${stationId ?? ''}`,
+      ),
+    enabled: stationId != null && isAuthenticated && mode === 'charge',
+  });
+
+  const addWatchMutation = useMutation({
+    mutationFn: () => api.post('/v1/portal/station-watches', { stationId }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['station-watch-check', stationId] });
+      void queryClient.invalidateQueries({ queryKey: ['portal-station-watches'] });
+      toast({ variant: 'success', title: t('watch.added') });
+    },
+    onError: () => {
+      toast({ variant: 'destructive', title: t('watch.addFailed') });
+    },
+  });
+
+  const removeWatchMutation = useMutation({
+    mutationFn: (watchId: number) => api.delete(`/v1/portal/station-watches/${String(watchId)}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['station-watch-check', stationId] });
+      void queryClient.invalidateQueries({ queryKey: ['portal-station-watches'] });
+      toast({ variant: 'success', title: t('watch.removed') });
+    },
+  });
 
   // Auto-select default payment method
   if (selectedPm == null && paymentMethods != null) {
@@ -809,6 +842,34 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
           </Button>
         ))}
 
+      {/* Station Watch: only when nothing is free to wait on. */}
+      {mode === 'charge' &&
+        isAuthenticated &&
+        !station.evses.some((e) => e.connectors.some((c) => c.status === 'available')) &&
+        (watchData?.isWatching === true ? (
+          <Button
+            variant="outline"
+            className="w-full"
+            disabled={removeWatchMutation.isPending}
+            onClick={() => {
+              setShowRemoveWatch(true);
+            }}
+          >
+            {t('watch.watching')}
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            className="w-full"
+            disabled={addWatchMutation.isPending}
+            onClick={() => {
+              addWatchMutation.mutate();
+            }}
+          >
+            {t('watch.notifyWhenFree')}
+          </Button>
+        ))}
+
       {/* Report Issue */}
       <ReportIssue stationId={station.stationId} stationName={station.stationId} />
 
@@ -843,6 +904,18 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
           if (favoriteData?.favoriteId != null) {
             removeFavoriteMutation.mutate(favoriteData.favoriteId);
           }
+        }}
+      />
+      <ConfirmDialog
+        open={showRemoveWatch}
+        onOpenChange={setShowRemoveWatch}
+        title={t('watch.removeTitle')}
+        description={t('watch.removeMessage')}
+        confirmLabel={t('common.remove')}
+        variant="destructive"
+        isPending={removeWatchMutation.isPending}
+        onConfirm={() => {
+          if (watchData?.watchId != null) removeWatchMutation.mutate(watchData.watchId);
         }}
       />
     </div>

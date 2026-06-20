@@ -422,6 +422,7 @@ const FRIENDLY_SUBJECTS: Record<string, string> = {
   'reservation.Expired': '{{{companyName}}} - Your reservation has expired',
   'reservation.StationFaulted': '{{{companyName}}} - Reserved station is unavailable',
   'invoice.Sent': '{{{companyName}}} - Invoice {{invoiceNumber}}',
+  'watch.StationAvailable': '{{{companyName}}} - {{stationName}} is now available',
   'token.Added': '{{{companyName}}} - New RFID card added to your account',
   'token.Removed': '{{{companyName}}} - RFID card removed from your account',
   'token.Deactivated': '{{{companyName}}} - RFID card deactivated',
@@ -884,12 +885,19 @@ export async function dispatchDriverNotification(
         if (tokenRows.length > 0) {
           const pushTitle = redactSensitiveNotificationContent(smsRendered.subject, eventType);
           const pushMessage = redactSensitiveNotificationContent(smsRendered.body, eventType);
+          // Carry stationId when present so the app can deep-link to the station
+          // from the push (e.g. the station-watch availability alert).
+          const stationIdVar = variables['stationId'];
+          const pushData: Record<string, unknown> =
+            typeof stationIdVar === 'string' || typeof stationIdVar === 'number'
+              ? { eventType, stationId: String(stationIdVar) }
+              : { eventType };
           const results = await sendExpoPush(
             tokenRows.map((r) => ({
               to: r.token as string,
               title: pushTitle,
               body: pushMessage,
-              data: { eventType },
+              data: pushData,
             })),
           );
           const dead = results.filter((r) => r.unregistered).map((r) => r.token);

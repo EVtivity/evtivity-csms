@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { Home, Activity, PlugZap, User, Bell, Star, CalendarClock } from 'lucide-react';
+import { Home, Activity, PlugZap, User, Bell, Star, Eye, CalendarClock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { useAuthBranding } from './AuthBranding';
@@ -50,6 +50,20 @@ export function Layout(): React.JSX.Element {
   });
   const unreadCount = unreadData?.count ?? 0;
 
+  const { data: favorites } = useQuery({
+    queryKey: ['portal-favorites'],
+    queryFn: () => api.get<unknown[]>('/v1/portal/favorites'),
+    staleTime: 60_000,
+  });
+  const hasFavorites = (favorites?.length ?? 0) > 0;
+
+  const { data: watches } = useQuery({
+    queryKey: ['portal-station-watches'],
+    queryFn: () => api.get<unknown[]>('/v1/portal/station-watches'),
+    staleTime: 60_000,
+  });
+  const watchCount = watches?.length ?? 0;
+
   // Public feature flags. Drives conditional nav (Reservations, Support) so
   // operators can disable the feature system-wide without dead links.
   // Defaults to enabled while loading to avoid a flash of missing tab on
@@ -82,21 +96,38 @@ export function Layout(): React.JSX.Element {
           />
           <span className="font-bold">{companyName ?? 'EVtivity'}</span>
         </button>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => {
               void navigate('/favorites');
             }}
-            className="relative h-10 w-10 flex items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+            className={cn(
+              'relative h-10 w-10 flex items-center justify-center rounded-full bg-muted transition-colors hover:bg-muted/80',
+              hasFavorites ? 'text-warning' : 'text-muted-foreground hover:text-foreground',
+            )}
             aria-label={t('favorites.title')}
           >
-            <Star className="h-5 w-5" />
+            <Star className="h-5 w-5" fill={hasFavorites ? 'currentColor' : 'none'} />
+          </button>
+          <button
+            onClick={() => {
+              void navigate('/station-watches');
+            }}
+            className="relative h-10 w-10 flex items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
+            aria-label={t('watch.title')}
+          >
+            <Eye className="h-5 w-5" />
+            {watchCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] text-primary-foreground">
+                {watchCount}
+              </span>
+            )}
           </button>
           <button
             onClick={() => {
               setDrawerOpen(true);
             }}
-            className="relative h-10 w-10 flex items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+            className="relative h-10 w-10 flex items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
             aria-label={t('notifications.title')}
           >
             <Bell className="h-5 w-5" />

@@ -2296,7 +2296,10 @@
     "MAINTENANCE_ALREADY_ACTIVE": "유지보수 이벤트가 이미 활성 상태입니다",
     "MAINTENANCE_ACTIVE": "사이트가 현재 유지보수 중입니다",
     "RESERVATION_DURING_MAINTENANCE": "예약이 예정된 유지보수 기간에 포함됩니다",
-    "ELECTRICITY_RATE_NOT_FOUND": "전기 요금을 찾을 수 없습니다"
+    "ELECTRICITY_RATE_NOT_FOUND": "전기 요금을 찾을 수 없습니다",
+    "STATION_ALREADY_AVAILABLE": "충전소에 이미 사용 가능한 커넥터가 있습니다",
+    "TOO_MANY_WATCHES": "너무 많은 충전소를 알림 설정했습니다",
+    "STATION_WATCH_NOT_FOUND": "알림을 찾을 수 없습니다"
   },
   "logs": {
     "title": "로그",

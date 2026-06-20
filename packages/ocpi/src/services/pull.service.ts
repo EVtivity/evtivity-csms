@@ -1,7 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, sql } from 'drizzle-orm';
+import type { Redis } from 'ioredis';
 import {
   db,
   ocpiPartners,
@@ -11,7 +12,7 @@ import {
   ocpiCdrs,
   ocpiSyncLog,
 } from '@evtivity/database';
-import { createLogger } from '@evtivity/lib';
+import { createLogger, withLock } from '@evtivity/lib';
 import type { PubSubClient, Subscription } from '@evtivity/lib';
 import { OcpiClient } from '../lib/ocpi-client.js';
 import { getOutboundToken } from '../lib/outbound-token.js';
@@ -20,6 +21,10 @@ import type { OcpiLocation, OcpiTariff, OcpiCdr } from '../types/ocpi.js';
 
 const logger = createLogger('ocpi-pull');
 const CHANNEL = 'ocpi_sync';
+
+// Flush upserts in batches instead of one round-trip per row, so a large
+// partner catalog lands in O(rows / CHUNK) statements rather than O(rows).
+const UPSERT_CHUNK = 500;
 
 interface SyncNotification {
   partnerId: string;
@@ -39,6 +44,14 @@ function getCountryCode(): string {
 
 function getPartyId(): string {
   return config.OCPI_PARTY_ID;
+}
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    out.push(arr.slice(i, i + size));
+  }
+  return out;
 }
 
 async function getPartnerInfo(
@@ -115,14 +128,75 @@ async function logSync(
   await db.insert(ocpiSyncLog).values(values);
 }
 
-export async function pullLocations(partnerId: string): Promise<SyncResult> {
+// Per-partner+module distributed lock so overlapping triggers (a manual sync
+// racing the twice-daily cron, or a duplicate publish reaching more than one
+// OCPI replica) run the pull once instead of concurrently upserting the same
+// rows. Try-once: a second trigger while a pull is in flight is skipped, not
+// queued. Without a Redis client (e.g. unit tests) the inner pull runs directly.
+async function runLocked(
+  lockRedis: Redis | undefined,
+  partnerId: string,
+  module: string,
+  inner: () => Promise<SyncResult>,
+): Promise<SyncResult> {
+  if (lockRedis == null) {
+    return inner();
+  }
+  const { acquired, result } = await withLock(lockRedis, `opl:${partnerId}:${module}`, inner, {
+    acquireTimeoutMs: 0,
+    ttlMs: 10 * 60_000,
+    renewMs: 60_000,
+  });
+  if (!acquired || result == null) {
+    logger.info({ partnerId, module }, 'OCPI pull already in progress; skipping duplicate');
+    return { module, objectsCount: 0, status: 'completed' };
+  }
+  return result;
+}
+
+interface LocationValues {
+  partnerId: string;
+  countryCode: string;
+  partyId: string;
+  locationId: string;
+  name: string | null;
+  latitude: string;
+  longitude: string;
+  evseCount: string;
+  locationData: OcpiLocation;
+}
+
+async function upsertLocationBatch(rows: LocationValues[]): Promise<void> {
+  if (rows.length === 0) return;
+  await db
+    .insert(ocpiExternalLocations)
+    .values(rows)
+    .onConflictDoUpdate({
+      target: [
+        ocpiExternalLocations.partnerId,
+        ocpiExternalLocations.countryCode,
+        ocpiExternalLocations.partyId,
+        ocpiExternalLocations.locationId,
+      ],
+      set: {
+        name: sql`excluded.name`,
+        latitude: sql`excluded.latitude`,
+        longitude: sql`excluded.longitude`,
+        evseCount: sql`excluded.evse_count`,
+        locationData: sql`excluded.location_data`,
+        updatedAt: sql`now()`,
+      },
+    });
+}
+
+async function pullLocationsInner(partnerId: string): Promise<SyncResult> {
   logger.info({ partnerId }, 'Pulling locations from partner');
   await logSync(partnerId, 'locations', 'pull_full', 'started', 0);
 
   try {
     // Endpoint URL, outbound token, and partner identity are independent
-    // lookups - fetch in parallel to collapse three sequential RTTs into
-    // one before the long-running paginated pull starts.
+    // lookups - fetch in parallel to collapse three sequential RTTs into one
+    // before the long-running paginated pull starts.
     const [url, token, partner] = await Promise.all([
       getPartnerEndpoint(partnerId, 'locations', 'SENDER'),
       getPartnerToken(partnerId),
@@ -139,75 +213,59 @@ export async function pullLocations(partnerId: string): Promise<SyncResult> {
     }
 
     const client = createOcpiClient(token, partner.countryCode, partner.partyId);
-    const locations = await client.getPaginated<OcpiLocation>(url);
 
-    // Upsert each location in a single round-trip using the
-    // (partner_id, country_code, party_id, location_id) unique constraint
-    // instead of doing a separate SELECT+INSERT/UPDATE per row. A 1000-row
-    // pull dropped from ~2000 DB round-trips to ~1000.
+    // Stream page-by-page and flush each page as batched upserts so memory is
+    // bounded by one page, not the whole catalog.
     let count = 0;
     let skipped = 0;
-    for (const item of locations as unknown[]) {
-      // Defensive validation: a malformed partner payload missing required
-      // fields would otherwise crash the entire pull halfway through. Skip
-      // and log each bad row so the rest of the page still lands.
-      if (item == null || typeof item !== 'object') {
-        skipped++;
-        continue;
-      }
-      const candidate = item as Record<string, unknown>;
-      const coords = candidate['coordinates'] as
-        | { latitude?: unknown; longitude?: unknown }
-        | undefined;
-      if (
-        typeof candidate['id'] !== 'string' ||
-        typeof candidate['country_code'] !== 'string' ||
-        typeof candidate['party_id'] !== 'string' ||
-        coords == null ||
-        typeof coords !== 'object' ||
-        coords.latitude == null ||
-        coords.longitude == null
-      ) {
-        logger.warn(
-          { partnerId, locationId: candidate['id'] },
-          'Skipping malformed Location from partner pull',
-        );
-        skipped++;
-        continue;
-      }
-      const location = candidate as unknown as OcpiLocation;
-      const evseCount = String(Array.isArray(location.evses) ? location.evses.length : 0);
-      await db
-        .insert(ocpiExternalLocations)
-        .values({
+    await client.getPaginatedEach(url, async (page) => {
+      const valid: LocationValues[] = [];
+      for (const item of page) {
+        // Defensive validation: a malformed partner payload missing required
+        // fields would otherwise crash the whole pull. Skip and log each bad
+        // row so the rest of the page still lands.
+        if (item == null || typeof item !== 'object') {
+          skipped++;
+          continue;
+        }
+        const candidate = item as Record<string, unknown>;
+        const coords = candidate['coordinates'] as
+          | { latitude?: unknown; longitude?: unknown }
+          | undefined;
+        if (
+          typeof candidate['id'] !== 'string' ||
+          typeof candidate['country_code'] !== 'string' ||
+          typeof candidate['party_id'] !== 'string' ||
+          coords == null ||
+          typeof coords !== 'object' ||
+          coords.latitude == null ||
+          coords.longitude == null
+        ) {
+          logger.warn(
+            { partnerId, locationId: candidate['id'] },
+            'Skipping malformed Location from partner pull',
+          );
+          skipped++;
+          continue;
+        }
+        const location = candidate as unknown as OcpiLocation;
+        valid.push({
           partnerId,
           countryCode: location.country_code,
           partyId: location.party_id,
           locationId: location.id,
-          name: location.name,
+          name: location.name ?? null,
           latitude: location.coordinates.latitude,
           longitude: location.coordinates.longitude,
-          evseCount,
+          evseCount: String(Array.isArray(location.evses) ? location.evses.length : 0),
           locationData: location,
-        })
-        .onConflictDoUpdate({
-          target: [
-            ocpiExternalLocations.partnerId,
-            ocpiExternalLocations.countryCode,
-            ocpiExternalLocations.partyId,
-            ocpiExternalLocations.locationId,
-          ],
-          set: {
-            name: location.name ?? null,
-            latitude: location.coordinates.latitude,
-            longitude: location.coordinates.longitude,
-            evseCount,
-            locationData: location,
-            updatedAt: new Date(),
-          },
         });
-      count++;
-    }
+      }
+      for (const batch of chunk(valid, UPSERT_CHUNK)) {
+        await upsertLocationBatch(batch);
+        count += batch.length;
+      }
+    });
 
     if (skipped > 0) {
       logger.warn({ partnerId, skipped }, 'Some locations were skipped due to malformed data');
@@ -222,12 +280,44 @@ export async function pullLocations(partnerId: string): Promise<SyncResult> {
   }
 }
 
-export async function pullTariffs(partnerId: string): Promise<SyncResult> {
+export async function pullLocations(partnerId: string, lockRedis?: Redis): Promise<SyncResult> {
+  return runLocked(lockRedis, partnerId, 'locations', () => pullLocationsInner(partnerId));
+}
+
+interface TariffValues {
+  partnerId: string;
+  countryCode: string;
+  partyId: string;
+  tariffId: string;
+  currency: string;
+  tariffData: OcpiTariff;
+}
+
+async function upsertTariffBatch(rows: TariffValues[]): Promise<void> {
+  if (rows.length === 0) return;
+  await db
+    .insert(ocpiExternalTariffs)
+    .values(rows)
+    .onConflictDoUpdate({
+      target: [
+        ocpiExternalTariffs.partnerId,
+        ocpiExternalTariffs.countryCode,
+        ocpiExternalTariffs.partyId,
+        ocpiExternalTariffs.tariffId,
+      ],
+      set: {
+        currency: sql`excluded.currency`,
+        tariffData: sql`excluded.tariff_data`,
+        updatedAt: sql`now()`,
+      },
+    });
+}
+
+async function pullTariffsInner(partnerId: string): Promise<SyncResult> {
   logger.info({ partnerId }, 'Pulling tariffs from partner');
   await logSync(partnerId, 'tariffs', 'pull_full', 'started', 0);
 
   try {
-    // Parallel lookups: same rationale as pullLocations.
     const [url, token, partner] = await Promise.all([
       getPartnerEndpoint(partnerId, 'tariffs', 'SENDER'),
       getPartnerToken(partnerId),
@@ -244,57 +334,45 @@ export async function pullTariffs(partnerId: string): Promise<SyncResult> {
     }
 
     const client = createOcpiClient(token, partner.countryCode, partner.partyId);
-    const tariffs = await client.getPaginated<OcpiTariff>(url);
 
-    // Upsert via unique constraint - halves DB round-trips per tariff vs
-    // the prior SELECT+INSERT/UPDATE pattern.
     let count = 0;
     let skipped = 0;
-    for (const item of tariffs as unknown[]) {
-      if (item == null || typeof item !== 'object') {
-        skipped++;
-        continue;
-      }
-      const candidate = item as Record<string, unknown>;
-      if (
-        typeof candidate['id'] !== 'string' ||
-        typeof candidate['country_code'] !== 'string' ||
-        typeof candidate['party_id'] !== 'string' ||
-        typeof candidate['currency'] !== 'string'
-      ) {
-        logger.warn(
-          { partnerId, tariffId: candidate['id'] },
-          'Skipping malformed Tariff from partner pull',
-        );
-        skipped++;
-        continue;
-      }
-      const tariff = candidate as unknown as OcpiTariff;
-      await db
-        .insert(ocpiExternalTariffs)
-        .values({
+    await client.getPaginatedEach(url, async (page) => {
+      const valid: TariffValues[] = [];
+      for (const item of page) {
+        if (item == null || typeof item !== 'object') {
+          skipped++;
+          continue;
+        }
+        const candidate = item as Record<string, unknown>;
+        if (
+          typeof candidate['id'] !== 'string' ||
+          typeof candidate['country_code'] !== 'string' ||
+          typeof candidate['party_id'] !== 'string' ||
+          typeof candidate['currency'] !== 'string'
+        ) {
+          logger.warn(
+            { partnerId, tariffId: candidate['id'] },
+            'Skipping malformed Tariff from partner pull',
+          );
+          skipped++;
+          continue;
+        }
+        const tariff = candidate as unknown as OcpiTariff;
+        valid.push({
           partnerId,
           countryCode: tariff.country_code,
           partyId: tariff.party_id,
           tariffId: tariff.id,
           currency: tariff.currency,
           tariffData: tariff,
-        })
-        .onConflictDoUpdate({
-          target: [
-            ocpiExternalTariffs.partnerId,
-            ocpiExternalTariffs.countryCode,
-            ocpiExternalTariffs.partyId,
-            ocpiExternalTariffs.tariffId,
-          ],
-          set: {
-            currency: tariff.currency,
-            tariffData: tariff,
-            updatedAt: new Date(),
-          },
         });
-      count++;
-    }
+      }
+      for (const batch of chunk(valid, UPSERT_CHUNK)) {
+        await upsertTariffBatch(batch);
+        count += batch.length;
+      }
+    });
 
     if (skipped > 0) {
       logger.warn({ partnerId, skipped }, 'Some tariffs were skipped due to malformed data');
@@ -309,12 +387,26 @@ export async function pullTariffs(partnerId: string): Promise<SyncResult> {
   }
 }
 
-export async function pullCdrs(partnerId: string): Promise<SyncResult> {
+export async function pullTariffs(partnerId: string, lockRedis?: Redis): Promise<SyncResult> {
+  return runLocked(lockRedis, partnerId, 'tariffs', () => pullTariffsInner(partnerId));
+}
+
+interface CdrValues {
+  partnerId: string;
+  ocpiCdrId: string;
+  totalEnergy: string;
+  totalCost: string;
+  currency: string;
+  cdrData: OcpiCdr;
+  isCredit: boolean;
+  pushStatus: 'confirmed';
+}
+
+async function pullCdrsInner(partnerId: string): Promise<SyncResult> {
   logger.info({ partnerId }, 'Pulling CDRs from partner');
   await logSync(partnerId, 'cdrs', 'pull_full', 'started', 0);
 
   try {
-    // Parallel lookups: same rationale as pullLocations.
     const [url, token, partner] = await Promise.all([
       getPartnerEndpoint(partnerId, 'cdrs', 'SENDER'),
       getPartnerToken(partnerId),
@@ -331,63 +423,62 @@ export async function pullCdrs(partnerId: string): Promise<SyncResult> {
     }
 
     const client = createOcpiClient(token, partner.countryCode, partner.partyId);
-    const cdrs = await client.getPaginated<OcpiCdr>(url);
-
-    // Batch the existence check: one IN query instead of one per-CDR SELECT.
-    // CDRs are immutable, so skipping already-present rows in memory is
-    // exact. At 1000 pulled CDRs this trades 1000 round-trips for 1.
-    const cdrIds = cdrs.map((c) => c.id);
-    const existingIds = new Set<string>();
-    if (cdrIds.length > 0) {
-      const existingRows = await db
-        .select({ ocpiCdrId: ocpiCdrs.ocpiCdrId })
-        .from(ocpiCdrs)
-        .where(and(eq(ocpiCdrs.partnerId, partnerId), inArray(ocpiCdrs.ocpiCdrId, cdrIds)));
-      for (const r of existingRows) {
-        existingIds.add(r.ocpiCdrId);
-      }
-    }
 
     let count = 0;
     let skipped = 0;
-    for (const item of cdrs as unknown[]) {
-      if (item == null || typeof item !== 'object') {
-        skipped++;
-        continue;
-      }
-      const candidate = item as Record<string, unknown>;
-      if (
-        typeof candidate['id'] !== 'string' ||
-        typeof candidate['total_energy'] !== 'number' ||
-        typeof candidate['currency'] !== 'string'
-      ) {
-        logger.warn(
-          { partnerId, cdrId: candidate['id'] },
-          'Skipping malformed CDR from partner pull',
-        );
-        skipped++;
-        continue;
-      }
-      const cdr = candidate as unknown as OcpiCdr;
-      if (existingIds.has(cdr.id)) {
-        // CDRs are immutable, skip if already exists
-        continue;
+    await client.getPaginatedEach(url, async (page) => {
+      const valid: CdrValues[] = [];
+      const pageIds: string[] = [];
+      for (const item of page) {
+        if (item == null || typeof item !== 'object') {
+          skipped++;
+          continue;
+        }
+        const candidate = item as Record<string, unknown>;
+        if (
+          typeof candidate['id'] !== 'string' ||
+          typeof candidate['total_energy'] !== 'number' ||
+          typeof candidate['currency'] !== 'string'
+        ) {
+          logger.warn(
+            { partnerId, cdrId: candidate['id'] },
+            'Skipping malformed CDR from partner pull',
+          );
+          skipped++;
+          continue;
+        }
+        const cdr = candidate as unknown as OcpiCdr;
+        const totalCost =
+          typeof cdr.total_cost === 'object' ? String(cdr.total_cost.excl_vat) : '0';
+        pageIds.push(cdr.id);
+        valid.push({
+          partnerId,
+          ocpiCdrId: cdr.id,
+          totalEnergy: String(cdr.total_energy),
+          totalCost,
+          currency: cdr.currency,
+          cdrData: cdr,
+          isCredit: cdr.credit === true,
+          pushStatus: 'confirmed',
+        });
       }
 
-      const totalCost = typeof cdr.total_cost === 'object' ? String(cdr.total_cost.excl_vat) : '0';
-
-      await db.insert(ocpiCdrs).values({
-        partnerId,
-        ocpiCdrId: cdr.id,
-        totalEnergy: String(cdr.total_energy),
-        totalCost,
-        currency: cdr.currency,
-        cdrData: cdr,
-        isCredit: cdr.credit === true,
-        pushStatus: 'confirmed',
-      });
-      count++;
-    }
+      // CDRs are immutable: skip ids already stored. Scope the existence check
+      // to this page's ids so memory stays bounded on a large history pull.
+      const existing = new Set<string>();
+      if (pageIds.length > 0) {
+        const rows = await db
+          .select({ ocpiCdrId: ocpiCdrs.ocpiCdrId })
+          .from(ocpiCdrs)
+          .where(and(eq(ocpiCdrs.partnerId, partnerId), inArray(ocpiCdrs.ocpiCdrId, pageIds)));
+        for (const r of rows) existing.add(r.ocpiCdrId);
+      }
+      const fresh = valid.filter((c) => !existing.has(c.ocpiCdrId));
+      for (const batch of chunk(fresh, UPSERT_CHUNK)) {
+        await db.insert(ocpiCdrs).values(batch);
+        count += batch.length;
+      }
+    });
 
     if (skipped > 0) {
       logger.warn({ partnerId, skipped }, 'Some CDRs were skipped due to malformed data');
@@ -402,7 +493,11 @@ export async function pullCdrs(partnerId: string): Promise<SyncResult> {
   }
 }
 
-async function handleSyncNotification(raw: string): Promise<void> {
+export async function pullCdrs(partnerId: string, lockRedis?: Redis): Promise<SyncResult> {
+  return runLocked(lockRedis, partnerId, 'cdrs', () => pullCdrsInner(partnerId));
+}
+
+async function handleSyncNotification(raw: string, lockRedis: Redis | undefined): Promise<void> {
   let notification: SyncNotification;
   try {
     notification = JSON.parse(raw) as SyncNotification;
@@ -416,13 +511,13 @@ async function handleSyncNotification(raw: string): Promise<void> {
 
   switch (module) {
     case 'locations':
-      await pullLocations(partnerId);
+      await pullLocations(partnerId, lockRedis);
       break;
     case 'tariffs':
-      await pullTariffs(partnerId);
+      await pullTariffs(partnerId, lockRedis);
       break;
     case 'cdrs':
-      await pullCdrs(partnerId);
+      await pullCdrs(partnerId, lockRedis);
       break;
     default:
       logger.warn({ module }, 'Unknown sync module');
@@ -431,15 +526,17 @@ async function handleSyncNotification(raw: string): Promise<void> {
 
 export class OcpiPullListener {
   private readonly pubsub: PubSubClient;
+  private readonly lockRedis: Redis | undefined;
   private subscription: Subscription | null = null;
 
-  constructor(pubsub: PubSubClient) {
+  constructor(pubsub: PubSubClient, lockRedis?: Redis) {
     this.pubsub = pubsub;
+    this.lockRedis = lockRedis;
   }
 
   async start(): Promise<void> {
     this.subscription = await this.pubsub.subscribe(CHANNEL, (payload: string) => {
-      void handleSyncNotification(payload);
+      void handleSyncNotification(payload, this.lockRedis);
     });
     logger.info({ channel: CHANNEL }, 'Listening for OCPI sync notifications');
   }

@@ -21,6 +21,7 @@ import {
   createMaintenanceFanoutWorker,
   startMaintenanceFanoutBridge,
 } from './maintenance-fanout-worker.js';
+import { createStationWatchWorker, startStationWatchBridge } from './station-watch-worker.js';
 import { octtRunnerHandler } from './handlers/octt-runner.js';
 import type { OcttJobData } from './handlers/octt-runner.js';
 
@@ -43,6 +44,7 @@ async function start(): Promise<void> {
     reservationQueue,
     octtQueue,
     maintenanceFanoutQueue,
+    stationWatchQueue,
   } = createQueues(REDIS_URL);
 
   // Schedule cron jobs from database
@@ -64,6 +66,7 @@ async function start(): Promise<void> {
     createBullMQConnection(REDIS_URL),
     createBullMQConnection(REDIS_URL),
   );
+  const stationWatchWorker = createStationWatchWorker(createBullMQConnection(REDIS_URL));
 
   // OCTT conformance test worker
   const octtWorker = new Worker<OcttJobData>(
@@ -84,6 +87,7 @@ async function start(): Promise<void> {
     pubsub,
     maintenanceFanoutQueue,
   );
+  const stopStationWatchBridge = await startStationWatchBridge(pubsub, stationWatchQueue);
 
   // Listen for credential-rotation invalidations from the API so the next
   // dispatchDriverNotification / scheduled report email reads fresh SMTP and
@@ -122,6 +126,7 @@ async function start(): Promise<void> {
     await stopGuestBridge();
     await stopReservationBridge();
     await stopMaintenanceFanoutBridge();
+    await stopStationWatchBridge();
     await octtSubscription.unsubscribe();
     await cacheInvalidateSubscription.unsubscribe();
     await cronWorker.close();
@@ -129,6 +134,7 @@ async function start(): Promise<void> {
     await guestWorker.close();
     await reservationWorker.close();
     await maintenanceFanoutWorker.close();
+    await stationWatchWorker.close();
     await octtWorker.close();
     await cronQueue.close();
     await loadQueue.close();
@@ -136,6 +142,7 @@ async function start(): Promise<void> {
     await reservationQueue.close();
     await octtQueue.close();
     await maintenanceFanoutQueue.close();
+    await stationWatchQueue.close();
     await pubsub.close();
     log.info('Worker shutdown complete');
     process.exit(0);

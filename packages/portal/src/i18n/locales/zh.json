@@ -15,7 +15,10 @@
     "dismiss": "关闭",
     "confirm": "确认",
     "ok": "确定",
-    "offline": "您已离线。部分功能可能无法使用。"
+    "offline": "您已离线。部分功能可能无法使用。",
+    "add": "添加",
+    "deactivate": "停用",
+    "remove": "移除"
   },
   "nav": {
     "home": "首页",
@@ -404,7 +407,9 @@
     "paymentMethodRequired": "创建预约需要支付方式。",
     "cancellationFeeWarning": "将向您的默认支付方式收取 {{fee}} 取消费用。",
     "cancellationPolicy": "取消政策",
-    "cancellationPolicyText": "如果在开始时间前 {{minutes}} 分钟内取消，将收取 {{fee}} 取消费用。"
+    "cancellationPolicyText": "如果在开始时间前 {{minutes}} 分钟内取消，将收取 {{fee}} 取消费用。",
+    "upcoming": "即将开始",
+    "past": "历史"
   },
   "reservationDetail": {
     "title": "预约",
@@ -686,7 +691,10 @@
     "MAINTENANCE_ALREADY_ACTIVE": "维护事件已处于活动状态",
     "MAINTENANCE_ACTIVE": "该站点当前正在维护",
     "RESERVATION_DURING_MAINTENANCE": "预订时间落在已安排的维护时段内",
-    "ELECTRICITY_RATE_NOT_FOUND": "未找到电价"
+    "ELECTRICITY_RATE_NOT_FOUND": "未找到电价",
+    "STATION_ALREADY_AVAILABLE": "充电站已有可用接口",
+    "TOO_MANY_WATCHES": "您关注的充电站过多",
+    "STATION_WATCH_NOT_FOUND": "未找到关注"
   },
   "validation": {
     "required": "此字段为必填项",
@@ -737,26 +745,14 @@
   "rfid": {
     "addCard": "添加RFID卡",
     "cardNumber": "卡号",
-    "active": "已启用",
-    "inactive": "已停用",
     "noCards": "未注册 RFID 卡。",
-    "cardAdded": "RFID 卡已添加。",
     "duplicate": "此卡已注册。",
     "addFailed": "添加信用卡失败。",
-    "confirmActivateTitle": "启用 RFID 卡",
-    "confirmActivateDescription": "确定要启用此 RFID 卡吗？",
     "confirmDeactivateTitle": "停用 RFID 卡",
     "confirmDeactivateDescription": "确定要停用此 RFID 卡吗？停用后将无法在充电站使用。",
     "removeCard": "删除",
-    "cardRemoved": "RFID卡已停用。",
-    "cardReactivated": "RFID卡已重新激活。",
-    "removeFailed": "删除信用卡失败。",
-    "confirmRemoveTitle": "删除 RFID 卡",
-    "confirmRemoveDescription": "确定要删除此 RFID 卡吗？此操作无法撤消。",
-    "confirmRemoveSoftDeleteDescription": "此 RFID 卡将被停用，不再用于授权充电。您的历史会话将被保留。",
     "reactivateCard": "重新激活RFID卡",
-    "tokenType": "令牌类型",
-    "inactiveBadge": "未启用"
+    "tokenType": "令牌类型"
   },
   "vehicles": {
     "addVehicle": "添加车辆",
@@ -844,6 +840,20 @@
     "instruction": "将摄像头对准充电桩上的二维码即可开始。",
     "permissionDenied": "摄像头访问被阻止。请在浏览器设置中启用摄像头权限以进行扫描。",
     "noCamera": "在此设备上未找到摄像头。",
-    "searchInstead": "改为搜索充电桩"
+    "searchInstead": "改为搜索充电桩",
+    "insecureContext": "实时摄像头扫描需要安全 (HTTPS) 连接。请改为拍照扫描。",
+    "scanPhoto": "从照片扫描",
+    "noQrFound": "未在该照片中找到二维码。请重试。"
+  },
+  "watch": {
+    "notifyWhenFree": "空闲时通知我",
+    "watching": "取消关注",
+    "added": "该充电站空闲时将通知您。",
+    "removed": "已取消关注。",
+    "addFailed": "无法关注该充电站。",
+    "title": "关注",
+    "empty": "您还没有关注任何充电站。",
+    "removeTitle": "取消关注",
+    "removeMessage": "当该充电站空闲时，你将不再收到通知。"
   }
 }

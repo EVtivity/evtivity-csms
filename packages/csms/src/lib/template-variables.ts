@@ -108,6 +108,8 @@ export const DRIVER_MFA_EVENTS = ['mfa.VerificationCode'] as const;
 
 export const DRIVER_INVOICE_EVENTS = ['invoice.Sent'] as const;
 
+export const DRIVER_WATCH_EVENTS = ['watch.StationAvailable'] as const;
+
 // All driver-facing event types (for backward compat)
 export const DRIVER_EVENT_TYPES = [
   ...DRIVER_SESSION_EVENTS,
@@ -119,6 +121,7 @@ export const DRIVER_EVENT_TYPES = [
   ...DRIVER_MFA_EVENTS,
   ...DRIVER_MAINTENANCE_EVENTS,
   ...DRIVER_INVOICE_EVENTS,
+  ...DRIVER_WATCH_EVENTS,
 ] as const;
 
 // Keep old names for imports that haven't been updated
@@ -533,6 +536,13 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'dueAt', description: 'Due timestamp' },
     { name: 'total', description: 'Invoice total amount' },
     { name: 'companyName', description: 'Company name' },
+  ],
+  'watch.StationAvailable': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'stationName', description: 'Station name or OCPP identifier' },
+    { name: 'siteName', description: 'Site name' },
+    { name: 'stationId', description: 'Station OCPP identifier' },
   ],
   'supportCase.Created': [
     { name: 'firstName', description: 'Driver first name' },

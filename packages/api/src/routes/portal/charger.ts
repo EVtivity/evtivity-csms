@@ -195,6 +195,8 @@ const portalChargerSearch = z
     model: z.string().max(100).nullable().describe('Station hardware model'),
     isOnline: z.boolean().describe('Whether the station is currently online'),
     siteName: z.string().max(255).nullable().describe('Site name'),
+    siteAddress: z.string().max(500).nullable().describe('Site street address'),
+    siteCity: z.string().max(255).nullable().describe('Site city'),
     evseCount: z.number().int().min(0).describe('Total EVSEs at this station'),
     availableCount: z.number().int().min(0).describe('Number of available EVSEs at this station'),
     connectors: z
@@ -643,7 +645,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
     {
       schema: {
         tags: ['Portal Chargers'],
-        summary: 'Search chargers by station ID or site name',
+        summary: 'Search chargers by station ID, site name, or address',
         operationId: 'portalSearchChargers',
         security: [],
         querystring: zodSchema(searchQuery),
@@ -658,7 +660,28 @@ export function portalChargerRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { q } = request.query as z.infer<typeof searchQuery>;
-      const pattern = `%${q}%`;
+
+      // Match station id, site name, and the full address (street, city, state,
+      // postal code) so a driver can find a charger by where it is, not just by
+      // its name. Split on whitespace and require every term to match at least
+      // one field, so "Main Austin" narrows to a charger on Main St in Austin.
+      const searchFields = [
+        chargingStations.stationId,
+        sites.name,
+        sites.address,
+        sites.city,
+        sites.state,
+        sites.postalCode,
+      ];
+      const matchTerm = (term: string): ReturnType<typeof or> => {
+        const pattern = `%${term}%`;
+        return or(...searchFields.map((field) => ilike(field, pattern)));
+      };
+      const terms = q
+        .trim()
+        .split(/\s+/)
+        .filter((term) => term.length > 0);
+      const whereClause = terms.length > 0 ? and(...terms.map(matchTerm)) : matchTerm(q);
 
       const rows = await db
         .select({
@@ -667,12 +690,14 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           model: chargingStations.model,
           isOnline: chargingStations.isOnline,
           siteName: sites.name,
+          siteAddress: sites.address,
+          siteCity: sites.city,
           evseCount: sql<number>`(SELECT count(*)::int FROM evses WHERE evses.station_id = ${chargingStations.id})`,
           availableCount: sql<number>`(SELECT count(*)::int FROM connectors c JOIN evses e ON c.evse_id = e.id WHERE e.station_id = ${chargingStations.id} AND c.status = 'available')`,
         })
         .from(chargingStations)
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
-        .where(or(ilike(chargingStations.stationId, pattern), ilike(sites.name, pattern)))
+        .where(whereClause)
         .limit(20);
 
       const stationUuids = rows.map((r) => r.stationUuid);
@@ -703,6 +728,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         model: r.model,
         isOnline: r.isOnline,
         siteName: r.siteName,
+        siteAddress: r.siteAddress,
+        siteCity: r.siteCity,
         evseCount: r.evseCount,
         availableCount: r.availableCount,
         connectors: (connectorsByStation.get(r.stationUuid) ?? []).map((c) => ({

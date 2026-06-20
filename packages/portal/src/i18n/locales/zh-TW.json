@@ -15,7 +15,10 @@
     "dismiss": "關閉",
     "confirm": "確認",
     "ok": "確定",
-    "offline": "您已離線。部分功能可能無法使用。"
+    "offline": "您已離線。部分功能可能無法使用。",
+    "add": "新增",
+    "deactivate": "停用",
+    "remove": "移除"
   },
   "nav": {
     "home": "首頁",
@@ -404,7 +407,9 @@
     "paymentMethodRequired": "建立預約需要支付方式。",
     "cancellationFeeWarning": "將向您的預設支付方式收取 {{fee}} 取消費用。",
     "cancellationPolicy": "取消政策",
-    "cancellationPolicyText": "如果在開始時間前 {{minutes}} 分鐘內取消，將收取 {{fee}} 取消費用。"
+    "cancellationPolicyText": "如果在開始時間前 {{minutes}} 分鐘內取消，將收取 {{fee}} 取消費用。",
+    "upcoming": "即將到來",
+    "past": "過去"
   },
   "reservationDetail": {
     "title": "預約",
@@ -686,7 +691,10 @@
     "MAINTENANCE_ALREADY_ACTIVE": "維護事件已啟用",
     "MAINTENANCE_ACTIVE": "站點目前正在維護中",
     "RESERVATION_DURING_MAINTENANCE": "預約時間落在已排定的維護時段內",
-    "ELECTRICITY_RATE_NOT_FOUND": "找不到電價"
+    "ELECTRICITY_RATE_NOT_FOUND": "找不到電價",
+    "STATION_ALREADY_AVAILABLE": "充電站已有可用接口",
+    "TOO_MANY_WATCHES": "您關注的充電樁過多",
+    "STATION_WATCH_NOT_FOUND": "未找到關注"
   },
   "validation": {
     "required": "此欄位為必填項",
@@ -737,26 +745,14 @@
   "rfid": {
     "addCard": "新增RFID卡",
     "cardNumber": "卡號",
-    "active": "已啟用",
-    "inactive": "已停用",
     "noCards": "未註冊 RFID 卡。",
-    "cardAdded": "RFID 卡已新增。",
     "duplicate": "此卡已註冊。",
     "addFailed": "新增信用卡失敗。",
-    "confirmActivateTitle": "啟用 RFID 卡",
-    "confirmActivateDescription": "確定要啟用此 RFID 卡嗎？",
     "confirmDeactivateTitle": "停用 RFID 卡",
     "confirmDeactivateDescription": "確定要停用此 RFID 卡嗎？停用後將無法在充電站使用。",
     "removeCard": "刪除",
-    "cardRemoved": "RFID卡已停用。",
-    "cardReactivated": "RFID卡已重新啟用。",
-    "removeFailed": "刪除信用卡失敗。",
-    "confirmRemoveTitle": "刪除 RFID 卡",
-    "confirmRemoveDescription": "確定要刪除此 RFID 卡嗎？此操作無法撤銷。",
-    "confirmRemoveSoftDeleteDescription": "此 RFID 卡將被停用，不再授權充電。您的歷史工作階段將被保留。",
     "reactivateCard": "重新啟用RFID卡",
-    "tokenType": "權杖類型",
-    "inactiveBadge": "未啟用"
+    "tokenType": "權杖類型"
   },
   "vehicles": {
     "addVehicle": "新增車輛",
@@ -844,6 +840,20 @@
     "instruction": "將相機對準充電樁上的 QR 碼即可開始。",
     "permissionDenied": "相機存取已被封鎖。請在瀏覽器設定中啟用相機權限以進行掃描。",
     "noCamera": "在此裝置上找不到相機。",
-    "searchInstead": "改為搜尋充電樁"
+    "searchInstead": "改為搜尋充電樁",
+    "insecureContext": "即時相機掃描需要安全 (HTTPS) 連線。請改為拍照掃描。",
+    "scanPhoto": "從照片掃描",
+    "noQrFound": "未在該照片中找到 QR 碼。請重試。"
+  },
+  "watch": {
+    "notifyWhenFree": "空閒時通知我",
+    "watching": "取消關注",
+    "added": "該充電樁空閒時將通知您。",
+    "removed": "已取消關注。",
+    "addFailed": "無法關注該充電樁。",
+    "title": "關注",
+    "empty": "您還沒有關注任何充電樁。",
+    "removeTitle": "取消關注",
+    "removeMessage": "當該充電站空閒時，你將不再收到通知。"
   }
 }

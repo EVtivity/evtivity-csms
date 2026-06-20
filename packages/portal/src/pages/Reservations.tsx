@@ -57,6 +57,10 @@ function statusVariant(
   }
 }
 
+// Mirrors the mobile app's UPCOMING_RESERVATION_STATUSES so the Upcoming/Past
+// toggle splits the list identically on both clients.
+const UPCOMING_STATUSES = new Set(['scheduled', 'active']);
+
 export function Reservations(): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -67,6 +71,7 @@ export function Reservations(): React.JSX.Element {
   // closed. Storing the whole reservation rather than just id so the dialog
   // can render the station/time in the body without a re-lookup.
   const [pendingCancel, setPendingCancel] = useState<Reservation | null>(null);
+  const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
 
   const { data, isLoading } = useQuery({
     queryKey: ['portal-reservations'],
@@ -106,6 +111,11 @@ export function Reservations(): React.JSX.Element {
     },
   });
 
+  const all = data?.data ?? [];
+  const items = all.filter((r) =>
+    tab === 'upcoming' ? UPCOMING_STATUSES.has(r.status) : !UPCOMING_STATUSES.has(r.status),
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -121,16 +131,35 @@ export function Reservations(): React.JSX.Element {
         </Button>
       </div>
 
+      {/* Upcoming / Past toggle */}
+      <div className="flex rounded-lg border">
+        {(['upcoming', 'past'] as const).map((tb) => (
+          <button
+            key={tb}
+            onClick={() => {
+              setTab(tb);
+            }}
+            className={`flex-1 py-2 text-center text-sm font-medium transition-colors ${
+              tab === tb
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            } ${tb === 'upcoming' ? 'rounded-l-lg' : 'rounded-r-lg'}`}
+          >
+            {t(`reservations.${tb}`)}
+          </button>
+        ))}
+      </div>
+
       {isLoading && <LoadingLogo size="inline" />}
 
-      {data != null && data.data.length === 0 && (
+      {!isLoading && items.length === 0 && (
         <p className="text-center text-sm text-muted-foreground">
           {t('reservations.noReservations')}
         </p>
       )}
 
       <div className="space-y-2">
-        {data?.data.map((reservation) => (
+        {items.map((reservation) => (
           <Card
             key={reservation.id}
             className="cursor-pointer hover:shadow-md transition-shadow"
@@ -138,40 +167,40 @@ export function Reservations(): React.JSX.Element {
               void navigate(`/reservations/${reservation.id}`);
             }}
           >
-            <CardContent className="p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{reservation.stationOcppId}</p>
-                  {reservation.startsAt != null && (
-                    <p className="text-xs text-muted-foreground">
-                      {t('reservations.startsAt')}: {formatDate(reservation.startsAt, timezone)}
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    {t('reservations.expiresAt')}: {formatDate(reservation.expiresAt, timezone)}
-                  </p>
-                </div>
-                <div className="text-right space-y-1 shrink-0">
-                  <Badge variant={statusVariant(reservation.status)}>
-                    {t(`reservations.${reservation.status}`)}
-                  </Badge>
-                  {(reservation.status === 'active' || reservation.status === 'scheduled') && (
-                    <div>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        disabled={cancelMutation.isPending}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPendingCancel(reservation);
-                        }}
-                      >
-                        {t('reservations.cancel')}
-                      </Button>
-                    </div>
-                  )}
-                </div>
+            <CardContent className="space-y-2 p-3">
+              <div className="flex items-start justify-between gap-2">
+                <p className="min-w-0 flex-1 text-base font-semibold">
+                  {reservation.stationOcppId}
+                </p>
+                <Badge variant={statusVariant(reservation.status)} className="shrink-0">
+                  {t(`reservations.${reservation.status}`)}
+                </Badge>
               </div>
+              <div className="space-y-0.5">
+                {reservation.startsAt != null && (
+                  <p className="text-sm text-muted-foreground">
+                    {t('reservations.startsAt')}: {formatDate(reservation.startsAt, timezone)}
+                  </p>
+                )}
+                <p className="text-sm text-muted-foreground">
+                  {t('reservations.expiresAt')}: {formatDate(reservation.expiresAt, timezone)}
+                </p>
+              </div>
+              {tab === 'upcoming' &&
+                (reservation.status === 'active' || reservation.status === 'scheduled') && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-1"
+                    disabled={cancelMutation.isPending}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPendingCancel(reservation);
+                    }}
+                  >
+                    {t('reservations.cancel')}
+                  </Button>
+                )}
             </CardContent>
           </Card>
         ))}
