@@ -9,7 +9,8 @@
   "overrides": {
     "esbuild": "^0.28.1",
     "uuid": "^11.1.1",
-    "ioredis": "^5.11.0"
+    "ioredis": "^5.11.0",
+    "undici": "^7.28.0"
   },
   "scripts": {
     "codegen:2.1": "npm run build --workspace=@evtivity/codegen && node packages/codegen/dist/index.js --version 2.1",
@@ -84,6 +85,6 @@
     "@anthropic-ai/sdk": "^0.95.1",
     "@fastify/jwt": "^10.0.0",
     "drizzle-orm": "^0.45.2",
-    "nodemailer": "^8.0.5"
+    "nodemailer": "^9.0.1"
   }
 }
