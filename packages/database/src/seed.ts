@@ -191,26 +191,26 @@ const VENDOR_NAMES = [
 ];
 
 const STATION_MODELS: Array<{ model: string; power: number; type: string; amps: number }> = [
-  { model: 'Terra 360', power: 360, type: 'CCS2', amps: 500 },
-  { model: 'Terra 184', power: 180, type: 'CCS2', amps: 250 },
-  { model: 'CT4000', power: 7, type: 'Type2', amps: 32 },
-  { model: 'CP6000', power: 19, type: 'Type2', amps: 32 },
-  { model: 'RTM75', power: 75, type: 'CCS2', amps: 200 },
-  { model: 'RT50', power: 50, type: 'CHAdeMO', amps: 125 },
-  { model: 'BusinessLine', power: 22, type: 'Type2', amps: 32 },
-  { model: 'Troniq 50', power: 50, type: 'CCS2', amps: 125 },
-  { model: 'Pulsar Plus', power: 11, type: 'Type2', amps: 16 },
+  { model: 'Terra 360', power: 360, type: 'CCS1', amps: 500 },
+  { model: 'Terra 184', power: 180, type: 'CCS1', amps: 250 },
+  { model: 'CT4000', power: 7, type: 'Type1', amps: 32 },
+  { model: 'CP6000', power: 19, type: 'Type1', amps: 32 },
+  { model: 'RTM75', power: 75, type: 'CCS1', amps: 200 },
+  { model: 'RT50', power: 50, type: 'CCS1', amps: 125 },
+  { model: 'BusinessLine', power: 22, type: 'Type1', amps: 32 },
+  { model: 'Troniq 50', power: 50, type: 'CCS1', amps: 125 },
+  { model: 'Pulsar Plus', power: 11, type: 'Type1', amps: 16 },
   { model: 'JuiceBox', power: 40, type: 'Type1', amps: 48 },
-  { model: 'Series 6', power: 150, type: 'CCS2', amps: 350 },
-  { model: 'IQ 200', power: 200, type: 'CCS2', amps: 500 },
+  { model: 'Series 6', power: 150, type: 'CCS1', amps: 350 },
+  { model: 'IQ 200', power: 200, type: 'CCS1', amps: 500 },
 ];
 
 // Simpler models typical of OCPP 1.6-era chargers
 const STATION_MODELS_16: Array<{ model: string; power: number; type: string; amps: number }> = [
-  { model: 'CT4000 (1.6)', power: 7, type: 'Type2', amps: 32 },
-  { model: 'AV-30 (1.6)', power: 22, type: 'Type2', amps: 32 },
-  { model: 'QC-50 (1.6)', power: 50, type: 'CHAdeMO', amps: 125 },
-  { model: 'DualPlug (1.6)', power: 43, type: 'Type2', amps: 63 },
+  { model: 'CT4000 (1.6)', power: 7, type: 'Type1', amps: 32 },
+  { model: 'AV-30 (1.6)', power: 22, type: 'Type1', amps: 32 },
+  { model: 'QC-50 (1.6)', power: 50, type: 'CCS1', amps: 125 },
+  { model: 'DualPlug (1.6)', power: 43, type: 'Type1', amps: 63 },
 ];
 
 const FIRST_NAMES = [
@@ -1149,9 +1149,8 @@ async function seed(): Promise<void> {
   console.log(`  ${String(createdEvses.length)} EVSEs created.`);
 
   // Create connectors - some EVSEs get multiple connectors
-  // DC fast chargers (CCS2 >= 50kW): ~50% get a second CHAdeMO connector
-  // CHAdeMO stations: ~50% get a second CCS2 connector
-  // AC Type2 stations: ~33% get a second Type1 connector
+  // DC fast chargers (CCS1 >= 50kW): a small share (~1 in 17) get a second,
+  // legacy CHAdeMO connector. AC Type1 (J1772) stations: ~33% get a second Type1.
   const connectorRows: Array<{
     evseId: string;
     connectorId: number;
@@ -1179,8 +1178,10 @@ async function seed(): Promise<void> {
     // 1.6 stations: 1 connector per EVSE (1:1 mapping), no secondary connectors
     if (is16) continue;
 
-    // Secondary connector for multi-connector EVSEs (2.1 only)
-    if (modelInfo.type === 'CCS2' && modelInfo.power >= 50 && i % 2 === 0) {
+    // Secondary connector for multi-connector EVSEs (2.1 only). CHAdeMO is rare
+    // in the US and being phased out, so only a small share of DC fast chargers
+    // carry one as a legacy second plug.
+    if (modelInfo.type === 'CCS1' && modelInfo.power >= 50 && i % 17 === 0) {
       connectorRows.push({
         evseId: evse.id,
         connectorId: 2,
@@ -1189,16 +1190,7 @@ async function seed(): Promise<void> {
         maxPowerKw: String(Math.min(modelInfo.power, 50)),
         maxCurrentAmps: Math.min(modelInfo.amps, 125),
       });
-    } else if (modelInfo.type === 'CHAdeMO' && i % 2 === 0) {
-      connectorRows.push({
-        evseId: evse.id,
-        connectorId: 2,
-        status: pick(connectorStatuses),
-        connectorType: 'CCS2',
-        maxPowerKw: String(modelInfo.power),
-        maxCurrentAmps: modelInfo.amps,
-      });
-    } else if (modelInfo.type === 'Type2' && i % 3 === 0) {
+    } else if (modelInfo.type === 'Type1' && i % 3 === 0) {
       connectorRows.push({
         evseId: evse.id,
         connectorId: 2,
@@ -2053,7 +2045,7 @@ async function seed(): Promise<void> {
     'I was charged $45 but only used 12 kWh of energy. The rate should have been much lower.',
     'The charger stopped after 10 minutes and displayed an error. My car was only at 30%.',
     'My payment shows as pending for over a week. The session completed successfully.',
-    'The CCS2 connector has visible damage to the pins. Please inspect and repair.',
+    'The CCS1 connector has visible damage to the pins. Please inspect and repair.',
     'I reset my password but still cannot log in. Getting "invalid credentials" error.',
     'I see two charges on my statement for the same session. Please refund the duplicate.',
     'Can you explain the difference between Standard AC and Premium DC pricing?',

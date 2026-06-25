@@ -35,17 +35,61 @@ import { api } from '@/lib/api';
 import { Select } from '@/components/ui/select';
 import { connectorStatusVariant } from '@/lib/status-variants';
 
-const CONNECTOR_TYPES = [
-  'CCS2',
-  'CCS1',
-  'CHAdeMO',
-  'Type2',
-  'Type1',
-  'GBT',
-  'Tesla',
-  'NACS',
-  'Unknown',
-] as const;
+// Connector types grouped by region for the create/edit dropdowns. Tesla is
+// dropped because NACS is the same connector. Standard names and their
+// expansions are industry terms kept verbatim (like the connectors tooltip);
+// only the region headers and the Unknown fallback are translated.
+type ConnectorRegion = 'northAmerican' | 'european' | 'universal';
+const CONNECTOR_TYPE_GROUPS: ReadonlyArray<{
+  region: ConnectorRegion;
+  types: ReadonlyArray<{ value: string; label: string }>;
+}> = [
+  {
+    region: 'northAmerican',
+    types: [
+      { value: 'Type1', label: 'Type 1 (J1772)' },
+      { value: 'CCS1', label: 'CCS1 (Combined Charging System 1)' },
+      { value: 'NACS', label: 'NACS (North American Charging Standard)' },
+    ],
+  },
+  {
+    region: 'european',
+    types: [
+      { value: 'Type2', label: 'Type 2 (Mennekes)' },
+      { value: 'CCS2', label: 'CCS2 (Combined Charging System 2)' },
+    ],
+  },
+  {
+    region: 'universal',
+    types: [
+      { value: 'CHAdeMO', label: 'CHAdeMO' },
+      { value: 'GBT', label: 'GB/T (China)' },
+      { value: 'Unknown', label: 'Unknown' },
+    ],
+  },
+];
+
+function ConnectorTypeOptions(): React.JSX.Element {
+  const { t } = useTranslation();
+  const regionLabel: Record<ConnectorRegion, string> = {
+    northAmerican: t('stations.connectorRegionNorthAmerican'),
+    european: t('stations.connectorRegionEuropean'),
+    universal: t('stations.connectorRegionUniversal'),
+  };
+  return (
+    <>
+      {CONNECTOR_TYPE_GROUPS.map((group) => (
+        <optgroup key={group.region} label={regionLabel[group.region]}>
+          {group.types.map((ct) => (
+            <option key={ct.value} value={ct.value}>
+              {ct.value === 'Unknown' ? t('stations.connectorUnknown') : ct.label}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </>
+  );
+}
 
 interface Connector {
   connectorId: number;
@@ -646,11 +690,7 @@ export function ConnectorStatus({
                 className="h-9"
               >
                 <option value="">— Select one —</option>
-                {CONNECTOR_TYPES.map((ct) => (
-                  <option key={ct} value={ct}>
-                    {ct}
-                  </option>
-                ))}
+                <ConnectorTypeOptions />
               </Select>
             </div>
             <div className="space-y-2">
@@ -725,11 +765,7 @@ export function ConnectorStatus({
                 className="h-9"
               >
                 <option value="">— Select one —</option>
-                {CONNECTOR_TYPES.map((ct) => (
-                  <option key={ct} value={ct}>
-                    {ct}
-                  </option>
-                ))}
+                <ConnectorTypeOptions />
               </Select>
             </div>
             <div className="space-y-2">
@@ -804,11 +840,7 @@ export function ConnectorStatus({
                       className="h-9"
                     >
                       <option value="">— Select one —</option>
-                      {CONNECTOR_TYPES.map((ct) => (
-                        <option key={ct} value={ct}>
-                          {ct}
-                        </option>
-                      ))}
+                      <ConnectorTypeOptions />
                     </Select>
                   </div>
                   <div className="space-y-1">

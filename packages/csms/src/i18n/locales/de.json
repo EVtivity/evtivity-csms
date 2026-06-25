@@ -795,7 +795,11 @@
     "longitude": "Längengrad",
     "reservationsEnabled": "Reservierungen",
     "reservationsEnabledHelp": "Reservierungen an dieser Station erlauben",
-    "freeVend": "Freies Laden"
+    "freeVend": "Freies Laden",
+    "connectorRegionNorthAmerican": "Nordamerika",
+    "connectorRegionEuropean": "Europa",
+    "connectorRegionUniversal": "Universal / Sonstige",
+    "connectorUnknown": "Unbekannt"
   },
   "eventAlertRules": {
     "title": "Ereigniswarnregeln",

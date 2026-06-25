@@ -809,7 +809,11 @@
     "longitude": "经度",
     "reservationsEnabled": "预约",
     "reservationsEnabledHelp": "允许在此充电站进行预约",
-    "freeVend": "免费充电"
+    "freeVend": "免费充电",
+    "connectorRegionNorthAmerican": "北美",
+    "connectorRegionEuropean": "欧洲",
+    "connectorRegionUniversal": "通用 / 其他",
+    "connectorUnknown": "未知"
   },
   "eventAlertRules": {
     "title": "事件告警规则",

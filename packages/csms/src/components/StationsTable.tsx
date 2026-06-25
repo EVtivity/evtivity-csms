@@ -118,9 +118,9 @@ function connectorDisplayName(type: string): string {
     ccs2: 'CCS2',
     ccs: 'CCS',
     chademo: 'CHAdeMO',
-    type1: 'Type 1 (J1772)',
+    type1: 'Type 1',
     type2: 'Type 2',
-    nacs: 'NACS (Tesla)',
+    nacs: 'NACS',
     unknown: type,
   };
   return names[key] ?? type;

@@ -809,7 +809,11 @@
     "longitude": "Longitude",
     "reservationsEnabled": "Reservations",
     "reservationsEnabledHelp": "Allow reservations at this station",
-    "freeVend": "Free Vend"
+    "freeVend": "Free Vend",
+    "connectorRegionNorthAmerican": "North American",
+    "connectorRegionEuropean": "European",
+    "connectorRegionUniversal": "Universal / Other",
+    "connectorUnknown": "Unknown"
   },
   "eventAlertRules": {
     "title": "Event Alert Rules",

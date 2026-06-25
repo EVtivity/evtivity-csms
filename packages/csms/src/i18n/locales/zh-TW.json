@@ -809,7 +809,11 @@
     "longitude": "經度",
     "reservationsEnabled": "預約",
     "reservationsEnabledHelp": "允許在此充電站進行預約",
-    "freeVend": "免費充電"
+    "freeVend": "免費充電",
+    "connectorRegionNorthAmerican": "北美",
+    "connectorRegionEuropean": "歐洲",
+    "connectorRegionUniversal": "通用 / 其他",
+    "connectorUnknown": "未知"
   },
   "eventAlertRules": {
     "title": "事件告警規則",
