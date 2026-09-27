@@ -1960,7 +1960,8 @@
       "supportCase.Resolved": "지원 요청 해결",
       "mfa.VerificationCode": "MFA 인증 코드",
       "session.IdlingStarted": "세션 유휴 시작"
-    }
+    },
+    "templatePreviewInvalid": "템플릿에 오류가 있습니다:"
   },
   "reservations": {
     "title": "예약",

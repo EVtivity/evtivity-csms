@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, count, and, or, ilike, like } from 'drizzle-orm';
 import { readFile } from 'node:fs/promises';
@@ -21,14 +21,15 @@ import { decryptString, wrapEmailHtml } from '@evtivity/lib';
 import { getPubSub } from '../lib/pubsub.js';
 
 const OCPP_CACHE_INVALIDATE_CHANNEL = 'cache_invalidate';
-async function invalidateOcppEventSettingsCache(): Promise<void> {
+async function invalidateOcppEventSettingsCache(log: FastifyBaseLogger): Promise<void> {
   try {
     await getPubSub().publish(
       OCPP_CACHE_INVALIDATE_CHANNEL,
       JSON.stringify({ cache: 'ocppEventSettings' }),
     );
-  } catch {
-    // Non-critical: stale OCPP server cache will refresh within 60s anyway.
+  } catch (err: unknown) {
+    // Non-critical: the OCPP server cache refreshes within 60s anyway.
+    log.warn({ err }, 'Failed to publish OCPP event settings cache invalidation');
   }
 }
 
@@ -713,7 +714,7 @@ export function notificationRoutes(app: FastifyInstance): void {
           set: updates,
         })
         .returning();
-      await invalidateOcppEventSettingsCache();
+      await invalidateOcppEventSettingsCache(request.log);
       return saved;
     },
   );
@@ -754,7 +755,7 @@ export function notificationRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Setting not found', code: 'SETTING_NOT_FOUND' });
         return;
       }
-      await invalidateOcppEventSettingsCache();
+      await invalidateOcppEventSettingsCache(request.log);
       return { success: true };
     },
   );
@@ -1302,10 +1303,13 @@ export function notificationRoutes(app: FastifyInstance): void {
         operationId: 'previewNotificationTemplate',
         security: [{ bearerAuth: [] }],
         body: zodSchema(templatePreviewBody),
-        response: { 200: itemResponse(templatePreviewResponse) },
+        response: {
+          200: itemResponse(templatePreviewResponse),
+          400: errorWith('The template is not valid', [ERROR_CODES.VALIDATION_ERROR]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const body = request.body as z.infer<typeof templatePreviewBody>;
 
       const [[companyRow], [wrapperRow]] = await Promise.all([
@@ -1359,8 +1363,27 @@ export function notificationRoutes(app: FastifyInstance): void {
         email: 'john.doe@example.com',
       };
 
-      const renderedSubject = body.subject ? safeCompile(body.subject)(sampleVariables) : null;
-      let renderedBodyHtml = body.bodyHtml ? safeCompile(body.bodyHtml)(sampleVariables) : null;
+      // A disallowed or unparsable template is operator input, not a server error.
+      const render = (template: string): string | Error => {
+        try {
+          return safeCompile(template)(sampleVariables);
+        } catch (err: unknown) {
+          return err instanceof Error ? err : new Error(String(err));
+        }
+      };
+      const subjectResult = body.subject ? render(body.subject) : null;
+      const bodyResult = body.bodyHtml ? render(body.bodyHtml) : null;
+      const details: Record<string, string> = {};
+      if (subjectResult instanceof Error) details['subject'] = subjectResult.message;
+      if (bodyResult instanceof Error) details['bodyHtml'] = bodyResult.message;
+      if (Object.keys(details).length > 0) {
+        await reply
+          .status(400)
+          .send({ error: 'Template is invalid', code: 'VALIDATION_ERROR', details });
+        return;
+      }
+      const renderedSubject = subjectResult as string | null;
+      let renderedBodyHtml = bodyResult as string | null;
 
       if (body.channel === 'email' && renderedBodyHtml != null) {
         renderedBodyHtml = wrapEmailHtml(

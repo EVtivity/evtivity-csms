@@ -1971,7 +1971,8 @@
       "supportCase.Resolved": "支持工单已解决",
       "mfa.VerificationCode": "MFA 验证码",
       "session.IdlingStarted": "充电会话闲置开始"
-    }
+    },
+    "templatePreviewInvalid": "模板存在错误："
   },
   "reservations": {
     "title": "预约",

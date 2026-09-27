@@ -519,6 +519,46 @@ describe('Notification routes', () => {
     expect(body.subject).toContain('TestCo');
   });
 
+  it('POST /v1/notification-templates/preview returns 400 for a disallowed block helper', async () => {
+    setupDbResults([{ value: 'TestCo' }], [{ value: null }], [{ value: 'USD' }], []);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/notification-templates/preview',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        eventType: 'station.Connected',
+        channel: 'email',
+        language: 'en',
+        subject: 'Hello',
+        bodyHtml: '{{#each items}}x{{/each}}',
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    const body = response.json<{ code: string; details: Record<string, string> }>();
+    expect(body.code).toBe('VALIDATION_ERROR');
+    expect(body.details).toEqual({ bodyHtml: 'Block helpers are not allowed in templates' });
+  });
+
+  it('POST /v1/notification-templates/preview returns 400 for a subject that does not parse', async () => {
+    setupDbResults([{ value: 'TestCo' }], [{ value: null }], [{ value: 'USD' }], []);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/notification-templates/preview',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        eventType: 'station.Connected',
+        channel: 'email',
+        language: 'en',
+        subject: 'Hello {{companyName',
+        bodyHtml: '<p>ok</p>',
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    const body = response.json<{ code: string; details: Record<string, string> }>();
+    expect(body.code).toBe('VALIDATION_ERROR');
+    expect(Object.keys(body.details)).toEqual(['subject']);
+  });
+
   it('POST /v1/email-wrapper/preview renders a draft layout with company details', async () => {
     setupDbResults([
       { key: 'company.name', value: 'TestCo' },

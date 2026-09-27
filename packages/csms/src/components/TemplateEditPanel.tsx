@@ -10,7 +10,8 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { TemplateEditor } from '@/components/TemplateEditor';
-import { api } from '@/lib/api';
+import { api, getApiErrorFieldDetails } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import type { TemplateVariable } from '@/lib/template-variables';
 import { LoadingLogo } from '@/components/loading-logo';
 
@@ -141,6 +142,16 @@ export const TemplateEditPanel = forwardRef<TemplateEditPanelHandle, TemplateEdi
         }),
       onSuccess: () => {
         setPreviewOpen(true);
+      },
+      onError: (err: unknown) => {
+        const details = Object.values(getApiErrorFieldDetails(err));
+        onStatusChange?.({
+          success: '',
+          error:
+            details.length > 0
+              ? `${t('notifications.templatePreviewInvalid')} ${details.join(' ')}`
+              : getErrorMessage(err, t),
+        });
       },
     });
 

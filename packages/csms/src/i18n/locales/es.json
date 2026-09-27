@@ -1976,7 +1976,8 @@
       "supportCase.Resolved": "Caso de Soporte Resuelto",
       "mfa.VerificationCode": "Codigo de Verificacion MFA",
       "session.IdlingStarted": "Sesion en inactividad"
-    }
+    },
+    "templatePreviewInvalid": "La plantilla tiene un error:"
   },
   "reservations": {
     "title": "Reservas",

@@ -1960,7 +1960,8 @@
       "supportCase.Resolved": "支援工單已解決",
       "mfa.VerificationCode": "MFA 驗證碼",
       "session.IdlingStarted": "充電會話閒置開始"
-    }
+    },
+    "templatePreviewInvalid": "範本有錯誤："
   },
   "reservations": {
     "title": "預約",

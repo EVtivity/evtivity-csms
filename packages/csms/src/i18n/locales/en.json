@@ -1979,7 +1979,8 @@
       "supportCase.Resolved": "Support Case Resolved",
       "mfa.VerificationCode": "MFA Verification Code",
       "session.IdlingStarted": "Session Idling Started"
-    }
+    },
+    "templatePreviewInvalid": "The template has an error:"
   },
   "reservations": {
     "title": "Reservations",

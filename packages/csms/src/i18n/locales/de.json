@@ -1955,7 +1955,8 @@
       "supportCase.Resolved": "Supportfall gelöst",
       "mfa.VerificationCode": "MFA-Bestätigungscode",
       "session.IdlingStarted": "Ladevorgangs-Leerlauf gestartet"
-    }
+    },
+    "templatePreviewInvalid": "Die Vorlage enthält einen Fehler:"
   },
   "reservations": {
     "title": "Reservierungen",
