@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import WebSocket from 'ws';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -547,15 +547,15 @@ describe('OcppServer integration', () => {
     ws.close();
   });
 
-  it('constructs a postgres pool when a databaseUrl is supplied and closes it on stop', async () => {
-    // A databaseUrl makes the constructor build a postgres pool (this.sql).
-    // start()/stop() must wire the ping monitor to it and end the pool without
-    // requiring a reachable database (no query is issued during start/stop).
+  it('uses an injected shared sql pool and leaves it open on stop', async () => {
+    // The pool belongs to the caller (the process-wide client), so stop() must not end it.
     const port = getNextPort();
-    const srv = new OcppServer({ databaseUrl: 'postgres://u:p@127.0.0.1:1/none' });
+    const end = vi.fn();
+    const sharedSql = { end } as unknown as import('postgres').Sql;
+    const srv = new OcppServer({ sql: sharedSql });
     await srv.start({ port, host: '127.0.0.1' });
-    // stop() ends the sql pool; resolves cleanly even though nothing connected.
     await expect(srv.stop()).resolves.toBeUndefined();
+    expect(end).not.toHaveBeenCalled();
     server = null;
   });
 

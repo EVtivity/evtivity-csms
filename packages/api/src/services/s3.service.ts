@@ -57,18 +57,30 @@ export async function getS3Config(): Promise<S3Config | null> {
   const accessKeyIdEnc = map.get('s3.accessKeyIdEnc') as string | undefined;
   const secretAccessKeyEnc = map.get('s3.secretAccessKeyEnc') as string | undefined;
 
-  if (bucket == null || region == null || accessKeyIdEnc == null || secretAccessKeyEnc == null) {
+  if (bucket == null || region == null) {
+    return null;
+  }
+  // No stored keys means use the default credential chain (the ECS task role).
+  // A single stored key is a half-finished configuration, so S3 stays disabled.
+  const hasAccessKey = accessKeyIdEnc != null;
+  const hasSecretKey = secretAccessKeyEnc != null;
+  if (hasAccessKey !== hasSecretKey) {
     return null;
   }
 
-  const encryptionKey = getEncryptionKey();
-  const accessKeyId = decryptString(accessKeyIdEnc, encryptionKey);
-  const secretAccessKey = decryptString(secretAccessKeyEnc, encryptionKey);
-
-  const client = new S3Client({
-    region,
-    credentials: { accessKeyId, secretAccessKey },
-  });
+  let client: S3Client;
+  if (hasAccessKey && hasSecretKey) {
+    const encryptionKey = getEncryptionKey();
+    client = new S3Client({
+      region,
+      credentials: {
+        accessKeyId: decryptString(accessKeyIdEnc, encryptionKey),
+        secretAccessKey: decryptString(secretAccessKeyEnc, encryptionKey),
+      },
+    });
+  } else {
+    client = new S3Client({ region });
+  }
 
   const config: S3Config = { client, bucket };
   cachedConfig = { config, expiresAt: Date.now() + CACHE_TTL_MS };

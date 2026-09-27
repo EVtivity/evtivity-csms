@@ -50,8 +50,9 @@ function makeChain() {
 
 // -- Hoisted mocks --
 
-const { mockDecryptString, mockGetSignedUrl, mockS3Send } = vi.hoisted(() => {
+const { mockDecryptString, mockGetSignedUrl, mockS3Send, mockS3ClientCtor } = vi.hoisted(() => {
   return {
+    mockS3ClientCtor: vi.fn(),
     mockDecryptString: vi.fn().mockReturnValue('decrypted-access-key'),
     mockGetSignedUrl: vi.fn().mockResolvedValue('https://s3.example.com/signed-url'),
     mockS3Send: vi.fn().mockResolvedValue({}),
@@ -85,6 +86,9 @@ vi.mock('@evtivity/lib', () => ({
 vi.mock('@aws-sdk/client-s3', () => {
   class MockS3Client {
     send = mockS3Send;
+    constructor(options: unknown) {
+      mockS3ClientCtor(options);
+    }
   }
   class MockPutObjectCommand {
     input: Record<string, unknown>;
@@ -202,6 +206,18 @@ describe('s3.service', () => {
       ]);
       const config = await getS3Config();
       expect(config).toBeNull();
+    });
+
+    it('uses the default credential chain when no access keys are stored', async () => {
+      setupDbResults([
+        { key: 's3.bucket', value: 'my-bucket' },
+        { key: 's3.region', value: 'us-east-1' },
+      ]);
+      const config = await getS3Config();
+      expect(config).not.toBeNull();
+      expect(config!.bucket).toBe('my-bucket');
+      expect(mockS3ClientCtor).toHaveBeenLastCalledWith({ region: 'us-east-1' });
+      expect(mockDecryptString).not.toHaveBeenCalled();
     });
 
     it('returns config when all settings present', async () => {

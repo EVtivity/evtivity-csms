@@ -19,6 +19,9 @@ RUN npm ci --ignore-scripts && npm rebuild argon2
 COPY tsconfig.base.json tsconfig.json ./
 COPY packages/lib/ packages/lib/
 COPY packages/database/ packages/database/
+# sync-admin-permissions (the last step of `npm run migrate`) imports @evtivity/lib,
+# whose package entry is the compiled dist/.
+RUN npm run build --workspace=packages/lib
 # verify-migrations-applied.mjs and check-migrations.mjs are referenced by
 # `npm run migrate` from packages/database; without scripts/ in the image the
 # migrate-job container fails on a missing script.
@@ -27,4 +30,6 @@ LABEL org.opencontainers.image.source="https://github.com/EVtivity/evtivity-csms
 LABEL org.opencontainers.image.license="LicenseRef-EVtivity-EULA"
 LABEL org.opencontainers.image.vendor="EVtivity"
 
+COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/evtivity-entrypoint
+ENTRYPOINT ["evtivity-entrypoint"]
 CMD ["sh", "-c", "cd packages/database && npm run migrate"]

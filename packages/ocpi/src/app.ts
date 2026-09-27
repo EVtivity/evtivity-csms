@@ -63,6 +63,9 @@ export async function buildOcpiApp(opts: FastifyServerOptions = {}): Promise<Fas
       .send(ocpiResponse(null, OcpiStatusCode.SERVER_ERROR, 'Internal server error'));
   });
 
+  // Liveness for the load balancer; outside /ocpi/ so the roaming toggle does not gate it.
+  app.get('/health', { config: { rateLimit: false } }, () => ({ status: 'ok' }));
+
   await app.register(versionRoutes);
   await app.register(credentialRoutes);
   await app.register(cpoLocationRoutes);

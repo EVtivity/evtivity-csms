@@ -23,4 +23,4 @@ LABEL org.opencontainers.image.source="https://github.com/EVtivity/evtivity-csms
 LABEL org.opencontainers.image.license="LicenseRef-EVtivity-EULA"
 LABEL org.opencontainers.image.vendor="EVtivity"
 
-EXPOSE 80
+EXPOSE 8080

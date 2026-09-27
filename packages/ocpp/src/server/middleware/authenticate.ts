@@ -25,6 +25,7 @@ export async function authenticateConnection(
   req: IncomingMessage,
   logger: Logger,
   sql: postgres.Sql | null,
+  clientIp: string | null = req.socket.remoteAddress ?? null,
 ): Promise<AuthResult> {
   const stationId = extractStationId(req.url);
   if (stationId == null) {
@@ -81,7 +82,7 @@ export async function authenticateConnection(
   // during onboarding. Charging is blocked at the API level instead.
   // Blocked stations are rejected here at the connection level.
 
-  const remoteAddress = req.socket.remoteAddress ?? null;
+  const remoteAddress = clientIp;
   const securityProfile = station.security_profile;
 
   // SP0: no authentication required

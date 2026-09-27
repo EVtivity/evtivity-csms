@@ -24,6 +24,7 @@ const schema = z.object({
   SETTINGS_ENCRYPTION_KEY: z.string().min(1),
   OCPP_INSTANCE_ID: z.string().optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  OCPP_TRUSTED_PROXY_CIDRS: z.string().default(''),
   OCPP_MAX_CONNECTIONS_PER_IP: z.coerce.number().int().positive().default(2500),
   OCPP_MAX_MESSAGES_PER_IP_PER_SECOND: z.coerce.number().int().positive().default(5000),
 });

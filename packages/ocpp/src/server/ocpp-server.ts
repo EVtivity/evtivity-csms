@@ -5,7 +5,7 @@ import { createServer as createHttpsServer } from 'node:https';
 import { WebSocketServer } from 'ws';
 import type WebSocket from 'ws';
 import type { IncomingMessage } from 'node:http';
-import postgres from 'postgres';
+import type postgres from 'postgres';
 import { createLogger, InMemoryEventBus, OcppError } from '@evtivity/lib';
 import type { Logger, EventBus, EventPersistence } from '@evtivity/lib';
 import { ConnectionManager } from './connection-manager.js';
@@ -15,6 +15,7 @@ import { MessageCorrelator } from './message-correlator.js';
 import { MessageRouter } from './message-router.js';
 import { GracefulShutdown } from './graceful-shutdown.js';
 import { PingMonitor } from './ping-monitor.js';
+import { parseTrustedProxies, resolveClientIp } from './client-ip.js';
 import { MiddlewarePipeline } from './middleware/pipeline.js';
 import type { HandlerContext } from './middleware/pipeline.js';
 import { logMiddleware } from './middleware/log.js';
@@ -86,7 +87,10 @@ export interface OcppServerOptions {
   host?: string | undefined;
   eventPersistence?: EventPersistence | undefined;
   eventBus?: EventBus | undefined;
-  databaseUrl?: string | undefined;
+  // Shared pool owned by the caller; the server never closes it.
+  sql?: postgres.Sql | undefined;
+  // Comma-separated CIDRs of load balancers whose X-Forwarded-For is trusted.
+  trustedProxyCidrs?: string | undefined;
   tls?: TlsOptions | undefined;
 }
 
@@ -101,6 +105,7 @@ export class OcppServer {
   private readonly dispatcher: CommandDispatcher;
   private readonly pingMonitor: PingMonitor;
   private readonly sql: postgres.Sql | null;
+  private readonly trustedProxies: ReturnType<typeof parseTrustedProxies>;
   private wss: WebSocketServer | null = null;
   private wssSecure: WebSocketServer | null = null;
   private shutdown: GracefulShutdown | null = null;
@@ -121,7 +126,8 @@ export class OcppServer {
     this.lifecycle = new MessageLifecycle(this.logger);
     this.dispatcher = new CommandDispatcher(this.connectionManager, this.correlator, this.logger);
     this.pingMonitor = new PingMonitor(this.connectionManager, this.logger);
-    this.sql = options?.databaseUrl ? postgres(options.databaseUrl) : null;
+    this.sql = options?.sql ?? null;
+    this.trustedProxies = parseTrustedProxies(options?.trustedProxyCidrs ?? '');
 
     // Set up middleware pipeline
     this.pipeline = new MiddlewarePipeline();
@@ -231,7 +237,7 @@ export class OcppServer {
   }
 
   private async handleConnection(ws: WebSocket, req: IncomingMessage): Promise<void> {
-    const remoteIp = req.socket.remoteAddress ?? 'unknown';
+    const remoteIp = resolveClientIp(req, this.trustedProxies) ?? 'unknown';
 
     // Per-IP connection limit
     const currentCount = ipConnectionCounts.get(remoteIp) ?? 0;
@@ -296,7 +302,12 @@ export class OcppServer {
       void this.handleMessage(ws, session, raw);
     });
 
-    const auth = await authenticateConnection(req, this.logger, this.sql);
+    const auth = await authenticateConnection(
+      req,
+      this.logger,
+      this.sql,
+      remoteIp === 'unknown' ? null : remoteIp,
+    );
     if (!auth.authenticated || auth.stationId == null) {
       // Surface buffered messages so operators can see what an unauthenticated
       // client tried to send before being kicked. Silent drop here hid both
@@ -634,9 +645,6 @@ export class OcppServer {
     }
     if (this.shutdown != null) {
       await this.shutdown.shutdown();
-    }
-    if (this.sql != null) {
-      await this.sql.end();
     }
   }
 }

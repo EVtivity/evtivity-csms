@@ -56,6 +56,8 @@ LABEL org.opencontainers.image.source="https://github.com/EVtivity/evtivity-csms
 LABEL org.opencontainers.image.license="LicenseRef-EVtivity-EULA"
 LABEL org.opencontainers.image.vendor="EVtivity"
 
+COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/evtivity-entrypoint
+
 USER node
 EXPOSE 3001
 
@@ -63,4 +65,5 @@ ENV NODE_OPTIONS="--enable-source-maps --max-old-space-size=1536"
 ENV API_TEMPLATES_DIR="/app/templates/api"
 ENV OCPP_TEMPLATES_DIR="/app/templates/ocpp"
 
+ENTRYPOINT ["evtivity-entrypoint"]
 CMD ["node", "dist/api.mjs"]

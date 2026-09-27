@@ -8,7 +8,7 @@ import { hostname } from 'node:os';
 import { Redis } from 'ioredis';
 import { OcppServer } from './server/ocpp-server.js';
 import { CommandListener } from './server/command-listener.js';
-import { PgEventPersistence, getSentryConfig } from '@evtivity/database';
+import { PgEventPersistence, client, getSentryConfig } from '@evtivity/database';
 import { RedisPubSubClient, RedisConnectionRegistry, initSentry } from '@evtivity/lib';
 import { registerProjections } from './server/event-projections.js';
 import { subscribeOcppEventSettingsInvalidation } from './server/notification-dispatcher.js';
@@ -18,7 +18,6 @@ import { config } from './lib/config.js';
 const OCPP_PORT = config.OCPP_PORT;
 const OCPP_HOST = config.OCPP_HOST;
 const OCPP_HEALTH_PORT = config.OCPP_HEALTH_PORT;
-const DATABASE_URL = config.DATABASE_URL;
 const REDIS_URL = config.REDIS_URL;
 
 const OCPP_TLS_PORT = config.OCPP_TLS_PORT ?? 8443;
@@ -59,7 +58,11 @@ const OCPP_TLS_KEY = resolvePem(config.OCPP_TLS_KEY_PEM, config.OCPP_TLS_KEY);
 const OCPP_TLS_CA = resolvePem(config.OCPP_TLS_CA_PEM, config.OCPP_TLS_CA);
 
 const eventPersistence = new PgEventPersistence();
-const server = new OcppServer({ eventPersistence, databaseUrl: DATABASE_URL });
+const server = new OcppServer({
+  eventPersistence,
+  sql: client,
+  trustedProxyCidrs: config.OCPP_TRUSTED_PROXY_CIDRS,
+});
 let commandListener: CommandListener | null = null;
 let cacheInvalidateSub: { unsubscribe: () => Promise<void> } | null = null;
 let healthServer: Server | null = null;
@@ -187,6 +190,7 @@ async function shutdown(): Promise<void> {
     registryRedis.disconnect();
   }
   await server.stop();
+  await client.end();
   process.exit(0);
 }
 
