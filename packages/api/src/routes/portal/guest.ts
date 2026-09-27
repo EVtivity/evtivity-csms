@@ -23,7 +23,11 @@ import { zodSchema } from '../../lib/zod-schema.js';
 import { getPubSub } from '../../lib/pubsub.js';
 import { successResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
-import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../../lib/ocpp-command.js';
+import {
+  sendOcppCommandAndWait,
+  sendStatusCheckError,
+  triggerAndWaitForStatus,
+} from '../../lib/ocpp-command.js';
 import {
   isStationCheckRateLimited,
   isGuestSessionRateLimited,
@@ -196,24 +200,21 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           200: itemResponse(
             z
               .object({
-                connectorStatus: z
-                  .string()
-                  .nullable()
-                  .describe(
-                    'Refreshed connector status, or null when the station is offline or did not respond',
-                  ),
-                error: z
-                  .string()
-                  .optional()
-                  .describe('Human-readable reason the status could not be refreshed'),
+                connectorStatus: z.string().describe('Refreshed connector status'),
               })
               .passthrough(),
           ),
+          400: errorWith('Station is offline', [ERROR_CODES.STATION_OFFLINE]),
           404: errorWith('Resource not found', [
             ERROR_CODES.CONNECTOR_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
           ]),
           429: errorWith('Rate limit exceeded', [ERROR_CODES.RATE_LIMITED]),
+          502: errorWith('Station rejected the status check', [ERROR_CODES.STATUS_CHECK_REJECTED]),
+          504: errorWith('Station did not report a fresh status in time', [
+            ERROR_CODES.STATION_TIMEOUT,
+            ERROR_CODES.STATUS_CHECK_TIMEOUT,
+          ]),
         },
       },
     },
@@ -235,7 +236,8 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         return;
       }
       if (!station.isOnline) {
-        return { connectorStatus: null, error: 'Station is offline' };
+        await sendStatusCheckError(reply, 'STATION_OFFLINE');
+        return;
       }
 
       // Cache lookup before rate-limit charge so concurrent drivers at a busy
@@ -243,7 +245,11 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       // other out at the 5-per-minute station ceiling.
       const cached = getCachedConnectorStatus(stationId, evseId);
       if (cached != null) {
-        return { connectorStatus: cached.status, error: cached.error };
+        if (cached.errorCode != null) {
+          await sendStatusCheckError(reply, cached.errorCode);
+          return;
+        }
+        return { connectorStatus: cached.status };
       }
 
       if (isStationCheckRateLimited(stationId)) {
@@ -274,12 +280,12 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         station.ocppProtocol ?? undefined,
       );
 
-      setCachedConnectorStatus(stationId, evseId, {
-        status: result.status,
-        ...(result.error !== undefined ? { error: result.error } : {}),
-      });
-
-      return { connectorStatus: result.status, error: result.error };
+      setCachedConnectorStatus(stationId, evseId, result);
+      if (result.errorCode != null) {
+        await sendStatusCheckError(reply, result.errorCode);
+        return;
+      }
+      return { connectorStatus: result.status };
     },
   );
 

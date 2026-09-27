@@ -1,6 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import type { StatusCheckResult } from './ocpp-command.js';
+
 const stationCheckRateLimit = new Map<string, number[]>();
 const CHECK_RATE_LIMIT = 5; // max TriggerMessage dispatches per minute per station
 const CHECK_RATE_WINDOW = 60_000; // 1 minute
@@ -27,11 +29,7 @@ export function isStationCheckRateLimited(stationId: string): boolean {
 // driver gets 429 and cannot complete the pre-start flow. With this cache,
 // drivers within the window get the most recent freshly-pulled status instead
 // of being locked out.
-interface CachedStatus {
-  status: string | null;
-  error?: string;
-  cachedAt: number;
-}
+type CachedStatus = StatusCheckResult & { cachedAt: number };
 const statusCheckCache = new Map<string, CachedStatus>();
 const STATUS_CACHE_TTL_MS = 30_000;
 
@@ -42,7 +40,7 @@ function statusCacheKey(stationId: string, evseId: number): string {
 export function getCachedConnectorStatus(
   stationId: string,
   evseId: number,
-): { status: string | null; error?: string } | null {
+): StatusCheckResult | null {
   const key = statusCacheKey(stationId, evseId);
   const cached = statusCheckCache.get(key);
   if (cached == null) return null;
@@ -50,20 +48,17 @@ export function getCachedConnectorStatus(
     statusCheckCache.delete(key);
     return null;
   }
-  return cached.error !== undefined
-    ? { status: cached.status, error: cached.error }
+  return cached.errorCode != null
+    ? { status: null, errorCode: cached.errorCode }
     : { status: cached.status };
 }
 
 export function setCachedConnectorStatus(
   stationId: string,
   evseId: number,
-  result: { status: string | null; error?: string },
+  result: StatusCheckResult,
 ): void {
-  const key = statusCacheKey(stationId, evseId);
-  const value: CachedStatus = { status: result.status, cachedAt: Date.now() };
-  if (result.error !== undefined) value.error = result.error;
-  statusCheckCache.set(key, value);
+  statusCheckCache.set(statusCacheKey(stationId, evseId), { ...result, cachedAt: Date.now() });
 }
 
 // Per-API-key rate limiter: 60 requests per minute per key

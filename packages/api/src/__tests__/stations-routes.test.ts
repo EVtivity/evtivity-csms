@@ -206,7 +206,8 @@ vi.mock('../lib/site-access.js', () => ({
   userCanAccessSite: vi.fn().mockResolvedValue(true),
 }));
 
-vi.mock('../lib/ocpp-command.js', () => ({
+vi.mock('../lib/ocpp-command.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/ocpp-command.js')>()),
   sendOcppCommandAndWait: vi.fn().mockResolvedValue({
     commandId: 'mock-cmd',
     response: { status: 'Accepted' },
@@ -796,10 +797,8 @@ describe('Station routes - handler logic', () => {
         payload: {},
       });
 
-      expect(response.statusCode).toBe(200);
-      const body = response.json();
-      expect(body.status).toBeNull();
-      expect(body.error).toBe('Station is offline');
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({ error: 'Station is offline', code: 'STATION_OFFLINE' });
     });
   });
 

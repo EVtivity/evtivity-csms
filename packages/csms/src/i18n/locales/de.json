@@ -2299,7 +2299,9 @@
     "ELECTRICITY_RATE_NOT_FOUND": "Stromtarif nicht gefunden",
     "STATION_ALREADY_AVAILABLE": "Die Ladestation hat bereits einen verfügbaren Anschluss",
     "TOO_MANY_WATCHES": "Sie beobachten zu viele Ladestationen",
-    "STATION_WATCH_NOT_FOUND": "Beobachtung nicht gefunden"
+    "STATION_WATCH_NOT_FOUND": "Beobachtung nicht gefunden",
+    "STATUS_CHECK_REJECTED": "Ladestation hat die Statusabfrage abgelehnt",
+    "STATUS_CHECK_TIMEOUT": "Zeitüberschreitung bei der Statusabfrage. Stecker neu einstecken und erneut versuchen."
   },
   "logs": {
     "title": "Protokolle",

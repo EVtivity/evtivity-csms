@@ -173,7 +173,7 @@ describe('triggerAndWaitForStatus', () => {
   it('returns Connector not found when the before-row is missing', async () => {
     executeMock.mockResolvedValueOnce([]); // before SELECT
     const result = await triggerAndWaitForStatus('CS-1', 1, 1, 'sta_1', 'ocpp1.6');
-    expect(result).toEqual({ status: null, error: 'Connector not found' });
+    expect(result).toEqual({ status: null, errorCode: 'CONNECTOR_NOT_FOUND' });
   });
 
   it('returns an error when the command fails (no station response)', async () => {
@@ -188,7 +188,7 @@ describe('triggerAndWaitForStatus', () => {
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(35_000);
     const result = await promise;
-    expect(result).toEqual({ status: null, error: 'Station did not respond to status check' });
+    expect(result).toEqual({ status: null, errorCode: 'STATION_TIMEOUT' });
   });
 
   it('returns an error when the station rejects the status check', async () => {
@@ -207,7 +207,7 @@ describe('triggerAndWaitForStatus', () => {
     };
     ref.handler?.(JSON.stringify({ commandId: sent.commandId, response: { status: 'Rejected' } }));
     const result = await promise;
-    expect(result).toEqual({ status: null, error: 'Station rejected status check' });
+    expect(result).toEqual({ status: null, errorCode: 'STATUS_CHECK_REJECTED' });
   });
 
   it('returns the current DB status when the station replies NotImplemented', async () => {
@@ -280,10 +280,7 @@ describe('triggerAndWaitForStatus', () => {
 
     await vi.advanceTimersByTimeAsync(11_000);
     const result = await promise;
-    expect(result).toEqual({
-      status: null,
-      error: 'Status check timed out. Replug the connector and try again.',
-    });
+    expect(result).toEqual({ status: null, errorCode: 'STATUS_CHECK_TIMEOUT' });
   });
 
   it('uses a TransactionEvent trigger for OCPP 2.1 stations with an active session', async () => {

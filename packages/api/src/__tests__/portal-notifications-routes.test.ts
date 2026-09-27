@@ -136,8 +136,8 @@ describe('Portal notification routes', () => {
   });
 
   describe('GET /v1/portal/notifications/unread-count', () => {
-    it('returns unread count when driver has never read notifications', async () => {
-      setupDbResults([{ lastNotificationReadAt: null }], [{ count: 3 }]);
+    it('returns the unread count', async () => {
+      setupDbResults([{ count: 3 }]);
       const response = await app.inject({
         method: 'GET',
         url: '/portal/notifications/unread-count',
@@ -147,22 +147,19 @@ describe('Portal notification routes', () => {
       expect(response.json().count).toBe(3);
     });
 
-    it('returns unread count since last read', async () => {
-      setupDbResults(
-        [{ lastNotificationReadAt: new Date('2026-01-01T00:00:00Z') }],
-        [{ count: 2 }],
-      );
+    it('returns zero when the count query returns no row', async () => {
+      setupDbResults([]);
       const response = await app.inject({
         method: 'GET',
         url: '/portal/notifications/unread-count',
         headers: { authorization: `Bearer ${driverToken}` },
       });
       expect(response.statusCode).toBe(200);
-      expect(response.json().count).toBe(2);
+      expect(response.json().count).toBe(0);
     });
 
     it('returns zero when no unread notifications', async () => {
-      setupDbResults([{ lastNotificationReadAt: new Date() }], [{ count: 0 }]);
+      setupDbResults([{ count: 0 }]);
       const response = await app.inject({
         method: 'GET',
         url: '/portal/notifications/unread-count',

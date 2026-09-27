@@ -695,7 +695,9 @@
     "ELECTRICITY_RATE_NOT_FOUND": "전기 요금을 찾을 수 없습니다",
     "STATION_ALREADY_AVAILABLE": "충전소에 이미 사용 가능한 커넥터가 있습니다",
     "TOO_MANY_WATCHES": "너무 많은 충전소를 알림 설정했습니다",
-    "STATION_WATCH_NOT_FOUND": "알림을 찾을 수 없습니다"
+    "STATION_WATCH_NOT_FOUND": "알림을 찾을 수 없습니다",
+    "STATUS_CHECK_REJECTED": "충전소가 상태 확인을 거부했습니다",
+    "STATUS_CHECK_TIMEOUT": "상태 확인 시간이 초과되었습니다. 커넥터를 다시 연결한 후 다시 시도해 주세요."
   },
   "validation": {
     "required": "필수 항목입니다",

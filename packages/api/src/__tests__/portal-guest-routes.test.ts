@@ -116,12 +116,13 @@ vi.mock('../lib/pubsub.js', () => ({
   setPubSub: vi.fn(),
 }));
 
-vi.mock('../lib/ocpp-command.js', () => ({
+vi.mock('../lib/ocpp-command.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/ocpp-command.js')>()),
   sendOcppCommandAndWait: vi.fn().mockResolvedValue({
     commandId: 'mock-command-id',
     response: { status: 'Accepted' },
   }),
-  triggerAndWaitForStatus: vi.fn().mockResolvedValue(null),
+  triggerAndWaitForStatus: vi.fn().mockResolvedValue({ status: 'available' }),
 }));
 
 vi.mock('../lib/reservation-buffer.js', () => ({
@@ -137,7 +138,8 @@ import { portalGuestRoutes } from '../routes/portal/guest.js';
 import { getStripeConfig } from '../services/stripe.service.js';
 import { isTariffFree } from '../services/tariff.service.js';
 import { isEvseInReservationBuffer } from '../lib/reservation-buffer.js';
-import { sendOcppCommandAndWait } from '../lib/ocpp-command.js';
+import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../lib/ocpp-command.js';
+import { db } from '@evtivity/database';
 import { getActiveMaintenanceForStation } from '../services/maintenance.service.js';
 
 async function buildApp(): Promise<FastifyInstance> {
@@ -746,6 +748,52 @@ describe('Portal guest routes - handler logic', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json().sessionToken).toBeDefined();
+    });
+  });
+
+  describe('POST /v1/portal/guest/check-status/:stationId/:evseId', () => {
+    it('returns 400 STATION_OFFLINE for an offline station', async () => {
+      setupDbResults([{ id: 'sta_off', stationId: 'CS-OFF', isOnline: false, ocppProtocol: null }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/check-status/CS-OFF/1',
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({ error: 'Station is offline', code: 'STATION_OFFLINE' });
+    });
+
+    it('returns 502 STATUS_CHECK_REJECTED when the station rejects the check', async () => {
+      setupDbResults([
+        { id: 'sta_rej', stationId: 'CS-REJ', isOnline: true, ocppProtocol: 'ocpp2.1' },
+      ]);
+      vi.mocked(db.execute).mockResolvedValueOnce([{ connector_id: 1 }] as never);
+      vi.mocked(triggerAndWaitForStatus).mockResolvedValueOnce({
+        status: null,
+        errorCode: 'STATUS_CHECK_REJECTED',
+      });
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/check-status/CS-REJ/1',
+      });
+      expect(response.statusCode).toBe(502);
+      expect(response.json()).toEqual({
+        error: 'Station rejected the status check',
+        code: 'STATUS_CHECK_REJECTED',
+      });
+    });
+
+    it('returns the refreshed status on success', async () => {
+      setupDbResults([
+        { id: 'sta_ok', stationId: 'CS-GOK', isOnline: true, ocppProtocol: 'ocpp1.6' },
+      ]);
+      vi.mocked(db.execute).mockResolvedValueOnce([{ connector_id: 1 }] as never);
+      vi.mocked(triggerAndWaitForStatus).mockResolvedValueOnce({ status: 'preparing' });
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/check-status/CS-GOK/1',
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ connectorStatus: 'preparing' });
     });
   });
 });

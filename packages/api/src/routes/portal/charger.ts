@@ -34,7 +34,11 @@ import {
 } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import { getS3Config, generateDownloadUrl } from '../../services/s3.service.js';
-import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../../lib/ocpp-command.js';
+import {
+  sendOcppCommandAndWait,
+  sendStatusCheckError,
+  triggerAndWaitForStatus,
+} from '../../lib/ocpp-command.js';
 import { applyReservationCancellation } from '../../lib/reservation-cancel.js';
 import { assertReservationsAllowed } from '../../lib/reservation-eligibility.js';
 import {
@@ -1424,24 +1428,21 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           200: itemResponse(
             z
               .object({
-                connectorStatus: z
-                  .string()
-                  .nullable()
-                  .describe(
-                    'Refreshed connector status, or null when the station is offline or did not respond',
-                  ),
-                error: z
-                  .string()
-                  .optional()
-                  .describe('Human-readable reason the status could not be refreshed'),
+                connectorStatus: z.string().describe('Refreshed connector status'),
               })
               .passthrough(),
           ),
+          400: errorWith('Station is offline', [ERROR_CODES.STATION_OFFLINE]),
           404: errorWith('Resource not found', [
             ERROR_CODES.CONNECTOR_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
           ]),
           429: errorWith('Rate limit exceeded', [ERROR_CODES.RATE_LIMITED]),
+          502: errorWith('Station rejected the status check', [ERROR_CODES.STATUS_CHECK_REJECTED]),
+          504: errorWith('Station did not report a fresh status in time', [
+            ERROR_CODES.STATION_TIMEOUT,
+            ERROR_CODES.STATUS_CHECK_TIMEOUT,
+          ]),
         },
       },
     },
@@ -1464,7 +1465,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         return;
       }
       if (!station.isOnline) {
-        return { connectorStatus: null, error: 'Station is offline' };
+        await sendStatusCheckError(reply, 'STATION_OFFLINE');
+        return;
       }
 
       // Serve a recent cached status before charging the per-station rate
@@ -1472,7 +1474,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       // dispatch instead of locking each other out at 5 calls/min.
       const cached = getCachedConnectorStatus(stationId, evseId);
       if (cached != null) {
-        return { connectorStatus: cached.status, error: cached.error };
+        if (cached.errorCode != null) {
+          await sendStatusCheckError(reply, cached.errorCode);
+          return;
+        }
+        return { connectorStatus: cached.status };
       }
 
       // Rate limit per station (OCPP-protection layer). Only counted when no
@@ -1507,12 +1513,12 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         station.ocppProtocol ?? undefined,
       );
 
-      setCachedConnectorStatus(stationId, evseId, {
-        status: result.status,
-        ...(result.error !== undefined ? { error: result.error } : {}),
-      });
-
-      return { connectorStatus: result.status, error: result.error };
+      setCachedConnectorStatus(stationId, evseId, result);
+      if (result.errorCode != null) {
+        await sendStatusCheckError(reply, result.errorCode);
+        return;
+      }
+      return { connectorStatus: result.status };
     },
   );
 

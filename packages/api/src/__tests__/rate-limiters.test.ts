@@ -59,9 +59,12 @@ describe('connector status cache', () => {
     expect(getCachedConnectorStatus('sta_b', 2)).toEqual({ status: 'Available' });
   });
 
-  it('stores and returns a status with an error', () => {
-    setCachedConnectorStatus('sta_c', 3, { status: null, error: 'timeout' });
-    expect(getCachedConnectorStatus('sta_c', 3)).toEqual({ status: null, error: 'timeout' });
+  it('stores and returns a failed check with its error code', () => {
+    setCachedConnectorStatus('sta_c', 3, { status: null, errorCode: 'STATUS_CHECK_TIMEOUT' });
+    expect(getCachedConnectorStatus('sta_c', 3)).toEqual({
+      status: null,
+      errorCode: 'STATUS_CHECK_TIMEOUT',
+    });
   });
 
   it('expires cached entries after the 30s TTL', () => {

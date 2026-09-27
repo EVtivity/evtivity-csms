@@ -695,7 +695,9 @@
     "ELECTRICITY_RATE_NOT_FOUND": "未找到电价",
     "STATION_ALREADY_AVAILABLE": "充电站已有可用接口",
     "TOO_MANY_WATCHES": "您关注的充电站过多",
-    "STATION_WATCH_NOT_FOUND": "未找到关注"
+    "STATION_WATCH_NOT_FOUND": "未找到关注",
+    "STATUS_CHECK_REJECTED": "充电站拒绝了状态检查",
+    "STATUS_CHECK_TIMEOUT": "状态检查超时。请重新插入连接器后重试。"
   },
   "validation": {
     "required": "此字段为必填项",

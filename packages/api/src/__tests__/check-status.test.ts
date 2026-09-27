@@ -121,12 +121,10 @@ vi.mock('../services/tariff.service.js', () => ({
   isTariffFree: vi.fn().mockReturnValue(true),
 }));
 
-const mockTriggerAndWaitForStatus = vi.fn().mockResolvedValue({
-  status: 'available',
-  error: undefined,
-});
+const mockTriggerAndWaitForStatus = vi.fn().mockResolvedValue({ status: 'available' });
 
-vi.mock('../lib/ocpp-command.js', () => ({
+vi.mock('../lib/ocpp-command.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/ocpp-command.js')>()),
   sendOcppCommandAndWait: vi.fn().mockResolvedValue({
     response: { status: 'Accepted' },
     error: null,
@@ -167,7 +165,7 @@ describe('Check-status endpoint', () => {
   beforeEach(() => {
     setupDbResults();
     mockTriggerAndWaitForStatus.mockReset();
-    mockTriggerAndWaitForStatus.mockResolvedValue({ status: 'available', error: undefined });
+    mockTriggerAndWaitForStatus.mockResolvedValue({ status: 'available' });
   });
 
   it('returns 401 without token', async () => {
@@ -203,10 +201,8 @@ describe('Check-status endpoint', () => {
       url: '/portal/chargers/CS-001/evse/1/check-status',
       headers: { authorization: `Bearer ${driverToken}` },
     });
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
-    expect(body.connectorStatus).toBeNull();
-    expect(body.error).toBe('Station is offline');
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: 'Station is offline', code: 'STATION_OFFLINE' });
   });
 
   it('returns 404 when connector not found', async () => {
@@ -231,7 +227,7 @@ describe('Check-status endpoint', () => {
   });
 
   it('returns connector status on success', async () => {
-    mockTriggerAndWaitForStatus.mockResolvedValue({ status: 'preparing', error: undefined });
+    mockTriggerAndWaitForStatus.mockResolvedValue({ status: 'preparing' });
     setupDbResults(
       [
         {
@@ -254,8 +250,52 @@ describe('Check-status endpoint', () => {
     expect(body.error).toBeUndefined();
   });
 
+  it.each([
+    ['STATUS_CHECK_REJECTED', 502, 'Station rejected the status check'],
+    ['STATION_TIMEOUT', 504, 'Station did not respond'],
+    ['STATUS_CHECK_TIMEOUT', 504, 'Status check timed out. Replug the connector and try again.'],
+  ])('returns %s as an error response, not a 200', async (code, httpStatus, message) => {
+    mockTriggerAndWaitForStatus.mockResolvedValue({ status: null, errorCode: code });
+    setupDbResults(
+      [{ id: VALID_STATION_ID, stationId: `CS-${code}`, isOnline: true, ocppProtocol: 'ocpp2.1' }],
+      [{ connector_id: 1 }],
+    );
+    const response = await app.inject({
+      method: 'POST',
+      url: `/portal/chargers/CS-${code}/evse/1/check-status`,
+      headers: { authorization: `Bearer ${driverToken}` },
+    });
+    expect(response.statusCode).toBe(httpStatus);
+    expect(response.json()).toEqual({ error: message, code });
+  });
+
+  it('replays a cached failed check as the same error response', async () => {
+    mockTriggerAndWaitForStatus.mockResolvedValue({
+      status: null,
+      errorCode: 'STATUS_CHECK_TIMEOUT',
+    });
+    const station = {
+      id: VALID_STATION_ID,
+      stationId: 'CS-CACHED',
+      isOnline: true,
+      ocppProtocol: 'ocpp2.1',
+    };
+    const request = {
+      method: 'POST' as const,
+      url: '/portal/chargers/CS-CACHED/evse/1/check-status',
+      headers: { authorization: `Bearer ${driverToken}` },
+    };
+    setupDbResults([station], [{ connector_id: 1 }]);
+    await app.inject(request);
+    setupDbResults([station]);
+    const cached = await app.inject(request);
+    expect(mockTriggerAndWaitForStatus).toHaveBeenCalledTimes(1);
+    expect(cached.statusCode).toBe(504);
+    expect(cached.json().code).toBe('STATUS_CHECK_TIMEOUT');
+  });
+
   it('passes station version to triggerAndWaitForStatus', async () => {
-    mockTriggerAndWaitForStatus.mockResolvedValue({ status: 'available', error: undefined });
+    mockTriggerAndWaitForStatus.mockResolvedValue({ status: 'available' });
     setupDbResults(
       [
         {

@@ -695,7 +695,9 @@
     "ELECTRICITY_RATE_NOT_FOUND": "Electricity rate not found",
     "STATION_ALREADY_AVAILABLE": "Station already has an available connector",
     "TOO_MANY_WATCHES": "You are watching too many stations",
-    "STATION_WATCH_NOT_FOUND": "Watch not found"
+    "STATION_WATCH_NOT_FOUND": "Watch not found",
+    "STATUS_CHECK_REJECTED": "Station rejected the status check",
+    "STATUS_CHECK_TIMEOUT": "Status check timed out. Replug the connector and try again."
   },
   "validation": {
     "required": "This field is required",

@@ -70,7 +70,11 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds, checkStationSiteAccess, userCanAccessSite } from '../lib/site-access.js';
 import { dateRangeQuery, parseDateRange } from '../lib/date-range.js';
 import { enumerateLocalDays, zeroFillDays } from '../lib/daily-series.js';
-import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../lib/ocpp-command.js';
+import {
+  sendOcppCommandAndWait,
+  sendStatusCheckError,
+  triggerAndWaitForStatus,
+} from '../lib/ocpp-command.js';
 import { buildDerivedStatusSubquery } from '../lib/station-derived-status.js';
 import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.js';
 import { enableCssPair, disableCssPair } from '../lib/css-pairing.js';
@@ -1821,22 +1825,19 @@ export function stationRoutes(app: FastifyInstance): void {
           200: itemResponse(
             z
               .object({
-                status: z
-                  .string()
-                  .nullable()
-                  .describe(
-                    'Fresh connector status reported by the station, or null if the station is offline or did not respond in time',
-                  ),
-                error: z
-                  .string()
-                  .optional()
-                  .describe('Error message when the trigger could not be completed'),
+                status: z.string().describe('Fresh connector status reported by the station'),
               })
               .passthrough(),
           ),
+          400: errorWith('Station is offline', [ERROR_CODES.STATION_OFFLINE]),
           404: errorWith('Resource not found', [
             ERROR_CODES.CONNECTOR_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
+          ]),
+          502: errorWith('Station rejected the status check', [ERROR_CODES.STATUS_CHECK_REJECTED]),
+          504: errorWith('Station did not report a fresh status in time', [
+            ERROR_CODES.STATION_TIMEOUT,
+            ERROR_CODES.STATUS_CHECK_TIMEOUT,
           ]),
         },
       },
@@ -1862,7 +1863,8 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
       if (!station.isOnline) {
-        return { status: null, error: 'Station is offline' };
+        await sendStatusCheckError(reply, 'STATION_OFFLINE');
+        return;
       }
 
       // First connector on the EVSE -- TriggerMessage takes a single connector_id.
@@ -1887,7 +1889,11 @@ export function stationRoutes(app: FastifyInstance): void {
         id,
         station.ocppProtocol ?? undefined,
       );
-      return { status: result.status, error: result.error };
+      if (result.errorCode != null) {
+        await sendStatusCheckError(reply, result.errorCode);
+        return;
+      }
+      return { status: result.status };
     },
   );
 

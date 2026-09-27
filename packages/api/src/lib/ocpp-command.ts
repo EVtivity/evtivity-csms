@@ -6,6 +6,7 @@ import { sql } from 'drizzle-orm';
 import type { Subscription } from '@evtivity/lib';
 import { db } from '@evtivity/database';
 import { getPubSub } from './pubsub.js';
+import type { FastifyReply } from 'fastify';
 
 const RESPONSE_TIMEOUT_MS = 35_000;
 const RESULTS_CHANNEL = 'ocpp_command_results';
@@ -84,13 +85,46 @@ export async function sendOcppCommandAndWait(
 const STATUS_CHECK_TIMEOUT_MS = 10_000;
 const STATUS_POLL_INTERVAL_MS = 500;
 
+export type StatusCheckErrorCode =
+  | 'STATION_OFFLINE'
+  | 'CONNECTOR_NOT_FOUND'
+  | 'STATION_TIMEOUT'
+  | 'STATUS_CHECK_REJECTED'
+  | 'STATUS_CHECK_TIMEOUT';
+
+export const STATUS_CHECK_ERRORS: Record<
+  StatusCheckErrorCode,
+  { httpStatus: 400 | 404 | 502 | 504; error: string }
+> = {
+  STATION_OFFLINE: { httpStatus: 400, error: 'Station is offline' },
+  CONNECTOR_NOT_FOUND: { httpStatus: 404, error: 'Connector not found' },
+  STATION_TIMEOUT: { httpStatus: 504, error: 'Station did not respond' },
+  STATUS_CHECK_REJECTED: { httpStatus: 502, error: 'Station rejected the status check' },
+  STATUS_CHECK_TIMEOUT: {
+    httpStatus: 504,
+    error: 'Status check timed out. Replug the connector and try again.',
+  },
+};
+
+export async function sendStatusCheckError(
+  reply: FastifyReply,
+  code: StatusCheckErrorCode,
+): Promise<void> {
+  const { httpStatus, error } = STATUS_CHECK_ERRORS[code];
+  await reply.status(httpStatus).send({ error, code });
+}
+
+export type StatusCheckResult =
+  | { status: string; errorCode?: undefined }
+  | { status: null; errorCode: StatusCheckErrorCode };
+
 export async function triggerAndWaitForStatus(
   stationOcppId: string,
   evseId: number,
   connectorId: number,
   stationDbId: string,
   version?: string,
-): Promise<{ status: string | null; error?: string }> {
+): Promise<StatusCheckResult> {
   // Read current status + updated_at before triggering
   const before = await db.execute<{ status: string; updated_at: string }>(
     sql`SELECT c.status, c.updated_at
@@ -100,7 +134,7 @@ export async function triggerAndWaitForStatus(
   );
   const beforeRow = before[0];
   if (beforeRow == null) {
-    return { status: null, error: 'Connector not found' };
+    return { status: null, errorCode: 'CONNECTOR_NOT_FOUND' };
   }
   const beforeUpdatedAt = new Date(beforeRow.updated_at).getTime();
 
@@ -145,12 +179,12 @@ export async function triggerAndWaitForStatus(
   );
 
   if (cmdResult.error != null) {
-    return { status: null, error: 'Station did not respond to status check' };
+    return { status: null, errorCode: 'STATION_TIMEOUT' };
   }
 
   const response = cmdResult.response as { status?: string } | undefined;
   if (response?.status !== 'Accepted' && response?.status !== 'NotImplemented') {
-    return { status: null, error: 'Station rejected status check' };
+    return { status: null, errorCode: 'STATUS_CHECK_REJECTED' };
   }
 
   // NotImplemented means the station won't send a StatusNotification, so return the current DB status
@@ -178,5 +212,5 @@ export async function triggerAndWaitForStatus(
   }
 
   // Timeout: status was not updated within 10s
-  return { status: null, error: 'Status check timed out. Replug the connector and try again.' };
+  return { status: null, errorCode: 'STATUS_CHECK_TIMEOUT' };
 }

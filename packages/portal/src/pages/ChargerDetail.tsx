@@ -356,7 +356,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
     if (selectedEvseId == null) return;
     await runWithCableCheck(
       () =>
-        api.post<{ connectorStatus: string | null; error?: string }>(
+        api.post<{ connectorStatus: string }>(
           `/v1/portal/chargers/${stationId ?? ''}/evse/${String(selectedEvseId)}/check-status`,
           {},
         ),

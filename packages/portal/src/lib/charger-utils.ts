@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { ApiError } from '@/lib/api';
 import { API_BASE_URL } from '@/lib/config';
 
 export const CABLE_DETECTED_STATUSES = [
@@ -26,19 +27,13 @@ export function formatConnectorType(type: string): string {
 export async function checkGuestConnectorStatus(
   stationId: string,
   evseId: string,
-): Promise<{ connectorStatus: string | null; error?: string }> {
+): Promise<{ connectorStatus: string }> {
   const response = await fetch(
     `${API_BASE_URL}/v1/portal/guest/check-status/${stationId}/${evseId}`,
     { method: 'POST' },
   );
-
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { error?: string };
-    return {
-      connectorStatus: null,
-      error: body.error ?? 'Status check failed',
-    };
+    throw new ApiError(response.status, await response.json().catch(() => null));
   }
-
-  return (await response.json()) as { connectorStatus: string | null; error?: string };
+  return (await response.json()) as { connectorStatus: string };
 }

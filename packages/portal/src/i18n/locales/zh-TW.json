@@ -695,7 +695,9 @@
     "ELECTRICITY_RATE_NOT_FOUND": "找不到電價",
     "STATION_ALREADY_AVAILABLE": "充電站已有可用接口",
     "TOO_MANY_WATCHES": "您關注的充電樁過多",
-    "STATION_WATCH_NOT_FOUND": "未找到關注"
+    "STATION_WATCH_NOT_FOUND": "未找到關注",
+    "STATUS_CHECK_REJECTED": "充電站拒絕了狀態檢查",
+    "STATUS_CHECK_TIMEOUT": "狀態檢查逾時。請重新插入連接器後重試。"
   },
   "validation": {
     "required": "此欄位為必填項",

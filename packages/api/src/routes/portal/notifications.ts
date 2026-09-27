@@ -103,23 +103,14 @@ export function portalNotificationRoutes(app: FastifyInstance): void {
     async (request) => {
       const { driverId } = request.user as DriverJwtPayload;
 
-      const [driver] = await db
-        .select({ lastNotificationReadAt: drivers.lastNotificationReadAt })
-        .from(drivers)
-        .where(eq(drivers.id, driverId));
-
-      const lastReadAt = driver?.lastNotificationReadAt;
-
-      const baseFilter = driverPushFilter(driverId);
-      const whereClause =
-        lastReadAt != null
-          ? sql`${baseFilter} AND ${notifications.createdAt} > ${lastReadAt.toISOString()}`
-          : baseFilter;
-
+      // Compare in SQL: a JS Date round trip truncates the microsecond timestamp.
+      const lastReadAt = sql`(SELECT ${drivers.lastNotificationReadAt} FROM ${drivers} WHERE ${drivers.id} = ${driverId})`;
       const [result] = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(notifications)
-        .where(whereClause);
+        .where(
+          sql`${driverPushFilter(driverId)} AND (${lastReadAt} IS NULL OR ${notifications.createdAt} > ${lastReadAt})`,
+        );
 
       return { count: result?.count ?? 0 };
     },
@@ -142,7 +133,8 @@ export function portalNotificationRoutes(app: FastifyInstance): void {
 
       await db
         .update(drivers)
-        .set({ lastNotificationReadAt: new Date() })
+        // Database clock, so read time and notification created_at share one clock.
+        .set({ lastNotificationReadAt: sql`now()` })
         .where(eq(drivers.id, driverId));
 
       return { success: true as const };
