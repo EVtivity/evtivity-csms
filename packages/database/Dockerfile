@@ -31,5 +31,10 @@ LABEL org.opencontainers.image.license="LicenseRef-EVtivity-EULA"
 LABEL org.opencontainers.image.vendor="EVtivity"
 
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/evtivity-entrypoint
+# Declare /tmp so ECS on Fargate copies it (root-owned, mode 1777) into the
+# scratch volume the task mounts there. Without VOLUME, Fargate creates the
+# volume as root 0755 and the node user cannot write to it under a read-only
+# root filesystem. Kubernetes ignores VOLUME.
+VOLUME ["/tmp"]
 ENTRYPOINT ["evtivity-entrypoint"]
 CMD ["sh", "-c", "cd packages/database && npm run migrate"]
