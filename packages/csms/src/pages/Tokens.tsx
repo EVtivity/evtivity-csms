@@ -4,7 +4,7 @@
 import { useRef, useState } from 'react';
 import { API_BASE_URL } from '@/lib/config';
 import { parseCsvLine, readCsvText } from '@/lib/csv-parse';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';

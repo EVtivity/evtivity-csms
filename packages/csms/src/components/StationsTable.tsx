@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router';
 import { HelpCircle, Info, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { InfoTooltip as Tooltip } from '@/components/ui/info-tooltip';

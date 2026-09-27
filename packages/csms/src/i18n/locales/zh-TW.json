@@ -1841,7 +1841,8 @@
     "supportAiSaveFailed": "儲存支援 AI 設定失敗。",
     "conformance": "合規測試",
     "chatbotAi": "AI",
-    "messagesTab": "訊息"
+    "messagesTab": "訊息",
+    "emailLayoutInvalid": "版面配置有範本錯誤："
   },
   "pnc": {
     "certificates": "證書",

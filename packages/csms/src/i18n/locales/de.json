@@ -1817,7 +1817,8 @@
     "supportAiSaveFailed": "Support-KI-Einstellungen konnten nicht gespeichert werden.",
     "conformance": "Konformität",
     "chatbotAi": "KI",
-    "messagesTab": "Nachrichten"
+    "messagesTab": "Nachrichten",
+    "emailLayoutInvalid": "Das Layout enthält einen Vorlagenfehler:"
   },
   "pnc": {
     "certificates": "Zertifikate",

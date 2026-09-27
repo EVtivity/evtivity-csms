@@ -1841,7 +1841,8 @@
     "supportAiSaveFailed": "지원 AI 설정 저장에 실패했습니다.",
     "conformance": "적합성",
     "chatbotAi": "AI",
-    "messagesTab": "메시지"
+    "messagesTab": "메시지",
+    "emailLayoutInvalid": "레이아웃에 템플릿 오류가 있습니다:"
   },
   "pnc": {
     "certificates": "인증서",

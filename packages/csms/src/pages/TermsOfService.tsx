@@ -3,7 +3,7 @@
 
 import DOMPurify from 'dompurify';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { ChevronLeft } from 'lucide-react';
 import { api } from '@/lib/api';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';

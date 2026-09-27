@@ -3,7 +3,7 @@
 
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 
 import { LanguageSelect } from '@/components/ui/language-select';
 import { api } from '@/lib/api';

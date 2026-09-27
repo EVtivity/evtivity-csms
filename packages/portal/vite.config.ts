@@ -23,19 +23,20 @@ export default defineConfig({
   },
   build: {
     sourcemap: false,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return;
-          if (id.includes('lucide-react')) return 'ui';
-          if (id.includes('@tanstack/react-query')) return 'query';
-          if (
-            id.includes('react-router') ||
-            id.includes('react-dom') ||
-            id.includes('/react/') ||
-            id.includes('/scheduler/')
-          )
-            return 'react-vendor';
+        // Anchored paths: a loose '/react/' match pulled @tiptap/react (the whole editor)
+        // into the startup chunk. Charts and the editor stay in their lazy page chunks.
+        codeSplitting: {
+          groups: [
+            {
+              name: 'react-vendor',
+              test: /node_modules[\\/](react|react-dom|scheduler|react-router)[\\/]/,
+              priority: 30,
+            },
+            { name: 'query', test: /node_modules[\\/]@tanstack[\\/]/, priority: 20 },
+            { name: 'ui', test: /node_modules[\\/]lucide-react[\\/]/, priority: 20 },
+          ],
         },
       },
     },

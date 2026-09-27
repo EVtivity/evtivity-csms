@@ -1846,7 +1846,8 @@
     "supportAiSaveFailed": "Error al guardar la configuracion de IA de soporte.",
     "conformance": "Conformidad",
     "chatbotAi": "IA",
-    "messagesTab": "Mensajes"
+    "messagesTab": "Mensajes",
+    "emailLayoutInvalid": "El diseño tiene un error de plantilla:"
   },
   "pnc": {
     "certificates": "Certificados",

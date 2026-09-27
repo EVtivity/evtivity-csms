@@ -94,6 +94,7 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn(),
   or: vi.fn(),
   ilike: vi.fn(),
+  like: vi.fn(),
   sql: vi.fn(),
   desc: vi.fn(),
   count: vi.fn(),
@@ -516,6 +517,51 @@ describe('Notification routes', () => {
     expect(body).toHaveProperty('bodyHtml');
     // Subject should be rendered with Handlebars
     expect(body.subject).toContain('TestCo');
+  });
+
+  it('POST /v1/email-wrapper/preview renders a draft layout with company details', async () => {
+    setupDbResults([
+      { key: 'company.name', value: 'TestCo' },
+      { key: 'company.city', value: 'Austin' },
+    ]);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/email-wrapper/preview',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        wrapperTemplate:
+          '<h1>{{companyName}}</h1>{{{content}}}{{#if companyCity}}<i>{{companyCity}}</i>{{/if}}',
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const { html } = response.json<{ html: string }>();
+    expect(html).toContain('<h1>TestCo</h1>');
+    expect(html).toContain('Hi John,');
+    expect(html).toContain('<i>Austin</i>');
+  });
+
+  it('POST /v1/email-wrapper/preview returns 400 VALIDATION_ERROR for an invalid layout', async () => {
+    setupDbResults([]);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/email-wrapper/preview',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { wrapperTemplate: '<p>{{#if companyName}}unclosed</p>' },
+    });
+    expect(response.statusCode).toBe(400);
+    const body = response.json<{ code: string; details: { wrapperTemplate: string } }>();
+    expect(body.code).toBe('VALIDATION_ERROR');
+    expect(body.details.wrapperTemplate).toEqual(expect.any(String));
+  });
+
+  it('POST /v1/email-wrapper/preview rejects a layout over 100 kB', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/email-wrapper/preview',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { wrapperTemplate: 'x'.repeat(100_001) },
+    });
+    expect(response.statusCode).toBe(400);
   });
 
   it('GET /v1/ocpp-event-template returns 404 when no template found', async () => {

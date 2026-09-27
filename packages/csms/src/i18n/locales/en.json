@@ -1841,7 +1841,8 @@
     "supportAiSaveFailed": "Failed to save Support AI settings.",
     "conformance": "Conformance",
     "chatbotAi": "AI",
-    "messagesTab": "Messages"
+    "messagesTab": "Messages",
+    "emailLayoutInvalid": "The layout has a template error:"
   },
   "pnc": {
     "certificates": "Certificates",

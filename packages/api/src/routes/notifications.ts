@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, count, and, or, ilike } from 'drizzle-orm';
+import { eq, desc, count, and, or, ilike, like } from 'drizzle-orm';
 import { readFile } from 'node:fs/promises';
 import { resolve, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -179,6 +179,31 @@ const notificationTemplateDbItem = z
     updatedAt: z.coerce.date().describe('Timestamp when the template was last updated'),
   })
   .passthrough();
+
+const emailWrapperPreviewBody = z.object({
+  wrapperTemplate: z
+    .string()
+    .max(100_000)
+    .describe('Draft email layout (Handlebars HTML). Use {{{content}}} for the email body.'),
+});
+
+const emailWrapperPreviewResponse = z
+  .object({
+    html: z
+      .string()
+      .describe('The draft layout rendered around a sample email with company details'),
+  })
+  .passthrough();
+
+// Sample body the Email Layout preview wraps, so operators see a realistic email.
+const EMAIL_WRAPPER_SAMPLE_BODY = `<p style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">Hi John,</p>
+<p style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">Your charging session at <strong>Main Street Charger</strong> has been completed.</p>
+<table cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;border-spacing:0;margin-bottom:24px;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+  <tr><td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;font-weight:600;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;">Energy</td><td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;">15.0 kWh</td></tr>
+  <tr><td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;font-weight:600;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;">Duration</td><td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;">45 minutes</td></tr>
+  <tr><td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;font-weight:600;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;">Cost</td><td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;">$12.50</td></tr>
+</table>
+<p style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">Thank you for charging with us.</p>`;
 
 const templatePreviewResponse = z
   .object({
@@ -1206,6 +1231,64 @@ export function notificationRoutes(app: FastifyInstance): void {
         );
 
       return { success: true };
+    },
+  );
+
+  app.post(
+    '/email-wrapper/preview',
+    {
+      onRequest: [authorize('settings.notification:read')],
+      schema: {
+        tags: ['Settings'],
+        summary: 'Preview a draft email layout',
+        description:
+          'Renders a draft email wrapper template around a sample email with the company details, as outgoing email would be rendered. Compiling happens on the server because the dashboard Content Security Policy blocks Handlebars in the browser.',
+        operationId: 'previewEmailWrapper',
+        security: [{ bearerAuth: [] }],
+        body: zodSchema(emailWrapperPreviewBody),
+        response: {
+          200: itemResponse(emailWrapperPreviewResponse),
+          400: errorWith('The draft layout is not valid Handlebars', [
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { wrapperTemplate } = request.body as z.infer<typeof emailWrapperPreviewBody>;
+
+      const companyRows = await db.select().from(settings).where(like(settings.key, 'company.%'));
+      const company = new Map<string, string>();
+      for (const row of companyRows) {
+        if (typeof row.value === 'string' || typeof row.value === 'number') {
+          company.set(row.key, String(row.value));
+        }
+      }
+
+      // Compiled directly, not via compileTemplate, so per-keystroke drafts are not cached.
+      try {
+        const html = Handlebars.compile(wrapperTemplate)({
+          content: EMAIL_WRAPPER_SAMPLE_BODY,
+          companyName: company.get('company.name') ?? 'EVtivity',
+          companyCurrency: company.get('company.currency') ?? 'USD',
+          companyContactEmail: company.get('company.contactEmail') ?? '',
+          companySupportEmail: company.get('company.supportEmail') ?? '',
+          companySupportPhone: company.get('company.supportPhone') ?? '',
+          companyStreet: company.get('company.street') ?? '',
+          companyCity: company.get('company.city') ?? '',
+          companyState: company.get('company.state') ?? '',
+          companyZip: company.get('company.zip') ?? '',
+          companyCountry: company.get('company.country') ?? '',
+        });
+        return { html };
+      } catch (err: unknown) {
+        await reply.status(400).send({
+          error: 'Email layout template is invalid',
+          code: 'VALIDATION_ERROR',
+          details: { wrapperTemplate: err instanceof Error ? err.message : String(err) },
+        });
+        return;
+      }
     },
   );
 

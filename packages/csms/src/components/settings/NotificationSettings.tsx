@@ -1,12 +1,12 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Send } from 'lucide-react';
-import Handlebars from 'handlebars';
 import { useTab } from '@/hooks/use-tab';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { SaveButton } from '@/components/save-button';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,7 +14,8 @@ import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { api } from '@/lib/api';
+import { api, getApiErrorFieldDetails } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 
 const DEFAULT_EMAIL_WRAPPER = `<!DOCTYPE html>
 <html>
@@ -56,15 +57,6 @@ const DEFAULT_EMAIL_WRAPPER = `<!DOCTYPE html>
   </table>
 </body>
 </html>`;
-
-const SAMPLE_EMAIL_BODY = `<p style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">Hi John,</p>
-<p style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">Your charging session at <strong>Main Street Charger</strong> has been completed.</p>
-<table cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;border-spacing:0;margin-bottom:24px;mso-table-lspace:0pt;mso-table-rspace:0pt;">
-  <tr><td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;font-weight:600;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;">Energy</td><td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;">15.0 kWh</td></tr>
-  <tr><td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;font-weight:600;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;">Duration</td><td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;">45 minutes</td></tr>
-  <tr><td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;font-weight:600;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;">Cost</td><td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;">$12.50</td></tr>
-</table>
-<p style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">Thank you for charging with us.</p>`;
 
 interface NotificationSettingsProps {
   settings: Record<string, unknown> | undefined;
@@ -163,31 +155,23 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
     },
   });
 
-  const previewHtml = useMemo(() => {
-    try {
-      const sv = (key: string): string => {
-        if (settings == null) return '';
-        const v = settings[key];
-        return typeof v === 'string' || typeof v === 'number' ? String(v) : '';
-      };
-      const compiled = Handlebars.compile(emailWrapperTemplate);
-      return compiled({
-        content: SAMPLE_EMAIL_BODY,
-        companyName: sv('company.name') || 'EVtivity',
-        companyCurrency: sv('company.currency') || 'USD',
-        companyContactEmail: sv('company.contactEmail'),
-        companySupportEmail: sv('company.supportEmail'),
-        companySupportPhone: sv('company.supportPhone'),
-        companyStreet: sv('company.street'),
-        companyCity: sv('company.city'),
-        companyState: sv('company.state'),
-        companyZip: sv('company.zip'),
-        companyCountry: sv('company.country'),
-      });
-    } catch {
-      return emailWrapperTemplate;
-    }
-  }, [emailWrapperTemplate, settings]);
+  // Rendered on the server: the dashboard Content Security Policy blocks Handlebars here.
+  const debouncedWrapperTemplate = useDebouncedValue(emailWrapperTemplate, 400);
+  const preview = useQuery({
+    queryKey: ['email-wrapper-preview', debouncedWrapperTemplate],
+    queryFn: () =>
+      api.post<{ html: string }>('/v1/email-wrapper/preview', {
+        wrapperTemplate: debouncedWrapperTemplate,
+      }),
+    enabled: notificationSubTab === 'emailLayout',
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const previewError = preview.isError
+    ? (getApiErrorFieldDetails(preview.error)['wrapperTemplate'] ??
+      getErrorMessage(preview.error, t))
+    : null;
 
   return (
     <Tabs value={notificationSubTab} onValueChange={setNotificationSubTab}>
@@ -509,10 +493,15 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
 
               <div className="space-y-3">
                 <Label>{t('settings.emailLayoutPreview')}</Label>
+                {previewError != null && (
+                  <p className="text-sm text-destructive">
+                    {t('settings.emailLayoutInvalid')} {previewError}
+                  </p>
+                )}
                 <div className="overflow-hidden rounded-md border">
                   <iframe
                     title="Email layout preview"
-                    srcDoc={previewHtml}
+                    srcDoc={preview.data?.html ?? ''}
                     className="h-[500px] w-full"
                     sandbox=""
                   />

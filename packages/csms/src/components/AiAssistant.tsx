@@ -1,12 +1,10 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation } from '@tanstack/react-query';
 import { Sparkles, X, Send, Pencil, Copy, Check, RotateCcw } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { api, ApiError } from '@/lib/api';
@@ -21,6 +19,9 @@ interface ChatResponse {
   reply: string;
   apiCallsMade: number;
 }
+
+// The markdown stack is large and only needed once the chat panel shows a reply.
+const AiMarkdown = lazy(() => import('./AiMarkdown').then((m) => ({ default: m.AiMarkdown })));
 
 export function AiAssistant(): React.JSX.Element {
   const { t } = useTranslation();
@@ -246,23 +247,11 @@ export function AiAssistant(): React.JSX.Element {
                       {msg.role === 'assistant' ? (
                         <div className="prose prose-sm dark:prose-invert max-w-none [&_p]:my-0 [&_code]:rounded [&_code]:bg-border/50 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_code]:font-semibold [&_code]:before:content-none [&_code]:after:content-none [&_pre]:my-1 [&_ul]:my-1 [&_li]:my-0 [&_table]:text-xs [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 [&_table]:border-collapse [&_th]:border [&_th]:border-border [&_td]:border [&_td]:border-border [&_table]:w-max">
                           <div className="overflow-x-auto">
-                            <ReactMarkdown
-                              remarkPlugins={[remarkGfm]}
-                              components={{
-                                a: ({ href, children }) => (
-                                  <a
-                                    href={href}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-primary underline hover:text-primary/80"
-                                  >
-                                    {children}
-                                  </a>
-                                ),
-                              }}
+                            <Suspense
+                              fallback={<span className="whitespace-pre-wrap">{msg.content}</span>}
                             >
-                              {msg.content}
-                            </ReactMarkdown>
+                              <AiMarkdown content={msg.content} />
+                            </Suspense>
                           </div>
                         </div>
                       ) : (

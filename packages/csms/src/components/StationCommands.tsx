@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useCallback } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
 import { useTranslation, Trans } from 'react-i18next';
 import { Info } from 'lucide-react';

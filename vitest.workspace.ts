@@ -1,13 +1,18 @@
 import { defineConfig } from 'vitest/config';
 import path from 'node:path';
 
-const workspaceAliases = {
-  '@evtivity/lib': path.resolve(__dirname, 'packages/lib/src/index.ts'),
-  '@evtivity/database': path.resolve(__dirname, 'packages/database/src/index.ts'),
-  '@evtivity/configs': path.resolve(__dirname, 'packages/configs/src/index.ts'),
-  '@evtivity/ocpp': path.resolve(__dirname, 'packages/ocpp/src/index.ts'),
-  '@evtivity/octt': path.resolve(__dirname, 'packages/octt/src/index.ts'),
-};
+// Exact-match regexes: a plain string key is a prefix match, so '@evtivity/database'
+// would also rewrite '@evtivity/database/src/lib/id.js' in projects that inherit it.
+const workspaceAliases = Object.entries({
+  '@evtivity/lib': 'packages/lib/src/index.ts',
+  '@evtivity/database': 'packages/database/src/index.ts',
+  '@evtivity/configs': 'packages/configs/src/index.ts',
+  '@evtivity/ocpp': 'packages/ocpp/src/index.ts',
+  '@evtivity/octt': 'packages/octt/src/index.ts',
+}).map(([pkg, file]) => ({
+  find: new RegExp(`^${pkg.replace('/', '\\/')}$`),
+  replacement: path.resolve(import.meta.dirname, file),
+}));
 
 export default defineConfig({
   resolve: {
@@ -124,14 +129,17 @@ export default defineConfig({
       },
       {
         resolve: {
-          alias: {
-            '@evtivity/database/src/lib/id.js': path.resolve(
-              __dirname,
-              'packages/database/src/lib/id.ts',
-            ),
+          alias: [
+            {
+              find: '@evtivity/database/src/lib/id.js',
+              replacement: path.resolve(import.meta.dirname, 'packages/database/src/lib/id.ts'),
+            },
             ...workspaceAliases,
-            '@evtivity/css/ocpp-client': path.resolve(__dirname, 'packages/css/src/ocpp-client.ts'),
-          },
+            {
+              find: '@evtivity/css/ocpp-client',
+              replacement: path.resolve(import.meta.dirname, 'packages/css/src/ocpp-client.ts'),
+            },
+          ],
         },
         test: {
           name: '@evtivity/octt',
@@ -142,10 +150,10 @@ export default defineConfig({
       },
       {
         resolve: {
-          alias: {
+          alias: [
             ...workspaceAliases,
-            '@': path.resolve(__dirname, 'packages/portal/src'),
-          },
+            { find: '@', replacement: path.resolve(import.meta.dirname, 'packages/portal/src') },
+          ],
         },
         test: {
           name: '@evtivity/portal',
@@ -156,10 +164,10 @@ export default defineConfig({
       },
       {
         resolve: {
-          alias: {
+          alias: [
             ...workspaceAliases,
-            '@': path.resolve(__dirname, 'packages/csms/src'),
-          },
+            { find: '@', replacement: path.resolve(import.meta.dirname, 'packages/csms/src') },
+          ],
         },
         test: {
           name: '@evtivity/csms',

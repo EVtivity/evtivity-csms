@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { SearchInput } from '@/components/search-input';
 import { Badge } from '@/components/ui/badge';
@@ -23,7 +23,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { CreateButton } from '@/components/create-button';
 import { FilterPopover } from '@/components/FilterBar';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { TableSkeleton } from '@/components/TableSkeleton';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { reservationStatusVariant } from '@/lib/status-variants';

@@ -1841,7 +1841,8 @@
     "supportAiSaveFailed": "保存支持 AI 设置失败。",
     "conformance": "合规测试",
     "chatbotAi": "AI",
-    "messagesTab": "消息"
+    "messagesTab": "消息",
+    "emailLayoutInvalid": "布局存在模板错误："
   },
   "pnc": {
     "certificates": "证书",

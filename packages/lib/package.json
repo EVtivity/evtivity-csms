@@ -24,8 +24,8 @@
     "bullmq": "^5.0.0",
     "handlebars": "^4.7.8",
     "ioredis": "^5.9.3",
-    "nanoid": "^3.3.19",
-    "nodemailer": "^9.1.1",
+    "nanoid": "^6.0.1",
+    "nodemailer": "^10.0.11",
     "otpauth": "^9.5.0",
     "pino": "^9.6.0",
     "postgres": "^3.4.8",
@@ -34,8 +34,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
-    "@types/nodemailer": "^7.0.9",
     "typescript": "^5.7.0",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.2"
   }
 }
