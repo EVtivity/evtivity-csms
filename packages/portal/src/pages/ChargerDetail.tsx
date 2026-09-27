@@ -31,6 +31,7 @@ import { PricingDisplay, isPricingFree } from '@/components/PricingDisplay';
 import type { PricingInfo } from '@/components/PricingDisplay';
 import { EvPlugAnimation } from '@/components/EvPlugAnimation';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { useAuth } from '@/lib/auth';
 import { cn, formatDate } from '@/lib/utils';
 import {
@@ -295,12 +296,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
         state: { fromCharge: true },
       });
     } catch (err: unknown) {
-      if (err != null && typeof err === 'object' && 'body' in err) {
-        const body = (err as { body: { error?: string } }).body;
-        setError(body.error ?? t('stationDetail.failedToStart'));
-      } else {
-        setError(t('stationDetail.failedToStart'));
-      }
+      setError(getErrorMessage(err, t, 'stationDetail.failedToStart'));
     } finally {
       setIsStarting(false);
     }
@@ -350,12 +346,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
       await queryClient.invalidateQueries({ queryKey: ['portal-reservations'] });
       void navigate('/reservations');
     } catch (err: unknown) {
-      if (err != null && typeof err === 'object' && 'body' in err) {
-        const body = (err as { body: { error?: string } }).body;
-        setError(body.error ?? t('reservations.createFailed'));
-      } else {
-        setError(t('reservations.createFailed'));
-      }
+      setError(getErrorMessage(err, t, 'reservations.createFailed'));
     } finally {
       setIsReserving(false);
     }

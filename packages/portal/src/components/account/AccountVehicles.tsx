@@ -12,6 +12,7 @@ import { Combobox } from '@/components/ui/combobox';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 
 const CURRENT_YEAR = new Date().getFullYear();
 // Reasonable EV window: current model year + next year (manufacturers preview
@@ -95,11 +96,7 @@ export function AccountVehicles(): React.JSX.Element {
       await queryClient.invalidateQueries({ queryKey: ['portal-vehicle-efficiency'] });
     },
     onError: (err: unknown) => {
-      const message =
-        err != null && typeof err === 'object' && 'body' in err
-          ? ((err as { body: { error?: string } }).body.error ?? t('vehicles.deleteFailed'))
-          : t('vehicles.deleteFailed');
-      toast({ variant: 'destructive', title: message });
+      toast({ variant: 'destructive', title: getErrorMessage(err, t, 'vehicles.deleteFailed') });
       setPendingDeleteId(null);
     },
   });

@@ -62,19 +62,17 @@ interface InvoiceDetailData {
   driver: InvoiceDriver | null;
 }
 
-function downloadInvoicePdf(invoice: { id: string; invoiceNumber: string }): Promise<void> {
-  return fetch(`${API_BASE_URL}/v1/invoices/${invoice.id}/pdf`, { credentials: 'include' })
-    .then((res) => {
-      if (!res.ok) throw new Error(`Download failed (${String(res.status)})`);
-      return res.blob();
-    })
-    .then((blob) => {
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `${invoice.invoiceNumber}.pdf`;
-      link.click();
-      URL.revokeObjectURL(link.href);
-    });
+async function downloadInvoicePdf(invoice: { id: string; invoiceNumber: string }): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/v1/invoices/${invoice.id}/pdf`, {
+    credentials: 'include',
+  });
+  if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null));
+  const blob = await res.blob();
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${invoice.invoiceNumber}.pdf`;
+  link.click();
+  URL.revokeObjectURL(link.href);
 }
 
 export function InvoiceDetail(): React.JSX.Element {

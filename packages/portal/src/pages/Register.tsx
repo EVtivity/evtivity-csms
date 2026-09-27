@@ -10,6 +10,7 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { useAuth } from '@/lib/auth';
+import { getErrorMessage } from '@/lib/error-message';
 
 export function Register(): React.JSX.Element {
   const { t } = useTranslation();
@@ -57,12 +58,7 @@ export function Register(): React.JSX.Element {
       });
       void navigate('/verify-email');
     } catch (err: unknown) {
-      if (err != null && typeof err === 'object' && 'body' in err) {
-        const body = (err as { body: { error?: string } }).body;
-        setError(body.error ?? t('auth.registrationFailed'));
-      } else {
-        setError(t('auth.registrationFailed'));
-      }
+      setError(getErrorMessage(err, t, 'auth.registrationFailed'));
     } finally {
       setLoading(false);
     }

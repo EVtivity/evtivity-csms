@@ -12,6 +12,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -77,11 +78,7 @@ export function SupportCaseDetail(): React.JSX.Element {
       setMessageBody('');
     },
     onError: (err: unknown) => {
-      const message =
-        err != null && typeof err === 'object' && 'body' in err
-          ? ((err as { body: { error?: string } }).body.error ?? t('supportCases.sendFailed'))
-          : t('supportCases.sendFailed');
-      toast({ variant: 'destructive', title: message });
+      toast({ variant: 'destructive', title: getErrorMessage(err, t, 'supportCases.sendFailed') });
     },
   });
 
@@ -98,11 +95,10 @@ export function SupportCaseDetail(): React.JSX.Element {
       );
       window.open(downloadUrl, '_blank');
     } catch (err) {
-      const message =
-        err != null && typeof err === 'object' && 'body' in err
-          ? ((err as { body: { error?: string } }).body.error ?? t('supportCases.downloadFailed'))
-          : t('supportCases.downloadFailed');
-      toast({ variant: 'destructive', title: message });
+      toast({
+        variant: 'destructive',
+        title: getErrorMessage(err, t, 'supportCases.downloadFailed'),
+      });
     }
   }
 

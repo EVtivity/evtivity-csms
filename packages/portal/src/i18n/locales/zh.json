@@ -437,6 +437,7 @@
     "linkedStation": "关联充电站",
     "caseCreated": "工单创建成功",
     "sendFailed": "发送消息失败，请重试。",
+    "createFailed": "创建支持工单失败，请重试。",
     "downloadFailed": "下载附件失败，请重试。",
     "station": "充电站",
     "categories": {

@@ -813,7 +813,8 @@
     "connectorRegionNorthAmerican": "Norteamérica",
     "connectorRegionEuropean": "Europa",
     "connectorRegionUniversal": "Universal / Otros",
-    "connectorUnknown": "Desconocido"
+    "connectorUnknown": "Desconocido",
+    "uploadFailed": "No se pudo subir la imagen. Intente nuevamente."
   },
   "eventAlertRules": {
     "title": "Reglas de Alerta de Eventos",
@@ -2578,7 +2579,9 @@
     "aiAssistError": "Error al generar borrador de IA",
     "aiAssistOverwriteTitle": "¿Reemplazar borrador existente?",
     "aiAssistOverwriteDescription": "Generar un borrador con IA reemplazará el texto que ya está en el cuadro de mensaje. ¿Continuar?",
-    "aiAssistOverwriteConfirm": "Reemplazar"
+    "aiAssistOverwriteConfirm": "Reemplazar",
+    "attachmentUploadFailed": "No se pudo subir el archivo adjunto. Intente nuevamente.",
+    "sendFailed": "No se pudo enviar el mensaje. Intente nuevamente."
   },
   "vehicles": {
     "title": "Vehiculos",

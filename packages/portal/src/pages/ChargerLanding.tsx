@@ -17,6 +17,7 @@ import { PricingDisplay } from '@/components/PricingDisplay';
 import type { PricingInfo } from '@/components/PricingDisplay';
 import { EvPlugAnimation } from '@/components/EvPlugAnimation';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { cn } from '@/lib/utils';
 import {
   connectorStatusVariant,
@@ -118,12 +119,7 @@ export function ChargerLanding(): React.JSX.Element {
       );
       void navigate(`/guest-session/${result.sessionToken}`);
     } catch (err: unknown) {
-      if (err != null && typeof err === 'object' && 'body' in err) {
-        const body = (err as { body: { error?: string } }).body;
-        setFreeStartError(body.error ?? t('guest.paymentFailed'));
-      } else {
-        setFreeStartError(t('guest.paymentFailed'));
-      }
+      setFreeStartError(getErrorMessage(err, t, 'guest.paymentFailed'));
     } finally {
       setFreeStartLoading(false);
     }

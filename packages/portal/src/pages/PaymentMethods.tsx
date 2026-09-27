@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 
 interface PaymentMethod {
   id: number;
@@ -142,11 +143,7 @@ export function PaymentMethods(): React.JSX.Element {
   });
 
   function toastApiError(err: unknown, fallbackKey: string): void {
-    const message =
-      err != null && typeof err === 'object' && 'body' in err
-        ? ((err as { body: { error?: string } }).body.error ?? t(fallbackKey))
-        : t(fallbackKey);
-    toast({ variant: 'destructive', title: message });
+    toast({ variant: 'destructive', title: getErrorMessage(err, t, fallbackKey) });
   }
 
   const deleteMutation = useMutation({

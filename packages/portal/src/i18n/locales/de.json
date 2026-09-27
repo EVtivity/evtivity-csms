@@ -433,6 +433,7 @@
     "linkedStation": "Verknüpfte Station",
     "caseCreated": "Fall erfolgreich erstellt",
     "sendFailed": "Nachricht konnte nicht gesendet werden. Bitte erneut versuchen.",
+    "createFailed": "Supportfall konnte nicht erstellt werden. Bitte erneut versuchen.",
     "downloadFailed": "Anhang konnte nicht heruntergeladen werden. Bitte erneut versuchen.",
     "station": "Station",
     "categories": {

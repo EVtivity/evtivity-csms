@@ -16,6 +16,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { EvPlugAnimation } from '@/components/EvPlugAnimation';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { formatCents } from '@/lib/utils';
 import { checkGuestConnectorStatus } from '@/lib/charger-utils';
 import { useCableCheck } from '@/hooks/use-cable-check';
@@ -53,12 +54,7 @@ function FreeStartForm({
       );
       void navigate(`/guest-session/${result.sessionToken}`);
     } catch (err: unknown) {
-      if (err != null && typeof err === 'object' && 'body' in err) {
-        const body = (err as { body: { error?: string } }).body;
-        setError(body.error ?? t('guest.paymentFailed'));
-      } else {
-        setError(t('guest.paymentFailed'));
-      }
+      setError(getErrorMessage(err, t, 'guest.paymentFailed'));
     } finally {
       setLoading(false);
     }
@@ -165,12 +161,7 @@ function CheckoutForm({
 
       void navigate(`/guest-session/${result.sessionToken}`);
     } catch (err: unknown) {
-      if (err != null && typeof err === 'object' && 'body' in err) {
-        const body = (err as { body: { error?: string } }).body;
-        setError(body.error ?? t('guest.paymentFailed'));
-      } else {
-        setError(t('guest.paymentFailed'));
-      }
+      setError(getErrorMessage(err, t, 'guest.paymentFailed'));
     } finally {
       setLoading(false);
     }

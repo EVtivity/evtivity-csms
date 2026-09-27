@@ -16,6 +16,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { FileViewerDialog, type ViewerFile } from '@/components/FileViewerDialog';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 
 interface StationImage {
   id: number;
@@ -175,7 +176,7 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
           body: file,
         });
         if (!uploadRes.ok) {
-          throw new Error(`Upload failed: ${String(uploadRes.status)}`);
+          throw new Error(t('stations.uploadFailed'));
         }
 
         await api.post(`/v1/stations/${stationId}/images`, {
@@ -189,7 +190,7 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
       invalidate();
     } catch (err) {
       toast({
-        title: err instanceof Error ? err.message : 'Upload failed',
+        title: getErrorMessage(err, t, 'stations.uploadFailed'),
         variant: 'destructive',
       });
     } finally {

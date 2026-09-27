@@ -15,7 +15,8 @@ import { Select } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { TimeSlotEditor, type SchedulePeriod } from '@/components/smart-charging/TimeSlotEditor';
-import { api, getApiErrorCode, getApiErrorMessage, getApiErrorFieldDetails } from '@/lib/api';
+import { api, getApiErrorCode, getApiErrorFieldDetails } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { useUserTimezone } from '@/lib/timezone';
 import { midnightInTimezone, toDatetimeLocalInTimezone } from '@/lib/schedule-anchor';
 
@@ -448,7 +449,7 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
                 <p className="text-sm text-destructive">
                   {getApiErrorCode(createMutation.error) === 'PROFILE_ID_IN_USE'
                     ? t('smartCharging.errors.profileIdInUse')
-                    : (getApiErrorMessage(createMutation.error) ?? t('common.error'))}
+                    : getErrorMessage(createMutation.error, t)}
                 </p>
               )}
               <CancelButton

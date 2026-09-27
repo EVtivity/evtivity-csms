@@ -813,7 +813,8 @@
     "connectorRegionNorthAmerican": "North American",
     "connectorRegionEuropean": "European",
     "connectorRegionUniversal": "Universal / Other",
-    "connectorUnknown": "Unknown"
+    "connectorUnknown": "Unknown",
+    "uploadFailed": "Failed to upload image. Please try again."
   },
   "eventAlertRules": {
     "title": "Event Alert Rules",
@@ -2581,7 +2582,9 @@
     "aiAssistError": "Failed to generate AI draft",
     "aiAssistOverwriteTitle": "Replace existing draft?",
     "aiAssistOverwriteDescription": "Generating an AI draft will overwrite the text already in the message box. Continue?",
-    "aiAssistOverwriteConfirm": "Replace"
+    "aiAssistOverwriteConfirm": "Replace",
+    "attachmentUploadFailed": "Failed to upload attachment. Please try again.",
+    "sendFailed": "Failed to send message. Please try again."
   },
   "vehicles": {
     "title": "Vehicles",

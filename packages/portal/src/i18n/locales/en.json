@@ -437,6 +437,7 @@
     "linkedStation": "Linked station",
     "caseCreated": "Case created successfully",
     "sendFailed": "Failed to send message. Please try again.",
+    "createFailed": "Failed to create support case. Please try again.",
     "downloadFailed": "Failed to download attachment. Please try again.",
     "station": "Station",
     "categories": {

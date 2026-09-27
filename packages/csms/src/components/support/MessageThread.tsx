@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/timezone';
 
 interface Attachment {
@@ -96,7 +97,7 @@ export function MessageThread({
           body: file,
         });
         if (!uploadRes.ok) {
-          throw new Error(`Upload failed: ${String(uploadRes.status)}`);
+          throw new Error(t('supportCases.attachmentUploadFailed'));
         }
 
         await api.post(`/v1/support-cases/${caseId}/messages/${String(message.id)}/attachments`, {
@@ -113,7 +114,7 @@ export function MessageThread({
       setIsInternal(false);
       setPendingFiles([]);
     } catch (err) {
-      setSendError(err instanceof Error ? err.message : 'Failed to send message');
+      setSendError(getErrorMessage(err, t, 'supportCases.sendFailed'));
     } finally {
       setIsSending(false);
       setUploadProgress(null);

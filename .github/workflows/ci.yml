@@ -26,7 +26,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts && npm rebuild argon2
       - run: npx tsc -b
-      - run: NODE_OPTIONS="--max-old-space-size=4096" npm run lint
+      - run: npm run lint
 
   typecheck:
     name: Typecheck

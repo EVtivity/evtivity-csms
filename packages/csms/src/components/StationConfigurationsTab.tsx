@@ -28,7 +28,8 @@ import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
 import { SearchInput } from '@/components/search-input';
 import { Pagination } from '@/components/ui/pagination';
-import { api, getApiErrorMessage } from '@/lib/api';
+import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { useToast } from '@/components/ui/toast';
 import { LoadingLogo } from '@/components/loading-logo';
 
@@ -165,9 +166,7 @@ export function StationConfigurationsTab({
       setRebootConfirmOpen(false);
     },
     onError: (err) => {
-      const apiMessage = getApiErrorMessage(err);
-      const message =
-        apiMessage ?? (err instanceof Error ? err.message : t('stations.rebootFailed'));
+      const message = getErrorMessage(err, t, 'stations.rebootFailed');
       toast({ title: t('stations.rebootFailed'), description: message, variant: 'destructive' });
     },
   });

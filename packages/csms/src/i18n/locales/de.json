@@ -799,7 +799,8 @@
     "connectorRegionNorthAmerican": "Nordamerika",
     "connectorRegionEuropean": "Europa",
     "connectorRegionUniversal": "Universal / Sonstige",
-    "connectorUnknown": "Unbekannt"
+    "connectorUnknown": "Unbekannt",
+    "uploadFailed": "Bild konnte nicht hochgeladen werden. Bitte erneut versuchen."
   },
   "eventAlertRules": {
     "title": "Ereigniswarnregeln",
@@ -2557,7 +2558,9 @@
     "aiAssistError": "KI-Entwurf konnte nicht erzeugt werden",
     "aiAssistOverwriteTitle": "Vorhandenen Entwurf ersetzen?",
     "aiAssistOverwriteDescription": "Beim Erzeugen eines KI-Entwurfs wird der Text im Nachrichtenfeld überschrieben. Fortfahren?",
-    "aiAssistOverwriteConfirm": "Ersetzen"
+    "aiAssistOverwriteConfirm": "Ersetzen",
+    "attachmentUploadFailed": "Anhang konnte nicht hochgeladen werden. Bitte erneut versuchen.",
+    "sendFailed": "Nachricht konnte nicht gesendet werden. Bitte erneut versuchen."
   },
   "vehicles": {
     "title": "Fahrzeuge",

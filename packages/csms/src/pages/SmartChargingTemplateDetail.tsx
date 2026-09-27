@@ -33,7 +33,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { TimeSlotEditor, type SchedulePeriod } from '@/components/smart-charging/TimeSlotEditor';
-import { api, getApiErrorCode, getApiErrorMessage } from '@/lib/api';
+import { api, getApiErrorCode } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/timezone';
 import { useUserTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -738,7 +739,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                   <p className="text-sm text-destructive">
                     {getApiErrorCode(updateMutation.error) === 'PROFILE_ID_IN_USE'
                       ? t('smartCharging.errors.profileIdInUse')
-                      : (getApiErrorMessage(updateMutation.error) ?? t('common.error'))}
+                      : getErrorMessage(updateMutation.error, t)}
                   </p>
                 )}
               </div>

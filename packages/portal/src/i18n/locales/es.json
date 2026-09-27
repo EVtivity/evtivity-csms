@@ -437,6 +437,7 @@
     "linkedStation": "Estación vinculada",
     "caseCreated": "Caso creado con exito",
     "sendFailed": "No se pudo enviar el mensaje. Intente nuevamente.",
+    "createFailed": "No se pudo crear el caso de soporte. Intente nuevamente.",
     "downloadFailed": "No se pudo descargar el archivo adjunto. Intente nuevamente.",
     "station": "Estacion",
     "categories": {

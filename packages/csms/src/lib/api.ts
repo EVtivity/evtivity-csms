@@ -41,15 +41,6 @@ export function getApiErrorCode(err: unknown): string | null {
   return typeof code === 'string' ? code : null;
 }
 
-// Safely extract `error` (human-readable message) from an ApiError body.
-export function getApiErrorMessage(err: unknown): string | null {
-  if (!(err instanceof ApiError)) return null;
-  const body = err.body;
-  if (body == null || typeof body !== 'object' || Array.isArray(body)) return null;
-  const message = (body as Record<string, unknown>).error;
-  return typeof message === 'string' ? message : null;
-}
-
 // Safely extract `details` (field -> message map) from an ApiError body. The
 // global error handler attaches this on VALIDATION_ERROR responses so forms
 // can show server-rejected fields next to the offending input. Returns an

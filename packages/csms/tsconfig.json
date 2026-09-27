@@ -20,6 +20,5 @@
     },
     "skipLibCheck": true
   },
-  "include": ["src", "src/**/*.json"],
-  "exclude": ["src/**/__tests__/**", "src/**/*.test.ts", "src/**/*.test.tsx"]
+  "include": ["src", "src/**/*.json"]
 }

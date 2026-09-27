@@ -11,6 +11,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 
 interface FavoriteStation {
   id: number;
@@ -45,11 +46,7 @@ export function Favorites(): React.JSX.Element {
       toast({ variant: 'success', title: t('favorites.removed') });
     },
     onError: (err: unknown) => {
-      const message =
-        err != null && typeof err === 'object' && 'body' in err
-          ? ((err as { body: { error?: string } }).body.error ?? t('favorites.removeFailed'))
-          : t('favorites.removeFailed');
-      toast({ variant: 'destructive', title: message });
+      toast({ variant: 'destructive', title: getErrorMessage(err, t, 'favorites.removeFailed') });
       setRemoveTarget(null);
     },
   });

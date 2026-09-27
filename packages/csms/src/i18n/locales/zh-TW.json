@@ -813,7 +813,8 @@
     "connectorRegionNorthAmerican": "北美",
     "connectorRegionEuropean": "歐洲",
     "connectorRegionUniversal": "通用 / 其他",
-    "connectorUnknown": "未知"
+    "connectorUnknown": "未知",
+    "uploadFailed": "上傳圖片失敗，請重試。"
   },
   "eventAlertRules": {
     "title": "事件告警規則",
@@ -2562,7 +2563,9 @@
     "aiAssistError": "生成 AI 草稿失敗",
     "aiAssistOverwriteTitle": "替換現有草稿？",
     "aiAssistOverwriteDescription": "生成 AI 草稿將覆蓋訊息框中已有的文字。是否繼續？",
-    "aiAssistOverwriteConfirm": "替換"
+    "aiAssistOverwriteConfirm": "替換",
+    "attachmentUploadFailed": "上傳附件失敗，請重試。",
+    "sendFailed": "傳送訊息失敗，請重試。"
   },
   "vehicles": {
     "title": "車輛",

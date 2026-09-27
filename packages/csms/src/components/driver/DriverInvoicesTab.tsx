@@ -29,7 +29,6 @@ import {
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
-import { API_BASE_URL } from '@/lib/config';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatCents } from '@/lib/formatting';
 import { formatDateTime } from '@/lib/timezone';
@@ -58,23 +57,6 @@ export const INVOICE_STATUS_VARIANT: Record<
   paid: 'success',
   void: 'secondary',
 };
-
-export function downloadInvoiceJson(
-  invoice: Pick<DriverInvoice, 'id' | 'invoiceNumber'>,
-): Promise<void> {
-  return fetch(`${API_BASE_URL}/v1/invoices/${invoice.id}/download`, { credentials: 'include' })
-    .then((res) => {
-      if (!res.ok) throw new Error(`Download failed (${String(res.status)})`);
-      return res.blob();
-    })
-    .then((blob) => {
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `${invoice.invoiceNumber}.json`;
-      link.click();
-      URL.revokeObjectURL(link.href);
-    });
-}
 
 interface Props {
   driverId: string;

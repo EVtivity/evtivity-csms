@@ -813,7 +813,8 @@
     "connectorRegionNorthAmerican": "북미",
     "connectorRegionEuropean": "유럽",
     "connectorRegionUniversal": "범용 / 기타",
-    "connectorUnknown": "알 수 없음"
+    "connectorUnknown": "알 수 없음",
+    "uploadFailed": "이미지를 업로드하지 못했습니다. 다시 시도해 주세요."
   },
   "eventAlertRules": {
     "title": "이벤트 알림 규칙",
@@ -2562,7 +2563,9 @@
     "aiAssistError": "AI 초안 생성에 실패했습니다",
     "aiAssistOverwriteTitle": "기존 초안을 교체하시겠습니까?",
     "aiAssistOverwriteDescription": "AI 초안을 생성하면 메시지 상자에 이미 있는 텍스트가 덮어쓰여집니다. 계속하시겠습니까?",
-    "aiAssistOverwriteConfirm": "교체"
+    "aiAssistOverwriteConfirm": "교체",
+    "attachmentUploadFailed": "첨부 파일을 업로드하지 못했습니다. 다시 시도해 주세요.",
+    "sendFailed": "메시지를 보내지 못했습니다. 다시 시도해 주세요."
   },
   "vehicles": {
     "title": "차량",

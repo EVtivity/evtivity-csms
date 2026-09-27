@@ -437,6 +437,7 @@
     "linkedStation": "關聯充電站",
     "caseCreated": "工單建立成功",
     "sendFailed": "傳送訊息失敗，請重試。",
+    "createFailed": "建立支援案件失敗，請重試。",
     "downloadFailed": "下載附件失敗，請重試。",
     "station": "充電站",
     "categories": {

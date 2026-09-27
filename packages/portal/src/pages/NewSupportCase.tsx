@@ -10,6 +10,7 @@ import { Select } from '@/components/ui/select';
 import { PageHeader } from '@/components/PageHeader';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 
 const CATEGORY_OPTIONS = [
   'billing_dispute',
@@ -140,7 +141,9 @@ export function NewSupportCase(): React.JSX.Element {
         )}
 
         {createMutation.isError && (
-          <p className="text-sm text-destructive">{createMutation.error.message}</p>
+          <p className="text-sm text-destructive">
+            {getErrorMessage(createMutation.error, t, 'supportCases.createFailed')}
+          </p>
         )}
 
         <Button type="submit" className="w-full" disabled={createMutation.isPending}>
