@@ -35,6 +35,7 @@ export {
   assertTemplateAllowed,
   compileAllowedTemplate,
   TemplateNotAllowedError,
+  type TemplateRenderer,
 } from './template-safety.js';
 
 export { csvEscape, buildCsv, neutraliseSpreadsheetFormula } from './csv-escape.js';

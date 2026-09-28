@@ -28,6 +28,11 @@ function checkPath(node: hbs.AST.Expression): void {
     throw new TemplateNotAllowedError('Only variables are allowed inside {{ }} in templates');
   }
   const path = node as hbs.AST.PathExpression;
+  // Parent (../) and data (@) paths need Handlebars context tracking that
+  // if/unless blocks never create.
+  if (path.depth > 0 || path.data) {
+    throw new TemplateNotAllowedError(`"${path.original}" is not allowed in templates`);
+  }
   for (const part of path.parts) {
     if (FORBIDDEN_SEGMENTS.has(part)) {
       throw new TemplateNotAllowedError(`"${part}" is not allowed in templates`);
@@ -80,6 +85,15 @@ function checkProgram(program: hbs.AST.Program | null | undefined): void {
   }
 }
 
+/** Renders a template with the given variables. */
+export type TemplateRenderer = (variables: Record<string, unknown>) => string;
+
+function parseAllowed(source: string): hbs.AST.Program {
+  const program = Handlebars.parse(source);
+  checkProgram(program);
+  return program;
+}
+
 /**
  * Throws TemplateNotAllowedError unless the template uses only plain
  * variables ({{var}}, {{{var}}}), comments, and {{#if}} / {{#unless}} blocks
@@ -87,14 +101,81 @@ function checkProgram(program: hbs.AST.Program | null | undefined): void {
  * error for invalid syntax.
  */
 export function assertTemplateAllowed(source: string): void {
-  checkProgram(Handlebars.parse(source));
+  parseAllowed(source);
 }
 
-/** Validates an operator-editable template, then compiles it. */
-export function compileAllowedTemplate(
-  source: string,
-  options?: CompileOptions,
-): HandlebarsTemplateDelegate {
-  assertTemplateAllowed(source);
-  return Handlebars.compile(source, options);
+// Own properties only, so a path can never reach the prototype chain.
+function lookup(path: hbs.AST.PathExpression, context: unknown): unknown {
+  let value = context;
+  for (const part of path.parts) {
+    if (value == null || typeof value !== 'object' || !Object.hasOwn(value, part)) {
+      return undefined;
+    }
+    value = (value as Record<string, unknown>)[part];
+  }
+  return value;
+}
+
+// Same truthiness as the Handlebars if helper: 0, empty strings, and empty
+// arrays are false.
+function isTruthy(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0;
+  return Boolean(value);
+}
+
+function toText(value: unknown): string {
+  if (Array.isArray(value)) return value.map(toText).join(',');
+  switch (typeof value) {
+    case 'string':
+      return value;
+    case 'number':
+    case 'boolean':
+    case 'bigint':
+      return String(value);
+    case 'object':
+      return value == null ? '' : '[object Object]';
+    default:
+      // undefined, functions, and symbols render nothing.
+      return '';
+  }
+}
+
+function renderProgram(program: hbs.AST.Program | null | undefined, context: unknown): string {
+  if (program == null) return '';
+  let out = '';
+  for (const node of program.body) {
+    switch (node.type) {
+      case 'ContentStatement':
+        out += (node as hbs.AST.ContentStatement).value;
+        break;
+      case 'MustacheStatement': {
+        const m = node as hbs.AST.MustacheStatement;
+        const text = toText(lookup(m.path as hbs.AST.PathExpression, context));
+        // {{var}} escapes HTML, {{{var}}} does not.
+        out += m.escaped ? Handlebars.escapeExpression(text) : text;
+        break;
+      }
+      case 'BlockStatement': {
+        const b = node as hbs.AST.BlockStatement;
+        const condition = isTruthy(lookup(b.params[0] as hbs.AST.PathExpression, context));
+        const show = b.path.original === 'unless' ? !condition : condition;
+        out += renderProgram(show ? b.program : b.inverse, context);
+        break;
+      }
+      default:
+        // Comments render nothing. checkProgram rejected everything else.
+        break;
+    }
+  }
+  return out;
+}
+
+/**
+ * Validates an operator-editable template and returns its renderer. The
+ * renderer walks the parsed template directly. Operator text is never
+ * compiled to JavaScript.
+ */
+export function compileAllowedTemplate(source: string): TemplateRenderer {
+  const program = parseAllowed(source);
+  return (variables) => renderProgram(program, variables);
 }

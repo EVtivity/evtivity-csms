@@ -9,7 +9,7 @@ import { decryptString } from './encryption.js';
 import { formatDateTime } from './timezone.js';
 import { isPrivateUrl } from './url-validation.js';
 import { sendExpoPush } from './push-send.js';
-import { compileAllowedTemplate } from './template-safety.js';
+import { compileAllowedTemplate, type TemplateRenderer } from './template-safety.js';
 import type { PubSubClient } from './pubsub.js';
 
 const logger = createLogger('notification-dispatch');
@@ -347,10 +347,7 @@ export function resolveRecipients(_sql: postgres.Sql, recipientSpec: string): Re
 
 const TEMPLATE_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-const compiledTemplateCache = new Map<
-  string,
-  { compiled: HandlebarsTemplateDelegate; cachedAt: number }
->();
+const compiledTemplateCache = new Map<string, { compiled: TemplateRenderer; cachedAt: number }>();
 
 const fileContentCache = new Map<string, { content: string; cachedAt: number }>();
 

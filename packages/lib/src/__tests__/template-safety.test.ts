@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import Handlebars from 'handlebars';
 import { describe, it, expect } from 'vitest';
 import {
   assertTemplateAllowed,
@@ -17,7 +18,7 @@ describe('assertTemplateAllowed', () => {
     '{{#unless reason}}No reason{{/unless}}',
     '{{#if a}}A{{else if b}}B{{else}}C{{/if}}',
     '{{#if a}}{{#if b}}nested{{/if}}{{/if}}',
-    '{{../companyName}} {{this}}',
+    '{{this}} {{a.b}} {{items.[0]}}',
   ])('allows %s', (source) => {
     expect(() => {
       assertTemplateAllowed(source);
@@ -42,6 +43,8 @@ describe('assertTemplateAllowed', () => {
     ['{{a.constructor}}', '"constructor" is not allowed'],
     ['{{__proto__}}', '"__proto__" is not allowed'],
     ['{{"literal"}}', 'Only variables are allowed'],
+    ['{{../companyName}}', '"../companyName" is not allowed'],
+    ['{{@root.companyName}}', '"@root.companyName" is not allowed'],
   ])('rejects %s', (source, message) => {
     expect(() => {
       assertTemplateAllowed(source);
@@ -65,7 +68,33 @@ describe('compileAllowedTemplate', () => {
     expect(render({})).toBe('Hello');
   });
 
-  it('rejects before compiling', () => {
+  it('escapes {{var}} and leaves {{{var}}} raw', () => {
+    const render = compileAllowedTemplate('{{v}}|{{{v}}}');
+    expect(render({ v: '<b>&"</b>' })).toBe('&lt;b&gt;&amp;&quot;&lt;/b&gt;|<b>&"</b>');
+  });
+
+  it('never reads inherited properties', () => {
+    const render = compileAllowedTemplate('[{{toString}}][{{a.hasOwnProperty}}]');
+    expect(render({ a: {} })).toBe('[][]');
+  });
+
+  it('rejects before rendering', () => {
     expect(() => compileAllowedTemplate('{{#each a}}x{{/each}}')).toThrow(TemplateNotAllowedError);
+  });
+
+  // The renderer replaces Handlebars.compile for operator templates, so its
+  // output must match Handlebars for every construct it allows.
+  it.each([
+    ['{{#if a}}A{{else if b}}B{{else}}C{{/if}}', { b: 1 }],
+    ['{{#unless a}}none{{else}}some{{/unless}}', { a: [] }],
+    ['{{#if n}}yes{{else}}no{{/if}} {{n}} {{f}} {{t}}', { n: 0, f: false, t: true }],
+    [
+      '{{list}} {{obj}} {{missing}} {{nested.x.y}}',
+      { list: [1, 'a'], obj: {}, nested: { x: { y: 3 } } },
+    ],
+    ['  {{#if a}}\n  line\n  {{/if}}\n{{~v~}}  end', { a: true, v: 'V' }],
+    ['{{! comment }}{{{html}}}{{html}}', { html: "<i>'x'</i>" }],
+  ])('matches Handlebars for %s', (source, variables) => {
+    expect(compileAllowedTemplate(source)(variables)).toBe(Handlebars.compile(source)(variables));
   });
 });
