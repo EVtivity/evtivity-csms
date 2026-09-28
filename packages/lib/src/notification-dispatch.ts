@@ -3,13 +3,13 @@
 
 import postgres from 'postgres';
 import nodemailer from 'nodemailer';
-import Handlebars from 'handlebars';
 import { readFile } from 'node:fs/promises';
 import { createLogger } from './logger.js';
 import { decryptString } from './encryption.js';
 import { formatDateTime } from './timezone.js';
 import { isPrivateUrl } from './url-validation.js';
 import { sendExpoPush } from './push-send.js';
+import { compileAllowedTemplate } from './template-safety.js';
 import type { PubSubClient } from './pubsub.js';
 
 const logger = createLogger('notification-dispatch');
@@ -395,7 +395,9 @@ export function compileTemplate(source: string, variables: Record<string, unknow
   if (cached != null && now - cached.cachedAt < TEMPLATE_CACHE_TTL_MS) {
     return cached.compiled(variables);
   }
-  const compiled = Handlebars.compile(source);
+  // Templates are operator-editable (DB rows, rule overrides, the email
+  // layout), so only plain variables and if/unless blocks are allowed.
+  const compiled = compileAllowedTemplate(source);
   compiledTemplateCache.set(source, { compiled, cachedAt: now });
   return compiled(variables);
 }

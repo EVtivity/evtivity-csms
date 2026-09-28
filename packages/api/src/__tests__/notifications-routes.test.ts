@@ -117,13 +117,19 @@ vi.mock('nodemailer', () => ({
   },
 }));
 
-vi.mock('@evtivity/lib', () => ({
-  decryptString: vi.fn().mockReturnValue('decrypted'),
-  wrapEmailHtml: vi.fn(
-    (html: string, _company: string, _wrapper: string | null, _vars: unknown) =>
-      `<wrapper>${html}</wrapper>`,
-  ),
-}));
+vi.mock('@evtivity/lib', async () => {
+  const actual = await vi.importActual<typeof import('@evtivity/lib')>('@evtivity/lib');
+  return {
+    // The template rules are the behavior under test, so they stay real.
+    assertTemplateAllowed: actual.assertTemplateAllowed,
+    compileAllowedTemplate: actual.compileAllowedTemplate,
+    decryptString: vi.fn().mockReturnValue('decrypted'),
+    wrapEmailHtml: vi.fn(
+      (html: string, _company: string, _wrapper: string | null, _vars: unknown) =>
+        `<wrapper>${html}</wrapper>`,
+    ),
+  };
+});
 
 import { registerAuth } from '../plugins/auth.js';
 import { notificationRoutes } from '../routes/notifications.js';
@@ -519,6 +525,67 @@ describe('Notification routes', () => {
     expect(body.subject).toContain('TestCo');
   });
 
+  it('POST /v1/notification-templates/preview renders if/else blocks used by shipped templates', async () => {
+    setupDbResults([{ value: 'TestCo' }], [{ value: null }], [{ value: 'USD' }], []);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/notification-templates/preview',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        eventType: 'reservation.CancelledForMaintenance',
+        channel: 'email',
+        language: 'en',
+        subject: 'Hello',
+        bodyHtml:
+          '{{#if firstName}}Hi {{firstName}},{{else}}Hello,{{/if}}{{#unless reason}} none{{/unless}}',
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json<{ bodyHtml: string }>();
+    expect(body.bodyHtml).toContain('Hi John,');
+    expect(body.bodyHtml).toContain('none');
+  });
+
+  it('PUT /v1/notification-templates rejects a template that outgoing email would refuse', async () => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/notification-templates',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        eventType: 'station.Connected',
+        channel: 'email',
+        language: 'en',
+        subject: '{{lookup a b}}',
+        bodyHtml: '{{> header}}',
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    const body = response.json<{ code: string; details: Record<string, string> }>();
+    expect(body.code).toBe('VALIDATION_ERROR');
+    expect(body.details).toEqual({
+      subject: 'Helpers are not allowed in templates',
+      bodyHtml: 'Partials are not allowed in templates',
+    });
+  });
+
+  it('PUT /v1/ocpp-event-settings rejects a disallowed templateHtml', async () => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/ocpp-event-settings',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        eventType: 'station.Connected',
+        channel: 'email',
+        recipient: '$admin',
+        templateHtml: '{{#each items}}x{{/each}}',
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    const body = response.json<{ code: string; details: Record<string, string> }>();
+    expect(body.code).toBe('VALIDATION_ERROR');
+    expect(body.details['templateHtml']).toContain('block helpers');
+  });
+
   it('POST /v1/notification-templates/preview returns 400 for a disallowed block helper', async () => {
     setupDbResults([{ value: 'TestCo' }], [{ value: null }], [{ value: 'USD' }], []);
     const response = await app.inject({
@@ -536,7 +603,9 @@ describe('Notification routes', () => {
     expect(response.statusCode).toBe(400);
     const body = response.json<{ code: string; details: Record<string, string> }>();
     expect(body.code).toBe('VALIDATION_ERROR');
-    expect(body.details).toEqual({ bodyHtml: 'Block helpers are not allowed in templates' });
+    expect(body.details).toEqual({
+      bodyHtml: 'Only {{#if}} and {{#unless}} block helpers are allowed in templates',
+    });
   });
 
   it('POST /v1/notification-templates/preview returns 400 for a subject that does not parse', async () => {

@@ -31,6 +31,12 @@ export { formatDateTime, formatDate, formatRelativeTime, isValidTimezone } from 
 
 export { encryptString, decryptString } from './encryption.js';
 
+export {
+  assertTemplateAllowed,
+  compileAllowedTemplate,
+  TemplateNotAllowedError,
+} from './template-safety.js';
+
 export { csvEscape, buildCsv, neutraliseSpreadsheetFormula } from './csv-escape.js';
 
 export { verifyRecaptcha } from './recaptcha.js';

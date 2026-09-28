@@ -16,8 +16,12 @@ import {
   ocppEventSettings,
   settings,
 } from '@evtivity/database';
-import Handlebars from 'handlebars';
-import { decryptString, wrapEmailHtml } from '@evtivity/lib';
+import {
+  assertTemplateAllowed,
+  compileAllowedTemplate,
+  decryptString,
+  wrapEmailHtml,
+} from '@evtivity/lib';
 import { getPubSub } from '../lib/pubsub.js';
 
 const OCPP_CACHE_INVALIDATE_CHANNEL = 'cache_invalidate';
@@ -34,30 +38,18 @@ async function invalidateOcppEventSettingsCache(log: FastifyBaseLogger): Promise
 }
 
 /**
- * Compile a user-provided Handlebars template safely.
- * Rejects templates containing block helpers, partials, or subexpressions
- * that could be used for code injection. Only simple variable interpolation
- * ({{var}} and {{{var}}}) is allowed.
+ * Returns why an operator-edited template is rejected, or null when it is
+ * allowed. Same rules as outgoing notifications (compileTemplate in
+ * @evtivity/lib), so a template that saves is a template that sends.
  */
-function safeCompile(template: string): HandlebarsTemplateDelegate {
-  // Block helpers: {{#each}}, {{#if}}, {{#with}}, {{#unless}}, {{#lookup}}, etc.
-  if (/\{\{#/.test(template)) {
-    throw new Error('Block helpers are not allowed in templates');
+function templateError(source: string | null | undefined): string | null {
+  if (source == null || source === '') return null;
+  try {
+    assertTemplateAllowed(source);
+    return null;
+  } catch (err: unknown) {
+    return err instanceof Error ? err.message : String(err);
   }
-  // Partials: {{> partialName}}
-  if (/\{\{>/.test(template)) {
-    throw new Error('Partials are not allowed in templates');
-  }
-  // Subexpressions: {{helper (subexpr)}}. The inner class excludes braces so the
-  // {{ anchor cannot overlap matched characters (keeps the scan linear).
-  if (/\{\{[^{}]*\(/.test(template)) {
-    throw new Error('Subexpressions are not allowed in templates');
-  }
-  // Lookup/log helpers: {{lookup}}, {{log}}
-  if (/\{\{\s*(lookup|log|helperMissing|blockHelperMissing)\b/.test(template)) {
-    throw new Error('Dangerous helpers are not allowed in templates');
-  }
-  return Handlebars.compile(template);
 }
 import { zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -695,6 +687,15 @@ export function notificationRoutes(app: FastifyInstance): void {
           return;
         }
       }
+      const templateHtmlError = templateError(body.templateHtml);
+      if (templateHtmlError != null) {
+        await reply.status(400).send({
+          error: 'Template is invalid',
+          code: 'VALIDATION_ERROR',
+          details: { templateHtml: templateHtmlError },
+        });
+        return;
+      }
       const updates: Record<string, unknown> = { updatedAt: new Date() };
       if (body.recipient !== undefined) updates['recipient'] = body.recipient;
       if (body.templateHtml !== undefined) updates['templateHtml'] = body.templateHtml;
@@ -1175,11 +1176,25 @@ export function notificationRoutes(app: FastifyInstance): void {
         operationId: 'upsertNotificationTemplate',
         security: [{ bearerAuth: [] }],
         body: zodSchema(templateUpsertBody),
-        response: { 200: itemResponse(notificationTemplateDbItem) },
+        response: {
+          200: itemResponse(notificationTemplateDbItem),
+          400: errorWith('Template is invalid', [ERROR_CODES.VALIDATION_ERROR]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const body = request.body as z.infer<typeof templateUpsertBody>;
+      const details: Record<string, string> = {};
+      const subjectError = templateError(body.subject);
+      const bodyError = templateError(body.bodyHtml);
+      if (subjectError != null) details['subject'] = subjectError;
+      if (bodyError != null) details['bodyHtml'] = bodyError;
+      if (Object.keys(details).length > 0) {
+        await reply
+          .status(400)
+          .send({ error: 'Template is invalid', code: 'VALIDATION_ERROR', details });
+        return;
+      }
       const [saved] = await db
         .insert(notificationTemplates)
         .values({
@@ -1268,7 +1283,7 @@ export function notificationRoutes(app: FastifyInstance): void {
 
       // Compiled directly, not via compileTemplate, so per-keystroke drafts are not cached.
       try {
-        const html = Handlebars.compile(wrapperTemplate)({
+        const html = compileAllowedTemplate(wrapperTemplate)({
           content: EMAIL_WRAPPER_SAMPLE_BODY,
           companyName: company.get('company.name') ?? 'EVtivity',
           companyCurrency: company.get('company.currency') ?? 'USD',
@@ -1366,7 +1381,7 @@ export function notificationRoutes(app: FastifyInstance): void {
       // A disallowed or unparsable template is operator input, not a server error.
       const render = (template: string): string | Error => {
         try {
-          return safeCompile(template)(sampleVariables);
+          return compileAllowedTemplate(template)(sampleVariables);
         } catch (err: unknown) {
           return err instanceof Error ? err : new Error(String(err));
         }
