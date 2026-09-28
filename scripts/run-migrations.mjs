@@ -36,6 +36,11 @@ const databaseUrl =
 const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
 
 try {
+  // Session lock so two migrators (a deploy and its rollback, or two
+  // replicas starting at once) never apply the same files concurrently. The
+  // second waits, then finds nothing pending. max: 1 keeps every query on
+  // this session, and closing the connection releases the lock.
+  await sql`SELECT pg_advisory_lock(hashtext('evtivity:migrations'))`;
   await sql`CREATE SCHEMA IF NOT EXISTS "drizzle"`;
   await sql`
     CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (
