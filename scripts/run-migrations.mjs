@@ -15,9 +15,15 @@
 //
 // Tracking stays byte-compatible with drizzle-kit: same
 // drizzle.__drizzle_migrations table, hash = SHA-256 of the file bytes,
-// created_at = the journal `when`, and a file is pending when its `when`
-// is greater than the latest applied created_at (the monotonic rule in
-// the migrations journal).
+// created_at = the journal `when`.
+//
+// A file is pending when its hash is not recorded yet, not when its `when`
+// exceeds the latest applied created_at as drizzle-kit decides. The `when`
+// rule silently skips a migration whose `when` is not above every applied
+// one, e.g. after verify-migrations-applied.mjs self-healed a file, or when
+// a deployment carries its own migrations next to the upstream ones. Hashes
+// make the decision independent of `when` ordering. Pending files still run
+// in journal order.
 //
 // Usage: node run-migrations.mjs [migrationsFolder]
 //   migrationsFolder defaults to ./src/migrations relative to cwd.
@@ -50,19 +56,15 @@ try {
     )
   `;
 
-  const [last] = await sql`
-    SELECT created_at FROM "drizzle"."__drizzle_migrations"
-    ORDER BY created_at DESC LIMIT 1
-  `;
-  const lastAppliedAt = last != null ? Number(last.created_at) : -1;
+  const appliedRows = await sql`SELECT hash FROM "drizzle"."__drizzle_migrations"`;
+  const appliedHashes = new Set(appliedRows.map((row) => row.hash));
 
   let applied = 0;
   for (const entry of journal.entries) {
-    if (entry.when <= lastAppliedAt) continue;
-
     const filePath = path.join(folder, `${entry.tag}.sql`);
     const fileContents = fs.readFileSync(filePath, 'utf8');
     const hash = crypto.createHash('sha256').update(fileContents).digest('hex');
+    if (appliedHashes.has(hash)) continue;
     // Statements are separated by drizzle's explicit marker, never by ';'
     // (DO $$ ... $$ bodies contain semicolons).
     const statements = fileContents.split('--> statement-breakpoint');
