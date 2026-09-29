@@ -123,7 +123,7 @@ export async function collectBusinessMetrics(): Promise<void> {
         SELECT COALESCE(SUM(final_cost_cents), 0)::bigint AS total
         FROM charging_sessions
         WHERE status = 'completed'
-          AND COALESCE(UPPER(currency), ${companyCurrency}) = ${companyCurrency}
+          AND UPPER(currency) = ${companyCurrency}
       `),
 
       // Reservations by status

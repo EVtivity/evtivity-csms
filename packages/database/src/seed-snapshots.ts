@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql } from 'drizzle-orm';
-import { db, client, sites } from './index.js';
+import { db, client, sites, getCompanyCurrency } from './index.js';
 
 /**
  * Populate 14 days of dashboard_snapshots rows per site so the Historical
@@ -13,6 +13,7 @@ import { db, client, sites } from './index.js';
  */
 export async function seedDashboardSnapshots(): Promise<void> {
   const allSites = await db.select({ id: sites.id, name: sites.name }).from(sites);
+  const currency = await getCompanyCurrency();
   console.log(`Found ${String(allSites.length)} sites`);
 
   const today = new Date();
@@ -55,7 +56,7 @@ export async function seedDashboardSnapshots(): Promise<void> {
           total_sessions, day_sessions, connected_stations,
           total_revenue_cents, day_revenue_cents, avg_revenue_cents_per_session,
           total_transactions, day_transactions, total_ports, stations_below_threshold,
-          avg_ping_latency_ms, ping_success_rate,
+          avg_ping_latency_ms, ping_success_rate, currency,
           created_at
         ) VALUES (
           ${site.id}, ${dateStr}::date, ${totalStations}, ${onlineStations}, ${onlinePercent},
@@ -63,7 +64,7 @@ export async function seedDashboardSnapshots(): Promise<void> {
           ${totalSessions}, ${daySessions}, ${onlineStations},
           ${totalRevenueCents}, ${dayRevenueCents}, ${avgRevPerSession},
           ${totalTransactions}, ${dayTransactions}, ${totalPorts}, ${stationsBelowThreshold},
-          ${avgPingLatencyMs}, ${pingSuccessRate},
+          ${avgPingLatencyMs}, ${pingSuccessRate}, ${currency},
           now()
         )
         ON CONFLICT (site_id, snapshot_date) DO UPDATE SET
@@ -86,6 +87,7 @@ export async function seedDashboardSnapshots(): Promise<void> {
           stations_below_threshold = EXCLUDED.stations_below_threshold,
           avg_ping_latency_ms = EXCLUDED.avg_ping_latency_ms,
           ping_success_rate = EXCLUDED.ping_success_rate,
+          currency = EXCLUDED.currency,
           created_at = now()
       `);
     }

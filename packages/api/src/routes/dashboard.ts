@@ -13,6 +13,7 @@ import {
   sites,
   paymentRecords,
   ocppServerHealth,
+  dashboardSnapshots,
 } from '@evtivity/database';
 import { ValidationError } from '@evtivity/lib';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
@@ -1256,7 +1257,8 @@ export function dashboardRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { userId } = request.user as JwtPayload;
-      const siteIds = await getUserSiteIds(userId);
+      const [siteIds, currency] = await Promise.all([getUserSiteIds(userId), getCompanyCurrency()]);
+      const snapshotBilled = inCompanyCurrency(dashboardSnapshots.currency, currency);
 
       if (siteIds != null && siteIds.length === 0) return { days: [] };
 
@@ -1288,10 +1290,10 @@ export function dashboardRoutes(app: FastifyInstance): void {
           COALESCE(SUM(total_sessions), 0) AS total_sessions,
           COALESCE(SUM(day_sessions), 0) AS day_sessions,
           COALESCE(SUM(connected_stations), 0) AS connected_stations,
-          COALESCE(SUM(total_revenue_cents), 0) AS total_revenue_cents,
-          COALESCE(SUM(day_revenue_cents), 0) AS day_revenue_cents,
+          COALESCE(SUM(total_revenue_cents) FILTER (WHERE ${snapshotBilled}), 0) AS total_revenue_cents,
+          COALESCE(SUM(day_revenue_cents) FILTER (WHERE ${snapshotBilled}), 0) AS day_revenue_cents,
           CASE WHEN SUM(total_sessions) > 0
-            THEN SUM(total_revenue_cents) / SUM(total_sessions)
+            THEN SUM(total_revenue_cents) FILTER (WHERE ${snapshotBilled}) / SUM(total_sessions)
             ELSE 0
           END AS avg_revenue_cents_per_session,
           COALESCE(SUM(total_transactions), 0) AS total_transactions,
@@ -1402,7 +1404,8 @@ export function dashboardRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { userId } = request.user as JwtPayload;
-      const siteIds = await getUserSiteIds(userId);
+      const [siteIds, currency] = await Promise.all([getUserSiteIds(userId), getCompanyCurrency()]);
+      const snapshotBilled = inCompanyCurrency(dashboardSnapshots.currency, currency);
       const { date, to } = request.query as z.infer<typeof snapshotDateQuery>;
 
       // Regex on snapshotDateQuery only checks the YYYY-MM-DD shape; reject
@@ -1521,8 +1524,8 @@ export function dashboardRoutes(app: FastifyInstance): void {
               SUM(total_sessions) AS day_total_sessions,
               SUM(day_sessions) AS day_day_sessions,
               SUM(connected_stations) AS day_connected_stations,
-              SUM(total_revenue_cents) AS day_total_revenue_cents,
-              SUM(day_revenue_cents) AS day_day_revenue_cents,
+              COALESCE(SUM(total_revenue_cents) FILTER (WHERE ${snapshotBilled}), 0) AS day_total_revenue_cents,
+              COALESCE(SUM(day_revenue_cents) FILTER (WHERE ${snapshotBilled}), 0) AS day_day_revenue_cents,
               SUM(total_transactions) AS day_total_transactions,
               SUM(day_transactions) AS day_day_transactions,
               SUM(total_ports) AS day_total_ports,
@@ -1556,10 +1559,10 @@ export function dashboardRoutes(app: FastifyInstance): void {
             COALESCE(SUM(total_sessions), 0) AS total_sessions,
             COALESCE(SUM(day_sessions), 0) AS day_sessions,
             COALESCE(SUM(connected_stations), 0) AS connected_stations,
-            COALESCE(SUM(total_revenue_cents), 0) AS total_revenue_cents,
-            COALESCE(SUM(day_revenue_cents), 0) AS day_revenue_cents,
+            COALESCE(SUM(total_revenue_cents) FILTER (WHERE ${snapshotBilled}), 0) AS total_revenue_cents,
+            COALESCE(SUM(day_revenue_cents) FILTER (WHERE ${snapshotBilled}), 0) AS day_revenue_cents,
             CASE WHEN SUM(total_sessions) > 0
-              THEN SUM(total_revenue_cents) / SUM(total_sessions)
+              THEN SUM(total_revenue_cents) FILTER (WHERE ${snapshotBilled}) / SUM(total_sessions)
               ELSE 0
             END AS avg_revenue_cents_per_session,
             COALESCE(SUM(total_transactions), 0) AS total_transactions,

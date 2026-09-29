@@ -75,7 +75,7 @@ async function linkGuestSession(event: CsmsEvent, logger: FastifyBaseLogger): Pr
     const [config, [session]] = await Promise.all([
       getStripeConfig(station?.siteId ?? null),
       db
-        .select({ currency: sessionCurrencySql(await getCompanyCurrency()) })
+        .select({ currency: sessionCurrencySql() })
         .from(chargingSessions)
         .where(eq(chargingSessions.id, event.sessionId)),
     ]);
@@ -236,7 +236,7 @@ async function sendGuestReceipt(
       .select({
         energyDeliveredWh: chargingSessions.energyDeliveredWh,
         finalCostCents: chargingSessions.finalCostCents,
-        currency: sessionCurrencySql(await getCompanyCurrency()),
+        currency: sessionCurrencySql(),
         startedAt: chargingSessions.startedAt,
         endedAt: chargingSessions.endedAt,
       })

@@ -267,7 +267,6 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         whereClause = sql`${chargingSessions.driverId} = ${driverId} AND ${chargingSessions.startedAt} >= ${start} AND ${chargingSessions.startedAt} < ${end}`;
       }
 
-      const companyCurrency = await getCompanyCurrency();
       const [data, countRows] = await Promise.all([
         db
           .select({
@@ -279,7 +278,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
             energyDeliveredWh: chargingSessions.energyDeliveredWh,
             co2AvoidedKg: chargingSessions.co2AvoidedKg,
             finalCostCents: chargingSessions.finalCostCents,
-            currency: sessionCurrencySql(companyCurrency),
+            currency: sessionCurrencySql(),
             stationName: chargingStations.stationId,
             siteName: sites.name,
             siteAddress: sites.address,
@@ -379,7 +378,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           energyDeliveredWh: chargingSessions.energyDeliveredWh,
           co2AvoidedKg: chargingSessions.co2AvoidedKg,
           finalCostCents: chargingSessions.finalCostCents,
-          currency: sessionCurrencySql(companyCurrency),
+          currency: sessionCurrencySql(),
           siteName: sites.name,
           siteCity: sites.city,
         })
@@ -436,7 +435,6 @@ export function portalSessionRoutes(app: FastifyInstance): void {
       const { driverId } = request.user as DriverJwtPayload;
       const { id } = request.params as z.infer<typeof sessionParams>;
 
-      const companyCurrency = await getCompanyCurrency();
       const [session] = await db
         .select({
           id: chargingSessions.id,
@@ -448,7 +446,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           co2AvoidedKg: chargingSessions.co2AvoidedKg,
           currentCostCents: chargingSessions.currentCostCents,
           finalCostCents: chargingSessions.finalCostCents,
-          currency: sessionCurrencySql(companyCurrency),
+          currency: sessionCurrencySql(),
           meterStart: chargingSessions.meterStart,
           meterStop: chargingSessions.meterStop,
           stoppedReason: chargingSessions.stoppedReason,

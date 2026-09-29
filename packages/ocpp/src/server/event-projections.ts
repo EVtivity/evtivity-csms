@@ -353,14 +353,11 @@ export function registerProjections(
     return name;
   }
 
-  // A session's billing currency. Rows written before single-currency, or a
-  // missing row, fall back to the company currency.
+  // A session's billing currency, or the company currency when the row is gone.
   async function loadSessionCurrency(sessionId: string): Promise<string> {
-    const rows = await sql`SELECT currency FROM charging_sessions WHERE id = ${sessionId} LIMIT 1`;
-    const stored: unknown = rows[0]?.currency;
-    return typeof stored === 'string' && stored !== ''
-      ? stored.toUpperCase()
-      : getCompanyCurrency();
+    const rows =
+      await sql`SELECT UPPER(currency) AS currency FROM charging_sessions WHERE id = ${sessionId} LIMIT 1`;
+    return (rows[0]?.currency as string | undefined) ?? getCompanyCurrency();
   }
 
   // Dispatch IdlingStarted notification for both driver and guest sessions.
@@ -370,10 +367,9 @@ export function registerProjections(
     stationId: string,
     transactionId: string,
   ): Promise<void> {
-    const companyCurrency = await getCompanyCurrency();
     const idleSession = await sql`
       SELECT driver_id, idle_started_at, tariff_idle_fee_price_per_minute,
-             COALESCE(UPPER(currency), ${companyCurrency}) AS currency
+             UPPER(currency) AS currency
       FROM charging_sessions WHERE id = ${sessionId} AND idle_started_at IS NOT NULL
     `;
     const idleRow = idleSession[0];
@@ -2225,7 +2221,6 @@ export function registerProjections(
         // Gate on status = 'active' so a stray TransactionEvent.Updated that
         // arrives after the payment gate stopped the session (faulted/failed)
         // does not fire a phantom "session update" notification.
-        const companyCurrency = await getCompanyCurrency();
         const throttleResult = await sql`
           UPDATE charging_sessions
           SET last_update_notified_at = now()
@@ -2235,7 +2230,7 @@ export function registerProjections(
             AND (last_update_notified_at IS NULL
               OR last_update_notified_at < now() - make_interval(secs => ${SESSION_UPDATE_THROTTLE_MS / 1000}))
           RETURNING driver_id, energy_delivered_wh, current_cost_cents, started_at,
-                    COALESCE(UPPER(currency), ${companyCurrency}) AS currency
+                    UPPER(currency) AS currency
         `;
         if (throttleResult.length > 0 && throttleResult[0] != null) {
           const updatedSession = throttleResult[0];
@@ -2647,10 +2642,9 @@ export function registerProjections(
         // never inserts a payment record - so drivers who tapped without a PM
         // received a phantom "session is complete" + "session receipt" pair
         // alongside the correct payment-required notification.
-        const companyCurrency = await getCompanyCurrency();
         const endedDriverRows = await sql`
           SELECT driver_id, energy_delivered_wh, final_cost_cents, started_at, ended_at, status,
-                 COALESCE(UPPER(currency), ${companyCurrency}) AS currency
+                 UPPER(currency) AS currency
           FROM charging_sessions WHERE id = ${sessionId}`;
         const endedSession = endedDriverRows[0];
         const endedSessionStatus = endedSession?.status as string | undefined;
@@ -3470,9 +3464,8 @@ export function registerProjections(
       return;
     }
 
-    const companyCurrency = await getCompanyCurrency();
     const sessionRows = await sql`
-      SELECT id, driver_id, station_id, COALESCE(UPPER(currency), ${companyCurrency}) AS currency
+      SELECT id, driver_id, station_id, UPPER(currency) AS currency
       FROM charging_sessions WHERE transaction_id = ${transactionId}
     `;
     const session = sessionRows[0];
@@ -4102,10 +4095,9 @@ export function registerProjections(
 
     if (eventType === 'Ended') {
       // Auto-capture on session end
-      const companyCurrency = await getCompanyCurrency();
       const sessionRows = await sql`
         SELECT cs.id, cs.final_cost_cents, cs.station_id AS station_uuid,
-               COALESCE(UPPER(cs.currency), ${companyCurrency}) AS currency,
+               UPPER(cs.currency) AS currency,
                cs2.station_id AS station_ocpp_id, cs2.site_id
         FROM charging_sessions cs
         JOIN charging_stations cs2 ON cs2.id = cs.station_id

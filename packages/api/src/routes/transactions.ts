@@ -10,11 +10,9 @@ import {
   chargingStations,
   transactionEventTypeEnum,
   sessionStatusEnum,
-  getCompanyCurrency,
 } from '@evtivity/database';
 import * as transactionService from '../services/transaction.service.js';
 import { zodSchema } from '../lib/zod-schema.js';
-import { resolveSessionCurrency } from '../lib/company-currency.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import {
@@ -218,10 +216,7 @@ export function transactionRoutes(app: FastifyInstance): void {
         }
       }
 
-      return {
-        ...session,
-        currency: resolveSessionCurrency(session.currency, await getCompanyCurrency()),
-      };
+      return { ...session, currency: session.currency.toUpperCase() };
     },
   );
 }

@@ -11,7 +11,6 @@ import {
   drivers,
   sites,
   driverTokens,
-  getCompanyCurrency,
 } from '@evtivity/database';
 import * as tokenService from '../services/token.service.js';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -306,7 +305,6 @@ export function tokenRoutes(app: FastifyInstance): void {
       // Filter by token_id directly (the FK on charging_sessions). This shows
       // sessions where the OCPP authorize matched THIS card, not every session
       // by the same driver.
-      const companyCurrency = await getCompanyCurrency();
       const where = eq(chargingSessions.tokenId, id);
 
       const [data, countRows] = await Promise.all([
@@ -327,7 +325,7 @@ export function tokenRoutes(app: FastifyInstance): void {
             energyDeliveredWh: chargingSessions.energyDeliveredWh,
             currentCostCents: chargingSessions.currentCostCents,
             finalCostCents: chargingSessions.finalCostCents,
-            currency: sessionCurrencySql(companyCurrency),
+            currency: sessionCurrencySql(),
           })
           .from(chargingSessions)
           .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))

@@ -3,6 +3,7 @@
 
 import {
   pgTable,
+  varchar,
   serial,
   text,
   date,
@@ -35,6 +36,7 @@ export const dashboardSnapshots = pgTable(
     avgRevenueCentsPerSession: bigint('avg_revenue_cents_per_session', { mode: 'number' }),
     totalElectricityCostCents: bigint('total_electricity_cost_cents', { mode: 'number' }),
     dayElectricityCostCents: bigint('day_electricity_cost_cents', { mode: 'number' }),
+    currency: varchar('currency', { length: 3 }).notNull(),
     totalTransactions: integer('total_transactions'),
     dayTransactions: integer('day_transactions'),
     totalPorts: integer('total_ports'),

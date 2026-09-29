@@ -75,6 +75,7 @@ vi.mock('@evtivity/database', () => ({
   settings: {},
   paymentRecords: {},
   ocppServerHealth: {},
+  dashboardSnapshots: {},
   getSystemTimezone: vi.fn().mockResolvedValue('America/New_York'),
 }));
 

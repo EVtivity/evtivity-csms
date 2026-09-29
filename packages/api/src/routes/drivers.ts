@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, ne, and, or, ilike, sql, desc, asc } from 'drizzle-orm';
-import { db, getCompanyCurrency } from '@evtivity/database';
+import { db } from '@evtivity/database';
 import {
   drivers,
   driverTokens,
@@ -983,7 +983,6 @@ export function driverRoutes(app: FastifyInstance): void {
       const { page, limit } = request.query as z.infer<typeof sessionsQuery>;
       const offset = (page - 1) * limit;
 
-      const companyCurrency = await getCompanyCurrency();
       const where = eq(chargingSessions.driverId, id);
 
       // Run the existence check in parallel with the data + count queries.
@@ -1008,7 +1007,7 @@ export function driverRoutes(app: FastifyInstance): void {
             energyDeliveredWh: chargingSessions.energyDeliveredWh,
             currentCostCents: chargingSessions.currentCostCents,
             finalCostCents: chargingSessions.finalCostCents,
-            currency: sessionCurrencySql(companyCurrency),
+            currency: sessionCurrencySql(),
           })
           .from(chargingSessions)
           .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))

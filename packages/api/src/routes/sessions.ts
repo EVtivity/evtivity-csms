@@ -4,7 +4,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, and, or, ilike, desc, sql, isNotNull, inArray } from 'drizzle-orm';
-import { db, getCompanyCurrency } from '@evtivity/database';
+import { db } from '@evtivity/database';
 import {
   chargingSessions,
   chargingStations,
@@ -356,7 +356,6 @@ export function sessionRoutes(app: FastifyInstance): void {
         }
       }
 
-      const companyCurrency = await getCompanyCurrency();
       const where = conditions.length > 0 ? and(...conditions) : undefined;
 
       // Single query with count(*) OVER() window function to get total alongside data,
@@ -381,7 +380,7 @@ export function sessionRoutes(app: FastifyInstance): void {
           electricityCostCents: chargingSessions.electricityCostCents,
           currentCostCents: chargingSessions.currentCostCents,
           finalCostCents: chargingSessions.finalCostCents,
-          currency: sessionCurrencySql(companyCurrency),
+          currency: sessionCurrencySql(),
           freeVend: chargingSessions.freeVend,
           guestSessionToken: guestSessions.sessionToken,
           createdAt: chargingSessions.createdAt,
@@ -427,7 +426,6 @@ export function sessionRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const companyCurrency = await getCompanyCurrency();
       const { id } = request.params as z.infer<typeof sessionParams>;
 
       const [row] = await db
@@ -451,7 +449,7 @@ export function sessionRoutes(app: FastifyInstance): void {
           electricityCostCents: chargingSessions.electricityCostCents,
           currentCostCents: chargingSessions.currentCostCents,
           finalCostCents: chargingSessions.finalCostCents,
-          currency: sessionCurrencySql(companyCurrency),
+          currency: sessionCurrencySql(),
           stoppedReason: chargingSessions.stoppedReason,
           reservationId: chargingSessions.reservationId,
           freeVend: chargingSessions.freeVend,

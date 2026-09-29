@@ -16,7 +16,6 @@ import {
   ocpiPartnerEndpoints,
   ocpiPartners,
   ocpiSyncLog,
-  getCompanyCurrency,
 } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import { getOutboundToken } from '../lib/outbound-token.js';
@@ -36,11 +35,6 @@ function getCountryCode(): string {
 
 function getPartyId(): string {
   return config.OCPI_PARTY_ID;
-}
-
-// Sessions written before single-currency can have a null currency.
-async function sessionCurrencyOrCompany(stored: string | null): Promise<string> {
-  return stored != null ? stored.toUpperCase() : getCompanyCurrency();
 }
 
 /**
@@ -122,7 +116,7 @@ export async function generateCdr(
     }
   }
 
-  const currency = await sessionCurrencyOrCompany(session.currency);
+  const currency = session.currency.toUpperCase();
 
   // Load tariff mapping if available
   let ocpiTariff: OcpiTariff | undefined;

@@ -107,7 +107,6 @@ function makeMapping(overrides: Record<string, unknown> = {}) {
     tariffId: 'trf_000000000001',
     partnerId: 'opr_000000000001',
     ocpiTariffId: 'TARIFF-001',
-    currency: 'USD',
     createdAt: now,
     updatedAt: now,
     tariffName: 'Standard Rate',

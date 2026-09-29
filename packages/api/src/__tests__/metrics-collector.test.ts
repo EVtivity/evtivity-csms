@@ -54,8 +54,8 @@ describe('collectBusinessMetrics revenue', () => {
     await collectBusinessMetrics();
 
     expect(revenueQuery).not.toContain('GROUP BY');
-    expect(revenueQuery).toContain('COALESCE(UPPER(currency), ?) = ?');
-    expect(revenueValues).toEqual(['EUR', 'EUR']);
+    expect(revenueQuery).toContain('UPPER(currency) = ?');
+    expect(revenueValues).toEqual(['EUR']);
     const { values } = await revenueCentsTotal.get();
     expect(values.map((v) => [v.labels.currency, v.value])).toEqual([['EUR', 125000]]);
   });

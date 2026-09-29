@@ -624,6 +624,13 @@
       "when": 1781230951113,
       "tag": "0088_single_currency",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1781230951114,
+      "tag": "0089_single_currency_contract",
+      "breakpoints": true
     }
   ]
 }

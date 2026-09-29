@@ -91,7 +91,7 @@ async function snapshotSite(
   const periodMinutesStr = String(periodMinutes);
 
   // Money sums count only amounts in the company currency.
-  const sessionBilled = sql`COALESCE(UPPER(cs2.currency), ${companyCurrency}) = ${companyCurrency}`;
+  const sessionBilled = sql`UPPER(cs2.currency) = ${companyCurrency}`;
   const paymentBilled = sql`UPPER(pr.currency) = ${companyCurrency}`;
 
   // The four read blocks (station counts, uptime, sessions+energy, revenue)
@@ -250,7 +250,7 @@ async function snapshotSite(
       total_revenue_cents, day_revenue_cents, avg_revenue_cents_per_session,
       total_electricity_cost_cents, day_electricity_cost_cents,
       total_transactions, day_transactions, total_ports, stations_below_threshold,
-      avg_ping_latency_ms, ping_success_rate,
+      avg_ping_latency_ms, ping_success_rate, currency,
       created_at
     ) VALUES (
       ${siteId}, ${snapshotDate}::date, ${totalStations}, ${onlineStations}, ${onlinePercent},
@@ -259,7 +259,7 @@ async function snapshotSite(
       ${totalRevCents}, ${Number(revData.day_revenue_cents)}, ${avgRevPerSession},
       ${Number(sessData.total_electricity_cost_cents)}, ${Number(sessData.day_electricity_cost_cents)},
       ${Number(revData.total_transactions)}, ${Number(revData.day_transactions)}, ${totalPorts}, ${stationsBelowThreshold},
-      ${avgPingLatencyMs}, ${pingSuccessRate},
+      ${avgPingLatencyMs}, ${pingSuccessRate}, ${companyCurrency},
       now()
     )
     ON CONFLICT (site_id, snapshot_date) DO UPDATE SET
@@ -284,6 +284,7 @@ async function snapshotSite(
       stations_below_threshold = EXCLUDED.stations_below_threshold,
       avg_ping_latency_ms = EXCLUDED.avg_ping_latency_ms,
       ping_success_rate = EXCLUDED.ping_success_rate,
+      currency = EXCLUDED.currency,
       created_at = now()
   `);
 

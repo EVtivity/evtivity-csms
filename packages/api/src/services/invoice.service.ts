@@ -58,7 +58,7 @@ export async function createSessionInvoice(sessionId: string): Promise<InvoiceWi
       startedAt: chargingSessions.startedAt,
       endedAt: chargingSessions.endedAt,
       finalCostCents: chargingSessions.finalCostCents,
-      currency: sessionCurrencySql(await getCompanyCurrency()),
+      currency: sessionCurrencySql(),
       status: chargingSessions.status,
       idleMinutes: chargingSessions.idleMinutes,
       tariffPricePerKwh: chargingSessions.tariffPricePerKwh,

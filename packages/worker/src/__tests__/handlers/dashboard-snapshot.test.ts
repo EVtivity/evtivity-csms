@@ -252,6 +252,7 @@ describe('dashboardSnapshotHandler', () => {
       1, // stationsBelowThreshold
       12.35, // avgPingLatencyMs rounded to 2dp
       99.1, // pingSuccessRate
+      'EUR', // currency
     ]);
 
     expect(log.info).toHaveBeenCalledWith(

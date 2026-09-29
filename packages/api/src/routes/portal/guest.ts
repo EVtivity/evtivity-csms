@@ -801,7 +801,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
             energyDeliveredWh: chargingSessions.energyDeliveredWh,
             currentCostCents: chargingSessions.currentCostCents,
             finalCostCents: chargingSessions.finalCostCents,
-            currency: sessionCurrencySql(await getCompanyCurrency()),
+            currency: sessionCurrencySql(),
             startedAt: chargingSessions.startedAt,
             endedAt: chargingSessions.endedAt,
             idleStartedAt: chargingSessions.idleStartedAt,

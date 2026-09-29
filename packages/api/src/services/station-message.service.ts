@@ -721,7 +721,7 @@ async function loadTransactionSessionById(
       startedAt: chargingSessions.startedAt,
       energyDeliveredWh: chargingSessions.energyDeliveredWh,
       currentCostCents: chargingSessions.currentCostCents,
-      currency: sessionCurrencySql(await getCompanyCurrency()),
+      currency: sessionCurrencySql(),
       tariffIdleFeePricePerMinute: chargingSessions.tariffIdleFeePricePerMinute,
     })
     .from(chargingSessions)

@@ -2126,10 +2126,7 @@ describe('Event projections - coverage expansion', () => {
         ], // 19: tariffRows (paid tariff)
         [], // 20: holidayRows
         [], // 21: timezone lookup
-        [
-          { key: 'stripe.currency', value: 'USD' },
-          { key: 'stripe.preAuthAmountCents', value: 5000 },
-        ], // 22: platform settings
+        [{ key: 'stripe.preAuthAmountCents', value: 5000 }], // 22: platform settings
         [], // 23: site payment config
         [{ currency: 'USD' }], // 24: session currency for the pre-auth
         [], // 25: existing payment_records guard

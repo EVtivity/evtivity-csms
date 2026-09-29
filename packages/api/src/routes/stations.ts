@@ -2941,7 +2941,6 @@ export function stationRoutes(app: FastifyInstance): void {
           conditions.push(eq(chargingSessions.status, status));
         }
       }
-      const companyCurrency = await getCompanyCurrency();
       const where = and(...conditions);
 
       const [rows, countRows] = await Promise.all([
@@ -2962,7 +2961,7 @@ export function stationRoutes(app: FastifyInstance): void {
             energyDeliveredWh: chargingSessions.energyDeliveredWh,
             currentCostCents: chargingSessions.currentCostCents,
             finalCostCents: chargingSessions.finalCostCents,
-            currency: sessionCurrencySql(companyCurrency),
+            currency: sessionCurrencySql(),
             freeVend: chargingSessions.freeVend,
             guestSessionToken: guestSessions.sessionToken,
           })

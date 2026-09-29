@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { eq, and, or, ilike, sql, gte, count, desc } from 'drizzle-orm';
-import { db, getCompanyCurrency } from '@evtivity/database';
+import { db } from '@evtivity/database';
 import {
   fleets,
   fleetDrivers,
@@ -261,7 +261,6 @@ export async function searchAvailableVehicles(fleetId: string, search: string, l
 
 export async function getFleetSessions(fleetId: string, page: number, limit: number) {
   const offset = (page - 1) * limit;
-  const companyCurrency = await getCompanyCurrency();
   const driverFilter = sql`${chargingSessions.driverId} IN (select driver_id from fleet_drivers where fleet_id = ${fleetId})`;
 
   const [rows, countRows] = await Promise.all([
@@ -279,7 +278,7 @@ export async function getFleetSessions(fleetId: string, page: number, limit: num
         energyDeliveredWh: chargingSessions.energyDeliveredWh,
         currentCostCents: chargingSessions.currentCostCents,
         finalCostCents: chargingSessions.finalCostCents,
-        currency: sessionCurrencySql(companyCurrency),
+        currency: sessionCurrencySql(),
       })
       .from(chargingSessions)
       .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))

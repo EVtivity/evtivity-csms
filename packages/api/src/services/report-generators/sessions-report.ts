@@ -10,8 +10,8 @@ import {
   drivers,
   paymentRecords,
   getSystemTimezone,
-  getCompanyCurrency,
 } from '@evtivity/database';
+import { sessionCurrencySql } from '../../lib/company-currency.js';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
@@ -97,11 +97,7 @@ interface SessionLogResult {
   truncated: boolean;
 }
 
-async function querySessionLog(
-  filters: Filters,
-  tz: string,
-  companyCurrency: string,
-): Promise<SessionLogResult> {
+async function querySessionLog(filters: Filters, tz: string): Promise<SessionLogResult> {
   const conditions = buildConditions(filters, tz);
 
   if (filters.siteId != null) {
@@ -127,7 +123,7 @@ async function querySessionLog(
       durationMinutes: sql<number>`coalesce(extract(epoch from (${chargingSessions.endedAt} - ${chargingSessions.startedAt})) / 60, 0)`,
       energyKwh: sql<number>`coalesce(${chargingSessions.energyDeliveredWh}::numeric / 1000, 0)`,
       costCents: sql<number>`coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}, 0)`,
-      currency: sql<string>`coalesce(upper(${chargingSessions.currency}), ${companyCurrency})`,
+      currency: sessionCurrencySql(),
       stoppedReason: sql<string>`coalesce(${chargingSessions.stoppedReason}, '')`,
       paymentSource: sql<string>`coalesce((
         SELECT pr.payment_source
@@ -210,10 +206,10 @@ export async function generateSessionsReport(
   format: string,
 ): Promise<ReportGeneratorResult> {
   const filters = parseFilters(rawFilters);
-  const [tz, companyCurrency] = await Promise.all([getSystemTimezone(), getCompanyCurrency()]);
+  const tz = await getSystemTimezone();
 
   const [logResult, failedSummary] = await Promise.all([
-    querySessionLog(filters, tz, companyCurrency),
+    querySessionLog(filters, tz),
     queryFailedSessions(filters, tz),
   ]);
   const sessions = logResult.rows;
