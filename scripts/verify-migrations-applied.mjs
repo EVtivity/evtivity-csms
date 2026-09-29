@@ -56,12 +56,20 @@ const sqlFiles = readdirSync(MIGRATIONS_DIR)
   .filter((f) => f.endsWith('.sql'))
   .sort();
 
+// Record self-healed files with their journal `when`, like run-migrations.mjs
+// does. Date.now() would push the latest created_at past every later journal
+// entry and make drizzle-kit's `when` comparison skip them.
+const journal = JSON.parse(readFileSync(join(MIGRATIONS_DIR, 'meta/_journal.json'), 'utf8'));
+const whenByTag = new Map((journal.entries ?? []).map((e) => [e.tag, e.when]));
+
 const expected = sqlFiles.map((f) => {
   const body = readFileSync(join(MIGRATIONS_DIR, f), 'utf8');
+  const tag = f.replace(/\.sql$/, '');
   return {
-    tag: f.replace(/\.sql$/, ''),
+    tag,
     body,
     hash: createHash('sha256').update(body).digest('hex'),
+    when: whenByTag.get(tag) ?? Date.now(),
   };
 });
 
@@ -99,7 +107,7 @@ try {
         await tx.unsafe(body);
         await tx`
           INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-          VALUES (${m.hash}, ${Date.now()})
+          VALUES (${m.hash}, ${m.when})
           ON CONFLICT DO NOTHING
         `;
       });
