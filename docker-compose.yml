@@ -154,12 +154,11 @@ services:
         VITE_CSMS_AUTO_LOGIN: ${VITE_CSMS_AUTO_LOGIN:-}
     restart: unless-stopped
     ports:
-      - '${BIND_IP:-0.0.0.0}:${CSMS_PORT:-7100}:${CSMS_PORT:-7100}'
+      - '${BIND_IP:-0.0.0.0}:${CSMS_PORT:-7100}:8080'
     mem_limit: 1g
     cpus: 0.5
     healthcheck:
-      test:
-        ['CMD', 'wget', '--quiet', '--tries=1', '--spider', 'http://127.0.0.1:${CSMS_PORT:-7100}/']
+      test: ['CMD', 'wget', '--quiet', '--tries=1', '--spider', 'http://127.0.0.1:8080/']
       interval: 10s
       timeout: 5s
       retries: 3
@@ -178,19 +177,11 @@ services:
         VITE_PORTAL_AUTO_LOGIN: ${VITE_PORTAL_AUTO_LOGIN:-}
     restart: unless-stopped
     ports:
-      - '${BIND_IP:-0.0.0.0}:${PORTAL_PORT:-7101}:${PORTAL_PORT:-7101}'
+      - '${BIND_IP:-0.0.0.0}:${PORTAL_PORT:-7101}:8080'
     mem_limit: 1g
     cpus: 0.5
     healthcheck:
-      test:
-        [
-          'CMD',
-          'wget',
-          '--quiet',
-          '--tries=1',
-          '--spider',
-          'http://127.0.0.1:${PORTAL_PORT:-7101}/',
-        ]
+      test: ['CMD', 'wget', '--quiet', '--tries=1', '--spider', 'http://127.0.0.1:8080/']
       interval: 10s
       timeout: 5s
       retries: 3

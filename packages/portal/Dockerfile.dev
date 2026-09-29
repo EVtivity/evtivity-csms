@@ -17,6 +17,7 @@ COPY packages/ocpi-simulator/package.json packages/ocpi-simulator/
 RUN npm ci --ignore-scripts --workspace=packages/portal
 
 COPY packages/portal/ packages/portal/
+COPY packages/lib/ packages/lib/
 COPY tsconfig.base.json ./
 
 ARG VITE_PORTAL_AUTO_LOGIN=""
@@ -25,8 +26,8 @@ RUN VITE_PORTAL_AUTO_LOGIN=$VITE_PORTAL_AUTO_LOGIN npm run build --workspace=pac
 FROM nginx:alpine
 
 COPY --from=build /app/packages/portal/dist /usr/share/nginx/html
-COPY packages/portal/nginx.conf /etc/nginx/conf.d/default.conf
+COPY packages/portal/nginx.dev.conf /etc/nginx/conf.d/default.conf
 COPY packages/portal/docker-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh
 RUN chmod +x /docker-entrypoint.d/40-runtime-config.sh
 
-EXPOSE 7101
+EXPOSE 8080

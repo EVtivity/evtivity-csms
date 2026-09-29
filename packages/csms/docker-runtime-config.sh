@@ -6,8 +6,8 @@
 # The file goes under /tmp so it works with a read-only root filesystem.
 # This is only used in the CDK / ECS Fargate path. Helm replaces nginx.conf
 # with a ConfigMap that returns runtime-config.js inline (URLs baked at chart
-# render time), so the script is dead code there. Docker Compose builds from
-# packages/csms/Dockerfile.dev and never copies this script in.
+# render time), so the script is dead code there. Docker Compose leaves the
+# URLs empty and uses the /v1 proxy in nginx.dev.conf.
 set -eu
 
 mkdir -p /tmp/evtivity
