@@ -9,6 +9,7 @@ import {
   chargingSessions,
   isRoamingEnabled,
   isSiteFreeVendEnabledByStation,
+  getCompanyCurrency,
 } from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { AuthorizeRequest } from '../../generated/v2_1/types/messages/AuthorizeRequest.js';
@@ -303,7 +304,6 @@ async function resolveDriverTariff(
 ): Promise<Record<string, unknown> | undefined> {
   const rows = await db.execute<{
     id: string;
-    currency: string;
     price_per_kwh: string | null;
     price_per_minute: string | null;
     price_per_session: string | null;
@@ -335,7 +335,7 @@ async function resolveDriverTariff(
       SELECT pg.id AS group_id, 4 AS group_priority FROM pricing_groups pg
       WHERE pg.is_default = true
     )
-    SELECT t.id, t.currency, t.price_per_kwh, t.price_per_minute, t.price_per_session,
+    SELECT t.id, t.price_per_kwh, t.price_per_minute, t.price_per_session,
            t.idle_fee_price_per_minute, t.tax_rate, t.pricing_group_id
     FROM tariffs t
     JOIN resolved_group rg ON rg.group_id = t.pricing_group_id
@@ -359,7 +359,7 @@ async function resolveDriverTariff(
 
   const tariff: Record<string, unknown> = {
     tariffId: rawRow['id'],
-    currency: rawRow['currency'],
+    currency: await getCompanyCurrency(),
   };
 
   const taxRates = taxRate != null && taxRate > 0 ? [{ type: 'VAT', tax: taxRate }] : undefined;

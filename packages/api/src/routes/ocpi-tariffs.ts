@@ -28,7 +28,6 @@ const tariffMappingItem = z
       .nullable()
       .describe('OCPI partner ID this mapping applies to, or null for default'),
     ocpiTariffId: z.string().max(36).describe('OCPI tariff identifier exposed to partners'),
-    currency: z.string().length(3).describe('ISO 4217 currency code'),
     createdAt: z.coerce.date().describe('Timestamp when created'),
     updatedAt: z.coerce.date().describe('Timestamp when last modified'),
     tariffName: z
@@ -61,13 +60,11 @@ const createTariffMappingBody = z.object({
     .optional()
     .describe('OCPI partner ID. Null for default mapping'),
   ocpiTariffId: z.string().min(1).max(36).describe('OCPI tariff identifier'),
-  currency: z.string().length(3).describe('ISO 4217 currency code'),
   ocpiTariffData: z.record(z.unknown()).describe('Full OCPI tariff object'),
 });
 
 const updateTariffMappingBody = z.object({
   ocpiTariffId: z.string().min(1).max(36).optional().describe('OCPI tariff identifier'),
-  currency: z.string().length(3).optional().describe('ISO 4217 currency code'),
   ocpiTariffData: z.record(z.unknown()).optional().describe('Full OCPI tariff object'),
 });
 
@@ -104,7 +101,6 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
             tariffId: ocpiTariffMappings.tariffId,
             partnerId: ocpiTariffMappings.partnerId,
             ocpiTariffId: ocpiTariffMappings.ocpiTariffId,
-            currency: ocpiTariffMappings.currency,
             createdAt: ocpiTariffMappings.createdAt,
             updatedAt: ocpiTariffMappings.updatedAt,
             tariffName: tariffs.name,
@@ -155,7 +151,6 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
           tariffId: ocpiTariffMappings.tariffId,
           partnerId: ocpiTariffMappings.partnerId,
           ocpiTariffId: ocpiTariffMappings.ocpiTariffId,
-          currency: ocpiTariffMappings.currency,
           createdAt: ocpiTariffMappings.createdAt,
           updatedAt: ocpiTariffMappings.updatedAt,
           tariffName: tariffs.name,
@@ -211,13 +206,11 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
       const insertValues: {
         tariffId: string;
         ocpiTariffId: string;
-        currency: string;
         ocpiTariffData: Record<string, unknown>;
         partnerId?: string;
       } = {
         tariffId: body.tariffId,
         ocpiTariffId: body.ocpiTariffId,
-        currency: body.currency,
         ocpiTariffData: body.ocpiTariffData,
       };
       if (body.partnerId != null) {
@@ -267,7 +260,6 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
 
       const updateData: Record<string, unknown> = { updatedAt: new Date() };
       if (body.ocpiTariffId != null) updateData['ocpiTariffId'] = body.ocpiTariffId;
-      if (body.currency != null) updateData['currency'] = body.currency;
       if (body.ocpiTariffData != null) updateData['ocpiTariffData'] = body.ocpiTariffData;
 
       const [updated] = await db

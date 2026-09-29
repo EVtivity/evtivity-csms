@@ -256,7 +256,7 @@ async function generate(): Promise<void> {
     '// Regenerate with: npm run codegen:ai-tools',
     `// Generated: ${new Date().toISOString()} (${String(tools.length)} tools across ${String(categories.length)} categories)`,
     '',
-    '/* eslint-disable @typescript-eslint/no-base-to-string, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-unnecessary-type-conversion */',
+    '/* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */',
     '',
     "import type { ToolDefinition } from './types.js';",
     '',

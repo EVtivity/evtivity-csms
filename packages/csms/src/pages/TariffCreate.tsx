@@ -20,7 +20,6 @@ interface Tariff {
   id: string;
   pricingGroupId: string;
   name: string;
-  currency: string;
   pricePerKwh: string | null;
   pricePerMinute: string | null;
   pricePerSession: string | null;
@@ -40,7 +39,6 @@ export function TariffCreate(): React.JSX.Element {
   const { t } = useTranslation();
 
   const [name, setName] = useState('');
-  const [currency, setCurrency] = useState('USD');
   const [pricePerKwh, setPricePerKwh] = useState('');
   const [pricePerMinute, setPricePerMinute] = useState('');
   const [pricePerSession, setPricePerSession] = useState('');
@@ -71,7 +69,6 @@ export function TariffCreate(): React.JSX.Element {
   const createMutation = useMutation({
     mutationFn: (body: {
       name: string;
-      currency: string;
       pricePerKwh?: string;
       pricePerMinute?: string;
       pricePerSession?: string;
@@ -126,7 +123,6 @@ export function TariffCreate(): React.JSX.Element {
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
     if (!name.trim()) errors.name = t('validation.required');
-    if (!currency.trim()) errors.currency = t('validation.required');
     return errors;
   }
 
@@ -138,7 +134,6 @@ export function TariffCreate(): React.JSX.Element {
     if (Object.keys(errors).length > 0) return;
     const body: {
       name: string;
-      currency: string;
       pricePerKwh?: string;
       pricePerMinute?: string;
       pricePerSession?: string;
@@ -147,7 +142,7 @@ export function TariffCreate(): React.JSX.Element {
       taxRate?: string;
       restrictions?: Record<string, unknown> | null;
       isDefault?: boolean;
-    } = { name, currency };
+    } = { name };
     if (pricePerKwh.trim() !== '') body.pricePerKwh = pricePerKwh;
     if (pricePerMinute.trim() !== '') body.pricePerMinute = pricePerMinute;
     if (pricePerSession.trim() !== '') body.pricePerSession = pricePerSession;
@@ -192,20 +187,6 @@ export function TariffCreate(): React.JSX.Element {
               />
               {hasSubmitted && errors.name && (
                 <p className="text-sm text-destructive">{errors.name}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="tariff-currency">{t('pricing.currency')}</Label>
-              <Input
-                id="tariff-currency"
-                value={currency}
-                onChange={(e) => {
-                  setCurrency(e.target.value);
-                }}
-                className={hasSubmitted && errors.currency ? 'border-destructive' : ''}
-              />
-              {hasSubmitted && errors.currency && (
-                <p className="text-sm text-destructive">{errors.currency}</p>
               )}
             </div>
             <div className="space-y-2">

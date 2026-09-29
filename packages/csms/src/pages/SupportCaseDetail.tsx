@@ -30,6 +30,7 @@ import { CaseInfoSidebar } from '@/components/support/CaseInfoSidebar';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { formatCents } from '@/lib/formatting';
 import { LoadingLogo } from '@/components/loading-logo';
 
 interface Attachment {
@@ -176,7 +177,7 @@ export function SupportCaseDetail(): React.JSX.Element {
     driverName: string | null;
     status: string | null;
     finalCostCents: number | null;
-    currency: string | null;
+    currency: string;
   }
 
   const { data: sessionSearchResults } = useQuery({
@@ -240,10 +241,13 @@ export function SupportCaseDetail(): React.JSX.Element {
       return false;
     }
     const payment = paymentBySessionId.get(refundSession.id);
-    const remaining = (payment?.capturedAmountCents ?? 0) - (payment?.refundedAmountCents ?? 0);
+    if (payment == null) return false;
+    const remaining = (payment.capturedAmountCents ?? 0) - payment.refundedAmountCents;
     if (cents > remaining) {
       setRefundError(
-        t('supportCases.refundExceedsRemaining', { amount: (remaining / 100).toFixed(2) }),
+        t('supportCases.refundExceedsRemaining', {
+          amount: formatCents(remaining, payment.currency),
+        }),
       );
       return false;
     }
@@ -355,7 +359,7 @@ export function SupportCaseDetail(): React.JSX.Element {
                                     s.stationName,
                                     s.driverName,
                                     s.status,
-                                    s.finalCostCents != null && s.currency != null
+                                    s.finalCostCents != null
                                       ? `${(s.finalCostCents / 100).toFixed(2)} ${s.currency.toUpperCase()}`
                                       : null,
                                   ]
@@ -390,7 +394,7 @@ export function SupportCaseDetail(): React.JSX.Element {
                           const captured = payment?.capturedAmountCents ?? 0;
                           const refunded = payment?.refundedAmountCents ?? 0;
                           const remaining = captured - refunded;
-                          const currency = payment != null ? payment.currency.toUpperCase() : 'USD';
+                          const currency = payment?.currency.toUpperCase();
                           const fmt = (cents: number) => (cents / 100).toFixed(2);
                           return (
                             <TableRow key={session.id}>
@@ -428,12 +432,12 @@ export function SupportCaseDetail(): React.JSX.Element {
                                 )}
                               </TableCell>
                               <TableCell className="text-sm">
-                                {payment != null && captured > 0
+                                {payment != null && currency != null && captured > 0
                                   ? `${fmt(captured)} ${currency}`
                                   : 'n/a'}
                               </TableCell>
                               <TableCell className="text-sm">
-                                {payment != null && refunded > 0 ? (
+                                {payment != null && currency != null && refunded > 0 ? (
                                   <span className="text-destructive">
                                     -{fmt(refunded)} {currency}
                                     {payment.status === 'refunded' && (
@@ -448,7 +452,7 @@ export function SupportCaseDetail(): React.JSX.Element {
                               </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex items-center justify-end gap-2">
-                                  {canRefundSession(session.id) && (
+                                  {canRefundSession(session.id) && currency != null && (
                                     <RefundButton
                                       label={`${t('supportCases.refundSession')} ${fmt(remaining)} ${currency}`}
                                       size="sm"

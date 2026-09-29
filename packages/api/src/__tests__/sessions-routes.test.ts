@@ -66,6 +66,7 @@ vi.mock('../middleware/rbac.js', () => ({
 }));
 
 vi.mock('@evtivity/database', () => ({
+  getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -568,7 +569,7 @@ describe('Session routes', () => {
         energyDeliveredWh: null,
         currentCostCents: null,
         finalCostCents: null,
-        currency: null,
+        currency: 'EUR',
         stoppedReason: null,
         reservationId: null,
         freeVend: false,
@@ -615,7 +616,7 @@ describe('Session routes', () => {
       expect(body.energyDeliveredWh).toBeNull();
       expect(body.currentCostCents).toBeNull();
       expect(body.finalCostCents).toBeNull();
-      expect(body.currency).toBeNull();
+      expect(body.currency).toBe('EUR');
       expect(body.paymentRecord).toBeNull();
     });
   });

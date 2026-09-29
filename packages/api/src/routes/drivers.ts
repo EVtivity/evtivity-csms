@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, ne, and, or, ilike, sql, desc, asc } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, getCompanyCurrency } from '@evtivity/database';
 import {
   drivers,
   driverTokens,
@@ -25,6 +25,7 @@ import { getAuditActor } from '../lib/audit-actor.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
 import { zodSchema } from '../lib/zod-schema.js';
+import { sessionCurrencySql } from '../lib/company-currency.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -194,7 +195,7 @@ const driverSessionItem = z
       .min(0)
       .nullable()
       .describe('Final billed cost in cents after session completes'),
-    currency: z.string().length(3).nullable().describe('ISO 4217 currency code (USD, EUR, etc.)'),
+    currency: z.string().length(3).describe('ISO 4217 currency the session is billed in'),
   })
   .passthrough();
 
@@ -982,6 +983,7 @@ export function driverRoutes(app: FastifyInstance): void {
       const { page, limit } = request.query as z.infer<typeof sessionsQuery>;
       const offset = (page - 1) * limit;
 
+      const companyCurrency = await getCompanyCurrency();
       const where = eq(chargingSessions.driverId, id);
 
       // Run the existence check in parallel with the data + count queries.
@@ -1006,7 +1008,7 @@ export function driverRoutes(app: FastifyInstance): void {
             energyDeliveredWh: chargingSessions.energyDeliveredWh,
             currentCostCents: chargingSessions.currentCostCents,
             finalCostCents: chargingSessions.finalCostCents,
-            currency: chargingSessions.currency,
+            currency: sessionCurrencySql(companyCurrency),
           })
           .from(chargingSessions)
           .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))

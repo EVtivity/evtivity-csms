@@ -16,6 +16,7 @@ import {
   ocpiPartnerEndpoints,
   ocpiPartners,
   ocpiSyncLog,
+  getCompanyCurrency,
 } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import { getOutboundToken } from '../lib/outbound-token.js';
@@ -23,6 +24,7 @@ import { OcpiClient } from '../lib/ocpi-client.js';
 import { config } from '../lib/config.js';
 import { transformCdr } from '../transformers/cdr.transformer.js';
 import { resolvePartnerVersion } from '../lib/ocpi-version.js';
+import { tariffInCurrency } from '../lib/tariff-currency.js';
 import { notifyRoamingCdrChanged } from '../lib/pubsub.js';
 import type { OcpiCdr, OcpiTariff } from '../types/ocpi.js';
 
@@ -34,6 +36,11 @@ function getCountryCode(): string {
 
 function getPartyId(): string {
   return config.OCPI_PARTY_ID;
+}
+
+// Sessions written before single-currency can have a null currency.
+async function sessionCurrencyOrCompany(stored: string | null): Promise<string> {
+  return stored != null ? stored.toUpperCase() : getCompanyCurrency();
 }
 
 /**
@@ -115,6 +122,8 @@ export async function generateCdr(
     }
   }
 
+  const currency = await sessionCurrencyOrCompany(session.currency);
+
   // Load tariff mapping if available
   let ocpiTariff: OcpiTariff | undefined;
   if (session.tariffId != null) {
@@ -124,7 +133,7 @@ export async function generateCdr(
       .where(eq(ocpiTariffMappings.tariffId, session.tariffId))
       .limit(1);
     if (mapping != null) {
-      ocpiTariff = mapping.ocpiTariffData as OcpiTariff;
+      ocpiTariff = tariffInCurrency(mapping.ocpiTariffData, currency);
     }
   }
 
@@ -161,7 +170,7 @@ export async function generateCdr(
       endedAt: session.endedAt,
       energyDeliveredWh: session.energyDeliveredWh,
       finalCostCents: session.finalCostCents,
-      currency: session.currency,
+      currency,
     },
     location: {
       siteId: siteId ?? station.id,

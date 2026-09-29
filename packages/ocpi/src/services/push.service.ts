@@ -16,6 +16,7 @@ import {
   ocpiTariffMappings,
   ocpiSyncLog,
   maintenanceEvents,
+  getCompanyCurrency,
 } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import type { PubSubClient, Subscription } from '@evtivity/lib';
@@ -24,7 +25,8 @@ import { getOutboundToken } from '../lib/outbound-token.js';
 import { config } from '../lib/config.js';
 import { transformLocation } from '../transformers/location.transformer.js';
 import { resolvePartnerVersion } from '../lib/ocpi-version.js';
-import type { OcpiSession, OcpiTariff } from '../types/ocpi.js';
+import { tariffInCurrency } from '../lib/tariff-currency.js';
+import type { OcpiSession } from '../types/ocpi.js';
 
 const logger = createLogger('ocpi-push');
 const CHANNEL = 'ocpi_push';
@@ -349,9 +351,10 @@ async function pushTariffUpdate(tariffId: string): Promise<void> {
 
   const countryCode = getCountryCode();
   const partyId = getPartyId();
+  const currency = await getCompanyCurrency();
 
   for (const mapping of mappings) {
-    const tariffData = mapping.ocpiTariffData as OcpiTariff;
+    const tariffData = tariffInCurrency(mapping.ocpiTariffData, currency);
     const targetPartnerId = mapping.partnerId;
 
     // If partnerId is null, push to all connected partners

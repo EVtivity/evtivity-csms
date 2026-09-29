@@ -79,6 +79,7 @@ vi.mock('@evtivity/database', () => ({
   stationAuditLog: { __table: 'station_audit_log' },
   isAutoDisableOnCriticalEnabled: mockIsAutoDisableOnCritical,
   isSiteFreeVendEnabledByStation: mockIsSiteFreeVend,
+  getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
 }));
 
 const mockDispatchOcpp = vi.fn().mockResolvedValue(undefined);
@@ -1981,7 +1982,7 @@ describe('Event projections - coverage round 2', () => {
             started_at: '2026-01-01T00:00:00Z',
             ended_at: '2026-01-01T01:00:00Z',
             energy_delivered_wh: 5000,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -2030,7 +2031,7 @@ describe('Event projections - coverage round 2', () => {
             started_at: '2026-01-01T00:00:00Z',
             ended_at: '2026-01-01T01:00:00Z',
             energy_delivered_wh: 5000,
-            currency: null,
+            currency: 'USD',
             idle_started_at: null,
             idle_minutes: 0,
             reservation_id: null,
@@ -2073,7 +2074,7 @@ describe('Event projections - coverage round 2', () => {
             started_at: '2026-01-01T00:00:00Z',
             ended_at: '2026-01-01T01:00:00Z',
             energy_delivered_wh: 5000,
-            currency: null,
+            currency: 'USD',
             idle_started_at: null,
             idle_minutes: 0,
             reservation_id: null,

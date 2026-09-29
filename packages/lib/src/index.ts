@@ -54,6 +54,13 @@ export { RedisPubSubClient } from './pubsub-redis.js';
 export { RedisConnectionRegistry } from './connection-registry.js';
 export type { ConnectionRegistry } from './connection-registry.js';
 
+export {
+  DEFAULT_CURRENCY,
+  SUPPORTED_CURRENCIES,
+  isSupportedCurrency,
+  formatCurrencyAmount,
+} from './currency.js';
+export type { SupportedCurrency } from './currency.js';
 export { calculateSessionCost, calculateSplitSessionCost } from './cost-calculator.js';
 export type { TariffInput, CostBreakdown, TariffSegment } from './cost-calculator.js';
 

@@ -662,7 +662,6 @@
     "SUPPORT_AI_NOT_CONFIGURED": "지원 AI가 구성되지 않았습니다",
     "SUPPORT_CASE_NOT_FOUND": "지원 사례를 찾을 수 없습니다",
     "SUPPORT_DISABLED": "지원이 사용 중지되었습니다",
-    "TARIFF_CURRENCY_MISMATCH": "요금 통화가 그룹의 다른 요금과 일치하지 않습니다",
     "TARIFF_IN_USE": "요금이 충전 세션에서 참조되고 있어 삭제할 수 없습니다",
     "TARIFF_NOT_FOUND": "요금을 찾을 수 없습니다",
     "TARIFF_OVERLAP": "요금이 기존 요금과 중복됩니다",

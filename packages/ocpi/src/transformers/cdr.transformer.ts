@@ -17,7 +17,7 @@ interface CdrInput {
   endedAt: Date;
   energyDeliveredWh: string | null;
   finalCostCents: number | null;
-  currency: string | null;
+  currency: string;
 }
 
 interface CdrLocationInput {
@@ -94,7 +94,7 @@ export function transformCdr(input: CdrTransformInput, version: OcpiVersion): Oc
 
   const totalEnergy = whToKwh(session.energyDeliveredWh);
   const totalCost = centsToCost(session.finalCostCents);
-  const currency = session.currency ?? 'USD';
+  const currency = session.currency;
 
   const durationMs = session.endedAt.getTime() - session.startedAt.getTime();
   const totalTimeHours = Math.round((durationMs / 3600000) * 10000) / 10000;

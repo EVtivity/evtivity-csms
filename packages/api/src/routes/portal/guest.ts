@@ -6,7 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, or, asc, sql } from 'drizzle-orm';
 import type Stripe from 'stripe';
-import { db } from '@evtivity/database';
+import { db, getCompanyCurrency } from '@evtivity/database';
 import {
   chargingStations,
   connectors,
@@ -20,6 +20,7 @@ import {
 } from '@evtivity/database';
 import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
 import { zodSchema } from '../../lib/zod-schema.js';
+import { sessionCurrencySql } from '../../lib/company-currency.js';
 import { getPubSub } from '../../lib/pubsub.js';
 import { successResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
@@ -41,7 +42,7 @@ import { getActiveMaintenanceForStation } from '../../services/maintenance.servi
 
 const guestPricingInfo = z
   .object({
-    currency: z.string().length(3).describe('ISO 4217 currency code'),
+    currency: z.string().length(3).describe('Company currency (ISO 4217) of every price'),
     pricePerKwh: z.string().nullable().describe('Energy price per kWh in major currency units'),
     pricePerMinute: z
       .string()
@@ -124,7 +125,11 @@ const guestStatusResponse = z
       .nullable()
       .optional()
       .describe('Final captured cost in cents (set when the session completes)'),
-    currency: z.string().length(3).nullable().optional().describe('ISO 4217 currency code'),
+    currency: z
+      .string()
+      .length(3)
+      .optional()
+      .describe('ISO 4217 currency the charging session is billed in, once one is linked'),
     failureReason: z
       .string()
       .max(500)
@@ -349,10 +354,11 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       // the Free Vend badge instead of the (irrelevant) paid breakdown.
       // When no tariff is assigned at a free-vend site, synthesize a zeroed
       // pricing object so the badge still surfaces.
+      const currency = await getCompanyCurrency();
       const pricing =
         station.freeVendEnabled === true
           ? {
-              currency: tariff?.currency ?? 'USD',
+              currency,
               pricePerKwh: null,
               pricePerMinute: null,
               pricePerSession: null,
@@ -362,7 +368,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
             }
           : tariff != null
             ? {
-                currency: tariff.currency,
+                currency,
                 pricePerKwh: tariff.pricePerKwh,
                 pricePerMinute: tariff.pricePerMinute,
                 pricePerSession: tariff.pricePerSession,
@@ -795,7 +801,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
             energyDeliveredWh: chargingSessions.energyDeliveredWh,
             currentCostCents: chargingSessions.currentCostCents,
             finalCostCents: chargingSessions.finalCostCents,
-            currency: chargingSessions.currency,
+            currency: sessionCurrencySql(await getCompanyCurrency()),
             startedAt: chargingSessions.startedAt,
             endedAt: chargingSessions.endedAt,
             idleStartedAt: chargingSessions.idleStartedAt,

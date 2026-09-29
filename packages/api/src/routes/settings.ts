@@ -13,8 +13,13 @@ import {
   writeAudit,
   settingAuditLog,
 } from '@evtivity/database';
-import { settings } from '@evtivity/database';
-import { encryptString, clearNotificationSettingsCache } from '@evtivity/lib';
+import { settings, getCompanyCurrency, clearSystemSettingsCache } from '@evtivity/database';
+import {
+  encryptString,
+  clearNotificationSettingsCache,
+  isSupportedCurrency,
+  SUPPORTED_CURRENCIES,
+} from '@evtivity/lib';
 import { getPubSub } from '../lib/pubsub.js';
 
 const NOTIFICATION_SETTINGS_KEY_PREFIXES = ['smtp.', 'twilio.', 'email.', 'company.'];
@@ -54,6 +59,23 @@ const updateSettingBody = z.object({
   value: z.unknown(),
 });
 
+const COMPANY_CURRENCY_KEY = 'company.currency';
+
+/**
+ * Validates and normalizes values for keys with a constrained format. Returns
+ * null when the value is invalid.
+ */
+function normalizeSettingValue(key: string, value: unknown): { value: unknown } | null {
+  if (key !== COMPANY_CURRENCY_KEY) return { value };
+  const code = typeof value === 'string' ? value.trim().toUpperCase() : value;
+  return isSupportedCurrency(code) ? { value: code } : null;
+}
+
+const invalidCurrencyError = {
+  error: `company.currency must be one of: ${SUPPORTED_CURRENCIES.join(', ')}`,
+  code: 'VALIDATION_ERROR',
+};
+
 const settingItem = z
   .object({
     key: z.string().max(100).describe('Setting key'),
@@ -92,6 +114,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         const shortKey = row.key.replace(/^(company|marketing)\./, '');
         result[shortKey] = typeof row.value === 'string' ? row.value : '';
       }
+      result['currency'] = await getCompanyCurrency();
       return result;
     },
   );
@@ -139,7 +162,7 @@ export function settingsRoutes(app: FastifyInstance): void {
                 currency: z
                   .string()
                   .describe(
-                    'Platform default currency (ISO 4217) used to format any monetary value in this response, including the reservation cancellation fee',
+                    'Company currency (ISO 4217) used to format any monetary value in this response, including the reservation cancellation fee',
                   ),
               })
               .passthrough(),
@@ -152,14 +175,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       const supportEnabled = await isSupportEnabled();
       const roamingEnabled = await isRoamingEnabled();
       const reservationConfig = await getReservationSettings();
-      const [currencyRow] = await db
-        .select({ value: settings.value })
-        .from(settings)
-        .where(eq(settings.key, 'stripe.currency'));
-      const currency =
-        typeof currencyRow?.value === 'string' && currencyRow.value !== ''
-          ? currencyRow.value
-          : 'USD';
+      const currency = await getCompanyCurrency();
       return {
         reservationEnabled,
         supportEnabled,
@@ -273,14 +289,22 @@ export function settingsRoutes(app: FastifyInstance): void {
         body: zodSchema(updateSettingBody),
         response: {
           200: itemResponse(settingItem),
+          400: errorWith('Invalid setting value', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
         },
       },
     },
     async (request, reply) => {
       const { key } = request.params as z.infer<typeof settingParams>;
-      const { value } = request.body as z.infer<typeof updateSettingBody>;
-      const storedValue = encryptForWrite(key, value);
+      const normalized = normalizeSettingValue(
+        key,
+        (request.body as z.infer<typeof updateSettingBody>).value,
+      );
+      if (normalized == null) {
+        await reply.status(400).send(invalidCurrencyError);
+        return;
+      }
+      const storedValue = encryptForWrite(key, normalized.value);
       const [before] = await db.select().from(settings).where(eq(settings.key, key));
       const [row] = await db
         .update(settings)
@@ -305,6 +329,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      if (row.key === COMPANY_CURRENCY_KEY) clearSystemSettingsCache();
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
@@ -321,13 +346,23 @@ export function settingsRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(settingParams),
         body: zodSchema(updateSettingBody),
-        response: { 200: itemResponse(settingItem) },
+        response: {
+          200: itemResponse(settingItem),
+          400: errorWith('Invalid setting value', [ERROR_CODES.VALIDATION_ERROR]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { key } = request.params as z.infer<typeof settingParams>;
-      const { value } = request.body as z.infer<typeof updateSettingBody>;
-      const storedValue = encryptForWrite(key, value);
+      const normalized = normalizeSettingValue(
+        key,
+        (request.body as z.infer<typeof updateSettingBody>).value,
+      );
+      if (normalized == null) {
+        await reply.status(400).send(invalidCurrencyError);
+        return;
+      }
+      const storedValue = encryptForWrite(key, normalized.value);
       const [before] = await db.select().from(settings).where(eq(settings.key, key));
       const rows = await db
         .insert(settings)
@@ -355,6 +390,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      if (row.key === COMPANY_CURRENCY_KEY) clearSystemSettingsCache();
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
@@ -397,6 +433,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      if (row.key === COMPANY_CURRENCY_KEY) clearSystemSettingsCache();
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },

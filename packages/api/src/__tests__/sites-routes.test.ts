@@ -39,7 +39,6 @@ function makeChain() {
     'delete',
     'insert',
     'update',
-    '$dynamic',
     'having',
     'selectDistinct',
     'as',
@@ -78,6 +77,7 @@ vi.mock('../middleware/rbac.js', () => ({
 }));
 
 vi.mock('@evtivity/database', () => ({
+  getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -110,7 +110,6 @@ vi.mock('@evtivity/database', () => ({
   siteLoadManagement: {},
   displayMessages: {},
   writeAudit: vi.fn().mockResolvedValue(undefined),
-  getCompanyCurrency: vi.fn().mockResolvedValue('EUR'),
   siteAuditLog: {},
   stationAuditLog: {},
   driverAuditLog: {},
@@ -571,10 +570,7 @@ describe('Site routes - handler logic', () => {
     it('returns daily revenue history zero-filled across the range', async () => {
       setupDbResults(
         [{ timezone: 'UTC' }],
-        [
-          { date: '2025-01-02', currency: 'USD', revenueCents: '5000', sessionCount: 10 },
-          { date: '2025-01-02', currency: 'EUR', revenueCents: '700', sessionCount: 1 },
-        ],
+        [{ date: '2025-01-02', revenueCents: 5000, sessionCount: 10 }],
       );
 
       const response = await app.inject({
@@ -584,29 +580,21 @@ describe('Site routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      const body: {
-        date: string;
-        sessionCount: number;
-        revenue: { currency: string; revenueCents: number; sessionCount: number }[];
-      }[] = response.json();
+      const body: { date: string; revenueCents: number; sessionCount: number }[] = response.json();
       // Every requested day is present; days without rows are zero-filled.
       const dates = body.map((r) => r.date);
       expect(dates).toContain('2025-01-01');
       expect(dates).toContain('2025-01-02');
       expect(dates).toContain('2025-01-03');
-      // Currencies stay separate; the company currency (EUR) is listed first.
       expect(body.find((r) => r.date === '2025-01-02')).toEqual({
         date: '2025-01-02',
-        sessionCount: 11,
-        revenue: [
-          { currency: 'EUR', revenueCents: 700, sessionCount: 1 },
-          { currency: 'USD', revenueCents: 5000, sessionCount: 10 },
-        ],
+        revenueCents: 5000,
+        sessionCount: 10,
       });
       expect(body.find((r) => r.date === '2025-01-01')).toEqual({
         date: '2025-01-01',
+        revenueCents: 0,
         sessionCount: 0,
-        revenue: [],
       });
     });
   });
@@ -686,17 +674,13 @@ describe('Site routes - handler logic', () => {
         avgDurationMinutes: 45,
       };
       const utilizationStats = { sessionHours: 15, portCount: 4 };
-      const financialRows = [
-        {
-          currency: 'USD',
-          totalRevenueCents: '25000',
-          avgRevenueCentsPerSession: '1250',
-          totalTransactions: '16',
-          totalElectricityCostCents: '4000',
-        },
-      ];
+      const financialStats = {
+        totalRevenueCents: 25000,
+        avgRevenueCentsPerSession: 1250,
+        totalTransactions: 16,
+      };
 
-      setupDbResults([sessionStats], [utilizationStats], financialRows);
+      setupDbResults([sessionStats], [utilizationStats], [financialStats]);
 
       const response = await app.inject({
         method: 'GET',
@@ -709,19 +693,9 @@ describe('Site routes - handler logic', () => {
       expect(body).toHaveProperty('uptimePercent');
       expect(body).toHaveProperty('totalSessions');
       expect(body).toHaveProperty('utilizationPercent');
-      expect(body).not.toHaveProperty('totalRevenueCents');
-      // Only USD had activity, so the company currency (EUR) is not added.
-      expect(body.financials).toEqual([
-        {
-          currency: 'USD',
-          totalRevenueCents: 25000,
-          avgRevenueCentsPerSession: 1250,
-          totalTransactions: 16,
-          totalElectricityCostCents: 4000,
-          totalProfitCents: 21000,
-        },
-      ]);
+      expect(body).toHaveProperty('totalRevenueCents');
       expect(body).toHaveProperty('periodMonths');
+      expect(body).toHaveProperty('currency', 'EUR');
     });
   });
 

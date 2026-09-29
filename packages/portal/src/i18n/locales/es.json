@@ -662,7 +662,6 @@
     "SUPPORT_AI_NOT_CONFIGURED": "La IA de soporte no esta configurada",
     "SUPPORT_CASE_NOT_FOUND": "Caso de soporte no encontrado",
     "SUPPORT_DISABLED": "El soporte esta deshabilitado",
-    "TARIFF_CURRENCY_MISMATCH": "La moneda de la tarifa no coincide con otras tarifas del grupo",
     "TARIFF_IN_USE": "La tarifa esta referenciada por sesiones de carga y no se puede eliminar",
     "TARIFF_NOT_FOUND": "Tarifa no encontrada",
     "TARIFF_OVERLAP": "La tarifa se superpone con una tarifa existente",

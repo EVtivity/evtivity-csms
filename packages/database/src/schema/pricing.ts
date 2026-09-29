@@ -46,7 +46,6 @@ export const tariffs = pgTable(
       .notNull()
       .references(() => pricingGroups.id, { onDelete: 'cascade' }),
     name: varchar('name', { length: 255 }).notNull(),
-    currency: varchar('currency', { length: 3 }).notNull().default('USD'),
     pricePerKwh: numeric('price_per_kwh'),
     pricePerMinute: numeric('price_per_minute'),
     pricePerSession: numeric('price_per_session'),

@@ -662,7 +662,6 @@
     "SUPPORT_AI_NOT_CONFIGURED": "支持 AI 未配置",
     "SUPPORT_CASE_NOT_FOUND": "未找到支持工单",
     "SUPPORT_DISABLED": "支持功能已禁用",
-    "TARIFF_CURRENCY_MISMATCH": "费率货币与组中其他费率不匹配",
     "TARIFF_IN_USE": "费率已被充电会话引用，无法删除",
     "TARIFF_NOT_FOUND": "未找到费率",
     "TARIFF_OVERLAP": "费率与现有费率重叠",

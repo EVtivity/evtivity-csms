@@ -20,7 +20,7 @@ interface Session {
   startedAt: string | null;
   energyDeliveredWh: string | null;
   finalCostCents: number | null;
-  currency: string | null;
+  currency: string;
   stationName: string | null;
   siteName: string | null;
 }
@@ -38,7 +38,7 @@ interface ActiveSession {
   startedAt: string | null;
   energyDeliveredWh: string | null;
   currentCostCents: number | null;
-  currency: string | null;
+  currency: string;
 }
 
 interface ActiveSessionsResponse {
@@ -185,7 +185,7 @@ export function Home(): React.JSX.Element {
                   <div className="text-right">
                     <p className="text-sm font-medium">{formatEnergy(session.energyDeliveredWh)}</p>
                     <p className="text-xs text-muted-foreground">
-                      {formatCents(session.finalCostCents, session.currency ?? 'USD')}
+                      {formatCents(session.finalCostCents, session.currency)}
                     </p>
                   </div>
                 </CardContent>

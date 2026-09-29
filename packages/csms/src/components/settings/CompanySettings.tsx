@@ -6,6 +6,12 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Upload, Trash2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import {
+  DEFAULT_CURRENCY,
+  SUPPORTED_CURRENCIES,
+  isSupportedCurrency,
+  type SupportedCurrency,
+} from '@evtivity/lib/currency';
 import { SaveButton } from '@/components/save-button';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,6 +20,41 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
+
+const CURRENCY_NAMES: Record<SupportedCurrency, string> = {
+  USD: 'US Dollar',
+  EUR: 'Euro',
+  GBP: 'British Pound',
+  CAD: 'Canadian Dollar',
+  AUD: 'Australian Dollar',
+  CHF: 'Swiss Franc',
+  CNY: 'Chinese Yuan',
+  INR: 'Indian Rupee',
+  BRL: 'Brazilian Real',
+  MXN: 'Mexican Peso',
+  SEK: 'Swedish Krona',
+  NOK: 'Norwegian Krone',
+  DKK: 'Danish Krone',
+  NZD: 'New Zealand Dollar',
+  SGD: 'Singapore Dollar',
+  HKD: 'Hong Kong Dollar',
+  ZAR: 'South African Rand',
+  ILS: 'Israeli Shekel',
+  AED: 'UAE Dirham',
+  SAR: 'Saudi Riyal',
+  TWD: 'Taiwan Dollar',
+  THB: 'Thai Baht',
+  PLN: 'Polish Zloty',
+  CZK: 'Czech Koruna',
+  HUF: 'Hungarian Forint',
+  TRY: 'Turkish Lira',
+  COP: 'Colombian Peso',
+  ARS: 'Argentine Peso',
+  PHP: 'Philippine Peso',
+  MYR: 'Malaysian Ringgit',
+  IDR: 'Indonesian Rupiah',
+};
 
 interface CompanySettingsProps {
   settings: Record<string, unknown> | undefined;
@@ -29,15 +70,26 @@ export function CompanySettings({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const invalidateSettings = (): Promise<void> =>
-    queryClient.invalidateQueries({ queryKey: ['settings'] });
+  // Company settings also feed the public branding query (name, logo, currency).
+  const invalidateSettings = async (): Promise<void> => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['settings'] }),
+      queryClient.invalidateQueries({ queryKey: ['branding'] }),
+    ]);
+  };
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const faviconInputRef = useRef<HTMLInputElement>(null);
   const ogImageInputRef = useRef<HTMLInputElement>(null);
 
+  const savedCurrency =
+    typeof settings?.['company.currency'] === 'string'
+      ? settings['company.currency'].trim().toUpperCase()
+      : '';
+  const savedCurrencyUnsupported = savedCurrency !== '' && !isSupportedCurrency(savedCurrency);
+
   const [companyName, setCompanyName] = useState('EVtivity');
-  const [companyCurrency, setCompanyCurrency] = useState('USD');
+  const [companyCurrency, setCompanyCurrency] = useState(DEFAULT_CURRENCY);
   const [companyContactEmail, setCompanyContactEmail] = useState('');
   const [companySupportEmail, setCompanySupportEmail] = useState('');
   const [companySupportPhone, setCompanySupportPhone] = useState('');
@@ -58,7 +110,7 @@ export function CompanySettings({
       return typeof v === 'string' || typeof v === 'number' ? String(v) : '';
     };
     setCompanyName(s('company.name') || 'EVtivity');
-    setCompanyCurrency(s('company.currency') || 'USD');
+    setCompanyCurrency(s('company.currency').trim().toUpperCase() || DEFAULT_CURRENCY);
     setCompanyContactEmail(s('company.contactEmail'));
     setCompanySupportEmail(s('company.supportEmail'));
     setCompanySupportPhone(s('company.supportPhone'));
@@ -560,41 +612,22 @@ export function CompanySettings({
                 }}
                 className="h-9"
               >
-                <option value="USD">USD - US Dollar</option>
-                <option value="EUR">EUR - Euro</option>
-                <option value="GBP">GBP - British Pound</option>
-                <option value="CAD">CAD - Canadian Dollar</option>
-                <option value="AUD">AUD - Australian Dollar</option>
-                <option value="CHF">CHF - Swiss Franc</option>
-                <option value="JPY">JPY - Japanese Yen</option>
-                <option value="CNY">CNY - Chinese Yuan</option>
-                <option value="KRW">KRW - South Korean Won</option>
-                <option value="INR">INR - Indian Rupee</option>
-                <option value="BRL">BRL - Brazilian Real</option>
-                <option value="MXN">MXN - Mexican Peso</option>
-                <option value="SEK">SEK - Swedish Krona</option>
-                <option value="NOK">NOK - Norwegian Krone</option>
-                <option value="DKK">DKK - Danish Krone</option>
-                <option value="NZD">NZD - New Zealand Dollar</option>
-                <option value="SGD">SGD - Singapore Dollar</option>
-                <option value="HKD">HKD - Hong Kong Dollar</option>
-                <option value="ZAR">ZAR - South African Rand</option>
-                <option value="ILS">ILS - Israeli Shekel</option>
-                <option value="AED">AED - UAE Dirham</option>
-                <option value="SAR">SAR - Saudi Riyal</option>
-                <option value="TWD">TWD - Taiwan Dollar</option>
-                <option value="THB">THB - Thai Baht</option>
-                <option value="PLN">PLN - Polish Zloty</option>
-                <option value="CZK">CZK - Czech Koruna</option>
-                <option value="HUF">HUF - Hungarian Forint</option>
-                <option value="TRY">TRY - Turkish Lira</option>
-                <option value="CLP">CLP - Chilean Peso</option>
-                <option value="COP">COP - Colombian Peso</option>
-                <option value="ARS">ARS - Argentine Peso</option>
-                <option value="PHP">PHP - Philippine Peso</option>
-                <option value="MYR">MYR - Malaysian Ringgit</option>
-                <option value="IDR">IDR - Indonesian Rupiah</option>
+                {!isSupportedCurrency(companyCurrency) && (
+                  <option value={companyCurrency} disabled>
+                    {companyCurrency}
+                  </option>
+                )}
+                {SUPPORTED_CURRENCIES.map((code) => (
+                  <option key={code} value={code}>
+                    {`${code} - ${CURRENCY_NAMES[code]}`}
+                  </option>
+                ))}
               </Select>
+              {savedCurrencyUnsupported && (
+                <p className="text-sm text-destructive">
+                  {t('settings.companyCurrencyUnsupported', { currency: savedCurrency })}
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -705,10 +738,12 @@ export function CompanySettings({
 
           <SaveButton isPending={companyMutation.isPending} />
           {companyMutation.isSuccess && (
-            <p className="text-sm text-green-600">{t('settings.companySaved')}</p>
+            <p className="text-sm text-success">{t('settings.companySaved')}</p>
           )}
           {companyMutation.isError && (
-            <p className="text-sm text-destructive">{t('settings.companySaveFailed')}</p>
+            <p className="text-sm text-destructive">
+              {getErrorMessage(companyMutation.error, t, 'settings.companySaveFailed')}
+            </p>
           )}
         </form>
       </CardContent>

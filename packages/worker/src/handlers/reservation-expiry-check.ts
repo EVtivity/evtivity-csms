@@ -162,13 +162,7 @@ export async function reservationExpiryCheckHandler(log: Logger): Promise<void> 
           const holdingMinutes = Math.max(0, Math.ceil(holdingMs / 60_000));
           const amountCents = Math.round(holdingMinutes * ratePerMinute * 100);
           if (amountCents > 0) {
-            await chargeReservationNoShowFee(
-              row.driver_id,
-              row.site_id,
-              amountCents,
-              row.id,
-              tariff.currency,
-            );
+            await chargeReservationNoShowFee(row.driver_id, row.site_id, amountCents, row.id);
             log.info(
               { reservationId: row.id, driverId: row.driver_id, amountCents, holdingMinutes },
               'Charged no-show reservation fee',

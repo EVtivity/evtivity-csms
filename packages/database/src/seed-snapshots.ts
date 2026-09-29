@@ -3,12 +3,11 @@
 
 import { sql } from 'drizzle-orm';
 import { db, client, sites } from './index.js';
-import { getCompanyCurrency } from './lib/system-settings.js';
 
 /**
- * Populate 14 days of dashboard_snapshots rows, and their money rows in the
- * company currency, per site so the Historical and Trend modes have something
- * to render in dev. Idempotent via the ON CONFLICT upserts. Exported for reuse by the
+ * Populate 14 days of dashboard_snapshots rows per site so the Historical
+ * and Trend modes have something to render in dev. Idempotent via the
+ * ON CONFLICT upsert on (site_id, snapshot_date). Exported for reuse by the
  * main seed; module also runs standalone via `node seed-snapshots.js` at
  * the bottom of this file.
  */
@@ -16,7 +15,6 @@ export async function seedDashboardSnapshots(): Promise<void> {
   const allSites = await db.select({ id: sites.id, name: sites.name }).from(sites);
   console.log(`Found ${String(allSites.length)} sites`);
 
-  const currency = await getCompanyCurrency();
   const today = new Date();
   const days = 14;
 
@@ -45,8 +43,8 @@ export async function seedDashboardSnapshots(): Promise<void> {
       const totalTransactions = 4500 + dayTransactions * i;
       const totalPorts = totalStations * 2;
       const stationsBelowThreshold = Math.max(0, Math.floor(Math.sin(seed * i * 0.5) * 3));
-      const dayElectricityCostCents = Math.round(dayRevenueCents * 0.35);
-      const totalElectricityCostCents = Math.round(totalRevenueCents * 0.35);
+      const avgRevPerSession =
+        totalSessions > 0 ? Math.round(totalRevenueCents / totalSessions) : 0;
       const avgPingLatencyMs = Math.round((3 + Math.sin(seed * i * 0.9) * 2) * 100) / 100;
       const pingSuccessRate = Math.round((98 + Math.sin(seed * i * 0.4) * 2) * 10) / 10;
 
@@ -55,6 +53,7 @@ export async function seedDashboardSnapshots(): Promise<void> {
           site_id, snapshot_date, total_stations, online_stations, online_percent,
           uptime_percent, active_sessions, total_energy_wh, day_energy_wh,
           total_sessions, day_sessions, connected_stations,
+          total_revenue_cents, day_revenue_cents, avg_revenue_cents_per_session,
           total_transactions, day_transactions, total_ports, stations_below_threshold,
           avg_ping_latency_ms, ping_success_rate,
           created_at
@@ -62,6 +61,7 @@ export async function seedDashboardSnapshots(): Promise<void> {
           ${site.id}, ${dateStr}::date, ${totalStations}, ${onlineStations}, ${onlinePercent},
           ${uptimePercent}, ${Math.floor(Math.random() * 5)}, ${totalEnergyWh}, ${dayEnergyWh},
           ${totalSessions}, ${daySessions}, ${onlineStations},
+          ${totalRevenueCents}, ${dayRevenueCents}, ${avgRevPerSession},
           ${totalTransactions}, ${dayTransactions}, ${totalPorts}, ${stationsBelowThreshold},
           ${avgPingLatencyMs}, ${pingSuccessRate},
           now()
@@ -77,29 +77,15 @@ export async function seedDashboardSnapshots(): Promise<void> {
           total_sessions = EXCLUDED.total_sessions,
           day_sessions = EXCLUDED.day_sessions,
           connected_stations = EXCLUDED.connected_stations,
+          total_revenue_cents = EXCLUDED.total_revenue_cents,
+          day_revenue_cents = EXCLUDED.day_revenue_cents,
+          avg_revenue_cents_per_session = EXCLUDED.avg_revenue_cents_per_session,
           total_transactions = EXCLUDED.total_transactions,
           day_transactions = EXCLUDED.day_transactions,
           total_ports = EXCLUDED.total_ports,
           stations_below_threshold = EXCLUDED.stations_below_threshold,
           avg_ping_latency_ms = EXCLUDED.avg_ping_latency_ms,
           ping_success_rate = EXCLUDED.ping_success_rate,
-          created_at = now()
-      `);
-
-      await db.execute(sql`
-        INSERT INTO dashboard_snapshot_revenue (
-          site_id, snapshot_date, currency, total_revenue_cents, day_revenue_cents,
-          total_sessions, total_electricity_cost_cents, day_electricity_cost_cents, created_at
-        ) VALUES (
-          ${site.id}, ${dateStr}::date, ${currency}, ${totalRevenueCents}, ${dayRevenueCents},
-          ${totalSessions}, ${totalElectricityCostCents}, ${dayElectricityCostCents}, now()
-        )
-        ON CONFLICT (site_id, snapshot_date, currency) DO UPDATE SET
-          total_revenue_cents = EXCLUDED.total_revenue_cents,
-          day_revenue_cents = EXCLUDED.day_revenue_cents,
-          total_sessions = EXCLUDED.total_sessions,
-          total_electricity_cost_cents = EXCLUDED.total_electricity_cost_cents,
-          day_electricity_cost_cents = EXCLUDED.day_electricity_cost_cents,
           created_at = now()
       `);
     }

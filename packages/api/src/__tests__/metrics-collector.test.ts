@@ -4,10 +4,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockExecute = vi.fn();
+const mockGetCompanyCurrency = vi.fn();
 
 vi.mock('@evtivity/database', () => ({
   db: { execute: mockExecute },
-  getCompanyCurrency: vi.fn().mockResolvedValue('EUR'),
+  getCompanyCurrency: mockGetCompanyCurrency,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -25,44 +26,50 @@ function queryText(arg: unknown): string {
   return (arg as { strings: readonly string[] }).strings.join('?');
 }
 
+function mockRevenue(total: string | number): void {
+  mockExecute.mockImplementation((arg: unknown) =>
+    Promise.resolve(queryText(arg).includes('SUM(final_cost_cents)') ? [{ total }] : []),
+  );
+}
+
 describe('collectBusinessMetrics revenue', () => {
   beforeEach(() => {
     mockExecute.mockReset();
+    mockGetCompanyCurrency.mockReset();
   });
 
-  it('reports revenue per currency and falls back to the company currency', async () => {
-    let revenueQuery: { strings: readonly string[]; values: unknown[] } | undefined;
+  it('reports one revenue series of company-currency sessions, labelled with that currency', async () => {
+    mockGetCompanyCurrency.mockResolvedValue('EUR');
+    let revenueQuery: string | undefined;
+    let revenueValues: unknown[] = [];
     mockExecute.mockImplementation((arg: unknown) => {
       if (queryText(arg).includes('SUM(final_cost_cents)')) {
-        revenueQuery = arg as { strings: readonly string[]; values: unknown[] };
-        return Promise.resolve([
-          { currency: 'EUR', total: '120000' },
-          { currency: 'USD', total: '5000' },
-        ]);
+        revenueQuery = queryText(arg);
+        revenueValues = (arg as { values: unknown[] }).values;
+        return Promise.resolve([{ total: '125000' }]);
       }
       return Promise.resolve([]);
     });
 
     await collectBusinessMetrics();
 
-    expect(revenueQuery?.values).toEqual(['EUR']);
-    expect(queryText(revenueQuery)).toContain('GROUP BY 1');
+    expect(revenueQuery).not.toContain('GROUP BY');
+    expect(revenueQuery).toContain('COALESCE(UPPER(currency), ?) = ?');
+    expect(revenueValues).toEqual(['EUR', 'EUR']);
     const { values } = await revenueCentsTotal.get();
-    expect(values.map((v) => [v.labels.currency, v.value])).toEqual([
-      ['EUR', 120000],
-      ['USD', 5000],
-    ]);
+    expect(values.map((v) => [v.labels.currency, v.value])).toEqual([['EUR', 125000]]);
   });
 
-  it('drops currencies that no longer have revenue', async () => {
-    mockExecute.mockImplementation((arg: unknown) =>
-      Promise.resolve(
-        queryText(arg).includes('SUM(final_cost_cents)') ? [{ currency: 'EUR', total: 10 }] : [],
-      ),
-    );
+  it('drops the previous series when the company currency changes', async () => {
+    mockGetCompanyCurrency.mockResolvedValue('USD');
+    mockRevenue(10);
+    await collectBusinessMetrics();
+
+    mockGetCompanyCurrency.mockResolvedValue('GBP');
+    mockRevenue(20);
     await collectBusinessMetrics();
 
     const { values } = await revenueCentsTotal.get();
-    expect(values.map((v) => v.labels.currency)).toEqual(['EUR']);
+    expect(values.map((v) => [v.labels.currency, v.value])).toEqual([['GBP', 20]]);
   });
 });

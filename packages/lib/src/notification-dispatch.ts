@@ -6,6 +6,7 @@ import nodemailer from 'nodemailer';
 import { readFile } from 'node:fs/promises';
 import { createLogger } from './logger.js';
 import { decryptString } from './encryption.js';
+import { DEFAULT_CURRENCY } from './currency.js';
 import { formatDateTime } from './timezone.js';
 import { isPrivateUrl } from './url-validation.js';
 import { sendExpoPush } from './push-send.js';
@@ -246,7 +247,7 @@ export async function getCompanySettings(sql: postgres.Sql): Promise<CompanySett
   }
   const settings: CompanySettings = {
     companyName: map.get('company.name') ?? 'EVtivity',
-    companyCurrency: map.get('company.currency') ?? 'USD',
+    companyCurrency: map.get('company.currency') ?? DEFAULT_CURRENCY,
     companyContactEmail: map.get('company.contactEmail') ?? '',
     companySupportEmail: map.get('company.supportEmail') ?? '',
     companySupportPhone: map.get('company.supportPhone') ?? '',

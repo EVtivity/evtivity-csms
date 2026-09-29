@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, sql, desc, and, asc } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, getCompanyCurrency } from '@evtivity/database';
 import {
   chargingSessions,
   chargingStations,
@@ -17,6 +17,7 @@ import {
   vehicleEfficiencyLookup,
 } from '@evtivity/database';
 import { zodSchema } from '../../lib/zod-schema.js';
+import { inCompanyCurrency, sessionCurrencySql } from '../../lib/company-currency.js';
 import { ID_PARAMS } from '../../lib/id-validation.js';
 import { paginatedResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
@@ -41,7 +42,7 @@ const portalSessionListItem = z
       .describe('Energy delivered in Watt-hours'),
     co2AvoidedKg: z.coerce.number().nullable().describe('CO2 avoided vs gasoline in kg'),
     finalCostCents: z.number().int().min(0).nullable().describe('Final session cost in cents'),
-    currency: z.string().length(3).nullable().describe('ISO 4217 currency code'),
+    currency: z.string().length(3).describe('ISO 4217 currency code the session was billed in'),
     stationName: z.string().max(255).nullable().describe('OCPP station identity (display name)'),
     siteName: z.string().max(255).nullable().describe('Site name'),
     siteAddress: z.string().max(500).nullable().describe('Street address'),
@@ -183,33 +184,12 @@ const monthlySummaryResponse = z
       .int()
       .min(0)
       .describe(
-        'Total cost across the month in cents. When the driver charged in more than one currency this month, this is the sum within the most-used currency only — see costBreakdown for the per-currency split.',
+        'Total cost of completed sessions in the month, in cents. Sums only sessions billed in the company currency.',
       ),
     totalEnergyWh: z.number().min(0).describe('Total energy delivered across the month in Wh'),
     totalCo2AvoidedKg: z.number().describe('Total CO2 avoided across the month in kg'),
     sessionCount: z.number().int().min(0).describe('Number of completed sessions in the month'),
-    currency: z
-      .string()
-      .length(3)
-      .nullable()
-      .describe(
-        'ISO 4217 currency code matching totalCostCents (the most-used currency this month, or null if no sessions had a currency).',
-      ),
-    costBreakdown: z
-      .array(
-        z
-          .object({
-            currency: z.string().length(3).describe('ISO 4217 currency code'),
-            totalCostCents: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Sum of finalCostCents in this currency'),
-            sessionCount: z.number().int().min(0).describe('Number of sessions in this currency'),
-          })
-          .passthrough(),
-      )
-      .describe('Per-currency split of the month, sorted by sessionCount descending.'),
+    currency: z.string().length(3).describe('Company currency (ISO 4217) of totalCostCents'),
   })
   .passthrough();
 
@@ -221,27 +201,22 @@ const monthlyStatementSessionItem = z
     energyDeliveredWh: z.coerce.number().min(0).nullable().describe('Energy delivered in Wh'),
     co2AvoidedKg: z.coerce.number().nullable().describe('Estimated CO2 avoided in kg'),
     finalCostCents: z.number().int().min(0).nullable().describe('Final session cost in cents'),
-    currency: z.string().length(3).nullable().describe('Currency code (ISO 4217)'),
+    currency: z.string().length(3).describe('Currency code (ISO 4217) the session was billed in'),
     siteName: z.string().max(255).nullable().describe('Site name for the station'),
     siteCity: z.string().max(100).nullable().describe('Site city'),
   })
   .passthrough();
 
-const monthlyStatementCostBreakdownItem = z
-  .object({
-    currency: z.string().length(3).describe('Currency code (ISO 4217)'),
-    totalCostCents: z.number().int().min(0).describe('Total cost in this currency'),
-    sessionCount: z.number().int().min(0).describe('Sessions in this currency'),
-  })
-  .passthrough();
-
 const monthlyStatementTotals = z
   .object({
-    totalCostCents: z.number().int().min(0).describe('Total cost in the primary currency in cents'),
-    currency: z.string().length(3).nullable().describe('Primary currency for totalCostCents'),
-    costBreakdown: z
-      .array(monthlyStatementCostBreakdownItem)
-      .describe('Per-currency cost split when sessions cross currencies'),
+    totalCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Total cost of the statement sessions in cents. Sums only sessions billed in the company currency.',
+      ),
+    currency: z.string().length(3).describe('Company currency (ISO 4217) of totalCostCents'),
     totalEnergyWh: z.number().min(0).describe('Total energy delivered across the statement in Wh'),
     totalCo2AvoidedKg: z.number().describe('Total CO2 avoided across the statement in kg'),
     sessionCount: z.number().int().min(0).describe('Number of completed sessions in the statement'),
@@ -292,6 +267,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         whereClause = sql`${chargingSessions.driverId} = ${driverId} AND ${chargingSessions.startedAt} >= ${start} AND ${chargingSessions.startedAt} < ${end}`;
       }
 
+      const companyCurrency = await getCompanyCurrency();
       const [data, countRows] = await Promise.all([
         db
           .select({
@@ -303,7 +279,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
             energyDeliveredWh: chargingSessions.energyDeliveredWh,
             co2AvoidedKg: chargingSessions.co2AvoidedKg,
             finalCostCents: chargingSessions.finalCostCents,
-            currency: chargingSessions.currency,
+            currency: sessionCurrencySql(companyCurrency),
             stationName: chargingStations.stationId,
             siteName: sites.name,
             siteAddress: sites.address,
@@ -348,52 +324,25 @@ export function portalSessionRoutes(app: FastifyInstance): void {
       const { month } = request.query as z.infer<typeof monthlySummaryQuery>;
       const { start, end } = monthRange(month);
 
-      // Aggregate energy and CO2 globally (currency-independent) and split the
-      // cost by currency. Summing finalCostCents across mixed currencies would
-      // produce a nonsense total (e.g. 50 USD + 30 EUR = "80") and rendering
-      // it under any single currency symbol misleads the driver about what
-      // they actually paid. Most drivers charge in one currency so the
-      // breakdown is a single-entry array; cross-border drivers see each
-      // currency separately.
+      const currency = await getCompanyCurrency();
       const [totals] = await db
         .select({
+          totalCostCents: sql<number>`COALESCE(SUM(${chargingSessions.finalCostCents}) FILTER (WHERE ${inCompanyCurrency(chargingSessions.currency, currency)}), 0)::int`,
           totalEnergyWh: sql<string>`COALESCE(SUM(${chargingSessions.energyDeliveredWh}::numeric), 0)::numeric`,
           totalCo2AvoidedKg: sql<string>`COALESCE(SUM(${chargingSessions.co2AvoidedKg}::numeric), 0)::numeric`,
+          sessionCount: sql<number>`count(*)::int`,
         })
         .from(chargingSessions)
         .where(
           sql`${chargingSessions.driverId} = ${driverId} AND ${chargingSessions.status} = 'completed' AND ${chargingSessions.startedAt} >= ${start} AND ${chargingSessions.startedAt} < ${end}`,
         );
 
-      const breakdownRows = await db
-        .select({
-          currency: chargingSessions.currency,
-          totalCostCents: sql<number>`COALESCE(SUM(${chargingSessions.finalCostCents}), 0)::int`,
-          sessionCount: sql<number>`count(*)::int`,
-        })
-        .from(chargingSessions)
-        .where(
-          sql`${chargingSessions.driverId} = ${driverId} AND ${chargingSessions.status} = 'completed' AND ${chargingSessions.startedAt} >= ${start} AND ${chargingSessions.startedAt} < ${end}`,
-        )
-        .groupBy(chargingSessions.currency);
-
-      const costBreakdown = breakdownRows
-        .filter(
-          (r): r is { currency: string; totalCostCents: number; sessionCount: number } =>
-            r.currency != null,
-        )
-        .sort((a, b) => b.sessionCount - a.sessionCount);
-
-      const primary = costBreakdown[0];
-      const totalSessionCount = breakdownRows.reduce((acc, r) => acc + r.sessionCount, 0);
-
       return {
-        totalCostCents: primary?.totalCostCents ?? 0,
+        totalCostCents: totals?.totalCostCents ?? 0,
         totalEnergyWh: parseFloat(totals?.totalEnergyWh ?? '0'),
         totalCo2AvoidedKg: parseFloat(totals?.totalCo2AvoidedKg ?? '0'),
-        sessionCount: totalSessionCount,
-        currency: primary?.currency ?? null,
-        costBreakdown,
+        sessionCount: totals?.sessionCount ?? 0,
+        currency,
       };
     },
   );
@@ -421,6 +370,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         .from(drivers)
         .where(eq(drivers.id, driverId));
 
+      const companyCurrency = await getCompanyCurrency();
       const sessions = await db
         .select({
           id: chargingSessions.id,
@@ -429,7 +379,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           energyDeliveredWh: chargingSessions.energyDeliveredWh,
           co2AvoidedKg: chargingSessions.co2AvoidedKg,
           finalCostCents: chargingSessions.finalCostCents,
-          currency: chargingSessions.currency,
+          currency: sessionCurrencySql(companyCurrency),
           siteName: sites.name,
           siteCity: sites.city,
         })
@@ -441,35 +391,22 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         )
         .orderBy(desc(chargingSessions.startedAt));
 
-      // Group cost by currency so cross-currency drivers don't see a nonsense
-      // mixed-currency sum (mirrors monthly-summary). Primary currency = the
-      // one with the most sessions; totalCostCents reports that currency only.
-      const costByCurrency = new Map<string, { totalCostCents: number; sessionCount: number }>();
+      let totalCostCents = 0;
       let totalEnergyWh = 0;
       let totalCo2AvoidedKg = 0;
       for (const s of sessions) {
+        if (s.currency === companyCurrency) totalCostCents += s.finalCostCents ?? 0;
         totalEnergyWh += Number(s.energyDeliveredWh ?? 0);
         totalCo2AvoidedKg += Number(s.co2AvoidedKg ?? 0);
-        if (s.currency != null) {
-          const entry = costByCurrency.get(s.currency) ?? { totalCostCents: 0, sessionCount: 0 };
-          entry.totalCostCents += s.finalCostCents ?? 0;
-          entry.sessionCount += 1;
-          costByCurrency.set(s.currency, entry);
-        }
       }
-      const costBreakdown = Array.from(costByCurrency.entries())
-        .map(([currency, v]) => ({ currency, ...v }))
-        .sort((a, b) => b.sessionCount - a.sessionCount);
-      const primary = costBreakdown[0];
 
       return {
         month,
         driverName: driver != null ? `${driver.firstName} ${driver.lastName}` : '--',
         sessions,
         totals: {
-          totalCostCents: primary?.totalCostCents ?? 0,
-          currency: primary?.currency ?? null,
-          costBreakdown,
+          totalCostCents,
+          currency: companyCurrency,
           totalEnergyWh,
           totalCo2AvoidedKg,
           sessionCount: sessions.length,
@@ -499,6 +436,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
       const { driverId } = request.user as DriverJwtPayload;
       const { id } = request.params as z.infer<typeof sessionParams>;
 
+      const companyCurrency = await getCompanyCurrency();
       const [session] = await db
         .select({
           id: chargingSessions.id,
@@ -510,7 +448,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           co2AvoidedKg: chargingSessions.co2AvoidedKg,
           currentCostCents: chargingSessions.currentCostCents,
           finalCostCents: chargingSessions.finalCostCents,
-          currency: chargingSessions.currency,
+          currency: sessionCurrencySql(companyCurrency),
           meterStart: chargingSessions.meterStart,
           meterStop: chargingSessions.meterStop,
           stoppedReason: chargingSessions.stoppedReason,

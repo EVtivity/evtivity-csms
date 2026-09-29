@@ -25,7 +25,6 @@ interface TariffMapping {
   tariffId: string;
   partnerId: string | null;
   ocpiTariffId: string;
-  currency: string;
   createdAt: string;
   updatedAt: string;
   tariffName: string | null;
@@ -68,7 +67,6 @@ export function RoamingTariffs(): React.JSX.Element {
               <TableRow>
                 <TableHead>{t('roaming.tariffs.internalTariff')}</TableHead>
                 <TableHead>{t('roaming.tariffs.ocpiTariffId')}</TableHead>
-                <TableHead>{t('roaming.tariffs.currency')}</TableHead>
                 <TableHead>{t('roaming.tariffs.partner')}</TableHead>
                 <TableHead>{t('common.created')}</TableHead>
               </TableRow>
@@ -76,13 +74,13 @@ export function RoamingTariffs(): React.JSX.Element {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center">
+                  <TableCell colSpan={4} className="text-center">
                     <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               ) : mappings == null || mappings.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
+                  <TableCell colSpan={4} className="text-center text-muted-foreground">
                     {t('roaming.tariffs.noMappings')}
                   </TableCell>
                 </TableRow>
@@ -100,7 +98,6 @@ export function RoamingTariffs(): React.JSX.Element {
                       {mapping.tariffName ?? '-'}
                     </TableCell>
                     <TableCell className="whitespace-nowrap">{mapping.ocpiTariffId}</TableCell>
-                    <TableCell>{mapping.currency}</TableCell>
                     <TableCell>{mapping.partnerName ?? t('roaming.tariffs.allPartners')}</TableCell>
                     <TableCell>{formatDateTime(mapping.updatedAt, timezone)}</TableCell>
                   </TableRow>

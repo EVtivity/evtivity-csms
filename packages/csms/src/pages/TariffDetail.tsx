@@ -36,7 +36,6 @@ interface Tariff {
   id: string;
   pricingGroupId: string;
   name: string;
-  currency: string;
   pricePerKwh: string | null;
   pricePerMinute: string | null;
   pricePerSession: string | null;
@@ -267,10 +266,8 @@ export function TariffDetail(): React.JSX.Element {
     return parts.join(' ') || 'n/a';
   }
 
-  // Surface the API's specific 409 reason (overlap, currency mismatch, in-use)
-  // rather than collapsing every conflict into "overlap" -- the operator needs
-  // to know whether to change the time window, the currency, or wait for the
-  // referenced sessions to end.
+  // Surface the API's specific 409 reason (overlap or in-use) rather than
+  // collapsing every conflict into "overlap".
   const conflictMessage =
     updateMutation.error instanceof ApiError && updateMutation.error.status === 409
       ? getErrorMessage(updateMutation.error, t)
@@ -559,10 +556,6 @@ export function TariffDetail(): React.JSX.Element {
                     <Badge variant="outline">{t('pricing.inactive')}</Badge>
                   )}
                 </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('pricing.currency')}</dt>
-                <dd className="font-medium">{tariff.currency}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">{t('pricing.tariffType')}</dt>

@@ -28,6 +28,7 @@ import {
   isAutoDisableOnCriticalEnabled,
   isSiteFreeVendEnabledByStation,
   getElectricityRatePeriodsForSite,
+  getCompanyCurrency,
 } from '@evtivity/database';
 import { getSecuritySeverity } from '../lib/security-severity.js';
 import {
@@ -45,6 +46,7 @@ import {
   FREE_VEND_OCPP_16_KEYS,
   resolveElectricityRate,
   calculateElectricityCostCents,
+  formatCurrencyAmount,
 } from '@evtivity/lib';
 import type {
   TariffInput,
@@ -112,19 +114,6 @@ function mapOcppConnectorType(value: string): string {
 function getString(obj: Record<string, unknown>, key: string): string | null {
   const val = obj[key];
   return typeof val === 'string' ? val : null;
-}
-
-// Currency-aware amount formatter for driver notifications. Hardcoding "$"
-// gave non-USD operators a wrong-currency symbol in CaptureFailed templates.
-// Falls back to a "CODE 12.50" string if the currency code is malformed.
-function formatCurrencyAmount(amountCents: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(
-      amountCents / 100,
-    );
-  } catch {
-    return `${currency.toUpperCase()} ${(amountCents / 100).toFixed(2)}`;
-  }
 }
 
 export interface ProjectionOptions {
@@ -364,6 +353,16 @@ export function registerProjections(
     return name;
   }
 
+  // A session's billing currency. Rows written before single-currency, or a
+  // missing row, fall back to the company currency.
+  async function loadSessionCurrency(sessionId: string): Promise<string> {
+    const rows = await sql`SELECT currency FROM charging_sessions WHERE id = ${sessionId} LIMIT 1`;
+    const stored: unknown = rows[0]?.currency;
+    return typeof stored === 'string' && stored !== ''
+      ? stored.toUpperCase()
+      : getCompanyCurrency();
+  }
+
   // Dispatch IdlingStarted notification for both driver and guest sessions.
   // Used by TransactionEvent Updated (chargingState) and StatusNotification (1.6 fallback).
   async function dispatchIdlingNotification(
@@ -371,8 +370,10 @@ export function registerProjections(
     stationId: string,
     transactionId: string,
   ): Promise<void> {
+    const companyCurrency = await getCompanyCurrency();
     const idleSession = await sql`
-      SELECT driver_id, idle_started_at, tariff_idle_fee_price_per_minute, currency
+      SELECT driver_id, idle_started_at, tariff_idle_fee_price_per_minute,
+             COALESCE(UPPER(currency), ${companyCurrency}) AS currency
       FROM charging_sessions WHERE id = ${sessionId} AND idle_started_at IS NOT NULL
     `;
     const idleRow = idleSession[0];
@@ -390,7 +391,7 @@ export function registerProjections(
       idleStartedAt: idleRow.idle_started_at as string,
       gracePeriodMinutes,
       idleFeePricePerMinute: idleFeeRate ?? '0',
-      currency: (idleRow.currency as string | null) ?? 'USD',
+      currency: idleRow.currency as string,
     };
 
     if (idleRow.driver_id != null) {
@@ -577,17 +578,6 @@ export function registerProjections(
 
   // ---- Payment simulation helpers (used in Started/Ended handlers) ----
 
-  function formatCostFromCents(cents: number | null, currency: string): string {
-    try {
-      return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency,
-      }).format((cents ?? 0) / 100);
-    } catch {
-      return `${((cents ?? 0) / 100).toFixed(2)} ${currency}`;
-    }
-  }
-
   function isSimulatedIntent(stripePaymentIntentId: string): boolean {
     return stripePaymentIntentId.startsWith('pi_sim_');
   }
@@ -665,7 +655,7 @@ export function registerProjections(
     if (groupId == null) return true;
 
     const tariffRows = await sql`
-      SELECT id, currency, price_per_kwh, price_per_minute, price_per_session,
+      SELECT id, price_per_kwh, price_per_minute, price_per_session,
              idle_fee_price_per_minute, reservation_fee_per_minute, tax_rate,
              restrictions, priority, is_default
       FROM tariffs
@@ -682,7 +672,6 @@ export function registerProjections(
         restrictions: (t.restrictions as TariffRestrictions | null) ?? null,
         priority: Number(t.priority ?? 0),
         isDefault: t.is_default === true,
-        currency: (t.currency as string | null) ?? 'USD',
         pricePerKwh: t.price_per_kwh as string | null,
         pricePerMinute: t.price_per_minute as string | null,
         pricePerSession: t.price_per_session as string | null,
@@ -777,7 +766,7 @@ export function registerProjections(
     if (groupId == null) return null;
 
     const rows = await sql`
-      SELECT id, currency, price_per_kwh, price_per_minute, price_per_session,
+      SELECT id, price_per_kwh, price_per_minute, price_per_session,
              idle_fee_price_per_minute, reservation_fee_per_minute, tax_rate,
              restrictions, priority, is_default
       FROM tariffs
@@ -787,7 +776,6 @@ export function registerProjections(
 
     const tariffs: TariffWithRestrictions[] = rows.map((r) => ({
       id: r.id as string,
-      currency: r.currency as string,
       pricePerKwh: r.price_per_kwh as string | null,
       pricePerMinute: r.price_per_minute as string | null,
       pricePerSession: r.price_per_session as string | null,
@@ -813,7 +801,6 @@ export function registerProjections(
 
     return {
       id: resolved.id,
-      currency: resolved.currency,
       pricePerKwh: resolved.pricePerKwh,
       pricePerMinute: resolved.pricePerMinute,
       pricePerSession: resolved.pricePerSession,
@@ -1757,9 +1744,11 @@ export function registerProjections(
         // path, eliminating the race window where a separate SELECT could
         // miss the row if a concurrent process (stale-session cleanup,
         // operator delete) removed it between INSERT and SELECT.
+        // The session is billed in the company currency at its start.
+        const initialCurrency = await getCompanyCurrency();
         const inserted = await sql`
-          INSERT INTO charging_sessions (id, station_id, evse_id, transaction_id, status, started_at, meter_start, is_roaming)
-          VALUES (${newSessionId}, ${stationUuid}, ${txEvseUuid}, ${transactionId}, 'active', ${timestamp}, ${meterStartVal}, ${initialIsRoaming})
+          INSERT INTO charging_sessions (id, station_id, evse_id, transaction_id, status, started_at, meter_start, is_roaming, currency)
+          VALUES (${newSessionId}, ${stationUuid}, ${txEvseUuid}, ${transactionId}, 'active', ${timestamp}, ${meterStartVal}, ${initialIsRoaming}, ${initialCurrency})
           ON CONFLICT (transaction_id) DO UPDATE SET updated_at = now()
           RETURNING id
         `;
@@ -1962,7 +1951,7 @@ export function registerProjections(
           if (tariff != null) {
             await sql`
               UPDATE charging_sessions
-              SET tariff_id = ${tariff.id}, currency = ${tariff.currency},
+              SET tariff_id = ${tariff.id},
                   tariff_price_per_kwh = ${tariff.pricePerKwh},
                   tariff_price_per_minute = ${tariff.pricePerMinute},
                   tariff_price_per_session = ${tariff.pricePerSession},
@@ -2236,6 +2225,7 @@ export function registerProjections(
         // Gate on status = 'active' so a stray TransactionEvent.Updated that
         // arrives after the payment gate stopped the session (faulted/failed)
         // does not fire a phantom "session update" notification.
+        const companyCurrency = await getCompanyCurrency();
         const throttleResult = await sql`
           UPDATE charging_sessions
           SET last_update_notified_at = now()
@@ -2244,7 +2234,8 @@ export function registerProjections(
             AND status = 'active'
             AND (last_update_notified_at IS NULL
               OR last_update_notified_at < now() - make_interval(secs => ${SESSION_UPDATE_THROTTLE_MS / 1000}))
-          RETURNING driver_id, energy_delivered_wh, current_cost_cents, currency, started_at
+          RETURNING driver_id, energy_delivered_wh, current_cost_cents, started_at,
+                    COALESCE(UPPER(currency), ${companyCurrency}) AS currency
         `;
         if (throttleResult.length > 0 && throttleResult[0] != null) {
           const updatedSession = throttleResult[0];
@@ -2261,11 +2252,11 @@ export function registerProjections(
               transactionId,
               energyDeliveredWh: updatedSession.energy_delivered_wh as number,
               currentCostCents: updatedSession.current_cost_cents as number,
-              costFormatted: formatCostFromCents(
-                updatedSession.current_cost_cents as number | null,
-                (updatedSession.currency as string | null) ?? 'USD',
+              costFormatted: formatCurrencyAmount(
+                (updatedSession.current_cost_cents as number | null) ?? 0,
+                updatedSession.currency as string,
               ),
-              currency: (updatedSession.currency as string | null) ?? 'USD',
+              currency: updatedSession.currency as string,
               durationMinutes,
             },
             ALL_TEMPLATES_DIRS,
@@ -2399,7 +2390,7 @@ export function registerProjections(
         // no Stripe capture ever runs.
         const sessionStatus = sessionRow.status as string;
         const skipCostCalc = sessionStatus === 'faulted' || sessionStatus === 'failed';
-        const hasTariffSnapshot = sessionRow.tariff_id != null && sessionRow.currency != null;
+        const hasTariffSnapshot = sessionRow.tariff_id != null;
         if (hasTariffSnapshot && !skipCostCalc) {
           const endedAt = new Date(sessionRow.ended_at as string);
           const energyWh = Number(sessionRow.energy_delivered_wh ?? 0);
@@ -2465,7 +2456,7 @@ export function registerProjections(
             ? await sql`
                 SELECT sts.started_at, sts.ended_at, sts.energy_wh_start, sts.energy_wh_end,
                        sts.idle_minutes AS seg_idle_minutes,
-                       t.currency, t.price_per_kwh, t.price_per_minute, t.price_per_session,
+                       t.price_per_kwh, t.price_per_minute, t.price_per_session,
                        t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate
                 FROM session_tariff_segments sts
                 JOIN tariffs t ON t.id = sts.tariff_id
@@ -2487,7 +2478,6 @@ export function registerProjections(
                   idleFeePricePerMinute: seg.idle_fee_price_per_minute as string | null,
                   reservationFeePerMinute: seg.reservation_fee_per_minute as string | null,
                   taxRate: seg.tax_rate as string | null,
-                  currency: seg.currency as string,
                 },
                 durationMinutes: (segEndMs - segStartMs) / 60000,
                 energyDeliveredWh:
@@ -2522,7 +2512,6 @@ export function registerProjections(
                 idleFeePricePerMinute: sessionRow.tariff_idle_fee_price_per_minute as string | null,
                 reservationFeePerMinute: tariffReservationFeePerMinute,
                 taxRate: sessionRow.tariff_tax_rate as string | null,
-                currency: sessionRow.currency as string,
               },
               energyWh,
               durationMinutes,
@@ -2658,8 +2647,11 @@ export function registerProjections(
         // never inserts a payment record - so drivers who tapped without a PM
         // received a phantom "session is complete" + "session receipt" pair
         // alongside the correct payment-required notification.
-        const endedDriverRows =
-          await sql`SELECT driver_id, energy_delivered_wh, final_cost_cents, currency, started_at, ended_at, status FROM charging_sessions WHERE id = ${sessionId}`;
+        const companyCurrency = await getCompanyCurrency();
+        const endedDriverRows = await sql`
+          SELECT driver_id, energy_delivered_wh, final_cost_cents, started_at, ended_at, status,
+                 COALESCE(UPPER(currency), ${companyCurrency}) AS currency
+          FROM charging_sessions WHERE id = ${sessionId}`;
         const endedSession = endedDriverRows[0];
         const endedSessionStatus = endedSession?.status as string | undefined;
         const isTerminalSuccess =
@@ -2686,11 +2678,11 @@ export function registerProjections(
               transactionId,
               energyDeliveredWh: endedSession.energy_delivered_wh as number,
               finalCostCents: endedSession.final_cost_cents as number,
-              costFormatted: formatCostFromCents(
-                endedSession.final_cost_cents as number | null,
-                (endedSession.currency as string | null) ?? 'USD',
+              costFormatted: formatCurrencyAmount(
+                (endedSession.final_cost_cents as number | null) ?? 0,
+                endedSession.currency as string,
               ),
-              currency: (endedSession.currency as string | null) ?? 'USD',
+              currency: endedSession.currency as string,
               durationMinutes,
               startedAt: endedSession.started_at as string,
               endedAt: endedSession.ended_at as string,
@@ -2710,11 +2702,11 @@ export function registerProjections(
               transactionId,
               energyDeliveredWh: endedSession.energy_delivered_wh as number,
               finalCostCents: endedSession.final_cost_cents as number,
-              costFormatted: formatCostFromCents(
-                endedSession.final_cost_cents as number | null,
-                (endedSession.currency as string | null) ?? 'USD',
+              costFormatted: formatCurrencyAmount(
+                (endedSession.final_cost_cents as number | null) ?? 0,
+                endedSession.currency as string,
               ),
-              currency: (endedSession.currency as string | null) ?? 'USD',
+              currency: endedSession.currency as string,
               durationMinutes,
               startedAt: endedSession.started_at as string,
               endedAt: endedSession.ended_at as string,
@@ -2946,7 +2938,6 @@ export function registerProjections(
     const meterGracePeriod = await getIdlingGracePeriodMinutes();
     const splitBillingEnabled = await isSplitBillingEnabled();
     for (const session of activeSessions) {
-      if (session.currency == null) continue;
       const sessionId = session.id as string;
 
       const startedAt = new Date(session.started_at as string);
@@ -2995,7 +2986,7 @@ export function registerProjections(
           // Update session tariff snapshot to the new tariff
           await sql`
             UPDATE charging_sessions
-            SET tariff_id = ${currentTariff.id}, currency = ${currentTariff.currency},
+            SET tariff_id = ${currentTariff.id},
                 tariff_price_per_kwh = ${currentTariff.pricePerKwh},
                 tariff_price_per_minute = ${currentTariff.pricePerMinute},
                 tariff_price_per_session = ${currentTariff.pricePerSession},
@@ -3013,7 +3004,7 @@ export function registerProjections(
         const segments = await sql`
           SELECT sts.started_at, sts.ended_at, sts.energy_wh_start, sts.energy_wh_end,
                  sts.idle_minutes,
-                 t.currency, t.price_per_kwh, t.price_per_minute, t.price_per_session,
+                 t.price_per_kwh, t.price_per_minute, t.price_per_session,
                  t.idle_fee_price_per_minute, t.tax_rate
           FROM session_tariff_segments sts
           JOIN tariffs t ON t.id = sts.tariff_id
@@ -3046,7 +3037,6 @@ export function registerProjections(
                 idleFeePricePerMinute: seg.idle_fee_price_per_minute as string | null,
                 reservationFeePerMinute: null, // holding fee applied at session end only
                 taxRate: seg.tax_rate as string | null,
-                currency: seg.currency as string,
               },
               durationMinutes: (segEndMs - segStartMs) / 60000,
               energyDeliveredWh: segEnergyEnd - segEnergyStart,
@@ -3064,7 +3054,6 @@ export function registerProjections(
               idleFeePricePerMinute: session.tariff_idle_fee_price_per_minute as string | null,
               reservationFeePerMinute: null, // holding fee applied at session end only
               taxRate: session.tariff_tax_rate as string | null,
-              currency: session.currency as string,
             },
             energyWh,
             durationMinutes,
@@ -3081,7 +3070,6 @@ export function registerProjections(
             idleFeePricePerMinute: session.tariff_idle_fee_price_per_minute as string | null,
             reservationFeePerMinute: null, // holding fee applied at session end only
             taxRate: session.tariff_tax_rate as string | null,
-            currency: session.currency as string,
           },
           energyWh,
           durationMinutes,
@@ -3094,7 +3082,7 @@ export function registerProjections(
 
       await sql`
         UPDATE charging_sessions
-        SET current_cost_cents = ${totalCents}, currency = ${session.currency as string}, updated_at = now()
+        SET current_cost_cents = ${totalCents}, updated_at = now()
         WHERE id = ${sessionId}
       `;
 
@@ -3482,8 +3470,10 @@ export function registerProjections(
       return;
     }
 
+    const companyCurrency = await getCompanyCurrency();
     const sessionRows = await sql`
-      SELECT id, driver_id, station_id FROM charging_sessions WHERE transaction_id = ${transactionId}
+      SELECT id, driver_id, station_id, COALESCE(UPPER(currency), ${companyCurrency}) AS currency
+      FROM charging_sessions WHERE transaction_id = ${transactionId}
     `;
     const session = sessionRows[0];
     if (session == null) return;
@@ -3499,7 +3489,7 @@ export function registerProjections(
         ${session.id as string},
         ${session.driver_id as string | null},
         'ocpp_terminal',
-        'USD',
+        ${session.currency as string},
         ${capturedAmountCents},
         'captured'
       )
@@ -3529,7 +3519,7 @@ export function registerProjections(
           stationId: event.aggregateId,
           transactionId,
           amountCents: capturedAmountCents,
-          currency: 'USD',
+          currency: session.currency as string,
         },
         ALL_TEMPLATES_DIRS,
         pubsub,
@@ -3544,7 +3534,7 @@ export function registerProjections(
           stationId: event.aggregateId,
           transactionId,
           amountCents: capturedAmountCents,
-          currency: 'USD',
+          currency: session.currency as string,
         },
         ALL_TEMPLATES_DIRS,
         pubsub,
@@ -3799,14 +3789,11 @@ export function registerProjections(
       // serially on every charging start.
       const [platformSettingsRows, siteConfigRows] = await Promise.all([
         sql`
-          SELECT key, value FROM settings WHERE key IN (
-            'stripe.currency',
-            'stripe.preAuthAmountCents'
-          )
+          SELECT key, value FROM settings WHERE key IN ('stripe.preAuthAmountCents')
         `,
         siteId != null
           ? sql`
-              SELECT id, currency, pre_auth_amount_cents, stripe_connected_account_id
+              SELECT id, pre_auth_amount_cents, stripe_connected_account_id
               FROM site_payment_configs
               WHERE site_id = ${siteId} AND is_enabled = true
             `
@@ -3816,7 +3803,6 @@ export function registerProjections(
       for (const row of platformSettingsRows) {
         platformMap.set(row.key as string, row.value);
       }
-      let platformCurrency = (platformMap.get('stripe.currency') as string | undefined) ?? 'USD';
       let platformPreAuthCents =
         (platformMap.get('stripe.preAuthAmountCents') as number | undefined) ?? 5000;
 
@@ -3824,51 +3810,13 @@ export function registerProjections(
       let siteConfigId: string | null = null;
       const sc = siteConfigRows[0];
       if (sc != null) {
-        platformCurrency = sc.currency as string;
         platformPreAuthCents = sc.pre_auth_amount_cents as number;
         connectedAccountId = (sc.stripe_connected_account_id as string | null) ?? null;
         siteConfigId = sc.id as string;
       }
 
-      // Currency consistency: the session was snapshotted with the tariff's
-      // currency at session start. The pre-auth (and later capture) will use
-      // platformCurrency from the Stripe config. If they differ, every cents
-      // value is in the wrong denomination -- a $1.50 charge gets billed as
-      // €1.50 (Stripe doesn't auto-convert). Fail the session loudly here so
-      // the operator sees the misconfiguration before any money moves.
-      const sessionCurrencyRows = await sql`
-          SELECT currency FROM charging_sessions WHERE id = ${sessionId} LIMIT 1
-        `;
-      const sessionCurrency =
-        (sessionCurrencyRows[0]?.currency as string | undefined) ?? platformCurrency;
-      if (sessionCurrency.toUpperCase() !== platformCurrency.toUpperCase()) {
-        // Operator-only diagnostics: log the actual currencies so the
-        // misconfiguration is visible in observability. The driver-facing
-        // notification stays generic -- no payment-provider names, no internal
-        // currency codes, just "payment configuration issue, contact support".
-        logger.error(
-          { sessionId, sessionCurrency, stripeCurrency: platformCurrency, siteId },
-          'Currency mismatch: tariff currency differs from Stripe config currency; faulting session',
-        );
-        await stopSession('PaymentFailed');
-        try {
-          void dispatchDriverNotification(
-            sql,
-            'payment.PreAuthFailed',
-            driverId,
-            {
-              stationId: ocppStationId,
-              transactionId,
-              reason: 'Payment configuration issue. Please contact support.',
-            },
-            ALL_TEMPLATES_DIRS,
-            pubsub,
-          );
-        } catch (notifyErr) {
-          logger.error({ err: notifyErr }, 'Failed to notify driver of currency mismatch');
-        }
-        return;
-      }
+      // Pre-authorize in the currency the session is billed in.
+      const platformCurrency = await loadSessionCurrency(sessionId);
 
       // Guard: skip if a payment record already exists (prevents duplicate pre-auth on race)
       const existingPayment = await sql`
@@ -4154,8 +4102,10 @@ export function registerProjections(
 
     if (eventType === 'Ended') {
       // Auto-capture on session end
+      const companyCurrency = await getCompanyCurrency();
       const sessionRows = await sql`
-        SELECT cs.id, cs.final_cost_cents, cs.currency, cs.station_id AS station_uuid,
+        SELECT cs.id, cs.final_cost_cents, cs.station_id AS station_uuid,
+               COALESCE(UPPER(cs.currency), ${companyCurrency}) AS currency,
                cs2.station_id AS station_ocpp_id, cs2.site_id
         FROM charging_sessions cs
         JOIN charging_stations cs2 ON cs2.id = cs.station_id
@@ -4179,7 +4129,7 @@ export function registerProjections(
 
       const prDriverId = pr.driver_id as string | null;
       const finalCostCents = session.final_cost_cents as number | null;
-      const sessionCurrency = (session.currency as string | null) ?? 'USD';
+      const sessionCurrency = session.currency as string;
 
       // Guest sessions: driver_id is null on the payment record.
       // The guest-session-worker handles capture for guest sessions via finalizeGuestPayment().
@@ -4235,8 +4185,7 @@ export function registerProjections(
                   updated_at = now()
               WHERE id = ${pr.id as string}
             `;
-            // Notify driver of successful payment. Use the session's stored
-            // currency so simulated EUR/GBP/etc tariffs don't get a USD label.
+            // Notify driver of successful payment, in the session's currency.
             void dispatchDriverNotification(
               sql,
               'session.PaymentReceived',

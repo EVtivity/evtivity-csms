@@ -65,6 +65,8 @@ export interface ReservationCancelResult {
   cancelled: boolean;
   /** True when a fee was attempted but the Stripe charge threw. */
   feeChargeFailed: boolean;
+  /** Currency the fee was charged in; null when no fee was charged. */
+  feeCurrency: string | null;
 }
 
 /**
@@ -144,7 +146,7 @@ export async function applyReservationCancellation(
   const winningRow = (updated as unknown as Array<{ id: string; status_before: string }>)[0];
   if (winningRow == null) {
     // Lost the race or the row was already terminal.
-    return { feeChargedCents: 0, cancelled: false, feeChargeFailed: false };
+    return { feeChargedCents: 0, cancelled: false, feeChargeFailed: false, feeCurrency: null };
   }
 
   // Exactly one writer (the conditional-UPDATE winner) writes the audit row.
@@ -181,18 +183,23 @@ export async function applyReservationCancellation(
     });
 
   if (plannedFeeCents === 0) {
-    return { feeChargedCents: 0, cancelled: true, feeChargeFailed: false };
+    return { feeChargedCents: 0, cancelled: true, feeChargeFailed: false, feeCurrency: null };
   }
 
   let feeChargedCents = 0;
   let feeChargeFailed = false;
+  let feeCurrency: string | null = null;
   try {
-    await chargeReservationCancellationFee(
+    feeCurrency = await chargeReservationCancellationFee(
       input.driverId as string,
       input.siteId,
       plannedFeeCents,
       input.reservationDbId,
     );
+    // No payment method or no Stripe config: nothing was charged.
+    if (feeCurrency == null) {
+      return { feeChargedCents: 0, cancelled: true, feeChargeFailed: false, feeCurrency: null };
+    }
     feeChargedCents = plannedFeeCents;
     // Fee captured; persist the actual amount on the audit row.
     await db
@@ -208,5 +215,5 @@ export async function applyReservationCancellation(
     // Row already shows cancellation_fee_cents = 0; nothing to patch.
   }
 
-  return { feeChargedCents, cancelled: true, feeChargeFailed };
+  return { feeChargedCents, cancelled: true, feeChargeFailed, feeCurrency };
 }

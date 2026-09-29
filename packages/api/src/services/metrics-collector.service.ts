@@ -118,14 +118,12 @@ export async function collectBusinessMetrics(): Promise<void> {
         WHERE status = 'completed'
       `),
 
-      // Total revenue (completed sessions) per currency
+      // Revenue of completed sessions billed in the company currency
       db.execute(sql`
-        SELECT
-          upper(COALESCE(currency, ${companyCurrency})) AS currency,
-          COALESCE(SUM(final_cost_cents), 0)::bigint AS total
+        SELECT COALESCE(SUM(final_cost_cents), 0)::bigint AS total
         FROM charging_sessions
         WHERE status = 'completed'
-        GROUP BY 1
+          AND COALESCE(UPPER(currency), ${companyCurrency}) = ${companyCurrency}
       `),
 
       // Reservations by status
@@ -246,10 +244,9 @@ export async function collectBusinessMetrics(): Promise<void> {
     }
 
     energyDeliveredWhTotal.set(asBigInt(energyRows, 'total'));
+    // Reset drops the series of a previous company currency.
     revenueCentsTotal.reset();
-    for (const row of asRows(revenueRows)) {
-      revenueCentsTotal.set({ currency: String(row['currency']) }, asNum(row, 'total'));
-    }
+    revenueCentsTotal.set({ currency: companyCurrency }, asInt(revenueRows, 'total'));
 
     reservationsByStatus.reset();
     for (const row of asRows(reservationRows)) {

@@ -162,6 +162,7 @@ vi.mock('../lib/site-access.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { paymentRoutes } from '../routes/payments.js';
+import { db } from '@evtivity/database';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -201,7 +202,6 @@ describe('Payment routes - handler logic', () => {
         id: 'pc-1',
         siteId: VALID_SITE_ID,
         stripeConnectedAccountId: 'acct_123',
-        currency: 'USD',
         preAuthAmountCents: 5000,
         platformFeePercent: null,
         isEnabled: true,
@@ -217,7 +217,8 @@ describe('Payment routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json().currency).toBe('USD');
+      expect(response.json().stripeConnectedAccountId).toBe('acct_123');
+      expect(response.json()).not.toHaveProperty('currency');
     });
 
     it('returns 404 when no payment config', async () => {
@@ -250,8 +251,7 @@ describe('Payment routes - handler logic', () => {
         id: 'pc-1',
         siteId: VALID_SITE_ID,
         stripeConnectedAccountId: null,
-        currency: 'EUR',
-        preAuthAmountCents: 5000,
+        preAuthAmountCents: 7500,
         platformFeePercent: null,
         isEnabled: true,
         createdAt: new Date().toISOString(),
@@ -267,11 +267,17 @@ describe('Payment routes - handler logic', () => {
         method: 'PUT',
         url: `/sites/${VALID_SITE_ID}/payment-config`,
         headers: { authorization: 'Bearer ' + token },
-        payload: { currency: 'EUR', isEnabled: true },
+        payload: { preAuthAmountCents: 7500, isEnabled: true, currency: 'EUR' },
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json().currency).toBe('EUR');
+      expect(response.json().preAuthAmountCents).toBe(7500);
+      const updateChain = vi.mocked(db.update).mock.results.at(-1)?.value as {
+        set: ReturnType<typeof vi.fn>;
+      };
+      expect(updateChain.set).toHaveBeenCalledWith(
+        expect.not.objectContaining({ currency: expect.anything() }),
+      );
     });
 
     it('creates new payment config when none exists', async () => {
@@ -279,7 +285,6 @@ describe('Payment routes - handler logic', () => {
         id: 'pc-new',
         siteId: VALID_SITE_ID,
         stripeConnectedAccountId: null,
-        currency: 'USD',
         preAuthAmountCents: 5000,
         platformFeePercent: null,
         isEnabled: true,
@@ -296,7 +301,7 @@ describe('Payment routes - handler logic', () => {
         method: 'PUT',
         url: `/sites/${VALID_SITE_ID}/payment-config`,
         headers: { authorization: 'Bearer ' + token },
-        payload: { currency: 'USD' },
+        payload: {},
       });
 
       expect(response.statusCode).toBe(200);
@@ -340,7 +345,6 @@ describe('Payment routes - handler logic', () => {
     it('returns stripe settings from database', async () => {
       const rows = [
         { key: 'stripe.publishableKey', value: 'pk_test_123' },
-        { key: 'stripe.currency', value: 'USD' },
         { key: 'stripe.preAuthAmountCents', value: 5000 },
         { key: 'stripe.platformFeePercent', value: 2.5 },
         { key: 'other.setting', value: 'ignored' },
@@ -356,7 +360,7 @@ describe('Payment routes - handler logic', () => {
       expect(response.statusCode).toBe(200);
       const body = response.json();
       expect(body).toHaveProperty('publishableKey');
-      expect(body).toHaveProperty('currency');
+      expect(body).not.toHaveProperty('currency');
       expect(body).toHaveProperty('preAuthAmountCents');
       expect(body).toHaveProperty('platformFeePercent');
     });
@@ -366,9 +370,10 @@ describe('Payment routes - handler logic', () => {
 
   describe('PUT /v1/settings/stripe', () => {
     it('saves stripe settings and returns success', async () => {
-      // 1 SELECT for the before-snapshot, 3 upserts (publishableKey, currency,
-      // preAuthAmountCents), then 3 parallel audit inserts via Promise.allSettled.
-      setupDbResults([], [], [], [], [], [], []);
+      // 1 SELECT for the before-snapshot, 2 upserts (publishableKey,
+      // preAuthAmountCents), then 2 parallel audit inserts via Promise.allSettled.
+      setupDbResults([], [], [], [], []);
+      vi.mocked(db.insert).mockClear();
 
       const response = await app.inject({
         method: 'PUT',
@@ -383,6 +388,15 @@ describe('Payment routes - handler logic', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json().success).toBe(true);
+      const written = vi
+        .mocked(db.insert)
+        .mock.results.flatMap(
+          (res) =>
+            (res.value as { values: ReturnType<typeof vi.fn> }).values.mock.calls as unknown[][],
+        )
+        .map(([row]) => (row as { key?: string }).key);
+      expect(written).toContain('stripe.publishableKey');
+      expect(written).not.toContain('stripe.currency');
     });
   });
 

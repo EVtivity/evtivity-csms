@@ -36,7 +36,6 @@ export const sitePaymentConfigs = pgTable('site_payment_configs', {
     .unique()
     .references(() => sites.id, { onDelete: 'cascade' }),
   stripeConnectedAccountId: varchar('stripe_connected_account_id', { length: 255 }),
-  currency: varchar('currency', { length: 3 }).notNull().default('USD'),
   preAuthAmountCents: integer('pre_auth_amount_cents').notNull().default(5000),
   platformFeePercent: numeric('platform_fee_percent'),
   isEnabled: boolean('is_enabled').notNull().default(true),

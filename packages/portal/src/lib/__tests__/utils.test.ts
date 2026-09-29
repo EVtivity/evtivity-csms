@@ -24,23 +24,23 @@ describe('cn', () => {
 
 describe('formatCents', () => {
   it('returns -- for null', () => {
-    expect(formatCents(null)).toBe('n/a');
+    expect(formatCents(null, 'USD')).toBe('n/a');
   });
 
   it('returns -- for undefined', () => {
-    expect(formatCents(undefined)).toBe('n/a');
+    expect(formatCents(undefined, 'USD')).toBe('n/a');
   });
 
   it('formats 0 as $0.00', () => {
-    expect(formatCents(0)).toBe('$0.00');
+    expect(formatCents(0, 'USD')).toBe('$0.00');
   });
 
   it('formats 1999 as $19.99', () => {
-    expect(formatCents(1999)).toBe('$19.99');
+    expect(formatCents(1999, 'USD')).toBe('$19.99');
   });
 
   it('formats 100 as $1.00', () => {
-    expect(formatCents(100)).toBe('$1.00');
+    expect(formatCents(100, 'USD')).toBe('$1.00');
   });
 
   it('formats with EUR currency', () => {
@@ -48,8 +48,12 @@ describe('formatCents', () => {
     expect(result).toContain('10.00');
   });
 
+  it('falls back to "CODE 12.34" instead of throwing for an invalid currency code', () => {
+    expect(formatCents(1234, 'NOT-A-CODE')).toBe('NOT-A-CODE 12.34');
+  });
+
   it('formats negative values', () => {
-    const result = formatCents(-500);
+    const result = formatCents(-500, 'USD');
     expect(result).toContain('5.00');
   });
 });

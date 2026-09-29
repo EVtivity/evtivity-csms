@@ -50,6 +50,12 @@ describe('getCompanyCurrency', () => {
     expect(await getCompanyCurrency()).toBe('USD');
   });
 
+  it('falls back to USD for a zero-decimal currency the platform cannot bill in', async () => {
+    mockSelect.mockReturnValue(makeChain([{ value: 'JPY' }]));
+    const { getCompanyCurrency } = await import('../lib/system-settings.js');
+    expect(await getCompanyCurrency()).toBe('USD');
+  });
+
   it('falls back to USD when the setting is not a 3-letter code', async () => {
     mockSelect.mockReturnValue(makeChain([{ value: 'Euro' }]));
     const { getCompanyCurrency } = await import('../lib/system-settings.js');
@@ -70,8 +76,8 @@ describe('getCompanyCurrency', () => {
       await import('../lib/system-settings.js');
     await getCompanyCurrency();
     clearSystemSettingsCache();
-    mockSelect.mockReturnValue(makeChain([{ value: 'JPY' }]));
-    expect(await getCompanyCurrency()).toBe('JPY');
+    mockSelect.mockReturnValue(makeChain([{ value: 'SEK' }]));
+    expect(await getCompanyCurrency()).toBe('SEK');
     expect(mockSelect).toHaveBeenCalledTimes(2);
   });
 

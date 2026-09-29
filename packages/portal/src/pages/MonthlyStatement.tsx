@@ -17,7 +17,7 @@ interface StatementSession {
   endedAt: string | null;
   energyDeliveredWh: string | null;
   finalCostCents: number | null;
-  currency: string | null;
+  currency: string;
   siteName: string | null;
   siteCity: string | null;
   co2AvoidedKg: number | null;
@@ -29,7 +29,7 @@ interface StatementResponse {
   sessions: StatementSession[];
   totals: {
     totalCostCents: number;
-    currency: string | null;
+    currency: string;
     totalEnergyWh: number;
     sessionCount: number;
     totalCo2AvoidedKg: number | null;
@@ -136,7 +136,7 @@ export function MonthlyStatement(): React.JSX.Element {
                         {formatDistance(s.energyDeliveredWh, efficiency, distanceUnit)}
                       </td>
                       <td className="px-2 py-2 text-right">
-                        {formatCents(s.finalCostCents, s.currency ?? 'USD')}
+                        {formatCents(s.finalCostCents, s.currency)}
                       </td>
                       {hasCo2Data && (
                         <td className="hidden md:table-cell px-2 py-2 text-right text-success">
@@ -160,7 +160,7 @@ export function MonthlyStatement(): React.JSX.Element {
                       {formatDistance(data.totals.totalEnergyWh, efficiency, distanceUnit)}
                     </td>
                     <td className="px-2 py-2 text-right">
-                      {formatCents(data.totals.totalCostCents, data.totals.currency ?? 'USD')}
+                      {formatCents(data.totals.totalCostCents, data.totals.currency)}
                     </td>
                     {hasCo2Data && (
                       <td className="hidden md:table-cell px-2 py-2 text-right text-success">

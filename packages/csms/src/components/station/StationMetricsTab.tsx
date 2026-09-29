@@ -7,14 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StationPowerChart } from '@/components/charts/StationPowerChart';
 import { StationEnergyChart } from '@/components/charts/StationEnergyChart';
 import { RevenueChart } from '@/components/charts/RevenueChart';
-import { PeriodFinancialCells } from '@/components/PeriodFinancialCells';
-import type { DailyRevenue, PeriodFinancial } from '@/lib/currency-amounts';
 import { PopularTimesChart } from '@/components/charts/PopularTimesChart';
 import { StationUptimeChart } from '@/components/charts/StationUptimeChart';
 import { DateRangeControl } from '@/components/DateRangeControl';
 import { useDateRange } from '@/hooks/useDateRange';
 import { api } from '@/lib/api';
-import { formatEnergy, formatDurationMinutes } from '@/lib/formatting';
+import { formatCents, formatEnergy, formatDurationMinutes } from '@/lib/formatting';
 
 interface StationMetrics {
   uptimePercent: number;
@@ -29,7 +27,12 @@ interface StationMetrics {
   disconnectCount: number;
   avgDowntimeMinutes: number;
   maxDowntimeMinutes: number;
-  financials: PeriodFinancial[];
+  totalRevenueCents: number;
+  avgRevenueCentsPerSession: number;
+  totalTransactions: number;
+  totalElectricityCostCents: number;
+  totalProfitCents: number;
+  currency: string;
   periodMonths: number;
 }
 
@@ -67,7 +70,11 @@ export function StationMetricsTab({ stationId }: StationMetricsTabProps): React.
     );
   }
 
-  const { data: metrics } = useQuery({
+  const {
+    data: metrics,
+    isError: metricsError,
+    refetch: refetchMetrics,
+  } = useQuery({
     queryKey: ['stations', stationId, 'metrics'],
     queryFn: () => api.get<StationMetrics>(`/v1/stations/${stationId}/metrics`),
     refetchInterval: 60_000,
@@ -90,7 +97,7 @@ export function StationMetricsTab({ stationId }: StationMetricsTabProps): React.
   const { data: revenueData } = useQuery({
     queryKey: ['stations', stationId, 'revenue-history', revenueRange.dateQuery],
     queryFn: () =>
-      api.get<DailyRevenue[]>(
+      api.get<{ date: string; revenueCents: number; sessionCount: number }[]>(
         `/v1/stations/${stationId}/revenue-history?${revenueRange.dateQuery}`,
       ),
   });
@@ -167,7 +174,36 @@ export function StationMetricsTab({ stationId }: StationMetricsTabProps): React.
                   {formatDurationMinutes(metrics.maxDowntimeMinutes)}
                 </p>
               </div>
-              <PeriodFinancialCells financials={metrics.financials} />
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">{t('metrics.totalRevenue')}</p>
+                <p className="text-2xl font-bold">
+                  {formatCents(metrics.totalRevenueCents, metrics.currency)}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">{t('metrics.revenuePerSession')}</p>
+                <p className="text-2xl font-bold">
+                  {formatCents(metrics.avgRevenueCentsPerSession, metrics.currency)}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">{t('metrics.totalTransactions')}</p>
+                <p className="text-2xl font-bold">{String(metrics.totalTransactions)}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">{t('metrics.electricityCost')}</p>
+                <p className="text-2xl font-bold">
+                  {formatCents(metrics.totalElectricityCostCents, metrics.currency)}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">{t('metrics.profit')}</p>
+                <p
+                  className={`text-2xl font-bold ${metrics.totalProfitCents >= 0 ? 'text-success' : 'text-destructive'}`}
+                >
+                  {formatCents(metrics.totalProfitCents, metrics.currency)}
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -178,7 +214,15 @@ export function StationMetricsTab({ stationId }: StationMetricsTabProps): React.
         <StationEnergyChart data={energyData ?? []} actions={dateControl(energyRange)} />
       </div>
 
-      <RevenueChart data={revenueData ?? []} actions={dateControl(revenueRange)} />
+      <RevenueChart
+        data={revenueData ?? []}
+        currency={metrics?.currency}
+        currencyError={metricsError}
+        onRetry={() => {
+          void refetchMetrics();
+        }}
+        actions={dateControl(revenueRange)}
+      />
 
       {uptimeData != null && uptimeData.length > 0 && <StationUptimeChart data={uptimeData} />}
 

@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { db, client } from './config.js';
 import { sql, eq, and, isNotNull, isNull } from 'drizzle-orm';
 import { createId } from './lib/id.js';
+import { getCompanyCurrency, clearSystemSettingsCache } from './lib/system-settings.js';
 import {
   settings,
   sites,
@@ -94,6 +95,7 @@ import {
   OPERATOR_DEFAULT_PERMISSIONS,
   STATION_MESSAGE_DEFAULTS,
   mapConnectorTypeToCss,
+  DEFAULT_CURRENCY,
 } from '@evtivity/lib';
 
 // Helper data
@@ -440,7 +442,6 @@ async function seed(): Promise<void> {
     'ocpp.offlineCommandTtlHours': 24,
     'ocpp.registrationPolicy': registrationPolicy,
     'security.autoDisableOnCritical': true,
-    'pricing.currency': 'USD',
     'pricing.splitBillingEnabled': true,
     'stationMessage.enabled': false,
     'stationMessage.pricingFormat': 'compact',
@@ -469,7 +470,6 @@ async function seed(): Promise<void> {
     's3.secretAccessKeyEnc': '',
     'stripe.secretKeyEnc': '',
     'stripe.publishableKey': '',
-    'stripe.currency': 'USD',
     'stripe.preAuthAmountCents': 5000,
     'stripe.platformFeePercent': 0,
     'roaming.enabled': false,
@@ -482,7 +482,7 @@ async function seed(): Promise<void> {
     'pnc.expirationWarningDays': 30,
     'pnc.expirationCriticalDays': 7,
     'company.name': 'EVtivity',
-    'company.currency': 'USD',
+    'company.currency': DEFAULT_CURRENCY,
     'company.contactEmail': 'contact@evtivity.local',
     'company.supportEmail': 'support@evtivity.local',
     'company.supportPhone': '+1 (555) 123-4567',
@@ -650,6 +650,9 @@ async function seed(): Promise<void> {
       set: { value: sql`EXCLUDED.value`, updatedAt: new Date() },
     });
   console.log(`  ${String(settingsRows.length)} settings created.`);
+  // Demo money uses the operator's currency, whatever the config set it to.
+  clearSystemSettingsCache();
+  const companyCurrency = await getCompanyCurrency();
 
   // ------ Pricing Holidays + Groups + Tariffs (always seeded) ------
   // Operators expect a working pricing schedule even in minimal mode so that
@@ -1667,6 +1670,7 @@ async function seed(): Promise<void> {
   ];
 
   const sessionRows: Array<{
+    currency: string;
     stationId: string;
     evseId: string;
     connectorId: string;
@@ -1705,6 +1709,7 @@ async function seed(): Promise<void> {
     const electricityCostCents = status !== 'active' ? Math.round((energyWh / 1000) * 12) : null;
 
     sessionRows.push({
+      currency: companyCurrency,
       stationId: at(createdStations, stationIdx).id,
       evseId: evse.id,
       connectorId: at(connectorRows, createdEvses.indexOf(evse)).evseId,
@@ -1775,7 +1780,7 @@ async function seed(): Promise<void> {
           stripePaymentIntentId: intentId,
           stripeCustomerId: customerId,
           paymentSource: 'web_portal' as const,
-          currency: 'USD',
+          currency: companyCurrency,
           preAuthAmountCents: 5000,
           capturedAmountCents: capturedCents,
           refundedAmountCents: refundedCents,
@@ -1791,7 +1796,7 @@ async function seed(): Promise<void> {
           stripePaymentIntentId: intentId,
           stripeCustomerId: customerId,
           paymentSource: 'web_portal' as const,
-          currency: 'USD',
+          currency: companyCurrency,
           preAuthAmountCents: 5000,
           capturedAmountCents: 0,
           status: 'cancelled' as const,
@@ -2424,7 +2429,7 @@ async function seed(): Promise<void> {
       meterStop: i * 10000 + energyWh,
       energyDeliveredWh: String(energyWh),
       finalCostCents: costCents,
-      currency: 'USD',
+      currency: companyCurrency,
       stoppedReason: 'EVDisconnected',
     });
   }
@@ -2441,7 +2446,7 @@ async function seed(): Promise<void> {
     stripePaymentIntentId: `pi_portal_${padNum(i + 1, 4)}`,
     stripeCustomerId: 'cus_U443UCZOsb72EL',
     paymentSource: 'stripe' as const,
-    currency: 'USD',
+    currency: companyCurrency,
     preAuthAmountCents: 5000,
     capturedAmountCents: portalSessionRows[i]?.finalCostCents ?? 200,
     refundedAmountCents: 0,
@@ -2563,7 +2568,7 @@ async function seed(): Promise<void> {
         status: 'issued' as const,
         issuedAt: new Date(Date.UTC(curYear, curMonth, 1)),
         dueAt: new Date(Date.UTC(curYear, curMonth, 1) + 30 * 86400000),
-        currency: 'USD',
+        currency: companyCurrency,
         subtotalCents: subtotal,
         taxCents: Math.round(subtotal * 0.08),
         totalCents: subtotal + Math.round(subtotal * 0.08),
@@ -2574,7 +2579,7 @@ async function seed(): Promise<void> {
         status: 'paid' as const,
         issuedAt: new Date(Date.UTC(curYear, curMonth - 1, 1)),
         dueAt: new Date(Date.UTC(curYear, curMonth - 1, 1) + 30 * 86400000),
-        currency: 'USD',
+        currency: companyCurrency,
         subtotalCents: 3185,
         taxCents: 255,
         totalCents: 3440,
@@ -2755,22 +2760,18 @@ async function seed(): Promise<void> {
   });
   await db.insert(ocpiCdrs).values(cdrRows);
 
-  const mappableTariffs = await db
-    .select({ id: tariffs.id, currency: tariffs.currency })
-    .from(tariffs)
-    .limit(2);
+  const mappableTariffs = await db.select({ id: tariffs.id }).from(tariffs).limit(2);
   if (mappableTariffs.length > 0) {
     await db.insert(ocpiTariffMappings).values(
       mappableTariffs.map((tariff, i) => ({
         tariffId: tariff.id,
         partnerId: i === 0 ? simPartner.id : cpoSimPartner.id,
         ocpiTariffId: `EVT-TARIFF-${padNum(i + 1, 3)}`,
-        currency: tariff.currency,
         ocpiTariffData: {
           country_code: 'US',
           party_id: 'EVT',
           id: `EVT-TARIFF-${padNum(i + 1, 3)}`,
-          currency: tariff.currency,
+          currency: companyCurrency,
         },
       })),
     );

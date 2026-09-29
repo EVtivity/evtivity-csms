@@ -7,7 +7,7 @@ import { eq, desc, count, and, or, ilike, like } from 'drizzle-orm';
 import { readFile } from 'node:fs/promises';
 import { resolve, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db } from '@evtivity/database';
+import { db, getCompanyCurrency } from '@evtivity/database';
 import {
   notifications,
   notificationTemplates,
@@ -1286,7 +1286,7 @@ export function notificationRoutes(app: FastifyInstance): void {
         const html = compileAllowedTemplate(wrapperTemplate)({
           content: EMAIL_WRAPPER_SAMPLE_BODY,
           companyName: company.get('company.name') ?? 'EVtivity',
-          companyCurrency: company.get('company.currency') ?? 'USD',
+          companyCurrency: await getCompanyCurrency(),
           companyContactEmail: company.get('company.contactEmail') ?? '',
           companySupportEmail: company.get('company.supportEmail') ?? '',
           companySupportPhone: company.get('company.supportPhone') ?? '',
@@ -1334,12 +1334,7 @@ export function notificationRoutes(app: FastifyInstance): void {
       const companyName = (companyRow?.value as string | undefined) ?? 'EVtivity';
       const wrapperTemplate = (wrapperRow?.value as string | undefined) ?? null;
 
-      const companySettings = await db
-        .select()
-        .from(settings)
-        .where(eq(settings.key, 'company.currency'))
-        .limit(1);
-      const companyCurrency = (companySettings[0]?.value as string | undefined) ?? 'USD';
+      const companyCurrency = await getCompanyCurrency();
 
       const allCompanySettings = await db.select().from(settings);
       const companyMap = new Map<string, string>();
@@ -1365,7 +1360,7 @@ export function notificationRoutes(app: FastifyInstance): void {
         energyDeliveredWh: 15000,
         finalCostCents: 1250,
         currentCostCents: 800,
-        currency: 'USD',
+        currency: companyCurrency,
         durationMinutes: 45,
         startedAt: new Date(Date.now() - 3600000).toISOString(),
         endedAt: new Date().toISOString(),

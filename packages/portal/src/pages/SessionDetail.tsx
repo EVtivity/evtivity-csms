@@ -42,7 +42,7 @@ interface SessionDetailData {
   energyDeliveredWh: string | null;
   currentCostCents: number | null;
   finalCostCents: number | null;
-  currency: string | null;
+  currency: string;
   meterStart: number | null;
   meterStop: number | null;
   stoppedReason: string | null;
@@ -236,7 +236,7 @@ export function SessionDetail(): React.JSX.Element {
   const cost =
     costCents != null && costCents === 0
       ? t('sessionDetail.free')
-      : formatCents(costCents, session.currency ?? 'USD');
+      : formatCents(costCents, session.currency);
   const energy = formatEnergy(session.energyDeliveredWh);
   const efficiency = session.vehicle?.efficiencyMiPerKwh ?? 3.5;
   const miles = formatDistance(session.energyDeliveredWh, efficiency, distanceUnit);

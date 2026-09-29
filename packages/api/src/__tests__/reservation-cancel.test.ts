@@ -14,7 +14,7 @@ const {
   updateMock: vi.fn(),
   getReservationSettingsMock: vi.fn(),
   writeReservationAuditMock: vi.fn(async () => undefined),
-  chargeCancellationFeeMock: vi.fn(async () => undefined),
+  chargeCancellationFeeMock: vi.fn(async (): Promise<string | null> => 'USD'),
 }));
 
 vi.mock('@evtivity/database', () => ({
@@ -75,7 +75,12 @@ describe('applyReservationCancellation', () => {
   it('returns cancelled=false when the conditional UPDATE matches no row (already terminal / lost race)', async () => {
     executeMock.mockResolvedValueOnce([]); // no winning row
     const result = await applyReservationCancellation(baseInput());
-    expect(result).toEqual({ feeChargedCents: 0, cancelled: false, feeChargeFailed: false });
+    expect(result).toEqual({
+      feeChargedCents: 0,
+      cancelled: false,
+      feeChargeFailed: false,
+      feeCurrency: null,
+    });
     expect(writeReservationAuditMock).not.toHaveBeenCalled();
     expect(chargeCancellationFeeMock).not.toHaveBeenCalled();
   });
@@ -87,7 +92,12 @@ describe('applyReservationCancellation', () => {
       baseInput({ startsAt: new Date(Date.now() + 60 * 60_000), note: 'changed plans' }),
     );
 
-    expect(result).toEqual({ feeChargedCents: 0, cancelled: true, feeChargeFailed: false });
+    expect(result).toEqual({
+      feeChargedCents: 0,
+      cancelled: true,
+      feeChargeFailed: false,
+      feeCurrency: null,
+    });
     expect(writeReservationAuditMock).toHaveBeenCalledWith(
       expect.objectContaining({
         reservationId: 'rsv_1',
@@ -145,6 +155,7 @@ describe('applyReservationCancellation', () => {
 
   it('charges the fee inside the window and persists the actual amount', async () => {
     executeMock.mockResolvedValueOnce([{ id: 'rsv_1', status_before: 'active' }]);
+    chargeCancellationFeeMock.mockResolvedValueOnce('EUR');
     const updateChain = makeUpdateChain();
     updateMock.mockReturnValue(updateChain);
 
@@ -153,11 +164,35 @@ describe('applyReservationCancellation', () => {
     );
 
     expect(chargeCancellationFeeMock).toHaveBeenCalledWith('drv_1', 'sit_1', 500, 'rsv_1');
-    expect(result).toEqual({ feeChargedCents: 500, cancelled: true, feeChargeFailed: false });
+    expect(result).toEqual({
+      feeChargedCents: 500,
+      cancelled: true,
+      feeChargeFailed: false,
+      feeCurrency: 'EUR',
+    });
     // The follow-up UPDATE writes the captured amount.
     expect(updateChain.set).toHaveBeenCalledWith(
       expect.objectContaining({ cancellationFeeCents: 500 }),
     );
+  });
+
+  it('reports no fee when the charge is skipped for lack of a payment method', async () => {
+    executeMock.mockResolvedValueOnce([{ id: 'rsv_1', status_before: 'active' }]);
+    chargeCancellationFeeMock.mockResolvedValueOnce(null);
+    const updateChain = makeUpdateChain();
+    updateMock.mockReturnValue(updateChain);
+
+    const result = await applyReservationCancellation(
+      baseInput({ startsAt: new Date(Date.now() + 5 * 60_000) }),
+    );
+
+    expect(result).toEqual({
+      feeChargedCents: 0,
+      cancelled: true,
+      feeChargeFailed: false,
+      feeCurrency: null,
+    });
+    expect(updateChain.set).not.toHaveBeenCalled();
   });
 
   it('surfaces feeChargeFailed=true and logs when the Stripe charge throws', async () => {
@@ -172,7 +207,12 @@ describe('applyReservationCancellation', () => {
       }),
     );
 
-    expect(result).toEqual({ feeChargedCents: 0, cancelled: true, feeChargeFailed: true });
+    expect(result).toEqual({
+      feeChargedCents: 0,
+      cancelled: true,
+      feeChargeFailed: true,
+      feeCurrency: null,
+    });
     expect(errorLog).toHaveBeenCalledWith(
       expect.objectContaining({ reservationId: 'rsv_1', plannedFeeCents: 500 }),
       'cancellation fee charge failed',

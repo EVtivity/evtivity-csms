@@ -10,9 +10,11 @@ import {
   chargingStations,
   transactionEventTypeEnum,
   sessionStatusEnum,
+  getCompanyCurrency,
 } from '@evtivity/database';
 import * as transactionService from '../services/transaction.service.js';
 import { zodSchema } from '../lib/zod-schema.js';
+import { resolveSessionCurrency } from '../lib/company-currency.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import {
@@ -77,7 +79,7 @@ const transactionSessionItem = z
     reservationId: z.string().nullable().describe('Reservation ID linked to the session'),
     currentCostCents: z.number().int().min(0).nullable().describe('Running cost in cents'),
     finalCostCents: z.number().int().min(0).nullable().describe('Final cost in cents'),
-    currency: z.string().length(3).nullable().describe('Currency code (ISO 4217)'),
+    currency: z.string().length(3).describe('ISO 4217 currency the session is billed in'),
     tariffId: z.string().nullable().describe('Tariff ID applied to the session'),
     tariffPricePerKwh: z.string().nullable().describe('Tariff energy price snapshot'),
     tariffPricePerMinute: z.string().nullable().describe('Tariff time price snapshot'),
@@ -216,7 +218,10 @@ export function transactionRoutes(app: FastifyInstance): void {
         }
       }
 
-      return session;
+      return {
+        ...session,
+        currency: resolveSessionCurrency(session.currency, await getCompanyCurrency()),
+      };
     },
   );
 }

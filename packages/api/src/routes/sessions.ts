@@ -4,7 +4,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, and, or, ilike, desc, sql, isNotNull, inArray } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, getCompanyCurrency } from '@evtivity/database';
 import {
   chargingSessions,
   chargingStations,
@@ -21,6 +21,7 @@ import {
   sessionStatusEnum,
 } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
+import { sessionCurrencySql } from '../lib/company-currency.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -75,7 +76,7 @@ const sessionListItem = z
       .min(0)
       .nullable()
       .describe('Final cost in cents (completed sessions)'),
-    currency: z.string().length(3).nullable().describe('ISO 4217 currency code'),
+    currency: z.string().length(3).describe('ISO 4217 currency the session is billed in'),
     freeVend: z.boolean().describe('True when site free vend mode bypassed payment'),
     isGuestSession: z
       .boolean()
@@ -173,7 +174,7 @@ const sessionDetail = z
       .min(0)
       .nullable()
       .describe('Final cost in cents (completed sessions)'),
-    currency: z.string().length(3).nullable().describe('ISO 4217 currency code'),
+    currency: z.string().length(3).describe('ISO 4217 currency the session is billed in'),
     stoppedReason: z
       .string()
       .max(100)
@@ -355,6 +356,7 @@ export function sessionRoutes(app: FastifyInstance): void {
         }
       }
 
+      const companyCurrency = await getCompanyCurrency();
       const where = conditions.length > 0 ? and(...conditions) : undefined;
 
       // Single query with count(*) OVER() window function to get total alongside data,
@@ -379,7 +381,7 @@ export function sessionRoutes(app: FastifyInstance): void {
           electricityCostCents: chargingSessions.electricityCostCents,
           currentCostCents: chargingSessions.currentCostCents,
           finalCostCents: chargingSessions.finalCostCents,
-          currency: chargingSessions.currency,
+          currency: sessionCurrencySql(companyCurrency),
           freeVend: chargingSessions.freeVend,
           guestSessionToken: guestSessions.sessionToken,
           createdAt: chargingSessions.createdAt,
@@ -425,6 +427,7 @@ export function sessionRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      const companyCurrency = await getCompanyCurrency();
       const { id } = request.params as z.infer<typeof sessionParams>;
 
       const [row] = await db
@@ -448,7 +451,7 @@ export function sessionRoutes(app: FastifyInstance): void {
           electricityCostCents: chargingSessions.electricityCostCents,
           currentCostCents: chargingSessions.currentCostCents,
           finalCostCents: chargingSessions.finalCostCents,
-          currency: chargingSessions.currency,
+          currency: sessionCurrencySql(companyCurrency),
           stoppedReason: chargingSessions.stoppedReason,
           reservationId: chargingSessions.reservationId,
           freeVend: chargingSessions.freeVend,

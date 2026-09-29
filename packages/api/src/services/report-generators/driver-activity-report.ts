@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql, and, gte, lte, eq, count } from 'drizzle-orm';
-import { db, chargingSessions, drivers } from '@evtivity/database';
+import { db, chargingSessions, drivers, getCompanyCurrency } from '@evtivity/database';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
+import { formatCurrencyAmount } from '@evtivity/lib';
+import { inCompanyCurrency } from '../../lib/company-currency.js';
 import type { ReportGeneratorResult } from '../report.service.js';
 
 interface Filters {
@@ -44,7 +46,7 @@ interface DriverActivity {
   lastSession: string | null;
 }
 
-async function queryDriverActivity(filters: Filters): Promise<DriverActivity[]> {
+async function queryDriverActivity(filters: Filters, currency: string): Promise<DriverActivity[]> {
   const conditions = [
     ...buildDateConditions(filters),
     sql`${chargingSessions.driverId} IS NOT NULL`,
@@ -57,7 +59,7 @@ async function queryDriverActivity(filters: Filters): Promise<DriverActivity[]> 
       driverEmail: sql<string>`coalesce(${drivers.email}, '')`,
       sessionCount: count(),
       totalKwh: sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric / 1000), 0)`,
-      totalSpendCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
+      totalSpendCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where ${inCompanyCurrency(chargingSessions.currency, currency)}), 0)`,
       avgDurationMinutes: sql<number>`coalesce(avg(extract(epoch from (coalesce(${chargingSessions.endedAt}, now()) - ${chargingSessions.startedAt})) / 60), 0)`,
       firstSession: sql<string>`min(${chargingSessions.startedAt})::text`,
       lastSession: sql<string>`max(${chargingSessions.startedAt})::text`,
@@ -81,16 +83,13 @@ async function queryDriverActivity(filters: Filters): Promise<DriverActivity[]> 
   }));
 }
 
-function formatCents(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
 export async function generateDriverActivityReport(
   rawFilters: Record<string, unknown>,
   format: string,
 ): Promise<ReportGeneratorResult> {
   const filters = parseFilters(rawFilters);
-  const driverActivity = await queryDriverActivity(filters);
+  const currency = await getCompanyCurrency();
+  const driverActivity = await queryDriverActivity(filters, currency);
 
   const dateLabel = [filters.dateFrom, filters.dateTo].filter(Boolean).join(' to ') || 'All time';
   const totalDrivers = driverActivity.length;
@@ -103,7 +102,7 @@ export async function generateDriverActivityReport(
       'Email',
       'Sessions',
       'Total kWh',
-      'Total Spend ($)',
+      'Total Spend',
       'Avg Duration (min)',
       'First Session',
       'Last Session',
@@ -113,7 +112,7 @@ export async function generateDriverActivityReport(
       d.driverEmail,
       d.sessionCount,
       parseFloat(String(d.totalKwh)).toFixed(2),
-      formatCents(d.totalSpendCents),
+      formatCurrencyAmount(d.totalSpendCents, currency),
       d.avgDurationMinutes,
       d.firstSession,
       d.lastSession,
@@ -133,7 +132,7 @@ export async function generateDriverActivityReport(
           'Email',
           'Sessions',
           'Total kWh',
-          'Total Spend ($)',
+          'Total Spend',
           'Avg Duration (min)',
           'First Session',
           'Last Session',
@@ -143,7 +142,7 @@ export async function generateDriverActivityReport(
           d.driverEmail,
           d.sessionCount,
           parseFloat(String(d.totalKwh)).toFixed(2),
-          formatCents(d.totalSpendCents),
+          formatCurrencyAmount(d.totalSpendCents, currency),
           d.avgDurationMinutes,
           d.firstSession,
           d.lastSession,
@@ -169,7 +168,7 @@ export async function generateDriverActivityReport(
         d.driverEmail,
         d.sessionCount,
         parseFloat(String(d.totalKwh)).toFixed(1),
-        formatCents(d.totalSpendCents),
+        formatCurrencyAmount(d.totalSpendCents, currency),
         `${String(d.avgDurationMinutes)}m`,
       ]),
   );

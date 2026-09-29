@@ -62,6 +62,7 @@ vi.mock('@evtivity/database', () => ({
   authorizeAttempts: {},
   isRoamingEnabled: isRoamingEnabledMock,
   isSiteFreeVendEnabledByStation: isSiteFreeVendEnabledByStationMock,
+  getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -335,7 +336,6 @@ describe('v2_1 Authorize handler', () => {
     executeFn.mockResolvedValue([
       {
         id: 'trf_1',
-        currency: 'USD',
         price_per_kwh: '0.25',
         price_per_minute: '0.15',
         price_per_session: '2.00',
@@ -366,7 +366,6 @@ describe('v2_1 Authorize handler', () => {
     executeFn.mockResolvedValue([
       {
         id: 'trf_2',
-        currency: 'EUR',
         price_per_kwh: '0.30',
         price_per_minute: null,
         price_per_session: '0',
@@ -379,9 +378,10 @@ describe('v2_1 Authorize handler', () => {
     const { ctx } = makeCtx({ idToken: { idToken: 'tariff-min', type: 'ISO14443' } });
     const response = await handleAuthorize(ctx);
 
+    // Tariffs carry no currency; the station receives the company currency.
     expect(response['tariff']).toEqual({
       tariffId: 'trf_2',
-      currency: 'EUR',
+      currency: 'USD',
       energy: { prices: [{ priceKwh: 0.3 }] },
     });
   });
@@ -394,7 +394,6 @@ describe('v2_1 Authorize handler', () => {
     executeFn.mockResolvedValue([
       {
         id: 'trf_nt',
-        currency: 'USD',
         price_per_kwh: '0.25',
         price_per_minute: '0.15',
         price_per_session: '2.00',
@@ -425,7 +424,6 @@ describe('v2_1 Authorize handler', () => {
     executeFn.mockResolvedValue([
       {
         id: 'trf_3',
-        currency: 'USD',
         price_per_kwh: '0.40',
         price_per_minute: null,
         price_per_session: null,

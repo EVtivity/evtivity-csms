@@ -31,6 +31,7 @@ import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/timezone';
+import { formatCents } from '@/lib/formatting';
 import { reservationStatusVariant } from '@/lib/status-variants';
 
 function getStatusLabel(status: string, t: (key: string) => string): string {
@@ -181,17 +182,20 @@ export function ReservationDetailsTab({
 
   // Cancellation policy is system-wide. Reuse the public /portal/features
   // endpoint (no auth) so the cancel dialog can warn about the configured fee.
+  // `currency` is the currency the cancellation fee is charged in.
   const policyQuery = useQuery({
     queryKey: ['reservation-cancellation-policy'],
     queryFn: () =>
       api.get<{
         reservationCancellationFeeCents: number;
         reservationCancellationWindowMinutes: number;
+        currency: string;
       }>('/v1/portal/features'),
     staleTime: 5 * 60_000,
   });
   const policyFeeCents = policyQuery.data?.reservationCancellationFeeCents ?? 0;
   const policyWindowMinutes = policyQuery.data?.reservationCancellationWindowMinutes ?? 0;
+  const feeCurrency = policyQuery.data?.currency;
   const policyActive = policyFeeCents > 0 && policyWindowMinutes > 0;
 
   const reassignMutation = useMutation({
@@ -525,22 +529,22 @@ export function ReservationDetailsTab({
                       <dd className="font-medium whitespace-pre-wrap">{reservation.cancelNote}</dd>
                     </div>
                   )}
-                  {reservation.cancellationFeeCents > 0 && (
+                  {reservation.cancellationFeeCents > 0 && feeCurrency != null && (
                     <div>
                       <dt className="text-muted-foreground">{t('reservations.cancellationFee')}</dt>
                       <dd className="font-medium">
-                        ${(reservation.cancellationFeeCents / 100).toFixed(2)}
+                        {formatCents(reservation.cancellationFeeCents, feeCurrency)}
                       </dd>
                     </div>
                   )}
                 </>
               )}
-              {policyActive && reservation.status !== 'cancelled' && (
+              {policyActive && feeCurrency != null && reservation.status !== 'cancelled' && (
                 <div className="md:col-span-2">
                   <dt className="text-muted-foreground">{t('reservations.cancellationPolicy')}</dt>
                   <dd className="font-medium">
                     {t('reservations.cancellationPolicyText', {
-                      fee: `$${(policyFeeCents / 100).toFixed(2)}`,
+                      fee: formatCents(policyFeeCents, feeCurrency),
                       minutes: policyWindowMinutes,
                     })}
                   </dd>
@@ -570,7 +574,7 @@ export function ReservationDetailsTab({
         }}
       >
         <div className="grid gap-3">
-          {policyActive && (
+          {policyActive && feeCurrency != null && (
             <label className="flex items-start gap-2 text-sm">
               <Checkbox
                 checked={cancelChargeFee}
@@ -580,7 +584,7 @@ export function ReservationDetailsTab({
               />
               <span>
                 {t('reservations.chargeCancellationFeeLabel', {
-                  fee: `$${(policyFeeCents / 100).toFixed(2)}`,
+                  fee: formatCents(policyFeeCents, feeCurrency),
                 })}
               </span>
             </label>

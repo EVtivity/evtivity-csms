@@ -474,8 +474,8 @@
     },
     {
       "type": "timeseries",
-      "title": "Revenue Δ over 1h per currency (warning)",
-      "description": "biz-revenue-stalled: revenue added over the last hour per currency, in major units. The alert fires when no currency gained revenue for 2h.",
+      "title": "Revenue Δ over 1h (warning)",
+      "description": "biz-revenue-stalled: revenue added over the last hour, in the company currency's major units. The alert fires when revenue stays flat for 2h.",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 36 },
       "id": 306,
       "datasource": { "type": "prometheus", "uid": "prometheus" },

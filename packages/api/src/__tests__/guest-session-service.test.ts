@@ -71,6 +71,7 @@ vi.mock('@evtivity/database', () => ({
     insert: vi.fn(() => makeChain()),
   },
   client: {},
+  getCompanyCurrency: vi.fn().mockResolvedValue('EUR'),
   guestSessions: {
     sessionToken: 'sessionToken',
     status: 'status',
@@ -102,6 +103,7 @@ vi.mock('@evtivity/database', () => ({
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
   and: vi.fn(),
+  sql: vi.fn(() => ({})),
 }));
 
 vi.mock('../services/stripe.service.js', () => ({
@@ -132,6 +134,7 @@ vi.mock('../lib/template-dirs.js', () => ({
 
 // -- Import under test (after mocks) --
 
+import { db } from '@evtivity/database';
 import { handleGuestSessionEvent } from '../services/guest-session.service.js';
 
 // -- Helpers --
@@ -230,12 +233,13 @@ describe('guest-session.service', () => {
       );
     });
 
-    it('creates a pre-authorized payment record when the guest has a Stripe intent', async () => {
+    it('stamps the payment record with the linked session currency', async () => {
       mockGetStripeConfig.mockResolvedValueOnce({ configId: 7, currency: 'EUR' });
       // 1: find guest (has stripePaymentIntentId)
       // 2: update guest session
       // 3: find station siteId
-      // 4: insert payment record
+      // 4: linked charging session currency
+      // 5: insert payment record
       setupDbResults(
         [
           {
@@ -249,6 +253,7 @@ describe('guest-session.service', () => {
         ],
         [],
         [{ siteId: 'site-1' }],
+        [{ currency: 'GBP' }],
         [],
       );
 
@@ -260,18 +265,25 @@ describe('guest-session.service', () => {
       await tick();
 
       expect(mockGetStripeConfig).toHaveBeenCalledWith('site-1');
+      const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+        values: ReturnType<typeof vi.fn>;
+      };
+      expect(insertChain.values).toHaveBeenCalledWith(
+        expect.objectContaining({ sitePaymentConfigId: 7, currency: 'GBP' }),
+      );
       expect(mockLogger.info).toHaveBeenCalledWith(
         { guestSessionId: 'guest-1', chargingSessionId: 'session-1' },
         'Linked guest session to charging session',
       );
     });
 
-    it('defaults the payment record config to null/USD when no station/site found', async () => {
+    it('defaults the payment record to no config and the company currency when no station/site found', async () => {
       mockGetStripeConfig.mockResolvedValueOnce(null);
       // 1: find guest (has intent)
       // 2: update guest session
       // 3: find station -> empty (no siteId)
-      // 4: insert payment record (config null -> currency USD)
+      // 4: linked charging session -> missing, so the company currency applies
+      // 5: insert payment record
       setupDbResults(
         [
           {
@@ -286,6 +298,7 @@ describe('guest-session.service', () => {
         [],
         [],
         [],
+        [],
       );
 
       await fireEvent({
@@ -296,6 +309,12 @@ describe('guest-session.service', () => {
       await tick();
 
       expect(mockGetStripeConfig).toHaveBeenCalledWith(null);
+      const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+        values: ReturnType<typeof vi.fn>;
+      };
+      expect(insertChain.values).toHaveBeenCalledWith(
+        expect.objectContaining({ sitePaymentConfigId: null, currency: 'EUR' }),
+      );
       expect(mockLogger.info).toHaveBeenCalledWith(
         { guestSessionId: 'guest-2', chargingSessionId: 'session-2' },
         'Linked guest session to charging session',

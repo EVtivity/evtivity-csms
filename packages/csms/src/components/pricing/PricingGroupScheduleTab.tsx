@@ -14,6 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { api } from '@/lib/api';
+import { useCompanyCurrency } from '@/hooks/use-company-currency';
 import { LoadingLogo } from '@/components/loading-logo';
 
 interface TariffRestrictions {
@@ -27,7 +28,6 @@ interface TariffRestrictions {
 interface ScheduleItem {
   id: string;
   name: string;
-  currency: string;
   pricePerKwh: string | null;
   pricePerMinute: string | null;
   pricePerSession: string | null;
@@ -47,6 +47,7 @@ export function PricingGroupScheduleTab({
   groupId,
 }: PricingGroupScheduleTabProps): React.JSX.Element {
   const { t } = useTranslation();
+  const { currency } = useCompanyCurrency();
 
   const dayLabels = [
     t('pricing.sunday'),
@@ -87,7 +88,10 @@ export function PricingGroupScheduleTab({
 
   function formatCompactRates(item: ScheduleItem): string {
     const parts: string[] = [];
-    if (item.pricePerKwh != null) parts.push(`${item.currency} ${item.pricePerKwh}/kWh`);
+    if (item.pricePerKwh != null) {
+      const prefix = currency != null ? `${currency} ` : '';
+      parts.push(`${prefix}${item.pricePerKwh}/kWh`);
+    }
     if (item.pricePerMinute != null) parts.push(`${item.pricePerMinute}/min`);
     if (item.pricePerSession != null) parts.push(`${item.pricePerSession}/session`);
     return parts.length > 0 ? parts.join(' + ') : t('pricing.free');

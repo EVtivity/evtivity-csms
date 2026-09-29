@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 import Stripe from 'stripe';
 import { eq, inArray } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, getCompanyCurrency } from '@evtivity/database';
 import { sitePaymentConfigs, settings } from '@evtivity/database';
 import { decryptString } from '@evtivity/lib';
 import { config as apiConfig } from '../lib/config.js';
@@ -47,14 +47,12 @@ function createStripeInstance(secretKey: string): Stripe {
 async function getPlatformStripeSettings(): Promise<{
   secretKeyEnc: string;
   publishableKey: string;
-  currency: string;
   preAuthAmountCents: number;
   platformFeePercent: number;
 } | null> {
   const keys = [
     'stripe.secretKeyEnc',
     'stripe.publishableKey',
-    'stripe.currency',
     'stripe.preAuthAmountCents',
     'stripe.platformFeePercent',
   ];
@@ -84,7 +82,6 @@ async function getPlatformStripeSettings(): Promise<{
   return {
     secretKeyEnc,
     publishableKey,
-    currency: (settingsMap.get('stripe.currency') as string | undefined) ?? 'USD',
     preAuthAmountCents:
       (settingsMap.get('stripe.preAuthAmountCents') as number | undefined) ?? 5000,
     platformFeePercent: Number(settingsMap.get('stripe.platformFeePercent') ?? 0),
@@ -95,7 +92,8 @@ export async function getStripeConfig(siteId: string | null): Promise<StripeConf
   const cacheKey = siteId ?? 'platform';
   const cached = instanceCache.get(cacheKey);
   if (cached != null && cached.expiresAt > Date.now()) {
-    return cached.config;
+    // The currency is read live so a company currency change applies at once.
+    return { ...cached.config, currency: await getCompanyCurrency() };
   }
 
   const platformSettings = await getPlatformStripeSettings();
@@ -106,7 +104,7 @@ export async function getStripeConfig(siteId: string | null): Promise<StripeConf
   const stripe = createStripeInstance(secretKey);
 
   let connectedAccountId: string | null = null;
-  let currency = platformSettings.currency;
+  const currency = await getCompanyCurrency();
   let preAuthAmountCents = platformSettings.preAuthAmountCents;
   let configId: number | null = null;
   let sitePlatformFeePercent: number | null = null;
@@ -119,7 +117,6 @@ export async function getStripeConfig(siteId: string | null): Promise<StripeConf
 
     if (siteConfig != null && siteConfig.isEnabled) {
       connectedAccountId = siteConfig.stripeConnectedAccountId ?? null;
-      currency = siteConfig.currency;
       preAuthAmountCents = siteConfig.preAuthAmountCents;
       configId = siteConfig.id;
       if (siteConfig.platformFeePercent != null) {

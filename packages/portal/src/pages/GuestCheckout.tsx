@@ -240,11 +240,13 @@ function CheckoutForm({
           />
         </div>
       </div>
-      <p className="text-xs text-muted-foreground">
-        {t('guest.preAuthHold', {
-          amount: formatCents(config.preAuthAmountCents, config.currency),
-        })}
-      </p>
+      {config.currency != null && (
+        <p className="text-xs text-muted-foreground">
+          {t('guest.preAuthHold', {
+            amount: formatCents(config.preAuthAmountCents, config.currency),
+          })}
+        </p>
+      )}
       <Button type="submit" className="w-full" size="lg" disabled={loading || isCheckingStatus}>
         {isCheckingStatus
           ? t('charger.checkingStatus')

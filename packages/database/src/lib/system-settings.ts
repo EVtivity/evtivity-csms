@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { eq } from 'drizzle-orm';
+import { DEFAULT_CURRENCY, isSupportedCurrency } from '@evtivity/lib';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
 
 const DEFAULT_TIMEZONE = 'America/New_York';
-const DEFAULT_CURRENCY = 'USD';
 const TTL_MS = 60_000;
 
 let cachedTimezone: string | undefined;
@@ -41,10 +41,9 @@ export async function getSystemTimezone(): Promise<string> {
 }
 
 /**
- * Cached reader for the `company.currency` setting, the operator's reporting
- * currency. Financial aggregates attribute sessions without a tariff currency
- * to it, and list it first. Falls back to USD when unset, malformed, or on
- * error.
+ * Cached reader for the `company.currency` setting: the one currency the
+ * platform bills and reports in. Falls back to DEFAULT_CURRENCY when the
+ * setting is unset or not a supported two-decimal currency, and on error.
  */
 export async function getCompanyCurrency(): Promise<string> {
   const now = Date.now();
@@ -58,10 +57,8 @@ export async function getCompanyCurrency(): Promise<string> {
       .from(settings)
       .where(eq(settings.key, 'company.currency'));
 
-    cachedCurrency =
-      typeof row?.value === 'string' && /^[A-Za-z]{3}$/.test(row.value)
-        ? row.value.toUpperCase()
-        : DEFAULT_CURRENCY;
+    const code = typeof row?.value === 'string' ? row.value.toUpperCase() : null;
+    cachedCurrency = isSupportedCurrency(code) ? code : DEFAULT_CURRENCY;
     cachedCurrencyAt = now;
     return cachedCurrency;
   } catch {

@@ -141,7 +141,6 @@ export const ocpiTariffMappings = pgTable(
       .references(() => tariffs.id, { onDelete: 'cascade' }),
     partnerId: text('partner_id').references(() => ocpiPartners.id, { onDelete: 'cascade' }),
     ocpiTariffId: varchar('ocpi_tariff_id', { length: 36 }).notNull(),
-    currency: varchar('currency', { length: 3 }).notNull(),
     ocpiTariffData: jsonb('ocpi_tariff_data').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

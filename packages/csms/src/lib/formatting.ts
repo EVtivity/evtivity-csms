@@ -6,16 +6,29 @@
  * All display formatting functions used across multiple pages and components.
  */
 
+import { formatCurrencyAmount } from '@evtivity/lib/currency';
+
 /**
- * Format cents to a localized currency string using Intl.NumberFormat.
- * Returns 'n/a' for null/undefined values.
+ * Format cents in the ISO 4217 currency the amount is denominated in.
+ * Returns 'n/a' for null/undefined values and "CODE 12.34" for an invalid code.
  */
-export function formatCents(cents: number | null | undefined, currency = 'USD'): string {
+export function formatCents(cents: number | null | undefined, currency: string): string {
   if (cents == null) return 'n/a';
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-  }).format(cents / 100);
+  return formatCurrencyAmount(cents, currency);
+}
+
+/** Format an electricity rate, in major currency units per kWh, with four decimals. */
+export function formatRatePerKwh(rate: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 4,
+      maximumFractionDigits: 4,
+    }).format(rate);
+  } catch {
+    return `${currency.toUpperCase()} ${rate.toFixed(4)}`;
+  }
 }
 
 /**

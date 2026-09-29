@@ -45,7 +45,6 @@ const sitePaymentConfigItem = z
       .max(255)
       .nullable()
       .describe('Stripe Connect account ID for the site, if using a connected account'),
-    currency: z.string().length(3).describe('ISO 4217 currency code'),
     preAuthAmountCents: z.number().int().min(0).describe('Pre-authorization hold amount in cents'),
     platformFeePercent: z
       .string()
@@ -69,7 +68,6 @@ const stripeSettingsResponse = z
       .string()
       .nullable()
       .describe('Stripe secret API key (decrypted from storage; null when unset)'),
-    currency: z.unknown().describe('Default ISO 4217 currency code'),
     preAuthAmountCents: z.unknown().describe('Default pre-authorization amount in cents'),
     platformFeePercent: z
       .number()
@@ -270,7 +268,6 @@ function getEncryptionKey(): string {
 
 const upsertSitePaymentConfigBody = z.object({
   stripeConnectedAccountId: z.string().max(255).optional(),
-  currency: z.string().length(3).default('USD').describe('ISO 4217 currency code'),
   preAuthAmountCents: z
     .number()
     .int()
@@ -331,7 +328,6 @@ const refundBody = z.object({
 const updateStripeSettingsBody = z.object({
   secretKey: z.string().min(1).optional().describe('Stripe secret API key (stored encrypted)'),
   publishableKey: z.string().min(1).optional().describe('Stripe publishable API key'),
-  currency: z.string().length(3).optional().describe('Default ISO 4217 currency code'),
   preAuthAmountCents: z
     .number()
     .int()
@@ -383,7 +379,6 @@ export function paymentRoutes(app: FastifyInstance): void {
           id: sitePaymentConfigs.id,
           siteId: sitePaymentConfigs.siteId,
           stripeConnectedAccountId: sitePaymentConfigs.stripeConnectedAccountId,
-          currency: sitePaymentConfigs.currency,
           preAuthAmountCents: sitePaymentConfigs.preAuthAmountCents,
           platformFeePercent: sitePaymentConfigs.platformFeePercent,
           isEnabled: sitePaymentConfigs.isEnabled,
@@ -479,7 +474,6 @@ export function paymentRoutes(app: FastifyInstance): void {
           .update(sitePaymentConfigs)
           .set({
             stripeConnectedAccountId: body.stripeConnectedAccountId ?? null,
-            currency: body.currency,
             preAuthAmountCents: body.preAuthAmountCents,
             platformFeePercent:
               body.platformFeePercent != null ? String(body.platformFeePercent) : null,
@@ -500,7 +494,6 @@ export function paymentRoutes(app: FastifyInstance): void {
           .values({
             siteId: id,
             stripeConnectedAccountId: body.stripeConnectedAccountId ?? null,
-            currency: body.currency,
             preAuthAmountCents: body.preAuthAmountCents,
             platformFeePercent:
               body.platformFeePercent != null ? String(body.platformFeePercent) : null,
@@ -624,7 +617,6 @@ export function paymentRoutes(app: FastifyInstance): void {
       return {
         publishableKey: map.get('stripe.publishableKey') ?? null,
         secretKey,
-        currency: map.get('stripe.currency') ?? 'USD',
         preAuthAmountCents: map.get('stripe.preAuthAmountCents') ?? 5000,
         platformFeePercent: Number(map.get('stripe.platformFeePercent') ?? 0),
       };
@@ -658,9 +650,6 @@ export function paymentRoutes(app: FastifyInstance): void {
       }
       if (body.publishableKey != null) {
         pairs.push({ key: 'stripe.publishableKey', value: body.publishableKey });
-      }
-      if (body.currency != null) {
-        pairs.push({ key: 'stripe.currency', value: body.currency });
       }
       if (body.preAuthAmountCents != null) {
         pairs.push({ key: 'stripe.preAuthAmountCents', value: body.preAuthAmountCents });

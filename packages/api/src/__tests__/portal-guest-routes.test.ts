@@ -50,6 +50,7 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', () => ({
+  getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -136,7 +137,7 @@ vi.mock('../services/maintenance.service.js', () => ({
 import { registerAuth } from '../plugins/auth.js';
 import { portalGuestRoutes } from '../routes/portal/guest.js';
 import { getStripeConfig } from '../services/stripe.service.js';
-import { isTariffFree } from '../services/tariff.service.js';
+import { isTariffFree, resolveTariff } from '../services/tariff.service.js';
 import { isEvseInReservationBuffer } from '../lib/reservation-buffer.js';
 import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../lib/ocpp-command.js';
 import { db } from '@evtivity/database';
@@ -214,7 +215,7 @@ describe('Portal guest routes - handler logic', () => {
       vi.mocked(getStripeConfig).mockResolvedValue({
         stripe: {} as never,
         publishableKey: 'pk_test_abc',
-        currency: 'USD',
+        currency: 'EUR',
         preAuthAmountCents: 5000,
         configId: 1,
         connectedAccountId: null,
@@ -229,8 +230,38 @@ describe('Portal guest routes - handler logic', () => {
       const body = response.json();
       expect(body.paymentEnabled).toBe(true);
       expect(body.publishableKey).toBe('pk_test_abc');
-      expect(body.currency).toBe('USD');
+      expect(body.currency).toBe('EUR');
       expect(body.preAuthAmountCents).toBe(5000);
+    });
+
+    it('returns tariff pricing in the company currency', async () => {
+      setupDbResults(
+        [{ id: 'sta_000000000001', siteId: null, freeVendEnabled: false }],
+        [{ id: 'evs_000000000001' }],
+      );
+      vi.mocked(isTariffFree).mockReturnValue(false);
+      vi.mocked(resolveTariff).mockResolvedValueOnce({
+        id: 'tar_001',
+        name: 'Standard',
+        pricePerKwh: '0.25',
+        pricePerMinute: null,
+        pricePerSession: null,
+        idleFeePricePerMinute: null,
+        reservationFeePerMinute: null,
+        taxRate: null,
+        restrictions: null,
+        priority: 0,
+        isDefault: true,
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/guest/charger-config/CS-001/1',
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().pricing).toEqual(
+        expect.objectContaining({ currency: 'EUR', pricePerKwh: '0.25' }),
+      );
     });
   });
 

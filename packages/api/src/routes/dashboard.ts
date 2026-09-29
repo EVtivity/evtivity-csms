@@ -16,18 +16,11 @@ import {
 } from '@evtivity/database';
 import { ValidationError } from '@evtivity/lib';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
+import { inCompanyCurrency } from '../lib/company-currency.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { dateRangeQuery, parseDateRange, parseCalendarDate } from '../lib/date-range.js';
-import {
-  currencyCode,
-  currencyTotals,
-  dailyRevenueItem,
-  groupDailyRevenue,
-  orderByCurrency,
-  sessionCurrencySql,
-} from '../lib/currency-totals.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
 
@@ -117,10 +110,15 @@ const peakUsageItem = z
   })
   .passthrough();
 
-const financialCurrencyItem = z
+const financialStatsResponse = z
   .object({
-    currency: currencyCode,
-    totalRevenueCents: z.number().int().min(0).describe('Total revenue in cents'),
+    totalRevenueCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Total revenue in cents. Money fields sum only sessions billed in the company currency.',
+      ),
     todayRevenueCents: z
       .number()
       .int()
@@ -149,16 +147,19 @@ const financialCurrencyItem = z
       .number()
       .int()
       .describe("Today's revenue minus today's electricity cost, in cents (may be negative)"),
+    currency: z.string().length(3).describe('Company currency (ISO 4217) of every amount'),
   })
   .passthrough();
 
-const financialStatsResponse = z
+const revenueHistoryItem = z
   .object({
-    currencies: z
-      .array(financialCurrencyItem)
-      .describe(
-        'Financial totals per currency. Amounts in different currencies are never added together. The company currency comes first when it has activity. Never empty: without activity it holds one zero entry in the company currency.',
-      ),
+    date: z.string().describe('Date in YYYY-MM-DD format (local timezone)'),
+    revenueCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Revenue on this date in cents, from sessions billed in the company currency'),
+    sessionCount: z.number().int().min(0).describe('Number of paid sessions started on this date'),
   })
   .passthrough();
 
@@ -166,25 +167,13 @@ const paymentBreakdownItem = z
   .object({
     status: z.string().max(50).describe('Payment status (captured, refunded, failed, etc.)'),
     count: z.number().int().min(0).describe('Number of payments in this status'),
-    totals: z
-      .array(
-        z
-          .object({
-            currency: currencyCode,
-            count: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Number of payments in this status and currency'),
-            totalCents: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Total captured amount for payments in this status and currency, in cents'),
-          })
-          .passthrough(),
-      )
-      .describe('Captured amounts per currency, company currency first'),
+    totalCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Total captured amount for payments in this status, in cents. Only payments in the company currency are summed.',
+      ),
   })
   .passthrough();
 
@@ -255,85 +244,6 @@ const ocppHealthResponse = z
   })
   .passthrough();
 
-const snapshotRevenueItem = z
-  .object({
-    currency: currencyCode,
-    totalRevenueCents: z
-      .number()
-      .int()
-      .min(0)
-      .describe('Cumulative captured revenue in this currency through this date, in cents'),
-    dayRevenueCents: z
-      .number()
-      .int()
-      .min(0)
-      .describe('Revenue captured in this currency on this date, in cents'),
-    avgRevenueCentsPerSession: z
-      .number()
-      .min(0)
-      .describe('Cumulative revenue divided by cumulative sessions in this currency, in cents'),
-    totalElectricityCostCents: z
-      .number()
-      .int()
-      .min(0)
-      .describe('Cumulative electricity cost of sessions in this currency, in cents'),
-    dayElectricityCostCents: z
-      .number()
-      .int()
-      .min(0)
-      .describe('Electricity cost of sessions in this currency started on this date, in cents'),
-  })
-  .passthrough();
-
-const snapshotRevenue = z
-  .array(snapshotRevenueItem)
-  .describe(
-    'Money per currency, company currency first when it has activity. Never empty: without activity it holds one zero entry in the company currency.',
-  );
-
-interface SnapshotRevenueRow {
-  currency: string;
-  total_revenue_cents: string;
-  day_revenue_cents: string;
-  total_sessions: string;
-  total_electricity_cost_cents: string;
-  day_electricity_cost_cents: string;
-}
-
-// `dayCount` divides summed rows into a per-day average for date ranges.
-function snapshotRevenueFrom(
-  rows: SnapshotRevenueRow[],
-  dayCount: number,
-  companyCurrency: string,
-): z.infer<typeof snapshotRevenueItem>[] {
-  const entries = rows.map((r) => {
-    const totalRevenueCents = Number(r.total_revenue_cents) / dayCount;
-    const totalSessions = Number(r.total_sessions) / dayCount;
-    return {
-      currency: r.currency,
-      totalRevenueCents: Math.round(totalRevenueCents),
-      dayRevenueCents: Math.round(Number(r.day_revenue_cents) / dayCount),
-      avgRevenueCentsPerSession:
-        totalSessions > 0 ? Math.round(totalRevenueCents / totalSessions) : 0,
-      totalElectricityCostCents: Math.round(Number(r.total_electricity_cost_cents) / dayCount),
-      dayElectricityCostCents: Math.round(Number(r.day_electricity_cost_cents) / dayCount),
-    };
-  });
-  return currencyTotals(
-    entries,
-    companyCurrency,
-    (e) => e.totalRevenueCents,
-    (currency) => ({
-      currency,
-      totalRevenueCents: 0,
-      dayRevenueCents: 0,
-      avgRevenueCentsPerSession: 0,
-      totalElectricityCostCents: 0,
-      dayElectricityCostCents: 0,
-    }),
-  );
-}
-
 const snapshotItem = z
   .object({
     hasData: z
@@ -366,7 +276,13 @@ const snapshotItem = z
       .int()
       .min(0)
       .describe('Number of stations connected via WebSocket on this date'),
-    revenue: snapshotRevenue,
+    totalRevenueCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Cumulative revenue through this date in cents'),
+    dayRevenueCents: z.number().int().min(0).describe('Revenue earned on this date in cents'),
+    avgRevenueCentsPerSession: z.number().min(0).describe('Average revenue per session in cents'),
     totalTransactions: z
       .number()
       .int()
@@ -448,7 +364,20 @@ const trendResponse = z
               .int()
               .min(0)
               .describe('Number of stations connected via WebSocket on this date'),
-            revenue: snapshotRevenue,
+            totalRevenueCents: z
+              .number()
+              .int()
+              .min(0)
+              .describe('Cumulative revenue through this date in cents'),
+            dayRevenueCents: z
+              .number()
+              .int()
+              .min(0)
+              .describe('Revenue earned on this date in cents'),
+            avgRevenueCentsPerSession: z
+              .number()
+              .min(0)
+              .describe('Average revenue per session in cents'),
             totalTransactions: z
               .number()
               .int()
@@ -913,11 +842,9 @@ export function dashboardRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { userId } = request.user as JwtPayload;
-      const siteIds = await getUserSiteIds(userId);
+      const [siteIds, currency] = await Promise.all([getUserSiteIds(userId), getCompanyCurrency()]);
 
-      const companyCurrency = await getCompanyCurrency();
-      const zeroFinancials = (currency: string) => ({
-        currency,
+      const emptyFinancials = {
         totalRevenueCents: 0,
         todayRevenueCents: 0,
         avgRevenueCentsPerSession: 0,
@@ -926,65 +853,49 @@ export function dashboardRoutes(app: FastifyInstance): void {
         dayElectricityCostCents: 0,
         totalProfitCents: 0,
         dayProfitCents: 0,
-      });
+        currency,
+      };
 
-      if (siteIds != null && siteIds.length === 0) {
-        return { currencies: [zeroFinancials(companyCurrency)] };
-      }
+      if (siteIds != null && siteIds.length === 0) return emptyFinancials;
 
       const tz = await getSystemTimezone();
+      const billed = inCompanyCurrency(chargingSessions.currency, currency);
+      const today = sql`date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz}) = date_trunc('day', now() AT TIME ZONE ${tz})`;
 
       const query = db
         .select({
-          currency: sessionCurrencySql(companyCurrency),
-          totalRevenueCents: sql<string>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
-          todayRevenueCents: sql<string>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz}) = date_trunc('day', now() AT TIME ZONE ${tz})), 0)`,
-          avgRevenueCentsPerSession: sql<string>`coalesce(avg(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
-          totalTransactions: sql<string>`count(*) filter (where coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null)`,
-          totalElectricityCostCents: sql<string>`coalesce(sum(${chargingSessions.electricityCostCents}), 0)`,
-          dayElectricityCostCents: sql<string>`coalesce(sum(${chargingSessions.electricityCostCents}) filter (where date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz}) = date_trunc('day', now() AT TIME ZONE ${tz})), 0)`,
+          totalRevenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where ${billed}), 0)`,
+          todayRevenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where ${billed} and ${today}), 0)`,
+          avgRevenueCentsPerSession: sql<number>`coalesce(avg(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where ${billed}), 0)`,
+          totalTransactions: sql<number>`count(*) filter (where coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null)`,
+          totalElectricityCostCents: sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}) filter (where ${billed}), 0)`,
+          dayElectricityCostCents: sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}) filter (where ${billed} and ${today}), 0)`,
         })
-        .from(chargingSessions)
-        .$dynamic();
+        .from(chargingSessions);
 
-      const rows = await (
-        siteIds != null
-          ? query
-              .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-              .where(inArray(chargingStations.siteId, siteIds))
-          : query
-      ).groupBy(sql`1`);
+      if (siteIds != null) {
+        query
+          .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+          .where(inArray(chargingStations.siteId, siteIds));
+      }
 
-      const currencies = rows
-        .map((r) => {
-          const totalRevenueCents = Number(r.totalRevenueCents);
-          const todayRevenueCents = Number(r.todayRevenueCents);
-          const totalElectricityCostCents = Number(r.totalElectricityCostCents);
-          const dayElectricityCostCents = Number(r.dayElectricityCostCents);
-          return {
-            currency: r.currency,
-            totalRevenueCents,
-            todayRevenueCents,
-            avgRevenueCentsPerSession: Math.round(Number(r.avgRevenueCentsPerSession)),
-            totalTransactions: Number(r.totalTransactions),
-            totalElectricityCostCents,
-            dayElectricityCostCents,
-            totalProfitCents: totalRevenueCents - totalElectricityCostCents,
-            dayProfitCents: todayRevenueCents - dayElectricityCostCents,
-          };
-        })
-        .filter(
-          (c) =>
-            c.totalTransactions > 0 || c.totalRevenueCents > 0 || c.totalElectricityCostCents > 0,
-        );
+      const [stats] = await query;
+
+      const totalRevenueCents = stats?.totalRevenueCents ?? 0;
+      const todayRevenueCents = stats?.todayRevenueCents ?? 0;
+      const totalElectricityCostCents = stats?.totalElectricityCostCents ?? 0;
+      const dayElectricityCostCents = stats?.dayElectricityCostCents ?? 0;
 
       return {
-        currencies: currencyTotals(
-          currencies,
-          companyCurrency,
-          (c) => c.totalRevenueCents,
-          zeroFinancials,
-        ),
+        totalRevenueCents,
+        todayRevenueCents,
+        avgRevenueCentsPerSession: Math.round(stats?.avgRevenueCentsPerSession ?? 0),
+        totalTransactions: stats?.totalTransactions ?? 0,
+        totalElectricityCostCents,
+        dayElectricityCostCents,
+        totalProfitCents: totalRevenueCents - totalElectricityCostCents,
+        dayProfitCents: todayRevenueCents - dayElectricityCostCents,
+        currency,
       };
     },
   );
@@ -1000,7 +911,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(dateRangeQuery),
         response: {
-          200: arrayResponse(dailyRevenueItem),
+          200: arrayResponse(revenueHistoryItem),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
         },
       },
@@ -1015,7 +926,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
         request.query as { days?: string; from?: string; to?: string },
       );
 
-      const [tz, companyCurrency] = await Promise.all([getSystemTimezone(), getCompanyCurrency()]);
+      const [tz, currency] = await Promise.all([getSystemTimezone(), getCompanyCurrency()]);
 
       const conditions = [
         gte(chargingSessions.startedAt, since),
@@ -1029,23 +940,25 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const query = db
         .select({
           date: sql<string>`date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz})::date::text`,
-          currency: sessionCurrencySql(companyCurrency),
-          revenueCents: sql<string>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
+          revenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where ${inCompanyCurrency(chargingSessions.currency, currency)}), 0)`,
           sessionCount: count(),
         })
-        .from(chargingSessions)
-        .$dynamic();
+        .from(chargingSessions);
 
-      const rows = await (
-        siteIds != null
-          ? query.innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-          : query
-      )
+      if (siteIds != null) {
+        query.innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id));
+      }
+
+      const rows = await query
         .where(and(...conditions))
-        .groupBy(sql`1, 2`)
-        .orderBy(sql`1, 2`);
+        .groupBy(sql`1`)
+        .orderBy(sql`1`);
 
-      return groupDailyRevenue(rows, companyCurrency);
+      return rows.map((r) => ({
+        date: r.date,
+        revenueCents: r.revenueCents,
+        sessionCount: r.sessionCount,
+      }));
     },
   );
 
@@ -1064,55 +977,30 @@ export function dashboardRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { userId } = request.user as JwtPayload;
-      const siteIds = await getUserSiteIds(userId);
+      const [siteIds, currency] = await Promise.all([getUserSiteIds(userId), getCompanyCurrency()]);
       if (siteIds != null && siteIds.length === 0) return [];
-
-      const companyCurrency = await getCompanyCurrency();
 
       const query = db
         .select({
           status: paymentRecords.status,
-          currency: sql<string>`upper(${paymentRecords.currency})`,
           count: count(),
-          totalCents: sql<string>`coalesce(sum(${paymentRecords.capturedAmountCents}), 0)`,
+          totalCents: sql<number>`coalesce(sum(${paymentRecords.capturedAmountCents}) filter (where ${inCompanyCurrency(paymentRecords.currency, currency)}), 0)`,
         })
-        .from(paymentRecords)
-        .$dynamic();
+        .from(paymentRecords);
 
-      const rows = await (
-        siteIds != null
-          ? query
-              .innerJoin(chargingSessions, eq(paymentRecords.sessionId, chargingSessions.id))
-              .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-              .where(inArray(chargingStations.siteId, siteIds))
-          : query
-      ).groupBy(sql`1, 2`);
-
-      const byStatus = new Map<
-        string,
-        {
-          status: string;
-          count: number;
-          totals: { currency: string; count: number; totalCents: number }[];
-        }
-      >();
-      for (const r of rows) {
-        let entry = byStatus.get(r.status);
-        if (entry == null) {
-          entry = { status: r.status, count: 0, totals: [] };
-          byStatus.set(r.status, entry);
-        }
-        entry.count += r.count;
-        entry.totals.push({
-          currency: r.currency,
-          count: r.count,
-          totalCents: Number(r.totalCents),
-        });
+      if (siteIds != null) {
+        query
+          .innerJoin(chargingSessions, eq(paymentRecords.sessionId, chargingSessions.id))
+          .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+          .where(inArray(chargingStations.siteId, siteIds));
       }
 
-      return [...byStatus.values()].map((entry) => ({
-        ...entry,
-        totals: orderByCurrency(entry.totals, companyCurrency, (t) => t.totalCents),
+      const rows = await query.groupBy(paymentRecords.status);
+
+      return rows.map((r) => ({
+        status: r.status,
+        count: r.count,
+        totalCents: r.totalCents,
       }));
     },
   );
@@ -1372,8 +1260,6 @@ export function dashboardRoutes(app: FastifyInstance): void {
 
       if (siteIds != null && siteIds.length === 0) return { days: [] };
 
-      const companyCurrency = await getCompanyCurrency();
-
       const siteFilter =
         siteIds != null
           ? sql`AND site_id IN (${sql.join(
@@ -1381,8 +1267,6 @@ export function dashboardRoutes(app: FastifyInstance): void {
               sql`, `,
             )})`
           : sql``;
-
-      const trendWindow = sql`snapshot_date >= (CURRENT_DATE - interval '14 days')::date`;
 
       const rows = await db.execute(sql`
         SELECT
@@ -1404,6 +1288,12 @@ export function dashboardRoutes(app: FastifyInstance): void {
           COALESCE(SUM(total_sessions), 0) AS total_sessions,
           COALESCE(SUM(day_sessions), 0) AS day_sessions,
           COALESCE(SUM(connected_stations), 0) AS connected_stations,
+          COALESCE(SUM(total_revenue_cents), 0) AS total_revenue_cents,
+          COALESCE(SUM(day_revenue_cents), 0) AS day_revenue_cents,
+          CASE WHEN SUM(total_sessions) > 0
+            THEN SUM(total_revenue_cents) / SUM(total_sessions)
+            ELSE 0
+          END AS avg_revenue_cents_per_session,
           COALESCE(SUM(total_transactions), 0) AS total_transactions,
           COALESCE(SUM(day_transactions), 0) AS day_transactions,
           COALESCE(SUM(total_ports), 0) AS total_ports,
@@ -1417,32 +1307,11 @@ export function dashboardRoutes(app: FastifyInstance): void {
             ELSE 100
           END AS ping_success_rate
         FROM dashboard_snapshots
-        WHERE ${trendWindow}
+        WHERE snapshot_date >= (CURRENT_DATE - interval '14 days')::date
           ${siteFilter}
         GROUP BY snapshot_date
         ORDER BY snapshot_date DESC
       `);
-
-      const revenueRows = await db.execute(sql`
-        SELECT
-          snapshot_date::text AS date,
-          currency,
-          SUM(total_revenue_cents) AS total_revenue_cents,
-          SUM(day_revenue_cents) AS day_revenue_cents,
-          SUM(total_sessions) AS total_sessions,
-          SUM(total_electricity_cost_cents) AS total_electricity_cost_cents,
-          SUM(day_electricity_cost_cents) AS day_electricity_cost_cents
-        FROM dashboard_snapshot_revenue
-        WHERE ${trendWindow}
-          ${siteFilter}
-        GROUP BY snapshot_date, currency
-      `);
-      const revenueByDate = new Map<string, SnapshotRevenueRow[]>();
-      for (const r of revenueRows as unknown as (SnapshotRevenueRow & { date: string })[]) {
-        const list = revenueByDate.get(r.date) ?? [];
-        list.push(r);
-        revenueByDate.set(r.date, list);
-      }
 
       const days = (rows as Array<Record<string, string | boolean>>).map((row) => ({
         date: row.date as string,
@@ -1461,11 +1330,9 @@ export function dashboardRoutes(app: FastifyInstance): void {
         totalSessions: Number(row.total_sessions),
         daySessions: Number(row.day_sessions),
         connectedStations: Number(row.connected_stations),
-        revenue: snapshotRevenueFrom(
-          revenueByDate.get(row.date as string) ?? [],
-          1,
-          companyCurrency,
-        ),
+        totalRevenueCents: Number(row.total_revenue_cents),
+        dayRevenueCents: Number(row.day_revenue_cents),
+        avgRevenueCentsPerSession: Number(row.avg_revenue_cents_per_session),
         totalTransactions: Number(row.total_transactions),
         dayTransactions: Number(row.day_transactions),
         totalPorts: Number(row.total_ports),
@@ -1558,7 +1425,6 @@ export function dashboardRoutes(app: FastifyInstance): void {
       }
 
       const isRange = to != null && to !== date;
-      const companyCurrency = await getCompanyCurrency();
 
       const emptySnapshot = {
         hasData: false,
@@ -1572,7 +1438,9 @@ export function dashboardRoutes(app: FastifyInstance): void {
         totalSessions: 0,
         daySessions: 0,
         connectedStations: 0,
-        revenue: snapshotRevenueFrom([], 1, companyCurrency),
+        totalRevenueCents: 0,
+        dayRevenueCents: 0,
+        avgRevenueCentsPerSession: 0,
         totalTransactions: 0,
         dayTransactions: 0,
         totalPorts: 0,
@@ -1622,6 +1490,12 @@ export function dashboardRoutes(app: FastifyInstance): void {
             COALESCE(AVG(day_total_sessions), 0) AS total_sessions,
             COALESCE(AVG(day_day_sessions), 0) AS day_sessions,
             COALESCE(AVG(day_connected_stations), 0) AS connected_stations,
+            COALESCE(AVG(day_total_revenue_cents), 0) AS total_revenue_cents,
+            COALESCE(AVG(day_day_revenue_cents), 0) AS day_revenue_cents,
+            CASE WHEN AVG(day_total_sessions) > 0
+              THEN AVG(day_total_revenue_cents) / NULLIF(AVG(day_total_sessions), 0)
+              ELSE 0
+            END AS avg_revenue_cents_per_session,
             COALESCE(AVG(day_total_transactions), 0) AS total_transactions,
             COALESCE(AVG(day_day_transactions), 0) AS day_transactions,
             COALESCE(AVG(day_total_ports), 0) AS total_ports,
@@ -1647,6 +1521,8 @@ export function dashboardRoutes(app: FastifyInstance): void {
               SUM(total_sessions) AS day_total_sessions,
               SUM(day_sessions) AS day_day_sessions,
               SUM(connected_stations) AS day_connected_stations,
+              SUM(total_revenue_cents) AS day_total_revenue_cents,
+              SUM(day_revenue_cents) AS day_day_revenue_cents,
               SUM(total_transactions) AS day_total_transactions,
               SUM(day_transactions) AS day_day_transactions,
               SUM(total_ports) AS day_total_ports,
@@ -1680,6 +1556,12 @@ export function dashboardRoutes(app: FastifyInstance): void {
             COALESCE(SUM(total_sessions), 0) AS total_sessions,
             COALESCE(SUM(day_sessions), 0) AS day_sessions,
             COALESCE(SUM(connected_stations), 0) AS connected_stations,
+            COALESCE(SUM(total_revenue_cents), 0) AS total_revenue_cents,
+            COALESCE(SUM(day_revenue_cents), 0) AS day_revenue_cents,
+            CASE WHEN SUM(total_sessions) > 0
+              THEN SUM(total_revenue_cents) / SUM(total_sessions)
+              ELSE 0
+            END AS avg_revenue_cents_per_session,
             COALESCE(SUM(total_transactions), 0) AS total_transactions,
             COALESCE(SUM(day_transactions), 0) AS day_transactions,
             COALESCE(SUM(total_ports), 0) AS total_ports,
@@ -1693,27 +1575,10 @@ export function dashboardRoutes(app: FastifyInstance): void {
           WHERE ${dateFilter} ${siteFilter}
         `;
 
-      // A range averages each currency over the days that have snapshots, so a
-      // day without activity in a currency counts as zero for it.
-      const [rows, revenueRows] = await Promise.all([
-        db.execute(queryText),
-        db.execute(sql`
-          SELECT
-            currency,
-            SUM(total_revenue_cents) AS total_revenue_cents,
-            SUM(day_revenue_cents) AS day_revenue_cents,
-            SUM(total_sessions) AS total_sessions,
-            SUM(total_electricity_cost_cents) AS total_electricity_cost_cents,
-            SUM(day_electricity_cost_cents) AS day_electricity_cost_cents
-          FROM dashboard_snapshot_revenue
-          WHERE ${dateFilter} ${siteFilter}
-          GROUP BY currency
-        `),
-      ]);
+      const rows = await db.execute(queryText);
 
       const row = rows[0] as Record<string, string | boolean> | undefined;
       if (row == null) return emptySnapshot;
-      const dayCount = isRange ? Math.max(Number(row.day_count), 1) : 1;
 
       return {
         hasData: row.has_data === true,
@@ -1727,11 +1592,9 @@ export function dashboardRoutes(app: FastifyInstance): void {
         totalSessions: Math.round(Number(row.total_sessions)),
         daySessions: Math.round(Number(row.day_sessions)),
         connectedStations: Math.round(Number(row.connected_stations)),
-        revenue: snapshotRevenueFrom(
-          revenueRows as unknown as SnapshotRevenueRow[],
-          dayCount,
-          companyCurrency,
-        ),
+        totalRevenueCents: Math.round(Number(row.total_revenue_cents)),
+        dayRevenueCents: Math.round(Number(row.day_revenue_cents)),
+        avgRevenueCentsPerSession: Math.round(Number(row.avg_revenue_cents_per_session)),
         totalTransactions: Math.round(Number(row.total_transactions)),
         dayTransactions: Math.round(Number(row.day_transactions)),
         totalPorts: Math.round(Number(row.total_ports)),

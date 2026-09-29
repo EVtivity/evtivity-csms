@@ -13,6 +13,9 @@
     },
     "./permissions": {
       "import": "./src/permissions.ts"
+    },
+    "./currency": {
+      "import": "./src/currency.ts"
     }
   },
   "scripts": {

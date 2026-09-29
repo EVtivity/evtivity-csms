@@ -72,6 +72,7 @@ vi.mock('@evtivity/database', () => ({
   getAlignedMeasurands: vi.fn().mockResolvedValue([]),
   getTxEndedMeasurands: vi.fn().mockResolvedValue([]),
   isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
+  getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
 }));
 
 const mockDispatchOcpp = vi.fn().mockResolvedValue(undefined);
@@ -567,7 +568,6 @@ describe('Event projections - coverage expansion', () => {
         [
           {
             id: 'tariff-drv',
-            currency: 'EUR',
             price_per_kwh: '0.25',
             price_per_minute: null,
             price_per_session: '1.00',
@@ -625,7 +625,6 @@ describe('Event projections - coverage expansion', () => {
         [
           {
             id: 'tariff-station',
-            currency: 'USD',
             price_per_kwh: '0.30',
             price_per_minute: null,
             price_per_session: null,
@@ -757,7 +756,6 @@ describe('Event projections - coverage expansion', () => {
         [
           {
             id: 'tariff-default',
-            currency: 'GBP',
             price_per_kwh: '0.20',
             price_per_minute: '0.05',
             price_per_session: null,
@@ -996,7 +994,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
             energy_delivered_wh: 5000,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -1013,7 +1011,7 @@ describe('Event projections - coverage expansion', () => {
             driver_id: null,
             energy_delivered_wh: 5000,
             final_cost_cents: null,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
           },
@@ -1056,7 +1054,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
             energy_delivered_wh: 0,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -1072,7 +1070,7 @@ describe('Event projections - coverage expansion', () => {
             driver_id: null,
             energy_delivered_wh: 0,
             final_cost_cents: null,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
           },
@@ -1117,7 +1115,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
             energy_delivered_wh: 10000,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -1182,71 +1180,6 @@ describe('Event projections - coverage expansion', () => {
         expect.anything(),
       );
     });
-
-    it('uses USD as default currency when session currency is null', async () => {
-      mockDispatchDriver.mockClear();
-      await setup();
-
-      setupSqlResults(
-        // First subscriber
-        [{ id: 'sta_000000000001' }], // resolveStationId
-        [], // SELECT payment_records (no failed payment)
-        [], // UPDATE charging_sessions
-        [
-          {
-            id: 'session-1',
-            tariff_id: null,
-            current_cost_cents: 0,
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-            energy_delivered_wh: 5000,
-            currency: null,
-            tariff_price_per_kwh: null,
-            tariff_price_per_minute: null,
-            tariff_price_per_session: null,
-            tariff_idle_fee_price_per_minute: null,
-            tariff_tax_rate: null,
-          },
-        ],
-        [], // INSERT transaction_events
-        [], // carbon query (no region found)
-        [{ site_id: null }], // resolveSiteId
-        [
-          {
-            driver_id: 'driver-null-currency',
-            energy_delivered_wh: 5000,
-            final_cost_cents: 500,
-            currency: null,
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-          },
-        ], // SELECT driver info
-        // Second subscriber
-        [{ id: 'session-1', final_cost_cents: 500, site_id: null }],
-        [], // No payment records
-      );
-
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Ended',
-          stationId: 'CS-001',
-          transactionId: 'tx-null-currency',
-          seqNo: 2,
-          triggerReason: 'EVDeparted',
-          timestamp: '2024-01-01T01:00:00Z',
-        }),
-      );
-
-      expect(mockDispatchDriver).toHaveBeenCalledWith(
-        expect.anything(),
-        'session.Completed',
-        'driver-null-currency',
-        expect.objectContaining({ currency: 'USD' }),
-        ['/mock/templates'],
-        expect.anything(),
-      );
-    });
   });
 
   describe('ocpp.TransactionEvent Ended - pubsub error for TransactionEnded', () => {
@@ -1275,7 +1208,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
             energy_delivered_wh: 0,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -1291,7 +1224,7 @@ describe('Event projections - coverage expansion', () => {
             driver_id: null,
             energy_delivered_wh: 0,
             final_cost_cents: null,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
           },
@@ -1577,60 +1510,6 @@ describe('Event projections - coverage expansion', () => {
         return c[1].includes('CostUpdated');
       });
       expect(costUpdateCalls.length).toBe(0);
-    });
-  });
-
-  describe('ocpp.MeterValues - active session with no currency snapshot', () => {
-    it('skips cost calculation when session has no currency snapshot', async () => {
-      mockCalculateSessionCost.mockClear();
-      await setup();
-
-      setupSqlResults(
-        [{ id: 'sta_000000000001' }], // resolveStationId
-        [], // resolveActiveSessionId fallback
-        [], // INSERT meter_values
-        [], // UPDATE meter_start
-        [], // UPDATE energy
-        [
-          {
-            id: 'session-1',
-            tariff_id: 'tariff-missing',
-            started_at: '2024-01-01T00:00:00Z',
-            energy_delivered_wh: 5000,
-            current_cost_cents: 0,
-            currency: null,
-            tariff_price_per_kwh: null,
-            tariff_price_per_minute: null,
-            tariff_price_per_session: null,
-            tariff_idle_fee_price_per_minute: null,
-            tariff_tax_rate: null,
-          },
-        ], // active sessions (includes snapshot columns, but currency is null)
-        // No separate tariff SELECT - uses snapshot columns from session row
-        [{ site_id: null }], // resolveSiteId
-      );
-
-      await eventBus.emit(
-        'ocpp.MeterValues',
-        makeDomainEvent('ocpp.MeterValues', 'CS-001', {
-          stationId: 'CS-001',
-          source: 'TransactionEvent',
-          meterValues: [
-            {
-              timestamp: '2024-01-01T00:30:00Z',
-              sampledValue: [
-                {
-                  measurand: 'Energy.Active.Import.Register',
-                  value: 5000,
-                  unitOfMeasure: { unit: 'Wh' },
-                },
-              ],
-            },
-          ],
-        }),
-      );
-
-      expect(mockCalculateSessionCost).not.toHaveBeenCalled();
     });
   });
 
@@ -2204,7 +2083,6 @@ describe('Event projections - coverage expansion', () => {
         [
           {
             id: 'tariff-1',
-            currency: 'USD',
             price_per_kwh: '0.30',
             price_per_minute: null,
             price_per_session: null,
@@ -2235,7 +2113,6 @@ describe('Event projections - coverage expansion', () => {
         [
           {
             id: 'tariff-paid',
-            currency: 'USD',
             price_per_kwh: '0.30',
             price_per_minute: null,
             price_per_session: null,
@@ -2254,7 +2131,7 @@ describe('Event projections - coverage expansion', () => {
           { key: 'stripe.preAuthAmountCents', value: 5000 },
         ], // 22: platform settings
         [], // 23: site payment config
-        [{ currency: 'USD' }], // 24: NEW - currency mismatch guard (SELECT currency FROM charging_sessions)
+        [{ currency: 'USD' }], // 24: session currency for the pre-auth
         [], // 25: existing payment_records guard
         [
           { key: 'stripe.secretKeyEnc', value: 'encrypted-key' },
@@ -2332,7 +2209,6 @@ describe('Event projections - coverage expansion', () => {
         [
           {
             id: 'tariff-1',
-            currency: 'USD',
             price_per_kwh: '0.30',
             price_per_minute: null,
             price_per_session: null,
@@ -2383,7 +2259,6 @@ describe('Event projections - coverage expansion', () => {
         [
           {
             id: 'tariff-1',
-            currency: 'USD',
             price_per_kwh: '0.30',
             price_per_minute: null,
             price_per_session: null,
@@ -2434,7 +2309,6 @@ describe('Event projections - coverage expansion', () => {
         [
           {
             id: 'tariff-1',
-            currency: 'USD',
             price_per_kwh: '0.30',
             price_per_minute: null,
             price_per_session: null,
@@ -2492,7 +2366,6 @@ describe('Event projections - coverage expansion', () => {
         [
           {
             id: 'tariff-1',
-            currency: 'USD',
             price_per_kwh: '0.30',
             price_per_minute: null,
             price_per_session: null,
@@ -2517,7 +2390,6 @@ describe('Event projections - coverage expansion', () => {
         [
           {
             id: 'tariff-paid',
-            currency: 'USD',
             price_per_kwh: '0.30',
             price_per_minute: null,
             price_per_session: null,
@@ -2533,7 +2405,7 @@ describe('Event projections - coverage expansion', () => {
         [], // 20: timezone lookup
         [], // 21: platform settings
         // No site override (site_id is null, so query is skipped)
-        [{ currency: 'USD' }], // 22: NEW currency mismatch guard
+        [{ currency: 'USD' }], // 22: session currency for the pre-auth
         [], // 23: SELECT payment_records guard
         [{ key: 'stripe.secretKeyEnc', value: 'encrypted' }], // 24: stripe settings
         [], // 25: INSERT payment_records (failed)
@@ -2596,7 +2468,6 @@ describe('Event projections - coverage expansion', () => {
         [
           {
             id: 'tariff-1',
-            currency: 'USD',
             price_per_kwh: '0.30',
             price_per_minute: null,
             price_per_session: null,
@@ -2625,7 +2496,6 @@ describe('Event projections - coverage expansion', () => {
         [
           {
             id: 'tariff-paid',
-            currency: 'USD',
             price_per_kwh: '0.30',
             price_per_minute: null,
             price_per_session: null,
@@ -2640,7 +2510,7 @@ describe('Event projections - coverage expansion', () => {
         [], // 19: holidayRows
         [], // 20: timezone lookup
         [], // 21: platform settings
-        [{ currency: 'USD' }], // 22: NEW currency mismatch guard
+        [{ currency: 'USD' }], // 22: session currency for the pre-auth
         [], // 23: payment_records guard
         [], // 24: INSERT payment_records (pre_authorized, simulated)
       );
@@ -2671,6 +2541,198 @@ describe('Event projections - coverage expansion', () => {
       mathRandomSpy.mockRestore();
     });
 
+    it('pre-authorizes in the company currency when the session currency is null', async () => {
+      const { getCompanyCurrency } = await import('@evtivity/database');
+      vi.mocked(getCompanyCurrency).mockResolvedValue('EUR');
+      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
+      // Force shouldSimulateFailure to return false (success path)
+      const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      await setup();
+
+      // No idToken in payload, so eager OCPI check is skipped + driver_tokens
+      // lookup is skipped.
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // 0: resolveStationId
+        [{ id: 'session-sim' }], // 1: INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
+        [], // 2: UPDATE stale sessions
+        [], // 3: INSERT transaction_events
+        [{ is_roaming: false }], // 5: SELECT is_roaming (eager-state seed)
+        [{ driver_id: 'driver-sim' }], // 6: SELECT driver_id
+        [], // 7: SELECT vehicle_id
+        [{ id: 'pg-1' }], // 8: resolvePricingGroupId CTE
+        [
+          {
+            id: 'tariff-1',
+            price_per_kwh: '0.30',
+            price_per_minute: null,
+            price_per_session: null,
+            idle_fee_price_per_minute: null,
+            reservation_fee_per_minute: null,
+            tax_rate: null,
+            restrictions: null,
+            priority: 0,
+            is_default: true,
+          },
+        ], // 9: SELECT tariffs
+        [], // 10: SELECT pricing_holidays
+        [], // 11: timezone lookup
+        [], // 12: UPDATE charging_sessions SET tariff_id
+        [], // 13: INSERT session_tariff_segments
+        [{ site_id: null }], // 14: resolveSiteId
+        [{ name: null }], // 15: resolveSiteName
+        [
+          {
+            id: 'pm-sim',
+            stripe_customer_id: 'cus_sim_000001',
+            stripe_payment_method_id: 'pm_sim_000001',
+          },
+        ], // 16: SELECT driver_payment_methods
+        [{ id: 'pg-1' }], // 17: isTariffFreeForStation groupRows CTE
+        [
+          {
+            id: 'tariff-paid',
+            price_per_kwh: '0.30',
+            price_per_minute: null,
+            price_per_session: null,
+            idle_fee_price_per_minute: null,
+            reservation_fee_per_minute: null,
+            tax_rate: null,
+            restrictions: null,
+            priority: 0,
+            is_default: true,
+          },
+        ], // 18: tariffRows
+        [], // 19: holidayRows
+        [], // 20: timezone lookup
+        [], // 21: platform settings
+        [{ currency: null }], // 22: session currency for the pre-auth
+        [], // 23: payment_records guard
+        [], // 24: INSERT payment_records (pre_authorized, simulated)
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Started',
+          stationId: 'CS-001',
+          transactionId: 'tx-sim-preauth',
+          seqNo: 0,
+          triggerReason: 'Authorized',
+          timestamp: '2024-01-01T00:00:00Z',
+        }),
+      );
+
+      // Stripe should never be called for simulated customers
+      expect(mockStripePaymentIntentsCreate).not.toHaveBeenCalled();
+
+      // Verify a payment_records INSERT happened with pre_authorized status
+      const prInsert = sqlCalls.find(
+        (c) =>
+          c.strings.some((s) => s.includes('payment_records')) &&
+          c.strings.some((s) => s.includes('INSERT')),
+      );
+      expect(prInsert?.values).toContain('EUR');
+
+      mathRandomSpy.mockRestore();
+      vi.mocked(getCompanyCurrency).mockResolvedValue('USD');
+    });
+
+    it('pre-authorizes in the company currency when the session row is missing', async () => {
+      const { getCompanyCurrency } = await import('@evtivity/database');
+      vi.mocked(getCompanyCurrency).mockResolvedValue('EUR');
+      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
+      // Force shouldSimulateFailure to return false (success path)
+      const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      await setup();
+
+      // No idToken in payload, so eager OCPI check is skipped + driver_tokens
+      // lookup is skipped.
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // 0: resolveStationId
+        [{ id: 'session-sim' }], // 1: INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
+        [], // 2: UPDATE stale sessions
+        [], // 3: INSERT transaction_events
+        [{ is_roaming: false }], // 5: SELECT is_roaming (eager-state seed)
+        [{ driver_id: 'driver-sim' }], // 6: SELECT driver_id
+        [], // 7: SELECT vehicle_id
+        [{ id: 'pg-1' }], // 8: resolvePricingGroupId CTE
+        [
+          {
+            id: 'tariff-1',
+            price_per_kwh: '0.30',
+            price_per_minute: null,
+            price_per_session: null,
+            idle_fee_price_per_minute: null,
+            reservation_fee_per_minute: null,
+            tax_rate: null,
+            restrictions: null,
+            priority: 0,
+            is_default: true,
+          },
+        ], // 9: SELECT tariffs
+        [], // 10: SELECT pricing_holidays
+        [], // 11: timezone lookup
+        [], // 12: UPDATE charging_sessions SET tariff_id
+        [], // 13: INSERT session_tariff_segments
+        [{ site_id: null }], // 14: resolveSiteId
+        [{ name: null }], // 15: resolveSiteName
+        [
+          {
+            id: 'pm-sim',
+            stripe_customer_id: 'cus_sim_000001',
+            stripe_payment_method_id: 'pm_sim_000001',
+          },
+        ], // 16: SELECT driver_payment_methods
+        [{ id: 'pg-1' }], // 17: isTariffFreeForStation groupRows CTE
+        [
+          {
+            id: 'tariff-paid',
+            price_per_kwh: '0.30',
+            price_per_minute: null,
+            price_per_session: null,
+            idle_fee_price_per_minute: null,
+            reservation_fee_per_minute: null,
+            tax_rate: null,
+            restrictions: null,
+            priority: 0,
+            is_default: true,
+          },
+        ], // 18: tariffRows
+        [], // 19: holidayRows
+        [], // 20: timezone lookup
+        [], // 21: platform settings
+        [], // 22: session currency for the pre-auth
+        [], // 23: payment_records guard
+        [], // 24: INSERT payment_records (pre_authorized, simulated)
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Started',
+          stationId: 'CS-001',
+          transactionId: 'tx-sim-preauth',
+          seqNo: 0,
+          triggerReason: 'Authorized',
+          timestamp: '2024-01-01T00:00:00Z',
+        }),
+      );
+
+      // Stripe should never be called for simulated customers
+      expect(mockStripePaymentIntentsCreate).not.toHaveBeenCalled();
+
+      // Verify a payment_records INSERT happened with pre_authorized status
+      const prInsert = sqlCalls.find(
+        (c) =>
+          c.strings.some((s) => s.includes('payment_records')) &&
+          c.strings.some((s) => s.includes('INSERT')),
+      );
+      expect(prInsert?.values).toContain('EUR');
+
+      mathRandomSpy.mockRestore();
+      vi.mocked(getCompanyCurrency).mockResolvedValue('USD');
+    });
+
     it('applies site payment config overrides including connected account', async () => {
       process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
       await setup();
@@ -2692,7 +2754,6 @@ describe('Event projections - coverage expansion', () => {
         [
           {
             id: 'tariff-1',
-            currency: 'USD',
             price_per_kwh: '0.30',
             price_per_minute: null,
             price_per_session: null,
@@ -2716,7 +2777,6 @@ describe('Event projections - coverage expansion', () => {
         [
           {
             id: 'tariff-paid',
-            currency: 'EUR',
             price_per_kwh: '0.30',
             price_per_minute: null,
             price_per_session: null,
@@ -2734,12 +2794,11 @@ describe('Event projections - coverage expansion', () => {
         [
           {
             id: 'spc-1',
-            currency: 'EUR',
             pre_auth_amount_cents: 10000,
             stripe_connected_account_id: 'acct_connected',
           },
-        ], // 23: site payment config (override + connected account, EUR matches snapshot)
-        [{ currency: 'EUR' }], // 24: NEW currency mismatch guard (EUR matches site override)
+        ], // 23: site payment config (override + connected account)
+        [{ currency: 'EUR' }], // 24: session currency for the pre-auth
         [], // 25: existing payment_records guard
         [
           { key: 'stripe.secretKeyEnc', value: 'encrypted' },
@@ -2855,7 +2914,6 @@ describe('Event projections - coverage expansion', () => {
       sqlResults[10] = [
         {
           id: 'tariff-nofree',
-          currency: 'USD',
           price_per_kwh: '0.30',
           price_per_minute: null,
           price_per_session: null,
@@ -2880,7 +2938,6 @@ describe('Event projections - coverage expansion', () => {
       sqlResults[19] = [
         {
           id: 'tariff-paid',
-          currency: 'USD',
           price_per_kwh: '0.30',
           price_per_minute: null,
           price_per_session: null,
@@ -2943,7 +3000,6 @@ describe('Event projections - coverage expansion', () => {
       sqlResults[10] = [
         {
           id: 'tariff-free',
-          currency: 'USD',
           price_per_kwh: '0',
           price_per_minute: null,
           price_per_session: null,
@@ -2975,7 +3031,6 @@ describe('Event projections - coverage expansion', () => {
       sqlResults[19] = [
         {
           id: 'tariff-free',
-          currency: 'USD',
           price_per_kwh: '0',
           price_per_minute: null,
           price_per_session: null,
@@ -3138,7 +3193,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
             energy_delivered_wh: 10000,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -3230,7 +3285,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
             energy_delivered_wh: 0,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -3246,7 +3301,7 @@ describe('Event projections - coverage expansion', () => {
             driver_id: null,
             energy_delivered_wh: 0,
             final_cost_cents: null,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
           },
@@ -3291,7 +3346,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
             energy_delivered_wh: 0,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -3307,7 +3362,7 @@ describe('Event projections - coverage expansion', () => {
             driver_id: null,
             energy_delivered_wh: 0,
             final_cost_cents: null,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
           },
@@ -3350,7 +3405,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
             energy_delivered_wh: 0,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -3366,7 +3421,7 @@ describe('Event projections - coverage expansion', () => {
             driver_id: null,
             energy_delivered_wh: 0,
             final_cost_cents: null,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
           },
@@ -3408,7 +3463,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
             energy_delivered_wh: 0,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -3424,7 +3479,7 @@ describe('Event projections - coverage expansion', () => {
             driver_id: null,
             energy_delivered_wh: 0,
             final_cost_cents: null,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
           },
@@ -3469,7 +3524,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
             energy_delivered_wh: 0,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -3485,7 +3540,7 @@ describe('Event projections - coverage expansion', () => {
             driver_id: null,
             energy_delivered_wh: 0,
             final_cost_cents: null,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
           },
@@ -3532,7 +3587,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
             energy_delivered_wh: 0,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -3548,7 +3603,7 @@ describe('Event projections - coverage expansion', () => {
             driver_id: null,
             energy_delivered_wh: 0,
             final_cost_cents: null,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
           },
@@ -3589,7 +3644,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
             energy_delivered_wh: 5000,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -3605,7 +3660,7 @@ describe('Event projections - coverage expansion', () => {
             driver_id: null,
             energy_delivered_wh: 5000,
             final_cost_cents: 1500,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
           },
@@ -3657,7 +3712,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
             energy_delivered_wh: 10000,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -3673,7 +3728,7 @@ describe('Event projections - coverage expansion', () => {
             driver_id: 'drv_001',
             energy_delivered_wh: 10000,
             final_cost_cents: 2000,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
           },
@@ -3738,7 +3793,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
             energy_delivered_wh: 10000,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -3754,7 +3809,7 @@ describe('Event projections - coverage expansion', () => {
             driver_id: 'drv_001',
             energy_delivered_wh: 10000,
             final_cost_cents: 2000,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
           },
@@ -4275,7 +4330,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T00:00:05Z',
             energy_delivered_wh: 0,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -4294,7 +4349,7 @@ describe('Event projections - coverage expansion', () => {
             driver_id: null,
             energy_delivered_wh: 0,
             final_cost_cents: null,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T00:00:05Z',
           },
@@ -4344,7 +4399,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T00:05:00Z',
             energy_delivered_wh: 0,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -4363,7 +4418,7 @@ describe('Event projections - coverage expansion', () => {
             driver_id: null,
             energy_delivered_wh: 0,
             final_cost_cents: null,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T00:05:00Z',
           },
@@ -4413,7 +4468,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
             energy_delivered_wh: 5000,
-            currency: null,
+            currency: 'USD',
             tariff_price_per_kwh: null,
             tariff_price_per_minute: null,
             tariff_price_per_session: null,
@@ -4432,7 +4487,7 @@ describe('Event projections - coverage expansion', () => {
             driver_id: null,
             energy_delivered_wh: 5000,
             final_cost_cents: null,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
           },

@@ -225,7 +225,6 @@ export const ERROR_CODES = {
   SUPPORT_AI_NOT_CONFIGURED: 'SUPPORT_AI_NOT_CONFIGURED',
   SUPPORT_CASE_NOT_FOUND: 'SUPPORT_CASE_NOT_FOUND',
   SUPPORT_DISABLED: 'SUPPORT_DISABLED',
-  TARIFF_CURRENCY_MISMATCH: 'TARIFF_CURRENCY_MISMATCH',
   TARIFF_IN_USE: 'TARIFF_IN_USE',
   TARIFF_NOT_FOUND: 'TARIFF_NOT_FOUND',
   TARIFF_OVERLAP: 'TARIFF_OVERLAP',
@@ -464,7 +463,6 @@ export type ErrorCode =
   | 'SUPPORT_AI_NOT_CONFIGURED'
   | 'SUPPORT_CASE_NOT_FOUND'
   | 'SUPPORT_DISABLED'
-  | 'TARIFF_CURRENCY_MISMATCH'
   | 'TARIFF_IN_USE'
   | 'TARIFF_NOT_FOUND'
   | 'TARIFF_OVERLAP'
@@ -713,7 +711,6 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   SUPPORT_AI_NOT_CONFIGURED: 'Support AI is not configured',
   SUPPORT_CASE_NOT_FOUND: 'Support case not found',
   SUPPORT_DISABLED: 'Support is disabled',
-  TARIFF_CURRENCY_MISMATCH: 'All tariffs in a pricing group must use the same currency',
   TARIFF_IN_USE: 'Tariff is referenced by charging sessions and cannot be deleted',
   TARIFF_NOT_FOUND: 'Tariff not found',
   TARIFF_OVERLAP: 'Tariff overlaps with an existing tariff',

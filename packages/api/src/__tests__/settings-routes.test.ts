@@ -67,6 +67,8 @@ vi.mock('@evtivity/database', () => ({
     }),
   },
   settings: {},
+  getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
+  clearSystemSettingsCache: vi.fn(),
   writeAudit: vi.fn().mockResolvedValue(undefined),
   siteAuditLog: {},
   stationAuditLog: {},
@@ -120,6 +122,7 @@ vi.mock('../middleware/rbac.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { settingsRoutes } from '../routes/settings.js';
+import { db, clearSystemSettingsCache } from '@evtivity/database';
 
 const VALID_USER_ID = 'usr_000000000001';
 const VALID_ROLE_ID = 'rol_000000000001';
@@ -187,6 +190,16 @@ describe('Settings routes', () => {
     const body = JSON.parse(response.body);
     expect(body).toHaveProperty('name', 'TestCo');
     expect(body).toHaveProperty('logo', 'logo.png');
+  });
+
+  it('GET /v1/portal/branding returns the normalized company currency', async () => {
+    setupDbResults([
+      { key: 'company.name', value: 'TestCo' },
+      { key: 'company.currency', value: 'eur' },
+    ]);
+    const response = await app.inject({ method: 'GET', url: '/portal/branding' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().currency).toBe('EUR');
   });
 
   it('GET /v1/settings returns all settings as key-value map', async () => {
@@ -272,6 +285,76 @@ describe('Settings routes', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.key).toBe('new.setting');
+  });
+
+  it('PUT /v1/settings/company.currency rejects an unsupported currency', async () => {
+    vi.mocked(db.insert).mockClear();
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/company.currency',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 'XYZ' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('VALIDATION_ERROR');
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /v1/settings/company.currency rejects a currency without two decimals', async () => {
+    vi.mocked(db.update).mockClear();
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/settings/company.currency',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 'JPY' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('VALIDATION_ERROR');
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it('PUT /v1/settings/company.currency rejects a non-string value', async () => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/company.currency',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 978 },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('PUT /v1/settings/company.currency stores the uppercase code and clears the cache', async () => {
+    vi.mocked(db.insert).mockClear();
+    vi.mocked(clearSystemSettingsCache).mockClear();
+    setupDbResults([], [{ key: 'company.currency', value: 'EUR' }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/company.currency',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: ' eur ' },
+    });
+    expect(response.statusCode).toBe(200);
+    const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(insertChain.values).toHaveBeenCalledWith({ key: 'company.currency', value: 'EUR' });
+    expect(clearSystemSettingsCache).toHaveBeenCalled();
+  });
+
+  it('PATCH /v1/settings/company.currency stores the uppercase code', async () => {
+    vi.mocked(db.update).mockClear();
+    setupDbResults([], [{ key: 'company.currency', value: 'GBP' }]);
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/settings/company.currency',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 'gbp' },
+    });
+    expect(response.statusCode).toBe(200);
+    const updateChain = vi.mocked(db.update).mock.results.at(-1)?.value as {
+      set: ReturnType<typeof vi.fn>;
+    };
+    expect(updateChain.set).toHaveBeenCalledWith(expect.objectContaining({ value: 'GBP' }));
   });
 
   it('DELETE /v1/settings/:key deletes a setting', async () => {

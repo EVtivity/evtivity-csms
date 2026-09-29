@@ -31,7 +31,6 @@ function makeChain() {
     'delete',
     'insert',
     'update',
-    '$dynamic',
   ];
   for (const m of methods) {
     chain[m] = vi.fn(() => chain);
@@ -51,6 +50,7 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', () => ({
+  getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -76,7 +76,6 @@ vi.mock('@evtivity/database', () => ({
   paymentRecords: {},
   ocppServerHealth: {},
   getSystemTimezone: vi.fn().mockResolvedValue('America/New_York'),
-  getCompanyCurrency: vi.fn().mockResolvedValue('EUR'),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -313,73 +312,15 @@ describe('Dashboard routes', () => {
     expect(body[0]).toHaveProperty('count');
   });
 
-  it('GET /v1/dashboard/financial-stats returns revenue, electricity cost, and profit per currency', async () => {
+  it('GET /v1/dashboard/financial-stats returns revenue, electricity cost, and profit in the company currency', async () => {
     setupDbResults([
       {
-        currency: 'USD',
-        totalRevenueCents: '500000',
-        todayRevenueCents: '10000',
-        avgRevenueCentsPerSession: '500.4',
-        totalTransactions: '1000',
-        totalElectricityCostCents: '120000',
-        dayElectricityCostCents: '3000',
-      },
-      {
-        currency: 'EUR',
-        totalRevenueCents: '2000',
-        todayRevenueCents: '0',
-        avgRevenueCentsPerSession: '1000',
-        totalTransactions: '2',
-        totalElectricityCostCents: '2500',
-        dayElectricityCostCents: '0',
-      },
-    ]);
-    const response = await app.inject({
-      method: 'GET',
-      url: '/dashboard/financial-stats',
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(response.statusCode).toBe(200);
-    const body = JSON.parse(response.body);
-    // Company currency (EUR) first even with less revenue; amounts never mixed.
-    expect(body.currencies).toEqual([
-      {
-        currency: 'EUR',
-        totalRevenueCents: 2000,
-        todayRevenueCents: 0,
-        avgRevenueCentsPerSession: 1000,
-        totalTransactions: 2,
-        totalElectricityCostCents: 2500,
-        dayElectricityCostCents: 0,
-        totalProfitCents: -500,
-        dayProfitCents: 0,
-      },
-      {
-        currency: 'USD',
         totalRevenueCents: 500000,
         todayRevenueCents: 10000,
         avgRevenueCentsPerSession: 500,
         totalTransactions: 1000,
         totalElectricityCostCents: 120000,
         dayElectricityCostCents: 3000,
-        totalProfitCents: 380000,
-        dayProfitCents: 7000,
-      },
-    ]);
-    expect(body).not.toHaveProperty('currency');
-    expect(body).not.toHaveProperty('totalRevenueCents');
-  });
-
-  it('GET /v1/dashboard/financial-stats drops currencies without activity and never returns an empty list', async () => {
-    setupDbResults([
-      {
-        currency: 'USD',
-        totalRevenueCents: '0',
-        todayRevenueCents: '0',
-        avgRevenueCentsPerSession: '0',
-        totalTransactions: '0',
-        totalElectricityCostCents: '0',
-        dayElectricityCostCents: '0',
       },
     ]);
     const response = await app.inject({
@@ -389,11 +330,19 @@ describe('Dashboard routes', () => {
     });
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
-    expect(body.currencies).toHaveLength(1);
-    expect(body.currencies[0]).toMatchObject({ currency: 'EUR', totalRevenueCents: 0 });
+    expect(body).toHaveProperty('totalRevenueCents', 500000);
+    expect(body).toHaveProperty('todayRevenueCents', 10000);
+    expect(body).toHaveProperty('avgRevenueCentsPerSession', 500);
+    expect(body).toHaveProperty('totalTransactions', 1000);
+    expect(body).toHaveProperty('totalElectricityCostCents', 120000);
+    expect(body).toHaveProperty('dayElectricityCostCents', 3000);
+    // Profit = revenue - electricity cost
+    expect(body).toHaveProperty('totalProfitCents', 380000);
+    expect(body).toHaveProperty('dayProfitCents', 7000);
+    expect(body).toHaveProperty('currency', 'EUR');
   });
 
-  it('GET /v1/dashboard/financial-stats returns zeroed financials in the company currency when the user has no site access', async () => {
+  it('GET /v1/dashboard/financial-stats returns zeroed financials when the user has no site access', async () => {
     getUserSiteIdsMock.mockResolvedValueOnce([]);
     const response = await app.inject({
       method: 'GET',
@@ -402,26 +351,16 @@ describe('Dashboard routes', () => {
     });
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
-    expect(body.currencies).toEqual([
-      {
-        currency: 'EUR',
-        totalRevenueCents: 0,
-        todayRevenueCents: 0,
-        avgRevenueCentsPerSession: 0,
-        totalTransactions: 0,
-        totalElectricityCostCents: 0,
-        dayElectricityCostCents: 0,
-        totalProfitCents: 0,
-        dayProfitCents: 0,
-      },
-    ]);
+    expect(body.totalElectricityCostCents).toBe(0);
+    expect(body.totalProfitCents).toBe(0);
+    expect(body.dayProfitCents).toBe(0);
+    expect(body.currency).toBe('EUR');
   });
 
-  it('GET /v1/dashboard/revenue-history returns daily revenue per currency', async () => {
+  it('GET /v1/dashboard/revenue-history returns daily revenue data', async () => {
     setupDbResults([
-      { date: '2025-01-01', currency: 'USD', revenueCents: '5000', sessionCount: 10 },
-      { date: '2025-01-01', currency: 'EUR', revenueCents: '300', sessionCount: 1 },
-      { date: '2025-01-02', currency: 'USD', revenueCents: '7000', sessionCount: 14 },
+      { date: '2025-01-01', revenueCents: 5000, sessionCount: 10 },
+      { date: '2025-01-02', revenueCents: 7000, sessionCount: 14 },
     ]);
     const response = await app.inject({
       method: 'GET',
@@ -430,28 +369,16 @@ describe('Dashboard routes', () => {
     });
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
-    expect(body).toEqual([
-      {
-        date: '2025-01-01',
-        sessionCount: 11,
-        revenue: [
-          { currency: 'EUR', revenueCents: 300, sessionCount: 1 },
-          { currency: 'USD', revenueCents: 5000, sessionCount: 10 },
-        ],
-      },
-      {
-        date: '2025-01-02',
-        sessionCount: 14,
-        revenue: [{ currency: 'USD', revenueCents: 7000, sessionCount: 14 }],
-      },
-    ]);
+    expect(Array.isArray(body)).toBe(true);
+    expect(body[0]).toHaveProperty('date');
+    expect(body[0]).toHaveProperty('revenueCents');
+    expect(body[0]).toHaveProperty('sessionCount');
   });
 
-  it('GET /v1/dashboard/payment-breakdown returns counts per status and totals per currency', async () => {
+  it('GET /v1/dashboard/payment-breakdown returns payment status data', async () => {
     setupDbResults([
-      { status: 'captured', currency: 'USD', count: 50, totalCents: '250000' },
-      { status: 'captured', currency: 'EUR', count: 5, totalCents: '9000' },
-      { status: 'refunded', currency: 'USD', count: 2, totalCents: '1000' },
+      { status: 'captured', count: 50, totalCents: 250000 },
+      { status: 'refunded', count: 2, totalCents: 1000 },
     ]);
     const response = await app.inject({
       method: 'GET',
@@ -460,21 +387,10 @@ describe('Dashboard routes', () => {
     });
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
-    expect(body).toEqual([
-      {
-        status: 'captured',
-        count: 55,
-        totals: [
-          { currency: 'EUR', count: 5, totalCents: 9000 },
-          { currency: 'USD', count: 50, totalCents: 250000 },
-        ],
-      },
-      {
-        status: 'refunded',
-        count: 2,
-        totals: [{ currency: 'USD', count: 2, totalCents: 1000 }],
-      },
-    ]);
+    expect(Array.isArray(body)).toBe(true);
+    expect(body[0]).toHaveProperty('status');
+    expect(body[0]).toHaveProperty('count');
+    expect(body[0]).toHaveProperty('totalCents');
   });
 
   it('GET /v1/dashboard/uptime returns uptime data', async () => {
@@ -572,30 +488,15 @@ describe('Dashboard routes', () => {
         total_sessions: '100',
         day_sessions: '10',
         connected_stations: '9',
+        total_revenue_cents: '500000',
+        day_revenue_cents: '50000',
+        avg_revenue_cents_per_session: '5000',
         total_transactions: '100',
         day_transactions: '10',
         total_ports: '20',
         stations_below_threshold: '1',
         avg_ping_latency_ms: '12.5',
         ping_success_rate: '99.1',
-      },
-    ] as never);
-    vi.mocked(db.execute).mockResolvedValueOnce([
-      {
-        currency: 'USD',
-        total_revenue_cents: '500000',
-        day_revenue_cents: '50000',
-        total_sessions: '100',
-        total_electricity_cost_cents: '1000',
-        day_electricity_cost_cents: '100',
-      },
-      {
-        currency: 'EUR',
-        total_revenue_cents: '9000',
-        day_revenue_cents: '0',
-        total_sessions: '3',
-        total_electricity_cost_cents: '0',
-        day_electricity_cost_cents: '0',
       },
     ] as never);
     const response = await app.inject({
@@ -607,79 +508,7 @@ describe('Dashboard routes', () => {
     const body = JSON.parse(response.body);
     expect(body).toHaveProperty('totalStations', 10);
     expect(body).toHaveProperty('uptimePercent', 99.5);
-    expect(body).toHaveProperty('totalTransactions', 100);
-    expect(body).not.toHaveProperty('dayRevenueCents');
-    expect(body.revenue).toEqual([
-      {
-        currency: 'EUR',
-        totalRevenueCents: 9000,
-        dayRevenueCents: 0,
-        avgRevenueCentsPerSession: 3000,
-        totalElectricityCostCents: 0,
-        dayElectricityCostCents: 0,
-      },
-      {
-        currency: 'USD',
-        totalRevenueCents: 500000,
-        dayRevenueCents: 50000,
-        avgRevenueCentsPerSession: 5000,
-        totalElectricityCostCents: 1000,
-        dayElectricityCostCents: 100,
-      },
-    ]);
-  });
-
-  it('GET /v1/dashboard/snapshots averages each currency per day over a range', async () => {
-    vi.mocked(db.execute).mockResolvedValueOnce([
-      {
-        has_data: true,
-        day_count: '2',
-        total_stations: '10',
-        online_stations: '9',
-        online_percent: '90',
-        uptime_percent: '99',
-        active_sessions: '3',
-        total_energy_wh: '500000',
-        day_energy_wh: '50000',
-        total_sessions: '100',
-        day_sessions: '10',
-        connected_stations: '9',
-        total_transactions: '100',
-        day_transactions: '10',
-        total_ports: '20',
-        stations_below_threshold: '1',
-        avg_ping_latency_ms: '12.5',
-        ping_success_rate: '99.1',
-      },
-    ] as never);
-    // Summed over both days: EUR had activity on only one of them.
-    vi.mocked(db.execute).mockResolvedValueOnce([
-      {
-        currency: 'EUR',
-        total_revenue_cents: '4000',
-        day_revenue_cents: '1000',
-        total_sessions: '8',
-        total_electricity_cost_cents: '600',
-        day_electricity_cost_cents: '200',
-      },
-    ] as never);
-    const response = await app.inject({
-      method: 'GET',
-      url: '/dashboard/snapshots?date=2026-03-11&to=2026-03-12',
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(response.statusCode).toBe(200);
-    const body = JSON.parse(response.body);
-    expect(body.revenue).toEqual([
-      {
-        currency: 'EUR',
-        totalRevenueCents: 2000,
-        dayRevenueCents: 500,
-        avgRevenueCentsPerSession: 500,
-        totalElectricityCostCents: 300,
-        dayElectricityCostCents: 100,
-      },
-    ]);
+    expect(body).toHaveProperty('dayRevenueCents', 50000);
   });
 
   it('GET /v1/dashboard/snapshots returns zeros when no data', async () => {
@@ -691,19 +520,8 @@ describe('Dashboard routes', () => {
     });
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
-    expect(body.hasData).toBe(false);
     expect(body.totalStations).toBe(0);
     expect(body.uptimePercent).toBe(100);
-    expect(body.revenue).toEqual([
-      {
-        currency: 'EUR',
-        totalRevenueCents: 0,
-        dayRevenueCents: 0,
-        avgRevenueCentsPerSession: 0,
-        totalElectricityCostCents: 0,
-        dayElectricityCostCents: 0,
-      },
-    ]);
   });
 
   it('GET /v1/dashboard/snapshots/trend returns 401 without auth', async () => {
@@ -729,23 +547,15 @@ describe('Dashboard routes', () => {
         total_sessions: '100',
         day_sessions: '10',
         connected_stations: '9',
+        total_revenue_cents: '500000',
+        day_revenue_cents: '50000',
+        avg_revenue_cents_per_session: '5000',
         total_transactions: '100',
         day_transactions: '10',
         total_ports: '20',
         stations_below_threshold: '0',
         avg_ping_latency_ms: '12.5',
         ping_success_rate: '99.1',
-      },
-    ] as never);
-    vi.mocked(db.execute).mockResolvedValueOnce([
-      {
-        date: '2026-03-12',
-        currency: 'USD',
-        total_revenue_cents: '500000',
-        day_revenue_cents: '50000',
-        total_sessions: '100',
-        total_electricity_cost_cents: '0',
-        day_electricity_cost_cents: '0',
       },
     ] as never);
     const response = await app.inject({
@@ -759,16 +569,6 @@ describe('Dashboard routes', () => {
     expect(Array.isArray(body.days)).toBe(true);
     expect(body.days[0]).toHaveProperty('date', '2026-03-12');
     expect(body.days[0]).toHaveProperty('totalStations', 10);
-    expect(body.days[0].revenue).toEqual([
-      {
-        currency: 'USD',
-        totalRevenueCents: 500000,
-        dayRevenueCents: 50000,
-        avgRevenueCentsPerSession: 5000,
-        totalElectricityCostCents: 0,
-        dayElectricityCostCents: 0,
-      },
-    ]);
   });
 
   it('GET /v1/dashboard/snapshots/available-dates returns 401 without auth', async () => {

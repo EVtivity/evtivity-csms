@@ -52,6 +52,8 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', () => ({
+  getCompanyCurrency: vi.fn(() => Promise.resolve('USD')),
+  clearSystemSettingsCache: vi.fn(),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -102,10 +104,15 @@ vi.mock('drizzle-orm', () => ({
   asc: vi.fn(),
 }));
 
-vi.mock('@evtivity/lib', () => ({
-  encryptString: vi.fn((_val: string, _key: string) => 'encrypted-value'),
-  clearNotificationSettingsCache: vi.fn(),
-}));
+vi.mock('@evtivity/lib', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@evtivity/lib')>();
+  return {
+    encryptString: vi.fn((_val: string, _key: string) => 'encrypted-value'),
+    clearNotificationSettingsCache: vi.fn(),
+    isSupportedCurrency: actual.isSupportedCurrency,
+    SUPPORTED_CURRENCIES: actual.SUPPORTED_CURRENCIES,
+  };
+});
 
 const mockConfig = vi.hoisted(() => ({
   SETTINGS_ENCRYPTION_KEY: 'test-encryption-key-32chars!!!!!!',
@@ -193,11 +200,11 @@ describe('Settings routes - full coverage', () => {
       expect(body.logo).toBe('https://example.com/logo.png');
     });
 
-    it('returns empty object when no company settings exist', async () => {
+    it('returns only the default company currency when no company settings exist', async () => {
       setupDbResults([]);
       const res = await app.inject({ method: 'GET', url: '/portal/branding' });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({});
+      expect(res.json()).toEqual({ currency: 'USD' });
     });
 
     it('converts non-string values to empty string', async () => {

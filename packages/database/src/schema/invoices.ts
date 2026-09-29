@@ -30,7 +30,7 @@ export const invoices = pgTable(
     status: invoiceStatusEnum('status').notNull().default('draft'),
     issuedAt: timestamp('issued_at', { withTimezone: true }),
     dueAt: timestamp('due_at', { withTimezone: true }),
-    currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+    currency: varchar('currency', { length: 3 }).notNull(),
     subtotalCents: integer('subtotal_cents').notNull().default(0),
     taxCents: integer('tax_cents').notNull().default(0),
     totalCents: integer('total_cents').notNull().default(0),

@@ -662,7 +662,6 @@
     "SUPPORT_AI_NOT_CONFIGURED": "Support AI is not configured",
     "SUPPORT_CASE_NOT_FOUND": "Support case not found",
     "SUPPORT_DISABLED": "Support is disabled",
-    "TARIFF_CURRENCY_MISMATCH": "Tariff currency does not match other tariffs in the group",
     "TARIFF_IN_USE": "Tariff is referenced by charging sessions and cannot be deleted",
     "TARIFF_NOT_FOUND": "Tariff not found",
     "TARIFF_OVERLAP": "Tariff overlaps with an existing tariff",

@@ -22,7 +22,7 @@ import {
   writeReservationAudit,
   reservationDiffChanged,
 } from '@evtivity/database';
-import { dispatchDriverNotification } from '@evtivity/lib';
+import { dispatchDriverNotification, formatCurrencyAmount } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -1674,19 +1674,20 @@ export function reservationRoutes(app: FastifyInstance): void {
       // optionally charges the fee (gated by chargeCancellationFee), and
       // marks the row cancelled in one place. We pass actor='operator' here;
       // the helper guarantees system paths can never charge.
-      const { feeChargedCents, cancelled, feeChargeFailed } = await applyReservationCancellation({
-        reservationDbId: reservation.id,
-        siteId: reservation.siteId,
-        driverId: reservation.driverId,
-        startsAt: reservation.startsAt ?? reservation.createdAt,
-        createdAt: reservation.createdAt,
-        actor: 'operator',
-        actorUserId: userId,
-        reason: 'operator_manual',
-        note: operatorReason,
-        chargeFee: chargeCancellationFee,
-        logger: request.log,
-      });
+      const { feeChargedCents, cancelled, feeChargeFailed, feeCurrency } =
+        await applyReservationCancellation({
+          reservationDbId: reservation.id,
+          siteId: reservation.siteId,
+          driverId: reservation.driverId,
+          startsAt: reservation.startsAt ?? reservation.createdAt,
+          createdAt: reservation.createdAt,
+          actor: 'operator',
+          actorUserId: userId,
+          reason: 'operator_manual',
+          note: operatorReason,
+          chargeFee: chargeCancellationFee,
+          logger: request.log,
+        });
 
       // Only notify the driver when this caller actually flipped the row.
       // A concurrent cancel (driver/system) winning the race already sent its
@@ -1694,7 +1695,9 @@ export function reservationRoutes(app: FastifyInstance): void {
       // "feeFormatted: ''" message and double-notify.
       if (cancelled && reservation.driverId != null) {
         const cancellationFeeFormatted =
-          feeChargedCents > 0 ? `$${(feeChargedCents / 100).toFixed(2)}` : '';
+          feeChargedCents > 0 && feeCurrency != null
+            ? formatCurrencyAmount(feeChargedCents, feeCurrency)
+            : '';
         void dispatchDriverNotification(
           client,
           'reservation.Cancelled',

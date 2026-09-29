@@ -29,7 +29,6 @@ interface Tariff {
   id: string;
   pricingGroupId: string;
   name: string;
-  currency: string;
   pricePerKwh: string | null;
   pricePerMinute: string | null;
   pricePerSession: string | null;
@@ -122,7 +121,6 @@ export function PricingGroupTariffsTab({
                   <TableHead>{t('pricing.idleFeePricePerMinute')}</TableHead>
                   <TableHead>{t('pricing.reservationFeePerMinute')}</TableHead>
                   <TableHead>{t('pricing.taxRate')}</TableHead>
-                  <TableHead>{t('pricing.currency')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -148,7 +146,6 @@ export function PricingGroupTariffsTab({
                     <TableCell>{tariff.idleFeePricePerMinute ?? 'n/a'}</TableCell>
                     <TableCell>{tariff.reservationFeePerMinute ?? 'n/a'}</TableCell>
                     <TableCell>{tariff.taxRate ?? 'n/a'}</TableCell>
-                    <TableCell>{tariff.currency}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { eq, and } from 'drizzle-orm';
-import { db, client } from '@evtivity/database';
+import { db, client, getCompanyCurrency } from '@evtivity/database';
 import { guestSessions, chargingSessions, paymentRecords } from '@evtivity/database';
 import { getStripeConfig, capturePayment, cancelPaymentIntent } from './stripe.service.js';
 import { chargingStations } from '@evtivity/database';
 import { dispatchSystemNotification } from '@evtivity/lib';
 import type { FastifyBaseLogger } from 'fastify';
 import { ALL_TEMPLATES_DIRS } from '../lib/template-dirs.js';
+import { sessionCurrencySql } from '../lib/company-currency.js';
 
 interface CsmsEvent {
   type: string;
@@ -71,7 +72,13 @@ async function linkGuestSession(event: CsmsEvent, logger: FastifyBaseLogger): Pr
       .from(chargingStations)
       .where(eq(chargingStations.stationId, guest.stationOcppId));
 
-    const config = await getStripeConfig(station?.siteId ?? null);
+    const [config, [session]] = await Promise.all([
+      getStripeConfig(station?.siteId ?? null),
+      db
+        .select({ currency: sessionCurrencySql(await getCompanyCurrency()) })
+        .from(chargingSessions)
+        .where(eq(chargingSessions.id, event.sessionId)),
+    ]);
 
     await db.insert(paymentRecords).values({
       sessionId: event.sessionId,
@@ -79,7 +86,7 @@ async function linkGuestSession(event: CsmsEvent, logger: FastifyBaseLogger): Pr
       sitePaymentConfigId: config?.configId ?? null,
       stripePaymentIntentId: guest.stripePaymentIntentId,
       paymentSource: 'guest',
-      currency: config?.currency ?? 'USD',
+      currency: session?.currency ?? (await getCompanyCurrency()),
       preAuthAmountCents: guest.preAuthAmountCents,
       status: 'pre_authorized',
     });
@@ -229,7 +236,7 @@ async function sendGuestReceipt(
       .select({
         energyDeliveredWh: chargingSessions.energyDeliveredWh,
         finalCostCents: chargingSessions.finalCostCents,
-        currency: chargingSessions.currency,
+        currency: sessionCurrencySql(await getCompanyCurrency()),
         startedAt: chargingSessions.startedAt,
         endedAt: chargingSessions.endedAt,
       })
@@ -251,7 +258,7 @@ async function sendGuestReceipt(
         energyDeliveredWh:
           session.energyDeliveredWh != null ? Number(session.energyDeliveredWh) : 0,
         finalCostCents: session.finalCostCents ?? 0,
-        currency: session.currency ?? 'USD',
+        currency: session.currency,
         durationMinutes,
         startedAt: startedAt.toISOString(),
         endedAt: endedAt.toISOString(),

@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useTab } from '@/hooks/use-tab';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SaveButton } from '@/components/save-button';
@@ -12,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
+import { Toggle } from '@/components/ui/toggle';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
 
@@ -22,7 +24,6 @@ interface PaymentSettingsProps {
 interface StripeSettings {
   publishableKey: string | null;
   secretKey: string | null;
-  currency: string;
   preAuthAmountCents: number;
   platformFeePercent: number;
 }
@@ -36,10 +37,26 @@ interface SitePaymentConfig {
   id: number;
   siteId: string;
   stripeConnectedAccountId: string | null;
-  currency: string;
   preAuthAmountCents: number;
   platformFeePercent: string | null;
   isEnabled: boolean;
+}
+
+function preAuthCentsError(value: string, t: TFunction): string | undefined {
+  if (value.trim() === '') return t('validation.required');
+  const n = Number(value);
+  if (!Number.isInteger(n)) return t('validation.invalidNumber');
+  if (n < 0) return t('validation.min', { min: 0 });
+  return undefined;
+}
+
+function percentError(value: string, t: TFunction, required: boolean): string | undefined {
+  if (value.trim() === '') return required ? t('validation.required') : undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return t('validation.invalidNumber');
+  if (n < 0) return t('validation.min', { min: 0 });
+  if (n > 100) return t('validation.max', { max: 100 });
+  return undefined;
 }
 
 export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.Element {
@@ -50,15 +67,17 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
 
   const [stripeSecretKey, setStripeSecretKey] = useState('');
   const [stripePublishableKey, setStripePublishableKey] = useState('');
-  const [stripeCurrency, setStripeCurrency] = useState('USD');
   const [stripePreAuthCents, setStripePreAuthCents] = useState('5000');
   const [stripePlatformFee, setStripePlatformFee] = useState('0');
+  const [stripeHasSubmitted, setStripeHasSubmitted] = useState(false);
+  const [stripeHasUnsavedChanges, setStripeHasUnsavedChanges] = useState(false);
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
 
   const [siteConnectedAccountId, setSiteConnectedAccountId] = useState('');
-  const [siteCurrency, setSiteCurrency] = useState('USD');
   const [sitePreAuthCents, setSitePreAuthCents] = useState('5000');
   const [sitePlatformFee, setSitePlatformFee] = useState('');
+  const [siteHasSubmitted, setSiteHasSubmitted] = useState(false);
+  const [siteHasUnsavedChanges, setSiteHasUnsavedChanges] = useState(false);
 
   const { data: stripeSettings } = useQuery({
     queryKey: ['stripe-settings'],
@@ -112,17 +131,17 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
   useEffect(() => {
     if (selectedSiteConfig != null) {
       setSiteConnectedAccountId(selectedSiteConfig.stripeConnectedAccountId ?? '');
-      setSiteCurrency(selectedSiteConfig.currency);
       setSitePreAuthCents(String(selectedSiteConfig.preAuthAmountCents));
       setSitePlatformFee(
         selectedSiteConfig.platformFeePercent != null ? selectedSiteConfig.platformFeePercent : '',
       );
     } else if (selectedSiteId != null) {
       setSiteConnectedAccountId('');
-      setSiteCurrency('USD');
       setSitePreAuthCents('5000');
       setSitePlatformFee('');
     }
+    setSiteHasSubmitted(false);
+    setSiteHasUnsavedChanges(false);
   }, [selectedSiteConfig, selectedSiteId]);
 
   useEffect(() => {
@@ -133,16 +152,16 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
     setStripeSecretKey(
       typeof stripeSettings.secretKey === 'string' ? stripeSettings.secretKey : '',
     );
-    setStripeCurrency(stripeSettings.currency);
     setStripePreAuthCents(String(stripeSettings.preAuthAmountCents));
     setStripePlatformFee(String(stripeSettings.platformFeePercent));
+    setStripeHasSubmitted(false);
+    setStripeHasUnsavedChanges(false);
   }, [stripeSettings]);
 
   const stripeSaveMutation = useMutation({
     mutationFn: (vals: {
       secretKey?: string;
       publishableKey?: string;
-      currency?: string;
       preAuthAmountCents?: number;
       platformFeePercent?: number;
     }) => api.put('/v1/settings/stripe', vals),
@@ -160,14 +179,12 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
     mutationFn: (vals: {
       siteId: string;
       stripeConnectedAccountId?: string | undefined;
-      currency: string;
       preAuthAmountCents: number;
       platformFeePercent: number | null;
       isEnabled: boolean;
     }) =>
       api.put(`/v1/sites/${vals.siteId}/payment-config`, {
         stripeConnectedAccountId: vals.stripeConnectedAccountId,
-        currency: vals.currency,
         preAuthAmountCents: vals.preAuthAmountCents,
         platformFeePercent: vals.platformFeePercent,
         isEnabled: vals.isEnabled,
@@ -177,6 +194,70 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
       void refetchSiteConfig();
     },
   });
+
+  function markStripeChanged(): void {
+    setStripeHasUnsavedChanges(true);
+    stripeSaveMutation.reset();
+    stripeTestMutation.reset();
+  }
+
+  function markSiteChanged(): void {
+    setSiteHasUnsavedChanges(true);
+    sitePaymentSaveMutation.reset();
+  }
+
+  function getStripeValidationErrors(): Record<string, string> {
+    const errors: Record<string, string> = {};
+    const preAuth = preAuthCentsError(stripePreAuthCents, t);
+    if (preAuth != null) errors.preAuthAmountCents = preAuth;
+    const fee = percentError(stripePlatformFee, t, true);
+    if (fee != null) errors.platformFeePercent = fee;
+    return errors;
+  }
+
+  function getSiteValidationErrors(): Record<string, string> {
+    const errors: Record<string, string> = {};
+    const preAuth = preAuthCentsError(sitePreAuthCents, t);
+    if (preAuth != null) errors.preAuthAmountCents = preAuth;
+    const fee = percentError(sitePlatformFee, t, false);
+    if (fee != null) errors.platformFeePercent = fee;
+    return errors;
+  }
+
+  const stripeErrors = getStripeValidationErrors();
+  const siteErrors = getSiteValidationErrors();
+
+  function handleStripeSubmit(e: React.SyntheticEvent): void {
+    e.preventDefault();
+    setStripeHasSubmitted(true);
+    if (Object.keys(stripeErrors).length > 0) return;
+    const vals: {
+      secretKey?: string;
+      publishableKey?: string;
+      preAuthAmountCents: number;
+      platformFeePercent: number;
+    } = {
+      preAuthAmountCents: Number(stripePreAuthCents),
+      platformFeePercent: Number(stripePlatformFee),
+    };
+    if (stripeSecretKey !== '') vals.secretKey = stripeSecretKey;
+    if (stripePublishableKey !== '') vals.publishableKey = stripePublishableKey;
+    stripeSaveMutation.mutate(vals);
+  }
+
+  function handleSiteSubmit(e: React.SyntheticEvent): void {
+    e.preventDefault();
+    if (selectedSiteId == null) return;
+    setSiteHasSubmitted(true);
+    if (Object.keys(siteErrors).length > 0) return;
+    sitePaymentSaveMutation.mutate({
+      siteId: selectedSiteId,
+      stripeConnectedAccountId: siteConnectedAccountId !== '' ? siteConnectedAccountId : undefined,
+      preAuthAmountCents: Number(sitePreAuthCents),
+      platformFeePercent: sitePlatformFee !== '' ? Number(sitePlatformFee) : null,
+      isEnabled: paymentConfigMap.get(selectedSiteId)?.isEnabled ?? true,
+    });
+  }
 
   const sitePaymentToggleMutation = useMutation({
     mutationFn: (vals: { siteId: string; isEnabled: boolean }) =>
@@ -198,122 +279,135 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
           <CardHeader>
             <CardTitle>{t('settings.paymentSubTabStripe')}</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">{t('settings.stripeDescription')}</p>
+          <CardContent>
+            <form onSubmit={handleStripeSubmit} noValidate className="space-y-4">
+              <p className="text-sm text-muted-foreground">{t('settings.stripeDescription')}</p>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="stripe-secret-key">{t('settings.stripeSecretKey')}</Label>
-                <PasswordInput
-                  id="stripe-secret-key"
-                  value={stripeSecretKey}
-                  onChange={(e) => {
-                    setStripeSecretKey(e.target.value);
-                  }}
-                  placeholder={
-                    settings != null &&
-                    typeof settings['stripe.secretKeyEnc'] === 'string' &&
-                    settings['stripe.secretKeyEnc'] !== ''
-                      ? '********'
-                      : ''
-                  }
-                />
-                <p className="text-xs text-muted-foreground">{t('settings.stripeSecretKeyHint')}</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="stripe-secret-key">{t('settings.stripeSecretKey')}</Label>
+                  <PasswordInput
+                    id="stripe-secret-key"
+                    value={stripeSecretKey}
+                    onChange={(e) => {
+                      setStripeSecretKey(e.target.value);
+                      markStripeChanged();
+                    }}
+                    placeholder={
+                      settings != null &&
+                      typeof settings['stripe.secretKeyEnc'] === 'string' &&
+                      settings['stripe.secretKeyEnc'] !== ''
+                        ? '********'
+                        : ''
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings.stripeSecretKeyHint')}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="stripe-publishable-key">
+                    {t('settings.stripePublishableKey')}
+                  </Label>
+                  <Input
+                    id="stripe-publishable-key"
+                    value={stripePublishableKey}
+                    onChange={(e) => {
+                      setStripePublishableKey(e.target.value);
+                      markStripeChanged();
+                    }}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="stripe-pre-auth">{t('settings.stripePreAuthAmount')}</Label>
+                  <Input
+                    id="stripe-pre-auth"
+                    type="number"
+                    value={stripePreAuthCents}
+                    onChange={(e) => {
+                      setStripePreAuthCents(e.target.value);
+                      markStripeChanged();
+                    }}
+                    className={
+                      stripeHasSubmitted && stripeErrors.preAuthAmountCents
+                        ? 'border-destructive'
+                        : ''
+                    }
+                  />
+                  {stripeHasSubmitted && stripeErrors.preAuthAmountCents && (
+                    <p className="text-sm text-destructive">{stripeErrors.preAuthAmountCents}</p>
+                  )}
+                  <p className="text-xs text-muted-foreground">{t('settings.stripePreAuthHint')}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="stripe-platform-fee">{t('settings.stripePlatformFee')}</Label>
+                  <Input
+                    id="stripe-platform-fee"
+                    type="number"
+                    step="any"
+                    value={stripePlatformFee}
+                    onChange={(e) => {
+                      setStripePlatformFee(e.target.value);
+                      markStripeChanged();
+                    }}
+                    className={
+                      stripeHasSubmitted && stripeErrors.platformFeePercent
+                        ? 'border-destructive'
+                        : ''
+                    }
+                  />
+                  {stripeHasSubmitted && stripeErrors.platformFeePercent && (
+                    <p className="text-sm text-destructive">{stripeErrors.platformFeePercent}</p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings.stripePlatformFeeHint')}
+                  </p>
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="stripe-publishable-key">{t('settings.stripePublishableKey')}</Label>
-                <Input
-                  id="stripe-publishable-key"
-                  value={stripePublishableKey}
-                  onChange={(e) => {
-                    setStripePublishableKey(e.target.value);
-                  }}
+              <div className="flex items-center justify-end gap-2">
+                {stripeHasUnsavedChanges && (
+                  <p className="text-sm text-muted-foreground">{t('settings.unsavedChanges')}</p>
+                )}
+                <SaveButton
+                  isPending={stripeSaveMutation.isPending}
+                  disabled={!stripeHasUnsavedChanges || stripeSaveMutation.isPending}
                 />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="stripe-currency">{t('settings.stripeCurrency')}</Label>
-                <Input
-                  id="stripe-currency"
-                  value={stripeCurrency}
-                  onChange={(e) => {
-                    setStripeCurrency(e.target.value.toUpperCase());
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="relative"
+                  onClick={() => {
+                    stripeTestMutation.mutate();
                   }}
-                  maxLength={3}
-                  placeholder="USD"
-                />
+                  disabled={stripeTestMutation.isPending}
+                >
+                  {stripeTestMutation.isPending && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Spinner className="h-4 w-4" />
+                    </div>
+                  )}
+                  <span className={stripeTestMutation.isPending ? 'invisible' : ''}>
+                    {t('settings.stripeTestConnection')}
+                  </span>
+                </Button>
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="stripe-pre-auth">{t('settings.stripePreAuthAmount')}</Label>
-                <Input
-                  id="stripe-pre-auth"
-                  type="number"
-                  value={stripePreAuthCents}
-                  onChange={(e) => {
-                    setStripePreAuthCents(e.target.value);
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">{t('settings.stripePreAuthHint')}</p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="stripe-platform-fee">{t('settings.stripePlatformFee')}</Label>
-                <Input
-                  id="stripe-platform-fee"
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="100"
-                  value={stripePlatformFee}
-                  onChange={(e) => {
-                    setStripePlatformFee(e.target.value);
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t('settings.stripePlatformFeeHint')}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <SaveButton
-                isPending={stripeSaveMutation.isPending}
-                type="button"
-                onClick={() => {
-                  const vals: Record<string, unknown> = {};
-                  if (stripeSecretKey !== '') vals['secretKey'] = stripeSecretKey;
-                  if (stripePublishableKey !== '') vals['publishableKey'] = stripePublishableKey;
-                  if (stripeCurrency !== '') vals['currency'] = stripeCurrency;
-                  vals['preAuthAmountCents'] = Number(stripePreAuthCents);
-                  vals['platformFeePercent'] = Number(stripePlatformFee);
-                  stripeSaveMutation.mutate(vals);
-                }}
-              />
-              <Button
-                variant="outline"
-                onClick={() => {
-                  stripeTestMutation.mutate();
-                }}
-                disabled={stripeTestMutation.isPending}
-              >
-                {stripeTestMutation.isPending && <Spinner className="h-4 w-4" />}
-                {t('settings.stripeTestConnection')}
-              </Button>
-            </div>
-            {stripeSaveMutation.isSuccess && (
-              <p className="text-sm text-green-600">{t('settings.stripeSaved')}</p>
-            )}
-            {stripeSaveMutation.isError && (
-              <p className="text-sm text-destructive">{t('settings.stripeSaveFailed')}</p>
-            )}
-            {stripeTestMutation.isSuccess && (
-              <p className="text-sm text-green-600">{t('settings.stripeTestSuccess')}</p>
-            )}
-            {stripeTestMutation.isError && (
-              <p className="text-sm text-destructive">{t('settings.stripeTestFailed')}</p>
-            )}
+              {stripeSaveMutation.isSuccess && !stripeHasUnsavedChanges && (
+                <p className="text-sm text-success">{t('settings.stripeSaved')}</p>
+              )}
+              {stripeSaveMutation.isError && (
+                <p className="text-sm text-destructive">{t('settings.stripeSaveFailed')}</p>
+              )}
+              {stripeTestMutation.isSuccess && (
+                <p className="text-sm text-success">{t('settings.stripeTestSuccess')}</p>
+              )}
+              {stripeTestMutation.isError && (
+                <p className="text-sm text-destructive">{t('settings.stripeTestFailed')}</p>
+              )}
+            </form>
           </CardContent>
         </Card>
       </TabsContent>
@@ -341,28 +435,27 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
                         }}
                       >
                         <span className="mr-2 truncate text-sm">{site.name}</span>
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={enabled}
+                        <span
                           onClick={(e) => {
                             e.stopPropagation();
-                            sitePaymentToggleMutation.mutate({
-                              siteId: site.id,
-                              isEnabled: !enabled,
-                            });
                           }}
-                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${enabled ? 'bg-primary' : 'bg-muted'}`}
                         >
-                          <span
-                            className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0'}`}
+                          <Toggle
+                            checked={enabled}
+                            aria-label={t('settings.sitePaymentsEnabled', { site: site.name })}
+                            onCheckedChange={(checked) => {
+                              sitePaymentToggleMutation.mutate({
+                                siteId: site.id,
+                                isEnabled: checked,
+                              });
+                            }}
                           />
-                        </button>
+                        </span>
                       </div>
                     );
                   })
                 ) : (
-                  <p className="px-2 py-4 text-sm text-muted-foreground">
+                  <p className="px-2 py-4 text-center text-sm text-muted-foreground">
                     {t('settings.siteConfigsNoSites')}
                   </p>
                 )}
@@ -384,94 +477,102 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
                     {siteList?.data.find((s) => s.id === selectedSiteId)?.name ?? ''}
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    {t('settings.siteConfigsDescription')}
-                  </p>
+                <CardContent>
+                  <form onSubmit={handleSiteSubmit} noValidate className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      {t('settings.siteConfigsDescription')}
+                    </p>
 
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="site-connected-account">
-                        {t('payments.connectedAccountId')}
-                      </Label>
-                      <Input
-                        id="site-connected-account"
-                        value={siteConnectedAccountId}
-                        onChange={(e) => {
-                          setSiteConnectedAccountId(e.target.value);
-                        }}
-                        placeholder="acct_..."
-                      />
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="site-connected-account">
+                          {t('payments.connectedAccountId')}
+                        </Label>
+                        <Input
+                          id="site-connected-account"
+                          value={siteConnectedAccountId}
+                          onChange={(e) => {
+                            setSiteConnectedAccountId(e.target.value);
+                            markSiteChanged();
+                          }}
+                          placeholder="acct_..."
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="site-pre-auth">{t('payments.preAuthAmount')}</Label>
+                        <Input
+                          id="site-pre-auth"
+                          type="number"
+                          value={sitePreAuthCents}
+                          onChange={(e) => {
+                            setSitePreAuthCents(e.target.value);
+                            markSiteChanged();
+                          }}
+                          className={
+                            siteHasSubmitted && siteErrors.preAuthAmountCents
+                              ? 'border-destructive'
+                              : ''
+                          }
+                        />
+                        {siteHasSubmitted && siteErrors.preAuthAmountCents && (
+                          <p className="text-sm text-destructive">
+                            {siteErrors.preAuthAmountCents}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          {t('payments.amountInCents')}
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="site-platform-fee">
+                          {t('settings.sitePlatformFeeOverride')}
+                        </Label>
+                        <Input
+                          id="site-platform-fee"
+                          type="number"
+                          step="any"
+                          value={sitePlatformFee}
+                          onChange={(e) => {
+                            setSitePlatformFee(e.target.value);
+                            markSiteChanged();
+                          }}
+                          className={
+                            siteHasSubmitted && siteErrors.platformFeePercent
+                              ? 'border-destructive'
+                              : ''
+                          }
+                        />
+                        {siteHasSubmitted && siteErrors.platformFeePercent && (
+                          <p className="text-sm text-destructive">
+                            {siteErrors.platformFeePercent}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          {t('settings.sitePlatformFeeHint')}
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="site-currency">{t('payments.currency')}</Label>
-                      <Input
-                        id="site-currency"
-                        value={siteCurrency}
-                        onChange={(e) => {
-                          setSiteCurrency(e.target.value.toUpperCase());
-                        }}
-                        maxLength={3}
-                        placeholder="USD"
+                    <div className="flex items-center gap-2">
+                      <SaveButton
+                        isPending={sitePaymentSaveMutation.isPending}
+                        disabled={!siteHasUnsavedChanges || sitePaymentSaveMutation.isPending}
                       />
+                      {siteHasUnsavedChanges && (
+                        <p className="text-sm text-muted-foreground">
+                          {t('settings.unsavedChanges')}
+                        </p>
+                      )}
                     </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="site-pre-auth">{t('payments.preAuthAmount')}</Label>
-                      <Input
-                        id="site-pre-auth"
-                        type="number"
-                        value={sitePreAuthCents}
-                        onChange={(e) => {
-                          setSitePreAuthCents(e.target.value);
-                        }}
-                      />
-                      <p className="text-xs text-muted-foreground">{t('payments.amountInCents')}</p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="site-platform-fee">
-                        {t('settings.sitePlatformFeeOverride')}
-                      </Label>
-                      <Input
-                        id="site-platform-fee"
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        max="100"
-                        value={sitePlatformFee}
-                        onChange={(e) => {
-                          setSitePlatformFee(e.target.value);
-                        }}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        {t('settings.sitePlatformFeeHint')}
-                      </p>
-                    </div>
-                  </div>
-
-                  <SaveButton
-                    isPending={sitePaymentSaveMutation.isPending}
-                    type="button"
-                    onClick={() => {
-                      sitePaymentSaveMutation.mutate({
-                        siteId: selectedSiteId,
-                        stripeConnectedAccountId:
-                          siteConnectedAccountId !== '' ? siteConnectedAccountId : undefined,
-                        currency: siteCurrency,
-                        preAuthAmountCents: Number(sitePreAuthCents),
-                        platformFeePercent: sitePlatformFee !== '' ? Number(sitePlatformFee) : null,
-                        isEnabled: paymentConfigMap.get(selectedSiteId)?.isEnabled ?? true,
-                      });
-                    }}
-                  />
-                  {sitePaymentSaveMutation.isSuccess && (
-                    <p className="text-sm text-green-600">{t('settings.stripeSaved')}</p>
-                  )}
-                  {sitePaymentSaveMutation.isError && (
-                    <p className="text-sm text-destructive">{t('settings.stripeSaveFailed')}</p>
-                  )}
+                    {sitePaymentSaveMutation.isSuccess && !siteHasUnsavedChanges && (
+                      <p className="text-sm text-success">{t('settings.stripeSaved')}</p>
+                    )}
+                    {sitePaymentSaveMutation.isError && (
+                      <p className="text-sm text-destructive">{t('settings.stripeSaveFailed')}</p>
+                    )}
+                  </form>
                 </CardContent>
               </Card>
             )}

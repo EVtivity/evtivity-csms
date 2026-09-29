@@ -8,13 +8,11 @@ import { TabsContent } from '@/components/ui/tabs';
 import { StationPowerChart } from '@/components/charts/StationPowerChart';
 import { StationEnergyChart } from '@/components/charts/StationEnergyChart';
 import { RevenueChart } from '@/components/charts/RevenueChart';
-import { PeriodFinancialCells } from '@/components/PeriodFinancialCells';
-import type { DailyRevenue, PeriodFinancial } from '@/lib/currency-amounts';
 import { PopularTimesChart } from '@/components/charts/PopularTimesChart';
 import { DateRangeControl } from '@/components/DateRangeControl';
 import { useDateRange } from '@/hooks/useDateRange';
 import { api } from '@/lib/api';
-import { formatEnergy, formatDurationMinutes } from '@/lib/formatting';
+import { formatCents, formatEnergy, formatDurationMinutes } from '@/lib/formatting';
 
 interface SiteMetrics {
   uptimePercent: number;
@@ -29,7 +27,12 @@ interface SiteMetrics {
   disconnectCount: number;
   avgDowntimeMinutes: number;
   maxDowntimeMinutes: number;
-  financials: PeriodFinancial[];
+  totalRevenueCents: number;
+  avgRevenueCentsPerSession: number;
+  totalTransactions: number;
+  totalElectricityCostCents: number;
+  totalProfitCents: number;
+  currency: string;
   periodMonths: number;
 }
 
@@ -67,7 +70,11 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
     );
   }
 
-  const { data: metrics } = useQuery({
+  const {
+    data: metrics,
+    isError: metricsError,
+    refetch: refetchMetrics,
+  } = useQuery({
     queryKey: ['sites', siteId, 'metrics'],
     queryFn: () => api.get<SiteMetrics>(`/v1/sites/${siteId}/metrics`),
     refetchInterval: 60_000,
@@ -91,7 +98,9 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
   const { data: revenueData } = useQuery({
     queryKey: ['sites', siteId, 'revenue-history', revenueRange.dateQuery],
     queryFn: () =>
-      api.get<DailyRevenue[]>(`/v1/sites/${siteId}/revenue-history?${revenueRange.dateQuery}`),
+      api.get<{ date: string; revenueCents: number; sessionCount: number }[]>(
+        `/v1/sites/${siteId}/revenue-history?${revenueRange.dateQuery}`,
+      ),
   });
 
   const { data: popularTimesData } = useQuery({
@@ -158,7 +167,36 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
                   {formatDurationMinutes(metrics.maxDowntimeMinutes)}
                 </p>
               </div>
-              <PeriodFinancialCells financials={metrics.financials} />
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">{t('metrics.totalRevenue')}</p>
+                <p className="text-2xl font-bold">
+                  {formatCents(metrics.totalRevenueCents, metrics.currency)}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">{t('metrics.revenuePerSession')}</p>
+                <p className="text-2xl font-bold">
+                  {formatCents(metrics.avgRevenueCentsPerSession, metrics.currency)}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">{t('metrics.totalTransactions')}</p>
+                <p className="text-2xl font-bold">{String(metrics.totalTransactions)}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">{t('metrics.electricityCost')}</p>
+                <p className="text-2xl font-bold">
+                  {formatCents(metrics.totalElectricityCostCents, metrics.currency)}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">{t('metrics.profit')}</p>
+                <p
+                  className={`text-2xl font-bold ${metrics.totalProfitCents >= 0 ? 'text-success' : 'text-destructive'}`}
+                >
+                  {formatCents(metrics.totalProfitCents, metrics.currency)}
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -169,7 +207,15 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
         <StationEnergyChart data={energyData ?? []} actions={dateControl(energyRange)} />
       </div>
 
-      <RevenueChart data={revenueData ?? []} actions={dateControl(revenueRange)} />
+      <RevenueChart
+        data={revenueData ?? []}
+        currency={metrics?.currency}
+        currencyError={metricsError}
+        onRetry={() => {
+          void refetchMetrics();
+        }}
+        actions={dateControl(revenueRange)}
+      />
 
       {popularTimesData != null && popularTimesData.length > 0 && (
         <PopularTimesChart data={popularTimesData} />

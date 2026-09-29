@@ -49,6 +49,7 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', () => ({
+  getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -350,7 +351,6 @@ describe('Invoice Service', () => {
         subtotalCents: 650,
         taxCents: 0,
         totalCents: 650,
-        currency: 'USD',
       });
       const now = new Date();
       setupDbResults(
@@ -401,7 +401,6 @@ describe('Invoice Service', () => {
           subtotalCents: 650,
           taxCents: 0,
           totalCents: 650,
-          currency: 'USD',
         })
         .mockReturnValueOnce({
           energyCostCents: 300,
@@ -412,7 +411,6 @@ describe('Invoice Service', () => {
           subtotalCents: 500,
           taxCents: 0,
           totalCents: 500,
-          currency: 'USD',
         });
 
       setupDbResults(

@@ -63,7 +63,7 @@ export const chargingSessions = pgTable(
     reservationId: text('reservation_id').references(() => reservations.id),
     currentCostCents: integer('current_cost_cents'),
     finalCostCents: integer('final_cost_cents'),
-    currency: varchar('currency', { length: 3 }),
+    currency: varchar('currency', { length: 3 }).notNull(),
     tariffId: text('tariff_id').references(() => tariffs.id),
     tariffPricePerKwh: numeric('tariff_price_per_kwh'),
     tariffPricePerMinute: numeric('tariff_price_per_minute'),

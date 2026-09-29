@@ -79,7 +79,6 @@ describe('reservationExpiryCheckHandler', () => {
     mockResolveTariff.mockResolvedValue({
       id: 't_1',
       reservationFeePerMinute: '0.05',
-      currency: 'USD',
       pricePerKwh: null,
       pricePerMinute: null,
       pricePerSession: null,
@@ -91,9 +90,8 @@ describe('reservationExpiryCheckHandler', () => {
       await import('../../handlers/reservation-expiry-check.js');
     await reservationExpiryCheckHandler(log);
 
-    // 60 min * $0.05 = $3.00 = 300 cents. 5th arg is the resolved tariff
-    // currency, which the fee helper persists on the payment record.
-    expect(mockChargeNoShow).toHaveBeenCalledWith('drv_1', 'site_1', 300, 'rsv_1', 'USD');
+    // 60 min * $0.05 = $3.00 = 300 cents.
+    expect(mockChargeNoShow).toHaveBeenCalledWith('drv_1', 'site_1', 300, 'rsv_1');
     expect(mockPublish).toHaveBeenCalledWith(
       'ocpp_commands',
       expect.stringContaining('"action":"CancelReservation"'),
@@ -275,7 +273,7 @@ describe('reservationExpiryCheckHandler', () => {
         },
       ])
       .mockResolvedValueOnce([]);
-    mockResolveTariff.mockResolvedValue({ reservationFeePerMinute: null, currency: 'USD' });
+    mockResolveTariff.mockResolvedValue({ reservationFeePerMinute: null });
 
     const { reservationExpiryCheckHandler } =
       await import('../../handlers/reservation-expiry-check.js');
@@ -305,7 +303,6 @@ describe('reservationExpiryCheckHandler', () => {
       .mockResolvedValueOnce([]);
     mockResolveTariff.mockResolvedValue({
       reservationFeePerMinute: '0.05',
-      currency: 'USD',
     });
 
     const { reservationExpiryCheckHandler } =
@@ -313,7 +310,7 @@ describe('reservationExpiryCheckHandler', () => {
     await reservationExpiryCheckHandler(log);
 
     // 30 min from created_at to expires_at * $0.05 = $1.50 = 150 cents.
-    expect(mockChargeNoShow).toHaveBeenCalledWith('drv_1', 'site_inst', 150, 'rsv_instant', 'USD');
+    expect(mockChargeNoShow).toHaveBeenCalledWith('drv_1', 'site_inst', 150, 'rsv_instant');
   });
 
   it('does not charge when computed hold duration rounds to zero minutes', async () => {
@@ -337,7 +334,6 @@ describe('reservationExpiryCheckHandler', () => {
       .mockResolvedValueOnce([]);
     mockResolveTariff.mockResolvedValue({
       reservationFeePerMinute: '0.05',
-      currency: 'USD',
     });
 
     const { reservationExpiryCheckHandler } =
@@ -413,7 +409,6 @@ describe('reservationExpiryCheckHandler', () => {
       .mockResolvedValueOnce([]);
     mockResolveTariff.mockResolvedValue({
       reservationFeePerMinute: '0.05',
-      currency: 'USD',
     });
     mockChargeNoShow.mockRejectedValueOnce(new Error('stripe error'));
 
@@ -421,7 +416,7 @@ describe('reservationExpiryCheckHandler', () => {
       await import('../../handlers/reservation-expiry-check.js');
     await reservationExpiryCheckHandler(log);
 
-    expect(mockChargeNoShow).toHaveBeenCalledWith('drv_1', 'site_ff', 300, 'rsv_feefail', 'USD');
+    expect(mockChargeNoShow).toHaveBeenCalledWith('drv_1', 'site_ff', 300, 'rsv_feefail');
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         reservationId: 'rsv_feefail',

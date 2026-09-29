@@ -662,7 +662,6 @@
     "SUPPORT_AI_NOT_CONFIGURED": "尚未設定客服 AI",
     "SUPPORT_CASE_NOT_FOUND": "找不到客服案件",
     "SUPPORT_DISABLED": "客服功能已停用",
-    "TARIFF_CURRENCY_MISMATCH": "費率貨幣與群組中其他費率不符",
     "TARIFF_IN_USE": "費率正被充電工作階段使用中，無法刪除",
     "TARIFF_NOT_FOUND": "找不到費率",
     "TARIFF_OVERLAP": "費率與既有費率重疊",

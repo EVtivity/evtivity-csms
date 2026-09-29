@@ -18,7 +18,6 @@ describe('formatPricingDisplay', () => {
     idleFeePricePerMinute: '0.50',
     reservationFeePerMinute: null,
     taxRate: '0.08',
-    currency: 'USD',
   };
 
   describe('standard format', () => {
@@ -37,7 +36,6 @@ describe('formatPricingDisplay', () => {
         idleFeePricePerMinute: null,
         reservationFeePerMinute: null,
         taxRate: null,
-        currency: 'USD',
       };
       const result = formatPricingDisplay(tariff, 'standard', 'USD');
       expect(result).toBe('Energy: $0.30/kWh');
@@ -51,7 +49,6 @@ describe('formatPricingDisplay', () => {
         idleFeePricePerMinute: null,
         reservationFeePerMinute: null,
         taxRate: null,
-        currency: 'USD',
       };
       const result = formatPricingDisplay(tariff, 'standard', 'USD');
       expect(result).toBe('Free');
@@ -72,7 +69,6 @@ describe('formatPricingDisplay', () => {
         idleFeePricePerMinute: null,
         reservationFeePerMinute: null,
         taxRate: null,
-        currency: 'USD',
       };
       const result = formatPricingDisplay(tariff, 'compact', 'USD');
       expect(result).toBe('$0.30/kWh');
@@ -86,7 +82,6 @@ describe('formatPricingDisplay', () => {
         idleFeePricePerMinute: null,
         reservationFeePerMinute: null,
         taxRate: null,
-        currency: 'USD',
       };
       const result = formatPricingDisplay(tariff, 'compact', 'USD');
       expect(result).toBe('Free');
@@ -102,7 +97,6 @@ describe('formatPricingDisplay', () => {
         idleFeePricePerMinute: null,
         reservationFeePerMinute: null,
         taxRate: null,
-        currency: 'EUR',
       };
       const result = formatPricingDisplay(tariff, 'compact', 'EUR');
       expect(result).toBe('\u20AC0.30/kWh');
@@ -116,7 +110,6 @@ describe('formatPricingDisplay', () => {
         idleFeePricePerMinute: null,
         reservationFeePerMinute: null,
         taxRate: null,
-        currency: 'GBP',
       };
       const result = formatPricingDisplay(tariff, 'compact', 'GBP');
       expect(result).toBe('\u00A30.30/kWh');
@@ -130,7 +123,6 @@ describe('formatPricingDisplay', () => {
         idleFeePricePerMinute: null,
         reservationFeePerMinute: null,
         taxRate: null,
-        currency: 'JPY',
       };
       const result = formatPricingDisplay(tariff, 'compact', 'JPY');
       expect(result).toBe('JPY 0.30/kWh');
@@ -165,7 +157,6 @@ describe('setCurrencySymbols', () => {
       idleFeePricePerMinute: null,
       reservationFeePerMinute: null,
       taxRate: null,
-      currency: 'USD',
     };
     expect(formatPricingDisplay(tariff, 'compact', 'USD')).toBe('US$0.30/kWh');
   });

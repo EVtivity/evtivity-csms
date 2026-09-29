@@ -116,6 +116,7 @@ vi.mock('drizzle-orm', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { pricingRoutes } from '../routes/pricing.js';
+import { db } from '@evtivity/database';
 
 const VALID_GROUP_ID = 'pgr_000000000001';
 const VALID_TARIFF_ID = 'trf_000000000001';
@@ -344,7 +345,6 @@ describe('Pricing routes', () => {
           id: VALID_TARIFF_ID,
           pricingGroupId: VALID_GROUP_ID,
           name: 'Standard',
-          currency: 'USD',
           pricePerKwh: '0.25',
           pricePerMinute: null,
           pricePerSession: null,
@@ -370,7 +370,6 @@ describe('Pricing routes', () => {
       expect(Array.isArray(body)).toBe(true);
       expect(body).toHaveLength(1);
       expect(body[0].name).toBe('Standard');
-      expect(body[0].currency).toBe('USD');
     });
 
     it('returns empty array when group has no tariffs', async () => {
@@ -410,7 +409,6 @@ describe('Pricing routes', () => {
         id: VALID_TARIFF_ID,
         pricingGroupId: VALID_GROUP_ID,
         name: 'Standard',
-        currency: 'USD',
         pricePerKwh: '0.25',
         pricePerMinute: null,
         pricePerSession: null,
@@ -434,7 +432,6 @@ describe('Pricing routes', () => {
       const body = res.json();
       expect(body.id).toBe(VALID_TARIFF_ID);
       expect(body.name).toBe('Standard');
-      expect(body.currency).toBe('USD');
     });
 
     it('returns 404 when tariff not found', async () => {
@@ -465,7 +462,7 @@ describe('Pricing routes', () => {
       const res = await app.inject({
         method: 'POST',
         url: `/pricing-groups/${VALID_GROUP_ID}/tariffs`,
-        payload: { name: 'Test Tariff', currency: 'USD' },
+        payload: { name: 'Test Tariff' },
       });
       expect(res.statusCode).toBe(401);
     });
@@ -475,7 +472,6 @@ describe('Pricing routes', () => {
         id: VALID_TARIFF_ID,
         pricingGroupId: VALID_GROUP_ID,
         name: 'Peak Rate',
-        currency: 'USD',
         pricePerKwh: '0.35',
         pricePerMinute: '0.05',
         pricePerSession: '1.00',
@@ -499,7 +495,6 @@ describe('Pricing routes', () => {
         headers: { authorization: `Bearer ${token}` },
         payload: {
           name: 'Peak Rate',
-          currency: 'USD',
           pricePerKwh: '0.35',
           pricePerMinute: '0.05',
           pricePerSession: '1.00',
@@ -512,12 +507,11 @@ describe('Pricing routes', () => {
       expect(body.pricePerKwh).toBe('0.35');
     });
 
-    it('creates a tariff with default currency when not provided', async () => {
+    it('does not store a currency on the tariff', async () => {
       const created = {
         id: VALID_TARIFF_ID,
         pricingGroupId: VALID_GROUP_ID,
         name: 'Simple',
-        currency: 'USD',
         pricePerKwh: '0.20',
         pricePerMinute: null,
         pricePerSession: null,
@@ -537,10 +531,16 @@ describe('Pricing routes', () => {
         method: 'POST',
         url: `/pricing-groups/${VALID_GROUP_ID}/tariffs`,
         headers: { authorization: `Bearer ${token}` },
-        payload: { name: 'Simple', pricePerKwh: '0.20' },
+        payload: { name: 'Simple', pricePerKwh: '0.20', currency: 'EUR' },
       });
       expect(res.statusCode).toBe(201);
-      expect(res.json().currency).toBe('USD');
+      expect(res.json()).not.toHaveProperty('currency');
+      const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+        values: ReturnType<typeof vi.fn>;
+      };
+      expect(insertChain.values).toHaveBeenCalledWith(
+        expect.not.objectContaining({ currency: expect.anything() }),
+      );
     });
 
     it('creates a tariff with only required fields', async () => {
@@ -548,7 +548,6 @@ describe('Pricing routes', () => {
         id: VALID_TARIFF_ID,
         pricingGroupId: VALID_GROUP_ID,
         name: 'Bare Minimum',
-        currency: 'USD',
         pricePerKwh: null,
         pricePerMinute: null,
         pricePerSession: null,
@@ -579,17 +578,7 @@ describe('Pricing routes', () => {
         method: 'POST',
         url: `/pricing-groups/${VALID_GROUP_ID}/tariffs`,
         headers: { authorization: `Bearer ${token}` },
-        payload: { currency: 'USD' },
-      });
-      expect(res.statusCode).toBe(400);
-    });
-
-    it('returns 400 when currency is not 3 characters', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: `/pricing-groups/${VALID_GROUP_ID}/tariffs`,
-        headers: { authorization: `Bearer ${token}` },
-        payload: { name: 'Bad Currency', currency: 'US' },
+        payload: {},
       });
       expect(res.statusCode).toBe(400);
     });
@@ -599,7 +588,7 @@ describe('Pricing routes', () => {
         method: 'POST',
         url: '/pricing-groups/invalid/tariffs',
         headers: { authorization: `Bearer ${token}` },
-        payload: { name: 'Test', currency: 'USD' },
+        payload: { name: 'Test' },
       });
       expect(res.statusCode).toBe(400);
     });
@@ -686,7 +675,6 @@ describe('Pricing routes', () => {
         id: VALID_TARIFF_ID,
         pricingGroupId: VALID_GROUP_ID,
         name: 'To Delete',
-        currency: 'USD',
         pricePerKwh: '0.25',
         pricePerMinute: null,
         pricePerSession: null,
@@ -797,7 +785,6 @@ describe('Pricing routes', () => {
         id: VALID_TARIFF_ID,
         pricingGroupId: VALID_GROUP_ID,
         name: 'Old Rate',
-        currency: 'USD',
         pricePerKwh: '0.25',
         pricePerMinute: null,
         pricePerSession: null,

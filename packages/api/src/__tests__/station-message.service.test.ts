@@ -73,6 +73,7 @@ const {
 // -- Mocks --
 
 vi.mock('@evtivity/database', () => ({
+  getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -136,9 +137,12 @@ vi.mock('drizzle-orm', () => ({
   gt: vi.fn(),
   inArray: vi.fn(),
   desc: vi.fn(),
+  sql: vi.fn(() => ({})),
 }));
 
-vi.mock('@evtivity/lib', () => ({
+vi.mock('@evtivity/lib', async (importOriginal) => ({
+  formatCurrencyAmount: (await importOriginal<typeof import('@evtivity/lib')>())
+    .formatCurrencyAmount,
   formatPricingDisplay: mockFormatPricingDisplay,
   renderStationMessage: mockRenderStationMessage,
 }));
@@ -190,7 +194,6 @@ const STATION_ROW = {
 const TARIFF = {
   id: 'trf_1',
   name: 'Default',
-  currency: 'USD',
   pricePerKwh: '0.30',
   pricePerMinute: '0.02',
   pricePerSession: null,
@@ -266,6 +269,7 @@ describe('station-message.service', () => {
       expect(mockRenderStationMessage).toHaveBeenCalledWith('faulted', expect.any(Object));
       expect(mockRenderStationMessage).toHaveBeenCalledWith('unavailable', expect.any(Object));
       expect(mockPublish).toHaveBeenCalledTimes(3);
+      expect(mockFormatPricingDisplay).toHaveBeenCalledWith(TARIFF, 'compact', 'EUR');
 
       const publishedSlots = mockPublish.mock.calls.map((call) => {
         const body = JSON.parse(call[1] as string) as {
@@ -876,14 +880,14 @@ describe('station-message.service', () => {
         startedAt: null,
         energyDeliveredWh: null,
         currentCostCents: null,
-        currency: null,
+        currency: 'USD',
         chargingState: 'Charging',
         tariffIdleFeePricePerMinute: null,
         ...overrides,
       };
     }
 
-    it('handles null startedAt, null energy, null cost, null currency, null power, no driver', async () => {
+    it('handles null startedAt, null energy, null cost, null power, no driver', async () => {
       // existing pushes [], power meter [] (empty -> ''), no driver lookup (driverId null)
       setupDbResults([], [], []);
 
@@ -975,7 +979,7 @@ describe('station-message.service', () => {
       );
 
       const ctx = mockRenderStationMessage.mock.calls[0]![1] as Record<string, string>;
-      expect(ctx['costFormatted']).toBe('5.00 NOTACURRENCY');
+      expect(ctx['costFormatted']).toBe('NOTACURRENCY 5.00');
       expect(ctx['idleFeeRate']).toBe('0.15 NOTACURRENCY/min');
     });
 

@@ -13,7 +13,6 @@ function makeTariff(
 ): TariffWithRestrictions {
   return {
     id,
-    currency: 'USD',
     pricePerKwh: '0.25',
     pricePerMinute: null,
     pricePerSession: null,

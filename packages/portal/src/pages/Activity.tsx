@@ -24,7 +24,7 @@ interface Session {
   endedAt: string | null;
   energyDeliveredWh: string | null;
   finalCostCents: number | null;
-  currency: string | null;
+  currency: string;
   stationName: string | null;
   siteName: string | null;
   siteCity: string | null;
@@ -39,7 +39,7 @@ interface MonthlySummary {
   totalCostCents: number;
   totalEnergyWh: number;
   sessionCount: number;
-  currency: string | null;
+  currency: string;
   totalCo2AvoidedKg: number | null;
 }
 
@@ -161,14 +161,12 @@ export function Activity(): React.JSX.Element {
     }
   }
 
-  const totalCost = summary?.totalCostCents ?? 0;
   const totalEnergyWh = summary?.totalEnergyWh ?? 0;
   const totalMiles = (totalEnergyWh / 1000) * efficiency;
-  const currency = summary?.currency ?? 'USD';
 
   let centerText = 'n/a';
   if (selectedMetric === 'cost') {
-    centerText = formatCents(totalCost, currency);
+    if (summary != null) centerText = formatCents(summary.totalCostCents, summary.currency);
   } else if (selectedMetric === 'energy') {
     centerText = formatEnergy(totalEnergyWh);
   } else if (distanceUnit === 'km') {
@@ -344,7 +342,7 @@ export function Activity(): React.JSX.Element {
               </div>
               <div className="text-right">
                 <p className="text-sm font-medium">
-                  {formatCents(session.finalCostCents, session.currency ?? 'USD')}
+                  {formatCents(session.finalCostCents, session.currency)}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {formatDuration(session.startedAt, session.endedAt)}

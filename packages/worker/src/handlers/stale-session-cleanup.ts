@@ -37,7 +37,6 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
       updatedAt: chargingSessions.updatedAt,
       energyDeliveredWh: chargingSessions.energyDeliveredWh,
       currentCostCents: chargingSessions.currentCostCents,
-      currency: chargingSessions.currency,
       tariffId: chargingSessions.tariffId,
       tariffPricePerKwh: chargingSessions.tariffPricePerKwh,
       tariffPricePerMinute: chargingSessions.tariffPricePerMinute,
@@ -73,7 +72,7 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
       // Calculate final cost if tariff snapshot exists
       let finalCostCents = session.currentCostCents;
 
-      if (session.tariffId != null && session.currency != null && session.startedAt != null) {
+      if (session.tariffId != null && session.startedAt != null) {
         // Calculate idle minutes
         const accumulatedIdle = Number(session.idleMinutes);
         const idleMinutes =
@@ -112,7 +111,7 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
           const segments = await db.execute(sql`
             SELECT sts.started_at, sts.ended_at, sts.energy_wh_start, sts.energy_wh_end,
                    sts.idle_minutes AS seg_idle_minutes,
-                   t.currency, t.price_per_kwh, t.price_per_minute, t.price_per_session,
+                   t.price_per_kwh, t.price_per_minute, t.price_per_session,
                    t.idle_fee_price_per_minute, t.tax_rate
             FROM session_tariff_segments sts
             JOIN tariffs t ON t.id = sts.tariff_id
@@ -133,7 +132,6 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
                     idleFeePricePerMinute: seg.idle_fee_price_per_minute as string | null,
                     reservationFeePerMinute: null,
                     taxRate: seg.tax_rate as string | null,
-                    currency: seg.currency as string,
                   },
                   durationMinutes: (segEnd - segStart) / 60000,
                   // Defensive fallback: a stale session's segments may not
@@ -169,7 +167,6 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
               idleFeePricePerMinute: session.tariffIdleFeePricePerMinute,
               reservationFeePerMinute: null,
               taxRate: session.tariffTaxRate,
-              currency: session.currency,
             },
             energyWh,
             durationMinutes,

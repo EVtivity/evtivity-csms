@@ -158,7 +158,7 @@ const fleetSessionItem = z
       .min(0)
       .nullable()
       .describe('Final billed cost in cents after session completes'),
-    currency: z.string().length(3).nullable().describe('ISO 4217 currency code (USD, EUR, etc.)'),
+    currency: z.string().length(3).describe('ISO 4217 currency the session is billed in'),
   })
   .passthrough();
 

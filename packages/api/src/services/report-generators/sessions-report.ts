@@ -10,11 +10,12 @@ import {
   drivers,
   paymentRecords,
   getSystemTimezone,
+  getCompanyCurrency,
 } from '@evtivity/database';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
-import { formatCents } from './currency.js';
+import { formatCurrencyAmount } from '@evtivity/lib';
 import type { ReportGeneratorResult } from '../report.service.js';
 
 interface Filters {
@@ -96,7 +97,11 @@ interface SessionLogResult {
   truncated: boolean;
 }
 
-async function querySessionLog(filters: Filters, tz: string): Promise<SessionLogResult> {
+async function querySessionLog(
+  filters: Filters,
+  tz: string,
+  companyCurrency: string,
+): Promise<SessionLogResult> {
   const conditions = buildConditions(filters, tz);
 
   if (filters.siteId != null) {
@@ -122,7 +127,7 @@ async function querySessionLog(filters: Filters, tz: string): Promise<SessionLog
       durationMinutes: sql<number>`coalesce(extract(epoch from (${chargingSessions.endedAt} - ${chargingSessions.startedAt})) / 60, 0)`,
       energyKwh: sql<number>`coalesce(${chargingSessions.energyDeliveredWh}::numeric / 1000, 0)`,
       costCents: sql<number>`coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}, 0)`,
-      currency: sql<string>`coalesce(${chargingSessions.currency}, 'USD')`,
+      currency: sql<string>`coalesce(upper(${chargingSessions.currency}), ${companyCurrency})`,
       stoppedReason: sql<string>`coalesce(${chargingSessions.stoppedReason}, '')`,
       paymentSource: sql<string>`coalesce((
         SELECT pr.payment_source
@@ -205,10 +210,10 @@ export async function generateSessionsReport(
   format: string,
 ): Promise<ReportGeneratorResult> {
   const filters = parseFilters(rawFilters);
-  const tz = await getSystemTimezone();
+  const [tz, companyCurrency] = await Promise.all([getSystemTimezone(), getCompanyCurrency()]);
 
   const [logResult, failedSummary] = await Promise.all([
-    querySessionLog(filters, tz),
+    querySessionLog(filters, tz, companyCurrency),
     queryFailedSessions(filters, tz),
   ]);
   const sessions = logResult.rows;
@@ -245,7 +250,7 @@ export async function generateSessionsReport(
       s.endedAt,
       s.durationMinutes,
       s.energyKwh,
-      formatCents(s.costCents, s.currency),
+      formatCurrencyAmount(s.costCents, s.currency),
       s.stoppedReason,
       s.paymentSource,
     ]);
@@ -298,7 +303,7 @@ export async function generateSessionsReport(
           s.endedAt,
           s.durationMinutes,
           s.energyKwh,
-          formatCents(s.costCents, s.currency),
+          formatCurrencyAmount(s.costCents, s.currency),
           s.stoppedReason,
           s.paymentSource,
         ]),
@@ -345,7 +350,7 @@ export async function generateSessionsReport(
         s.status,
         `${String(s.durationMinutes)}m`,
         parseFloat(String(s.energyKwh)).toFixed(1),
-        formatCents(s.costCents, s.currency),
+        formatCurrencyAmount(s.costCents, s.currency),
       ]),
   );
 

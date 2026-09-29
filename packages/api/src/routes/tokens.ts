@@ -11,9 +11,11 @@ import {
   drivers,
   sites,
   driverTokens,
+  getCompanyCurrency,
 } from '@evtivity/database';
 import * as tokenService from '../services/token.service.js';
 import { zodSchema } from '../lib/zod-schema.js';
+import { sessionCurrencySql } from '../lib/company-currency.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -96,7 +98,7 @@ const tokenSessionItem = z
     energyDeliveredWh: z.coerce.number().nullable().describe('Energy delivered in Wh'),
     currentCostCents: z.number().nullable().describe('Current accumulated cost in cents'),
     finalCostCents: z.number().nullable().describe('Final cost in cents'),
-    currency: z.string().nullable().describe('ISO 4217 currency code'),
+    currency: z.string().length(3).describe('ISO 4217 currency the session is billed in'),
   })
   .passthrough();
 
@@ -304,6 +306,7 @@ export function tokenRoutes(app: FastifyInstance): void {
       // Filter by token_id directly (the FK on charging_sessions). This shows
       // sessions where the OCPP authorize matched THIS card, not every session
       // by the same driver.
+      const companyCurrency = await getCompanyCurrency();
       const where = eq(chargingSessions.tokenId, id);
 
       const [data, countRows] = await Promise.all([
@@ -324,7 +327,7 @@ export function tokenRoutes(app: FastifyInstance): void {
             energyDeliveredWh: chargingSessions.energyDeliveredWh,
             currentCostCents: chargingSessions.currentCostCents,
             finalCostCents: chargingSessions.finalCostCents,
-            currency: chargingSessions.currency,
+            currency: sessionCurrencySql(companyCurrency),
           })
           .from(chargingSessions)
           .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))

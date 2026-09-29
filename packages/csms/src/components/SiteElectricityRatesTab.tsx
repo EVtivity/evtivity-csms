@@ -26,6 +26,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useCompanyCurrency } from '@/hooks/use-company-currency';
+import { formatRatePerKwh } from '@/lib/formatting';
 import { SaveButton } from '@/components/save-button';
 import { CancelButton } from '@/components/cancel-button';
 import { api, ApiError } from '@/lib/api';
@@ -108,6 +110,7 @@ export function SiteElectricityRatesTab({ siteId }: { siteId: string }): React.J
   const [deleteTarget, setDeleteTarget] = useState<ElectricityRate | null>(null);
 
   const queryKey = ['site-electricity-rates', siteId];
+  const { currency } = useCompanyCurrency();
 
   const { data: rates = [], isLoading } = useQuery({
     queryKey,
@@ -245,7 +248,9 @@ export function SiteElectricityRatesTab({ siteId }: { siteId: string }): React.J
               {rates.map((rate) => (
                 <TableRow key={rate.id}>
                   <TableCell>{rate.name}</TableCell>
-                  <TableCell className="text-right">${rate.ratePerKwh.toFixed(4)}</TableCell>
+                  <TableCell className="text-right">
+                    {currency != null ? formatRatePerKwh(rate.ratePerKwh, currency) : '-'}
+                  </TableCell>
                   <TableCell>{describeRestrictions(rate.restrictions)}</TableCell>
                   <TableCell className="text-right">
                     <Button

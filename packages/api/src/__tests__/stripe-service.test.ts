@@ -102,10 +102,15 @@ vi.mock('../lib/config.js', () => ({
 
 // -- Mocks --
 
+const { mockGetCompanyCurrency } = vi.hoisted(() => ({
+  mockGetCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
+}));
+
 vi.mock('@evtivity/database', () => ({
   db: {
     select: vi.fn(() => makeChain()),
   },
+  getCompanyCurrency: mockGetCompanyCurrency,
   settings: {},
   sitePaymentConfigs: {},
 }));
@@ -150,7 +155,6 @@ function platformSettingsRows() {
   return [
     { key: 'stripe.secretKeyEnc', value: 'encrypted_key' },
     { key: 'stripe.publishableKey', value: 'pk_test_123' },
-    { key: 'stripe.currency', value: 'USD' },
     { key: 'stripe.preAuthAmountCents', value: 5000 },
     { key: 'stripe.platformFeePercent', value: 0 },
   ];
@@ -162,7 +166,6 @@ function sitePaymentConfigRow(overrides: Record<string, unknown> = {}) {
     siteId: 'site-1',
     isEnabled: true,
     stripeConnectedAccountId: 'acct_connected',
-    currency: 'EUR',
     preAuthAmountCents: 8000,
     ...overrides,
   };
@@ -190,7 +193,7 @@ describe('stripe.service', () => {
       const config = await getStripeConfig(null);
       expect(config).not.toBeNull();
       expect(config!.publishableKey).toBe('pk_test_123');
-      expect(config!.currency).toBe('USD');
+      expect(config!.currency).toBe('EUR');
       expect(config!.preAuthAmountCents).toBe(5000);
       expect(config!.connectedAccountId).toBeNull();
       expect(config!.configId).toBeNull();
@@ -215,7 +218,24 @@ describe('stripe.service', () => {
       // Second call should not query DB again
       setupDbResults([]);
       const second = await getStripeConfig(null);
-      expect(second).toBe(first);
+      expect(second).toEqual(first);
+      expect(second!.stripe).toBe(first!.stripe);
+    });
+
+    it('applies a company currency change to a cached config', async () => {
+      setupDbResults(platformSettingsRows());
+      const first = await getStripeConfig(null);
+      expect(first!.currency).toBe('EUR');
+
+      mockGetCompanyCurrency.mockResolvedValue('GBP');
+      try {
+        setupDbResults([]);
+        const second = await getStripeConfig(null);
+        expect(second!.currency).toBe('GBP');
+        expect(second!.stripe).toBe(first!.stripe);
+      } finally {
+        mockGetCompanyCurrency.mockResolvedValue('EUR');
+      }
     });
 
     it('clearConfigCache clears cache so next call refetches', async () => {
@@ -600,22 +620,24 @@ describe('stripe.service', () => {
   });
 
   describe('getStripeConfig (additional coverage)', () => {
-    it('uses default currency USD when stripe.currency setting is missing', async () => {
-      setupDbResults([
-        { key: 'stripe.secretKeyEnc', value: 'encrypted_key' },
-        { key: 'stripe.publishableKey', value: 'pk_test_123' },
-        { key: 'stripe.preAuthAmountCents', value: 3000 },
-      ]);
-      const config = await getStripeConfig(null);
-      expect(config).not.toBeNull();
-      expect(config!.currency).toBe('USD');
+    it('uses the company currency for the platform and every site', async () => {
+      mockGetCompanyCurrency.mockResolvedValue('GBP');
+      try {
+        setupDbResults(platformSettingsRows());
+        const platform = await getStripeConfig(null);
+        setupDbResults(platformSettingsRows(), [sitePaymentConfigRow()]);
+        const site = await getStripeConfig('site-1');
+        expect(platform!.currency).toBe('GBP');
+        expect(site!.currency).toBe('GBP');
+      } finally {
+        mockGetCompanyCurrency.mockResolvedValue('EUR');
+      }
     });
 
     it('uses default preAuthAmountCents 5000 when setting is missing', async () => {
       setupDbResults([
         { key: 'stripe.secretKeyEnc', value: 'encrypted_key' },
         { key: 'stripe.publishableKey', value: 'pk_test_123' },
-        { key: 'stripe.currency', value: 'GBP' },
       ]);
       const config = await getStripeConfig(null);
       expect(config).not.toBeNull();
@@ -637,7 +659,7 @@ describe('stripe.service', () => {
       const config = await getStripeConfig('site-1');
       expect(config).not.toBeNull();
       expect(config!.connectedAccountId).toBeNull();
-      expect(config!.currency).toBe('USD');
+      expect(config!.currency).toBe('EUR');
       expect(config!.configId).toBeNull();
     });
 
@@ -651,19 +673,13 @@ describe('stripe.service', () => {
     });
 
     it('returns null when secretKeyEnc is missing', async () => {
-      setupDbResults([
-        { key: 'stripe.publishableKey', value: 'pk_test_123' },
-        { key: 'stripe.currency', value: 'USD' },
-      ]);
+      setupDbResults([{ key: 'stripe.publishableKey', value: 'pk_test_123' }]);
       const config = await getStripeConfig(null);
       expect(config).toBeNull();
     });
 
     it('returns null when publishableKey is missing', async () => {
-      setupDbResults([
-        { key: 'stripe.secretKeyEnc', value: 'encrypted_key' },
-        { key: 'stripe.currency', value: 'USD' },
-      ]);
+      setupDbResults([{ key: 'stripe.secretKeyEnc', value: 'encrypted_key' }]);
       const config = await getStripeConfig(null);
       expect(config).toBeNull();
     });
@@ -672,7 +688,6 @@ describe('stripe.service', () => {
       setupDbResults([
         { key: 'stripe.secretKeyEnc', value: '' },
         { key: 'stripe.publishableKey', value: 'pk_test_123' },
-        { key: 'stripe.currency', value: 'USD' },
       ]);
       const config = await getStripeConfig(null);
       expect(config).toBeNull();
@@ -682,7 +697,6 @@ describe('stripe.service', () => {
       setupDbResults([
         { key: 'stripe.secretKeyEnc', value: 'encrypted_key' },
         { key: 'stripe.publishableKey', value: '' },
-        { key: 'stripe.currency', value: 'USD' },
       ]);
       const config = await getStripeConfig(null);
       expect(config).toBeNull();
@@ -692,7 +706,6 @@ describe('stripe.service', () => {
       setupDbResults([
         { key: 'stripe.secretKeyEnc', value: '' },
         { key: 'stripe.publishableKey', value: '' },
-        { key: 'stripe.currency', value: 'USD' },
       ]);
       const config = await getStripeConfig(null);
       expect(config).toBeNull();
@@ -732,7 +745,7 @@ describe('stripe.service', () => {
       const config = await getStripeConfig('site-1');
       expect(config).not.toBeNull();
       expect(config!.connectedAccountId).toBeNull();
-      expect(config!.currency).toBe('USD');
+      expect(config!.currency).toBe('EUR');
     });
 
     it('applies the per-site platformFeePercent override', async () => {
@@ -759,12 +772,12 @@ describe('stripe.service', () => {
 
       setupDbResults([]);
       const platformAgain = await getStripeConfig(null);
-      expect(platformAgain).toBe(platformFirst);
+      expect(platformAgain).toEqual(platformFirst);
 
       // site-1 must refetch (queries run again).
-      setupDbResults(platformSettingsRows(), [sitePaymentConfigRow({ currency: 'GBP' })]);
+      setupDbResults(platformSettingsRows(), [sitePaymentConfigRow({ preAuthAmountCents: 9000 })]);
       const siteAgain = await getStripeConfig('site-1');
-      expect(siteAgain!.currency).toBe('GBP');
+      expect(siteAgain!.preAuthAmountCents).toBe(9000);
     });
 
     it('evicts the platform entry when called with null', async () => {

@@ -51,6 +51,7 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', () => ({
+  getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -121,9 +122,9 @@ describe('Portal monthly summary routes', () => {
       expect(response.statusCode).toBe(401);
     });
 
-    it('returns monthly summary', async () => {
+    it('returns the month total in the company currency', async () => {
       setupDbResults([
-        { totalCostCents: '5000', totalEnergyWh: '45000', sessionCount: '3', currency: 'USD' },
+        { totalCostCents: 5000, totalEnergyWh: '45000', totalCo2AvoidedKg: '7.5', sessionCount: 3 },
       ]);
       const response = await app.inject({
         method: 'GET',
@@ -131,23 +132,30 @@ describe('Portal monthly summary routes', () => {
         headers: { authorization: `Bearer ${driverToken}` },
       });
       expect(response.statusCode).toBe(200);
-      const body = response.json();
-      expect(body.totalCostCents).toBeDefined();
-      expect(body.sessionCount).toBeDefined();
+      expect(response.json()).toEqual({
+        totalCostCents: 5000,
+        totalEnergyWh: 45000,
+        totalCo2AvoidedKg: 7.5,
+        sessionCount: 3,
+        currency: 'EUR',
+      });
     });
 
     it('returns zeros when no sessions', async () => {
-      setupDbResults([
-        { totalCostCents: null, totalEnergyWh: null, sessionCount: '0', currency: null },
-      ]);
+      setupDbResults([]);
       const response = await app.inject({
         method: 'GET',
         url: '/portal/sessions/monthly-summary?month=2026-01',
         headers: { authorization: `Bearer ${driverToken}` },
       });
       expect(response.statusCode).toBe(200);
-      const body = response.json();
-      expect(body.sessionCount).toBeDefined();
+      expect(response.json()).toEqual({
+        totalCostCents: 0,
+        totalEnergyWh: 0,
+        totalCo2AvoidedKg: 0,
+        sessionCount: 0,
+        currency: 'EUR',
+      });
     });
   });
 
@@ -171,7 +179,19 @@ describe('Portal monthly summary routes', () => {
             energyDeliveredWh: '30000',
             co2AvoidedKg: '5.2',
             finalCostCents: 1500,
-            currency: 'USD',
+            currency: 'EUR',
+            stationName: 'Station A',
+            siteName: 'Site Alpha',
+            siteCity: 'Austin',
+          },
+          {
+            id: 'ses_2',
+            startedAt: '2026-02-11T10:00:00Z',
+            endedAt: '2026-02-11T11:00:00Z',
+            energyDeliveredWh: '10000',
+            co2AvoidedKg: '1.8',
+            finalCostCents: 500,
+            currency: 'EUR',
             stationName: 'Station A',
             siteName: 'Site Alpha',
             siteCity: 'Austin',
@@ -186,8 +206,15 @@ describe('Portal monthly summary routes', () => {
       expect(response.statusCode).toBe(200);
       const body = response.json();
       expect(body.month).toBe('2026-02');
-      expect(body.driverName).toBeDefined();
-      expect(body.sessions).toBeDefined();
+      expect(body.driverName).toBe('John Doe');
+      expect(body.sessions).toHaveLength(2);
+      expect(body.totals).toEqual({
+        totalCostCents: 2000,
+        currency: 'EUR',
+        totalEnergyWh: 40000,
+        totalCo2AvoidedKg: 7,
+        sessionCount: 2,
+      });
     });
   });
 
@@ -203,7 +230,7 @@ describe('Portal monthly summary routes', () => {
             endedAt: '2026-02-15T11:00:00Z',
             energyDeliveredWh: '20000',
             finalCostCents: 1000,
-            currency: 'USD',
+            currency: 'EUR',
             stationName: 'Station B',
             siteName: 'Site Beta',
             siteCity: 'Austin',

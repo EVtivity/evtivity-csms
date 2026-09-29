@@ -50,6 +50,7 @@ vi.mock('@evtivity/database', () => ({
   isSplitBillingEnabled: vi.fn().mockResolvedValue(false),
   getOfflineCommandTtlHours: vi.fn().mockResolvedValue(24),
   isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
+  getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
 }));
 
 const mockDispatchOcpp = vi.fn().mockResolvedValue(undefined);
@@ -962,7 +963,6 @@ describe('Event projections', () => {
         [
           {
             id: 'tariff-1',
-            currency: 'USD',
             price_per_kwh: '0.30',
             price_per_minute: null,
             price_per_session: null,
@@ -1053,7 +1053,7 @@ describe('Event projections', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
             energy_delivered_wh: 5000,
-            currency: null,
+            currency: 'USD',
           },
         ], // SELECT session row (now includes evse_id)
         [], // UPDATE connectors SET status = 'ev_connected'
@@ -1068,7 +1068,7 @@ describe('Event projections', () => {
             driver_id: null,
             energy_delivered_wh: 5000,
             final_cost_cents: null,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
           },
@@ -1185,7 +1185,7 @@ describe('Event projections', () => {
             driver_id: null,
             energy_delivered_wh: 5000,
             final_cost_cents: null,
-            currency: null,
+            currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
           },

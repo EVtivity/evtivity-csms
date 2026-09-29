@@ -50,6 +50,7 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', () => ({
+  getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -359,12 +360,11 @@ describe('Portal charger routes - handler logic', () => {
       expect(response.json().code).toBe('PRICING_NOT_FOUND');
     });
 
-    it('returns resolved pricing for driver', async () => {
+    it('returns resolved pricing for driver in the company currency', async () => {
       setupDbResults([{ id: VALID_STATION_ID }]);
       vi.mocked(resolveTariff).mockResolvedValue({
         id: 'tar_001',
         name: 'Standard',
-        currency: 'USD',
         pricePerKwh: '0.25',
         pricePerMinute: '0.10',
         pricePerSession: '2.00',
@@ -382,7 +382,7 @@ describe('Portal charger routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(200);
       const body = response.json();
-      expect(body.currency).toBe('USD');
+      expect(body.currency).toBe('EUR');
       expect(body.pricePerKwh).toBe('0.25');
       expect(body.pricePerMinute).toBe('0.10');
       expect(body.pricePerSession).toBe('2.00');
@@ -395,7 +395,6 @@ describe('Portal charger routes - handler logic', () => {
       vi.mocked(resolveTariff).mockResolvedValue({
         id: 'tar_001',
         name: 'Driver Rate',
-        currency: 'EUR',
         pricePerKwh: '0.30',
         pricePerMinute: null,
         pricePerSession: null,

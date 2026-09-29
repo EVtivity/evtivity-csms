@@ -16,6 +16,7 @@ import {
   stationMessagePushes,
   getStationMessagePricingFormat,
   isStationMessageEnabled,
+  getCompanyCurrency,
 } from '@evtivity/database';
 import {
   formatPricingDisplay,
@@ -23,10 +24,12 @@ import {
   type StationMessageState,
   type StationMessageContext,
   type Subscription,
+  formatCurrencyAmount,
 } from '@evtivity/lib';
 import type { FastifyBaseLogger } from 'fastify';
 import { resolveTariff } from './tariff.service.js';
 import { getPubSub } from '../lib/pubsub.js';
+import { sessionCurrencySql } from '../lib/company-currency.js';
 
 const STATION_MESSAGE_REFRESH_CHANNEL = 'station_message_refresh';
 const STATION_MESSAGE_TRANSACTION_CHANNEL = 'station_message_transaction';
@@ -278,16 +281,17 @@ export async function pushAllStationMessages(
 
   if (station == null) return;
 
-  const [{ companyName, supportPhone }, format, idle] = await Promise.all([
+  const [{ companyName, supportPhone }, format, idle, currency] = await Promise.all([
     getCompanySettings(),
     getStationMessagePricingFormat(),
     resolveIdleState(internalStationId),
+    getCompanyCurrency(),
   ]);
 
   const tariff = await resolveTariff(internalStationId, null);
   const pricingDisplay =
     tariff != null
-      ? formatPricingDisplay(tariff, format === 'compact' ? 'compact' : 'standard', tariff.currency)
+      ? formatPricingDisplay(tariff, format === 'compact' ? 'compact' : 'standard', currency)
       : '';
 
   const baseCtx: StationMessageContext = {
@@ -387,7 +391,7 @@ export interface TransactionSessionRow {
   startedAt: Date | string | null;
   energyDeliveredWh: string | number | null;
   currentCostCents: number | null;
-  currency: string | null;
+  currency: string;
   chargingState: string | null;
   tariffIdleFeePricePerMinute: string | number | null;
 }
@@ -435,33 +439,17 @@ function formatElapsed(startedAt: Date | string | null): string {
   return `${hours.toString()}h ${mins.toString()}m`;
 }
 
-function formatCostCents(cents: number | null, currency: string | null): string {
-  const safeCurrency = currency ?? 'USD';
-  try {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: safeCurrency,
-    }).format((cents ?? 0) / 100);
-  } catch {
-    return `${((cents ?? 0) / 100).toFixed(2)} ${safeCurrency}`;
-  }
-}
-
-function formatRatePerMinute(
-  ratePerMinute: string | number | null,
-  currency: string | null,
-): string {
+function formatRatePerMinute(ratePerMinute: string | number | null, currency: string): string {
   if (ratePerMinute == null) return '';
   const rate = typeof ratePerMinute === 'string' ? Number(ratePerMinute) : ratePerMinute;
   if (!Number.isFinite(rate) || rate <= 0) return '';
-  const safeCurrency = currency ?? 'USD';
   try {
     return `${new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: safeCurrency,
+      currency,
     }).format(rate)}/min`;
   } catch {
-    return `${rate.toFixed(2)} ${safeCurrency}/min`;
+    return `${rate.toFixed(2)} ${currency}/min`;
   }
 }
 
@@ -570,7 +558,7 @@ export async function pushTransactionMessage(
     getDriverFirstName(sessionRow.driverId),
   ]);
 
-  const costFormatted = formatCostCents(sessionRow.currentCostCents, sessionRow.currency);
+  const costFormatted = formatCurrencyAmount(sessionRow.currentCostCents ?? 0, sessionRow.currency);
   const elapsedFormatted = formatElapsed(sessionRow.startedAt);
   const idleFeeRate = formatRatePerMinute(
     sessionRow.tariffIdleFeePricePerMinute,
@@ -733,7 +721,7 @@ async function loadTransactionSessionById(
       startedAt: chargingSessions.startedAt,
       energyDeliveredWh: chargingSessions.energyDeliveredWh,
       currentCostCents: chargingSessions.currentCostCents,
-      currency: chargingSessions.currency,
+      currency: sessionCurrencySql(await getCompanyCurrency()),
       tariffIdleFeePricePerMinute: chargingSessions.tariffIdleFeePricePerMinute,
     })
     .from(chargingSessions)

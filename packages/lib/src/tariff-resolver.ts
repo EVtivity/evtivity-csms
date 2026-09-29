@@ -6,7 +6,6 @@ import { tariffMatchesNow } from './tariff-restrictions.js';
 
 export interface TariffWithRestrictions {
   id: string;
-  currency: string;
   pricePerKwh: string | null;
   pricePerMinute: string | null;
   pricePerSession: string | null;

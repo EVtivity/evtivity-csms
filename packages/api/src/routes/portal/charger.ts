@@ -5,8 +5,8 @@ import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, or, ilike, desc, asc, sql, gte, gt, isNull, count, inArray } from 'drizzle-orm';
-import { db, client } from '@evtivity/database';
-import { decryptString } from '@evtivity/lib';
+import { db, client, getCompanyCurrency } from '@evtivity/database';
+import { decryptString, formatCurrencyAmount } from '@evtivity/lib';
 import { config as apiConfig } from '../../lib/config.js';
 import {
   chargingStations,
@@ -24,6 +24,7 @@ import {
 } from '@evtivity/database';
 import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
 import { zodSchema } from '../../lib/zod-schema.js';
+import { sessionCurrencySql } from '../../lib/company-currency.js';
 import { ID_PARAMS } from '../../lib/id-validation.js';
 import { getPubSub } from '../../lib/pubsub.js';
 import {
@@ -230,7 +231,7 @@ const activeSessionItem = z
       .nullable()
       .describe('Energy delivered so far in Watt-hours'),
     currentCostCents: z.number().int().min(0).nullable().describe('Running cost in cents'),
-    currency: z.string().length(3).nullable().describe('ISO 4217 currency code'),
+    currency: z.string().length(3).describe('ISO 4217 currency the session is billed in'),
   })
   .passthrough();
 
@@ -359,7 +360,7 @@ const stationIdParams = z.object({
 
 const portalPricingInfo = z
   .object({
-    currency: z.string().length(3).describe('ISO 4217 currency code'),
+    currency: z.string().length(3).describe('Company currency (ISO 4217) of every price'),
     pricePerKwh: z.string().nullable().describe('Energy price per kWh in major currency units'),
     pricePerMinute: z
       .string()
@@ -614,7 +615,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       // badge regardless of whether a pricing group exists.
       if (station.freeVendEnabled === true) {
         return {
-          currency: 'USD',
+          currency: await getCompanyCurrency(),
           pricePerKwh: null,
           pricePerMinute: null,
           pricePerSession: null,
@@ -632,7 +633,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       }
 
       return {
-        currency: tariff.currency,
+        currency: await getCompanyCurrency(),
         pricePerKwh: tariff.pricePerKwh,
         pricePerMinute: tariff.pricePerMinute,
         pricePerSession: tariff.pricePerSession,
@@ -1717,10 +1718,10 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Get Stripe config to determine currency. Pre-auth runs below after
-      // session creation so a card decline fails the start request immediately
-      // (returning 402) instead of letting the station begin charging and the
-      // event-projection payment gate stop it asynchronously.
+      // Pre-auth runs below after session creation so a card decline fails
+      // the start request immediately (returning 402) instead of letting the
+      // station begin charging and the event-projection payment gate stop it
+      // asynchronously.
       const config = await getStripeConfig(station.siteId ?? null);
 
       let pmForPreAuth: {
@@ -1790,6 +1791,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         transactionId = crypto.randomUUID();
       }
 
+      // One currency for the session row, the pre-auth, and its payment record.
+      const sessionCurrency = config?.currency ?? (await getCompanyCurrency());
       const sessionRows = await db
         .insert(chargingSessions)
         .values({
@@ -1800,7 +1803,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           status: 'active',
           startedAt: new Date(),
           remoteStartId,
-          currency: config?.currency ?? 'USD',
+          currency: sessionCurrency,
         })
         .returning({ id: chargingSessions.id });
 
@@ -1856,7 +1859,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
                 ${pmForPreAuth.stripeCustomerId},
                 ${pmForPreAuth.stripePaymentMethodId},
                 'web_portal',
-                ${config.currency},
+                ${sessionCurrency},
                 'failed',
                 ${reason}
               )
@@ -1896,7 +1899,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
               ${pmForPreAuth.stripeCustomerId},
               ${pmForPreAuth.stripePaymentMethodId},
               'web_portal',
-              ${config.currency},
+              ${sessionCurrency},
               ${config.preAuthAmountCents},
               'pre_authorized'
             )
@@ -2079,6 +2082,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
     async (request) => {
       const { driverId } = request.user as DriverJwtPayload;
 
+      const companyCurrency = await getCompanyCurrency();
       const sessions = await db
         .select({
           id: chargingSessions.id,
@@ -2088,7 +2092,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           startedAt: chargingSessions.startedAt,
           energyDeliveredWh: chargingSessions.energyDeliveredWh,
           currentCostCents: chargingSessions.currentCostCents,
-          currency: chargingSessions.currency,
+          currency: sessionCurrencySql(companyCurrency),
         })
         .from(chargingSessions)
         .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
@@ -2763,18 +2767,19 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       // Driver-initiated: chargeFee=true. The helper still gates on the
       // cancellation-window settings, so a cancellation outside the window
       // (or with cancellationFeeCents=0) won't actually charge.
-      const { feeChargedCents, cancelled, feeChargeFailed } = await applyReservationCancellation({
-        reservationDbId: reservation.id,
-        siteId: reservation.siteId,
-        driverId,
-        startsAt: reservation.startsAt ?? reservation.createdAt,
-        createdAt: reservation.createdAt,
-        actor: 'driver',
-        actorDriverId: driverId,
-        reason: 'driver_initiated',
-        chargeFee: true,
-        logger: request.log,
-      });
+      const { feeChargedCents, cancelled, feeChargeFailed, feeCurrency } =
+        await applyReservationCancellation({
+          reservationDbId: reservation.id,
+          siteId: reservation.siteId,
+          driverId,
+          startsAt: reservation.startsAt ?? reservation.createdAt,
+          createdAt: reservation.createdAt,
+          actor: 'driver',
+          actorDriverId: driverId,
+          reason: 'driver_initiated',
+          chargeFee: true,
+          logger: request.log,
+        });
 
       // Only notify when this caller actually flipped the row. A concurrent
       // operator/system cancel winning the race already sent its own message;
@@ -2782,7 +2787,9 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       // double-notify the driver.
       if (cancelled) {
         const cancellationFeeFormatted =
-          feeChargedCents > 0 ? `$${(feeChargedCents / 100).toFixed(2)}` : '';
+          feeChargedCents > 0 && feeCurrency != null
+            ? formatCurrencyAmount(feeChargedCents, feeCurrency)
+            : '';
         void dispatchDriverNotification(
           client,
           'reservation.Cancelled',

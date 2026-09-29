@@ -3,3 +3,4 @@ dist/
 coverage/
 packages/ocpp/src/generated/
 **/*.hbs
+packages/api/openapi.json

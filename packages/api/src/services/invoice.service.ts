@@ -13,7 +13,8 @@ import {
 } from '@evtivity/database';
 import { calculateSessionCost, calculateSplitSessionCost, AppError } from '@evtivity/lib';
 import type { CostBreakdown, TariffInput, TariffSegment } from '@evtivity/lib';
-import { getIdlingGracePeriodMinutes } from '@evtivity/database';
+import { getIdlingGracePeriodMinutes, getCompanyCurrency } from '@evtivity/database';
+import { inCompanyCurrency, sessionCurrencySql } from '../lib/company-currency.js';
 
 /**
  * Generate a unique invoice number using a PostgreSQL SEQUENCE.
@@ -57,7 +58,7 @@ export async function createSessionInvoice(sessionId: string): Promise<InvoiceWi
       startedAt: chargingSessions.startedAt,
       endedAt: chargingSessions.endedAt,
       finalCostCents: chargingSessions.finalCostCents,
-      currency: chargingSessions.currency,
+      currency: sessionCurrencySql(await getCompanyCurrency()),
       status: chargingSessions.status,
       idleMinutes: chargingSessions.idleMinutes,
       tariffPricePerKwh: chargingSessions.tariffPricePerKwh,
@@ -88,7 +89,7 @@ export async function createSessionInvoice(sessionId: string): Promise<InvoiceWi
     );
   }
   const totalCents = session.finalCostCents;
-  const currency = session.currency ?? 'USD';
+  const currency = session.currency;
 
   // Load tariff segments to check for split-billing. ORDER BY started_at is
   // load-bearing: the per-segment line items downstream key the session-fee
@@ -140,7 +141,6 @@ export async function createSessionInvoice(sessionId: string): Promise<InvoiceWi
           idleFeePricePerMinute: t?.idleFeePricePerMinute ?? null,
           reservationFeePerMinute: t?.reservationFeePerMinute ?? null,
           taxRate: t?.taxRate ?? null,
-          currency: t?.currency ?? currency,
         },
         durationMinutes: (segEndMs - segStartMs) / 60000,
         // Defensive: a completed session should have energyWhEnd on every
@@ -201,7 +201,6 @@ export async function createSessionInvoice(sessionId: string): Promise<InvoiceWi
             idleFeePricePerMinute: session.tariffIdleFeePricePerMinute,
             reservationFeePerMinute: null,
             taxRate: session.tariffTaxRate,
-            currency,
           }
         : null;
 
@@ -409,12 +408,12 @@ export async function createAggregatedInvoice(
   startDate: Date,
   endDate: Date,
 ): Promise<InvoiceWithLineItems> {
-  // Find completed sessions for this driver in the date range that have no invoice line items yet
+  // Sessions billed in another currency stay uninvoiced here; they can still be invoiced one by one.
+  const currency = await getCompanyCurrency();
   const sessions = await db
     .select({
       id: chargingSessions.id,
       finalCostCents: chargingSessions.finalCostCents,
-      currency: chargingSessions.currency,
       startedAt: chargingSessions.startedAt,
       endedAt: chargingSessions.endedAt,
       energyDeliveredWh: chargingSessions.energyDeliveredWh,
@@ -434,6 +433,7 @@ export async function createAggregatedInvoice(
         isNotNull(chargingSessions.finalCostCents),
         between(chargingSessions.endedAt, startDate, endDate),
         isNull(invoiceLineItems.id),
+        inCompanyCurrency(chargingSessions.currency, currency),
       ),
     );
 
@@ -501,7 +501,6 @@ export async function createAggregatedInvoice(
     });
   }
 
-  const currency = sessions[0]?.currency ?? 'USD';
   const grandTotal = totalSubtotalCents + totalTaxCents;
 
   const [invoice] = await db

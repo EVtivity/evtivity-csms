@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { ArrowUp, ArrowDown, ArrowRight, ChevronDown } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { api } from '@/lib/api';
@@ -25,14 +26,10 @@ import { DateRangeControl } from '@/components/DateRangeControl';
 import { useDateRange } from '@/hooks/useDateRange';
 import { localDateString } from '@/lib/date-range';
 import { useUpdateCheck } from '@/hooks/use-update-check';
-import {
-  useDayDeltaContext,
-  type SnapshotData,
-  type SnapshotRevenue,
-} from '@/hooks/use-day-delta-context';
+import { useDayDeltaContext, type SnapshotData } from '@/hooks/use-day-delta-context';
+import { useCompanyCurrency } from '@/hooks/use-company-currency';
 import { formatCents } from '@/lib/formatting';
-import { entryFor, splitPrimary, type DailyRevenue } from '@/lib/currency-amounts';
-import { OtherCurrencyAmounts } from '@/components/OtherCurrencyAmounts';
+import { parseValue, formatParsedValue } from '@/lib/animated-value';
 
 interface DashboardStats {
   totalStations: number;
@@ -84,8 +81,7 @@ interface UptimeStats {
   stationsBelowThreshold: number;
 }
 
-interface FinancialCurrency {
-  currency: string;
+interface FinancialStats {
   totalRevenueCents: number;
   todayRevenueCents: number;
   avgRevenueCentsPerSession: number;
@@ -94,16 +90,19 @@ interface FinancialCurrency {
   dayElectricityCostCents: number;
   totalProfitCents: number;
   dayProfitCents: number;
+  currency: string;
 }
 
-interface FinancialStats {
-  currencies: FinancialCurrency[];
+interface RevenuePoint {
+  date: string;
+  revenueCents: number;
+  sessionCount: number;
 }
 
 interface PaymentBreakdownPoint {
   status: string;
   count: number;
-  totals: { currency: string; count: number; totalCents: number }[];
+  totalCents: number;
 }
 
 interface OcppHealthStats {
@@ -123,43 +122,9 @@ interface CarbonStats {
   avgCo2AvoidedKgPerSession: number;
 }
 
-function parseValue(value: string | number): {
-  num: number;
-  prefix: string;
-  suffix: string;
-  decimals: number;
-} {
-  if (typeof value === 'number') {
-    return { num: value, prefix: '', suffix: '', decimals: 0 };
-  }
-  // A leading minus may precede a currency symbol, as in "-$5.00".
-  const match = /^(-?)([^0-9-]*)(-?[\d,]+\.?\d*)(.*)$/.exec(value);
-  if (match == null) {
-    return { num: 0, prefix: '', suffix: value, decimals: 0 };
-  }
-  const raw = match[3] ?? '';
-  const parsed = parseFloat(raw.replace(/,/g, ''));
-  if (isNaN(parsed)) {
-    return { num: 0, prefix: '', suffix: value, decimals: 0 };
-  }
-  const num = match[1] === '-' ? -parsed : parsed;
-  const dotIndex = raw.indexOf('.');
-  const decimals = dotIndex >= 0 ? raw.length - dotIndex - 1 : 0;
-  return { num, prefix: match[2] ?? '', suffix: match[4] ?? '', decimals };
-}
-
-function formatAnimatedValue(num: number, decimals: number): string {
-  if (decimals === 0) {
-    return Math.round(num).toLocaleString();
-  }
-  return num.toLocaleString(undefined, {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
-}
-
 function useAnimatedValue(value: string | number): string {
-  const { num, prefix, suffix, decimals } = parseValue(value);
+  const parsed = parseValue(value);
+  const { num } = parsed;
   const [display, setDisplay] = useState(num);
   const prevRef = useRef(num);
   const rafRef = useRef<number>(0);
@@ -190,11 +155,7 @@ function useAnimatedValue(value: string | number): string {
     };
   }, [num]);
 
-  // With a prefix the sign goes in front of it: "-$5.00", not "$-5.00".
-  if (prefix !== '' && display < 0) {
-    return `-${prefix}${formatAnimatedValue(-display, decimals)}${suffix}`;
-  }
-  return `${prefix}${formatAnimatedValue(display, decimals)}${suffix}`;
+  return formatParsedValue(parsed, display);
 }
 
 function ScrollSnapRow({
@@ -332,14 +293,12 @@ function TrendStatCard({
   data,
   info,
   positiveIsGood = true,
-  extra,
 }: {
   title: string;
   value: string | number;
   data: number[];
   info?: string;
   positiveIsGood?: boolean;
-  extra?: React.ReactNode;
 }): React.JSX.Element {
   const animated = useAnimatedValue(value);
   const first = data[data.length - 1]; // oldest
@@ -364,7 +323,6 @@ function TrendStatCard({
       </CardHeader>
       <CardContent className="space-y-2">
         <div className="text-lg sm:text-2xl font-bold whitespace-nowrap">{animated}</div>
-        {extra}
         <Sparkline
           data={[...data].reverse()}
           strokeColor={
@@ -515,6 +473,8 @@ function ModeToggle({
 
 const REFETCH_INTERVAL = 60_000;
 
+const MONEY_PLACEHOLDER = '-';
+
 function AdminDashboard({
   stats,
   mode,
@@ -578,7 +538,7 @@ function AdminDashboard({
 
   const revenueHistory = useQuery({
     queryKey: ['dashboard', 'revenue-history', revenue.dateQuery],
-    queryFn: () => api.get<DailyRevenue[]>(`/v1/dashboard/revenue-history?${revenue.dateQuery}`),
+    queryFn: () => api.get<RevenuePoint[]>(`/v1/dashboard/revenue-history?${revenue.dateQuery}`),
     refetchInterval: REFETCH_INTERVAL,
   });
 
@@ -619,6 +579,14 @@ function AdminDashboard({
     enabled: mode === 'trend',
   });
 
+  // Snapshot, trend, and revenue-history responses carry no currency, so they use the company one.
+  const liveCurrency = financialStats.data?.currency;
+  const company = useCompanyCurrency();
+  const companyCurrency = company.currency;
+  const currencyLoadFailed = financialStats.isError || company.isError;
+  const formatMoney = (cents: number, currency: string | undefined): string =>
+    currency != null ? formatCents(cents, currency) : MONEY_PLACEHOLDER;
+
   const formatCo2 = (kg: number): string =>
     kg >= 1000 ? `${(kg / 1000).toFixed(1)}\u00a0t` : `${kg.toFixed(1)}\u00a0kg`;
 
@@ -640,51 +608,32 @@ function AdminDashboard({
       : `${(wh / 1000).toFixed(1)}\u00a0kWh`;
 
   function renderLiveStatCards(): React.JSX.Element {
-    const { primary: fin, others: otherFin } = splitPrimary(financialStats.data?.currencies);
-    const currency = fin?.currency;
-    const money = (cents: number | undefined): string => formatCents(cents ?? 0, currency);
-    const others = (amount: (c: FinancialCurrency) => number): React.JSX.Element => (
-      <OtherCurrencyAmounts entries={otherFin} amount={amount} />
-    );
-    // Day-over-day arrows compare the same currency on both days.
-    const ydMoney = entryFor(yd?.revenue, currency);
-    const dbMoney = entryFor(db?.revenue, currency);
-
     const revenueGrid = (
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <StatCard
           title={t('dashboard.totalRevenue')}
-          value={money(fin?.totalRevenueCents)}
+          value={formatMoney(financialStats.data?.totalRevenueCents ?? 0, liveCurrency)}
           info={t('dashboard.info.totalRevenue')}
-          dayDelta={dayDelta(ydMoney?.totalRevenueCents, dbMoney?.totalRevenueCents)}
+          dayDelta={dayDelta(yd?.totalRevenueCents, db?.totalRevenueCents)}
           deltaLabel={deltaLabel}
-          extra={others((c) => c.totalRevenueCents)}
         />
         <StatCard
           title={t('dashboard.todayRevenue')}
-          value={money(fin?.todayRevenueCents)}
+          value={formatMoney(financialStats.data?.todayRevenueCents ?? 0, liveCurrency)}
           info={t('dashboard.info.todayRevenue')}
-          dayDelta={dayDelta(ydMoney?.dayRevenueCents, dbMoney?.dayRevenueCents)}
+          dayDelta={dayDelta(yd?.dayRevenueCents, db?.dayRevenueCents)}
           deltaLabel={deltaLabel}
-          extra={others((c) => c.todayRevenueCents)}
         />
         <StatCard
           title={t('dashboard.revenuePerSession')}
-          value={money(fin?.avgRevenueCentsPerSession)}
+          value={formatMoney(financialStats.data?.avgRevenueCentsPerSession ?? 0, liveCurrency)}
           info={t('dashboard.info.revenuePerSession')}
-          dayDelta={dayDelta(
-            ydMoney?.avgRevenueCentsPerSession,
-            dbMoney?.avgRevenueCentsPerSession,
-          )}
+          dayDelta={dayDelta(yd?.avgRevenueCentsPerSession, db?.avgRevenueCentsPerSession)}
           deltaLabel={deltaLabel}
-          extra={others((c) => c.avgRevenueCentsPerSession)}
         />
         <StatCard
           title={t('dashboard.totalTransactions')}
-          value={(financialStats.data?.currencies ?? []).reduce(
-            (sum, c) => sum + c.totalTransactions,
-            0,
-          )}
+          value={financialStats.data?.totalTransactions ?? 0}
           info={t('dashboard.info.totalTransactions')}
           dayDelta={dayDelta(yd?.totalTransactions, db?.totalTransactions)}
           deltaLabel={deltaLabel}
@@ -696,27 +645,23 @@ function AdminDashboard({
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <StatCard
           title={t('dashboard.electricityCost')}
-          value={money(fin?.totalElectricityCostCents)}
+          value={formatMoney(financialStats.data?.totalElectricityCostCents ?? 0, liveCurrency)}
           info={t('dashboard.info.electricityCost')}
-          extra={others((c) => c.totalElectricityCostCents)}
         />
         <StatCard
           title={t('dashboard.dayElectricityCost')}
-          value={money(fin?.dayElectricityCostCents)}
+          value={formatMoney(financialStats.data?.dayElectricityCostCents ?? 0, liveCurrency)}
           info={t('dashboard.info.dayElectricityCost')}
-          extra={others((c) => c.dayElectricityCostCents)}
         />
         <StatCard
           title={t('dashboard.profit')}
-          value={money(fin?.totalProfitCents)}
+          value={formatMoney(financialStats.data?.totalProfitCents ?? 0, liveCurrency)}
           info={t('dashboard.info.profit')}
-          extra={others((c) => c.totalProfitCents)}
         />
         <StatCard
           title={t('dashboard.dayProfit')}
-          value={money(fin?.dayProfitCents)}
+          value={formatMoney(financialStats.data?.dayProfitCents ?? 0, liveCurrency)}
           info={t('dashboard.info.dayProfit')}
-          extra={others((c) => c.dayProfitCents)}
         />
       </div>
     );
@@ -846,10 +791,6 @@ function AdminDashboard({
     }
 
     const d = isRange ? { date: `${fromDate} to ${toDate}` } : { date: fromDate };
-    const { primary: money, others: otherMoney } = splitPrimary(s.revenue);
-    const others = (amount: (r: SnapshotRevenue) => number): React.JSX.Element => (
-      <OtherCurrencyAmounts entries={otherMoney} amount={amount} />
-    );
 
     return (
       <>
@@ -889,9 +830,8 @@ function AdminDashboard({
           />
           <StatCard
             title={t('dashboard.dayRevenue')}
-            value={formatCents(money?.dayRevenueCents ?? 0, money?.currency)}
+            value={formatMoney(s.dayRevenueCents, companyCurrency)}
             info={t('dashboard.historicalInfo.dayRevenue', d)}
-            extra={others((r) => r.dayRevenueCents)}
           />
           <StatCard
             title={t('dashboard.dayTransactions')}
@@ -903,15 +843,13 @@ function AdminDashboard({
         <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
           <StatCard
             title={t('dashboard.totalRevenue')}
-            value={formatCents(money?.totalRevenueCents ?? 0, money?.currency)}
+            value={formatMoney(s.totalRevenueCents, companyCurrency)}
             info={t('dashboard.historicalInfo.totalRevenue', d)}
-            extra={others((r) => r.totalRevenueCents)}
           />
           <StatCard
             title={t('dashboard.revenuePerSession')}
-            value={formatCents(money?.avgRevenueCentsPerSession ?? 0, money?.currency)}
+            value={formatMoney(s.avgRevenueCentsPerSession, companyCurrency)}
             info={t('dashboard.historicalInfo.revenuePerSession', d)}
-            extra={others((r) => r.avgRevenueCentsPerSession)}
           />
           <StatCard
             title={t('dashboard.totalSessions')}
@@ -937,29 +875,15 @@ function AdminDashboard({
       return <NoDataOverlay message={msg}>{renderLiveStatCards()}</NoDataOverlay>;
     }
 
-    type NumericSnapshotKey = Exclude<keyof SnapshotData, 'hasData' | 'revenue'>;
+    type NumericSnapshotKey = Exclude<keyof SnapshotData, 'hasData'>;
     const pluck = (key: NumericSnapshotKey): number[] => days.map((d) => d[key]);
-    const mean = (vals: number[]): number => vals.reduce((a, b) => a + b, 0) / vals.length;
-    const avg = (key: NumericSnapshotKey): number => mean(pluck(key));
+    const avg = (key: NumericSnapshotKey): number => {
+      const vals = pluck(key);
+      return vals.reduce((a, b) => a + b, 0) / vals.length;
+    };
     const oldest = days[days.length - 1];
     const newest = days[0];
     const tr = { from: oldest?.date ?? '', to: newest?.date ?? '' };
-
-    // The sparkline follows the newest day's primary currency. Days without
-    // activity in a currency count as zero for it.
-    const trendPrimary = latest.revenue[0]?.currency;
-    const otherTrendCurrencies = [
-      ...new Set(days.flatMap((day) => day.revenue.map((r) => r.currency))),
-    ].filter((c) => c !== trendPrimary);
-    type MoneyKey = 'dayRevenueCents' | 'avgRevenueCentsPerSession';
-    const pluckMoney = (currency: string | undefined, key: MoneyKey): number[] =>
-      days.map((day) => entryFor(day.revenue, currency)?.[key] ?? 0);
-    const otherAverages = (key: MoneyKey): React.JSX.Element => (
-      <OtherCurrencyAmounts
-        entries={otherTrendCurrencies.map((currency) => ({ currency }))}
-        amount={(e) => Math.round(mean(pluckMoney(e.currency, key)))}
-      />
-    );
 
     return (
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
@@ -989,13 +913,9 @@ function AdminDashboard({
         />
         <TrendStatCard
           title={t('dashboard.dayRevenue')}
-          value={formatCents(
-            Math.round(mean(pluckMoney(trendPrimary, 'dayRevenueCents'))),
-            trendPrimary,
-          )}
-          data={pluckMoney(trendPrimary, 'dayRevenueCents')}
+          value={formatMoney(Math.round(avg('dayRevenueCents')), companyCurrency)}
+          data={pluck('dayRevenueCents')}
           info={t('dashboard.trendInfo.dayRevenue', tr)}
-          extra={otherAverages('dayRevenueCents')}
         />
         <TrendStatCard
           title={t('dashboard.dayEnergy')}
@@ -1005,13 +925,9 @@ function AdminDashboard({
         />
         <TrendStatCard
           title={t('dashboard.revenuePerSession')}
-          value={formatCents(
-            Math.round(mean(pluckMoney(trendPrimary, 'avgRevenueCentsPerSession'))),
-            trendPrimary,
-          )}
-          data={pluckMoney(trendPrimary, 'avgRevenueCentsPerSession')}
+          value={formatMoney(Math.round(avg('avgRevenueCentsPerSession')), companyCurrency)}
+          data={pluck('avgRevenueCentsPerSession')}
           info={t('dashboard.trendInfo.revenuePerSession', tr)}
-          extra={otherAverages('avgRevenueCentsPerSession')}
         />
         <TrendStatCard
           title={t('dashboard.totalSessions')}
@@ -1025,6 +941,22 @@ function AdminDashboard({
 
   return (
     <>
+      {currencyLoadFailed && (
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-destructive">{t('common.loadError')}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (financialStats.isError) void financialStats.refetch();
+              if (company.isError) company.refetch();
+            }}
+          >
+            {t('common.retry')}
+          </Button>
+        </div>
+      )}
       <div className="relative">
         {mode !== 'live' && (
           <div className="hidden lg:block invisible space-y-4" aria-hidden="true">
@@ -1066,6 +998,9 @@ function AdminDashboard({
       <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
         <RevenueChart
           data={revenueHistory.data ?? []}
+          currency={companyCurrency}
+          currencyError={company.isError}
+          onRetry={company.refetch}
           actions={dateControl(revenue)}
           info={t('dashboard.info.revenueChart')}
         />
@@ -1225,7 +1160,7 @@ function OperatorDashboard({
       return <NoDataOverlay message={msg}>{renderLiveStatCards()}</NoDataOverlay>;
     }
 
-    type NumericSnapshotKey = Exclude<keyof SnapshotData, 'hasData' | 'revenue'>;
+    type NumericSnapshotKey = Exclude<keyof SnapshotData, 'hasData'>;
     const pluck = (key: NumericSnapshotKey): number[] => days.map((d) => d[key]);
     const avg = (key: NumericSnapshotKey): number => {
       const vals = pluck(key);

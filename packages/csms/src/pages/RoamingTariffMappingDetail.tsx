@@ -25,7 +25,6 @@ interface TariffMapping {
   tariffId: string;
   partnerId: string | null;
   ocpiTariffId: string;
-  currency: string;
   createdAt: string;
   updatedAt: string;
   tariffName: string | null;
@@ -40,7 +39,6 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
 
   const [editing, setEditing] = useState(false);
   const [ocpiTariffId, setOcpiTariffId] = useState('');
-  const [currency, setCurrency] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
@@ -51,7 +49,7 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (body: { ocpiTariffId?: string; currency?: string }) =>
+    mutationFn: (body: { ocpiTariffId?: string }) =>
       api.patch<TariffMapping>(`/v1/ocpi/tariff-mappings/${id ?? ''}`, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['ocpi-tariff-mappings'] });
@@ -72,7 +70,6 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
   function startEdit(): void {
     if (mapping == null) return;
     setOcpiTariffId(mapping.ocpiTariffId);
-    setCurrency(mapping.currency);
     setHasSubmitted(false);
     setEditing(true);
   }
@@ -89,10 +86,7 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
     e.preventDefault();
     setHasSubmitted(true);
     if (Object.keys(validationErrors).length > 0) return;
-    updateMutation.mutate({
-      ocpiTariffId,
-      currency,
-    });
+    updateMutation.mutate({ ocpiTariffId });
   }
 
   if (isLoading) {
@@ -147,17 +141,6 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
                   <p className="text-sm text-destructive">{validationErrors.ocpiTariffId}</p>
                 )}
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-currency">{t('roaming.tariffs.currency')}</Label>
-                <Input
-                  id="edit-currency"
-                  value={currency}
-                  onChange={(e) => {
-                    setCurrency(e.target.value.toUpperCase().slice(0, 3));
-                  }}
-                  maxLength={3}
-                />
-              </div>
               {updateMutation.isError && (
                 <p className="text-sm text-destructive">
                   {getErrorMessage(updateMutation.error, t)}
@@ -182,10 +165,6 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
               <div>
                 <dt className="text-muted-foreground">{t('roaming.tariffs.ocpiTariffId')}</dt>
                 <dd className="font-medium">{mapping.ocpiTariffId}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('roaming.tariffs.currency')}</dt>
-                <dd className="font-medium">{mapping.currency}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">{t('roaming.tariffs.partner')}</dt>

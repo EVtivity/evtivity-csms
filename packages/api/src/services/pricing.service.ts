@@ -26,7 +26,6 @@ export async function createTariff(
   groupId: string,
   data: {
     name: string;
-    currency?: string;
     pricePerKwh?: string;
     pricePerMinute?: string;
     pricePerSession?: string;

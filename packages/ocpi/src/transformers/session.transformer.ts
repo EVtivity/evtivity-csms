@@ -18,7 +18,7 @@ interface SessionRow {
   energyDeliveredWh: string | null;
   currentCostCents: number | null;
   finalCostCents: number | null;
-  currency: string | null;
+  currency: string;
 }
 
 interface SessionTransformInput {
@@ -61,7 +61,7 @@ export function transformSession(input: SessionTransformInput, version: OcpiVers
   const costCents =
     session.status === 'completed' ? session.finalCostCents : session.currentCostCents;
   const costValue = centsToCost(costCents);
-  const currency = session.currency ?? 'USD';
+  const currency = session.currency;
 
   const cdrToken: OcpiCdrToken = {
     country_code: input.tokenCountryCode,

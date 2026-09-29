@@ -15,7 +15,6 @@ describe('calculateSessionCost', () => {
       idleFeePricePerMinute: null,
       reservationFeePerMinute: null,
       taxRate: '0.08',
-      currency: 'USD',
     };
 
     const result = calculateSessionCost(tariff, 10000, 60);
@@ -27,7 +26,6 @@ describe('calculateSessionCost', () => {
     expect(result.subtotalCents).toBe(700); // $7.00
     expect(result.taxCents).toBe(56); // $7.00 * 0.08 = $0.56
     expect(result.totalCents).toBe(756); // $7.56
-    expect(result.currency).toBe('USD');
   });
 
   it('handles null tariff values as zero', () => {
@@ -38,7 +36,6 @@ describe('calculateSessionCost', () => {
       idleFeePricePerMinute: null,
       reservationFeePerMinute: null,
       taxRate: null,
-      currency: 'EUR',
     };
 
     const result = calculateSessionCost(tariff, 5000, 30);
@@ -50,7 +47,6 @@ describe('calculateSessionCost', () => {
     expect(result.subtotalCents).toBe(0);
     expect(result.taxCents).toBe(0);
     expect(result.totalCents).toBe(0);
-    expect(result.currency).toBe('EUR');
   });
 
   it('handles zero energy and duration', () => {
@@ -61,7 +57,6 @@ describe('calculateSessionCost', () => {
       idleFeePricePerMinute: null,
       reservationFeePerMinute: null,
       taxRate: '0.10',
-      currency: 'USD',
     };
 
     const result = calculateSessionCost(tariff, 0, 0);
@@ -83,7 +78,6 @@ describe('calculateSessionCost', () => {
       idleFeePricePerMinute: null,
       reservationFeePerMinute: null,
       taxRate: '0.00',
-      currency: 'GBP',
     };
 
     // 3.333 kWh * $0.33 = $1.09989 -> 110 cents
@@ -92,7 +86,6 @@ describe('calculateSessionCost', () => {
     expect(result.energyCostCents).toBe(110);
     expect(result.idleFeeCents).toBe(0);
     expect(result.totalCents).toBe(110);
-    expect(result.currency).toBe('GBP');
   });
 
   it('handles energy-only tariff', () => {
@@ -103,7 +96,6 @@ describe('calculateSessionCost', () => {
       idleFeePricePerMinute: null,
       reservationFeePerMinute: null,
       taxRate: '0.05',
-      currency: 'USD',
     };
 
     const result = calculateSessionCost(tariff, 20000, 120);
@@ -125,7 +117,6 @@ describe('calculateSessionCost', () => {
       idleFeePricePerMinute: '0.50',
       reservationFeePerMinute: null,
       taxRate: '0.00',
-      currency: 'USD',
     };
 
     // 10 kWh at $0.30 = $3.00, 60 min at $0.05 = $3.00, $1.00 session, 20 min idle at $0.50 = $10.00
@@ -147,7 +138,6 @@ describe('calculateSessionCost', () => {
       idleFeePricePerMinute: null,
       reservationFeePerMinute: null,
       taxRate: '0.00',
-      currency: 'USD',
     };
 
     // Even with 30 idle minutes, null price means no charge
@@ -166,7 +156,6 @@ describe('calculateSessionCost', () => {
       idleFeePricePerMinute: '0.50',
       reservationFeePerMinute: null,
       taxRate: '0.00',
-      currency: 'USD',
     };
 
     // 10 idle minutes with 10 min grace period = 0 billable idle minutes
@@ -184,7 +173,6 @@ describe('calculateSessionCost', () => {
       idleFeePricePerMinute: '0.50',
       reservationFeePerMinute: null,
       taxRate: '0.00',
-      currency: 'USD',
     };
 
     // 15 idle minutes with 10 min grace period = 5 billable minutes at $0.50 = $2.50
@@ -202,7 +190,6 @@ describe('calculateSessionCost', () => {
       idleFeePricePerMinute: '1.00',
       reservationFeePerMinute: null,
       taxRate: '0.00',
-      currency: 'USD',
     };
 
     // 20 idle minutes with 0 grace = full idle fee
@@ -220,7 +207,6 @@ describe('calculateSessionCost', () => {
       idleFeePricePerMinute: '1.00',
       reservationFeePerMinute: null,
       taxRate: '0.00',
-      currency: 'USD',
     };
 
     // 5 idle minutes with 30 min grace period = 0 billable idle minutes
@@ -238,7 +224,6 @@ describe('calculateSessionCost', () => {
       idleFeePricePerMinute: '1.00',
       reservationFeePerMinute: null,
       taxRate: '0.10',
-      currency: 'USD',
     };
 
     // 15 idle minutes at $1.00/min = $15.00, 10% tax = $1.50
@@ -262,7 +247,6 @@ describe('calculateSplitSessionCost', () => {
     idleFeePricePerMinute: null,
     reservationFeePerMinute: null,
     taxRate: '0.08',
-    currency: 'USD',
   };
 
   const offPeakTariff: TariffInput = {
@@ -272,13 +256,11 @@ describe('calculateSplitSessionCost', () => {
     idleFeePricePerMinute: null,
     reservationFeePerMinute: null,
     taxRate: '0.08',
-    currency: 'USD',
   };
 
   it('returns zero breakdown for empty segments', () => {
     const result = calculateSplitSessionCost([], 0);
     expect(result.totalCents).toBe(0);
-    expect(result.currency).toBe('USD');
   });
 
   it('distributes idle grace-period reduction from the last segment backward', () => {
@@ -402,7 +384,6 @@ describe('calculateSplitSessionCost', () => {
       idleFeePricePerMinute: '1.00',
       reservationFeePerMinute: null,
       taxRate: '0.00',
-      currency: 'USD',
     };
 
     // Two segments: segment 1 has 0 idle, segment 2 has 20 idle minutes
@@ -437,7 +418,6 @@ describe('calculateSplitSessionCost', () => {
       idleFeePricePerMinute: '1.00',
       reservationFeePerMinute: null,
       taxRate: '0.00',
-      currency: 'USD',
     };
 
     const segments: TariffSegment[] = [
@@ -472,7 +452,6 @@ describe('calculateSplitSessionCost', () => {
           idleFeePricePerMinute: null,
           reservationFeePerMinute: '0.10',
           taxRate: '0',
-          currency: 'USD',
         },
         durationMinutes: 30,
         energyDeliveredWh: 5000,
@@ -487,7 +466,6 @@ describe('calculateSplitSessionCost', () => {
           idleFeePricePerMinute: null,
           reservationFeePerMinute: '0.20', // higher rate on second segment — should be ignored
           taxRate: '0',
-          currency: 'USD',
         },
         durationMinutes: 30,
         energyDeliveredWh: 5000,
@@ -512,7 +490,6 @@ describe('calculateSplitSessionCost', () => {
       idleFeePricePerMinute: null,
       reservationFeePerMinute: null,
       taxRate: null,
-      currency: 'USD',
     };
     const segments: TariffSegment[] = [
       {
@@ -545,7 +522,6 @@ describe('calculateSplitSessionCost', () => {
       idleFeePricePerMinute: null,
       reservationFeePerMinute: '1.00',
       taxRate: null,
-      currency: 'USD',
     };
     const segments: TariffSegment[] = [
       {
@@ -562,30 +538,6 @@ describe('calculateSplitSessionCost', () => {
     expect(result.taxCents).toBe(0);
     expect(result.totalCents).toBe(1000);
   });
-
-  it('throws on mixed currencies across segments', () => {
-    const usdTariff: TariffInput = { ...peakTariff, currency: 'USD' };
-    const eurTariff: TariffInput = { ...offPeakTariff, currency: 'EUR' };
-
-    const segments: TariffSegment[] = [
-      {
-        tariff: usdTariff,
-        durationMinutes: 30,
-        energyDeliveredWh: 5000,
-        idleMinutes: 0,
-        isFirstSegment: true,
-      },
-      {
-        tariff: eurTariff,
-        durationMinutes: 30,
-        energyDeliveredWh: 5000,
-        idleMinutes: 0,
-        isFirstSegment: false,
-      },
-    ];
-
-    expect(() => calculateSplitSessionCost(segments, 0)).toThrow('Mixed currencies');
-  });
 });
 
 describe('reservation holding fee', () => {
@@ -597,7 +549,6 @@ describe('reservation holding fee', () => {
       idleFeePricePerMinute: null,
       reservationFeePerMinute: '0.05',
       taxRate: '0',
-      currency: 'USD',
     };
     const result = calculateSessionCost(tariff, 10_000, 30, 0, 0, 20);
     // 20 min * $0.05 = $1.00 = 100 cents holding fee
@@ -615,7 +566,6 @@ describe('reservation holding fee', () => {
       idleFeePricePerMinute: null,
       reservationFeePerMinute: null,
       taxRate: '0',
-      currency: 'USD',
     };
     const result = calculateSessionCost(tariff, 10_000, 30, 0, 0, 0);
     expect(result.reservationHoldingFeeCents).toBe(0);
@@ -629,7 +579,6 @@ describe('reservation holding fee', () => {
       idleFeePricePerMinute: null,
       reservationFeePerMinute: '0.10',
       taxRate: '0',
-      currency: 'USD',
     };
     const result = calculateSessionCost(tariff, 0, 0, 0, 0, 0);
     expect(result.reservationHoldingFeeCents).toBe(0);
@@ -643,7 +592,6 @@ describe('reservation holding fee', () => {
       idleFeePricePerMinute: null,
       reservationFeePerMinute: '1.00',
       taxRate: '0.10',
-      currency: 'USD',
     };
     // 10 min * $1.00 = $10.00 = 1000 cents, 10% tax = 100 cents
     const result = calculateSessionCost(tariff, 0, 0, 0, 0, 10);

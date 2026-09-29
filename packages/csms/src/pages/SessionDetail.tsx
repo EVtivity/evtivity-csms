@@ -56,7 +56,7 @@ interface SessionDetailData {
   energyDeliveredWh: number | null;
   currentCostCents: number | null;
   finalCostCents: number | null;
-  currency: string | null;
+  currency: string;
   stoppedReason: string | null;
   reservationId: string | null;
   freeVend: boolean | null;
@@ -114,7 +114,7 @@ export function SessionDetail(): React.JSX.Element {
     );
   }
 
-  const currency = session.currency ?? 'USD';
+  const currency = session.currency;
   const payment = session.paymentRecord;
   const canRefund =
     payment != null && (payment.status === 'captured' || payment.status === 'partially_refunded');

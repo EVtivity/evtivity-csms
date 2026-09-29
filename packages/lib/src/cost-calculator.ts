@@ -8,7 +8,6 @@ export interface TariffInput {
   idleFeePricePerMinute: string | null;
   reservationFeePerMinute: string | null;
   taxRate: string | null;
-  currency: string;
 }
 
 export interface CostBreakdown {
@@ -20,7 +19,6 @@ export interface CostBreakdown {
   subtotalCents: number;
   taxCents: number;
   totalCents: number;
-  currency: string;
 }
 
 export interface TariffSegment {
@@ -75,7 +73,6 @@ export function calculateSessionCost(
     subtotalCents,
     taxCents,
     totalCents,
-    currency: tariff.currency,
   };
 }
 
@@ -94,14 +91,7 @@ export function calculateSplitSessionCost(
       subtotalCents: 0,
       taxCents: 0,
       totalCents: 0,
-      currency: 'USD',
     };
-  }
-
-  // Validate currency consistency across segments
-  const currencies = new Set(segments.map((s) => s.tariff.currency));
-  if (currencies.size > 1) {
-    throw new Error(`Mixed currencies in split-billing segments: ${[...currencies].join(', ')}`);
   }
 
   // Apply grace period once across all segments. Distribute idle reduction
@@ -126,8 +116,6 @@ export function calculateSplitSessionCost(
   let totalSessionFeeCents = 0;
   let totalIdleFeeCents = 0;
   let totalTaxCents = 0;
-  // segments is non-empty here (the empty-array case returns early above).
-  const currency = segments[0]?.tariff.currency ?? 'USD';
 
   for (const segment of adjustedSegments) {
     // Zero out session fee for non-first segments
@@ -192,6 +180,5 @@ export function calculateSplitSessionCost(
     subtotalCents,
     taxCents: totalTaxCents,
     totalCents,
-    currency,
   };
 }

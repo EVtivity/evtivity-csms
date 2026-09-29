@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ErrorCard } from '@/components/ui/error-card';
 import { api } from '@/lib/api';
-import { formatDate } from '@/lib/utils';
+import { formatCents, formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
 
@@ -39,10 +39,7 @@ interface PortalFeatures {
   supportEnabled: boolean;
   reservationCancellationFeeCents: number;
   reservationCancellationWindowMinutes: number;
-}
-
-function formatCents(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  currency: string;
 }
 
 function statusVariant(
@@ -112,6 +109,8 @@ export function ReservationDetail(): React.JSX.Element {
   const policyFeeCents = features?.reservationCancellationFeeCents ?? 0;
   const policyWindowMinutes = features?.reservationCancellationWindowMinutes ?? 0;
   const policyActive = policyFeeCents > 0 && policyWindowMinutes > 0;
+  // The cancellation fee is charged in the currency the features endpoint reports.
+  const policyFee = features != null ? formatCents(policyFeeCents, features.currency) : '';
   const referenceTime = new Date(reservation.startsAt ?? reservation.createdAt).getTime();
   const minutesUntilStart = Math.floor((referenceTime - Date.now()) / 60_000);
   const cancelFeeWillApply = policyActive && canCancel && minutesUntilStart < policyWindowMinutes;
@@ -186,7 +185,7 @@ export function ReservationDetail(): React.JSX.Element {
           <CardContent>
             <p className="text-sm text-muted-foreground">
               {t('reservations.cancellationPolicyText', {
-                fee: formatCents(policyFeeCents),
+                fee: policyFee,
                 minutes: policyWindowMinutes,
               })}
             </p>
@@ -244,9 +243,7 @@ export function ReservationDetail(): React.JSX.Element {
                 station: reservation.stationOcppId,
                 time: formatDate(reservation.expiresAt, timezone),
               }),
-          cancelFeeWillApply
-            ? t('reservations.cancellationFeeWarning', { fee: formatCents(policyFeeCents) })
-            : '',
+          cancelFeeWillApply ? t('reservations.cancellationFeeWarning', { fee: policyFee }) : '',
         ]
           .filter(Boolean)
           .join(' ')}

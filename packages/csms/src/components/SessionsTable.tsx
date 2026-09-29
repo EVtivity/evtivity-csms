@@ -85,7 +85,7 @@ export interface Session {
   energyDeliveredWh: number | null;
   currentCostCents: number | null;
   finalCostCents: number | null;
-  currency: string | null;
+  currency: string;
   freeVend: boolean | null;
   isGuestSession?: boolean;
   co2AvoidedKg: number | null;
@@ -94,8 +94,7 @@ export interface Session {
 function formatCost(session: Session): string {
   const cents = session.status === 'completed' ? session.finalCostCents : session.currentCostCents;
   if (cents == null) return '-';
-  const currency = session.currency ?? 'USD';
-  return `${(cents / 100).toFixed(2)} ${currency}`;
+  return `${(cents / 100).toFixed(2)} ${session.currency}`;
 }
 
 interface SessionsTableProps {

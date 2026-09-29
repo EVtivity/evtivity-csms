@@ -33,7 +33,7 @@ interface GuestSessionStatus {
   energyDeliveredWh?: string | null;
   currentCostCents?: number | null;
   finalCostCents?: number | null;
-  currency?: string | null;
+  currency?: string;
   failureReason?: string | null;
   startedAt?: string | null;
   endedAt?: string | null;
@@ -297,7 +297,7 @@ export function GuestSession(): React.JSX.Element {
                 {isDone ? t('guestSession.totalCost') : t('guestSession.estimatedCost')}
               </p>
               <p className="text-base font-bold">
-                {formatCents(costCents, session.currency ?? undefined)}
+                {session.currency != null ? formatCents(costCents, session.currency) : 'n/a'}
               </p>
             </CardContent>
           </Card>

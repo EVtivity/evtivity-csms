@@ -11,7 +11,7 @@ export async function chargeReservationCancellationFee(
   siteId: string | null,
   amountCents: number,
   reservationId: string,
-): Promise<void> {
+): Promise<string | null> {
   const [paymentMethod] = await db
     .select({
       stripeCustomerId: driverPaymentMethods.stripeCustomerId,
@@ -24,12 +24,12 @@ export async function chargeReservationCancellationFee(
     .limit(1);
 
   if (paymentMethod == null) {
-    return;
+    return null;
   }
 
   const stripeConfig = await getStripeConfig(siteId);
   if (stripeConfig == null) {
-    return;
+    return null;
   }
 
   await stripeConfig.stripe.paymentIntents.create(
@@ -47,6 +47,7 @@ export async function chargeReservationCancellationFee(
     },
     { idempotencyKey: `cancellation-fee-${reservationId}` },
   );
+  return stripeConfig.currency;
 }
 
 /**
@@ -69,7 +70,6 @@ export async function chargeReservationNoShowFee(
   siteId: string | null,
   amountCents: number,
   reservationId: string,
-  tariffCurrency: string,
 ): Promise<void> {
   if (amountCents <= 0) return;
 
@@ -91,18 +91,6 @@ export async function chargeReservationNoShowFee(
   const stripeConfig = await getStripeConfig(siteId);
   if (stripeConfig == null) {
     return;
-  }
-
-  // amountCents was computed as holdingMinutes * tariff.reservationFeePerMinute
-  // -- the cents number is in TARIFF currency. If the site's Stripe config is
-  // in a different currency, charging amountCents at config.currency would
-  // bill the wrong amount (Stripe doesn't auto-convert; €1.50 != $1.50). Refuse
-  // the charge so operators see the misconfiguration in the cron logs rather
-  // than discovering it via dispute. Caller catches and logs at warn.
-  if (tariffCurrency.toUpperCase() !== stripeConfig.currency.toUpperCase()) {
-    throw new Error(
-      `CURRENCY_MISMATCH: tariff currency ${tariffCurrency} does not match Stripe config currency ${stripeConfig.currency} for reservation ${reservationId}`,
-    );
   }
 
   await stripeConfig.stripe.paymentIntents.create(

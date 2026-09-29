@@ -18,14 +18,12 @@ import { getErrorMessage } from '@/lib/error-message';
 interface Tariff {
   id: string;
   name: string;
-  currency: string;
 }
 
 interface TariffMapping {
   id: number;
   tariffId: string;
   ocpiTariffId: string;
-  currency: string;
 }
 
 export function RoamingTariffMappingCreate(): React.JSX.Element {
@@ -35,7 +33,6 @@ export function RoamingTariffMappingCreate(): React.JSX.Element {
 
   const [selectedTariffId, setSelectedTariffId] = useState('');
   const [ocpiTariffId, setOcpiTariffId] = useState('');
-  const [currency, setCurrency] = useState('USD');
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const { data: tariffList } = useQuery({
@@ -47,7 +44,6 @@ export function RoamingTariffMappingCreate(): React.JSX.Element {
     mutationFn: (data: {
       tariffId: string;
       ocpiTariffId: string;
-      currency: string;
       ocpiTariffData: Record<string, unknown>;
     }) => api.post<TariffMapping>('/v1/ocpi/tariff-mappings', data),
     onSuccess: (created) => {
@@ -72,7 +68,6 @@ export function RoamingTariffMappingCreate(): React.JSX.Element {
     createMutation.mutate({
       tariffId: selectedTariffId,
       ocpiTariffId,
-      currency,
       ocpiTariffData: {},
     });
   }
@@ -124,18 +119,6 @@ export function RoamingTariffMappingCreate(): React.JSX.Element {
               {hasSubmitted && errors.ocpiTariffId && (
                 <p className="text-xs text-destructive">{errors.ocpiTariffId}</p>
               )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="mapping-currency">{t('roaming.tariffs.currency')}</Label>
-              <Input
-                id="mapping-currency"
-                value={currency}
-                onChange={(e) => {
-                  setCurrency(e.target.value.toUpperCase().slice(0, 3));
-                }}
-                placeholder="USD"
-                maxLength={3}
-              />
             </div>
             {createMutation.isError && (
               <p className="text-sm text-destructive">{getErrorMessage(createMutation.error, t)}</p>

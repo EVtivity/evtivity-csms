@@ -11,7 +11,6 @@ import type {
 interface TariffRow {
   id: string;
   name: string;
-  currency: string;
   pricePerKwh: string | null;
   pricePerMinute: string | null;
   pricePerSession: string | null;
@@ -23,6 +22,8 @@ interface TariffRow {
 
 interface TariffTransformInput {
   tariff: TariffRow;
+  /** The company currency: tariffs are priced in it. */
+  currency: string;
   countryCode: string;
   partyId: string;
   ocpiTariffId: string;
@@ -110,7 +111,7 @@ export function transformTariff(input: TariffTransformInput, version: OcpiVersio
     country_code: countryCode,
     party_id: partyId,
     id: ocpiTariffId,
-    currency: tariff.currency,
+    currency: input.currency,
     type: 'REGULAR',
     elements,
     last_updated: tariff.updatedAt.toISOString(),

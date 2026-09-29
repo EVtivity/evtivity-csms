@@ -25,7 +25,7 @@ interface SessionRow {
   energyDeliveredWh: number | null;
   currentCostCents: number | null;
   finalCostCents: number | null;
-  currency: string | null;
+  currency: string;
   freeVend: boolean | null;
   co2AvoidedKg: number | null;
 }

@@ -568,7 +568,7 @@
     {
       "type": "stat",
       "title": "Total Revenue",
-      "description": "Completed-session revenue per currency. Amounts in different currencies are not added together.",
+      "description": "Completed-session revenue in the company currency.",
       "gridPos": { "h": 5, "w": 6, "x": 6, "y": 24 },
       "id": 18,
       "datasource": { "type": "prometheus", "uid": "prometheus" },

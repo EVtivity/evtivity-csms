@@ -14,6 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { api } from '@/lib/api';
+import { useCompanyCurrency } from '@/hooks/use-company-currency';
 
 interface TariffRestrictions {
   timeRange?: { startTime: string; endTime: string };
@@ -26,7 +27,6 @@ interface TariffRestrictions {
 interface ScheduleItem {
   id: string;
   name: string;
-  currency: string;
   pricePerKwh: string | null;
   pricePerMinute: string | null;
   pricePerSession: string | null;
@@ -66,9 +66,16 @@ function formatRestrictionSummary(
   return parts.join(' ') || 'n/a';
 }
 
-function formatCompactRates(item: ScheduleItem, freeLabel: string): string {
+function formatCompactRates(
+  item: ScheduleItem,
+  freeLabel: string,
+  currency: string | undefined,
+): string {
   const parts: string[] = [];
-  if (item.pricePerKwh != null) parts.push(`${item.currency} ${item.pricePerKwh}/kWh`);
+  if (item.pricePerKwh != null) {
+    const prefix = currency != null ? `${currency} ` : '';
+    parts.push(`${prefix}${item.pricePerKwh}/kWh`);
+  }
   if (item.pricePerMinute != null) parts.push(`${item.pricePerMinute}/min`);
   if (item.pricePerSession != null) parts.push(`${item.pricePerSession}/session`);
   return parts.length > 0 ? parts.join(' + ') : freeLabel;
@@ -76,6 +83,7 @@ function formatCompactRates(item: ScheduleItem, freeLabel: string): string {
 
 export function PricingScheduleCard({ groupId }: { groupId: string }): React.JSX.Element {
   const { t } = useTranslation();
+  const { currency } = useCompanyCurrency();
 
   const { data: schedule } = useQuery({
     queryKey: ['pricing-schedule', groupId],
@@ -117,7 +125,7 @@ export function PricingScheduleCard({ groupId }: { groupId: string }): React.JSX
                   </TableCell>
                   <TableCell>{item.priority}</TableCell>
                   <TableCell className="text-sm">
-                    {formatCompactRates(item, t('pricing.free'))}
+                    {formatCompactRates(item, t('pricing.free'), currency)}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1.5">

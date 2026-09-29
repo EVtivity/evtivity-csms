@@ -53,8 +53,10 @@ const tariffItem = z
     id: z.string().describe('Tariff identifier'),
     pricingGroupId: z.string().describe('Owning pricing group identifier'),
     name: z.string().describe('Tariff display name'),
-    currency: z.string().describe('ISO 4217 currency code (USD, EUR, etc.)'),
-    pricePerKwh: z.string().nullable().describe('Cost per kWh in the tariff currency, e.g. "0.25"'),
+    pricePerKwh: z
+      .string()
+      .nullable()
+      .describe('Cost per kWh in the company currency, e.g. "0.25"'),
     pricePerMinute: z.string().nullable().describe('Cost per active charging minute'),
     pricePerSession: z.string().nullable().describe('Flat fee charged at session start'),
     isActive: z.boolean().describe('Whether this tariff currently participates in resolution'),
@@ -92,8 +94,10 @@ const scheduleItem = z
   .object({
     id: z.string().describe('Tariff identifier'),
     name: z.string().describe('Tariff display name'),
-    currency: z.string().describe('ISO 4217 currency code (USD, EUR, etc.)'),
-    pricePerKwh: z.string().nullable().describe('Cost per kWh in the tariff currency, e.g. "0.25"'),
+    pricePerKwh: z
+      .string()
+      .nullable()
+      .describe('Cost per kWh in the company currency, e.g. "0.25"'),
     pricePerMinute: z.string().nullable().describe('Cost per active charging minute'),
     pricePerSession: z.string().nullable().describe('Flat fee charged at session start'),
     idleFeePricePerMinute: z
@@ -125,8 +129,10 @@ const activeTariffItem = z
   .object({
     id: z.string().describe('Tariff identifier'),
     name: z.string().describe('Tariff display name'),
-    currency: z.string().describe('ISO 4217 currency code (USD, EUR, etc.)'),
-    pricePerKwh: z.string().nullable().describe('Cost per kWh in the tariff currency, e.g. "0.25"'),
+    pricePerKwh: z
+      .string()
+      .nullable()
+      .describe('Cost per kWh in the company currency, e.g. "0.25"'),
     pricePerMinute: z.string().nullable().describe('Cost per active charging minute'),
     pricePerSession: z.string().nullable().describe('Flat fee charged at session start'),
     idleFeePricePerMinute: z
@@ -187,7 +193,6 @@ const createGroupBody = z.object({
 
 const createTariffBody = z.object({
   name: z.string().max(255),
-  currency: z.string().length(3).default('USD').describe('ISO 4217 currency code'),
   pricePerKwh: nonNegativePrice.optional().describe('Price per kWh as a decimal string'),
   pricePerMinute: nonNegativePrice.optional().describe('Price per minute as a decimal string'),
   pricePerSession: nonNegativePrice.optional().describe('Flat fee per session as a decimal string'),
@@ -585,10 +590,7 @@ export function pricingRoutes(app: FastifyInstance): void {
         response: {
           201: itemResponse(tariffItem),
           400: errorWith('Invalid restrictions', [ERROR_CODES.INVALID_RESTRICTIONS]),
-          409: errorWith('Tariff conflict', [
-            ERROR_CODES.TARIFF_OVERLAP,
-            ERROR_CODES.TARIFF_CURRENCY_MISMATCH,
-          ]),
+          409: errorWith('Tariff conflict', [ERROR_CODES.TARIFF_OVERLAP]),
         },
       },
     },
@@ -612,41 +614,17 @@ export function pricingRoutes(app: FastifyInstance): void {
       const priority = derivePriority(restrictions ?? null);
       const isDefault = body.isDefault ?? priority === 0;
 
-      // Check for existing tariffs in this group. Overlap detection only
-      // considers active tariffs (an inactive tariff cannot collide because
-      // resolution skips it), but the currency check below MUST consider
-      // inactive tariffs too -- otherwise an inactive EUR tariff sitting in a
-      // USD group is invisible to the check, the operator adds a USD tariff
-      // alongside it, and the moment anyone toggles the EUR row back to
-      // active the group ends up mixed-currency (which the cost calculator
-      // and split-billing path both reject).
-      const allTariffsInGroup = await db
+      // Overlap detection only considers active tariffs: resolution skips
+      // inactive ones, so they cannot collide.
+      const existingTariffs = await db
         .select({
           id: tariffs.id,
           restrictions: tariffs.restrictions,
           priority: tariffs.priority,
           isDefault: tariffs.isDefault,
-          currency: tariffs.currency,
-          isActive: tariffs.isActive,
         })
         .from(tariffs)
-        .where(eq(tariffs.pricingGroupId, id));
-
-      const existingTariffs = allTariffsInGroup.filter((t) => t.isActive);
-
-      // Currency consistency: every tariff in a pricing group must share a
-      // currency, regardless of active state. Split-billing and the cost
-      // calculator both assume a single resolved currency per session;
-      // mixing currencies inside a group leaks the wrong currency code into
-      // charging_sessions.
-      const otherCurrency = allTariffsInGroup.find((t) => t.currency !== body.currency)?.currency;
-      if (otherCurrency != null) {
-        await reply.status(409).send({
-          error: `Pricing group already contains tariffs in ${otherCurrency}; new tariff must use the same currency.`,
-          code: 'TARIFF_CURRENCY_MISMATCH',
-        });
-        return;
-      }
+        .where(and(eq(tariffs.pricingGroupId, id), eq(tariffs.isActive, true)));
 
       const overlapCheck = validateNoOverlap(
         existingTariffs.map((t) => ({
@@ -684,7 +662,6 @@ export function pricingRoutes(app: FastifyInstance): void {
         .values({
           pricingGroupId: id,
           name: body.name,
-          currency: body.currency,
           pricePerKwh: body.pricePerKwh,
           pricePerMinute: body.pricePerMinute,
           pricePerSession: body.pricePerSession,
@@ -974,7 +951,6 @@ export function pricingRoutes(app: FastifyInstance): void {
 
       const tariffInputs: TariffWithRestrictions[] = activeTariffs.map((t) => ({
         id: t.id,
-        currency: t.currency,
         pricePerKwh: t.pricePerKwh,
         pricePerMinute: t.pricePerMinute,
         pricePerSession: t.pricePerSession,
@@ -992,7 +968,6 @@ export function pricingRoutes(app: FastifyInstance): void {
         .map((t) => ({
           id: t.id,
           name: t.name,
-          currency: t.currency,
           pricePerKwh: t.pricePerKwh,
           pricePerMinute: t.pricePerMinute,
           pricePerSession: t.pricePerSession,
@@ -1063,7 +1038,6 @@ export function pricingRoutes(app: FastifyInstance): void {
 
       const tariffInputs: TariffWithRestrictions[] = activeTariffs.map((t) => ({
         id: t.id,
-        currency: t.currency,
         pricePerKwh: t.pricePerKwh,
         pricePerMinute: t.pricePerMinute,
         pricePerSession: t.pricePerSession,

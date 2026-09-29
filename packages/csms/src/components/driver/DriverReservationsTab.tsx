@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/table';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
+import { formatCents } from '@/lib/formatting';
 import { LoadingLogo } from '@/components/loading-logo';
 
 interface DriverReservation {
@@ -89,8 +90,22 @@ export function DriverReservationsTab({ driverId, timezone }: Props): React.JSX.
     return reason !== '' ? `${actor} - ${reason}${note}` : `${actor}${note}`;
   }
 
-  function formatCents(cents: number): string {
-    return cents > 0 ? `$${(cents / 100).toFixed(2)}` : 'n/a';
+  // Reservation rows carry no currency. The cancellation fee is charged in the
+  // currency /v1/portal/features reports (same query as ReservationDetailsTab).
+  const policyQuery = useQuery({
+    queryKey: ['reservation-cancellation-policy'],
+    queryFn: () =>
+      api.get<{
+        reservationCancellationFeeCents: number;
+        reservationCancellationWindowMinutes: number;
+        currency: string;
+      }>('/v1/portal/features'),
+    staleTime: 5 * 60_000,
+  });
+  const feeCurrency = policyQuery.data?.currency;
+
+  function formatFee(cents: number): string {
+    return cents > 0 && feeCurrency != null ? formatCents(cents, feeCurrency) : 'n/a';
   }
 
   return (
@@ -149,7 +164,7 @@ export function DriverReservationsTab({ driverId, timezone }: Props): React.JSX.
                       </TableCell>
                       <TableCell className="text-xs">{formatCancelReason(r)}</TableCell>
                       <TableCell className="text-xs text-right">
-                        {formatCents(r.cancellationFeeCents)}
+                        {formatFee(r.cancellationFeeCents)}
                       </TableCell>
                     </TableRow>
                   ))}

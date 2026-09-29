@@ -96,7 +96,6 @@ vi.mock('@evtivity/database', () => ({
     isDefault: 'isDefault',
     restrictions: 'restrictions',
     name: 'name',
-    currency: 'currency',
     pricePerKwh: 'pricePerKwh',
     pricePerMinute: 'pricePerMinute',
     pricePerSession: 'pricePerSession',
@@ -587,7 +586,6 @@ describe('Tariff Service', () => {
   const mockTariffRow = {
     id: 't1',
     name: 'Test Tariff',
-    currency: 'USD',
     pricePerKwh: '0.25',
     pricePerMinute: null,
     pricePerSession: null,
@@ -705,7 +703,6 @@ describe('Tariff Service', () => {
         isTariffFree({
           id: 't1',
           name: 'Free',
-          currency: 'USD',
           pricePerKwh: '0',
           pricePerMinute: null,
           pricePerSession: '0',
@@ -724,7 +721,6 @@ describe('Tariff Service', () => {
         isTariffFree({
           id: 't2',
           name: 'Paid',
-          currency: 'USD',
           pricePerKwh: '0.25',
           pricePerMinute: null,
           pricePerSession: null,

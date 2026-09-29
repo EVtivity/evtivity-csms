@@ -10,7 +10,6 @@ import type { TariffRestrictions, TariffWithRestrictions } from '@evtivity/lib';
 export interface ResolvedTariff {
   id: string;
   name: string;
-  currency: string;
   pricePerKwh: string | null;
   pricePerMinute: string | null;
   pricePerSession: string | null;
@@ -139,7 +138,6 @@ export async function resolveTariff(
       .select({
         id: tariffs.id,
         name: tariffs.name,
-        currency: tariffs.currency,
         pricePerKwh: tariffs.pricePerKwh,
         pricePerMinute: tariffs.pricePerMinute,
         pricePerSession: tariffs.pricePerSession,
@@ -172,7 +170,6 @@ export async function resolveTariff(
 
   const tariffInputs: TariffWithRestrictions[] = activeTariffs.map((t) => ({
     id: t.id,
-    currency: t.currency,
     pricePerKwh: t.pricePerKwh,
     pricePerMinute: t.pricePerMinute,
     pricePerSession: t.pricePerSession,
@@ -193,7 +190,6 @@ export async function resolveTariff(
   return {
     id: match.id,
     name: match.name,
-    currency: match.currency,
     pricePerKwh: match.pricePerKwh,
     pricePerMinute: match.pricePerMinute,
     pricePerSession: match.pricePerSession,

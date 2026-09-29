@@ -3,9 +3,11 @@
 
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
+import { useQuery } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { api } from '@/lib/api';
 import { formatCents, formatDuration } from '@/lib/formatting';
 import { simpleSessionStatusVariant } from '@/lib/status-variants';
 
@@ -34,6 +36,14 @@ export function ReservationSessionTab({
 }: ReservationSessionTabProps): React.JSX.Element {
   const { t } = useTranslation();
 
+  // The reservation response carries the session cost but not its currency.
+  // Read the currency from the session itself (shares the SessionDetail cache key).
+  const { data: session } = useQuery({
+    queryKey: ['sessions', sessionId],
+    queryFn: () => api.get<{ currency: string }>(`/v1/sessions/${sessionId}`),
+    enabled: sessionCostCents != null,
+  });
+
   return (
     <Card>
       <CardHeader>
@@ -55,7 +65,9 @@ export function ReservationSessionTab({
           </div>
           <div>
             <dt className="text-muted-foreground">{t('sessions.cost')}</dt>
-            <dd className="font-medium text-success">{formatCents(sessionCostCents)}</dd>
+            <dd className="font-medium text-success">
+              {session != null ? formatCents(sessionCostCents, session.currency) : 'n/a'}
+            </dd>
           </div>
           <div>
             <dt className="text-muted-foreground">{t('sessions.duration')}</dt>
