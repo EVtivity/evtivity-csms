@@ -568,19 +568,20 @@
     {
       "type": "stat",
       "title": "Total Revenue",
+      "description": "Completed-session revenue per currency. Amounts in different currencies are not added together.",
       "gridPos": { "h": 5, "w": 6, "x": 6, "y": 24 },
       "id": 18,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "revenue_cents_total / 100",
-          "legendFormat": "Revenue",
+          "expr": "sum by (currency) (revenue_cents_total) / 100",
+          "legendFormat": "{{currency}}",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
+          "unit": "none",
           "decimals": 2,
           "thresholds": {
             "mode": "absolute",
@@ -597,7 +598,7 @@
           "values": false
         },
         "orientation": "auto",
-        "textMode": "auto",
+        "textMode": "value_and_name",
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto"

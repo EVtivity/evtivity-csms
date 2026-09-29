@@ -8,6 +8,8 @@ import { TabsContent } from '@/components/ui/tabs';
 import { StationPowerChart } from '@/components/charts/StationPowerChart';
 import { StationEnergyChart } from '@/components/charts/StationEnergyChart';
 import { RevenueChart } from '@/components/charts/RevenueChart';
+import { PeriodFinancialCells } from '@/components/PeriodFinancialCells';
+import type { DailyRevenue, PeriodFinancial } from '@/lib/currency-amounts';
 import { PopularTimesChart } from '@/components/charts/PopularTimesChart';
 import { DateRangeControl } from '@/components/DateRangeControl';
 import { useDateRange } from '@/hooks/useDateRange';
@@ -27,11 +29,7 @@ interface SiteMetrics {
   disconnectCount: number;
   avgDowntimeMinutes: number;
   maxDowntimeMinutes: number;
-  totalRevenueCents: number;
-  avgRevenueCentsPerSession: number;
-  totalTransactions: number;
-  totalElectricityCostCents: number;
-  totalProfitCents: number;
+  financials: PeriodFinancial[];
   periodMonths: number;
 }
 
@@ -93,9 +91,7 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
   const { data: revenueData } = useQuery({
     queryKey: ['sites', siteId, 'revenue-history', revenueRange.dateQuery],
     queryFn: () =>
-      api.get<{ date: string; revenueCents: number; sessionCount: number }[]>(
-        `/v1/sites/${siteId}/revenue-history?${revenueRange.dateQuery}`,
-      ),
+      api.get<DailyRevenue[]>(`/v1/sites/${siteId}/revenue-history?${revenueRange.dateQuery}`),
   });
 
   const { data: popularTimesData } = useQuery({
@@ -162,37 +158,7 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
                   {formatDurationMinutes(metrics.maxDowntimeMinutes)}
                 </p>
               </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.totalRevenue')}</p>
-                <p className="text-2xl font-bold">
-                  ${(metrics.totalRevenueCents / 100).toFixed(2)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.revenuePerSession')}</p>
-                <p className="text-2xl font-bold">
-                  ${(metrics.avgRevenueCentsPerSession / 100).toFixed(2)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.totalTransactions')}</p>
-                <p className="text-2xl font-bold">{String(metrics.totalTransactions)}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.electricityCost')}</p>
-                <p className="text-2xl font-bold">
-                  ${(metrics.totalElectricityCostCents / 100).toFixed(2)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.profit')}</p>
-                <p
-                  className={`text-2xl font-bold ${metrics.totalProfitCents >= 0 ? 'text-success' : 'text-destructive'}`}
-                >
-                  {metrics.totalProfitCents < 0 ? '-' : ''}$
-                  {Math.abs(metrics.totalProfitCents / 100).toFixed(2)}
-                </p>
-              </div>
+              <PeriodFinancialCells financials={metrics.financials} />
             </div>
           </CardContent>
         </Card>

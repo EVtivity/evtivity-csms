@@ -118,7 +118,8 @@ export const energyDeliveredWhTotal = new Gauge({
 
 export const revenueCentsTotal = new Gauge({
   name: 'revenue_cents_total',
-  help: 'Total revenue in cents (completed sessions)',
+  help: 'Total revenue in cents (completed sessions), per ISO 4217 currency',
+  labelNames: ['currency'] as const,
   registers: [register],
 });
 

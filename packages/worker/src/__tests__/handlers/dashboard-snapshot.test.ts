@@ -11,8 +11,9 @@ import type { Logger } from 'pino';
 // concurrently, so a call-order queue interleaves unpredictably. Instead we
 // route results by inspecting the sql template: the joined `strings` identify
 // the query kind (ping / yesterday / dayBoundaries / stations / uptime /
-// sessions / revenue / upsert) and the bound `values` carry the siteId. Per-
-// site overrides are keyed by siteId so concurrency is irrelevant.
+// sessions / sessionMoney / revenue / upsert / revenueDelete / revenueInsert)
+// and the bound `values` carry the siteId. Per-site overrides are keyed by
+// siteId so concurrency is irrelevant.
 
 let siteRows: unknown[] = [];
 function setSites(rows: unknown[]): void {
@@ -34,16 +35,21 @@ interface SiteData {
     day_sessions: string;
     total_energy_wh: string;
     day_energy_wh: string;
-    total_electricity_cost_cents: string;
-    day_electricity_cost_cents: string;
     active_sessions: string;
   };
+  sessionMoney?: {
+    currency: string;
+    total_sessions: string;
+    total_electricity_cost_cents: string;
+    day_electricity_cost_cents: string;
+  }[];
   revenue?: {
+    currency: string;
     total_revenue_cents: string;
     day_revenue_cents: string;
     total_transactions: string;
     day_transactions: string;
-  };
+  }[];
 }
 
 const DEFAULT_SITE_DATA: Required<Omit<SiteData, 'uptime'>> & Pick<SiteData, 'uptime'> = {
@@ -55,16 +61,25 @@ const DEFAULT_SITE_DATA: Required<Omit<SiteData, 'uptime'>> & Pick<SiteData, 'up
     day_sessions: '12',
     total_energy_wh: '50000',
     day_energy_wh: '6000',
-    total_electricity_cost_cents: '1200',
-    day_electricity_cost_cents: '150',
     active_sessions: '3',
   },
-  revenue: {
-    total_revenue_cents: '250000',
-    day_revenue_cents: '30000',
-    total_transactions: '90',
-    day_transactions: '11',
-  },
+  sessionMoney: [
+    {
+      currency: 'USD',
+      total_sessions: '100',
+      total_electricity_cost_cents: '1200',
+      day_electricity_cost_cents: '150',
+    },
+  ],
+  revenue: [
+    {
+      currency: 'USD',
+      total_revenue_cents: '250000',
+      day_revenue_cents: '30000',
+      total_transactions: '90',
+      day_transactions: '11',
+    },
+  ],
 };
 
 let pingRow: Record<string, string> | undefined;
@@ -77,16 +92,24 @@ function resetExecute(): void {
   siteDataById = {};
   siteRejects = {};
   upsertCalls.length = 0;
+  revenueDeletes.length = 0;
+  revenueInserts.length = 0;
 }
 
 const upsertCalls: Array<{ siteId: string; values: unknown[] }> = [];
+const revenueDeletes: string[] = [];
+// One entry per inserted per-currency row: its bound values in column order.
+const revenueInserts: unknown[][] = [];
 
 function classify(strings: readonly string[]): string {
   const joined = strings.join('?');
   if (joined.includes('ocpp_server_health')) return 'ping';
+  if (joined.includes('INSERT INTO dashboard_snapshot_revenue')) return 'revenueInsert';
+  if (joined.includes('DELETE FROM dashboard_snapshot_revenue')) return 'revenueDelete';
   if (joined.includes('INSERT INTO dashboard_snapshots')) return 'upsert';
   if (joined.includes('AS yesterday')) return 'yesterday';
   if (joined.includes('AS day_start')) return 'dayBoundaries';
+  if (joined.includes('AS total_electricity_cost_cents')) return 'sessionMoney';
   if (joined.includes('AS total_sessions')) return 'sessions';
   if (joined.includes('AS total_revenue_cents')) return 'revenue';
   if (joined.includes('all_ports')) return 'uptime';
@@ -113,6 +136,12 @@ const mockExecute = vi.fn((arg: unknown) => {
   // dayBoundaries carry only constants, so route them generically using the
   // first matching site's data. Every per-site query's first/early value is
   // the siteId for stations/sessions/revenue/uptime/upsert.
+  if (kind === 'revenueInsert') {
+    const joinedRows = values[0] as { join: { values: unknown[] }[] };
+    for (const row of joinedRows.join) revenueInserts.push(row.values);
+    return Promise.resolve([]);
+  }
+
   const siteId = (values.find((v) => typeof v === 'string' && v.startsWith('sit')) ?? '') as string;
 
   const reject = siteId ? siteRejects[siteId] : undefined;
@@ -135,28 +164,42 @@ const mockExecute = vi.fn((arg: unknown) => {
       return Promise.resolve('uptime' in d ? [d.uptime] : [DEFAULT_SITE_DATA.uptime]);
     case 'sessions':
       return Promise.resolve([d.sessions ?? DEFAULT_SITE_DATA.sessions]);
+    case 'sessionMoney':
+      return Promise.resolve(d.sessionMoney ?? DEFAULT_SITE_DATA.sessionMoney);
     case 'revenue':
-      return Promise.resolve([d.revenue ?? DEFAULT_SITE_DATA.revenue]);
+      return Promise.resolve(d.revenue ?? DEFAULT_SITE_DATA.revenue);
     case 'upsert':
       upsertCalls.push({ siteId, values });
+      return Promise.resolve([]);
+    case 'revenueDelete':
+      revenueDeletes.push(siteId);
       return Promise.resolve([]);
     default:
       return Promise.resolve([]);
   }
 });
 
+const mockTransaction = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+  fn({ execute: mockExecute }),
+);
+
 vi.mock('@evtivity/database', () => ({
   db: {
     select: mockSelect,
     execute: mockExecute,
+    transaction: mockTransaction,
   },
   sites: { id: 'sites.id', timezone: 'sites.timezone' },
+  getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
 }));
 
 vi.mock('drizzle-orm', () => ({
   sql: Object.assign(
     (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
-    { raw: vi.fn((s: string) => ({ raw: s })) },
+    {
+      raw: vi.fn((s: string) => ({ raw: s })),
+      join: vi.fn((parts: unknown[]) => ({ join: parts })),
+    },
   ),
 }));
 
@@ -199,9 +242,10 @@ describe('dashboardSnapshotHandler', () => {
     const { dashboardSnapshotHandler } = await import('../../handlers/dashboard-snapshot.js');
     await dashboardSnapshotHandler(log);
 
-    // ping + 7 per-site queries (yesterday, dayBoundaries, 4-way Promise.all,
-    // upsert) = 8 execute calls.
-    expect(mockExecute).toHaveBeenCalledTimes(8);
+    // ping + 10 per-site queries (yesterday, dayBoundaries, 5-way Promise.all,
+    // upsert, revenue delete, revenue insert) = 11 execute calls.
+    expect(mockExecute).toHaveBeenCalledTimes(11);
+    expect(mockTransaction).toHaveBeenCalledTimes(1);
 
     // INSERT VALUES(...) bound params in source column order.
     expect(upsertFor('sit_1')).toEqual([
@@ -217,11 +261,6 @@ describe('dashboardSnapshotHandler', () => {
       100, // totalSessions
       12, // daySessions
       8, // connected = onlineStations
-      250000, // totalRevCents
-      30000, // dayRevenueCents
-      2500, // avgRevPerSession = round(250000/100)
-      1200, // totalElectricityCostCents
-      150, // dayElectricityCostCents
       90, // totalTransactions
       11, // dayTransactions
       20, // totalPorts
@@ -229,6 +268,10 @@ describe('dashboardSnapshotHandler', () => {
       12.35, // avgPingLatencyMs rounded to 2dp
       99.1, // pingSuccessRate
     ]);
+
+    // Existing per-currency rows are replaced, then one row per currency.
+    expect(revenueDeletes).toEqual(['sit_1']);
+    expect(revenueInserts).toEqual([['sit_1', '2026-06-03', 'USD', 250000, 30000, 100, 1200, 150]]);
 
     expect(log.info).toHaveBeenCalledWith(
       { siteId: 'sit_1', snapshotDate: '2026-06-03' },
@@ -247,11 +290,11 @@ describe('dashboardSnapshotHandler', () => {
     await dashboardSnapshotHandler(log);
 
     const values = upsertFor('sit_1');
-    expect(values[21]).toBe(0); // avgPingLatencyMs default
-    expect(values[22]).toBe(100); // pingSuccessRate default
+    expect(values[16]).toBe(0); // avgPingLatencyMs default
+    expect(values[17]).toBe(100); // pingSuccessRate default
   });
 
-  it('handles zero stations: onlinePercent and avgRevPerSession both 0, uptime/ports default', async () => {
+  it('handles zero stations: onlinePercent 0, uptime/ports default, no money rows', async () => {
     setSites([{ id: 'sit_empty', timezone: 'UTC' }]);
     siteDataById = {
       sit_empty: {
@@ -262,16 +305,10 @@ describe('dashboardSnapshotHandler', () => {
           day_sessions: '0',
           total_energy_wh: '0',
           day_energy_wh: '0',
-          total_electricity_cost_cents: '0',
-          day_electricity_cost_cents: '0',
           active_sessions: '0',
         },
-        revenue: {
-          total_revenue_cents: '0',
-          day_revenue_cents: '0',
-          total_transactions: '0',
-          day_transactions: '0',
-        },
+        sessionMoney: [],
+        revenue: [],
       },
     };
     const log = makeLog();
@@ -284,9 +321,12 @@ describe('dashboardSnapshotHandler', () => {
     expect(values[3]).toBe(0); // onlineStations
     expect(values[4]).toBe(0); // onlinePercent -> 0 (no divide-by-zero)
     expect(values[5]).toBe(100); // uptimePercent default when row missing
-    expect(values[14]).toBe(0); // avgRevPerSession -> 0 (no sessions)
-    expect(values[19]).toBe(0); // totalPorts default
-    expect(values[20]).toBe(0); // stationsBelowThreshold default
+    expect(values[12]).toBe(0); // totalTransactions
+    expect(values[14]).toBe(0); // totalPorts default
+    expect(values[15]).toBe(0); // stationsBelowThreshold default
+    // Stale rows are still cleared, and nothing is inserted.
+    expect(revenueDeletes).toEqual(['sit_empty']);
+    expect(revenueInserts).toEqual([]);
   });
 
   it('snapshots every site across batch boundaries (CONCURRENCY=5)', async () => {
@@ -301,8 +341,8 @@ describe('dashboardSnapshotHandler', () => {
     const { dashboardSnapshotHandler } = await import('../../handlers/dashboard-snapshot.js');
     await dashboardSnapshotHandler(log);
 
-    // 1 ping + 6 sites * 7 queries = 43 execute calls
-    expect(mockExecute).toHaveBeenCalledTimes(1 + 6 * 7);
+    // 1 ping + 6 sites * 10 queries = 61 execute calls
+    expect(mockExecute).toHaveBeenCalledTimes(1 + 6 * 10);
     // One upsert per site.
     expect(upsertCalls).toHaveLength(6);
     const savedCalls = (log.info as ReturnType<typeof vi.fn>).mock.calls.filter(
@@ -335,5 +375,83 @@ describe('dashboardSnapshotHandler', () => {
       'Site snapshot saved',
     );
     expect(log.info).toHaveBeenCalledWith({ siteCount: 2 }, 'Dashboard snapshot complete');
+  });
+
+  it('keeps currencies apart and merges session cost with payment revenue per currency', async () => {
+    setSites([{ id: 'sit_mix', timezone: 'UTC' }]);
+    siteDataById = {
+      sit_mix: {
+        sessionMoney: [
+          {
+            currency: 'EUR',
+            total_sessions: '40',
+            total_electricity_cost_cents: '800',
+            day_electricity_cost_cents: '90',
+          },
+          {
+            currency: 'USD',
+            total_sessions: '5',
+            total_electricity_cost_cents: '0',
+            day_electricity_cost_cents: '0',
+          },
+        ],
+        revenue: [
+          {
+            currency: 'EUR',
+            total_revenue_cents: '120000',
+            day_revenue_cents: '9000',
+            total_transactions: '30',
+            day_transactions: '4',
+          },
+          {
+            currency: 'GBP',
+            total_revenue_cents: '500',
+            day_revenue_cents: '0',
+            total_transactions: '1',
+            day_transactions: '0',
+          },
+        ],
+      },
+    };
+    const log = makeLog();
+
+    const { dashboardSnapshotHandler } = await import('../../handlers/dashboard-snapshot.js');
+    await dashboardSnapshotHandler(log);
+
+    const values = upsertFor('sit_mix');
+    expect(values[12]).toBe(31); // totalTransactions summed across currencies
+    expect(values[13]).toBe(4); // dayTransactions
+    expect(revenueInserts).toEqual([
+      ['sit_mix', '2026-06-03', 'EUR', 120000, 9000, 40, 800, 90],
+      ['sit_mix', '2026-06-03', 'USD', 0, 0, 5, 0, 0],
+      ['sit_mix', '2026-06-03', 'GBP', 500, 0, 0, 0, 0],
+    ]);
+  });
+});
+
+describe('mergeCurrencyRows', () => {
+  it('drops currencies with no sessions, revenue, or cost', async () => {
+    const { mergeCurrencyRows } = await import('../../handlers/dashboard-snapshot.js');
+    expect(
+      mergeCurrencyRows(
+        [
+          {
+            currency: 'USD',
+            total_sessions: 0,
+            total_electricity_cost_cents: 0,
+            day_electricity_cost_cents: 0,
+          },
+        ],
+        [
+          {
+            currency: 'EUR',
+            total_revenue_cents: 0,
+            day_revenue_cents: 0,
+            total_transactions: 0,
+            day_transactions: 0,
+          },
+        ],
+      ),
+    ).toEqual([]);
   });
 });

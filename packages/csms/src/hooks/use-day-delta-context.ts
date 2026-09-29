@@ -4,6 +4,15 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
+export interface SnapshotRevenue {
+  currency: string;
+  totalRevenueCents: number;
+  dayRevenueCents: number;
+  avgRevenueCentsPerSession: number;
+  totalElectricityCostCents: number;
+  dayElectricityCostCents: number;
+}
+
 export interface SnapshotData {
   hasData: boolean;
   totalStations: number;
@@ -16,9 +25,7 @@ export interface SnapshotData {
   totalSessions: number;
   daySessions: number;
   connectedStations: number;
-  totalRevenueCents: number;
-  dayRevenueCents: number;
-  avgRevenueCentsPerSession: number;
+  revenue: SnapshotRevenue[];
   totalTransactions: number;
   dayTransactions: number;
   totalPorts: number;

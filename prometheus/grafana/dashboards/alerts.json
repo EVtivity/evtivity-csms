@@ -474,21 +474,21 @@
     },
     {
       "type": "timeseries",
-      "title": "Revenue Δ over 1h (alert < $0.00001, warning)",
-      "description": "biz-revenue-stalled: delta(revenue_cents_total[1h]) in dollars, alerts if <0.001 for 2h",
+      "title": "Revenue Δ over 1h per currency (warning)",
+      "description": "biz-revenue-stalled: revenue added over the last hour per currency, in major units. The alert fires when no currency gained revenue for 2h.",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 36 },
       "id": 306,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "delta(revenue_cents_total[1h]) / 100",
-          "legendFormat": "$ / hour",
+          "expr": "sum by (currency) (delta(revenue_cents_total[1h])) / 100",
+          "legendFormat": "{{currency}} / hour",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
+          "unit": "none",
           "decimals": 2,
           "thresholds": {
             "mode": "absolute",

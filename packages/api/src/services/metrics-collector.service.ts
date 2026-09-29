@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, getCompanyCurrency } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import {
   driversTotal,
@@ -38,6 +38,7 @@ let intervalHandle: ReturnType<typeof setInterval> | null = null;
 
 export async function collectBusinessMetrics(): Promise<void> {
   try {
+    const companyCurrency = await getCompanyCurrency();
     const [
       driverRows,
       activeDriverRows,
@@ -117,11 +118,14 @@ export async function collectBusinessMetrics(): Promise<void> {
         WHERE status = 'completed'
       `),
 
-      // Total revenue (completed sessions)
+      // Total revenue (completed sessions) per currency
       db.execute(sql`
-        SELECT COALESCE(SUM(final_cost_cents), 0)::bigint AS total
+        SELECT
+          upper(COALESCE(currency, ${companyCurrency})) AS currency,
+          COALESCE(SUM(final_cost_cents), 0)::bigint AS total
         FROM charging_sessions
         WHERE status = 'completed'
+        GROUP BY 1
       `),
 
       // Reservations by status
@@ -242,7 +246,10 @@ export async function collectBusinessMetrics(): Promise<void> {
     }
 
     energyDeliveredWhTotal.set(asBigInt(energyRows, 'total'));
-    revenueCentsTotal.set(asBigInt(revenueRows, 'total'));
+    revenueCentsTotal.reset();
+    for (const row of asRows(revenueRows)) {
+      revenueCentsTotal.set({ currency: String(row['currency']) }, asNum(row, 'total'));
+    }
 
     reservationsByStatus.reset();
     for (const row of asRows(reservationRows)) {

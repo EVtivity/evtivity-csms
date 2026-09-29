@@ -610,6 +610,13 @@
       "when": 1781230951111,
       "tag": "0086_rename_attestation_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1781230951112,
+      "tag": "0087_dashboard_snapshot_revenue",
+      "breakpoints": true
     }
   ]
 }

@@ -535,7 +535,7 @@ groups:
               to: 0
             datasourceUid: prometheus
             model:
-              expr: 'delta(revenue_cents_total[1h])'
+              expr: 'sum(delta(revenue_cents_total[1h]))'
               refId: A
           - refId: B
             relativeTimeRange:

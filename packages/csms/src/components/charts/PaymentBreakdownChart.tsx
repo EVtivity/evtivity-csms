@@ -11,7 +11,7 @@ import { useAuth } from '@/lib/auth';
 import { PAYMENT_STATUS_COLORS } from '@/lib/chart-theme';
 
 interface PaymentBreakdownChartProps {
-  data: { status: string; count: number; totalCents: number }[];
+  data: { status: string; count: number }[];
   info?: string;
 }
 

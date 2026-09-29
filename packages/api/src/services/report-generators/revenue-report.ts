@@ -9,11 +9,13 @@ import {
   chargingStations,
   paymentRecords,
   getSystemTimezone,
+  getCompanyCurrency,
 } from '@evtivity/database';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
 import { formatCents } from './currency.js';
+import { sessionCurrencySql } from '../../lib/currency-totals.js';
 import type { ReportGeneratorResult } from '../report.service.js';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -75,7 +77,11 @@ interface PaymentBreakdown {
   totalCents: number;
 }
 
-async function queryRevenueByDay(filters: Filters, tz: string): Promise<RevenueByDay[]> {
+async function queryRevenueByDay(
+  filters: Filters,
+  tz: string,
+  companyCurrency: string,
+): Promise<RevenueByDay[]> {
   const conditions = [
     ...buildDateConditions(filters, tz),
     sql`coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null`,
@@ -86,7 +92,7 @@ async function queryRevenueByDay(filters: Filters, tz: string): Promise<RevenueB
   const baseQuery = db
     .select({
       date: sql<string>`date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz})::date::text`,
-      currency: sql<string>`coalesce(${chargingSessions.currency}, 'USD')`,
+      currency: sessionCurrencySql(companyCurrency),
       revenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)::float8`,
       electricityCostCents: sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}), 0)::float8`,
       sessionCount: count(),
@@ -108,7 +114,11 @@ async function queryRevenueByDay(filters: Filters, tz: string): Promise<RevenueB
     .orderBy(sql`1, 2`);
 }
 
-async function queryRevenueBySite(filters: Filters, tz: string): Promise<RevenueBySite[]> {
+async function queryRevenueBySite(
+  filters: Filters,
+  tz: string,
+  companyCurrency: string,
+): Promise<RevenueBySite[]> {
   const conditions = [
     ...buildDateConditions(filters, tz),
     sql`coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null`,
@@ -124,7 +134,7 @@ async function queryRevenueBySite(filters: Filters, tz: string): Promise<Revenue
   const rows = await db
     .select({
       siteName: sql<string>`coalesce(${sites.name}, 'No Site')`,
-      currency: sql<string>`coalesce(${chargingSessions.currency}, 'USD')`,
+      currency: sessionCurrencySql(companyCurrency),
       revenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)::float8`,
       electricityCostCents: sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}), 0)::float8`,
       sessionCount: count(),
@@ -134,7 +144,9 @@ async function queryRevenueBySite(filters: Filters, tz: string): Promise<Revenue
     .leftJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
     .leftJoin(sites, eq(chargingStations.siteId, sites.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .groupBy(sites.id, sites.name, chargingSessions.currency)
+    // Group by the displayed currency (position 2), not the raw column, so
+    // sessions without a tariff currency merge with the company currency.
+    .groupBy(sites.id, sites.name, sql`2`)
     // Order by revenue (position 3 in the SELECT list) desc so the biggest
     // sites surface first; positional reference avoids re-stating the
     // SUM aggregate.
@@ -173,11 +185,11 @@ export async function generateRevenueReport(
   format: string,
 ): Promise<ReportGeneratorResult> {
   const filters = parseFilters(rawFilters);
-  const tz = await getSystemTimezone();
+  const [tz, companyCurrency] = await Promise.all([getSystemTimezone(), getCompanyCurrency()]);
 
   const [byDay, bySite, payments] = await Promise.all([
-    queryRevenueByDay(filters, tz),
-    queryRevenueBySite(filters, tz),
+    queryRevenueByDay(filters, tz, companyCurrency),
+    queryRevenueBySite(filters, tz, companyCurrency),
     queryPaymentBreakdown(filters, tz),
   ]);
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql } from 'drizzle-orm';
-import { db, sites } from '@evtivity/database';
+import { db, sites, getCompanyCurrency } from '@evtivity/database';
 import type { Logger } from 'pino';
 
 export async function dashboardSnapshotHandler(log: Logger): Promise<void> {
@@ -28,13 +28,21 @@ export async function dashboardSnapshotHandler(log: Logger): Promise<void> {
     | undefined;
   const avgPingLatencyMs = Math.round(Number(pingData?.avg_ping_latency_ms ?? 0) * 100) / 100;
   const pingSuccessRate = Number(pingData?.ping_success_rate ?? 100);
+  const companyCurrency = await getCompanyCurrency();
 
   const CONCURRENCY = 5;
   for (let i = 0; i < allSites.length; i += CONCURRENCY) {
     const batch = allSites.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
       batch.map((site) =>
-        snapshotSite(site.id, site.timezone, log, avgPingLatencyMs, pingSuccessRate),
+        snapshotSite(
+          site.id,
+          site.timezone,
+          log,
+          avgPingLatencyMs,
+          pingSuccessRate,
+          companyCurrency,
+        ),
       ),
     );
     results.forEach((result, idx) => {
@@ -54,6 +62,7 @@ async function snapshotSite(
   log: Logger,
   avgPingLatencyMs: number,
   pingSuccessRate: number,
+  companyCurrency: string,
 ): Promise<void> {
   // "Yesterday" in the site's timezone
   const yesterdayResult = await db.execute(
@@ -80,12 +89,12 @@ async function snapshotSite(
   );
   const periodMinutesStr = String(periodMinutes);
 
-  // The four read blocks (station counts, uptime, sessions+energy, revenue)
-  // are all independent of each other. The only cross-block dependency is
+  // The read blocks (station counts, uptime, sessions+energy, session money,
+  // revenue) are all independent of each other. The only cross-block dependency is
   // the upsert at the end. Fire them in parallel to collapse 4 sequential
   // RTTs into one. Ping data is fetched once at the run level (singleton
   // row) and passed in, so it is not part of this fan-out.
-  const [stationRows, uptimeRows, sessionRows, revenueRows] = await Promise.all([
+  const [stationRows, uptimeRows, sessionRows, sessionMoneyRows, revenueRows] = await Promise.all([
     // 1. Station counts
     db.execute(sql`
       SELECT
@@ -169,17 +178,30 @@ async function snapshotSite(
         COUNT(*) FILTER (WHERE cs2.started_at >= ${dayStartIso}::timestamptz AND cs2.started_at < ${dayEndIso}::timestamptz) AS day_sessions,
         COALESCE(SUM(cs2.energy_delivered_wh), 0) AS total_energy_wh,
         COALESCE(SUM(cs2.energy_delivered_wh) FILTER (WHERE cs2.started_at >= ${dayStartIso}::timestamptz AND cs2.started_at < ${dayEndIso}::timestamptz), 0) AS day_energy_wh,
-        COALESCE(SUM(cs2.electricity_cost_cents), 0) AS total_electricity_cost_cents,
-        COALESCE(SUM(cs2.electricity_cost_cents) FILTER (WHERE cs2.started_at >= ${dayStartIso}::timestamptz AND cs2.started_at < ${dayEndIso}::timestamptz), 0) AS day_electricity_cost_cents,
         COUNT(*) FILTER (WHERE cs2.status = 'active') AS active_sessions
       FROM charging_sessions cs2
       INNER JOIN charging_stations cs ON cs.id = cs2.station_id
       WHERE cs.site_id = ${siteId}
     `),
 
-    // 4. Revenue
+    // 4. Sessions and electricity cost per session currency (the tariff
+    // currency, else the company currency)
     db.execute(sql`
       SELECT
+        upper(COALESCE(cs2.currency, ${companyCurrency})) AS currency,
+        COUNT(*) AS total_sessions,
+        COALESCE(SUM(cs2.electricity_cost_cents), 0) AS total_electricity_cost_cents,
+        COALESCE(SUM(cs2.electricity_cost_cents) FILTER (WHERE cs2.started_at >= ${dayStartIso}::timestamptz AND cs2.started_at < ${dayEndIso}::timestamptz), 0) AS day_electricity_cost_cents
+      FROM charging_sessions cs2
+      INNER JOIN charging_stations cs ON cs.id = cs2.station_id
+      WHERE cs.site_id = ${siteId}
+      GROUP BY 1
+    `),
+
+    // 5. Revenue per payment currency
+    db.execute(sql`
+      SELECT
+        upper(pr.currency) AS currency,
         COALESCE(SUM(pr.captured_amount_cents), 0) AS total_revenue_cents,
         COALESCE(SUM(pr.captured_amount_cents) FILTER (WHERE pr.created_at >= ${dayStartIso}::timestamptz AND pr.created_at < ${dayEndIso}::timestamptz), 0) AS day_revenue_cents,
         COUNT(*) AS total_transactions,
@@ -189,6 +211,7 @@ async function snapshotSite(
       INNER JOIN charging_stations cs ON cs.id = cs2.station_id
       WHERE cs.site_id = ${siteId}
         AND pr.status IN ('captured', 'partially_refunded')
+      GROUP BY 1
     `),
   ]);
 
@@ -213,65 +236,150 @@ async function snapshotSite(
     day_sessions: string;
     total_energy_wh: string;
     day_energy_wh: string;
-    total_electricity_cost_cents: string;
-    day_electricity_cost_cents: string;
     active_sessions: string;
   };
-  const revData = revenueRows[0] as {
-    total_revenue_cents: string;
-    day_revenue_cents: string;
-    total_transactions: string;
-    day_transactions: string;
-  };
   const totalSessionsNum = Number(sessData.total_sessions);
-  const totalRevCents = Number(revData.total_revenue_cents);
-  const avgRevPerSession = totalSessionsNum > 0 ? Math.round(totalRevCents / totalSessionsNum) : 0;
 
-  // 6. Upsert
-  await db.execute(sql`
-    INSERT INTO dashboard_snapshots (
-      site_id, snapshot_date, total_stations, online_stations, online_percent,
-      uptime_percent, active_sessions, total_energy_wh, day_energy_wh,
-      total_sessions, day_sessions, connected_stations,
-      total_revenue_cents, day_revenue_cents, avg_revenue_cents_per_session,
-      total_electricity_cost_cents, day_electricity_cost_cents,
-      total_transactions, day_transactions, total_ports, stations_below_threshold,
-      avg_ping_latency_ms, ping_success_rate,
-      created_at
-    ) VALUES (
-      ${siteId}, ${snapshotDate}::date, ${totalStations}, ${onlineStations}, ${onlinePercent},
-      ${uptimePercent}, ${Number(sessData.active_sessions)}, ${Number(sessData.total_energy_wh)}, ${Number(sessData.day_energy_wh)},
-      ${totalSessionsNum}, ${Number(sessData.day_sessions)}, ${onlineStations},
-      ${totalRevCents}, ${Number(revData.day_revenue_cents)}, ${avgRevPerSession},
-      ${Number(sessData.total_electricity_cost_cents)}, ${Number(sessData.day_electricity_cost_cents)},
-      ${Number(revData.total_transactions)}, ${Number(revData.day_transactions)}, ${totalPorts}, ${stationsBelowThreshold},
-      ${avgPingLatencyMs}, ${pingSuccessRate},
-      now()
-    )
-    ON CONFLICT (site_id, snapshot_date) DO UPDATE SET
-      total_stations = EXCLUDED.total_stations,
-      online_stations = EXCLUDED.online_stations,
-      online_percent = EXCLUDED.online_percent,
-      uptime_percent = EXCLUDED.uptime_percent,
-      active_sessions = EXCLUDED.active_sessions,
-      total_energy_wh = EXCLUDED.total_energy_wh,
-      day_energy_wh = EXCLUDED.day_energy_wh,
-      total_sessions = EXCLUDED.total_sessions,
-      day_sessions = EXCLUDED.day_sessions,
-      connected_stations = EXCLUDED.connected_stations,
-      total_revenue_cents = EXCLUDED.total_revenue_cents,
-      day_revenue_cents = EXCLUDED.day_revenue_cents,
-      avg_revenue_cents_per_session = EXCLUDED.avg_revenue_cents_per_session,
-      total_electricity_cost_cents = EXCLUDED.total_electricity_cost_cents,
-      day_electricity_cost_cents = EXCLUDED.day_electricity_cost_cents,
-      total_transactions = EXCLUDED.total_transactions,
-      day_transactions = EXCLUDED.day_transactions,
-      total_ports = EXCLUDED.total_ports,
-      stations_below_threshold = EXCLUDED.stations_below_threshold,
-      avg_ping_latency_ms = EXCLUDED.avg_ping_latency_ms,
-      ping_success_rate = EXCLUDED.ping_success_rate,
-      created_at = now()
-  `);
+  const money = mergeCurrencyRows(
+    sessionMoneyRows as unknown as SessionMoneyRow[],
+    revenueRows as unknown as RevenueRow[],
+  );
+  let totalTransactions = 0;
+  let dayTransactions = 0;
+  for (const row of revenueRows as unknown as RevenueRow[]) {
+    totalTransactions += Number(row.total_transactions);
+    dayTransactions += Number(row.day_transactions);
+  }
+
+  // 6. Upsert the snapshot and replace its per-currency rows in one
+  // transaction, so a re-run for the same date never leaves a mix.
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`
+      INSERT INTO dashboard_snapshots (
+        site_id, snapshot_date, total_stations, online_stations, online_percent,
+        uptime_percent, active_sessions, total_energy_wh, day_energy_wh,
+        total_sessions, day_sessions, connected_stations,
+        total_transactions, day_transactions, total_ports, stations_below_threshold,
+        avg_ping_latency_ms, ping_success_rate,
+        created_at
+      ) VALUES (
+        ${siteId}, ${snapshotDate}::date, ${totalStations}, ${onlineStations}, ${onlinePercent},
+        ${uptimePercent}, ${Number(sessData.active_sessions)}, ${Number(sessData.total_energy_wh)}, ${Number(sessData.day_energy_wh)},
+        ${totalSessionsNum}, ${Number(sessData.day_sessions)}, ${onlineStations},
+        ${totalTransactions}, ${dayTransactions}, ${totalPorts}, ${stationsBelowThreshold},
+        ${avgPingLatencyMs}, ${pingSuccessRate},
+        now()
+      )
+      ON CONFLICT (site_id, snapshot_date) DO UPDATE SET
+        total_stations = EXCLUDED.total_stations,
+        online_stations = EXCLUDED.online_stations,
+        online_percent = EXCLUDED.online_percent,
+        uptime_percent = EXCLUDED.uptime_percent,
+        active_sessions = EXCLUDED.active_sessions,
+        total_energy_wh = EXCLUDED.total_energy_wh,
+        day_energy_wh = EXCLUDED.day_energy_wh,
+        total_sessions = EXCLUDED.total_sessions,
+        day_sessions = EXCLUDED.day_sessions,
+        connected_stations = EXCLUDED.connected_stations,
+        total_transactions = EXCLUDED.total_transactions,
+        day_transactions = EXCLUDED.day_transactions,
+        total_ports = EXCLUDED.total_ports,
+        stations_below_threshold = EXCLUDED.stations_below_threshold,
+        avg_ping_latency_ms = EXCLUDED.avg_ping_latency_ms,
+        ping_success_rate = EXCLUDED.ping_success_rate,
+        created_at = now()
+    `);
+
+    await tx.execute(sql`
+      DELETE FROM dashboard_snapshot_revenue
+      WHERE site_id = ${siteId} AND snapshot_date = ${snapshotDate}::date
+    `);
+
+    if (money.length > 0) {
+      const values = money.map(
+        (m) => sql`(
+          ${siteId}, ${snapshotDate}::date, ${m.currency}, ${m.totalRevenueCents}, ${m.dayRevenueCents},
+          ${m.totalSessions}, ${m.totalElectricityCostCents}, ${m.dayElectricityCostCents}, now()
+        )`,
+      );
+      await tx.execute(sql`
+        INSERT INTO dashboard_snapshot_revenue (
+          site_id, snapshot_date, currency, total_revenue_cents, day_revenue_cents,
+          total_sessions, total_electricity_cost_cents, day_electricity_cost_cents, created_at
+        ) VALUES ${sql.join(values, sql`, `)}
+      `);
+    }
+  });
 
   log.info({ siteId, snapshotDate }, 'Site snapshot saved');
+}
+
+interface SessionMoneyRow {
+  currency: string;
+  total_sessions: string | number;
+  total_electricity_cost_cents: string | number;
+  day_electricity_cost_cents: string | number;
+}
+
+interface RevenueRow {
+  currency: string;
+  total_revenue_cents: string | number;
+  day_revenue_cents: string | number;
+  total_transactions: string | number;
+  day_transactions: string | number;
+}
+
+export interface SnapshotMoney {
+  currency: string;
+  totalRevenueCents: number;
+  dayRevenueCents: number;
+  totalSessions: number;
+  totalElectricityCostCents: number;
+  dayElectricityCostCents: number;
+}
+
+/**
+ * Joins session money (by session currency) and payment revenue (by payment
+ * currency) into one entry per currency. Currencies with no sessions, no
+ * revenue, and no cost are left out.
+ */
+export function mergeCurrencyRows(
+  sessionRows: SessionMoneyRow[],
+  revenueRows: RevenueRow[],
+): SnapshotMoney[] {
+  const byCurrency = new Map<string, SnapshotMoney>();
+  const entry = (currency: string): SnapshotMoney => {
+    let m = byCurrency.get(currency);
+    if (m == null) {
+      m = {
+        currency,
+        totalRevenueCents: 0,
+        dayRevenueCents: 0,
+        totalSessions: 0,
+        totalElectricityCostCents: 0,
+        dayElectricityCostCents: 0,
+      };
+      byCurrency.set(currency, m);
+    }
+    return m;
+  };
+  for (const row of sessionRows) {
+    const m = entry(row.currency);
+    m.totalSessions += Number(row.total_sessions);
+    m.totalElectricityCostCents += Number(row.total_electricity_cost_cents);
+    m.dayElectricityCostCents += Number(row.day_electricity_cost_cents);
+  }
+  for (const row of revenueRows) {
+    const m = entry(row.currency);
+    m.totalRevenueCents += Number(row.total_revenue_cents);
+    m.dayRevenueCents += Number(row.day_revenue_cents);
+  }
+  return [...byCurrency.values()].filter(
+    (m) =>
+      m.totalSessions > 0 ||
+      m.totalRevenueCents !== 0 ||
+      m.dayRevenueCents !== 0 ||
+      m.totalElectricityCostCents !== 0 ||
+      m.dayElectricityCostCents !== 0,
+  );
 }

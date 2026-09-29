@@ -11,6 +11,7 @@ import {
   configTemplateAuditLog,
   clearFreeVendCache,
   clearElectricityRateCache,
+  getCompanyCurrency,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { siteNameEq } from '../lib/site-lookup.js';
@@ -63,6 +64,14 @@ import {
 import { getUserSiteIds } from '../lib/site-access.js';
 import { dateRangeQuery, parseDateRange } from '../lib/date-range.js';
 import { enumerateLocalDays, zeroFillDays } from '../lib/daily-series.js';
+import {
+  dailyRevenueItem,
+  groupDailyRevenue,
+  periodFinancials,
+  periodFinancialsSelect,
+  sessionCurrencySql,
+  toPeriodFinancials,
+} from '../lib/currency-totals.js';
 import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.js';
 import { pushTemplateToSiteStations } from '../lib/config-push.js';
 import type { JwtPayload } from '../plugins/auth.js';
@@ -364,24 +373,7 @@ const siteMetricsResponse = z
       .describe('Number of station disconnect events in the reporting period'),
     avgDowntimeMinutes: z.number().describe('Average duration of disconnect outages in minutes'),
     maxDowntimeMinutes: z.number().describe('Longest single disconnect outage duration in minutes'),
-    totalRevenueCents: z
-      .number()
-      .int()
-      .min(0)
-      .describe('Total revenue collected in cents (smallest currency unit)'),
-    avgRevenueCentsPerSession: z.number().describe('Average revenue per billable session in cents'),
-    totalTransactions: z
-      .number()
-      .describe('Number of billable transactions (sessions with cost data)'),
-    totalElectricityCostCents: z
-      .number()
-      .int()
-      .min(0)
-      .describe('Total wholesale electricity cost in cents over the reporting period'),
-    totalProfitCents: z
-      .number()
-      .int()
-      .describe('Total profit in cents (revenue minus electricity cost); may be negative'),
+    financials: periodFinancials,
     periodMonths: z.number().describe('Number of months covered by this metrics report'),
   })
   .passthrough();
@@ -426,18 +418,6 @@ const energyHistoryItem = z
   .object({
     date: z.string().describe('Calendar date in YYYY-MM-DD format (in site timezone)'),
     energyWh: z.number().describe('Total energy delivered on this date in watt-hours'),
-  })
-  .passthrough();
-
-const revenueHistoryItem = z
-  .object({
-    date: z.string().describe('Calendar date in YYYY-MM-DD format (in site timezone)'),
-    revenueCents: z
-      .number()
-      .int()
-      .min(0)
-      .describe('Total revenue collected on this date in cents (smallest currency unit)'),
-    sessionCount: z.number().describe('Number of billable sessions on this date'),
   })
   .passthrough();
 
@@ -1104,16 +1084,13 @@ export function siteRoutes(app: FastifyInstance): void {
           ? Math.round(((utilizationStats?.sessionHours ?? 0) / totalPortHours) * 100)
           : 0;
 
-      const [financialStats] = await db
-        .select({
-          totalRevenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
-          avgRevenueCentsPerSession: sql<number>`coalesce(avg(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
-          totalTransactions: sql<number>`count(*) filter (where coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null)`,
-          totalElectricityCostCents: sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}), 0)`,
-        })
+      const companyCurrency = await getCompanyCurrency();
+      const financialRows = await db
+        .select(periodFinancialsSelect(companyCurrency))
         .from(chargingSessions)
         .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-        .where(and(eq(chargingStations.siteId, id), gte(chargingSessions.startedAt, since)));
+        .where(and(eq(chargingStations.siteId, id), gte(chargingSessions.startedAt, since)))
+        .groupBy(sql`1`);
 
       const total = sessionStats?.totalSessions ?? 0;
       const completed = sessionStats?.completedSessions ?? 0;
@@ -1156,13 +1133,7 @@ export function siteRoutes(app: FastifyInstance): void {
         disconnectCount: Number(disconnectRow?.disconnect_count ?? 0),
         avgDowntimeMinutes: Math.round(Number(disconnectRow?.avg_downtime_minutes ?? 0)),
         maxDowntimeMinutes: Math.round(Number(disconnectRow?.max_downtime_minutes ?? 0)),
-        totalRevenueCents: financialStats?.totalRevenueCents ?? 0,
-        avgRevenueCentsPerSession: Math.round(financialStats?.avgRevenueCentsPerSession ?? 0),
-        totalTransactions: financialStats?.totalTransactions ?? 0,
-        totalElectricityCostCents: financialStats?.totalElectricityCostCents ?? 0,
-        totalProfitCents:
-          (financialStats?.totalRevenueCents ?? 0) -
-          (financialStats?.totalElectricityCostCents ?? 0),
+        financials: toPeriodFinancials(financialRows, companyCurrency),
         periodMonths: months,
       };
     },
@@ -1325,7 +1296,7 @@ export function siteRoutes(app: FastifyInstance): void {
         params: zodSchema(siteParams),
         querystring: zodSchema(dateRangeQuery),
         response: {
-          200: arrayResponse(revenueHistoryItem),
+          200: arrayResponse(dailyRevenueItem),
           404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
         },
       },
@@ -1347,11 +1318,13 @@ export function siteRoutes(app: FastifyInstance): void {
         .from(sites)
         .where(eq(sites.id, id));
       const tz = siteRow?.timezone ?? 'America/New_York';
+      const companyCurrency = await getCompanyCurrency();
 
       const rows = await db
         .select({
           date: sql<string>`date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz})::date::text`,
-          revenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
+          currency: sessionCurrencySql(companyCurrency),
+          revenueCents: sql<string>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})), 0)`,
           sessionCount: count(),
         })
         .from(chargingSessions)
@@ -1364,17 +1337,13 @@ export function siteRoutes(app: FastifyInstance): void {
             sql`coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null`,
           ),
         )
-        .groupBy(sql`1`)
-        .orderBy(sql`1`);
+        .groupBy(sql`1, 2`)
+        .orderBy(sql`1, 2`);
 
       return zeroFillDays(
         enumerateLocalDays(since, until, tz),
-        rows.map((r) => ({
-          date: r.date,
-          revenueCents: r.revenueCents,
-          sessionCount: r.sessionCount,
-        })),
-        (date) => ({ date, revenueCents: 0, sessionCount: 0 }),
+        groupDailyRevenue(rows, companyCurrency),
+        (date) => ({ date, sessionCount: 0, revenue: [] }),
       );
     },
   );
