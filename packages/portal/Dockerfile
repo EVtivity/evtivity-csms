@@ -3,11 +3,13 @@ FROM node:24-slim AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+COPY packages/lib/package.json packages/lib/
 COPY packages/portal/package.json packages/portal/
 
 RUN npm ci --ignore-scripts --workspace=packages/portal
 
 COPY packages/portal/ packages/portal/
+COPY packages/lib/ packages/lib/
 COPY tsconfig.base.json ./
 
 RUN npm run build --workspace=packages/portal

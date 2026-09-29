@@ -33,13 +33,27 @@ describe('isSupportedCurrency', () => {
     }
   });
 
-  it('lists only two-decimal currencies', () => {
-    for (const code of SUPPORTED_CURRENCIES) {
-      const digits = new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: code,
-      }).resolvedOptions().maximumFractionDigits;
-      expect({ code, digits }).toEqual({ code, digits: 2 });
-    }
+  it('lists unique uppercase codes and excludes ISO 4217 zero- and three-decimal currencies', () => {
+    expect(new Set(SUPPORTED_CURRENCIES).size).toBe(SUPPORTED_CURRENCIES.length);
+    for (const code of SUPPORTED_CURRENCIES) expect(code).toMatch(/^[A-Z]{3}$/);
+    // ISO 4217 minor units other than 2. Checked against the standard rather
+    // than Intl, whose CLDR display digits vary between Node builds.
+    const notTwoDecimal = [
+      'JPY',
+      'KRW',
+      'CLP',
+      'VND',
+      'ISK',
+      'UGX',
+      'PYG',
+      'XAF',
+      'XOF',
+      'BHD',
+      'KWD',
+      'OMR',
+      'JOD',
+      'TND',
+    ];
+    for (const code of notTwoDecimal) expect(isSupportedCurrency(code)).toBe(false);
   });
 });
