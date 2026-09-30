@@ -14,7 +14,11 @@ vi.mock('argon2', async (importActual) => {
 });
 
 import { hash, verify } from 'argon2';
-import { authenticateConnection, extractStationId } from '../server/middleware/authenticate.js';
+import {
+  authenticateConnection,
+  extractStationId,
+  rejectionFor,
+} from '../server/middleware/authenticate.js';
 
 const verifyMock = verify as unknown as ReturnType<typeof vi.fn>;
 
@@ -189,6 +193,7 @@ describe('authenticateConnection', () => {
     const result = await authenticateConnection(req, logger, sql);
     expect(result.authenticated).toBe(false);
     expect(result.error).toBe('Unknown station');
+    expect(result.failure).toBe('unknown_station');
   });
 
   it('rejects blocked station', async () => {
@@ -251,6 +256,7 @@ describe('authenticateConnection', () => {
     const result = await authenticateConnection(req, logger, sql);
     expect(result.authenticated).toBe(false);
     expect(result.error).toBe('Basic auth credentials required');
+    expect(result.failure).toBe('credentials');
   });
 
   it('rejects SP1 station with wrong password', async () => {
@@ -319,6 +325,7 @@ describe('authenticateConnection', () => {
     const result = await authenticateConnection(req, logger, sql);
     expect(result.authenticated).toBe(false);
     expect(result.error).toBe('Security Profile 2 requires TLS');
+    expect(result.failure).toBe('tls_required');
   });
 
   it('rejects SP1 station with no password configured', async () => {
@@ -640,5 +647,39 @@ describe('authenticateConnection', () => {
       expect.objectContaining({ event: 'auth_failed', stationDbId: 'db-id-log-fail' }),
       'Failed to write connection_logs row',
     );
+  });
+});
+
+describe('rejectionFor', () => {
+  it('challenges credential failures with 401 and WWW-Authenticate', () => {
+    const rejection = rejectionFor({
+      authenticated: false,
+      stationId: 'CS-1',
+      stationDbId: 'sta_1',
+      failure: 'credentials',
+    });
+    expect(rejection.status).toBe(401);
+    expect(rejection.headers?.['WWW-Authenticate']).toMatch(/^Basic realm="OCPP"/);
+  });
+
+  it('rejects TLS and client certificate failures with 401 and no challenge', () => {
+    for (const failure of ['tls_required', 'client_certificate'] as const) {
+      const rejection = rejectionFor({
+        authenticated: false,
+        stationId: 'CS-1',
+        stationDbId: 'sta_1',
+        failure,
+      });
+      expect(rejection.status).toBe(401);
+      expect(rejection.headers).toBeUndefined();
+    }
+  });
+
+  it('maps unknown, blocked and unavailable to 404, 403 and 503', () => {
+    const base = { authenticated: false, stationId: 'CS-1', stationDbId: null };
+    expect(rejectionFor({ ...base, failure: 'unknown_station' }).status).toBe(404);
+    expect(rejectionFor({ ...base, failure: 'blocked' }).status).toBe(403);
+    expect(rejectionFor({ ...base, failure: 'unavailable' }).status).toBe(503);
+    expect(rejectionFor(base).status).toBe(503);
   });
 });
