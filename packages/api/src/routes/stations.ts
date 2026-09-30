@@ -1988,12 +1988,9 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const cmdResult = await sendOcppCommandAndWait(
-        station.stationId,
-        'RequestStopTransaction',
-        { transactionId: activeSession.transactionId },
-        station.ocppProtocol ?? undefined,
-      );
+      const cmdResult = await sendOcppCommandAndWait(station.stationId, 'RequestStopTransaction', {
+        transactionId: activeSession.transactionId,
+      });
 
       if (cmdResult.error != null) {
         await reply.status(504).send({ error: 'Station did not respond', code: 'STATION_TIMEOUT' });

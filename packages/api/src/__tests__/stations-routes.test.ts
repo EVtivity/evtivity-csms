@@ -826,12 +826,11 @@ describe('Station routes - handler logic', () => {
       expect(body.sessionId).toBe('ses_000000000001');
       expect(body.transactionId).toBe('tx-abc');
       expect(body.ghostRecovered).toBe(false);
-      expect(sendMock).toHaveBeenCalledWith(
-        'CS-001',
-        'RequestStopTransaction',
-        { transactionId: 'tx-abc' },
-        'ocpp2.1',
-      );
+      // No version: the OCPP server translates the 2.1 command for 1.6 stations.
+      expect(sendMock).toHaveBeenCalledWith('CS-001', 'RequestStopTransaction', {
+        transactionId: 'tx-abc',
+      });
+      expect(sendMock.mock.calls[0]).toHaveLength(3);
     });
 
     it('returns ghostRecovered=true and force-cleans the DB on Rejected+TxNotFound', async () => {

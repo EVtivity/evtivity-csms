@@ -460,12 +460,7 @@ export function localAuthListRoutes(app: FastifyInstance): void {
         }));
       }
 
-      const result = await sendOcppCommandAndWait(
-        station.stationId,
-        'SendLocalList',
-        payload,
-        station.ocppProtocol ?? undefined,
-      );
+      const result = await sendOcppCommandAndWait(station.stationId, 'SendLocalList', payload);
 
       if (result.error != null) {
         const isTimeout = result.error.includes('No response within');

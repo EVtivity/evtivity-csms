@@ -17,6 +17,15 @@ export interface CommandResult {
   error?: string;
 }
 
+/**
+ * Sends an OCPP command to a station and waits for its response.
+ *
+ * Without `version` the OCPP server translates an OCPP 2.1 command and payload
+ * to the protocol of the connected station (e.g. RequestStopTransaction to
+ * RemoteStopTransaction with an integer transactionId for OCPP 1.6). Pass
+ * `version` only when `action` and `payload` are already in that version's
+ * native format; the command is then sent unchanged.
+ */
 export async function sendOcppCommandAndWait(
   stationOcppId: string,
   action: string,

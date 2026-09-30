@@ -1936,16 +1936,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       }
 
       // Send RequestStartTransaction and wait for station response
-      const cmdResult = await sendOcppCommandAndWait(
-        station.stationId,
-        'RequestStartTransaction',
-        {
-          evseId: params.evseId,
-          remoteStartId,
-          idToken: { idToken: driverId, type: 'Central' },
-        },
-        station.ocppProtocol ?? undefined,
-      );
+      const cmdResult = await sendOcppCommandAndWait(station.stationId, 'RequestStartTransaction', {
+        evseId: params.evseId,
+        remoteStartId,
+        idToken: { idToken: driverId, type: 'Central' },
+      });
 
       if (cmdResult.error != null) {
         await db
@@ -1999,12 +1994,9 @@ export function portalChargerRoutes(app: FastifyInstance): void {
 
             // If we have the transaction ID, stop the ghost transaction first
             if (ghostTxId != null) {
-              await sendOcppCommandAndWait(
-                station.stationId,
-                'RequestStopTransaction',
-                { transactionId: ghostTxId },
-                station.ocppProtocol ?? undefined,
-              );
+              await sendOcppCommandAndWait(station.stationId, 'RequestStopTransaction', {
+                transactionId: ghostTxId,
+              });
             }
 
             // Wait for the station to finish cleaning up, then retry
@@ -2018,7 +2010,6 @@ export function portalChargerRoutes(app: FastifyInstance): void {
                 remoteStartId,
                 idToken: { idToken: driverId, type: 'Central' },
               },
-              station.ocppProtocol ?? undefined,
             );
 
             const retryStatus = retryResult.response?.['status'] as string | undefined;
@@ -2153,7 +2144,6 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         session.stationOcppId,
         'RequestStopTransaction',
         { transactionId: session.transactionId },
-        session.ocppProtocol ?? undefined,
       );
 
       if (cmdResult.error != null) {
