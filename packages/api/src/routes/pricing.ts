@@ -170,8 +170,13 @@ const stationParams = z.object({
   id: ID_PARAMS.stationId.describe('Station ID'),
 });
 
-const nonNegativePrice = z.string().refine((val) => !isNaN(Number(val)) && Number(val) >= 0, {
-  message: 'Price must be a non-negative number',
+// Bounds are expressed as regex patterns rather than .refine(): zod-to-json-schema
+// strips refines when converting to the JSON Schema Fastify actually validates,
+// so a refine here would let "0,49" through to Postgres and surface as a 500.
+// The API accepts "." as the only decimal separator; locale formats are
+// handled by the frontend.
+const nonNegativePrice = z.string().regex(/^(\d+(\.\d*)?|\.\d+)$/, {
+  message: 'Price must be a non-negative decimal number using "." as decimal separator',
 });
 
 // Tax rate is a decimal fraction (0.0825 = 8.25%), NOT a percent. A value > 1
@@ -179,11 +184,9 @@ const nonNegativePrice = z.string().refine((val) => !isNaN(Number(val)) && Numbe
 // calculator multiplies subtotal by this number verbatim, so 8.25 would bill
 // 825% tax. Cap at 1.0 (100%) which is already higher than any real tax
 // jurisdiction and well below the "obvious data-entry error" threshold.
-const taxRate = z
-  .string()
-  .refine((val) => !isNaN(Number(val)) && Number(val) >= 0 && Number(val) <= 1, {
-    message: 'Tax rate must be a decimal between 0 and 1 (e.g. 0.0825 for 8.25%)',
-  });
+const taxRate = z.string().regex(/^(0*\.\d+|0+(\.\d*)?|0*1(\.0*)?)$/, {
+  message: 'Tax rate must be a decimal between 0 and 1 (e.g. 0.0825 for 8.25%)',
+});
 
 const createGroupBody = z.object({
   name: z.string().max(255),
