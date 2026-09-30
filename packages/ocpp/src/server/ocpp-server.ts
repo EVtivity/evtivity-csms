@@ -4,7 +4,7 @@
 import { createServer as createHttpsServer } from 'node:https';
 import { WebSocketServer } from 'ws';
 import type WebSocket from 'ws';
-import type { IncomingMessage } from 'node:http';
+import type { IncomingMessage, OutgoingHttpHeaders } from 'node:http';
 import type postgres from 'postgres';
 import { createLogger, InMemoryEventBus, OcppError } from '@evtivity/lib';
 import type { Logger, EventBus, EventPersistence } from '@evtivity/lib';
@@ -23,7 +23,8 @@ import { validateMiddleware } from './middleware/validate.js';
 import { createRateLimitMiddleware } from './middleware/rate-limit.js';
 import { createDedupMiddleware } from './middleware/dedup.js';
 import { createBootGuardMiddleware } from './middleware/boot-guard.js';
-import { authenticateConnection } from './middleware/authenticate.js';
+import { authenticateConnection, rejectionFor } from './middleware/authenticate.js';
+import type { AuthResult } from './middleware/authenticate.js';
 import { MessageLifecycle } from './message-lifecycle.js';
 import { CommandDispatcher } from './command-dispatcher.js';
 import { registerHandlers } from '../handlers/handler-registry.js';
@@ -108,6 +109,9 @@ export class OcppServer {
   private readonly trustedProxies: ReturnType<typeof parseTrustedProxies>;
   private wss: WebSocketServer | null = null;
   private wssSecure: WebSocketServer | null = null;
+  // Auth results from verifyClient, handed to handleConnection for the same
+  // upgrade request.
+  private readonly verifiedRequests = new WeakMap<IncomingMessage, AuthResult>();
   private shutdown: GracefulShutdown | null = null;
 
   constructor(options?: Partial<OcppServerOptions>) {
@@ -151,6 +155,9 @@ export class OcppServer {
       port: options.port,
       host: options.host,
       maxPayload: 1 * 1024 * 1024,
+      verifyClient: (info, callback) => {
+        this.verifyClient(info.req, callback);
+      },
       handleProtocols: (protocols) => {
         if (protocols.has('ocpp2.1')) return 'ocpp2.1';
         if (protocols.has('ocpp1.6')) return 'ocpp1.6';
@@ -173,7 +180,7 @@ export class OcppServer {
     );
 
     this.wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
-      void this.handleConnection(ws, req);
+      this.handleConnection(ws, req);
     });
 
     this.wss.on('error', (err: Error) => {
@@ -196,6 +203,9 @@ export class OcppServer {
       this.wssSecure = new WebSocketServer({
         server: httpsServer,
         maxPayload: 1 * 1024 * 1024,
+        verifyClient: (info, callback) => {
+          this.verifyClient(info.req, callback);
+        },
         handleProtocols: (protocols) => {
           if (protocols.has('ocpp2.1')) return 'ocpp2.1';
           if (protocols.has('ocpp1.6')) return 'ocpp1.6';
@@ -204,7 +214,7 @@ export class OcppServer {
       });
 
       this.wssSecure.on('connection', (ws: WebSocket, req: IncomingMessage) => {
-        void this.handleConnection(ws, req);
+        this.handleConnection(ws, req);
       });
 
       this.wssSecure.on('error', (err: Error) => {
@@ -236,7 +246,52 @@ export class OcppServer {
     );
   }
 
-  private async handleConnection(ws: WebSocket, req: IncomingMessage): Promise<void> {
+  // Authenticate before the WebSocket upgrade so a rejected station gets an
+  // HTTP status instead of an accepted upgrade followed by a close frame.
+  // Stations that send Basic auth only in response to a 401 challenge could
+  // not connect otherwise.
+  private verifyClient(
+    req: IncomingMessage,
+    callback: (
+      result: boolean,
+      code?: number,
+      message?: string,
+      headers?: OutgoingHttpHeaders,
+    ) => void,
+  ): void {
+    const remoteIp = resolveClientIp(req, this.trustedProxies) ?? 'unknown';
+
+    // Connections over the per-IP limit are closed right after the upgrade
+    // in handleConnection; skip the station lookup for them.
+    if ((ipConnectionCounts.get(remoteIp) ?? 0) >= MAX_CONNECTIONS_PER_IP) {
+      callback(true);
+      return;
+    }
+
+    authenticateConnection(req, this.logger, this.sql, remoteIp === 'unknown' ? null : remoteIp)
+      .then((auth) => {
+        if (auth.authenticated && auth.stationId != null) {
+          this.verifiedRequests.set(req, auth);
+          callback(true);
+          return;
+        }
+        const rejection = rejectionFor(auth);
+        this.logger.warn(
+          { stationId: auth.stationId, error: auth.error, status: rejection.status },
+          'Connection rejected',
+        );
+        callback(false, rejection.status, rejection.message, rejection.headers);
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          { error: err instanceof Error ? err.message : String(err) },
+          'Connection authentication failed',
+        );
+        callback(false, 503, 'Service Unavailable');
+      });
+  }
+
+  private handleConnection(ws: WebSocket, req: IncomingMessage): void {
     const remoteIp = resolveClientIp(req, this.trustedProxies) ?? 'unknown';
 
     // Per-IP connection limit
@@ -261,76 +316,21 @@ export class OcppServer {
     // OCPP heartbeat interval is typically 30-60 seconds, so 5 minutes is generous.
     const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
     let idleTimer = setTimeout(() => {
-      this.logger.info({ remoteIp }, 'Closing idle WebSocket connection (pre-auth)');
+      this.logger.info({ remoteIp }, 'Closing idle WebSocket connection');
       ws.close(1000, 'Idle timeout');
     }, IDLE_TIMEOUT_MS);
 
-    // Register message listener before async auth to avoid losing messages
-    // that arrive while authenticateConnection queries the DB.
-    const pendingMessages: string[] = [];
-    let session: SessionState | null = null;
-
-    ws.on('message', (data: Buffer) => {
-      clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
-        const sid = session?.stationId ?? remoteIp;
-        this.logger.info({ stationId: sid }, 'Closing idle WebSocket connection');
-        ws.close(1000, 'Idle timeout');
-      }, IDLE_TIMEOUT_MS);
-      // Per-IP message rate limit
-      const now = Date.now();
-      let ipCounter = ipMessageCounters.get(remoteIp);
-      if (ipCounter == null || now - ipCounter.windowStart >= IP_MESSAGE_WINDOW_MS) {
-        ipCounter = { count: 0, windowStart: now };
-        ipMessageCounters.set(remoteIp, ipCounter);
-      }
-      ipCounter.count++;
-      if (ipCounter.count > MAX_MESSAGES_PER_IP_PER_SECOND) {
-        this.logger.warn(
-          { remoteIp, count: ipCounter.count },
-          'Per-IP message rate limit exceeded',
-        );
-        ws.close(1008, 'Message rate limit exceeded');
-        return;
-      }
-
-      const raw = data.toString('utf-8');
-      if (session == null) {
-        pendingMessages.push(raw);
-        return;
-      }
-      void this.handleMessage(ws, session, raw);
-    });
-
-    const auth = await authenticateConnection(
-      req,
-      this.logger,
-      this.sql,
-      remoteIp === 'unknown' ? null : remoteIp,
-    );
-    if (!auth.authenticated || auth.stationId == null) {
-      // Surface buffered messages so operators can see what an unauthenticated
-      // client tried to send before being kicked. Silent drop here hid both
-      // misconfigured stations (legitimate but with bad creds) and probe
-      // traffic. Cap the logged payload to avoid log-flood from a flooder.
-      if (pendingMessages.length > 0) {
-        this.logger.warn(
-          {
-            stationId: auth.stationId,
-            droppedCount: pendingMessages.length,
-            firstMessagePreview: pendingMessages[0]?.slice(0, 200),
-            error: auth.error,
-          },
-          'Discarded buffered messages from unauthenticated connection',
-        );
-      }
-      this.logger.warn({ error: auth.error }, 'Connection rejected');
-      ws.close(1008, auth.error ?? 'Authentication failed');
+    const auth = this.verifiedRequests.get(req);
+    this.verifiedRequests.delete(req);
+    if (auth?.stationId == null) {
+      // verifyClient stores a result for every accepted upgrade under the limit.
+      this.logger.error({ remoteIp }, 'Upgraded connection without authentication result');
+      ws.close(1011, 'Authentication failed');
       return;
     }
 
     const stationId = auth.stationId;
-    session = createSessionState(stationId, ws.protocol || 'ocpp2.1');
+    const session = createSessionState(stationId, ws.protocol || 'ocpp2.1');
     session.authenticated = true;
     if (auth.stationDbId != null) {
       session.stationDbId = auth.stationDbId;
@@ -356,9 +356,34 @@ export class OcppServer {
 
     this.pingMonitor.writeNow();
 
-    const confirmedSession = session;
+    ws.on('message', (data: Buffer) => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        this.logger.info({ stationId }, 'Closing idle WebSocket connection');
+        ws.close(1000, 'Idle timeout');
+      }, IDLE_TIMEOUT_MS);
+      // Per-IP message rate limit
+      const now = Date.now();
+      let ipCounter = ipMessageCounters.get(remoteIp);
+      if (ipCounter == null || now - ipCounter.windowStart >= IP_MESSAGE_WINDOW_MS) {
+        ipCounter = { count: 0, windowStart: now };
+        ipMessageCounters.set(remoteIp, ipCounter);
+      }
+      ipCounter.count++;
+      if (ipCounter.count > MAX_MESSAGES_PER_IP_PER_SECOND) {
+        this.logger.warn(
+          { remoteIp, count: ipCounter.count },
+          'Per-IP message rate limit exceeded',
+        );
+        ws.close(1008, 'Message rate limit exceeded');
+        return;
+      }
+
+      void this.handleMessage(ws, session, data.toString('utf-8'));
+    });
+
     ws.on('close', () => {
-      this.correlator.clearPending(confirmedSession);
+      this.correlator.clearPending(session);
       this.connectionManager.remove(stationId);
       void this.eventBus.publish({
         eventType: 'station.Disconnected',
@@ -378,11 +403,6 @@ export class OcppServer {
       this.logger.error({ stationId, error: err.message }, 'WebSocket error');
       ws.close(1011, 'WebSocket error');
     });
-
-    // Drain messages that arrived during authentication
-    for (const raw of pendingMessages) {
-      void this.handleMessage(ws, session, raw);
-    }
   }
 
   private async resolveStationDbId(stationId: string, session: SessionState): Promise<void> {
