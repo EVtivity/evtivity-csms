@@ -7,6 +7,38 @@
  */
 
 import { formatCurrencyAmount } from '@evtivity/lib/currency';
+import {
+  formatDecimalString,
+  formatNumber as formatLocaleNumber,
+  resolveLocale,
+} from '@evtivity/lib/number';
+import i18next from 'i18next';
+
+/**
+ * The selected UI language, which drives number and currency formatting. Read
+ * from the global i18next instance that @/i18n initializes; falls back to "en"
+ * before initialization (e.g. in unit tests).
+ */
+function uiLocale(): string {
+  return i18next.isInitialized ? i18next.language : 'en';
+}
+
+/**
+ * Format a number for display with fixed fraction digits in the UI language,
+ * e.g. formatNumber(1234.5, 1) as "1,234.5" (en) or "1.234,5" (de).
+ */
+export function formatNumber(value: number, fractionDigits: number): string {
+  return formatLocaleNumber(value, uiLocale(), fractionDigits);
+}
+
+/**
+ * Show a stored decimal string ("0.49") with the decimal separator of the UI
+ * language, without rounding. Returns 'n/a' for null/undefined values.
+ */
+export function formatDecimal(value: string | null | undefined): string {
+  if (value == null) return 'n/a';
+  return formatDecimalString(value, uiLocale());
+}
 
 /**
  * Format cents in the ISO 4217 currency the amount is denominated in.
@@ -14,20 +46,20 @@ import { formatCurrencyAmount } from '@evtivity/lib/currency';
  */
 export function formatCents(cents: number | null | undefined, currency: string): string {
   if (cents == null) return 'n/a';
-  return formatCurrencyAmount(cents, currency);
+  return formatCurrencyAmount(cents, currency, uiLocale());
 }
 
 /** Format an electricity rate, in major currency units per kWh, with four decimals. */
 export function formatRatePerKwh(rate: number, currency: string): string {
   try {
-    return new Intl.NumberFormat('en-US', {
+    return new Intl.NumberFormat(resolveLocale(uiLocale()), {
       style: 'currency',
       currency,
       minimumFractionDigits: 4,
       maximumFractionDigits: 4,
     }).format(rate);
   } catch {
-    return `${currency.toUpperCase()} ${rate.toFixed(4)}`;
+    return `${currency.toUpperCase()} ${formatNumber(rate, 4)}`;
   }
 }
 
@@ -64,8 +96,8 @@ export function formatDurationMinutes(minutes: number): string {
  * Format CO2 weight in kg. Converts to tonnes when >= 1000 kg.
  */
 export function formatCo2(kg: number): string {
-  if (kg >= 1000) return `${(kg / 1000).toFixed(1)} t`;
-  return `${kg.toFixed(1)} kg`;
+  if (kg >= 1000) return `${formatNumber(kg / 1000, 1)} t`;
+  return `${formatNumber(kg, 1)} kg`;
 }
 
 /**
@@ -73,8 +105,8 @@ export function formatCo2(kg: number): string {
  * Shows Wh for values under 1000, kWh up to 100 MWh, MWh above.
  */
 export function formatEnergy(wh: number): string {
-  if (wh >= 100_000_000) return `${(wh / 1_000_000).toFixed(1)} MWh`;
-  if (wh >= 1_000) return `${(wh / 1_000).toFixed(1)} kWh`;
+  if (wh >= 100_000_000) return `${formatNumber(wh / 1_000_000, 1)} MWh`;
+  if (wh >= 1_000) return `${formatNumber(wh / 1_000, 1)} kWh`;
   return `${String(Math.round(wh))} Wh`;
 }
 
@@ -83,6 +115,6 @@ export function formatEnergy(wh: number): string {
  */
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${String(bytes)} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024) return `${formatNumber(bytes / 1024, 1)} KB`;
+  return `${formatNumber(bytes / (1024 * 1024), 1)} MB`;
 }

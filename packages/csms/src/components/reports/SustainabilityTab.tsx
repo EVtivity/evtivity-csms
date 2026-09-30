@@ -22,7 +22,7 @@ import { FilterPopover } from '@/components/FilterBar';
 import { api } from '@/lib/api';
 import { API_BASE_URL } from '@/lib/config';
 import { useAuth } from '@/lib/auth';
-import { formatCo2, formatEnergy } from '@/lib/formatting';
+import { formatCo2, formatEnergy, formatNumber } from '@/lib/formatting';
 import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
 import { LoadingLogo } from '@/components/loading-logo';
 
@@ -108,12 +108,12 @@ export function SustainabilityTab(): React.JSX.Element {
       yaxis: {
         title: { text: 'kg CO₂' },
         labels: {
-          formatter: (val: number) => val.toFixed(0),
+          formatter: (val: number) => formatNumber(val, 0),
         },
       },
       tooltip: {
         y: {
-          formatter: (val: number) => `${val.toFixed(1)} kg`,
+          formatter: (val: number) => `${formatNumber(val, 1)} kg`,
         },
       },
       colors: [CHART_COLORS.success],
@@ -256,7 +256,7 @@ export function SustainabilityTab(): React.JSX.Element {
               </CardHeader>
               <CardContent>
                 <div className="text-lg sm:text-2xl font-bold">
-                  {report.cumulativeTotal.sessionCount.toLocaleString()}
+                  {formatNumber(report.cumulativeTotal.sessionCount, 0)}
                 </div>
               </CardContent>
             </Card>
@@ -269,7 +269,7 @@ export function SustainabilityTab(): React.JSX.Element {
               </CardHeader>
               <CardContent>
                 <div className="text-lg sm:text-2xl font-bold text-success">
-                  {report.cumulativeTotal.treesEquivalent.toLocaleString()}
+                  {formatNumber(report.cumulativeTotal.treesEquivalent, 1)}
                 </div>
               </CardContent>
             </Card>
@@ -316,7 +316,7 @@ export function SustainabilityTab(): React.JSX.Element {
                         <TableCell>{site.siteName}</TableCell>
                         <TableCell className="text-right">{formatEnergy(site.energyWh)}</TableCell>
                         <TableCell className="text-right">
-                          {site.sessionCount.toLocaleString()}
+                          {formatNumber(site.sessionCount, 0)}
                         </TableCell>
                         <TableCell className="text-right text-success">
                           {formatCo2(site.co2AvoidedKg)}

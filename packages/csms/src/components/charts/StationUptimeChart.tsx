@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth';
 import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
+import { formatNumber } from '@/lib/formatting';
 
 interface StationUptimeChartProps {
   data: { date: string; uptimePercent: number }[];
@@ -61,12 +62,12 @@ export function StationUptimeChart({ data }: StationUptimeChartProps): React.JSX
         min: 0,
         max: 100,
         labels: {
-          formatter: (val: number) => `${val.toFixed(0)}%`,
+          formatter: (val: number) => `${formatNumber(val, 0)}%`,
         },
       },
       tooltip: {
         y: {
-          formatter: (val: number) => `${val.toFixed(1)}%`,
+          formatter: (val: number) => `${formatNumber(val, 1)}%`,
         },
       },
       colors: [CHART_COLORS.success],

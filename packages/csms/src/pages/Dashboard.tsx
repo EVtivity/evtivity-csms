@@ -28,7 +28,7 @@ import { localDateString } from '@/lib/date-range';
 import { useUpdateCheck } from '@/hooks/use-update-check';
 import { useDayDeltaContext, type SnapshotData } from '@/hooks/use-day-delta-context';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
-import { formatCents } from '@/lib/formatting';
+import { formatCents, formatNumber } from '@/lib/formatting';
 import { parseValue, formatParsedValue } from '@/lib/animated-value';
 
 interface DashboardStats {
@@ -123,7 +123,8 @@ interface CarbonStats {
 }
 
 function useAnimatedValue(value: string | number): string {
-  const parsed = parseValue(value);
+  const { i18n } = useTranslation();
+  const parsed = parseValue(value, i18n.language);
   const { num } = parsed;
   const [display, setDisplay] = useState(num);
   const prevRef = useRef(num);
@@ -155,7 +156,7 @@ function useAnimatedValue(value: string | number): string {
     };
   }, [num]);
 
-  return formatParsedValue(parsed, display);
+  return formatParsedValue(parsed, display, i18n.language);
 }
 
 function ScrollSnapRow({
@@ -588,7 +589,7 @@ function AdminDashboard({
     currency != null ? formatCents(cents, currency) : MONEY_PLACEHOLDER;
 
   const formatCo2 = (kg: number): string =>
-    kg >= 1000 ? `${(kg / 1000).toFixed(1)}\u00a0t` : `${kg.toFixed(1)}\u00a0kg`;
+    kg >= 1000 ? `${formatNumber(kg / 1000, 1)}\u00a0t` : `${formatNumber(kg, 1)}\u00a0kg`;
 
   function dateControl(range: ReturnType<typeof useDateRange>): React.JSX.Element {
     return (
@@ -604,8 +605,8 @@ function AdminDashboard({
 
   const formatEnergy = (wh: number): string =>
     wh >= 100_000_000
-      ? `${(wh / 1_000_000).toFixed(1)}\u00a0MWh`
-      : `${(wh / 1000).toFixed(1)}\u00a0kWh`;
+      ? `${formatNumber(wh / 1_000_000, 1)}\u00a0MWh`
+      : `${formatNumber(wh / 1000, 1)}\u00a0kWh`;
 
   function renderLiveStatCards(): React.JSX.Element {
     const revenueGrid = (

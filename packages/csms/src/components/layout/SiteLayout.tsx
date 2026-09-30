@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { api } from '@/lib/api';
 import { StationCard, type LayoutStation } from './StationCard';
 import { STATUS_COLORS } from '@/lib/chart-theme';
+import { formatNumber } from '@/lib/formatting';
 
 interface LoadManagementStation {
   id: string;
@@ -175,9 +176,10 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Draw</span>
                   <span className="font-medium">
-                    {loadManagement.stations
-                      .reduce((sum, s) => sum + s.currentDrawKw, 0)
-                      .toFixed(1)}{' '}
+                    {formatNumber(
+                      loadManagement.stations.reduce((sum, s) => sum + s.currentDrawKw, 0),
+                      1,
+                    )}{' '}
                     kW
                   </span>
                 </div>

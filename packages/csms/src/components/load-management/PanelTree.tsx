@@ -14,6 +14,7 @@ import { PanelForm } from './PanelForm';
 import { CircuitForm } from './CircuitForm';
 import { UnmanagedLoadForm } from './UnmanagedLoadForm';
 import { AssignStationDialog } from './AssignStationDialog';
+import { formatNumber } from '@/lib/formatting';
 
 interface UnmanagedLoad {
   id: number;
@@ -215,12 +216,12 @@ function PanelNode({
                 {panel.voltageV}V {panel.phases}ph
               </span>
               <span className="text-xs text-muted-foreground">
-                {panel.maxContinuousKw.toFixed(1)} kW max
+                {formatNumber(panel.maxContinuousKw, 1)} kW max
               </span>
               {panel.totalConnectedKw > panel.maxContinuousKw && (
                 <Badge variant="warning" className="text-xs">
                   {t('loadManagement.oversubscribed')}{' '}
-                  {(panel.totalConnectedKw / panel.maxContinuousKw).toFixed(2)}x
+                  {formatNumber(panel.totalConnectedKw / panel.maxContinuousKw, 2)}x
                 </Badge>
               )}
             </div>
@@ -481,7 +482,7 @@ function CircuitNode({
               </Badge>
             )}
             <span className="text-xs text-muted-foreground">
-              {circuit.maxContinuousKw.toFixed(1)} kW max
+              {formatNumber(circuit.maxContinuousKw, 1)} kW max
             </span>
           </div>
           <div className="mt-1.5">
@@ -543,7 +544,9 @@ function CircuitNode({
                 {station.isOnline ? 'Online' : 'Offline'}
               </Badge>
               {station.hasActiveSession && (
-                <span className="text-muted-foreground">{station.currentDrawKw.toFixed(1)} kW</span>
+                <span className="text-muted-foreground">
+                  {formatNumber(station.currentDrawKw, 1)} kW
+                </span>
               )}
               <Button
                 variant="ghost"
@@ -656,7 +659,7 @@ function UnmanagedLoadItem({
   return (
     <div className="flex items-center gap-2 text-xs">
       <span className="text-muted-foreground">{load.name}</span>
-      <span className="text-muted-foreground">({load.estimatedDrawKw.toFixed(1)} kW)</span>
+      <span className="text-muted-foreground">({formatNumber(load.estimatedDrawKw, 1)} kW)</span>
       <Button
         variant="ghost"
         size="icon"

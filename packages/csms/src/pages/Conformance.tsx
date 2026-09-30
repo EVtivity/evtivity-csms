@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { formatNumber } from '@/lib/formatting';
 
 interface OcttRun {
   id: number;
@@ -52,7 +53,7 @@ function statusBadge(status: string): React.JSX.Element {
 
 function passRate(run: OcttRun): string {
   if (run.totalTests === 0) return 'n/a';
-  return `${((run.passed / run.totalTests) * 100).toFixed(1)}%`;
+  return `${formatNumber((run.passed / run.totalTests) * 100, 1)}%`;
 }
 
 function formatDuration(ms: number | null): string {

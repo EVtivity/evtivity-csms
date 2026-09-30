@@ -13,6 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { formatDecimal } from '@/lib/formatting';
 import { api } from '@/lib/api';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
 
@@ -74,10 +75,10 @@ function formatCompactRates(
   const parts: string[] = [];
   if (item.pricePerKwh != null) {
     const prefix = currency != null ? `${currency} ` : '';
-    parts.push(`${prefix}${item.pricePerKwh}/kWh`);
+    parts.push(`${prefix}${formatDecimal(item.pricePerKwh)}/kWh`);
   }
-  if (item.pricePerMinute != null) parts.push(`${item.pricePerMinute}/min`);
-  if (item.pricePerSession != null) parts.push(`${item.pricePerSession}/session`);
+  if (item.pricePerMinute != null) parts.push(`${formatDecimal(item.pricePerMinute)}/min`);
+  if (item.pricePerSession != null) parts.push(`${formatDecimal(item.pricePerSession)}/session`);
   return parts.length > 0 ? parts.join(' + ') : freeLabel;
 }
 

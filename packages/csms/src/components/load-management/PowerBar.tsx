@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { cn } from '@/lib/utils';
+import { formatNumber } from '@/lib/formatting';
 
 interface PowerBarProps {
   currentKw: number;
@@ -38,9 +39,9 @@ export function PowerBar({ currentKw, limitKw, maxKw, label }: PowerBarProps): R
         )}
       </div>
       <div className="flex justify-between text-xs text-muted-foreground">
-        <span>{currentKw.toFixed(1)} kW</span>
-        {limitKw > 0 && <span>Limit: {limitKw.toFixed(1)} kW</span>}
-        <span>Max: {effectiveMax.toFixed(1)} kW</span>
+        <span>{formatNumber(currentKw, 1)} kW</span>
+        {limitKw > 0 && <span>Limit: {formatNumber(limitKw, 1)} kW</span>}
+        <span>Max: {formatNumber(effectiveMax, 1)} kW</span>
       </div>
     </div>
   );

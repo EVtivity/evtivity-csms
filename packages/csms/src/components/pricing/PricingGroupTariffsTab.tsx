@@ -14,6 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { formatDecimal } from '@/lib/formatting';
 import { api } from '@/lib/api';
 import { LoadingLogo } from '@/components/loading-logo';
 
@@ -140,12 +141,12 @@ export function PricingGroupTariffsTab({
                     <TableCell className="text-sm text-muted-foreground">
                       {formatRestrictionSummary(tariff.restrictions)}
                     </TableCell>
-                    <TableCell>{tariff.pricePerKwh ?? 'n/a'}</TableCell>
-                    <TableCell>{tariff.pricePerMinute ?? 'n/a'}</TableCell>
-                    <TableCell>{tariff.pricePerSession ?? 'n/a'}</TableCell>
-                    <TableCell>{tariff.idleFeePricePerMinute ?? 'n/a'}</TableCell>
-                    <TableCell>{tariff.reservationFeePerMinute ?? 'n/a'}</TableCell>
-                    <TableCell>{tariff.taxRate ?? 'n/a'}</TableCell>
+                    <TableCell>{formatDecimal(tariff.pricePerKwh)}</TableCell>
+                    <TableCell>{formatDecimal(tariff.pricePerMinute)}</TableCell>
+                    <TableCell>{formatDecimal(tariff.pricePerSession)}</TableCell>
+                    <TableCell>{formatDecimal(tariff.idleFeePricePerMinute)}</TableCell>
+                    <TableCell>{formatDecimal(tariff.reservationFeePerMinute)}</TableCell>
+                    <TableCell>{formatDecimal(tariff.taxRate)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

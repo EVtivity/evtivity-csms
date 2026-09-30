@@ -17,6 +17,7 @@ import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { roamingSessionStatusVariant } from '@/lib/status-variants';
 import { LoadingLogo } from '@/components/loading-logo';
+import { formatNumber } from '@/lib/formatting';
 
 interface RoamingSession {
   id: number;
@@ -82,10 +83,10 @@ export function RoamingSessions(): React.JSX.Element {
                         {session.status}
                       </Badge>
                     </TableCell>
-                    <TableCell>{parseFloat(session.kwh).toFixed(2)} kWh</TableCell>
+                    <TableCell>{formatNumber(parseFloat(session.kwh), 2)} kWh</TableCell>
                     <TableCell>
                       {session.totalCost != null
-                        ? `${parseFloat(session.totalCost).toFixed(2)} ${session.currency ?? ''}`
+                        ? `${formatNumber(parseFloat(session.totalCost), 2)} ${session.currency ?? ''}`
                         : '-'}
                     </TableCell>
                     <TableCell>{formatDateTime(session.createdAt, timezone)}</TableCell>

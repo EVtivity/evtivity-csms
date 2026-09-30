@@ -81,3 +81,25 @@ describe('formatParsedValue', () => {
     expect(formatParsedValue(parsed, 0)).toBe('-');
   });
 });
+describe('locale-aware parsing', () => {
+  it('reads German currency amounts with the symbol after the number', () => {
+    expect(parseValue('1.234,56 €', 'de')).toMatchObject({
+      num: 1234.56,
+      prefix: '',
+      suffix: ' €',
+      decimals: 2,
+    });
+    expect(parseValue('-5,00 €', 'de')).toMatchObject({ num: -5, decimals: 2 });
+  });
+
+  it('reads German decimals and units', () => {
+    expect(parseValue('12,5 kWh', 'de')).toMatchObject({ num: 12.5, suffix: ' kWh', decimals: 1 });
+    expect(parseValue('98,5%', 'de')).toMatchObject({ num: 98.5, suffix: '%', decimals: 1 });
+  });
+
+  it('renders intermediate values with the separators of the locale', () => {
+    const parsed = parseValue('1.234,56 €', 'de');
+    expect(formatParsedValue(parsed, 617.28, 'de')).toBe('617,28 €');
+    expect(formatParsedValue(parsed, 1234.56, 'de')).toBe('1.234,56 €');
+  });
+});

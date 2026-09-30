@@ -9,6 +9,7 @@ import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth';
 import { CHART_COLORS, getGridColor, formatChartDateLabel } from '@/lib/chart-theme';
+import { formatNumber } from '@/lib/formatting';
 
 interface EnergyChartProps {
   data: { date: string; energyWh: number }[];
@@ -46,12 +47,13 @@ export function EnergyChart({ data, title, actions, info }: EnergyChartProps): R
       yaxis: {
         title: { text: t('charts.kWh') },
         labels: {
-          formatter: (val: number) => (val / 1000).toFixed(1),
+          formatter: (val: number) => formatNumber(val / 1000, 1),
         },
       },
       tooltip: {
         y: {
-          formatter: (val: number) => t('charts.energyValue', { value: (val / 1000).toFixed(2) }),
+          formatter: (val: number) =>
+            t('charts.energyValue', { value: formatNumber(val / 1000, 2) }),
         },
       },
       colors: [CHART_COLORS.primary],
