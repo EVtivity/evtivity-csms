@@ -19,6 +19,16 @@ describe('formatCurrencyAmount', () => {
   it('falls back to the code for an invalid currency', () => {
     expect(formatCurrencyAmount(1250, 'xx')).toBe('XX 12.50');
   });
+
+  it('formats in the given locale', () => {
+    expect(formatCurrencyAmount(1250, 'EUR', 'de')).toBe('12,50\u00a0€');
+    expect(formatCurrencyAmount(123456, 'EUR', 'de')).toBe('1.234,56\u00a0€');
+    expect(formatCurrencyAmount(1250, 'EUR', 'en')).toBe('€12.50');
+  });
+
+  it('falls back to en-US for an invalid locale', () => {
+    expect(formatCurrencyAmount(1250, 'USD', 'not a locale!')).toBe('$12.50');
+  });
 });
 
 describe('isSupportedCurrency', () => {

@@ -1,6 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { resolveLocale } from './number.js';
+
 /**
  * The currency used only when the `company.currency` setting is unset. Every
  * other default resolves to the company currency, never to this constant.
@@ -52,12 +54,18 @@ export function isSupportedCurrency(code: unknown): code is SupportedCurrency {
 }
 
 /**
- * Formats minor units (cents) in a currency, for example 1250 USD as "$12.50".
- * Falls back to "CODE 12.50" when the code is not a valid ISO 4217 currency.
+ * Formats minor units (cents) in a currency, for example 1250 USD as "$12.50"
+ * (en-US) or "12,50 $" (de). The locale defaults to en-US; server-side callers
+ * rely on that default. Falls back to "CODE 12.50" when the code is not a valid
+ * ISO 4217 currency.
  */
-export function formatCurrencyAmount(amountCents: number, currency: string): string {
+export function formatCurrencyAmount(
+  amountCents: number,
+  currency: string,
+  locale = 'en-US',
+): string {
   try {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(
+    return new Intl.NumberFormat(resolveLocale(locale), { style: 'currency', currency }).format(
       amountCents / 100,
     );
   } catch {

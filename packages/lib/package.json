@@ -16,6 +16,9 @@
     },
     "./currency": {
       "import": "./src/currency.ts"
+    },
+    "./number": {
+      "import": "./src/number.ts"
     }
   },
   "scripts": {
