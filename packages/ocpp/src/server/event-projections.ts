@@ -2284,6 +2284,12 @@ export function registerProjections(
       // (no payment_records row -> hasPaymentFailure false), which then let
       // the cost-calc block below apply pricePerSession against an
       // already-stopped session.
+      //
+      // OCPP 1.6 StopTransaction carries the final register reading. Energy
+      // is otherwise only derived from periodic MeterValues, which lag behind
+      // the stop (a 60s sample interval leaves up to a minute uncounted), so
+      // use meterStop - meterStart as the final energy. Never lower the value
+      // already derived from meter readings (e.g. a station reporting 0).
       await sql`
         UPDATE charging_sessions
         SET status = CASE
@@ -2293,6 +2299,12 @@ export function registerProjections(
             ended_at = ${timestamp},
             stopped_reason = COALESCE(stopped_reason, ${stoppedReason}),
             meter_stop = COALESCE(${meterStopVal}, meter_stop),
+            energy_delivered_wh = CASE
+              WHEN ${meterStopVal}::numeric IS NOT NULL AND meter_start IS NOT NULL
+                AND ${meterStopVal}::numeric >= meter_start
+              THEN GREATEST(COALESCE(energy_delivered_wh, 0), ${meterStopVal}::numeric - meter_start)
+              ELSE energy_delivered_wh
+            END,
             updated_at = now()
         WHERE transaction_id = ${transactionId}
       `;

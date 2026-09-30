@@ -1157,6 +1157,94 @@ describe('Event projections', () => {
       expect(mockCalculateSessionCost).toHaveBeenCalled();
     });
 
+    it('derives the final energy from meterStop on an OCPP 1.6 Ended event', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [], // SELECT payment_records (no failed payment)
+        [], // UPDATE charging_sessions SET status=completed, energy from meterStop
+        [
+          {
+            id: 'session-1',
+            tariff_id: 'tariff-1',
+            current_cost_cents: 0,
+            started_at: '2024-01-01T00:00:00Z',
+            ended_at: '2024-01-01T01:00:00Z',
+            energy_delivered_wh: 1218,
+            currency: 'EUR',
+            tariff_price_per_kwh: '0.30',
+            tariff_price_per_minute: null,
+            tariff_price_per_session: null,
+            tariff_idle_fee_price_per_minute: null,
+            tariff_tax_rate: null,
+          },
+        ], // SELECT session with snapshot columns (energy after the UPDATE)
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Ended',
+          stationId: 'CS-001',
+          transactionId: '3',
+          seqNo: 0,
+          triggerReason: 'Local',
+          timestamp: '2024-01-01T01:00:00Z',
+          stoppedReason: 'Local',
+          meterStop: 2909465,
+        }),
+      );
+
+      const endUpdate = sqlCalls.find(
+        (c) =>
+          c.strings.join('').includes('UPDATE charging_sessions') &&
+          c.strings.join('').includes('meter_stop = COALESCE'),
+      );
+      expect(endUpdate).toBeDefined();
+      const endSql = endUpdate?.strings.join('?') ?? '';
+      expect(endSql).toContain('energy_delivered_wh = CASE');
+      expect(endSql).toContain('GREATEST(COALESCE(energy_delivered_wh, 0)');
+      expect(endUpdate?.values.filter((v) => v === 2909465).length).toBeGreaterThanOrEqual(3);
+
+      // Cost is computed from the session row read after the UPDATE.
+      expect(mockCalculateSessionCost).toHaveBeenCalled();
+      const costArgs = mockCalculateSessionCost.mock.calls.at(-1) as unknown[];
+      expect(costArgs).toContain(1218);
+    });
+
+    it('keeps the meter-derived energy when an Ended event has no meterStop', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [], // SELECT payment_records (no failed payment)
+        [], // UPDATE charging_sessions SET status=completed
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Ended',
+          stationId: 'CS-001',
+          transactionId: 'tx-2',
+          seqNo: 2,
+          triggerReason: 'EVDeparted',
+          timestamp: '2024-01-01T01:00:00Z',
+          stoppedReason: 'Local',
+        }),
+      );
+
+      const endUpdate = sqlCalls.find(
+        (c) =>
+          c.strings.join('').includes('UPDATE charging_sessions') &&
+          c.strings.join('').includes('meter_stop = COALESCE'),
+      );
+      expect(endUpdate).toBeDefined();
+      // With meterStop null the CASE falls through to the existing energy.
+      expect(endUpdate?.values.filter((v) => v === null).length).toBeGreaterThanOrEqual(3);
+    });
+
     it('skips cost computation when no tariff on Ended', async () => {
       await import('@evtivity/lib');
       mockCalculateSessionCost.mockClear();
