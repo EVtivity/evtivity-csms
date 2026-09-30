@@ -10,6 +10,7 @@ import { RemoveButton } from '@/components/remove-button';
 import { CopyableId } from '@/components/copyable-id';
 import { CancelButton } from '@/components/cancel-button';
 import { SaveButton } from '@/components/save-button';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -246,24 +247,22 @@ export function StationInfoTab({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label htmlFor="edit-latitude">{t('stations.latitude')}</Label>
-                  <Input
+                  <DecimalInput
                     id="edit-latitude"
                     value={latitude}
-                    onChange={(e) => {
-                      setLatitude(e.target.value);
-                    }}
+                    onChange={setLatitude}
                     placeholder="43.338131"
+                    allowNegative
                   />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="edit-longitude">{t('stations.longitude')}</Label>
-                  <Input
+                  <DecimalInput
                     id="edit-longitude"
                     value={longitude}
-                    onChange={(e) => {
-                      setLongitude(e.target.value);
-                    }}
+                    onChange={setLongitude}
                     placeholder="-73.695849"
+                    allowNegative
                   />
                 </div>
               </div>

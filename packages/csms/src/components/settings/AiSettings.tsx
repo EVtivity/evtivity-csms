@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { SaveButton } from '@/components/save-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
@@ -239,16 +240,10 @@ export function AiSettings({ settings }: AiSettingsProps): React.JSX.Element {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="ai-temperature">{t('settings.chatbotAiTemperature')}</Label>
-              <Input
+              <DecimalInput
                 id="ai-temperature"
-                type="number"
-                min={0}
-                max={2}
-                step={0.1}
                 value={chatbotAiTemperature}
-                onChange={(e) => {
-                  setChatbotAiTemperature(e.target.value);
-                }}
+                onChange={setChatbotAiTemperature}
                 placeholder="0.7"
               />
               <p className="text-xs text-muted-foreground">
@@ -257,16 +252,10 @@ export function AiSettings({ settings }: AiSettingsProps): React.JSX.Element {
             </div>
             <div className="space-y-2">
               <Label htmlFor="ai-top-p">{t('settings.chatbotAiTopP')}</Label>
-              <Input
+              <DecimalInput
                 id="ai-top-p"
-                type="number"
-                min={0}
-                max={1}
-                step={0.05}
                 value={chatbotAiTopP}
-                onChange={(e) => {
-                  setChatbotAiTopP(e.target.value);
-                }}
+                onChange={setChatbotAiTopP}
                 placeholder="0.9"
               />
               <p className="text-xs text-muted-foreground">{t('settings.chatbotAiTopPHint')}</p>
@@ -401,31 +390,19 @@ export function AiSettings({ settings }: AiSettingsProps): React.JSX.Element {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="support-ai-temperature">{t('settings.supportAiTemperature')}</Label>
-              <Input
+              <DecimalInput
                 id="support-ai-temperature"
-                type="number"
-                min={0}
-                max={2}
-                step={0.1}
                 value={supportAiTemperature}
-                onChange={(e) => {
-                  setSupportAiTemperature(e.target.value);
-                }}
+                onChange={setSupportAiTemperature}
                 placeholder="0.3"
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="support-ai-top-p">{t('settings.supportAiTopP')}</Label>
-              <Input
+              <DecimalInput
                 id="support-ai-top-p"
-                type="number"
-                min={0}
-                max={1}
-                step={0.05}
                 value={supportAiTopP}
-                onChange={(e) => {
-                  setSupportAiTopP(e.target.value);
-                }}
+                onChange={setSupportAiTopP}
                 placeholder="0.9"
               />
             </div>

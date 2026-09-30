@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { SaveButton } from '@/components/save-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 
@@ -69,40 +69,24 @@ export function SustainabilitySettings({
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="grid-emission-factor">{t('settings.gridEmissionFactor')}</Label>
-            <Input
+            <DecimalInput
               id="grid-emission-factor"
-              type="number"
-              step="0.001"
               value={gridEmissionFactor}
-              onChange={(e) => {
-                setGridEmissionFactor(e.target.value);
-              }}
+              onChange={setGridEmissionFactor}
             />
             <p className="text-xs text-muted-foreground">{t('settings.gridEmissionFactorHint')}</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="ev-efficiency">{t('settings.evEfficiency')}</Label>
-            <Input
-              id="ev-efficiency"
-              type="number"
-              step="0.1"
-              value={evEfficiency}
-              onChange={(e) => {
-                setEvEfficiency(e.target.value);
-              }}
-            />
+            <DecimalInput id="ev-efficiency" value={evEfficiency} onChange={setEvEfficiency} />
             <p className="text-xs text-muted-foreground">{t('settings.evEfficiencyHint')}</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="gasoline-emission-factor">{t('settings.gasolineEmissionFactor')}</Label>
-            <Input
+            <DecimalInput
               id="gasoline-emission-factor"
-              type="number"
-              step="0.001"
               value={gasolineEmissionFactor}
-              onChange={(e) => {
-                setGasolineEmissionFactor(e.target.value);
-              }}
+              onChange={setGasolineEmissionFactor}
             />
             <p className="text-xs text-muted-foreground">
               {t('settings.gasolineEmissionFactorHint')}
@@ -110,15 +94,7 @@ export function SustainabilitySettings({
           </div>
           <div className="space-y-2">
             <Label htmlFor="avg-mpg">{t('settings.avgMpg')}</Label>
-            <Input
-              id="avg-mpg"
-              type="number"
-              step="0.1"
-              value={avgMpg}
-              onChange={(e) => {
-                setAvgMpg(e.target.value);
-              }}
-            />
+            <DecimalInput id="avg-mpg" value={avgMpg} onChange={setAvgMpg} />
             <p className="text-xs text-muted-foreground">{t('settings.avgMpgHint')}</p>
           </div>
         </div>

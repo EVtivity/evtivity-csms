@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -135,14 +136,11 @@ function FieldRenderer({
     case 'number':
       return (
         <FieldWrapper field={field} error={error}>
-          <Input
-            type="number"
-            step="any"
+          <DecimalInput
             value={asString(value)}
             className={errorClass}
-            onChange={(e) => {
-              onChange(e.target.value);
-            }}
+            onChange={onChange}
+            allowNegative
           />
         </FieldWrapper>
       );

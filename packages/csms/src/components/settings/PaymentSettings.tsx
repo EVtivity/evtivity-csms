@@ -10,6 +10,7 @@ import { SaveButton } from '@/components/save-button';
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
@@ -344,13 +345,11 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
 
                 <div className="space-y-2">
                   <Label htmlFor="stripe-platform-fee">{t('settings.stripePlatformFee')}</Label>
-                  <Input
+                  <DecimalInput
                     id="stripe-platform-fee"
-                    type="number"
-                    step="any"
                     value={stripePlatformFee}
-                    onChange={(e) => {
-                      setStripePlatformFee(e.target.value);
+                    onChange={(value) => {
+                      setStripePlatformFee(value);
                       markStripeChanged();
                     }}
                     className={
@@ -529,13 +528,11 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
                         <Label htmlFor="site-platform-fee">
                           {t('settings.sitePlatformFeeOverride')}
                         </Label>
-                        <Input
+                        <DecimalInput
                           id="site-platform-fee"
-                          type="number"
-                          step="any"
                           value={sitePlatformFee}
-                          onChange={(e) => {
-                            setSitePlatformFee(e.target.value);
+                          onChange={(value) => {
+                            setSitePlatformFee(value);
                             markSiteChanged();
                           }}
                           className={

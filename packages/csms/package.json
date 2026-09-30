@@ -41,6 +41,7 @@
     "react-dom": "^19.2.7",
     "react-i18next": "^16.5.4",
     "react-markdown": "^10.1.0",
+    "react-number-format": "^5.4.5",
     "react-router": "^8.4.0",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.4.0",

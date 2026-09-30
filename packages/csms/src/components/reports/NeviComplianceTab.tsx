@@ -20,6 +20,7 @@ import { CreateButton } from '@/components/create-button';
 import { EditButton } from '@/components/edit-button';
 import { RemoveButton } from '@/components/remove-button';
 import { GenerateButton } from '@/components/generate-button';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -474,39 +475,33 @@ function StationDataSection(): React.JSX.Element {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
                     <Label htmlFor="nevi-installation-cost">{t('nevi.installationCost')}</Label>
-                    <Input
+                    <DecimalInput
                       id="nevi-installation-cost"
-                      type="number"
+                      decimalScale={2}
                       value={installationCost}
-                      onChange={(e) => {
-                        setInstallationCost(e.target.value);
-                      }}
+                      onChange={setInstallationCost}
                     />
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="nevi-grid-connection-cost">
                       {t('nevi.gridConnectionCost')}
                     </Label>
-                    <Input
+                    <DecimalInput
                       id="nevi-grid-connection-cost"
-                      type="number"
+                      decimalScale={2}
                       value={gridConnectionCost}
-                      onChange={(e) => {
-                        setGridConnectionCost(e.target.value);
-                      }}
+                      onChange={setGridConnectionCost}
                     />
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="nevi-maintenance-cost-annual">
                       {t('nevi.maintenanceCostAnnual')}
                     </Label>
-                    <Input
+                    <DecimalInput
                       id="nevi-maintenance-cost-annual"
-                      type="number"
+                      decimalScale={2}
                       value={maintenanceCostAnnual}
-                      onChange={(e) => {
-                        setMaintenanceCostAnnual(e.target.value);
-                      }}
+                      onChange={setMaintenanceCostAnnual}
                     />
                   </div>
                   <div className="space-y-1">
@@ -540,24 +535,18 @@ function StationDataSection(): React.JSX.Element {
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="nevi-der-capacity-kw">{t('nevi.derCapacityKw')}</Label>
-                    <Input
+                    <DecimalInput
                       id="nevi-der-capacity-kw"
-                      type="number"
                       value={derCapacityKw}
-                      onChange={(e) => {
-                        setDerCapacityKw(e.target.value);
-                      }}
+                      onChange={setDerCapacityKw}
                     />
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="nevi-der-capacity-kwh">{t('nevi.derCapacityKwh')}</Label>
-                    <Input
+                    <DecimalInput
                       id="nevi-der-capacity-kwh"
-                      type="number"
                       value={derCapacityKwh}
-                      onChange={(e) => {
-                        setDerCapacityKwh(e.target.value);
-                      }}
+                      onChange={setDerCapacityKwh}
                     />
                   </div>
                 </div>

@@ -12,6 +12,7 @@ import { AddIconButton } from '@/components/add-icon-button';
 import { CopyableId } from '@/components/copyable-id';
 import { RefundButton } from '@/components/refund-button';
 import { RemoveIconButton } from '@/components/remove-icon-button';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -525,14 +526,12 @@ export function SupportCaseDetail(): React.JSX.Element {
       >
         <div className="space-y-2">
           <Label htmlFor="support-case-refund-amount">{t('supportCases.refundAmountLabel')}</Label>
-          <Input
+          <DecimalInput
             id="support-case-refund-amount"
-            type="number"
-            step="0.01"
-            min="0.01"
+            decimalScale={2}
             value={refundAmount}
-            onChange={(e) => {
-              setRefundAmount(e.target.value);
+            onChange={(value) => {
+              setRefundAmount(value);
               setRefundError('');
             }}
             className={refundError !== '' ? 'border-destructive' : ''}
