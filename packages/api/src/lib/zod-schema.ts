@@ -3,6 +3,7 @@
 
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { ZodTypeAny } from 'zod';
+import { ValidationError } from '@evtivity/lib';
 
 export function zodSchema(schema: ZodTypeAny): Record<string, unknown> {
   const jsonSchema = zodToJsonSchema(schema as Parameters<typeof zodToJsonSchema>[0], {
@@ -32,4 +33,18 @@ function allowNullInNullableEnums(node: unknown): void {
     values.push(null);
   }
   for (const value of Object.values(record)) allowNullInNullableEnums(value);
+}
+
+/**
+ * zodSchema() hands Fastify a JSON Schema, and zod-to-json-schema drops
+ * `.refine()` and `.superRefine()`, so Ajv never runs them. Routes whose request
+ * schema carries refinements call this with the Ajv-validated value to enforce
+ * them. Throws a 400 VALIDATION_ERROR with the first failing rule's message.
+ */
+export function assertZodRefinements(schema: ZodTypeAny, value: unknown): void {
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    throw new ValidationError(issue?.message ?? 'Validation failed', result.error.issues);
+  }
 }

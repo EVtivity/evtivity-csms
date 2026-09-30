@@ -44,7 +44,7 @@ import {
   deriveElectricityRatePriority,
 } from '@evtivity/lib';
 import type { ElectricityRatePeriodRestrictions } from '@evtivity/lib';
-import { zodSchema } from '../lib/zod-schema.js';
+import { assertZodRefinements, zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -813,6 +813,7 @@ export function siteRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      assertZodRefinements(createSiteBody, request.body);
       const body = request.body as z.infer<typeof createSiteBody>;
 
       // Pre-check the unique name constraint (case-insensitive) so duplicate
@@ -875,6 +876,7 @@ export function siteRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
+      assertZodRefinements(updateSiteBody, request.body);
       const body = request.body as z.infer<typeof updateSiteBody>;
       const [before] = await db.select().from(sites).where(eq(sites.id, id));
 

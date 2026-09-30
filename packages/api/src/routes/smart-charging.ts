@@ -16,7 +16,7 @@ import {
   smartChargingTemplateAuditLog,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
-import { zodSchema } from '../lib/zod-schema.js';
+import { assertZodRefinements, zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import {
@@ -480,6 +480,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      assertZodRefinements(createTemplateBody, request.body);
       const body = request.body as z.infer<typeof createTemplateBody>;
 
       // profilePurpose is now constrained to TEMPLATE_PROFILE_PURPOSES at the
@@ -588,6 +589,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof templateParams>;
+      assertZodRefinements(updateTemplateBody, request.body);
       const body = request.body as z.infer<typeof updateTemplateBody>;
 
       const [existing] = await db

@@ -155,19 +155,11 @@ const sessionParams = z.object({
   id: ID_PARAMS.sessionId.describe('Charging session ID'),
 });
 
-// The regex pins format. The refine pins range so requests like ?month=9999-99
+// The regex pins both format and month range, so requests like ?month=9999-99
 // or ?month=2024-13 are rejected at validation time instead of silently
-// producing nonsense date boundaries via Date.UTC overflow.
-const monthString = z
-  .string()
-  .regex(/^\d{4}-\d{2}$/)
-  .refine(
-    (s) => {
-      const m = Number(s.slice(5, 7));
-      return m >= 1 && m <= 12;
-    },
-    { message: 'Month must be 01-12' },
-  );
+// producing nonsense date boundaries via Date.UTC overflow. It is a regex, not
+// a refine, because Ajv validates the JSON Schema and refines are dropped.
+const monthString = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 
 const sessionListQuery = paginationQuery.extend({
   month: monthString.optional().describe('Filter by month in YYYY-MM format'),

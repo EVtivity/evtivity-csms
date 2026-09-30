@@ -149,10 +149,12 @@ vi.mock('drizzle-orm', () => {
   };
 });
 
-vi.mock('@evtivity/lib', async () => {
+vi.mock('@evtivity/lib', async (importOriginal) => {
   const { z } = await import('zod');
+  const actual = await importOriginal<typeof import('@evtivity/lib')>();
   return {
-    isValidTimezone: vi.fn(() => true),
+    ValidationError: actual.ValidationError,
+    isValidTimezone: actual.isValidTimezone,
     electricityRateRestrictionsSchema: z.object({}).passthrough(),
     deriveElectricityRatePriority: vi.fn(() => 0),
   };
@@ -376,6 +378,17 @@ describe('Site routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(400);
     });
+
+    it('returns 400 for an invalid IANA timezone', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/sites',
+        headers: { authorization: 'Bearer ' + token },
+        payload: { name: 'New Site', timezone: 'Mars/Olympus_Mons' },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
   });
 
   // --- PATCH /v1/sites/:id ---
@@ -425,6 +438,21 @@ describe('Site routes - handler logic', () => {
 
       expect(response.statusCode).toBe(404);
       expect(response.json().code).toBe('SITE_NOT_FOUND');
+    });
+
+    it('returns 400 for a latitude outside [-90, 90]', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/sites/${VALID_SITE_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { latitude: '999' },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        message: 'Latitude must be a number in [-90, 90]',
+      });
     });
   });
 

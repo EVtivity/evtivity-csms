@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, panels, circuits, unmanagedLoads, chargingStations } from '@evtivity/database';
-import { zodSchema } from '../lib/zod-schema.js';
+import { assertZodRefinements, zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
@@ -417,6 +417,7 @@ export function panelRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { siteId, panelId } = request.params as z.infer<typeof panelIdParam>;
+      assertZodRefinements(updatePanelBody, request.body);
       const body = request.body as z.infer<typeof updatePanelBody>;
 
       const { userId } = request.user as { userId: string };

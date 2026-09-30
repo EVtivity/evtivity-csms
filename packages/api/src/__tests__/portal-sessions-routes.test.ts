@@ -203,6 +203,15 @@ describe('Portal sessions routes - handler logic', () => {
       expect(response.statusCode).toBe(200);
     });
 
+    it('returns 400 for a month outside 01-12', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/sessions?month=2024-13',
+        headers: { authorization: `Bearer ${driverToken}` },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
     it('returns 400 with invalid page parameter', async () => {
       const response = await app.inject({
         method: 'GET',
