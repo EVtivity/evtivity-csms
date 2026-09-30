@@ -2894,10 +2894,11 @@ export function registerProjections(
             AND (${evseUuid}::text IS NULL OR evse_id = ${evseUuid})
             AND meter_start IS NULL
         `;
-        // Compute energy as delta: currentReading - meterStart (clamp to 0 if meter resets)
+        // Compute energy as delta: currentReading - meterStart (clamp to 0 if meter resets).
+        // The cast is required: untyped, Postgres infers integer from meter_start and rejects decimals.
         await sql`
           UPDATE charging_sessions
-          SET energy_delivered_wh = GREATEST(0, ${meterValue} - meter_start), updated_at = now()
+          SET energy_delivered_wh = GREATEST(0, ${meterValue}::numeric - meter_start), updated_at = now()
           WHERE station_id = ${stationUuid} AND status = 'active'
             AND (${evseUuid}::text IS NULL OR evse_id = ${evseUuid})
             AND meter_start IS NOT NULL

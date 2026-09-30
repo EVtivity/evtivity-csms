@@ -1787,6 +1787,40 @@ describe('Event projections', () => {
       expect(sqlCalls.some((c) => c.strings.join('?').includes('SET meter_start'))).toBe(false);
     });
 
+    it('passes a decimal energy reading as numeric so Postgres does not infer integer', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [], // resolveActiveSessionId fallback
+        [], // INSERT meter_values
+        [{ energy_delivered_wh: 0, meter_start: 2909465 }], // SELECT prev energy
+        [], // UPDATE meter_start (set if NULL)
+        [], // UPDATE energy_delivered_wh (delta)
+      );
+
+      await eventBus.emit(
+        'ocpp.MeterValues',
+        makeDomainEvent('ocpp.MeterValues', 'CS-001', {
+          stationId: 'CS-001',
+          source: 'TransactionEvent',
+          meterValues: [
+            {
+              timestamp: '2024-01-01T00:30:00Z',
+              sampledValue: [
+                { measurand: 'Energy.Active.Import.Register', unit: 'Wh', value: '2909560.3' },
+              ],
+            },
+          ],
+        }),
+      );
+
+      const meterStart = sqlCalls.find((c) => c.strings.join('?').includes('SET meter_start'));
+      expect(meterStart?.values[0]).toBe(2909560);
+      const energy = sqlCalls.find((c) => c.strings.join('?').includes('SET energy_delivered_wh'));
+      expect(energy?.strings.join('?')).toContain('?::numeric - meter_start');
+      expect(energy?.values[0]).toBe(2909560.3);
+    });
+
     it('uses the total energy register, not a per-phase one, for session energy', async () => {
       await setup();
       setupSqlResults(
