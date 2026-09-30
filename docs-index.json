@@ -185,11 +185,6 @@
     "description": "Run EVtivity CSMS on a local Kubernetes cluster using minikube for development and testing."
   },
   {
-    "path": "/docs/deployment/production-checklist",
-    "title": "Production Checklist",
-    "description": "Required steps to secure and prepare EVtivity for production deployment."
-  },
-  {
     "path": "/docs/getting-started/installation",
     "title": "Installation",
     "description": "Set up EVtivity CSMS for local development."
