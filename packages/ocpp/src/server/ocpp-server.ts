@@ -48,6 +48,10 @@ const MAX_MESSAGES_PER_IP_PER_SECOND = config.OCPP_MAX_MESSAGES_PER_IP_PER_SECON
 const IP_MESSAGE_WINDOW_MS = 1000;
 
 const ipConnectionCounts = new Map<string, number>();
+// Upgrade requests per IP whose authentication is still running. They count
+// toward the per-IP connection limit, so one IP cannot queue unbounded station
+// lookups and argon2 verifications.
+const ipPendingAuthCounts = new Map<string, number>();
 const ipMessageCounters = new Map<string, { count: number; windowStart: number }>();
 
 // ipMessageCounters entries are only refreshed when the same IP sends
@@ -268,8 +272,28 @@ export class OcppServer {
       return;
     }
 
+    const pendingCount = ipPendingAuthCounts.get(remoteIp) ?? 0;
+    if ((ipConnectionCounts.get(remoteIp) ?? 0) + pendingCount >= MAX_CONNECTIONS_PER_IP) {
+      this.logger.warn(
+        { remoteIp, pending: pendingCount },
+        'Per-IP pending authentication limit exceeded',
+      );
+      callback(false, 429, 'Too Many Requests');
+      return;
+    }
+    ipPendingAuthCounts.set(remoteIp, pendingCount + 1);
+    const releasePending = (): void => {
+      const count = ipPendingAuthCounts.get(remoteIp) ?? 1;
+      if (count <= 1) {
+        ipPendingAuthCounts.delete(remoteIp);
+      } else {
+        ipPendingAuthCounts.set(remoteIp, count - 1);
+      }
+    };
+
     authenticateConnection(req, this.logger, this.sql, remoteIp === 'unknown' ? null : remoteIp)
       .then((auth) => {
+        releasePending();
         if (auth.authenticated && auth.stationId != null) {
           this.verifiedRequests.set(req, auth);
           callback(true);
@@ -283,6 +307,7 @@ export class OcppServer {
         callback(false, rejection.status, rejection.message, rejection.headers);
       })
       .catch((err: unknown) => {
+        releasePending();
         this.logger.error(
           { error: err instanceof Error ? err.message : String(err) },
           'Connection authentication failed',

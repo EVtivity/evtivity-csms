@@ -32,6 +32,16 @@ export function formatNumber(value: number, fractionDigits: number): string {
 }
 
 /**
+ * Format a number in the UI language with at most `maxFractionDigits` decimals and
+ * no trailing zeros, e.g. 99.5 as "99.5" (en) or "99,5" (de), and 100 as "100".
+ */
+export function formatNumberUpTo(value: number, maxFractionDigits: number): string {
+  return new Intl.NumberFormat(resolveLocale(uiLocale()), {
+    maximumFractionDigits: maxFractionDigits,
+  }).format(value);
+}
+
+/**
  * Show a stored decimal string ("0.49") with the decimal separator of the UI
  * language, without rounding. Returns 'n/a' for null/undefined values.
  */

@@ -11,31 +11,6 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
-const DEFAULT_CURRENCY_SYMBOLS: Record<string, string> = {
-  USD: '$',
-  EUR: '\u20AC',
-  GBP: '\u00A3',
-  CAD: 'CA$',
-  AUD: 'A$',
-  CHF: 'CHF ',
-  SEK: 'kr',
-  NOK: 'kr',
-  DKK: 'kr',
-  MXN: 'MX$',
-  CNY: '\u00A5',
-};
-
-let customSymbols: Record<string, string> = {};
-
-export function setCurrencySymbols(symbols: Record<string, string>): void {
-  customSymbols = symbols;
-}
-
-export function currencySymbol(currency: string): string {
-  const all = { ...DEFAULT_CURRENCY_SYMBOLS, ...customSymbols };
-  return all[currency] ?? `${currency} `;
-}
-
 /**
  * The selected UI language, which drives number and currency formatting. Read
  * from the global i18next instance that @/i18n initializes; falls back to "en"

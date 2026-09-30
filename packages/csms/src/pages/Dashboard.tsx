@@ -28,7 +28,7 @@ import { localDateString } from '@/lib/date-range';
 import { useUpdateCheck } from '@/hooks/use-update-check';
 import { useDayDeltaContext, type SnapshotData } from '@/hooks/use-day-delta-context';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
-import { formatCents, formatNumber } from '@/lib/formatting';
+import { formatCents, formatNumber, formatNumberUpTo } from '@/lib/formatting';
 import { parseValue, formatParsedValue } from '@/lib/animated-value';
 
 interface DashboardStats {
@@ -241,7 +241,7 @@ function StatCard({
     delta != null
       ? isZero
         ? `No change (${deltaLabel ?? ''})`
-        : `${isPositive ? '+' : ''}${String(delta)}% (${deltaLabel ?? ''})`
+        : `${isPositive ? '+' : ''}${formatNumberUpTo(delta, 1)}% (${deltaLabel ?? ''})`
       : null;
 
   return (
@@ -348,7 +348,7 @@ function TrendStatCard({
             }`}
           >
             {delta > 0 ? '+' : ''}
-            {String(delta)}%
+            {formatNumberUpTo(delta, 1)}%
           </div>
         )}
       </CardContent>
@@ -679,14 +679,14 @@ function AdminDashboard({
           />
           <StatCard
             title={t('dashboard.online')}
-            value={`${String(stats.onlinePercent)}%`}
+            value={`${formatNumberUpTo(stats.onlinePercent, 1)}%`}
             info={t('dashboard.info.online')}
             dayDelta={dayDelta(yd?.onlinePercent, db?.onlinePercent)}
             deltaLabel={deltaLabel}
           />
           <StatCard
             title={t('dashboard.uptime')}
-            value={`${String(uptimeQuery.data?.uptimePercent ?? 100)}%`}
+            value={`${formatNumberUpTo(uptimeQuery.data?.uptimePercent ?? 100, 2)}%`}
             info={t('dashboard.info.uptime')}
             dayDelta={dayDelta(yd?.uptimePercent, db?.uptimePercent)}
             deltaLabel={deltaLabel}
@@ -745,7 +745,7 @@ function AdminDashboard({
           />
           <StatCard
             title={t('dashboard.pingLatency')}
-            value={`${String(ocppHealth.data?.avgPingLatencyMs ?? 0)}\u00a0ms`}
+            value={`${formatNumberUpTo(ocppHealth.data?.avgPingLatencyMs ?? 0, 2)}\u00a0ms`}
             info={t('dashboard.info.pingLatency')}
             positiveIsGood={false}
             dayDelta={dayDelta(yd?.avgPingLatencyMs, db?.avgPingLatencyMs)}
@@ -753,7 +753,7 @@ function AdminDashboard({
           />
           <StatCard
             title={t('dashboard.pingSuccessRate')}
-            value={`${String(ocppHealth.data?.pingSuccessRate ?? 100)}%`}
+            value={`${formatNumberUpTo(ocppHealth.data?.pingSuccessRate ?? 100, 1)}%`}
             info={t('dashboard.info.pingSuccessRate')}
             dayDelta={dayDelta(yd?.pingSuccessRate, db?.pingSuccessRate)}
             deltaLabel={deltaLabel}
@@ -803,12 +803,12 @@ function AdminDashboard({
           />
           <StatCard
             title={t('dashboard.online')}
-            value={`${String(Math.round(s.onlinePercent * 10) / 10)}%`}
+            value={`${formatNumberUpTo(s.onlinePercent, 1)}%`}
             info={t('dashboard.historicalInfo.online', d)}
           />
           <StatCard
             title={t('dashboard.uptime')}
-            value={`${String(s.uptimePercent)}%`}
+            value={`${formatNumberUpTo(s.uptimePercent, 2)}%`}
             info={t('dashboard.historicalInfo.uptime', d)}
           />
           <StatCard
@@ -896,13 +896,13 @@ function AdminDashboard({
         />
         <TrendStatCard
           title={t('dashboard.online')}
-          value={`${String(Math.round(avg('onlinePercent') * 10) / 10)}%`}
+          value={`${formatNumberUpTo(avg('onlinePercent'), 1)}%`}
           data={pluck('onlinePercent')}
           info={t('dashboard.trendInfo.online', tr)}
         />
         <TrendStatCard
           title={t('dashboard.uptime')}
-          value={`${String(Math.round(avg('uptimePercent') * 10) / 10)}%`}
+          value={`${formatNumberUpTo(avg('uptimePercent'), 1)}%`}
           data={pluck('uptimePercent')}
           info={t('dashboard.trendInfo.uptime', tr)}
         />

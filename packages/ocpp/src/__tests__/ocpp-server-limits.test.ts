@@ -1,8 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import WebSocket from 'ws';
+import type postgres from 'postgres';
 import type { OcppServer as OcppServerType } from '../server/ocpp-server.js';
 
 // Lower the per-IP connection and message-rate thresholds BEFORE the OCPP
@@ -79,6 +80,58 @@ describe('OcppServer per-IP limits', () => {
 
     ws1.close();
     ws2.close();
+  });
+
+  it('rejects upgrades beyond the limit while earlier authentications are pending', async () => {
+    // The station lookup hangs until released, so authentications stay pending.
+    let releaseLookups: () => void = () => undefined;
+    const lookupsReleased = new Promise<void>((resolve) => {
+      releaseLookups = resolve;
+    });
+    let lookups = 0;
+    const sql = ((strings: TemplateStringsArray): Promise<unknown[]> => {
+      if (strings.join('?').includes('FROM charging_stations')) {
+        lookups++;
+        return lookupsReleased.then(() => []);
+      }
+      return Promise.resolve([]);
+    }) as unknown as postgres.Sql;
+
+    const port = getNextPort();
+    const srv = new OcppServer({ sql });
+    server = srv;
+    await srv.start({ port, host: '127.0.0.1' });
+
+    const statusOf = (ws: WebSocket): Promise<number> =>
+      new Promise((resolve) => {
+        ws.on('unexpected-response', (_req, res) => {
+          resolve(res.statusCode ?? 0);
+          res.resume();
+          ws.terminate();
+        });
+        ws.on('error', () => {
+          /* unexpected-response carries the status */
+        });
+      });
+
+    const pending1 = connect(port, 'PENDING-1');
+    const pending2 = connect(port, 'PENDING-2');
+    const status1 = statusOf(pending1);
+    const status2 = statusOf(pending2);
+    await vi.waitFor(() => {
+      expect(lookups).toBe(2);
+    });
+
+    // Third upgrade from the same IP exceeds the limit of 2 before any lookup.
+    expect(await statusOf(connect(port, 'PENDING-3'))).toBe(429);
+    expect(lookups).toBe(2);
+
+    // Pending authentications finish (unknown station) and free their slots.
+    releaseLookups();
+    expect(await status1).toBe(404);
+    expect(await status2).toBe(404);
+    const next = connect(port, 'PENDING-4');
+    expect(await statusOf(next)).toBe(404);
   });
 
   it('closes the connection when the per-IP message rate limit is exceeded', async () => {
