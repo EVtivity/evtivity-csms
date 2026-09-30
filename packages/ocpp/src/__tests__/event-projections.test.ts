@@ -2143,6 +2143,86 @@ describe('Event projections', () => {
       expect(energyUpdate!.values).toContain('evs_000000000001');
     });
 
+    it('casts decimal OCPP 1.6 register readings to numeric for the session energy', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [{ id: 'evs_000000000001' }], // resolveEvseUuid
+        [{ id: 'ses_000000000001' }], // resolveActiveSessionId
+        [{}], // INSERT meter_values
+        [{ energy_delivered_wh: 0, meter_start: 2909465 }], // SELECT prev energy
+      );
+
+      // KEBA KC-P30 shape: string value with one decimal.
+      await eventBus.emit(
+        'ocpp.MeterValues',
+        makeDomainEvent('ocpp.MeterValues', 'CS-001', {
+          stationId: 'CS-001',
+          evseId: 1,
+          transactionId: '4',
+          meterValues: [
+            {
+              timestamp: '2026-09-30T18:20:30.000Z',
+              sampledValue: [
+                {
+                  unit: 'Wh',
+                  value: '2909560.3',
+                  format: 'Raw',
+                  context: 'Sample.Periodic',
+                  measurand: 'Energy.Active.Import.Register',
+                },
+              ],
+            },
+          ],
+        }),
+      );
+
+      const meterStartUpdate = sqlCalls.find((c) =>
+        c.strings.join('').includes('SET meter_start ='),
+      );
+      expect(meterStartUpdate).toBeDefined();
+      expect(meterStartUpdate!.strings.join('?')).toContain('ROUND(?::numeric)');
+      expect(meterStartUpdate!.values).toContain(2909560.3);
+
+      const energyUpdate = sqlCalls.find((c) =>
+        c.strings.join('').includes('SET energy_delivered_wh = GREATEST(0,'),
+      );
+      expect(energyUpdate).toBeDefined();
+      expect(energyUpdate!.strings.join('?')).toContain('GREATEST(0, ?::numeric - meter_start)');
+      expect(energyUpdate!.values).toContain(2909560.3);
+    });
+
+    it('skips the energy calculation for a non-numeric register value', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [{ id: 'evs_000000000001' }], // resolveEvseUuid
+        [{ id: 'ses_000000000001' }], // resolveActiveSessionId
+      );
+
+      await eventBus.emit(
+        'ocpp.MeterValues',
+        makeDomainEvent('ocpp.MeterValues', 'CS-001', {
+          stationId: 'CS-001',
+          evseId: 1,
+          transactionId: '4',
+          meterValues: [
+            {
+              timestamp: '2026-09-30T18:20:30.000Z',
+              sampledValue: [{ value: 'n/a', measurand: 'Energy.Active.Import.Register' }],
+            },
+          ],
+        }),
+      );
+
+      expect(sqlCalls.some((c) => c.strings.join('').includes('SET meter_start ='))).toBe(false);
+      expect(
+        sqlCalls.some((c) => c.strings.join('').includes('SET energy_delivered_wh = GREATEST')),
+      ).toBe(false);
+    });
+
     it('stores signedMeterValue in signed_data', async () => {
       await setup();
 

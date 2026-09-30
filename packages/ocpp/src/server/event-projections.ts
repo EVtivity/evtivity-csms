@@ -2827,9 +2827,14 @@ export function registerProjections(
         // If meterStart is not yet set (OCPP 2.1 sessions), capture the first reading as meterStart.
         // Both transaction-scoped (TransactionEvent, 1.6 MeterValues with transactionId) and
         // standalone 2.1 MeterValues update energy if an active session exists on the EVSE.
-        if (measurand === 'Energy.Active.Import.Register') {
-          const meterValue = Number(sv.value);
-
+        // Registers are often reported with decimals (e.g. "2909465.9" Wh), and
+        // OCPP 1.6 sends them as strings. Values are cast to numeric in SQL:
+        // meter_start is an integer column, and an untyped decimal parameter
+        // compared or assigned to it fails with "invalid input syntax for type
+        // integer", which aborted the whole projection (energy, live cost,
+        // idle detection and the remaining samples of the message).
+        const meterValue = Number(sv.value);
+        if (measurand === 'Energy.Active.Import.Register' && Number.isFinite(meterValue)) {
           // Capture previous energy and meter_start for flat-reading idle detection
           const prevRows = await sql`
             SELECT energy_delivered_wh, meter_start FROM charging_sessions
@@ -2842,7 +2847,7 @@ export function registerProjections(
           // Set meter_start from the first energy reading if not already set (OCPP 2.1 path)
           await sql`
             UPDATE charging_sessions
-            SET meter_start = ${meterValue}, updated_at = now()
+            SET meter_start = ROUND(${meterValue}::numeric), updated_at = now()
             WHERE station_id = ${stationUuid} AND status = 'active'
               AND (${evseUuid}::text IS NULL OR evse_id = ${evseUuid})
               AND meter_start IS NULL
@@ -2850,7 +2855,7 @@ export function registerProjections(
           // Compute energy as delta: currentReading - meterStart (clamp to 0 if meter resets)
           await sql`
             UPDATE charging_sessions
-            SET energy_delivered_wh = GREATEST(0, ${meterValue} - meter_start), updated_at = now()
+            SET energy_delivered_wh = GREATEST(0, ${meterValue}::numeric - meter_start), updated_at = now()
             WHERE station_id = ${stationUuid} AND status = 'active'
               AND (${evseUuid}::text IS NULL OR evse_id = ${evseUuid})
               AND meter_start IS NOT NULL
