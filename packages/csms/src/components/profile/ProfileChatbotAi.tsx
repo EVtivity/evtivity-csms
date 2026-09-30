@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SaveButton } from '@/components/save-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
@@ -135,16 +136,10 @@ export function ProfileChatbotAi(): React.JSX.Element {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="space-y-2">
             <Label htmlFor="ai-profile-temperature">{t('profile.chatbotAiTemperature')}</Label>
-            <Input
+            <DecimalInput
               id="ai-profile-temperature"
-              type="number"
-              min={0}
-              max={2}
-              step={0.1}
               value={chatbotAiTemperature}
-              onChange={(e) => {
-                setChatbotAiTemperature(e.target.value);
-              }}
+              onChange={setChatbotAiTemperature}
               placeholder="0.7"
             />
             <p className="text-xs text-muted-foreground">
@@ -153,16 +148,10 @@ export function ProfileChatbotAi(): React.JSX.Element {
           </div>
           <div className="space-y-2">
             <Label htmlFor="ai-profile-top-p">{t('profile.chatbotAiTopP')}</Label>
-            <Input
+            <DecimalInput
               id="ai-profile-top-p"
-              type="number"
-              min={0}
-              max={1}
-              step={0.05}
               value={chatbotAiTopP}
-              onChange={(e) => {
-                setChatbotAiTopP(e.target.value);
-              }}
+              onChange={setChatbotAiTopP}
               placeholder="0.9"
             />
             <p className="text-xs text-muted-foreground">{t('settings.chatbotAiTopPHint')}</p>

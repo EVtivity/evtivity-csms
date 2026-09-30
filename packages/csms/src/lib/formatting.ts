@@ -118,3 +118,16 @@ export function formatFileSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${formatNumber(bytes / 1024, 1)} KB`;
   return `${formatNumber(bytes / (1024 * 1024), 1)} MB`;
 }
+
+/**
+ * Decimal separator used by the given locale, e.g. "," for "de" and "." for "en".
+ * Falls back to "." when the locale is not supported by Intl.
+ */
+export function getDecimalSeparator(locale: string): string {
+  try {
+    const parts = new Intl.NumberFormat(locale).formatToParts(1.1);
+    return parts.find((part) => part.type === 'decimal')?.value ?? '.';
+  } catch {
+    return '.';
+  }
+}

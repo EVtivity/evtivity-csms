@@ -12,6 +12,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -76,8 +77,9 @@ export function PanelForm({
   const [breakerRatingAmps, setBreakerRatingAmps] = useState(200);
   const [voltageV, setVoltageV] = useState(240);
   const [phases, setPhases] = useState(1);
-  const [safetyMarginKw, setSafetyMarginKw] = useState(0);
-  const [oversubscriptionRatio, setOversubscriptionRatio] = useState(1.0);
+  const [safetyMarginKw, setSafetyMarginKw] = useState('0');
+  const [oversubscriptionRatio, setOversubscriptionRatio] = useState('1');
+  const [hasSubmitted, setHasSubmitted] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -87,17 +89,18 @@ export function PanelForm({
         setBreakerRatingAmps(panel.breakerRatingAmps);
         setVoltageV(panel.voltageV);
         setPhases(panel.phases);
-        setSafetyMarginKw(panel.safetyMarginKw);
-        setOversubscriptionRatio(panel.oversubscriptionRatio);
+        setSafetyMarginKw(String(panel.safetyMarginKw));
+        setOversubscriptionRatio(String(panel.oversubscriptionRatio));
       } else {
         setName('');
         setParentPanelId(null);
         setBreakerRatingAmps(200);
         setVoltageV(240);
         setPhases(1);
-        setSafetyMarginKw(0);
-        setOversubscriptionRatio(1.0);
+        setSafetyMarginKw('0');
+        setOversubscriptionRatio('1');
       }
+      setHasSubmitted(false);
     }
   }, [open, panel]);
 
@@ -119,8 +122,8 @@ export function PanelForm({
         breakerRatingAmps,
         voltageV,
         phases,
-        safetyMarginKw,
-        oversubscriptionRatio,
+        safetyMarginKw: Number(safetyMarginKw),
+        oversubscriptionRatio: Number(oversubscriptionRatio),
       };
       if (isEdit) {
         return api.patch(`/v1/sites/${siteId}/panels/${panel.id}`, body);
@@ -133,8 +136,30 @@ export function PanelForm({
     },
   });
 
+  function getValidationErrors(): Record<string, string> {
+    const errors: Record<string, string> = {};
+    const margin = Number(safetyMarginKw);
+    if (safetyMarginKw.trim() === '') errors.safetyMarginKw = t('validation.required');
+    else if (!Number.isFinite(margin)) errors.safetyMarginKw = t('validation.invalidNumber');
+    const ratio = Number(oversubscriptionRatio);
+    if (oversubscriptionRatio.trim() === '') {
+      errors.oversubscriptionRatio = t('validation.required');
+    } else if (!Number.isFinite(ratio)) {
+      errors.oversubscriptionRatio = t('validation.invalidNumber');
+    } else if (ratio < 1) {
+      errors.oversubscriptionRatio = t('validation.min', { min: 1 });
+    } else if (ratio > 3) {
+      errors.oversubscriptionRatio = t('validation.max', { max: 3 });
+    }
+    return errors;
+  }
+
+  const errors = getValidationErrors();
+
   function handleSubmit(e: React.SyntheticEvent): void {
     e.preventDefault();
+    setHasSubmitted(true);
+    if (Object.keys(errors).length > 0) return;
     mutation.mutate();
   }
 
@@ -232,16 +257,15 @@ export function PanelForm({
             </div>
             <div className="grid gap-2">
               <Label htmlFor="safety-margin">{t('loadManagement.safetyMargin')}</Label>
-              <Input
+              <DecimalInput
                 id="safety-margin"
-                type="number"
-                min={0}
-                step={0.1}
                 value={safetyMarginKw}
-                onChange={(e) => {
-                  setSafetyMarginKw(Number(e.target.value));
-                }}
+                onChange={setSafetyMarginKw}
+                className={hasSubmitted && errors.safetyMarginKw ? 'border-destructive' : ''}
               />
+              {hasSubmitted && errors.safetyMarginKw && (
+                <p className="text-sm text-destructive">{errors.safetyMarginKw}</p>
+              )}
             </div>
           </div>
 
@@ -249,17 +273,15 @@ export function PanelForm({
             <Label htmlFor="oversubscription-ratio">
               {t('loadManagement.oversubscriptionRatio')}
             </Label>
-            <Input
+            <DecimalInput
               id="oversubscription-ratio"
-              type="number"
-              min={1.0}
-              max={3.0}
-              step={0.1}
               value={oversubscriptionRatio}
-              onChange={(e) => {
-                setOversubscriptionRatio(Number(e.target.value));
-              }}
+              onChange={setOversubscriptionRatio}
+              className={hasSubmitted && errors.oversubscriptionRatio ? 'border-destructive' : ''}
             />
+            {hasSubmitted && errors.oversubscriptionRatio && (
+              <p className="text-sm text-destructive">{errors.oversubscriptionRatio}</p>
+            )}
             <p className="text-xs text-muted-foreground">
               {t('loadManagement.oversubscriptionWarning')}
             </p>

@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { RotateCcw } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { RefundButton } from '@/components/refund-button';
-import { Input } from '@/components/ui/input';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -173,14 +173,12 @@ export function SessionPaymentTab({
       >
         <div className="space-y-2">
           <Label htmlFor="session-refund-amount">{t('sessions.refundAmount')}</Label>
-          <Input
+          <DecimalInput
             id="session-refund-amount"
-            type="number"
-            step="0.01"
-            min="0.01"
+            decimalScale={2}
             value={refundAmount}
-            onChange={(e) => {
-              setRefundAmount(e.target.value);
+            onChange={(value) => {
+              setRefundAmount(value);
               setRefundError('');
             }}
             className={refundError !== '' ? 'border-destructive' : ''}

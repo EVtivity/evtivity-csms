@@ -583,6 +583,64 @@ describe('Pricing routes', () => {
       expect(res.statusCode).toBe(400);
     });
 
+    it.each([
+      ['pricePerKwh', '0,49'],
+      ['pricePerKwh', 'abc'],
+      ['pricePerKwh', '-1'],
+      ['pricePerKwh', ''],
+      ['pricePerMinute', '1,5'],
+      ['pricePerSession', '1.000,00'],
+      ['idleFeePricePerMinute', '0.1.2'],
+      ['reservationFeePerMinute', '.'],
+      ['taxRate', '0,19'],
+      ['taxRate', '1.5'],
+      ['taxRate', '19'],
+    ])('returns 400 when %s is %j', async (field, value) => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/pricing-groups/${VALID_GROUP_ID}/tariffs`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { name: 'Test', [field]: value },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it.each([
+      ['pricePerKwh', '0.49'],
+      ['pricePerKwh', '0'],
+      ['pricePerKwh', '.5'],
+      ['taxRate', '0.19'],
+      ['taxRate', '1'],
+      ['taxRate', '1.0'],
+    ])('accepts %s of %j', async (field, value) => {
+      const created = {
+        id: VALID_TARIFF_ID,
+        pricingGroupId: VALID_GROUP_ID,
+        name: 'Test',
+        pricePerKwh: null,
+        pricePerMinute: null,
+        pricePerSession: null,
+        isActive: true,
+        idleFeePricePerMinute: null,
+        taxRate: null,
+        restrictions: null,
+        reservationFeePerMinute: null,
+        priority: 0,
+        isDefault: true,
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z',
+        [field]: value,
+      };
+      setupDbResults([], [], [created]);
+      const res = await app.inject({
+        method: 'POST',
+        url: `/pricing-groups/${VALID_GROUP_ID}/tariffs`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { name: 'Test', [field]: value },
+      });
+      expect(res.statusCode).toBe(201);
+    });
+
     it('returns 400 when id param is invalid', async () => {
       const res = await app.inject({
         method: 'POST',
@@ -821,6 +879,55 @@ describe('Pricing routes', () => {
       });
       expect(res.statusCode).toBe(404);
       expect(res.json().code).toBe('TARIFF_NOT_FOUND');
+    });
+
+    it('returns 400 when a price uses a comma as decimal separator', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/pricing-groups/${VALID_GROUP_ID}/tariffs/${VALID_TARIFF_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { pricePerKwh: '0,49' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns 400 when taxRate is above 1', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/pricing-groups/${VALID_GROUP_ID}/tariffs/${VALID_TARIFF_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { taxRate: '8.25' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('accepts null to clear a price', async () => {
+      const existing = {
+        id: VALID_TARIFF_ID,
+        pricingGroupId: VALID_GROUP_ID,
+        name: 'Old Rate',
+        pricePerKwh: '0.25',
+        pricePerMinute: null,
+        pricePerSession: null,
+        isActive: true,
+        idleFeePricePerMinute: null,
+        taxRate: null,
+        restrictions: null,
+        reservationFeePerMinute: null,
+        priority: 0,
+        isDefault: true,
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z',
+      };
+      setupDbResults([existing], [], [{ ...existing, pricePerKwh: null }]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/pricing-groups/${VALID_GROUP_ID}/tariffs/${VALID_TARIFF_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { pricePerKwh: null },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().pricePerKwh).toBeNull();
     });
 
     it('returns 400 when tariffId is invalid', async () => {

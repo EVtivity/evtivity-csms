@@ -10,6 +10,7 @@ import { SaveButton } from '@/components/save-button';
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
@@ -1106,32 +1107,22 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label htmlFor="google-maps-lat">{t('settings.googleMapsDefaultLat')}</Label>
-                    <Input
+                    <DecimalInput
                       id="google-maps-lat"
-                      type="number"
-                      step="0.0001"
-                      min={-90}
-                      max={90}
                       placeholder="39.8283"
                       value={googleMapsDefaultLat}
-                      onChange={(e) => {
-                        setGoogleMapsDefaultLat(e.target.value);
-                      }}
+                      onChange={setGoogleMapsDefaultLat}
+                      allowNegative
                     />
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="google-maps-lng">{t('settings.googleMapsDefaultLng')}</Label>
-                    <Input
+                    <DecimalInput
                       id="google-maps-lng"
-                      type="number"
-                      step="0.0001"
-                      min={-180}
-                      max={180}
                       placeholder="-98.5795"
                       value={googleMapsDefaultLng}
-                      onChange={(e) => {
-                        setGoogleMapsDefaultLng(e.target.value);
-                      }}
+                      onChange={setGoogleMapsDefaultLng}
+                      allowNegative
                     />
                   </div>
                 </div>

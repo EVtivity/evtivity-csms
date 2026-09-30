@@ -15,6 +15,7 @@ import { CancelButton } from '@/components/cancel-button';
 import { SaveButton } from '@/components/save-button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -220,6 +221,23 @@ export function TariffDetail(): React.JSX.Element {
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
     if (!name.trim()) errors.name = t('validation.required');
+    const prices = {
+      pricePerKwh,
+      pricePerMinute,
+      pricePerSession,
+      idleFeePricePerMinute,
+      reservationFeePerMinute,
+    };
+    for (const [field, value] of Object.entries(prices)) {
+      if (value.trim() !== '' && !Number.isFinite(Number(value))) {
+        errors[field] = t('validation.invalidNumber');
+      }
+    }
+    // Tax rate is a decimal fraction (0.19 = 19%), capped at 1 by the API.
+    if (taxRate.trim() !== '') {
+      if (!Number.isFinite(Number(taxRate))) errors.taxRate = t('validation.invalidNumber');
+      else if (Number(taxRate) > 1) errors.taxRate = t('validation.max', { max: 1 });
+    }
     return errors;
   }
 
@@ -341,70 +359,100 @@ export function TariffDetail(): React.JSX.Element {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-kwh">{t('pricing.pricePerKwh')}</Label>
-                <Input
+                <DecimalInput
                   id="edit-kwh"
                   value={pricePerKwh}
-                  onChange={(e) => {
-                    setPricePerKwh(e.target.value);
-                  }}
+                  onChange={setPricePerKwh}
                   placeholder="0.25"
+                  className={
+                    hasSubmitted && validationErrors.pricePerKwh ? 'border-destructive' : ''
+                  }
                 />
+                {hasSubmitted && validationErrors.pricePerKwh && (
+                  <p className="text-sm text-destructive">{validationErrors.pricePerKwh}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-min">{t('pricing.pricePerMinute')}</Label>
-                <Input
+                <DecimalInput
                   id="edit-min"
                   value={pricePerMinute}
-                  onChange={(e) => {
-                    setPricePerMinute(e.target.value);
-                  }}
+                  onChange={setPricePerMinute}
                   placeholder="0.05"
+                  className={
+                    hasSubmitted && validationErrors.pricePerMinute ? 'border-destructive' : ''
+                  }
                 />
+                {hasSubmitted && validationErrors.pricePerMinute && (
+                  <p className="text-sm text-destructive">{validationErrors.pricePerMinute}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-session">{t('pricing.pricePerSession')}</Label>
-                <Input
+                <DecimalInput
                   id="edit-session"
                   value={pricePerSession}
-                  onChange={(e) => {
-                    setPricePerSession(e.target.value);
-                  }}
+                  onChange={setPricePerSession}
                   placeholder="1.00"
+                  className={
+                    hasSubmitted && validationErrors.pricePerSession ? 'border-destructive' : ''
+                  }
                 />
+                {hasSubmitted && validationErrors.pricePerSession && (
+                  <p className="text-sm text-destructive">{validationErrors.pricePerSession}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-idle-fee">{t('pricing.idleFeePricePerMinute')}</Label>
-                <Input
+                <DecimalInput
                   id="edit-idle-fee"
                   value={idleFeePricePerMinute}
-                  onChange={(e) => {
-                    setIdleFeePricePerMinute(e.target.value);
-                  }}
+                  onChange={setIdleFeePricePerMinute}
                   placeholder="0.10"
+                  className={
+                    hasSubmitted && validationErrors.idleFeePricePerMinute
+                      ? 'border-destructive'
+                      : ''
+                  }
                 />
+                {hasSubmitted && validationErrors.idleFeePricePerMinute && (
+                  <p className="text-sm text-destructive">
+                    {validationErrors.idleFeePricePerMinute}
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-reservation-fee">{t('pricing.reservationFeePerMinute')}</Label>
-                <Input
+                <DecimalInput
                   id="edit-reservation-fee"
                   value={reservationFeePerMinute}
-                  onChange={(e) => {
-                    setReservationFeePerMinute(e.target.value);
-                  }}
+                  onChange={setReservationFeePerMinute}
                   placeholder="0.05"
+                  className={
+                    hasSubmitted && validationErrors.reservationFeePerMinute
+                      ? 'border-destructive'
+                      : ''
+                  }
                 />
+                {hasSubmitted && validationErrors.reservationFeePerMinute && (
+                  <p className="text-sm text-destructive">
+                    {validationErrors.reservationFeePerMinute}
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground">{t('pricing.reservationFeeHelper')}</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-tax-rate">{t('pricing.taxRate')}</Label>
-                <Input
+                <DecimalInput
                   id="edit-tax-rate"
                   value={taxRate}
-                  onChange={(e) => {
-                    setTaxRate(e.target.value);
-                  }}
+                  onChange={setTaxRate}
                   placeholder="0.08"
+                  className={hasSubmitted && validationErrors.taxRate ? 'border-destructive' : ''}
                 />
+                {hasSubmitted && validationErrors.taxRate && (
+                  <p className="text-sm text-destructive">{validationErrors.taxRate}</p>
+                )}
                 <p className="text-xs text-muted-foreground">{t('pricing.taxRateHelper')}</p>
               </div>
 
@@ -511,15 +559,10 @@ export function TariffDetail(): React.JSX.Element {
                 {restrictionType === 'energy' && (
                   <div className="space-y-2">
                     <Label htmlFor="edit-threshold">{t('pricing.thresholdKwh')}</Label>
-                    <Input
+                    <DecimalInput
                       id="edit-threshold"
-                      type="number"
-                      min="0"
-                      step="0.1"
                       value={thresholdKwh}
-                      onChange={(e) => {
-                        setThresholdKwh(e.target.value);
-                      }}
+                      onChange={setThresholdKwh}
                       placeholder="50"
                     />
                   </div>
