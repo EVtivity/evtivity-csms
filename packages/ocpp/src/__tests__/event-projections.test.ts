@@ -1787,6 +1787,158 @@ describe('Event projections', () => {
       expect(sqlCalls.some((c) => c.strings.join('?').includes('SET meter_start'))).toBe(false);
     });
 
+    it('uses the total energy register, not a per-phase one, for session energy', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [], // resolveActiveSessionId fallback
+        [], // INSERT meter_values (total)
+        [], // INSERT meter_values (L1)
+        [], // INSERT meter_values (L3)
+        [{ energy_delivered_wh: null, meter_start: 0 }], // SELECT prev energy
+        [], // UPDATE meter_start (set if NULL)
+        [], // UPDATE energy_delivered_wh (delta)
+      );
+
+      await eventBus.emit(
+        'ocpp.MeterValues',
+        makeDomainEvent('ocpp.MeterValues', 'CS-001', {
+          stationId: 'CS-001',
+          source: 'TransactionEvent',
+          meterValues: [
+            {
+              timestamp: '2024-01-01T00:30:00Z',
+              sampledValue: [
+                { measurand: 'Energy.Active.Import.Register', value: 9000 },
+                { measurand: 'Energy.Active.Import.Register', value: 3000, phase: 'L1' },
+                { measurand: 'Energy.Active.Import.Register', value: 3000, phase: 'L3' },
+              ],
+            },
+          ],
+        }),
+      );
+
+      const energyUpdates = sqlCalls.filter((c) =>
+        c.strings.join('?').includes('SET energy_delivered_wh'),
+      );
+      expect(energyUpdates).toHaveLength(1);
+      expect(energyUpdates[0]?.values[0]).toBe(9000);
+    });
+
+    it('sums per-phase energy registers when no total is reported', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [], // resolveActiveSessionId fallback
+        [], // INSERT meter_values (L1)
+        [], // INSERT meter_values (L2)
+        [], // INSERT meter_values (L3)
+        [{ energy_delivered_wh: null, meter_start: 0 }], // SELECT prev energy
+        [], // UPDATE meter_start (set if NULL)
+        [], // UPDATE energy_delivered_wh (delta)
+      );
+
+      await eventBus.emit(
+        'ocpp.MeterValues',
+        makeDomainEvent('ocpp.MeterValues', 'CS-001', {
+          stationId: 'CS-001',
+          source: 'TransactionEvent',
+          meterValues: [
+            {
+              timestamp: '2024-01-01T00:30:00Z',
+              sampledValue: [
+                { measurand: 'Energy.Active.Import.Register', value: 1000, phase: 'L1' },
+                { measurand: 'Energy.Active.Import.Register', value: 2000, phase: 'L2' },
+                { measurand: 'Energy.Active.Import.Register', value: 3000, phase: 'L3' },
+              ],
+            },
+          ],
+        }),
+      );
+
+      const energy = sqlCalls.find((c) => c.strings.join('?').includes('SET energy_delivered_wh'));
+      expect(energy?.values[0]).toBe(6000);
+    });
+
+    it('ignores Inlet energy readings for session energy', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [], // resolveActiveSessionId fallback
+        [], // INSERT meter_values
+      );
+
+      await eventBus.emit(
+        'ocpp.MeterValues',
+        makeDomainEvent('ocpp.MeterValues', 'CS-001', {
+          stationId: 'CS-001',
+          source: 'TransactionEvent',
+          meterValues: [
+            {
+              timestamp: '2024-01-01T00:30:00Z',
+              sampledValue: [
+                { measurand: 'Energy.Active.Import.Register', value: 5000000, location: 'Inlet' },
+              ],
+            },
+          ],
+        }),
+      );
+
+      expect(sqlCalls.some((c) => c.strings.join('?').includes('SET energy_delivered_wh'))).toBe(
+        false,
+      );
+    });
+
+    it('does not mark a session idle when one phase reads 0 W but the total is flowing', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [], // resolveActiveSessionId fallback
+        [], // INSERT meter_values (L1)
+        [], // INSERT meter_values (L2)
+        [], // INSERT meter_values (L3)
+      );
+
+      await eventBus.emit(
+        'ocpp.MeterValues',
+        makeDomainEvent('ocpp.MeterValues', 'CS-001', {
+          stationId: 'CS-001',
+          source: 'TransactionEvent',
+          meterValues: [
+            {
+              timestamp: '2024-01-01T00:30:00Z',
+              sampledValue: [
+                {
+                  measurand: 'Power.Active.Import',
+                  value: 7400,
+                  phase: 'L1',
+                  unitOfMeasure: { unit: 'W' },
+                },
+                {
+                  measurand: 'Power.Active.Import',
+                  value: 0,
+                  phase: 'L2',
+                  unitOfMeasure: { unit: 'W' },
+                },
+                {
+                  measurand: 'Power.Active.Import',
+                  value: 0,
+                  phase: 'L3',
+                  unitOfMeasure: { unit: 'W' },
+                },
+              ],
+            },
+          ],
+        }),
+      );
+
+      expect(sqlCalls.some((c) => c.strings.join('?').includes('SET idle_started_at = '))).toBe(
+        false,
+      );
+      const resumed = sqlCalls.find((c) => c.strings.join('?').includes('idle_started_at = NULL'));
+      expect(resumed).toBeDefined();
+    });
+
     it('recalculates cost for active sessions with tariff', async () => {
       await import('@evtivity/lib');
       mockCalculateSessionCost.mockClear();
