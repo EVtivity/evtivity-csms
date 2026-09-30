@@ -63,6 +63,7 @@ import {
   ALL_TEMPLATES_DIRS,
 } from './notification-dispatcher.js';
 import { TransactionBuffer } from './transaction-buffer.js';
+import { DEFAULT_MEASURAND, applyMultiplier, energyToWh } from './meter-units.js';
 
 const OCPP_STATUS_MAP: Record<string, string> = {
   // OCPP 2.1 connector statuses
@@ -2776,11 +2777,16 @@ export function registerProjections(
       if (sampledValues == null) continue;
 
       for (const sv of sampledValues) {
-        const measurand = getString(sv, 'measurand');
+        const measurand = getString(sv, 'measurand') ?? DEFAULT_MEASURAND;
         // 2.1: sv.unitOfMeasure.unit, 1.6: sv.unit
         const unitOfMeasure = sv.unitOfMeasure as Record<string, unknown> | undefined;
         const unit =
           unitOfMeasure != null ? getString(unitOfMeasure, 'unit') : getString(sv, 'unit');
+        // 2.1 only. Stored values carry the multiplier applied, so every reader of
+        // meter_values sees the value in `unit` without knowing the multiplier.
+        const multiplier =
+          typeof unitOfMeasure?.multiplier === 'number' ? unitOfMeasure.multiplier : 0;
+        const value = applyMultiplier(Number(sv.value), multiplier);
         const phase = getString(sv, 'phase');
         const location = getString(sv, 'location');
         const context = getString(sv, 'context');
@@ -2797,7 +2803,7 @@ export function registerProjections(
             ${sessionId},
             ${mvTimestamp},
             ${measurand},
-            ${sv.value as number},
+            ${value},
             ${unit},
             ${phase},
             ${location},
@@ -2822,7 +2828,7 @@ export function registerProjections(
               ${sessionId},
               ${mvTimestamp},
               ${measurand},
-              ${sv.value as number},
+              ${value},
               ${unit},
               ${phase},
               ${location},
@@ -2839,9 +2845,15 @@ export function registerProjections(
         // If meterStart is not yet set (OCPP 2.1 sessions), capture the first reading as meterStart.
         // Both transaction-scoped (TransactionEvent, 1.6 MeterValues with transactionId) and
         // standalone 2.1 MeterValues update energy if an active session exists on the EVSE.
-        if (measurand === 'Energy.Active.Import.Register') {
-          const meterValue = Number(sv.value);
-
+        // Session energy and meter_start are in Wh; a kWh register is converted.
+        const meterValue = measurand === DEFAULT_MEASURAND ? energyToWh(value, unit) : null;
+        if (measurand === DEFAULT_MEASURAND && meterValue == null) {
+          logger.warn(
+            { stationId, unit, value: sv.value },
+            'Energy register reading with an unsupported unit; session energy not updated',
+          );
+        }
+        if (meterValue != null) {
           // Capture previous energy and meter_start for flat-reading idle detection
           const prevRows = await sql`
             SELECT energy_delivered_wh, meter_start FROM charging_sessions
@@ -2854,7 +2866,7 @@ export function registerProjections(
           // Set meter_start from the first energy reading if not already set (OCPP 2.1 path)
           await sql`
             UPDATE charging_sessions
-            SET meter_start = ${meterValue}, updated_at = now()
+            SET meter_start = ${Math.round(meterValue)}, updated_at = now()
             WHERE station_id = ${stationUuid} AND status = 'active'
               AND (${evseUuid}::text IS NULL OR evse_id = ${evseUuid})
               AND meter_start IS NULL
@@ -2898,7 +2910,7 @@ export function registerProjections(
         // Power-based idle detection (fallback for OCPP 1.6 and stations without chargingState)
         // Only transaction-scoped readings should update session idle state.
         if (isTransactionScoped && measurand === 'Power.Active.Import') {
-          const powerValue = Number(sv.value);
+          const powerValue = value;
           if (powerValue === 0) {
             // No power flowing: mark idle start if not already set
             await sql`

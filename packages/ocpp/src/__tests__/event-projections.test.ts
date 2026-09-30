@@ -1682,6 +1682,111 @@ describe('Event projections', () => {
       expect(sqlCalls.length).toBeGreaterThanOrEqual(6);
     });
 
+    it('converts a kWh energy register to Wh for meter_start and session energy', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [], // resolveActiveSessionId fallback
+        [], // INSERT meter_values
+        [{ energy_delivered_wh: null, meter_start: null }], // SELECT prev energy
+        [], // UPDATE meter_start (set if NULL)
+        [], // UPDATE energy_delivered_wh (delta)
+      );
+
+      await eventBus.emit(
+        'ocpp.MeterValues',
+        makeDomainEvent('ocpp.MeterValues', 'CS-001', {
+          stationId: 'CS-001',
+          source: 'TransactionEvent',
+          meterValues: [
+            {
+              timestamp: '2024-01-01T00:30:00Z',
+              sampledValue: [
+                {
+                  measurand: 'Energy.Active.Import.Register',
+                  value: 2908.2475,
+                  unitOfMeasure: { unit: 'kWh' },
+                },
+              ],
+            },
+          ],
+        }),
+      );
+
+      const insert = sqlCalls.find((c) => c.strings.join('?').includes('INSERT INTO meter_values'));
+      expect(insert?.values).toContain(2908.2475);
+      const meterStart = sqlCalls.find((c) => c.strings.join('?').includes('SET meter_start'));
+      expect(meterStart?.values[0]).toBe(2908248);
+      const energy = sqlCalls.find((c) => c.strings.join('?').includes('SET energy_delivered_wh'));
+      expect(energy?.values[0]).toBe(2908247.5);
+    });
+
+    it('applies the OCPP 2.1 multiplier and defaults a missing measurand to the energy register', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [], // resolveActiveSessionId fallback
+        [], // INSERT meter_values
+        [{ energy_delivered_wh: null, meter_start: null }], // SELECT prev energy
+        [], // UPDATE meter_start (set if NULL)
+        [], // UPDATE energy_delivered_wh (delta)
+      );
+
+      await eventBus.emit(
+        'ocpp.MeterValues',
+        makeDomainEvent('ocpp.MeterValues', 'CS-001', {
+          stationId: 'CS-001',
+          source: 'TransactionEvent',
+          meterValues: [
+            {
+              timestamp: '2024-01-01T00:30:00Z',
+              sampledValue: [{ value: 5, unitOfMeasure: { unit: 'Wh', multiplier: 3 } }],
+            },
+          ],
+        }),
+      );
+
+      const insert = sqlCalls.find((c) => c.strings.join('?').includes('INSERT INTO meter_values'));
+      expect(insert?.values).toContain('Energy.Active.Import.Register');
+      expect(insert?.values).toContain(5000);
+      const energy = sqlCalls.find((c) => c.strings.join('?').includes('SET energy_delivered_wh'));
+      expect(energy?.values[0]).toBe(5000);
+    });
+
+    it('does not update session energy for an energy register in a non-energy unit', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [], // resolveActiveSessionId fallback
+        [], // INSERT meter_values
+      );
+
+      await eventBus.emit(
+        'ocpp.MeterValues',
+        makeDomainEvent('ocpp.MeterValues', 'CS-001', {
+          stationId: 'CS-001',
+          source: 'TransactionEvent',
+          meterValues: [
+            {
+              timestamp: '2024-01-01T00:30:00Z',
+              sampledValue: [
+                {
+                  measurand: 'Energy.Active.Import.Register',
+                  value: 11,
+                  unitOfMeasure: { unit: 'kW' },
+                },
+              ],
+            },
+          ],
+        }),
+      );
+
+      expect(sqlCalls.some((c) => c.strings.join('?').includes('SET energy_delivered_wh'))).toBe(
+        false,
+      );
+      expect(sqlCalls.some((c) => c.strings.join('?').includes('SET meter_start'))).toBe(false);
+    });
+
     it('recalculates cost for active sessions with tariff', async () => {
       await import('@evtivity/lib');
       mockCalculateSessionCost.mockClear();

@@ -755,7 +755,8 @@ export function portalSessionRoutes(app: FastifyInstance): void {
       const rows = await db
         .select({
           timestamp: meterValues.timestamp,
-          energyWh: sql<number>`(${meterValues.value}::double precision - ${meterStart})`,
+          // Energy registers are stored in the station's unit (Wh or kWh); meterStart is Wh.
+          energyWh: sql<number>`(CASE WHEN ${meterValues.unit} = 'kWh' THEN ${meterValues.value}::double precision * 1000 ELSE ${meterValues.value}::double precision END - ${meterStart})`,
         })
         .from(meterValues)
         .where(
