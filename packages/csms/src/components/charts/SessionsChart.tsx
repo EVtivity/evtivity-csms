@@ -7,6 +7,7 @@ import type { ApexOptions } from 'apexcharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useTranslation } from 'react-i18next';
+import { formatNumber } from '@/lib/formatting';
 import { useAuth } from '@/lib/auth';
 import { CHART_COLORS, getGridColor, formatChartDateLabel } from '@/lib/chart-theme';
 
@@ -41,7 +42,7 @@ export function SessionsChart({ data, actions, info }: SessionsChartProps): Reac
       yaxis: {
         title: { text: t('charts.sessions') },
         labels: {
-          formatter: (val: number) => String(Math.round(val)),
+          formatter: (val: number) => formatNumber(val, 0),
         },
       },
       colors: [CHART_COLORS.primary],

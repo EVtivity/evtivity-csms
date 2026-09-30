@@ -7,6 +7,7 @@ import type { ApexOptions } from 'apexcharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useTranslation } from 'react-i18next';
+import { formatNumber } from '@/lib/formatting';
 import { useAuth } from '@/lib/auth';
 import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
 import { Users } from 'lucide-react';
@@ -99,7 +100,7 @@ export function PopularTimesChart({ data, weeks = 4 }: PopularTimesChartProps): 
       yaxis: {
         max: Math.ceil(maxForDay * 1.1) || 1,
         labels: {
-          formatter: (val: number) => String(Math.round(val)),
+          formatter: (val: number) => formatNumber(val, 0),
         },
       },
       tooltip: {

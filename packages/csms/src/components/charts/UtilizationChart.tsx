@@ -7,6 +7,7 @@ import type { ApexOptions } from 'apexcharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useTranslation } from 'react-i18next';
+import { formatNumberUpTo } from '@/lib/formatting';
 import { useAuth } from '@/lib/auth';
 import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
 
@@ -21,7 +22,7 @@ export function UtilizationChart({
   actions,
   info,
 }: UtilizationChartProps): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isDark = useAuth((s) => s.theme) === 'dark';
   const options = useMemo<ApexOptions>(
     () => ({
@@ -51,7 +52,7 @@ export function UtilizationChart({
         type: 'category',
         categories: data.map((d) => d.site),
         labels: {
-          formatter: (val: string) => `${val}%`,
+          formatter: (val: string) => `${formatNumberUpTo(Number(val), 1)}%`,
         },
       },
       yaxis: {
@@ -61,12 +62,12 @@ export function UtilizationChart({
       },
       dataLabels: {
         enabled: true,
-        formatter: (val: number) => `${String(val)}%`,
+        formatter: (val: number) => `${formatNumberUpTo(val, 1)}%`,
         style: { fontSize: '12px', fontWeight: 600 },
       },
       tooltip: {
         y: {
-          formatter: (val: number) => `${String(val)}%`,
+          formatter: (val: number) => `${formatNumberUpTo(val, 1)}%`,
         },
       },
       colors: [CHART_COLORS.violet],
@@ -79,7 +80,7 @@ export function UtilizationChart({
         },
       ],
     }),
-    [isDark, data],
+    [isDark, data, i18n.language],
   );
 
   const series = useMemo(

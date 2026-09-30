@@ -466,7 +466,9 @@ export class OcppServer {
   }
 
   private async refreshIdleTimeout(): Promise<void> {
-    this.idleTimeoutMs = idleTimeoutForHeartbeat(await getHeartbeatIntervalSeconds());
+    const heartbeatSeconds = await getHeartbeatIntervalSeconds();
+    this.idleTimeoutMs = idleTimeoutForHeartbeat(heartbeatSeconds);
+    this.pingMonitor.setHeartbeatIntervalSeconds(heartbeatSeconds);
   }
 
   private async resolveStationDbId(stationId: string, session: SessionState): Promise<void> {

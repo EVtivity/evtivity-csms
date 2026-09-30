@@ -7,6 +7,7 @@ import type { ApexOptions } from 'apexcharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useTranslation } from 'react-i18next';
+import { formatNumber } from '@/lib/formatting';
 import { useAuth } from '@/lib/auth';
 import { PAYMENT_STATUS_COLORS } from '@/lib/chart-theme';
 
@@ -19,7 +20,7 @@ export function PaymentBreakdownChart({
   data,
   info,
 }: PaymentBreakdownChartProps): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isDark = useAuth((s) => s.theme) === 'dark';
   const labels = useMemo(
     () => data.map((d) => t(`payments.statuses.${d.status}`, d.status)),
@@ -42,6 +43,7 @@ export function PaymentBreakdownChart({
       labels,
       colors,
       legend: { position: 'bottom' },
+      dataLabels: { formatter: (val: number) => `${formatNumber(val, 1)}%` },
       responsive: [
         {
           breakpoint: 768,
@@ -51,7 +53,7 @@ export function PaymentBreakdownChart({
         },
       ],
     }),
-    [isDark, labels, colors],
+    [isDark, labels, colors, i18n.language],
   );
 
   return (

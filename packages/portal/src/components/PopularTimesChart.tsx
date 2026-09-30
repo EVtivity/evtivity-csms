@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import ReactApexChart from 'react-apexcharts';
 import type { ApexOptions } from 'apexcharts';
 import { useTranslation } from 'react-i18next';
+import { formatNumber } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
 import { Users } from 'lucide-react';
@@ -97,7 +98,7 @@ export function PopularTimesChart({ data, weeks = 4 }: PopularTimesChartProps): 
       yaxis: {
         max: Math.ceil(maxForDay * 1.1) || 1,
         labels: {
-          formatter: (val: number) => String(Math.round(val)),
+          formatter: (val: number) => formatNumber(val, 0),
         },
       },
       tooltip: {

@@ -18,7 +18,13 @@ export interface HealthSnapshot {
 const MAX_LATENCY_HISTORY = 1000;
 const PING_INTERVAL_MS = 30_000;
 const PONG_WAIT_MS = 5_000;
-const HEARTBEAT_TIMEOUT_MS = 900_000; // 15 minutes (3x default 300s interval)
+// Close a connection with no inbound message for this long. Three heartbeat
+// intervals, never less than 15 minutes (3x the default 300s interval).
+const MIN_HEARTBEAT_TIMEOUT_MS = 900_000;
+
+export function heartbeatTimeoutFor(heartbeatSeconds: number): number {
+  return Math.max(MIN_HEARTBEAT_TIMEOUT_MS, heartbeatSeconds * 3 * 1000);
+}
 
 export class PingMonitor {
   private readonly pingSentTimes = new Map<string, number>();
@@ -27,6 +33,7 @@ export class PingMonitor {
   private totalPongsReceived = 0;
   private readonly serverStartedAt = new Date();
   private cycleInterval: ReturnType<typeof setInterval> | null = null;
+  private heartbeatTimeoutMs = MIN_HEARTBEAT_TIMEOUT_MS;
   private pendingWriteTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -130,6 +137,10 @@ export class PingMonitor {
     }
   }
 
+  setHeartbeatIntervalSeconds(heartbeatSeconds: number): void {
+    this.heartbeatTimeoutMs = heartbeatTimeoutFor(heartbeatSeconds);
+  }
+
   private checkHeartbeats(): void {
     const now = Date.now();
     for (const stationId of this.connectionManager.allStationIds()) {
@@ -137,9 +148,9 @@ export class PingMonitor {
       if (conn == null) continue;
 
       const elapsed = now - conn.session.lastHeartbeat.getTime();
-      if (elapsed > HEARTBEAT_TIMEOUT_MS) {
+      if (elapsed > this.heartbeatTimeoutMs) {
         this.logger.warn(
-          { stationId, elapsedMs: elapsed, timeoutMs: HEARTBEAT_TIMEOUT_MS },
+          { stationId, elapsedMs: elapsed, timeoutMs: this.heartbeatTimeoutMs },
           'Heartbeat timeout, closing connection',
         );
         conn.ws.close(1000, 'Heartbeat timeout');
