@@ -9,6 +9,7 @@ import { BackButton } from '@/components/back-button';
 import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -123,6 +124,23 @@ export function TariffCreate(): React.JSX.Element {
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
     if (!name.trim()) errors.name = t('validation.required');
+    const prices = {
+      pricePerKwh,
+      pricePerMinute,
+      pricePerSession,
+      idleFeePricePerMinute,
+      reservationFeePerMinute,
+    };
+    for (const [field, value] of Object.entries(prices)) {
+      if (value.trim() !== '' && !Number.isFinite(Number(value))) {
+        errors[field] = t('validation.invalidNumber');
+      }
+    }
+    // Tax rate is a decimal fraction (0.19 = 19%), capped at 1 by the API.
+    if (taxRate.trim() !== '') {
+      if (!Number.isFinite(Number(taxRate))) errors.taxRate = t('validation.invalidNumber');
+      else if (Number(taxRate) > 1) errors.taxRate = t('validation.max', { max: 1 });
+    }
     return errors;
   }
 
@@ -191,70 +209,84 @@ export function TariffCreate(): React.JSX.Element {
             </div>
             <div className="space-y-2">
               <Label htmlFor="tariff-kwh">{t('pricing.pricePerKwh')}</Label>
-              <Input
+              <DecimalInput
                 id="tariff-kwh"
                 value={pricePerKwh}
-                onChange={(e) => {
-                  setPricePerKwh(e.target.value);
-                }}
+                onChange={setPricePerKwh}
                 placeholder="0.25"
+                className={hasSubmitted && errors.pricePerKwh ? 'border-destructive' : ''}
               />
+              {hasSubmitted && errors.pricePerKwh && (
+                <p className="text-sm text-destructive">{errors.pricePerKwh}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="tariff-min">{t('pricing.pricePerMinute')}</Label>
-              <Input
+              <DecimalInput
                 id="tariff-min"
                 value={pricePerMinute}
-                onChange={(e) => {
-                  setPricePerMinute(e.target.value);
-                }}
+                onChange={setPricePerMinute}
                 placeholder="0.05"
+                className={hasSubmitted && errors.pricePerMinute ? 'border-destructive' : ''}
               />
+              {hasSubmitted && errors.pricePerMinute && (
+                <p className="text-sm text-destructive">{errors.pricePerMinute}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="tariff-session">{t('pricing.pricePerSession')}</Label>
-              <Input
+              <DecimalInput
                 id="tariff-session"
                 value={pricePerSession}
-                onChange={(e) => {
-                  setPricePerSession(e.target.value);
-                }}
+                onChange={setPricePerSession}
                 placeholder="1.00"
+                className={hasSubmitted && errors.pricePerSession ? 'border-destructive' : ''}
               />
+              {hasSubmitted && errors.pricePerSession && (
+                <p className="text-sm text-destructive">{errors.pricePerSession}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="tariff-idle-fee">{t('pricing.idleFeePricePerMinute')}</Label>
-              <Input
+              <DecimalInput
                 id="tariff-idle-fee"
                 value={idleFeePricePerMinute}
-                onChange={(e) => {
-                  setIdleFeePricePerMinute(e.target.value);
-                }}
+                onChange={setIdleFeePricePerMinute}
                 placeholder="0.10"
+                className={hasSubmitted && errors.idleFeePricePerMinute ? 'border-destructive' : ''}
               />
+              {hasSubmitted && errors.idleFeePricePerMinute && (
+                <p className="text-sm text-destructive">{errors.idleFeePricePerMinute}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="tariff-reservation-fee">{t('pricing.reservationFeePerMinute')}</Label>
-              <Input
+              <DecimalInput
                 id="tariff-reservation-fee"
                 value={reservationFeePerMinute}
-                onChange={(e) => {
-                  setReservationFeePerMinute(e.target.value);
-                }}
+                onChange={setReservationFeePerMinute}
                 placeholder="0.05"
+                className={
+                  hasSubmitted && errors.reservationFeePerMinute ? 'border-destructive' : ''
+                }
               />
+              {hasSubmitted && errors.reservationFeePerMinute && (
+                <p className="text-sm text-destructive">{errors.reservationFeePerMinute}</p>
+              )}
               <p className="text-xs text-muted-foreground">{t('pricing.reservationFeeHelper')}</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="tariff-tax-rate">{t('pricing.taxRate')}</Label>
-              <Input
+              <DecimalInput
                 id="tariff-tax-rate"
                 value={taxRate}
-                onChange={(e) => {
-                  setTaxRate(e.target.value);
-                }}
+                onChange={setTaxRate}
                 placeholder="0.08"
+                className={hasSubmitted && errors.taxRate ? 'border-destructive' : ''}
               />
+              {hasSubmitted && errors.taxRate && (
+                <p className="text-sm text-destructive">{errors.taxRate}</p>
+              )}
               <p className="text-xs text-muted-foreground">{t('pricing.taxRateHelper')}</p>
             </div>
 
@@ -358,15 +390,10 @@ export function TariffCreate(): React.JSX.Element {
               {restrictionType === 'energy' && (
                 <div className="space-y-2">
                   <Label htmlFor="tariff-threshold">{t('pricing.thresholdKwh')}</Label>
-                  <Input
+                  <DecimalInput
                     id="tariff-threshold"
-                    type="number"
-                    min="0"
-                    step="0.1"
                     value={thresholdKwh}
-                    onChange={(e) => {
-                      setThresholdKwh(e.target.value);
-                    }}
+                    onChange={setThresholdKwh}
                     placeholder="50"
                   />
                 </div>

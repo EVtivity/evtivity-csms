@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { SaveButton } from '@/components/save-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
@@ -123,15 +124,7 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
 
           <div className="space-y-2">
             <Label htmlFor="recaptcha-threshold">{t('settings.recaptchaThreshold')}</Label>
-            <Input
-              id="recaptcha-threshold"
-              type="number"
-              step={0.1}
-              value={threshold}
-              onChange={(e) => {
-                setThreshold(e.target.value);
-              }}
-            />
+            <DecimalInput id="recaptcha-threshold" value={threshold} onChange={setThreshold} />
             <p className="text-xs text-muted-foreground">{t('settings.recaptchaThresholdHint')}</p>
           </div>
 

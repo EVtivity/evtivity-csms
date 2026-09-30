@@ -12,6 +12,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SaveButton } from '@/components/save-button';
@@ -37,18 +38,21 @@ export function UnmanagedLoadForm({
   const { t } = useTranslation();
 
   const [name, setName] = useState('');
-  const [estimatedDrawKw, setEstimatedDrawKw] = useState(0);
+  const [estimatedDrawKw, setEstimatedDrawKw] = useState('0');
 
   useEffect(() => {
     if (open) {
       setName('');
-      setEstimatedDrawKw(0);
+      setEstimatedDrawKw('0');
     }
   }, [open]);
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const body: Record<string, unknown> = { name, estimatedDrawKw };
+      const body: Record<string, unknown> = {
+        name,
+        estimatedDrawKw: Number(estimatedDrawKw),
+      };
       if (panelId != null) body['panelId'] = panelId;
       if (circuitId != null) body['circuitId'] = circuitId;
       return api.post(`/v1/sites/${siteId}/unmanaged-loads`, body);
@@ -90,15 +94,10 @@ export function UnmanagedLoadForm({
 
           <div className="grid gap-2">
             <Label htmlFor="estimated-draw">{t('loadManagement.estimatedDraw')}</Label>
-            <Input
+            <DecimalInput
               id="estimated-draw"
-              type="number"
-              min={0}
-              step={0.1}
               value={estimatedDrawKw}
-              onChange={(e) => {
-                setEstimatedDrawKw(Number(e.target.value));
-              }}
+              onChange={setEstimatedDrawKw}
               required
             />
           </div>

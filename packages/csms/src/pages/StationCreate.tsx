@@ -9,6 +9,7 @@ import { BackButton } from '@/components/back-button';
 import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
 import { GoogleMapPicker } from '@/components/GoogleMapPicker';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
@@ -233,24 +234,22 @@ export function StationCreate(): React.JSX.Element {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="latitude">{t('stations.latitude')}</Label>
-                <Input
+                <DecimalInput
                   id="latitude"
                   value={latitude}
-                  onChange={(e) => {
-                    setLatitude(e.target.value);
-                  }}
+                  onChange={setLatitude}
                   placeholder="43.338131"
+                  allowNegative
                 />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="longitude">{t('stations.longitude')}</Label>
-                <Input
+                <DecimalInput
                   id="longitude"
                   value={longitude}
-                  onChange={(e) => {
-                    setLongitude(e.target.value);
-                  }}
+                  onChange={setLongitude}
                   placeholder="-73.695849"
+                  allowNegative
                 />
               </div>
             </div>

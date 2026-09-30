@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -302,14 +303,11 @@ export function SiteElectricityRatesTab({ siteId }: { siteId: string }): React.J
             </div>
             <div className="grid gap-2">
               <Label htmlFor="rate-value">{t('sites.ratePerKwh')}</Label>
-              <Input
+              <DecimalInput
                 id="rate-value"
-                type="number"
-                step="0.000001"
-                min="0"
                 value={form.ratePerKwh}
-                onChange={(e) => {
-                  setForm((f) => ({ ...f, ratePerKwh: e.target.value }));
+                onChange={(value) => {
+                  setForm((f) => ({ ...f, ratePerKwh: value }));
                 }}
                 required
               />

@@ -10,6 +10,7 @@ import { GoogleMapPicker } from '@/components/GoogleMapPicker';
 import { HoursOfOperationField } from '@/components/site/HoursOfOperationField';
 import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -172,28 +173,22 @@ export function SiteCreate(): React.JSX.Element {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="site-latitude">{t('sites.latitude')}</Label>
-                <Input
+                <DecimalInput
                   id="site-latitude"
-                  type="number"
-                  step="any"
                   placeholder="e.g. 40.7128"
                   value={latitude}
-                  onChange={(e) => {
-                    setLatitude(e.target.value);
-                  }}
+                  onChange={setLatitude}
+                  allowNegative
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="site-longitude">{t('sites.longitude')}</Label>
-                <Input
+                <DecimalInput
                   id="site-longitude"
-                  type="number"
-                  step="any"
                   placeholder="e.g. -74.0060"
                   value={longitude}
-                  onChange={(e) => {
-                    setLongitude(e.target.value);
-                  }}
+                  onChange={setLongitude}
+                  allowNegative
                 />
               </div>
             </div>
