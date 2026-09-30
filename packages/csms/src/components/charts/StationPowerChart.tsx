@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth';
 import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
+import { formatNumber } from '@/lib/formatting';
 
 interface MeterValueSeries {
   measurand: string;
@@ -76,13 +77,13 @@ export function StationPowerChart({ data }: StationPowerChartProps): React.JSX.E
         min: 0,
         title: { text: t('charts.kW') },
         labels: {
-          formatter: (val: number) => val.toFixed(1),
+          formatter: (val: number) => formatNumber(val, 1),
         },
       },
       tooltip: {
         x: { format: 'MMM dd HH:mm' },
         y: {
-          formatter: (val: number) => t('charts.powerValue', { value: val.toFixed(2) }),
+          formatter: (val: number) => t('charts.powerValue', { value: formatNumber(val, 2) }),
         },
       },
       colors: [CHART_COLORS.primary],

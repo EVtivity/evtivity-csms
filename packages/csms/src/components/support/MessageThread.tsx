@@ -12,6 +12,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/timezone';
+import { formatNumber } from '@/lib/formatting';
 
 interface Attachment {
   id: number;
@@ -359,7 +360,9 @@ function MessageBubble({
             >
               <Download className="h-3 w-3" />
               {att.fileName}
-              <span className="text-muted-foreground">({(att.fileSize / 1024).toFixed(0)} KB)</span>
+              <span className="text-muted-foreground">
+                ({formatNumber(att.fileSize / 1024, 0)} KB)
+              </span>
             </button>
           ))}
         </div>

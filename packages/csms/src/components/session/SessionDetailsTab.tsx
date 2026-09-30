@@ -21,6 +21,7 @@ import {
 import { formatDateTime } from '@/lib/timezone';
 import { eventTypeVariant } from '@/lib/status-variants';
 import { LoadingLogo } from '@/components/loading-logo';
+import { formatNumber } from '@/lib/formatting';
 
 interface TransactionEvent {
   id: number;
@@ -185,14 +186,14 @@ export function SessionDetailsTab({
             </Row>
             <Row label={t('sessions.energy')}>
               {session.energyDeliveredWh != null
-                ? `${(session.energyDeliveredWh / 1000).toFixed(2)} kWh`
+                ? `${formatNumber(session.energyDeliveredWh / 1000, 2)} kWh`
                 : 'n/a'}
             </Row>
             {session.co2AvoidedKg != null && (
               <Row label={t('sessions.co2AvoidedLabel')}>
                 <span className="inline-flex items-center gap-1 text-success">
                   <Leaf className="h-4 w-4" />
-                  {parseFloat(String(session.co2AvoidedKg)).toFixed(2)} kg CO₂ avoided
+                  {formatNumber(parseFloat(String(session.co2AvoidedKg)), 2)} kg CO₂ avoided
                 </span>
               </Row>
             )}

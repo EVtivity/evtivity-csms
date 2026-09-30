@@ -13,7 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { formatDuration } from '@/lib/formatting';
+import { formatDuration, formatNumber, formatCents } from '@/lib/formatting';
 import { formatDateTime } from '@/lib/timezone';
 import { sessionStatusVariant } from '@/lib/status-variants';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
@@ -94,7 +94,7 @@ export interface Session {
 function formatCost(session: Session): string {
   const cents = session.status === 'completed' ? session.finalCostCents : session.currentCostCents;
   if (cents == null) return '-';
-  return `${(cents / 100).toFixed(2)} ${session.currency}`;
+  return formatCents(cents, session.currency);
 }
 
 interface SessionsTableProps {
@@ -245,7 +245,7 @@ export const SessionsTable = memo(function SessionsTable({
                   <TableCell className="text-right">
                     {session.energyDeliveredWh != null
                       ? t('sessions.energyKwh', {
-                          value: (session.energyDeliveredWh / 1000).toFixed(2),
+                          value: formatNumber(session.energyDeliveredWh / 1000, 2),
                         })
                       : '-'}
                   </TableCell>
@@ -254,7 +254,7 @@ export const SessionsTable = memo(function SessionsTable({
                   <TableCell className="text-right">
                     {session.co2AvoidedKg != null ? (
                       <span className="text-success">
-                        {parseFloat(String(session.co2AvoidedKg)).toFixed(2)} kg
+                        {formatNumber(parseFloat(String(session.co2AvoidedKg)), 2)} kg
                       </span>
                     ) : (
                       'n/a'

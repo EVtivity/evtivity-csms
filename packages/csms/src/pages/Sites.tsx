@@ -39,6 +39,7 @@ import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { api } from '@/lib/api';
 import { TableSkeleton } from '@/components/TableSkeleton';
 import { formatDate, useUserTimezone } from '@/lib/timezone';
+import { formatNumber } from '@/lib/formatting';
 
 interface Site {
   id: string;
@@ -399,7 +400,9 @@ export function Sites(): React.JSX.Element {
                   <TableCell>{site.stationCount}</TableCell>
                   <TableCell>
                     <span className="inline-flex items-center gap-1.5">
-                      <span className="font-medium">{Number(site.totalDrawKw).toFixed(1)} kW</span>
+                      <span className="font-medium">
+                        {formatNumber(Number(site.totalDrawKw), 1)} kW
+                      </span>
                       {site.maxPowerKw != null && Number(site.maxPowerKw) > 0 && (
                         <span className="text-muted-foreground">
                           / {Number(site.maxPowerKw)} kW

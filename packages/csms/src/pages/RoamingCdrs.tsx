@@ -17,6 +17,7 @@ import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { cdrPushStatusVariant } from '@/lib/status-variants';
 import { LoadingLogo } from '@/components/loading-logo';
+import { formatNumber } from '@/lib/formatting';
 
 interface CdrEntry {
   id: number;
@@ -77,9 +78,9 @@ export function RoamingCdrs(): React.JSX.Element {
                   <TableRow key={cdr.id}>
                     <TableCell className="font-medium">{cdr.partnerName ?? '-'}</TableCell>
                     <TableCell className="whitespace-nowrap">{cdr.ocpiCdrId}</TableCell>
-                    <TableCell>{parseFloat(cdr.totalEnergy).toFixed(2)} kWh</TableCell>
+                    <TableCell>{formatNumber(parseFloat(cdr.totalEnergy), 2)} kWh</TableCell>
                     <TableCell>
-                      {parseFloat(cdr.totalCost).toFixed(2)} {cdr.currency}
+                      {formatNumber(parseFloat(cdr.totalCost), 2)} {cdr.currency}
                     </TableCell>
                     <TableCell>
                       <Badge variant={cdr.isCredit ? 'destructive' : 'default'}>

@@ -7,7 +7,14 @@ import { useQuery } from '@tanstack/react-query';
 import { PageHeader } from '@/components/PageHeader';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
-import { formatCents, formatEnergy, formatDuration, formatDistance, formatDate } from '@/lib/utils';
+import {
+  formatCents,
+  formatEnergy,
+  formatDuration,
+  formatDistance,
+  formatDate,
+  formatNumber,
+} from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
 import { useAuth } from '@/lib/auth';
 
@@ -140,7 +147,7 @@ export function MonthlyStatement(): React.JSX.Element {
                       </td>
                       {hasCo2Data && (
                         <td className="hidden md:table-cell px-2 py-2 text-right text-success">
-                          {s.co2AvoidedKg != null ? `${s.co2AvoidedKg.toFixed(2)} kg` : 'n/a'}
+                          {s.co2AvoidedKg != null ? `${formatNumber(s.co2AvoidedKg, 2)} kg` : 'n/a'}
                         </td>
                       )}
                       <td className="hidden md:table-cell px-2 py-2 text-right text-xs whitespace-nowrap">
@@ -165,7 +172,7 @@ export function MonthlyStatement(): React.JSX.Element {
                     {hasCo2Data && (
                       <td className="hidden md:table-cell px-2 py-2 text-right text-success">
                         {data.totals.totalCo2AvoidedKg != null
-                          ? `${data.totals.totalCo2AvoidedKg.toFixed(2)} kg`
+                          ? `${formatNumber(data.totals.totalCo2AvoidedKg, 2)} kg`
                           : 'n/a'}
                       </td>
                     )}

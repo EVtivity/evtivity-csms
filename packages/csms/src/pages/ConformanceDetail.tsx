@@ -33,6 +33,7 @@ import { FilterPopover } from '@/components/FilterBar';
 import { BackButton } from '@/components/back-button';
 import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { api } from '@/lib/api';
+import { formatNumber } from '@/lib/formatting';
 
 interface OcttRun {
   id: number;
@@ -146,7 +147,7 @@ export function ConformanceDetail(): React.JSX.Element {
   const run = detail?.run;
   if (run == null) return <p>{t('conformance.notFound')}</p>;
 
-  const rate = run.totalTests > 0 ? ((run.passed / run.totalTests) * 100).toFixed(1) : '0';
+  const rate = run.totalTests > 0 ? formatNumber((run.passed / run.totalTests) * 100, 1) : '0';
   const modules = [...new Set(detail?.results.map((r) => r.module) ?? [])].sort();
 
   return (
@@ -201,7 +202,7 @@ export function ConformanceDetail(): React.JSX.Element {
           <CardContent className="p-4 text-center">
             <p className="text-xs text-muted-foreground">{t('conformance.duration')}</p>
             <p className="text-2xl font-bold">
-              {run.durationMs != null ? `${(run.durationMs / 1000).toFixed(1)}s` : 'n/a'}
+              {run.durationMs != null ? `${formatNumber(run.durationMs / 1000, 1)}s` : 'n/a'}
             </p>
           </CardContent>
         </Card>
@@ -262,7 +263,7 @@ export function ConformanceDetail(): React.JSX.Element {
                                   </TableCell>
                                   <TableCell className="text-right">
                                     {m.total > 0
-                                      ? `${((m.passed / m.total) * 100).toFixed(0)}%`
+                                      ? `${formatNumber((m.passed / m.total) * 100, 0)}%`
                                       : 'n/a'}
                                   </TableCell>
                                 </TableRow>

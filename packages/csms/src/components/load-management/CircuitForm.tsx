@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { SaveButton } from '@/components/save-button';
 import { api } from '@/lib/api';
+import { formatNumber } from '@/lib/formatting';
 
 interface CircuitStatus {
   id: string;
@@ -164,7 +165,7 @@ export function CircuitForm({
             <p className="text-sm text-muted-foreground">
               {t('loadManagement.maxContinuousPower')}
             </p>
-            <p className="text-lg font-semibold">{maxContinuousKw.toFixed(1)} kW</p>
+            <p className="text-lg font-semibold">{formatNumber(maxContinuousKw, 1)} kW</p>
             <p className="text-xs text-muted-foreground">
               {t('loadManagement.necRule')} ({panelVoltageV}V, {panelPhases}ph)
             </p>

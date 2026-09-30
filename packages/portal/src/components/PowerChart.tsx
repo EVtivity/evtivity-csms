@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
+import { formatNumber } from '@/lib/utils';
 
 interface PowerDataPoint {
   timestamp: string;
@@ -78,8 +79,8 @@ export function PowerChart({ data, height = 160 }: PowerChartProps): React.JSX.E
   }
 
   function formatPower(w: number): string {
-    if (w >= 1000) return `${(w / 1000).toFixed(0)}kW`;
-    return `${w.toFixed(0)}W`;
+    if (w >= 1000) return `${formatNumber(w / 1000, 0)}kW`;
+    return `${formatNumber(w, 0)}W`;
   }
 
   return (

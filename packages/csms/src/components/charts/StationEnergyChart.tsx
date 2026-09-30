@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth';
 import { CHART_COLORS, getGridColor, formatChartDateLabel } from '@/lib/chart-theme';
+import { formatNumber } from '@/lib/formatting';
 
 interface StationEnergyChartProps {
   data: { date: string; energyWh: number }[];
@@ -32,7 +33,7 @@ export function StationEnergyChart({ data, actions }: StationEnergyChartProps): 
         bar: { borderRadius: 4, columnWidth: '60%' },
       },
       dataLabels: {
-        formatter: (val: number) => (val / 1000).toFixed(1),
+        formatter: (val: number) => formatNumber(val / 1000, 1),
       },
       xaxis: {
         categories: data.map((d) => d.date),
@@ -43,12 +44,13 @@ export function StationEnergyChart({ data, actions }: StationEnergyChartProps): 
       yaxis: {
         title: { text: t('charts.kWh') },
         labels: {
-          formatter: (val: number) => (val / 1000).toFixed(1),
+          formatter: (val: number) => formatNumber(val / 1000, 1),
         },
       },
       tooltip: {
         y: {
-          formatter: (val: number) => t('charts.energyValue', { value: (val / 1000).toFixed(2) }),
+          formatter: (val: number) =>
+            t('charts.energyValue', { value: formatNumber(val / 1000, 2) }),
         },
       },
       colors: [CHART_COLORS.primary],

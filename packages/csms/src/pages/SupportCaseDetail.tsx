@@ -31,7 +31,7 @@ import { CaseInfoSidebar } from '@/components/support/CaseInfoSidebar';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
-import { formatCents } from '@/lib/formatting';
+import { formatCents, formatNumber } from '@/lib/formatting';
 import { LoadingLogo } from '@/components/loading-logo';
 
 interface Attachment {
@@ -361,7 +361,7 @@ export function SupportCaseDetail(): React.JSX.Element {
                                     s.driverName,
                                     s.status,
                                     s.finalCostCents != null
-                                      ? `${(s.finalCostCents / 100).toFixed(2)} ${s.currency.toUpperCase()}`
+                                      ? formatCents(s.finalCostCents, s.currency)
                                       : null,
                                   ]
                                     .filter(Boolean)
@@ -396,7 +396,7 @@ export function SupportCaseDetail(): React.JSX.Element {
                           const refunded = payment?.refundedAmountCents ?? 0;
                           const remaining = captured - refunded;
                           const currency = payment?.currency.toUpperCase();
-                          const fmt = (cents: number) => (cents / 100).toFixed(2);
+                          const fmt = (cents: number) => formatNumber(cents / 100, 2);
                           return (
                             <TableRow key={session.id}>
                               <TableCell>

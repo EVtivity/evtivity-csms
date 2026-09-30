@@ -6,7 +6,7 @@ import { motion, useMotionValue } from 'motion/react';
 import { MessageSquare, Plug, Zap, Circle, Plus, Minus, Power, Shield } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { formatEnergy } from '@/lib/formatting';
+import { formatEnergy, formatNumber } from '@/lib/formatting';
 import { STATUS_COLORS, SVG_COLORS } from '@/lib/chart-theme';
 import { stationCardConnectorStatusVariant } from '@/lib/status-variants';
 
@@ -454,7 +454,7 @@ export function StationCard({
                     />
                   </div>
                   <p className="text-xs text-muted-foreground text-center">
-                    {currentDrawKw.toFixed(1)} / {allocatedLimitKw.toFixed(1)} kW
+                    {formatNumber(currentDrawKw, 1)} / {formatNumber(allocatedLimitKw, 1)} kW
                   </p>
                 </div>
               )}
@@ -541,7 +541,7 @@ export function StationCard({
                     )}
                   >
                     <Zap className="h-2.5 w-2.5" />
-                    <span>{currentDrawKw.toFixed(1)} kW</span>
+                    <span>{formatNumber(currentDrawKw, 1)} kW</span>
                   </div>
                 )}
               </div>

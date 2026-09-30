@@ -25,6 +25,7 @@ import { PowerBar } from './PowerBar';
 import { PanelTree } from './PanelTree';
 import { PanelForm } from './PanelForm';
 import { LoadingLogo } from '@/components/loading-logo';
+import { formatNumber } from '@/lib/formatting';
 
 interface CircuitStation {
   id: string;
@@ -280,13 +281,13 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
                       <Badge variant="outline">{entry.strategy}</Badge>
                     </div>
                     <div className="flex gap-4">
-                      <span>Draw: {entry.totalDrawKw.toFixed(1)} kW</span>
-                      <span>Available: {entry.availableKw.toFixed(1)} kW</span>
-                      <span>Limit: {entry.siteLimitKw.toFixed(1)} kW</span>
+                      <span>Draw: {formatNumber(entry.totalDrawKw, 1)} kW</span>
+                      <span>Available: {formatNumber(entry.availableKw, 1)} kW</span>
+                      <span>Limit: {formatNumber(entry.siteLimitKw, 1)} kW</span>
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {(entry.allocations as Array<{ stationId: string; allocatedKw: number }>)
-                        .map((a) => `${a.stationId}: ${a.allocatedKw.toFixed(1)} kW`)
+                        .map((a) => `${a.stationId}: ${formatNumber(a.allocatedKw, 1)} kW`)
                         .join(' | ')}
                     </div>
                   </div>

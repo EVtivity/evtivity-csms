@@ -28,7 +28,7 @@ import { useToast } from '@/components/ui/toast';
 import { SessionCharts } from '@/components/SessionCharts';
 import { ReportIssue } from '@/components/ReportIssue';
 import { api } from '@/lib/api';
-import { formatCents, formatEnergy, formatDate, formatDistance } from '@/lib/utils';
+import { formatCents, formatEnergy, formatDate, formatDistance, formatNumber } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { useDriverTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -366,7 +366,7 @@ export function SessionDetail(): React.JSX.Element {
           <CardContent className="flex items-center gap-3 p-4">
             <Leaf className="h-5 w-5 text-success shrink-0" />
             <p className="text-sm font-medium text-success">
-              {session.co2AvoidedKg.toFixed(2)} kg {t('sessions.co2Avoided')}
+              {formatNumber(session.co2AvoidedKg, 2)} kg {t('sessions.co2Avoided')}
             </p>
           </CardContent>
         </Card>
@@ -458,7 +458,7 @@ export function SessionDetail(): React.JSX.Element {
           {session.batteryPercent != null && (
             <Row
               label={t('sessionDetail.battery')}
-              value={`${session.batteryPercent.toFixed(0)}%`}
+              value={`${formatNumber(session.batteryPercent, 0)}%`}
             />
           )}
           <Row
