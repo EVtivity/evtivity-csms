@@ -27,6 +27,11 @@ const schema = z.object({
   OCPP_TRUSTED_PROXY_CIDRS: z.string().default(''),
   OCPP_MAX_CONNECTIONS_PER_IP: z.coerce.number().int().positive().default(2500),
   OCPP_MAX_MESSAGES_PER_IP_PER_SECOND: z.coerce.number().int().positive().default(5000),
+  OCPP_IDLE_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(5 * 60 * 1000),
 });
 
 export type OcppConfig = z.infer<typeof schema>;
