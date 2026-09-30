@@ -14,6 +14,7 @@ import {
   formatDuration,
   formatDistance,
   formatMonthYear,
+  formatNumber,
 } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -171,9 +172,9 @@ export function Activity(): React.JSX.Element {
     centerText = formatEnergy(totalEnergyWh);
   } else if (distanceUnit === 'km') {
     const totalKm = totalMiles * 1.60934;
-    centerText = `${totalKm.toFixed(0)} ${t('activity.km')}`;
+    centerText = `${formatNumber(totalKm, 0)} ${t('activity.km')}`;
   } else {
-    centerText = `${totalMiles.toFixed(0)} ${t('activity.miles')}`;
+    centerText = `${formatNumber(totalMiles, 0)} ${t('activity.miles')}`;
   }
 
   // Per-month value for the trend bars. Energy and distance scale together, so
@@ -289,7 +290,7 @@ export function Activity(): React.JSX.Element {
             <Leaf className="h-5 w-5 text-success" />
             <span className="text-sm font-medium text-success">
               {t('activity.co2AvoidedMessage', {
-                amount: summary.totalCo2AvoidedKg.toFixed(1),
+                amount: formatNumber(summary.totalCo2AvoidedKg, 1),
               })}
             </span>
           </CardContent>

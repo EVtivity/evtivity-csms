@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { Plus, Minus, Clock } from 'lucide-react';
-import { currencySymbol } from '@/lib/utils';
+import { formatNumber, formatPrice } from '@/lib/utils';
 
 export interface TariffRestrictionsLite {
   timeRange?: { startTime: string; endTime: string };
@@ -62,7 +62,6 @@ function formatRestrictions(
 export function PricingDisplay({ pricing }: { pricing: PricingInfo }): React.JSX.Element {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
-  const sym = currencySymbol(pricing.currency);
   const perKwh = pricing.pricePerKwh != null ? Number(pricing.pricePerKwh) : 0;
   const perMin = pricing.pricePerMinute != null ? Number(pricing.pricePerMinute) : 0;
   const perSession = pricing.pricePerSession != null ? Number(pricing.pricePerSession) : 0;
@@ -87,18 +86,21 @@ export function PricingDisplay({ pricing }: { pricing: PricingInfo }): React.JSX
 
   const primaryPrice =
     perKwh > 0
-      ? `${sym}${perKwh.toFixed(2)}/${t('charger.unitKwh')}`
+      ? `${formatPrice(perKwh, pricing.currency)}/${t('charger.unitKwh')}`
       : perMin > 0
-        ? `${sym}${perMin.toFixed(2)}/${t('charger.unitMin')}`
-        : `${sym}${perSession.toFixed(2)}`;
+        ? `${formatPrice(perMin, pricing.currency)}/${t('charger.unitMin')}`
+        : formatPrice(perSession, pricing.currency);
 
   const breakdownLines: string[] = [];
-  if (perKwh > 0) breakdownLines.push(`${sym}${perKwh.toFixed(2)} ${t('charger.perKwh')}`);
-  if (perMin > 0) breakdownLines.push(`${sym}${perMin.toFixed(2)} ${t('charger.perMin')}`);
+  if (perKwh > 0)
+    breakdownLines.push(`${formatPrice(perKwh, pricing.currency)} ${t('charger.perKwh')}`);
+  if (perMin > 0)
+    breakdownLines.push(`${formatPrice(perMin, pricing.currency)} ${t('charger.perMin')}`);
   if (perSession > 0)
-    breakdownLines.push(`${sym}${perSession.toFixed(2)} ${t('charger.sessionFee')}`);
-  if (idleFee > 0) breakdownLines.push(`${sym}${idleFee.toFixed(2)} ${t('charger.idleFee')}`);
-  if (taxRate > 0) breakdownLines.push(`${(taxRate * 100).toFixed(0)}% ${t('charger.tax')}`);
+    breakdownLines.push(`${formatPrice(perSession, pricing.currency)} ${t('charger.sessionFee')}`);
+  if (idleFee > 0)
+    breakdownLines.push(`${formatPrice(idleFee, pricing.currency)} ${t('charger.idleFee')}`);
+  if (taxRate > 0) breakdownLines.push(`${formatNumber(taxRate * 100, 0)}% ${t('charger.tax')}`);
 
   return (
     <div className="space-y-2">

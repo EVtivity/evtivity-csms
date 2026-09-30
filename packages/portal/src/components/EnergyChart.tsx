@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
+import { formatNumber } from '@/lib/utils';
 
 interface EnergyDataPoint {
   timestamp: string;
@@ -82,9 +83,9 @@ export function EnergyChart({ data, height = 160 }: EnergyChartProps): React.JSX
   }
 
   function formatEnergy(kwh: number): string {
-    if (kwh >= 10) return `${kwh.toFixed(0)} kWh`;
-    if (kwh >= 1) return `${kwh.toFixed(1)} kWh`;
-    return `${kwh.toFixed(2)} kWh`;
+    if (kwh >= 10) return `${formatNumber(kwh, 0)} kWh`;
+    if (kwh >= 1) return `${formatNumber(kwh, 1)} kWh`;
+    return `${formatNumber(kwh, 2)} kWh`;
   }
 
   return (

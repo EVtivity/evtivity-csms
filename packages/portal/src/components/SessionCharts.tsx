@@ -7,6 +7,7 @@ import { Battery } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PowerChart } from '@/components/PowerChart';
 import { EnergyChart } from '@/components/EnergyChart';
+import { formatNumber } from '@/lib/utils';
 
 interface PowerDataPoint {
   timestamp: string;
@@ -28,15 +29,15 @@ interface SessionChartsProps {
 
 function formatPower(watts: number | null | undefined): string {
   if (watts == null) return 'n/a';
-  if (watts >= 1000) return `${(watts / 1000).toFixed(1)} kW`;
-  return `${watts.toFixed(0)} W`;
+  if (watts >= 1000) return `${formatNumber(watts / 1000, 1)} kW`;
+  return `${formatNumber(watts, 0)} W`;
 }
 
 function formatEnergyValue(wh: string | null | undefined): string {
   if (wh == null) return 'n/a';
   const value = parseFloat(wh);
   if (isNaN(value)) return 'n/a';
-  return `${(value / 1000).toFixed(2)} kWh`;
+  return `${formatNumber(value / 1000, 2)} kWh`;
 }
 
 export function SessionCharts({
@@ -112,7 +113,7 @@ export function SessionCharts({
             {batteryPercent != null && (
               <span className="flex items-center gap-1 text-sm font-bold text-muted-foreground">
                 <Battery className="h-4 w-4" />
-                {batteryPercent.toFixed(0)}%
+                {formatNumber(batteryPercent, 0)}%
               </span>
             )}
             <span className="text-sm font-bold text-primary">
