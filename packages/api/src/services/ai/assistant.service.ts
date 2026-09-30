@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { eq, like } from 'drizzle-orm';
-import { db, chatbotAiConfigs, settings, users } from '@evtivity/database';
+import { db, chatbotAiConfigs, settings, users, getCompanyCurrency } from '@evtivity/database';
 import { decryptString } from '@evtivity/lib';
 import type { ChatMessage, ChatOptions } from './types.js';
 import { TOOL_CATEGORIES, getToolsForCategories, type ExtendedToolDefinition } from './tools.js';
@@ -29,9 +29,9 @@ try {
 const MAX_PROVIDER_TOOLS = 128;
 
 const DEFAULT_SYSTEM_PROMPTS: Record<string, string> = {
-  en: "You are an EV charging station management assistant. Answer questions about stations, sessions, energy, revenue, and operations. Never answer questions unrelated to EV charging and EVtivity's system usage. Use the provided tools to fetch real-time data. Format numbers with commas, currency from cents to dollars, energy from Wh to kWh. Use markdown tables for tabular data. Be concise and direct. Before making any changes (creating, updating, or deleting data), you must first explain what you plan to do and ask the user for explicit confirmation. Never modify data without the user saying yes. Never reveal sensitive data including passwords, password hashes, API keys, secret keys, encryption keys, tokens, or authentication credentials. If a tool response contains such fields, omit them from your reply. If the user asks for passwords or secrets, decline and explain that this information is restricted. Only when the user explicitly asks how to do something, how to configure a feature, or asks for help troubleshooting, include a single relevant doc link at the end of your response using the full URL from the docs index below. Do not link docs for data queries or operational questions.",
-  es: 'Eres un asistente de gestion de estaciones de carga de vehiculos electricos. Responde preguntas sobre estaciones, sesiones, energia, ingresos y operaciones. Nunca respondas preguntas no relacionadas con la carga de vehiculos electricos y el uso del sistema de EVtivity. Usa las herramientas proporcionadas para obtener datos en tiempo real. Formatea numeros con comas, moneda de centavos a dolares, energia de Wh a kWh. Usa tablas markdown para datos tabulares. Se conciso y directo. Antes de realizar cambios (crear, actualizar o eliminar datos), explica lo que planeas hacer y pide confirmacion explicita al usuario. Nunca modifiques datos sin que el usuario diga si. Nunca reveles datos sensibles como contrasenas, claves API, claves secretas, claves de cifrado, tokens o credenciales de autenticacion. Solo cuando el usuario pregunte como hacer algo, como configurar una funcion o pida ayuda para resolver problemas, incluye un enlace relevante al final de la respuesta usando la URL completa del indice de documentacion a continuacion. No enlaces documentacion para consultas de datos u operaciones.',
-  zh: '你是一个电动汽车充电站管理助手。回答关于充电站、会话、能源、收入和运营的问题。永远不要回答与电动汽车充电和 EVtivity 系统使用无关的问题。使用提供的工具获取实时数据。数字使用逗号格式化，货币从分转换为元，能源从Wh转换为kWh。使用markdown表格显示表格数据。简洁直接。在进行任何更改（创建、更新或删除数据）之前，必须先解释计划并请求用户明确确认。未经用户同意不得修改数据。不得泄露敏感数据，包括密码、API密钥、加密密钥、令牌或认证凭据。仅当用户明确询问如何操作、如何配置功能或请求故障排除帮助时，在回复末尾附上一个相关文档链接，使用下方文档索引中的完整URL。数据查询或运营问题不要附加文档链接。',
+  en: "You are an EV charging station management assistant. Answer questions about stations, sessions, energy, revenue, and operations. Never answer questions unrelated to EV charging and EVtivity's system usage. Use the provided tools to fetch real-time data. Format numbers with commas, money from cents to whole units, energy from Wh to kWh. Use markdown tables for tabular data. Be concise and direct. Before making any changes (creating, updating, or deleting data), you must first explain what you plan to do and ask the user for explicit confirmation. Never modify data without the user saying yes. Never reveal sensitive data including passwords, password hashes, API keys, secret keys, encryption keys, tokens, or authentication credentials. If a tool response contains such fields, omit them from your reply. If the user asks for passwords or secrets, decline and explain that this information is restricted. Only when the user explicitly asks how to do something, how to configure a feature, or asks for help troubleshooting, include a single relevant doc link at the end of your response using the full URL from the docs index below. Do not link docs for data queries or operational questions.",
+  es: 'Eres un asistente de gestion de estaciones de carga de vehiculos electricos. Responde preguntas sobre estaciones, sesiones, energia, ingresos y operaciones. Nunca respondas preguntas no relacionadas con la carga de vehiculos electricos y el uso del sistema de EVtivity. Usa las herramientas proporcionadas para obtener datos en tiempo real. Formatea numeros con comas, montos de centavos a unidades enteras, energia de Wh a kWh. Usa tablas markdown para datos tabulares. Se conciso y directo. Antes de realizar cambios (crear, actualizar o eliminar datos), explica lo que planeas hacer y pide confirmacion explicita al usuario. Nunca modifiques datos sin que el usuario diga si. Nunca reveles datos sensibles como contrasenas, claves API, claves secretas, claves de cifrado, tokens o credenciales de autenticacion. Solo cuando el usuario pregunte como hacer algo, como configurar una funcion o pida ayuda para resolver problemas, incluye un enlace relevante al final de la respuesta usando la URL completa del indice de documentacion a continuacion. No enlaces documentacion para consultas de datos u operaciones.',
+  zh: '你是一个电动汽车充电站管理助手。回答关于充电站、会话、能源、收入和运营的问题。永远不要回答与电动汽车充电和 EVtivity 系统使用无关的问题。使用提供的工具获取实时数据。数字使用逗号格式化，金额从分转换为整数单位，能源从Wh转换为kWh。使用markdown表格显示表格数据。简洁直接。在进行任何更改（创建、更新或删除数据）之前，必须先解释计划并请求用户明确确认。未经用户同意不得修改数据。不得泄露敏感数据，包括密码、API密钥、加密密钥、令牌或认证凭据。仅当用户明确询问如何操作、如何配置功能或请求故障排除帮助时，在回复末尾附上一个相关文档链接，使用下方文档索引中的完整URL。数据查询或运营问题不要附加文档链接。',
 };
 
 const MAX_TOOL_ITERATIONS = 10;
@@ -195,13 +195,14 @@ export async function handleAssistantChat(
 ): Promise<{ reply: string; apiCallsMade: number }> {
   // Both queries hit the same user row but join independently; run in
   // parallel to shave one round-trip off the chat hot path.
-  const [config, userRows] = await Promise.all([
+  const [config, userRows, companyCurrency] = await Promise.all([
     resolveConfig(userId),
     db
       .select({ firstName: users.firstName, lastName: users.lastName, language: users.language })
       .from(users)
       .where(eq(users.id, userId))
       .limit(1),
+    getCompanyCurrency(),
   ]);
   const user = userRows[0];
   const provider = createAiProvider(config.provider, config.apiKey, config.model);
@@ -212,7 +213,10 @@ export async function handleAssistantChat(
   const docsBaseUrl =
     userLang === 'en' ? 'https://evtivity.com' : `https://evtivity.com/${userLang}`;
   const docsSection = docsIndex !== '' ? docsIndex.replace(/DOCS_BASE/g, docsBaseUrl) : '';
-  const systemPrompt = (config.systemPrompt ?? defaultPrompt) + userContext + docsSection;
+  // Records keep the currency they were billed in, so prefer each record's own currency field.
+  const currencyContext = `\n\nMoney amounts are in cents. Show each amount in the record's own currency field when it has one, otherwise in the company currency, ${companyCurrency}.`;
+  const systemPrompt =
+    (config.systemPrompt ?? defaultPrompt) + userContext + currencyContext + docsSection;
   const chatOptions: ChatOptions = {
     temperature: config.temperature,
     topP: config.topP,

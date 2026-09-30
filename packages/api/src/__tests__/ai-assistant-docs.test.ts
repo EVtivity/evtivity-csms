@@ -66,6 +66,7 @@ vi.mock('@evtivity/database', () => ({
   chatbotAiConfigs: TABLES.chatbotAiConfigs,
   settings: TABLES.settings,
   users: TABLES.users,
+  getCompanyCurrency: vi.fn(() => Promise.resolve('USD')),
 }));
 vi.mock('drizzle-orm', () => ({ eq: vi.fn(), like: vi.fn() }));
 vi.mock('@evtivity/lib', () => ({ decryptString: vi.fn((v: string) => `decrypted:${v}`) }));

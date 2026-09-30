@@ -22,7 +22,7 @@
   {
     "path": "/docs/csms/access-logs",
     "title": "Access Logs",
-    "description": "View the audit trail of operator and driver actions across the CSMS."
+    "description": "View the audit trail of CSMS user, driver portal, API client, and background worker activity."
   },
   {
     "path": "/docs/csms/ai-assistant",
@@ -32,7 +32,7 @@
   {
     "path": "/docs/csms/certificates",
     "title": "Certificates",
-    "description": "Manage ISO 15118 Plug and Charge certificates, SP3/mTLS station certificates, and PKI provider integration."
+    "description": "Manage ISO 15118 Plug and Charge certificates, Mutual TLS station certificates, and PKI provider integration."
   },
   {
     "path": "/docs/csms/conformance-testing",
@@ -80,6 +80,11 @@
     "description": "Manage offline authorization tokens stored on each charging station."
   },
   {
+    "path": "/docs/csms/maintenance",
+    "title": "Maintenance Mode",
+    "description": "Schedule per-site maintenance windows that mark stations unavailable, stop sessions gracefully, and cancel overlapping reservations."
+  },
+  {
     "path": "/docs/csms/nevi-compliance",
     "title": "NEVI Compliance",
     "description": "Track station uptime against federal NEVI requirements for compliance reporting."
@@ -97,7 +102,7 @@
   {
     "path": "/docs/csms/reports",
     "title": "Reports",
-    "description": "Generate sustainability reports with carbon footprint tracking, CO2 avoided calculations, and CSV export."
+    "description": "Generate sustainability reports with carbon footprint tracking, CO₂ avoided calculations, and CSV export."
   },
   {
     "path": "/docs/csms/reservations",
@@ -117,7 +122,7 @@
   {
     "path": "/docs/csms/settings",
     "title": "Settings",
-    "description": "Configure company info, marketing, content, notifications, sustainability, payments, integrations, security, API keys, firmware, station configurations, smart charging, AI, and conformance testing."
+    "description": "Configure company info, marketing, content, notifications, sustainability, payments, integrations, security, API keys, firmware, station configurations, smart charging, and AI."
   },
   {
     "path": "/docs/csms/sites",
@@ -132,7 +137,17 @@
   {
     "path": "/docs/csms/station-configurations",
     "title": "Station Configurations",
-    "description": "Create configuration templates and push OCPP variable settings to groups of charging stations."
+    "description": "Industry standards for charger configuration, OCPP variable model differences, and how EVtivity CSMS pushes configuration to fleets."
+  },
+  {
+    "path": "/docs/csms/station-configurations-ocpp16",
+    "title": "OCPP 1.6 Configuration Keys",
+    "description": "Standard configuration keys defined by OCPP 1.6, organized by purpose, with type and reboot semantics."
+  },
+  {
+    "path": "/docs/csms/station-configurations-ocpp21",
+    "title": "OCPP 2.1 Components & Variables",
+    "description": "Standardized components and variables defined by OCPP 2.1, organized by functional block, with read/write semantics and per-EVSE scope."
   },
   {
     "path": "/docs/csms/station-images",
@@ -162,7 +177,7 @@
   {
     "path": "/docs/deployment/aws",
     "title": "AWS Deployment",
-    "description": "Deploy EVtivity to AWS using CDK (ECS Fargate) or Kubernetes (Helm chart)."
+    "description": "Deploy EVtivity to AWS using CDK (ECS Fargate)."
   },
   {
     "path": "/docs/deployment/docker",
@@ -187,7 +202,7 @@
   {
     "path": "/docs/getting-started/installation",
     "title": "Installation",
-    "description": "Set up EVtivity CSMS for local development."
+    "description": "Set up EVtivity CSMS for local development with hot reload."
   },
   {
     "path": "/docs/getting-started/introduction",
@@ -205,9 +220,24 @@
     "description": "Run EVtivity CSMS locally with Docker in under 5 minutes."
   },
   {
+    "path": "/docs/guides/audit-logs",
+    "title": "Audit Logs",
+    "description": "Per-entity history of every operator-initiated change across sites, stations, drivers, fleets, users, support cases, certificates, settings, and more."
+  },
+  {
+    "path": "/docs/guides/ev-charging-behaviors",
+    "title": "EV Charging Behaviors",
+    "description": "Vehicle-specific quirks that surface in OCPP states. When a station reports SuspendedEV, prolonged EVConnected, or unusual stop reasons, the cause is usually on the vehicle side."
+  },
+  {
     "path": "/docs/guides/notifications",
     "title": "Notifications",
     "description": "Event categories, delivery channels, templates, and configuration for EVtivity notifications."
+  },
+  {
+    "path": "/docs/guides/ocpp-testing",
+    "title": "OCPP Testing",
+    "description": "Run conformance tests, send OCPP commands, and verify station configurations from the CSMS."
   },
   {
     "path": "/docs/guides/portal-setup",
@@ -215,9 +245,29 @@
     "description": "Driver-facing portal features, QR code charging, guest flow, and account management."
   },
   {
+    "path": "/docs/guides/reservations",
+    "title": "Charging Reservations",
+    "description": "How EV charger reservations work across the industry, what OCPP standardizes, and how EVtivity implements scheduled and immediate reservations."
+  },
+  {
     "path": "/docs/guides/session-monitoring",
     "title": "Session Monitoring",
     "description": "Session lifecycle, idle detection, cost calculation, and real-time dashboard in EVtivity CSMS."
+  },
+  {
+    "path": "/docs/guides/smart-charging",
+    "title": "Smart Charging",
+    "description": "Push power-limit profiles to stations in bulk or one at a time, and understand how OCPP charging schedules actually take effect."
+  },
+  {
+    "path": "/docs/guides/station-display-messages",
+    "title": "Station Display Messages",
+    "description": "How EV chargers display messages today, what the OCPP 2.1 spec defines, and how EVtivity drives the on-charger screen."
+  },
+  {
+    "path": "/docs/guides/station-lifecycle",
+    "title": "Charging Session Lifecycle",
+    "description": "How OCPP 1.6 and OCPP 2.1 stations move through their connector states from plug-in to unplug."
   },
   {
     "path": "/docs/guides/station-management",
@@ -225,9 +275,29 @@
     "description": "How stations connect, report status, and are configured in EVtivity CSMS."
   },
   {
+    "path": "/docs/guides/station-onboarding",
+    "title": "Station Onboarding",
+    "description": "Register a new charging station in EVtivity CSMS and bring it online for the first time."
+  },
+  {
+    "path": "/docs/guides/troubleshooting",
+    "title": "Troubleshooting",
+    "description": "Common operator pain points encountered during day-to-day CSMS operation and how to resolve them."
+  },
+  {
     "path": "/docs/guides/user-management",
     "title": "User Management",
     "description": "Roles, permissions, site access control, and API keys in EVtivity CSMS."
+  },
+  {
+    "path": "/docs/guides/using-rfid-tokens",
+    "title": "Using RFID Tokens",
+    "description": "Register manufacturer-supplied RFID cards in EVtivity and use them to start charging at your stations."
+  },
+  {
+    "path": "/docs/guides/white-labeling",
+    "title": "White Labeling",
+    "description": "Rebrand the EVtivity CSMS and driver portal with your network's identity - logo, colors, domain, content, and notifications."
   },
   {
     "path": "/docs/integrations/energy-management",
@@ -245,9 +315,129 @@
     "description": "Outgoing webhooks, incoming Stripe webhooks, SSE real-time streams, and internal pub/sub channels."
   },
   {
+    "path": "/docs/mobile-app/api-reference",
+    "title": "API Reference",
+    "description": "The EVtivity CSMS APIs the mobile app uses, broken down by functionality, with links to the full API reference."
+  },
+  {
+    "path": "/docs/mobile-app/app-store",
+    "title": "Submit to the App Stores",
+    "description": "Ship the EVtivity mobile app to the Apple App Store and Google Play."
+  },
+  {
+    "path": "/docs/mobile-app/build",
+    "title": "Build",
+    "description": "Development, preview, and production builds of the EVtivity mobile app with EAS or locally."
+  },
+  {
+    "path": "/docs/mobile-app/configure",
+    "title": "Configure Expo",
+    "description": "How app.config.ts, the brand system, environment variables, identifiers, and plugins shape the EVtivity mobile app."
+  },
+  {
+    "path": "/docs/mobile-app/develop",
+    "title": "Making Changes",
+    "description": "Project structure, conventions, and how to add a screen to the EVtivity mobile app."
+  },
+  {
+    "path": "/docs/mobile-app/guide/account-and-settings",
+    "title": "Account and Settings",
+    "description": "Manage your profile, security, notification channels, language, units, and legal information."
+  },
+  {
+    "path": "/docs/mobile-app/guide/activity-and-statements",
+    "title": "Activity and Statements",
+    "description": "Review past sessions, see your charging trends, and open monthly statements."
+  },
+  {
+    "path": "/docs/mobile-app/guide/favorites",
+    "title": "Favorites",
+    "description": "Save the stations you use most and reach them in one tap."
+  },
+  {
+    "path": "/docs/mobile-app/guide/find-a-charger",
+    "title": "Find a Charger",
+    "description": "Search for a station, find chargers near you, or scan a QR code on the charger."
+  },
+  {
+    "path": "/docs/mobile-app/guide/getting-started",
+    "title": "Getting Started",
+    "description": "Create an account, sign in, recover your password, and secure the app with MFA and biometrics."
+  },
+  {
+    "path": "/docs/mobile-app/guide/overview",
+    "title": "End User Guide",
+    "description": "How drivers use the EVtivity mobile app to find chargers, start sessions, pay, and manage their account."
+  },
+  {
+    "path": "/docs/mobile-app/guide/payments",
+    "title": "Payments",
+    "description": "Add a card, set a default, and manage your saved payment methods."
+  },
+  {
+    "path": "/docs/mobile-app/guide/reservations",
+    "title": "Reservations",
+    "description": "Reserve a connector now or for later, view your reservations, and cancel one."
+  },
+  {
+    "path": "/docs/mobile-app/guide/rfid-cards",
+    "title": "RFID Cards",
+    "description": "Add a tap-to-charge RFID card and activate or deactivate it."
+  },
+  {
+    "path": "/docs/mobile-app/guide/start-and-stop-a-charge",
+    "title": "Start and Stop a Charge",
+    "description": "Pick a connector, start a session, watch it live, and stop when you are done."
+  },
+  {
+    "path": "/docs/mobile-app/guide/station-watch",
+    "title": "Station Watch",
+    "description": "Get notified when a busy or offline station has a free connector."
+  },
+  {
+    "path": "/docs/mobile-app/guide/support",
+    "title": "Support",
+    "description": "Read your notifications and open a support case to chat with the operator."
+  },
+  {
+    "path": "/docs/mobile-app/guide/vehicles",
+    "title": "Vehicles",
+    "description": "Add your electric vehicles and assign them to sessions for accurate range estimates."
+  },
+  {
+    "path": "/docs/mobile-app/overview",
+    "title": "Mobile App",
+    "description": "The open-source EVtivity driver mobile app built with Expo and React Native on top of the EVtivity CSMS."
+  },
+  {
+    "path": "/docs/mobile-app/push",
+    "title": "Push Notifications",
+    "description": "Wire APNs and FCM so the EVtivity mobile app delivers native push notifications."
+  },
+  {
+    "path": "/docs/mobile-app/real-device",
+    "title": "Run on a Real Device",
+    "description": "Load the EVtivity mobile app on a physical Android phone, an iPhone, and the iOS Simulator."
+  },
+  {
+    "path": "/docs/mobile-app/setup",
+    "title": "Mobile App Setup",
+    "description": "Prerequisites, install, environment, and running the EVtivity mobile app for the first time."
+  },
+  {
+    "path": "/docs/mobile-app/testing",
+    "title": "Testing",
+    "description": "Typecheck, lint, and on-device verification for the EVtivity mobile app."
+  },
+  {
+    "path": "/docs/mobile-app/white-labeling",
+    "title": "White-labeling",
+    "description": "Run the EVtivity mobile app as your own branded driver app, and ship many brands from one codebase."
+  },
+  {
     "path": "/docs/portal/account",
     "title": "Account Settings",
-    "description": "Manage your personal info, security, notification preferences, RFID cards, vehicles, and favorites."
+    "description": "Manage your personal info, security, notification preferences, and favorites."
   },
   {
     "path": "/docs/portal/activity",
@@ -293,6 +483,11 @@
     "path": "/docs/portal/sessions",
     "title": "Activity and Sessions",
     "description": "View your monthly charging dashboard, session history, monthly statements, and session detail receipts."
+  },
+  {
+    "path": "/docs/portal/station-watches",
+    "title": "Station Watch",
+    "description": "Get notified when a busy or offline station has a free connector."
   },
   {
     "path": "/docs/portal/support-cases",

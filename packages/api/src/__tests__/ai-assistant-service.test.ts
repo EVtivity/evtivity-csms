@@ -53,6 +53,7 @@ vi.mock('@evtivity/database', () => ({
   chatbotAiConfigs: TABLES.chatbotAiConfigs,
   settings: TABLES.settings,
   users: TABLES.users,
+  getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -208,6 +209,8 @@ describe('handleAssistantChat - config resolution', () => {
     expect(tools).toEqual([]);
     expect(systemPrompt).toContain('custom prompt');
     expect(systemPrompt).toContain('Jane Doe');
+    expect(systemPrompt).toContain("in the record's own currency field");
+    expect(systemPrompt).toContain('the company currency, EUR.');
     expect(chatOptions).toEqual({ temperature: 0.4, topP: 0.8, topK: 30 });
   });
 
@@ -253,6 +256,8 @@ describe('handleAssistantChat - config resolution', () => {
     const systemPrompt = executeToolLoop.mock.calls[0]![4] as string;
     expect(systemPrompt).toContain('asistente de gestion');
     expect(systemPrompt).toContain('Sam');
+    expect(systemPrompt).toContain('unidades enteras');
+    expect(systemPrompt).not.toContain('dolares');
   });
 
   it('throws AI_NOT_CONFIGURED when system AI is disabled', async () => {
