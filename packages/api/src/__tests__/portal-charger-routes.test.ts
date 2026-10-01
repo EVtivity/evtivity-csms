@@ -703,6 +703,35 @@ describe('Portal charger routes - handler logic', () => {
       expect(response.json().status).toBe('stopping');
       expect(response.json().chargingSessionId).toBe(VALID_SESSION_ID);
     });
+
+    it('lets the OCPP server translate the stop for an OCPP 1.6 station', async () => {
+      const { sendOcppCommandAndWait } = await import('../lib/ocpp-command.js');
+      const sendMock = vi.mocked(sendOcppCommandAndWait);
+      sendMock.mockClear();
+      setupDbResults([
+        {
+          id: VALID_SESSION_ID,
+          transactionId: '4',
+          stationOcppId: 'CS-016',
+          ocppProtocol: 'ocpp1.6',
+        },
+      ]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/portal/chargers/sessions/${VALID_SESSION_ID}/stop`,
+        headers: { authorization: `Bearer ${driverToken}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      // Without a version the command is translated to RemoteStopTransaction
+      // with an integer transactionId; with it, a 1.6 station got the 2.1
+      // RequestStopTransaction and answered CALLERROR.
+      expect(sendMock).toHaveBeenCalledWith('CS-016', 'RequestStopTransaction', {
+        transactionId: '4',
+      });
+      expect(sendMock.mock.calls[0]).toHaveLength(3);
+    });
   });
 
   describe('GET /v1/portal/reservations', () => {

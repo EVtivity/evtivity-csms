@@ -698,16 +698,11 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       // Send RequestStartTransaction and wait for the station to ack so we can
       // surface failures (offline station, dropped command) before navigating
       // the guest into the session-monitoring page.
-      const cmdResult = await sendOcppCommandAndWait(
-        station.stationId,
-        'RequestStartTransaction',
-        {
-          evseId: params.evseId,
-          remoteStartId: Math.floor(Math.random() * 2_147_483_647),
-          idToken: { idToken: sessionToken, type: 'Central' },
-        },
-        station.ocppProtocol ?? undefined,
-      );
+      const cmdResult = await sendOcppCommandAndWait(station.stationId, 'RequestStartTransaction', {
+        evseId: params.evseId,
+        remoteStartId: Math.floor(Math.random() * 2_147_483_647),
+        idToken: { idToken: sessionToken, type: 'Central' },
+      });
 
       const cmdStatus = cmdResult.response?.['status'] as string | undefined;
       const stationRejected = cmdResult.error == null && cmdStatus !== 'Accepted';
