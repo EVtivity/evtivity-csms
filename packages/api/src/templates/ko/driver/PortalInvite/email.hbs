@@ -1,0 +1,28 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if firstName}}{{firstName}}님, 안녕하세요.{{else}}안녕하세요.{{/if}}</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{companyName}} 드라이버 계정이 준비되었습니다</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{companyName}}에서 드라이버 포털에 초대했습니다. 비밀번호를 설정하면 로그인하여 충전 세션, 토큰, 결제 수단, 청구서를 확인할 수 있습니다. 이 링크는 {{expiresInDays}}일 후에 만료됩니다.</p>
+<table
+  cellpadding='0'
+  cellspacing='0'
+  border='0'
+  width='100%'
+  style='border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;'
+>
+  <tr>
+    <td align='center' style='padding:32px 0;'>
+      <a
+        href='{{activateUrl}}'
+        style="display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:16px;"
+      >비밀번호 설정</a>
+    </td>
+  </tr>
+</table>
+<p
+  style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>이 이메일을 예상하지 못했다면 무시하셔도 됩니다.</p>

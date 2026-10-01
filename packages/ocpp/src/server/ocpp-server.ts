@@ -16,7 +16,7 @@ import { MessageCorrelator } from './message-correlator.js';
 import { MessageRouter } from './message-router.js';
 import { GracefulShutdown } from './graceful-shutdown.js';
 import { PingMonitor } from './ping-monitor.js';
-import { parseTrustedProxies, resolveClientIp } from './client-ip.js';
+import { isTlsConnection, parseTrustedProxies, resolveClientIp } from './client-ip.js';
 import { MiddlewarePipeline } from './middleware/pipeline.js';
 import type { HandlerContext } from './middleware/pipeline.js';
 import { logMiddleware } from './middleware/log.js';
@@ -318,7 +318,13 @@ export class OcppServer {
       }
     };
 
-    authenticateConnection(req, this.logger, this.sql, remoteIp === 'unknown' ? null : remoteIp)
+    authenticateConnection(
+      req,
+      this.logger,
+      this.sql,
+      remoteIp === 'unknown' ? null : remoteIp,
+      isTlsConnection(req, this.trustedProxies),
+    )
       .then((auth) => {
         releasePending();
         if (auth.authenticated && auth.stationId != null) {

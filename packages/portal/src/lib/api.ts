@@ -57,6 +57,7 @@ const PUBLIC_PATHS = new Set([
   '/register',
   '/forgot-password',
   '/reset-password',
+  '/activate',
   '/privacy-policy',
   '/terms-of-service',
 ]);

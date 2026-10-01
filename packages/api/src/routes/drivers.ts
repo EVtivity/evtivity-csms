@@ -31,6 +31,7 @@ import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
 import * as tokenService from '../services/token.service.js';
+import { getPortalAccess, inviteDriverToPortal } from '../services/driver-portal-access.service.js';
 import { OCPP_TOKEN_TYPES } from './tokens.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { isValidTimezone } from '@evtivity/lib';
@@ -52,6 +53,30 @@ const driverItem = z
     isActive: z.boolean().describe('Whether the driver account is enabled'),
     createdAt: z.coerce.date().describe('Timestamp when the driver was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the driver was last updated'),
+  })
+  .passthrough();
+
+const portalAccessItem = z
+  .object({
+    status: z
+      .enum(['active', 'invited', 'none'])
+      .describe(
+        'Driver portal access: active (has a password), invited (open invitation), or none',
+      ),
+    inviteExpiresAt: z.coerce
+      .date()
+      .nullable()
+      .describe('When the open invitation expires, or null when there is none'),
+  })
+  .passthrough();
+
+const driverDetailItem = driverItem
+  .extend({ portalAccess: portalAccessItem.describe('Driver portal access state') })
+  .passthrough();
+
+const portalInviteItem = z
+  .object({
+    expiresAt: z.coerce.date().describe('When the invitation link expires'),
   })
   .passthrough();
 
@@ -347,7 +372,7 @@ export function driverRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(driverParams),
         response: {
-          200: itemResponse(driverItem),
+          200: itemResponse(driverDetailItem),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
         },
       },
@@ -359,7 +384,36 @@ export function driverRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
         return;
       }
-      return driver;
+      return { ...driver, portalAccess: await getPortalAccess(driver.id) };
+    },
+  );
+
+  app.post(
+    '/drivers/:id/portal-invite',
+    {
+      onRequest: [authorize('drivers:write')],
+      schema: {
+        tags: ['Drivers'],
+        summary: 'Invite a driver to the driver portal',
+        description:
+          'Emails the driver a single-use link to set a password on their existing record, so they keep their sessions, tokens, payment methods, and invoices. The link expires after 7 days. Sending again replaces the earlier link. Only for active drivers with an email address and no portal password yet.',
+        operationId: 'inviteDriverToPortal',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(driverParams),
+        response: {
+          200: itemResponse(portalInviteItem),
+          400: errorWith('Driver has no email address', [ERROR_CODES.EMAIL_REQUIRED]),
+          404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
+          409: errorWith('Driver is inactive or already has portal access', [
+            ERROR_CODES.DRIVER_INACTIVE,
+            ERROR_CODES.PORTAL_ALREADY_ACTIVE,
+          ]),
+        },
+      },
+    },
+    async (request) => {
+      const { id } = request.params as z.infer<typeof driverParams>;
+      return inviteDriverToPortal(id, { actor: getAuditActor(request), log: request.log });
     },
   );
 

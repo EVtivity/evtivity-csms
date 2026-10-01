@@ -16,6 +16,7 @@ import { Login } from '@/pages/Login';
 import { Register } from '@/pages/Register';
 import { ForgotPassword } from '@/pages/ForgotPassword';
 import { ResetPassword } from '@/pages/ResetPassword';
+import { Activate } from '@/pages/Activate';
 
 const VerifyEmail = lazy(() =>
   import('@/pages/VerifyEmail').then((m) => ({ default: m.VerifyEmail })),
@@ -133,6 +134,7 @@ export function App(): React.JSX.Element {
               <Route path="/register" element={<Register />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/activate" element={<Activate />} />
               <Route path="/privacy-policy" element={<PrivacyPolicy />} />
               <Route path="/terms-of-service" element={<TermsOfService />} />
               <Route path="/charge/:stationId/:evseId" element={<ChargerLanding />} />

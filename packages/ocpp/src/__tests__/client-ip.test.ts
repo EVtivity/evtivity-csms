@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import type { IncomingMessage } from 'node:http';
-import { parseTrustedProxies, resolveClientIp } from '../server/client-ip.js';
+import { isTlsConnection, parseTrustedProxies, resolveClientIp } from '../server/client-ip.js';
 
 function req(remoteAddress: string | undefined, xff?: string | string[]): IncomingMessage {
   return {
@@ -70,5 +70,45 @@ describe('parseTrustedProxies', () => {
   it('rejects an invalid entry', () => {
     expect(() => parseTrustedProxies('10.0.0.0/33')).toThrow();
     expect(() => parseTrustedProxies('nonsense')).toThrow();
+  });
+});
+
+describe('isTlsConnection', () => {
+  const trusted = parseTrustedProxies('10.10.0.0/16');
+  const make = (
+    remoteAddress: string,
+    proto?: string | string[],
+    encrypted = false,
+  ): IncomingMessage =>
+    ({
+      socket: encrypted ? { remoteAddress, encrypted: true } : { remoteAddress },
+      headers: proto === undefined ? {} : { 'x-forwarded-proto': proto },
+    }) as unknown as IncomingMessage;
+
+  it('accepts TLS on the socket itself', () => {
+    expect(isTlsConnection(make('203.0.113.5', undefined, true), null)).toBe(true);
+  });
+
+  it('accepts https reported by a trusted load balancer', () => {
+    expect(isTlsConnection(make('10.10.3.4', 'https'), trusted)).toBe(true);
+    expect(isTlsConnection(make('::ffff:10.10.3.4', 'wss'), trusted)).toBe(true);
+  });
+
+  it('ignores the header from an untrusted peer', () => {
+    expect(isTlsConnection(make('203.0.113.5', 'https'), trusted)).toBe(false);
+  });
+
+  it('ignores the header when no proxies are trusted', () => {
+    expect(isTlsConnection(make('10.10.3.4', 'https'), null)).toBe(false);
+  });
+
+  it('uses the value the nearest proxy set, so a client cannot prepend https', () => {
+    expect(isTlsConnection(make('10.10.3.4', 'https, http'), trusted)).toBe(false);
+    expect(isTlsConnection(make('10.10.3.4', 'http, https'), trusted)).toBe(true);
+  });
+
+  it('treats a plain or missing scheme as not TLS', () => {
+    expect(isTlsConnection(make('10.10.3.4', 'http'), trusted)).toBe(false);
+    expect(isTlsConnection(make('10.10.3.4'), trusted)).toBe(false);
   });
 });

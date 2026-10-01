@@ -933,7 +933,27 @@
     "confirmAssignPricing": "Asignar \"{{name}}\" como grupo de precios?",
     "noPricingGroups": "No hay grupos de precios asignados",
     "noPricingGroupResults": "No se encontraron grupos de precios",
-    "changePricingGroup": "Cambiar"
+    "changePricingGroup": "Cambiar",
+    "portalAccess": "Acceso al portal de conductores",
+    "invitePortal": "Invitar al portal de conductores",
+    "resendInvite": "Reenviar invitación",
+    "sendInvite": "Enviar invitación",
+    "portalInviteSent": "Invitación enviada",
+    "portalInviteFailed": "No se pudo enviar la invitación",
+    "portalInviteInactive": "Active al conductor antes de invitarlo",
+    "portalInviteNoEmail": "Agregue una dirección de correo antes de invitar al conductor",
+    "portalInviteExpires": "La invitación caduca el {{date}}",
+    "portalInviteConfirm": "Enviar a {{email}} un enlace para establecer una contraseña del portal. El enlace caduca en 7 días y reemplaza cualquier invitación anterior.",
+    "portalStatus": {
+      "active": "Activo",
+      "invited": "Invitado",
+      "none": "No invitado"
+    },
+    "portalStatusHelp": {
+      "active": "El conductor inicia sesión en el portal con su propia contraseña. Puede restablecerla desde la página de inicio de sesión.",
+      "invited": "El conductor aún no ha establecido una contraseña. Reenvíe la invitación si el enlace se perdió o caducó.",
+      "none": "El conductor no puede iniciar sesión en el portal. Invítelo a establecer una contraseña en esta cuenta."
+    }
   },
   "transactions": {
     "title": "Transacciones",
@@ -1973,6 +1993,7 @@
       "session.PaymentReceived": "Pago Recibido",
       "driver.Welcome": "Bienvenida",
       "driver.ForgotPassword": "Contraseña Olvidada",
+      "driver.PortalInvite": "Invitación al portal de conductores",
       "driver.PasswordChanged": "Contraseña Cambiada",
       "driver.MfaDisabled": "Autenticación de dos factores desactivada",
       "driver.AccountVerification": "Verificación de Cuenta",
@@ -2129,6 +2150,7 @@
     "DRIVER_ALREADY_IN_FLEET": "El conductor ya esta en esta flota",
     "DRIVER_CREATE_FAILED": "Error al crear el conductor",
     "DRIVER_NOT_FOUND": "Conductor no encontrado",
+    "DRIVER_INACTIVE": "El conductor está inactivo",
     "DUPLICATE_API_KEY_NAME": "Ya existe una clave de API con este nombre",
     "DUPLICATE_CONNECTOR_ID": "El ID de conector ... ya existe en este EVSE",
     "DUPLICATE_EMAIL": "El correo electronico ya esta en uso",
@@ -2216,7 +2238,7 @@
     "NO_VALID_ENTRIES": "No se encontraron entradas validas",
     "NO_VALID_TOKENS": "No se encontraron tarjetas validas",
     "OCPP_COMMAND_FAILED": "Comando OCPP fallido",
-    "OCPP_VERSION_MISMATCH": "La accion ... requiere ..., la estacion ... es ...",
+    "OCPP_VERSION_MISMATCH": "El comando es para una versión de OCPP distinta de la que usa la estación",
     "OCTT_RUN_NOT_FOUND": "Ejecucion de conformidad no encontrada",
     "OVERSUBSCRIPTION_EXCEEDED": "La capacidad total conectada (... kW) excede la capacidad efectiva del panel (... kW)",
     "PANEL_NOT_FOUND": "Panel no encontrado",
@@ -2271,7 +2293,6 @@
     "RESET_NOT_REQUIRED": "No se requiere restablecimiento de contrasena",
     "ROAMING_DISABLED": "El roaming esta deshabilitado",
     "ROLE_NOT_FOUND": "El rol no existe",
-    "ROTATION_FAILED": "La rotacion de credenciales fallo",
     "ROTATION_NOT_APPLICABLE": "La rotacion de credenciales solo aplica a perfiles de seguridad 1 y 2",
     "RULE_NOT_FOUND": "Regla no encontrada",
     "SCHEDULE_NOT_FOUND": "Programacion no encontrada",
@@ -2336,7 +2357,8 @@
     "STATUS_CHECK_TIMEOUT": "La verificación de estado expiró. Vuelva a conectar el conector e inténtelo de nuevo.",
     "SECURITY_PROFILE_DOWNGRADE": "Una estacion conectada no puede pasar a un perfil de seguridad inferior",
     "STATION_TLS_URL_NOT_CONFIGURED": "La direccion TLS publica para estaciones (OCPP_STATION_TLS_URL) no esta configurada",
-    "STATION_SECURITY_CHANGE_REJECTED": "La estacion no acepto el cambio de seguridad; su configuracion actual no cambio"
+    "STATION_SECURITY_CHANGE_REJECTED": "La estacion no acepto el cambio de seguridad; su configuracion actual no cambio",
+    "PORTAL_ALREADY_ACTIVE": "El conductor ya tiene acceso al portal"
   },
   "logs": {
     "title": "Registros",

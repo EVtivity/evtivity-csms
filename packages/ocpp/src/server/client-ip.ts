@@ -38,6 +38,21 @@ export function parseTrustedProxies(setting: string): BlockList | null {
   return list;
 }
 
+// TLS usually ends at a load balancer, so the socket here is plain. A trusted proxy
+// reports the client's scheme in X-Forwarded-Proto. The last value is the one the
+// nearest proxy set; values further left can be forged by the client.
+export function isTlsConnection(req: IncomingMessage, trusted: BlockList | null): boolean {
+  if ('encrypted' in req.socket && req.socket.encrypted === true) return true;
+  const socketAddress = req.socket.remoteAddress;
+  if (trusted == null || socketAddress == null || !isTrusted(trusted, normalize(socketAddress))) {
+    return false;
+  }
+  const header = req.headers['x-forwarded-proto'];
+  const raw = Array.isArray(header) ? header.join(',') : (header ?? '');
+  const last = raw.split(',').at(-1)?.trim().toLowerCase();
+  return last === 'https' || last === 'wss';
+}
+
 // Behind a trusted proxy, the client is the rightmost X-Forwarded-For hop that is not
 // itself a trusted proxy; anything further left can be forged by the client.
 export function resolveClientIp(req: IncomingMessage, trusted: BlockList | null): string | null {

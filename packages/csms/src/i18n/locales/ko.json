@@ -933,7 +933,27 @@
     "confirmAssignPricing": "\"{{name}}\"을(를) 요금 그룹으로 할당하시겠습니까?",
     "noPricingGroups": "할당된 요금 그룹 없음",
     "noPricingGroupResults": "요금 그룹을 찾을 수 없습니다",
-    "changePricingGroup": "변경"
+    "changePricingGroup": "변경",
+    "portalAccess": "드라이버 포털 접근",
+    "invitePortal": "드라이버 포털에 초대",
+    "resendInvite": "초대 다시 보내기",
+    "sendInvite": "초대 보내기",
+    "portalInviteSent": "초대를 보냈습니다",
+    "portalInviteFailed": "초대를 보낼 수 없습니다",
+    "portalInviteInactive": "초대하기 전에 드라이버를 활성화하세요",
+    "portalInviteNoEmail": "초대하기 전에 이메일 주소를 추가하세요",
+    "portalInviteExpires": "초대 만료: {{date}}",
+    "portalInviteConfirm": "{{email}}(으)로 포털 비밀번호 설정 링크를 보냅니다. 링크는 7일 후에 만료되며 이전 초대를 대체합니다.",
+    "portalStatus": {
+      "active": "활성",
+      "invited": "초대됨",
+      "none": "초대되지 않음"
+    },
+    "portalStatusHelp": {
+      "active": "드라이버는 자신의 비밀번호로 드라이버 포털에 로그인합니다. 로그인 페이지에서 재설정할 수 있습니다.",
+      "invited": "드라이버가 아직 비밀번호를 설정하지 않았습니다. 링크를 잃어버렸거나 만료된 경우 초대를 다시 보내세요.",
+      "none": "드라이버가 드라이버 포털에 로그인할 수 없습니다. 이 계정에 비밀번호를 설정하도록 초대하세요."
+    }
   },
   "transactions": {
     "title": "거래",
@@ -1973,6 +1993,7 @@
       "session.PaymentReceived": "결제 수신",
       "driver.Welcome": "환영",
       "driver.ForgotPassword": "비밀번호 찾기",
+      "driver.PortalInvite": "드라이버 포털 초대",
       "driver.PasswordChanged": "비밀번호 변경됨",
       "driver.MfaDisabled": "2단계 인증 비활성화됨",
       "driver.AccountVerification": "계정 인증",
@@ -2129,6 +2150,7 @@
     "DRIVER_ALREADY_IN_FLEET": "운전자는 이미 이 플릿에 있습니다",
     "DRIVER_CREATE_FAILED": "드라이버 생성에 실패했습니다",
     "DRIVER_NOT_FOUND": "드라이버를 찾을 수 없습니다",
+    "DRIVER_INACTIVE": "비활성화된 드라이버입니다",
     "DUPLICATE_API_KEY_NAME": "이 이름의 API 키가 이미 존재합니다",
     "DUPLICATE_CONNECTOR_ID": "커넥터 ID ...이(가) 이 EVSE에 이미 존재합니다",
     "DUPLICATE_EMAIL": "이미 사용 중인 이메일입니다",
@@ -2216,7 +2238,7 @@
     "NO_VALID_ENTRIES": "유효한 항목을 찾을 수 없습니다",
     "NO_VALID_TOKENS": "유효한 토큰을 찾을 수 없습니다",
     "OCPP_COMMAND_FAILED": "OCPP 명령에 실패했습니다",
-    "OCPP_VERSION_MISMATCH": "작업 ...에는 ...이(가) 필요하지만, 충전소 ...은(는) ...입니다",
+    "OCPP_VERSION_MISMATCH": "충전소가 사용하는 OCPP 버전과 다른 버전의 명령입니다",
     "OCTT_RUN_NOT_FOUND": "적합성 실행을 찾을 수 없습니다",
     "OVERSUBSCRIPTION_EXCEEDED": "총 연결 용량(... kW)이 패널 유효 용량(... kW)을 초과합니다",
     "PANEL_NOT_FOUND": "패널을 찾을 수 없습니다",
@@ -2271,7 +2293,6 @@
     "RESET_NOT_REQUIRED": "비밀번호 재설정이 필요하지 않습니다",
     "ROAMING_DISABLED": "로밍이 사용 중지되었습니다",
     "ROLE_NOT_FOUND": "역할이 존재하지 않습니다",
-    "ROTATION_FAILED": "자격 증명 교체에 실패했습니다",
     "ROTATION_NOT_APPLICABLE": "자격 증명 교체는 보안 프로필 1과 2에만 적용됩니다",
     "RULE_NOT_FOUND": "규칙을 찾을 수 없습니다",
     "SCHEDULE_NOT_FOUND": "일정을 찾을 수 없습니다",
@@ -2336,7 +2357,8 @@
     "STATUS_CHECK_TIMEOUT": "상태 확인 시간이 초과되었습니다. 커넥터를 다시 연결한 후 다시 시도해 주세요.",
     "SECURITY_PROFILE_DOWNGRADE": "연결된 충전소는 더 낮은 보안 프로필로 변경할 수 없습니다",
     "STATION_TLS_URL_NOT_CONFIGURED": "충전소용 공개 TLS 주소(OCPP_STATION_TLS_URL)가 설정되지 않았습니다",
-    "STATION_SECURITY_CHANGE_REJECTED": "충전소가 보안 변경을 수락하지 않았습니다. 현재 설정은 변경되지 않았습니다"
+    "STATION_SECURITY_CHANGE_REJECTED": "충전소가 보안 변경을 수락하지 않았습니다. 현재 설정은 변경되지 않았습니다",
+    "PORTAL_ALREADY_ACTIVE": "드라이버가 이미 포털에 접근할 수 있습니다"
   },
   "logs": {
     "title": "로그",

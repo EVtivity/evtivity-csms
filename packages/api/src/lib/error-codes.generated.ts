@@ -44,6 +44,7 @@ export const ERROR_CODES = {
   DOWNTIME_NOT_FOUND: 'DOWNTIME_NOT_FOUND',
   DRIVER_ALREADY_IN_FLEET: 'DRIVER_ALREADY_IN_FLEET',
   DRIVER_CREATE_FAILED: 'DRIVER_CREATE_FAILED',
+  DRIVER_INACTIVE: 'DRIVER_INACTIVE',
   DRIVER_NOT_FOUND: 'DRIVER_NOT_FOUND',
   DUPLICATE_API_KEY_NAME: 'DUPLICATE_API_KEY_NAME',
   DUPLICATE_CONNECTOR_ID: 'DUPLICATE_CONNECTOR_ID',
@@ -159,6 +160,7 @@ export const ERROR_CODES = {
   PAYMENT_TOP_UP_FAILED: 'PAYMENT_TOP_UP_FAILED',
   PERMISSIONS_EXCEED_OWN: 'PERMISSIONS_EXCEED_OWN',
   PNC_DISABLED: 'PNC_DISABLED',
+  PORTAL_ALREADY_ACTIVE: 'PORTAL_ALREADY_ACTIVE',
   PORTAL_REGISTRATION_DISABLED: 'PORTAL_REGISTRATION_DISABLED',
   PRE_AUTH_FAILED: 'PRE_AUTH_FAILED',
   PRICING_ASSIGNMENT_NOT_FOUND: 'PRICING_ASSIGNMENT_NOT_FOUND',
@@ -193,7 +195,6 @@ export const ERROR_CODES = {
   RESET_NOT_REQUIRED: 'RESET_NOT_REQUIRED',
   ROAMING_DISABLED: 'ROAMING_DISABLED',
   ROLE_NOT_FOUND: 'ROLE_NOT_FOUND',
-  ROTATION_FAILED: 'ROTATION_FAILED',
   ROTATION_NOT_APPLICABLE: 'ROTATION_NOT_APPLICABLE',
   RULE_NOT_FOUND: 'RULE_NOT_FOUND',
   SCHEDULE_NOT_FOUND: 'SCHEDULE_NOT_FOUND',
@@ -285,6 +286,7 @@ export type ErrorCode =
   | 'DOWNTIME_NOT_FOUND'
   | 'DRIVER_ALREADY_IN_FLEET'
   | 'DRIVER_CREATE_FAILED'
+  | 'DRIVER_INACTIVE'
   | 'DRIVER_NOT_FOUND'
   | 'DUPLICATE_API_KEY_NAME'
   | 'DUPLICATE_CONNECTOR_ID'
@@ -400,6 +402,7 @@ export type ErrorCode =
   | 'PAYMENT_TOP_UP_FAILED'
   | 'PERMISSIONS_EXCEED_OWN'
   | 'PNC_DISABLED'
+  | 'PORTAL_ALREADY_ACTIVE'
   | 'PORTAL_REGISTRATION_DISABLED'
   | 'PRE_AUTH_FAILED'
   | 'PRICING_ASSIGNMENT_NOT_FOUND'
@@ -434,7 +437,6 @@ export type ErrorCode =
   | 'RESET_NOT_REQUIRED'
   | 'ROAMING_DISABLED'
   | 'ROLE_NOT_FOUND'
-  | 'ROTATION_FAILED'
   | 'ROTATION_NOT_APPLICABLE'
   | 'RULE_NOT_FOUND'
   | 'SCHEDULE_NOT_FOUND'
@@ -533,6 +535,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   DOWNTIME_NOT_FOUND: 'Excluded downtime record not found',
   DRIVER_ALREADY_IN_FLEET: 'Driver is already in this fleet',
   DRIVER_CREATE_FAILED: 'Failed to create driver',
+  DRIVER_INACTIVE: 'Driver is inactive',
   DRIVER_NOT_FOUND: 'Driver not found',
   DUPLICATE_API_KEY_NAME: 'An API key with this name already exists',
   DUPLICATE_CONNECTOR_ID: 'Connector ID ... already exists on this EVSE',
@@ -627,7 +630,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   NOT_PENDING: 'Station is not pending approval',
   NOT_SUPPORTED: 'Not supported for OCPP 1.6',
   OCPP_COMMAND_FAILED: 'OCPP command failed',
-  OCPP_VERSION_MISMATCH: 'Action ... requires ..., station ... is ...',
+  OCPP_VERSION_MISMATCH: 'The command is for a different OCPP version than the station uses',
   OCTT_RUN_NOT_FOUND: 'Conformance run not found',
   OVERSUBSCRIPTION_EXCEEDED:
     'Total connected capacity (... kW) exceeds panel effective capacity (... kW)',
@@ -649,6 +652,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   PAYMENT_TOP_UP_FAILED: 'Payment top-up rejected',
   PERMISSIONS_EXCEED_OWN: 'API key permissions must be a subset of your own permissions',
   PNC_DISABLED: 'Plug & Charge is disabled',
+  PORTAL_ALREADY_ACTIVE: 'Driver already has portal access',
   PORTAL_REGISTRATION_DISABLED:
     'Driver self-registration is disabled. Contact your operator to be invited.',
   PRE_AUTH_FAILED: 'Payment pre-authorization failed',
@@ -685,7 +689,6 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   RESET_NOT_REQUIRED: 'Password reset is not required',
   ROAMING_DISABLED: 'Roaming is disabled',
   ROLE_NOT_FOUND: 'Role does not exist',
-  ROTATION_FAILED: 'Credential rotation failed',
   ROTATION_NOT_APPLICABLE: 'Credential rotation only applies to security profiles 1 and 2',
   RULE_NOT_FOUND: 'Rule not found',
   SCHEDULE_NOT_FOUND: 'Schedule not found',

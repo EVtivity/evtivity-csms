@@ -252,7 +252,11 @@ async function dispatchCommandRaw(
   let stationInternalId: string | null = null;
   if (options?.skipSiteAccess !== true) {
     const [station] = await db
-      .select({ id: chargingStations.id, siteId: chargingStations.siteId })
+      .select({
+        id: chargingStations.id,
+        siteId: chargingStations.siteId,
+        ocppProtocol: chargingStations.ocppProtocol,
+      })
       .from(chargingStations)
       .where(eq(chargingStations.stationId, stationId));
     if (station == null) {
@@ -269,6 +273,22 @@ async function dispatchCommandRaw(
       return {
         code: 404,
         body: { error: 'Station not found', code: 'STATION_NOT_FOUND' },
+      };
+    }
+    // A versioned command is sent as is, so a 2.1 message to a 1.6 station (or
+    // the reverse) would reach a real charger as an unknown action.
+    if (
+      ocppVersion != null &&
+      station.ocppProtocol != null &&
+      (ocppVersion === 'ocpp1.6') !== (station.ocppProtocol === 'ocpp1.6')
+    ) {
+      return {
+        code: 400,
+        body: {
+          error: `This is an ${ocppVersion} command but the station uses ${station.ocppProtocol}`,
+          code: 'OCPP_VERSION_MISMATCH',
+          action,
+        },
       };
     }
     stationInternalId = station.id;

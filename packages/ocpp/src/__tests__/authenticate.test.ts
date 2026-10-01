@@ -328,6 +328,37 @@ describe('authenticateConnection', () => {
     expect(result.failure).toBe('tls_required');
   });
 
+  it('accepts SP2 station when a trusted load balancer ended TLS', async () => {
+    const passwordHash = await hash('testpass');
+    const sql = createMockSql([
+      {
+        id: 'db-id-5b',
+        security_profile: 2,
+        basic_auth_password_hash: passwordHash,
+        onboarding_status: 'accepted',
+      },
+    ]);
+    const authHeader = 'Basic ' + Buffer.from('SP2-STATION:testpass').toString('base64');
+    const req = createMockRequest('/SP2-STATION', authHeader, false);
+    const result = await authenticateConnection(req, logger, sql, null, true);
+    expect(result.authenticated).toBe(true);
+  });
+
+  it('still requires TLS on the socket for SP3 behind a load balancer', async () => {
+    const sql = createMockSql([
+      {
+        id: 'db-id-5c',
+        security_profile: 3,
+        basic_auth_password_hash: null,
+        onboarding_status: 'accepted',
+      },
+    ]);
+    const req = createMockRequest('/SP3-STATION', undefined, false);
+    const result = await authenticateConnection(req, logger, sql, null, true);
+    expect(result.authenticated).toBe(false);
+    expect(result.failure).toBe('tls_required');
+  });
+
   it('rejects SP1 station with no password configured', async () => {
     const sql = createMockSql([
       {

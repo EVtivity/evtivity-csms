@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TabsContent } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
+import { DriverPortalAccessCard, type PortalAccess } from './DriverPortalAccessCard';
 
 interface Driver {
   id: string;
@@ -24,6 +25,7 @@ interface Driver {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  portalAccess?: PortalAccess;
 }
 
 export interface DriverDetailsTabProps {
@@ -215,6 +217,7 @@ export function DriverDetailsTab({ driver, timezone }: DriverDetailsTabProps): R
           )}
         </CardContent>
       </Card>
+      <DriverPortalAccessCard driver={driver} timezone={timezone} />
     </TabsContent>
   );
 }

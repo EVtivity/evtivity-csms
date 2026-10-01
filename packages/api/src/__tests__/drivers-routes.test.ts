@@ -109,6 +109,15 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 vi.mock('@evtivity/lib', () => ({
+  AppError: class AppError extends Error {
+    constructor(
+      message: string,
+      public readonly statusCode: number,
+      public readonly code: string,
+    ) {
+      super(message);
+    }
+  },
   dispatchDriverNotification: vi.fn().mockResolvedValue(undefined),
   createLogger: vi.fn(() => ({
     info: vi.fn(),
@@ -143,6 +152,17 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
+const { getPortalAccessMock, inviteDriverToPortalMock } = vi.hoisted(() => ({
+  getPortalAccessMock: vi.fn(),
+  inviteDriverToPortalMock: vi.fn(),
+}));
+
+vi.mock('../services/driver-portal-access.service.js', () => ({
+  getPortalAccess: getPortalAccessMock,
+  inviteDriverToPortal: inviteDriverToPortalMock,
+}));
+
+import { AppError } from '@evtivity/lib';
 import { registerAuth } from '../plugins/auth.js';
 import { driverRoutes } from '../routes/drivers.js';
 
@@ -196,6 +216,13 @@ function makeVehicle(overrides: Record<string, unknown> = {}) {
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
+  app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof AppError) {
+      void reply.status(error.statusCode).send({ error: error.message, code: error.code });
+      return;
+    }
+    void reply.send(error);
+  });
   await registerAuth(app);
   driverRoutes(app);
   await app.ready();
@@ -217,6 +244,7 @@ describe('Driver routes (operator)', () => {
 
   beforeEach(() => {
     setupDbResults();
+    getPortalAccessMock.mockResolvedValue({ status: 'none', inviteExpiresAt: null });
   });
 
   // -------------------------------------------------------
@@ -317,6 +345,88 @@ describe('Driver routes (operator)', () => {
       const body = res.json();
       expect(body.id).toBe(VALID_DRIVER_ID);
       expect(body.firstName).toBe('John');
+    });
+
+    it('includes the driver portal access state', async () => {
+      const inviteExpiresAt = new Date('2026-10-08T12:00:00.000Z');
+      setupDbResults([makeDriver()]);
+      getPortalAccessMock.mockResolvedValueOnce({ status: 'invited', inviteExpiresAt });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/drivers/${VALID_DRIVER_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(getPortalAccessMock).toHaveBeenCalledWith(VALID_DRIVER_ID);
+      expect(res.json().portalAccess).toEqual({
+        status: 'invited',
+        inviteExpiresAt: inviteExpiresAt.toISOString(),
+      });
+    });
+  });
+
+  // -------------------------------------------------------
+  // POST /v1/drivers/:id/portal-invite
+  // -------------------------------------------------------
+
+  describe('POST /v1/drivers/:id/portal-invite', () => {
+    it('returns 401 without token', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/drivers/${VALID_DRIVER_ID}/portal-invite`,
+      });
+      expect(res.statusCode).toBe(401);
+      expect(inviteDriverToPortalMock).not.toHaveBeenCalled();
+    });
+
+    it('invites the driver as the operator and returns the expiry', async () => {
+      const expiresAt = new Date('2026-10-08T12:00:00.000Z');
+      inviteDriverToPortalMock.mockResolvedValueOnce({ expiresAt });
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/drivers/${VALID_DRIVER_ID}/portal-invite`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ expiresAt: expiresAt.toISOString() });
+      expect(inviteDriverToPortalMock).toHaveBeenCalledWith(
+        VALID_DRIVER_ID,
+        expect.objectContaining({
+          actor: expect.objectContaining({ actor: 'operator', actorUserId: 'test-id' }),
+        }),
+      );
+    });
+
+    it.each([
+      [404, 'DRIVER_NOT_FOUND'],
+      [409, 'DRIVER_INACTIVE'],
+      [400, 'EMAIL_REQUIRED'],
+      [409, 'PORTAL_ALREADY_ACTIVE'],
+    ])('returns %i %s from the service', async (status, code) => {
+      inviteDriverToPortalMock.mockRejectedValueOnce(new AppError('rejected', status, code));
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/drivers/${VALID_DRIVER_ID}/portal-invite`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(res.statusCode).toBe(status);
+      expect(res.json().code).toBe(code);
+    });
+
+    it('rejects a malformed driver id', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/drivers/not-an-id/portal-invite',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(inviteDriverToPortalMock).not.toHaveBeenCalled();
     });
   });
 

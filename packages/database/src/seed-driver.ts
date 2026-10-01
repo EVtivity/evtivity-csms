@@ -39,12 +39,6 @@ try {
   `;
 
   if (existing.length > 0) {
-    // Portal login filters on registration_source = 'portal'; heal rows with
-    // any other source so this driver can always log in via the portal.
-    await sql`
-      UPDATE drivers SET registration_source = 'portal'
-      WHERE email = ${INITIAL_DRIVER_EMAIL} AND registration_source <> 'portal'
-    `;
     console.log(`Driver already exists: ${INITIAL_DRIVER_EMAIL}`);
   } else {
     const passwordHash = await argon2.hash(INITIAL_DRIVER_PASSWORD);

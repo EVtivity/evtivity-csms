@@ -275,6 +275,7 @@ const SYSTEM_EVENT_TYPES = [
   'driver.ForgotPassword',
   'driver.PasswordChanged',
   'driver.AccountVerification',
+  'driver.PortalInvite',
   'payment.Complete',
   'session.Receipt',
 ];
@@ -461,6 +462,7 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
   ],
   'driver.Welcome': ['firstName', 'lastName', 'email'],
   'driver.ForgotPassword': ['firstName', 'lastName', 'email'],
+  'driver.PortalInvite': ['firstName', 'lastName', 'email', 'activateUrl', 'expiresInDays'],
   'driver.PasswordChanged': ['firstName', 'lastName'],
   'driver.AccountVerification': ['firstName', 'lastName', 'email'],
   'payment.Complete': [
@@ -498,6 +500,7 @@ const FRIENDLY_SUBJECTS: Record<string, string> = {
   // Driver account events
   'driver.Welcome': '{{companyName}} - Welcome',
   'driver.ForgotPassword': '{{companyName}} - Reset your password',
+  'driver.PortalInvite': '{{companyName}} - Set up your driver account',
   'driver.PasswordChanged': '{{companyName}} - Password changed',
   'driver.AccountVerification': '{{companyName}} - Verify your account',
   // Payment events

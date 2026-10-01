@@ -67,6 +67,7 @@ export async function authenticateConnection(
   logger: Logger,
   sql: postgres.Sql | null,
   clientIp: string | null = req.socket.remoteAddress ?? null,
+  viaTls: boolean = 'encrypted' in req.socket && req.socket.encrypted === true,
 ): Promise<AuthResult> {
   const stationId = extractStationId(req.url);
   if (stationId == null) {
@@ -140,7 +141,7 @@ export async function authenticateConnection(
   // Blocked stations are rejected here at the connection level.
 
   const remoteAddress = clientIp;
-  const ctx = { req, sql, logger, stationId, station, remoteAddress };
+  const ctx = { req, sql, logger, stationId, station, remoteAddress, viaTls };
 
   // An upgrade sent to the station is pending until the station connects with
   // the new profile. Try it first; on success promote it, after which the old
@@ -171,6 +172,8 @@ interface ProfileAuthContext {
   stationId: string;
   station: { id: string; basic_auth_password_hash: string | null };
   remoteAddress: string | null;
+  // TLS on the socket, or reported by a trusted load balancer that ended it.
+  viaTls: boolean;
 }
 
 async function authenticateForProfile(
@@ -178,7 +181,7 @@ async function authenticateForProfile(
   ctx: ProfileAuthContext,
   logFailures: boolean,
 ): Promise<AuthResult> {
-  const { req, sql, logger, stationId, station, remoteAddress } = ctx;
+  const { req, sql, logger, stationId, station, remoteAddress, viaTls } = ctx;
   const logEvent = logFailures ? logAuthEvent : async (): Promise<void> => {};
 
   // SP0: no authentication required
@@ -322,10 +325,10 @@ async function authenticateForProfile(
     return { authenticated: true, stationId, stationDbId: station.id };
   }
 
-  // SP2: require TLS
+  // SP2: require TLS. A load balancer may end it; SP3 needs the client
+  // certificate on this socket, so only SP2 accepts that.
   if (securityProfile === 2) {
-    const isTls = 'encrypted' in req.socket && req.socket.encrypted === true;
-    if (!isTls) {
+    if (!viaTls) {
       await logEvent(
         sql,
         station.id,

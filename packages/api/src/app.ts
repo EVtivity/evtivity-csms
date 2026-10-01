@@ -338,6 +338,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
     '/v1/portal/auth/verify-email',
     '/v1/portal/auth/forgot-password',
     '/v1/portal/auth/reset-password',
+    '/v1/portal/auth/activate',
     '/v1/portal/auth/mfa/verify',
     '/v1/portal/auth/mfa/resend',
     '/v1/portal/auth/attest/challenge',

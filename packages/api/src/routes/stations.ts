@@ -3172,6 +3172,8 @@ export function stationRoutes(app: FastifyInstance): void {
     'auth_failed',
     'password_changed',
     'credentials_rotated',
+    'security_profile_change_sent',
+    'security_profile_upgraded',
     'connected',
     'disconnected',
   ] as const;

@@ -933,7 +933,27 @@
     "confirmAssignPricing": "\"{{name}}\" als Preisgruppe zuweisen?",
     "noPricingGroups": "Keine Preisgruppen zugewiesen",
     "noPricingGroupResults": "Keine Preisgruppen gefunden",
-    "changePricingGroup": "Ändern"
+    "changePricingGroup": "Ändern",
+    "portalAccess": "Zugang zum Fahrerportal",
+    "invitePortal": "Zum Fahrerportal einladen",
+    "resendInvite": "Einladung erneut senden",
+    "sendInvite": "Einladung senden",
+    "portalInviteSent": "Einladung gesendet",
+    "portalInviteFailed": "Die Einladung konnte nicht gesendet werden",
+    "portalInviteInactive": "Aktivieren Sie den Fahrer, bevor Sie ihn einladen",
+    "portalInviteNoEmail": "Fügen Sie eine E-Mail-Adresse hinzu, bevor Sie den Fahrer einladen",
+    "portalInviteExpires": "Einladung läuft ab am {{date}}",
+    "portalInviteConfirm": "Senden Sie einen Link an {{email}}, um ein Portalpasswort festzulegen. Der Link läuft nach 7 Tagen ab und ersetzt frühere Einladungen.",
+    "portalStatus": {
+      "active": "Aktiv",
+      "invited": "Eingeladen",
+      "none": "Nicht eingeladen"
+    },
+    "portalStatusHelp": {
+      "active": "Der Fahrer meldet sich mit seinem eigenen Passwort im Fahrerportal an. Er kann es auf der Anmeldeseite zurücksetzen.",
+      "invited": "Der Fahrer hat noch kein Passwort festgelegt. Senden Sie die Einladung erneut, wenn der Link verloren gegangen oder abgelaufen ist.",
+      "none": "Der Fahrer kann sich nicht im Fahrerportal anmelden. Laden Sie ihn ein, ein Passwort für dieses Konto festzulegen."
+    }
   },
   "transactions": {
     "title": "Transaktionen",
@@ -1973,6 +1993,7 @@
       "session.PaymentReceived": "Zahlung erhalten",
       "driver.Welcome": "Willkommen",
       "driver.ForgotPassword": "Passwort vergessen",
+      "driver.PortalInvite": "Einladung zum Fahrerportal",
       "driver.PasswordChanged": "Passwort geändert",
       "driver.MfaDisabled": "Zwei-Faktor-Authentifizierung deaktiviert",
       "driver.AccountVerification": "Kontobestätigung",
@@ -2129,6 +2150,7 @@
     "DRIVER_ALREADY_IN_FLEET": "Fahrer ist bereits in dieser Flotte",
     "DRIVER_CREATE_FAILED": "Fahrer konnte nicht erstellt werden",
     "DRIVER_NOT_FOUND": "Fahrer nicht gefunden",
+    "DRIVER_INACTIVE": "Fahrer ist inaktiv",
     "DUPLICATE_API_KEY_NAME": "Ein API-Schlüssel mit diesem Namen existiert bereits",
     "DUPLICATE_CONNECTOR_ID": "Stecker-ID ... existiert bereits an dieser EVSE",
     "DUPLICATE_EMAIL": "E-Mail-Adresse wird bereits verwendet",
@@ -2216,7 +2238,7 @@
     "NO_VALID_ENTRIES": "Keine gültigen Einträge gefunden",
     "NO_VALID_TOKENS": "Keine gültigen Token gefunden",
     "OCPP_COMMAND_FAILED": "OCPP-Befehl fehlgeschlagen",
-    "OCPP_VERSION_MISMATCH": "Aktion ... erfordert ..., Ladestation ... ist ...",
+    "OCPP_VERSION_MISMATCH": "Der Befehl ist für eine andere OCPP-Version als die der Ladestation",
     "OCTT_RUN_NOT_FOUND": "Konformitätslauf nicht gefunden",
     "OVERSUBSCRIPTION_EXCEEDED": "Gesamte angeschlossene Leistung (... kW) überschreitet die effektive Verteilerleistung (... kW)",
     "PANEL_NOT_FOUND": "Verteiler nicht gefunden",
@@ -2271,7 +2293,6 @@
     "RESET_NOT_REQUIRED": "Passwortzurücksetzung ist nicht erforderlich",
     "ROAMING_DISABLED": "Roaming ist deaktiviert",
     "ROLE_NOT_FOUND": "Rolle existiert nicht",
-    "ROTATION_FAILED": "Rotation der Anmeldedaten fehlgeschlagen",
     "ROTATION_NOT_APPLICABLE": "Rotation der Anmeldedaten gilt nur fuer Sicherheitsprofile 1 und 2",
     "RULE_NOT_FOUND": "Regel nicht gefunden",
     "SCHEDULE_NOT_FOUND": "Zeitplan nicht gefunden",
@@ -2336,7 +2357,8 @@
     "STATUS_CHECK_TIMEOUT": "Zeitüberschreitung bei der Statusabfrage. Stecker neu einstecken und erneut versuchen.",
     "SECURITY_PROFILE_DOWNGRADE": "Eine verbundene Ladestation kann nicht auf ein niedrigeres Sicherheitsprofil gesetzt werden",
     "STATION_TLS_URL_NOT_CONFIGURED": "Die oeffentliche TLS-Adresse fuer Ladestationen (OCPP_STATION_TLS_URL) ist nicht konfiguriert",
-    "STATION_SECURITY_CHANGE_REJECTED": "Die Ladestation hat die Sicherheitsaenderung nicht angenommen; die aktuellen Einstellungen bleiben unveraendert"
+    "STATION_SECURITY_CHANGE_REJECTED": "Die Ladestation hat die Sicherheitsaenderung nicht angenommen; die aktuellen Einstellungen bleiben unveraendert",
+    "PORTAL_ALREADY_ACTIVE": "Fahrer hat bereits Zugang zum Portal"
   },
   "logs": {
     "title": "Protokolle",

@@ -68,7 +68,7 @@ vi.mock('@evtivity/database', () => ({
     }),
   },
   client: {},
-  drivers: {},
+  drivers: { passwordHash: 'drivers.password_hash', registrationSource: 'drivers.source' },
   userTokens: {},
   getRecaptchaConfig: vi.fn().mockResolvedValue(null),
   isPortalRegistrationEnabled: vi.fn().mockResolvedValue(true),
@@ -80,6 +80,7 @@ vi.mock('drizzle-orm', () => ({
   or: vi.fn(),
   ilike: vi.fn(),
   isNull: vi.fn(),
+  isNotNull: vi.fn(),
   sql: vi.fn(),
   desc: vi.fn(),
   count: vi.fn(),
@@ -94,6 +95,15 @@ vi.mock('argon2', () => ({
 }));
 
 vi.mock('@evtivity/lib', () => ({
+  AppError: class AppError extends Error {
+    constructor(
+      message: string,
+      public readonly statusCode: number,
+      public readonly code: string,
+    ) {
+      super(message);
+    }
+  },
   dispatchDriverNotification: vi.fn(),
   dispatchSystemNotification: vi.fn().mockResolvedValue(undefined),
   verifyRecaptcha: vi.fn().mockResolvedValue({ success: true }),
@@ -124,6 +134,17 @@ vi.mock('../lib/template-dirs.js', () => ({
   OCPP_TEMPLATES_DIR: '/mock/templates',
 }));
 
+const { activateDriverPortalMock } = vi.hoisted(() => ({
+  activateDriverPortalMock: vi.fn(),
+}));
+
+vi.mock('../services/driver-portal-access.service.js', () => ({
+  activateDriverPortal: activateDriverPortalMock,
+}));
+
+import { eq, isNotNull } from 'drizzle-orm';
+import { AppError } from '@evtivity/lib';
+import { db } from '@evtivity/database';
 import { registerAuth } from '../plugins/auth.js';
 import { portalAuthRoutes } from '../routes/portal/auth.js';
 
@@ -134,6 +155,13 @@ const DRIVER_ID = 'drv_000000000001';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
+  app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof AppError) {
+      void reply.status(error.statusCode).send({ error: error.message, code: error.code });
+      return;
+    }
+    void reply.send(error);
+  });
   await app.register(cookie, { secret: 'test-cookie-secret-12345' });
   await registerAuth(app);
   await app.register(portalAuthRoutes);
@@ -426,6 +454,106 @@ describe('Portal auth routes - handler logic', () => {
       expect(cookies.get('portal_refresh')?.httpOnly).toBe(true);
       expect(cookies.has('portal_csrf')).toBe(true);
       expect(cookies.get('portal_csrf')?.httpOnly).toBe(false);
+    });
+  });
+
+  describe('portal access requires a password', () => {
+    const sourceFilter = (): unknown[] =>
+      vi.mocked(eq).mock.calls.filter(([column]) => (column as unknown) === 'drivers.source');
+
+    it('login looks up only drivers with a password, whatever their origin', async () => {
+      setupDbResults([]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/login',
+        payload: { email: 'admin-created@example.com', password: 'TestPassword1' },
+      });
+      expect(response.statusCode).toBe(401);
+      expect(isNotNull).toHaveBeenCalledWith('drivers.password_hash');
+      expect(sourceFilter()).toHaveLength(0);
+    });
+
+    it('forgot-password sends nothing to a driver without a password', async () => {
+      setupDbResults([]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/forgot-password',
+        payload: { email: 'admin-created@example.com' },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ success: true });
+      expect(isNotNull).toHaveBeenCalledWith('drivers.password_hash');
+      expect(sourceFilter()).toHaveLength(0);
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('forgot-password issues a reset token to a driver with a password', async () => {
+      setupDbResults([
+        {
+          id: DRIVER_ID,
+          firstName: 'John',
+          lastName: 'Doe',
+          email: 'john@example.com',
+          language: 'en',
+          phone: null,
+        },
+      ]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/forgot-password',
+        payload: { email: 'john@example.com' },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(db.insert).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('POST /v1/portal/auth/activate', () => {
+    const STRONG = 'Str0ng!Password';
+
+    it('activates with the token and password', async () => {
+      activateDriverPortalMock.mockResolvedValueOnce(undefined);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/activate',
+        payload: { token: 'raw-token', password: STRONG },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ success: true });
+      expect(activateDriverPortalMock).toHaveBeenCalledWith('raw-token', STRONG, expect.anything());
+    });
+
+    it.each(['INVALID_TOKEN', 'WEAK_PASSWORD'])('returns 400 %s from the service', async (code) => {
+      activateDriverPortalMock.mockRejectedValueOnce(new AppError('rejected', 400, code));
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/activate',
+        payload: { token: 'raw-token', password: STRONG },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe(code);
+    });
+
+    it('rejects a missing token or short password before calling the service', async () => {
+      for (const payload of [{ password: STRONG }, { token: 'raw-token', password: 'short' }]) {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/portal/auth/activate',
+          payload,
+        });
+        expect(response.statusCode).toBe(400);
+      }
+      expect(activateDriverPortalMock).not.toHaveBeenCalled();
+    });
+
+    it('does not require a driver session', async () => {
+      activateDriverPortalMock.mockResolvedValueOnce(undefined);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/activate',
+        payload: { token: 'raw-token', password: STRONG },
+      });
+      expect(response.statusCode).not.toBe(401);
     });
   });
 
