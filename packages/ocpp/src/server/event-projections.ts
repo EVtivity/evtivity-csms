@@ -1354,6 +1354,13 @@ export function registerProjections(
     const ocppStatus = payload.connectorStatus as string;
     const dbStatus = OCPP_STATUS_MAP[ocppStatus] ?? 'unavailable';
 
+    // OCPP 1.6 reports the charge point as a whole as connectorId 0 (the 1.6
+    // handler maps it to evseId 0). It is not a physical connector, so do not
+    // auto-create an EVSE or connector for it. The station availability keeps
+    // being derived from the real connectors, and notification rules still see
+    // the event through the dispatcher below.
+    if (evseIdNum === 0 && connectorIdNum === 0) return;
+
     const evseRows = await sql`
       SELECT id FROM evses WHERE station_id = ${stationUuid} AND evse_id = ${evseIdNum}
     `;

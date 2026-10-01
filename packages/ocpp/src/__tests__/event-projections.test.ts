@@ -454,6 +454,26 @@ describe('Event projections', () => {
   });
 
   describe('ocpp.StatusNotification', () => {
+    it('does not create an EVSE or connector for OCPP 1.6 connectorId 0 (whole station)', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationId
+      );
+
+      await eventBus.emit(
+        'ocpp.StatusNotification',
+        makeDomainEvent('ocpp.StatusNotification', 'CS-001', {
+          evseId: 0,
+          connectorId: 0,
+          connectorStatus: 'Available',
+        }),
+      );
+
+      // Only the station lookup runs; no evses/connectors/port_status_log writes.
+      expect(sqlCalls).toHaveLength(1);
+    });
+
     it('auto-creates EVSE when not found', async () => {
       await setup();
 
