@@ -696,7 +696,10 @@
     "TOO_MANY_WATCHES": "너무 많은 충전소를 알림 설정했습니다",
     "STATION_WATCH_NOT_FOUND": "알림을 찾을 수 없습니다",
     "STATUS_CHECK_REJECTED": "충전소가 상태 확인을 거부했습니다",
-    "STATUS_CHECK_TIMEOUT": "상태 확인 시간이 초과되었습니다. 커넥터를 다시 연결한 후 다시 시도해 주세요."
+    "STATUS_CHECK_TIMEOUT": "상태 확인 시간이 초과되었습니다. 커넥터를 다시 연결한 후 다시 시도해 주세요.",
+    "SECURITY_PROFILE_DOWNGRADE": "연결된 충전소는 더 낮은 보안 프로필로 변경할 수 없습니다",
+    "STATION_TLS_URL_NOT_CONFIGURED": "충전소용 공개 TLS 주소(OCPP_STATION_TLS_URL)가 설정되지 않았습니다",
+    "STATION_SECURITY_CHANGE_REJECTED": "충전소가 보안 변경을 수락하지 않았습니다. 현재 설정은 변경되지 않았습니다"
   },
   "validation": {
     "required": "필수 항목입니다",

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { TestCase, StepResult } from '../../../../types.js';
+import { OCTT_CSR, OCTT_SIGNED_CERTIFICATE_CHAIN } from '../../../../certificate-fixtures.js';
+import { signPendingCsr, waitFor } from '../../../../security-test-helpers.js';
 
 export const TC_A_11_CSMS: TestCase = {
   id: 'TC_A_11_CSMS',
@@ -62,7 +64,7 @@ export const TC_A_11_CSMS: TestCase = {
     // If TriggerMessage was received, send SignCertificateRequest
     if (triggerMessageReceived) {
       const signRes = await ctx.client.sendCall('SignCertificate', {
-        csr: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0Z3VS5JJcds3xfn/ygWeCXIQP+cFgMB+no',
+        csr: OCTT_CSR,
         certificateType: 'ChargingStationCertificate',
       });
 
@@ -84,7 +86,9 @@ export const TC_A_11_CSMS: TestCase = {
       });
 
       // Wait for CertificateSigned from CSMS
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+      // Manual action: the operator signs the queued CSR (manual PKI provider).
+      const signError = await signPendingCsr(ctx, OCTT_SIGNED_CERTIFICATE_CHAIN);
+      if (signError == null) await waitFor(() => certificateSignedReceived);
 
       steps.push({
         step: 3,
@@ -93,7 +97,7 @@ export const TC_A_11_CSMS: TestCase = {
         expected: 'CertificateSignedRequest received',
         actual: certificateSignedReceived
           ? 'CertificateSignedRequest received'
-          : 'No CertificateSignedRequest within timeout',
+          : (signError ?? 'No CertificateSignedRequest within timeout'),
       });
     } else {
       steps.push({
@@ -132,13 +136,13 @@ export const TC_A_11_CSMS: TestCase = {
       step: 6,
       description:
         'Reconnect with new certificate (skipped: cert file management not available in test runner)',
-      status: 'passed',
+      status: 'skipped',
       expected: 'Reconnected with new cert (skipped)',
       actual: 'Skipped: reconnect with new cert requires writing cert files to disk',
     });
 
     return {
-      status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
+      status: steps.every((s) => s.status !== 'failed') ? 'passed' : 'failed',
       durationMs: 0,
       steps,
     };

@@ -78,6 +78,8 @@ jobs:
   build:
     name: Build bundles
     runs-on: ubuntu-latest
+    # Normally done in a few minutes. Fail fast when the install hangs.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

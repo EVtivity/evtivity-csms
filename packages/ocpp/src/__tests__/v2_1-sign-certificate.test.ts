@@ -33,7 +33,7 @@ function makeCtx(payload: Record<string, unknown>): {
   const publishMock = vi.fn().mockResolvedValue(undefined);
   const ctx: HandlerContext = {
     stationId: 'CS-001',
-    stationDbId: null,
+    stationDbId: 'sta_001',
     session: {
       stationId: 'CS-001',
       stationDbId: null,
@@ -84,7 +84,7 @@ describe('v2_1 SignCertificate handler - uncovered branches', () => {
 
     expect(response).toEqual({ status: 'Accepted' });
     // The signCsr should be called with the default certificate type
-    expect(mockSignCsr).toHaveBeenCalledWith('csr-data', 'ChargingStationCertificate');
+    expect(mockSignCsr).toHaveBeenCalledWith('csr-data', 'ChargingStationCertificate', 'sta_001');
     // Should publish both SignCertificate event and CsrSigned event
     expect(publishMock).toHaveBeenCalledTimes(2);
     expect(publishMock).toHaveBeenCalledWith(

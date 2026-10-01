@@ -198,6 +198,7 @@ export const ERROR_CODES = {
   RULE_NOT_FOUND: 'RULE_NOT_FOUND',
   SCHEDULE_NOT_FOUND: 'SCHEDULE_NOT_FOUND',
   SCHEMA_NOT_FOUND: 'SCHEMA_NOT_FOUND',
+  SECURITY_PROFILE_DOWNGRADE: 'SECURITY_PROFILE_DOWNGRADE',
   SELF_EDIT_FORBIDDEN: 'SELF_EDIT_FORBIDDEN',
   SESSION_ALREADY_ACTIVE: 'SESSION_ALREADY_ACTIVE',
   SESSION_CREATE_FAILED: 'SESSION_CREATE_FAILED',
@@ -216,7 +217,9 @@ export const ERROR_CODES = {
   STATION_NOT_FOUND: 'STATION_NOT_FOUND',
   STATION_OFFLINE: 'STATION_OFFLINE',
   STATION_REJECTED: 'STATION_REJECTED',
+  STATION_SECURITY_CHANGE_REJECTED: 'STATION_SECURITY_CHANGE_REJECTED',
   STATION_TIMEOUT: 'STATION_TIMEOUT',
+  STATION_TLS_URL_NOT_CONFIGURED: 'STATION_TLS_URL_NOT_CONFIGURED',
   STATION_WATCH_NOT_FOUND: 'STATION_WATCH_NOT_FOUND',
   STATUS_CHECK_REJECTED: 'STATUS_CHECK_REJECTED',
   STATUS_CHECK_TIMEOUT: 'STATUS_CHECK_TIMEOUT',
@@ -436,6 +439,7 @@ export type ErrorCode =
   | 'RULE_NOT_FOUND'
   | 'SCHEDULE_NOT_FOUND'
   | 'SCHEMA_NOT_FOUND'
+  | 'SECURITY_PROFILE_DOWNGRADE'
   | 'SELF_EDIT_FORBIDDEN'
   | 'SESSION_ALREADY_ACTIVE'
   | 'SESSION_CREATE_FAILED'
@@ -454,7 +458,9 @@ export type ErrorCode =
   | 'STATION_NOT_FOUND'
   | 'STATION_OFFLINE'
   | 'STATION_REJECTED'
+  | 'STATION_SECURITY_CHANGE_REJECTED'
   | 'STATION_TIMEOUT'
+  | 'STATION_TLS_URL_NOT_CONFIGURED'
   | 'STATION_WATCH_NOT_FOUND'
   | 'STATUS_CHECK_REJECTED'
   | 'STATUS_CHECK_TIMEOUT'
@@ -684,6 +690,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   RULE_NOT_FOUND: 'Rule not found',
   SCHEDULE_NOT_FOUND: 'Schedule not found',
   SCHEMA_NOT_FOUND: 'Schema not found',
+  SECURITY_PROFILE_DOWNGRADE: 'A connected station cannot be moved to a lower security profile',
   SELF_EDIT_FORBIDDEN: 'Cannot edit your own role, status, or site access',
   SESSION_ALREADY_ACTIVE: 'You already have an active charging session',
   SESSION_CREATE_FAILED: 'Failed to create session',
@@ -702,7 +709,11 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   STATION_NOT_FOUND: 'Station not found',
   STATION_OFFLINE: 'Station is offline',
   STATION_REJECTED: 'Station rejected start: ...',
+  STATION_SECURITY_CHANGE_REJECTED:
+    'The station did not accept the security change; its current settings are unchanged',
   STATION_TIMEOUT: 'Station did not respond',
+  STATION_TLS_URL_NOT_CONFIGURED:
+    'The public TLS address for stations (OCPP_STATION_TLS_URL) is not configured',
   STATION_WATCH_NOT_FOUND: 'Watch not found',
   STATUS_CHECK_REJECTED: 'Station rejected the status check',
   STATUS_CHECK_TIMEOUT: 'Status check timed out. Replug the connector and try again.',

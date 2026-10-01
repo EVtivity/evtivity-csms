@@ -4,11 +4,18 @@
 import crypto from 'node:crypto';
 import pino from 'pino';
 import { db, chargingStations, drivers, driverTokens } from '@evtivity/database';
-import { refreshTokens, users, OCTT_API_KEY_NAME } from '@evtivity/database';
+import { refreshTokens, roles, users, OCTT_API_KEY_NAME } from '@evtivity/database';
 import { createId } from '@evtivity/database/src/lib/id.js';
-import { like, eq, sql } from 'drizzle-orm';
+import { and, asc, like, eq, sql } from 'drizzle-orm';
 
-import type { RunConfig, RunSummary, TestCaseResult, TestCase, TriggerCommandFn } from './types.js';
+import type {
+  RunConfig,
+  RunSummary,
+  TestCaseResult,
+  TestCase,
+  TriggerCommandFn,
+  CallApiFn,
+} from './types.js';
 import { getRegistry } from './registry.js';
 import { executeTest } from './executor.js';
 import { createApiClient } from './api-client.js';
@@ -65,6 +72,7 @@ export async function runTests(
 
   // Create a temporary API key for triggering CSMS-initiated commands
   let triggerCommand: TriggerCommandFn | undefined;
+  let callApi: CallApiFn | undefined;
   let apiKeyId: number | undefined;
   let adminUserId: string | undefined;
   let priorAdminAllSiteAccess = false;
@@ -74,7 +82,9 @@ export async function runTests(
       const [admin] = await db
         .select({ id: users.id, hasAllSiteAccess: users.hasAllSiteAccess })
         .from(users)
-        .where(eq(users.isActive, true))
+        .innerJoin(roles, eq(roles.id, users.roleId))
+        .where(and(eq(users.isActive, true), eq(roles.name, 'admin')))
+        .orderBy(asc(users.createdAt))
         .limit(1);
       if (admin != null) {
         // Grant all-site access for OCTT commands, remembering the prior value so
@@ -105,6 +115,7 @@ export async function runTests(
             throw new Error(`API key verification failed (${String(testRes.status)})`);
           }
           triggerCommand = apiClient.triggerCommand;
+          callApi = apiClient.callApi;
           logger.info(
             'API key created and verified - CSMS-initiated commands will be triggered via REST API',
           );
@@ -145,12 +156,18 @@ export async function runTests(
     while (running.length < concurrency && queue.length > 0) {
       const testCase = queue.shift();
       if (testCase == null) break;
-      const promise = processTest(testCase, config, logger, summary, onResult, triggerCommand).then(
-        () => {
-          const idx = running.indexOf(promise);
-          if (idx !== -1) void running.splice(idx, 1);
-        },
-      );
+      const promise = processTest(
+        testCase,
+        config,
+        logger,
+        summary,
+        onResult,
+        triggerCommand,
+        callApi,
+      ).then(() => {
+        const idx = running.indexOf(promise);
+        if (idx !== -1) void running.splice(idx, 1);
+      });
       running.push(promise);
     }
     if (running.length > 0) {
@@ -329,8 +346,9 @@ async function processTest(
   summary: RunSummary,
   onResult: (result: TestCaseResult) => void,
   triggerCommand?: TriggerCommandFn,
+  callApi?: CallApiFn,
 ): Promise<void> {
-  const result = await executeTest(testCase, config, logger, triggerCommand);
+  const result = await executeTest(testCase, config, logger, triggerCommand, callApi);
 
   switch (result.result.status) {
     case 'passed':

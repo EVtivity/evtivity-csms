@@ -61,6 +61,14 @@ export {
   formatCurrencyAmount,
 } from './currency.js';
 export type { SupportedCurrency } from './currency.js';
+export {
+  STATION_PASSWORD_CHARSET,
+  stationPasswordRules,
+  validateStationPassword,
+  generateStationPassword,
+  toAuthorizationKeyHex,
+} from './station-password.js';
+export type { StationOcppProtocol, StationPasswordError } from './station-password.js';
 export { calculateSessionCost, calculateSplitSessionCost } from './cost-calculator.js';
 export type { TariffInput, CostBreakdown, TariffSegment } from './cost-calculator.js';
 

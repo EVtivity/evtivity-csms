@@ -1,6 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { toAuthorizationKeyHex } from '@evtivity/lib';
+
 export interface CommandTranslation {
   action: string;
   translatePayload: (payload: Record<string, unknown>) => Record<string, unknown>;
@@ -167,6 +169,14 @@ function mapSetVariables16(payload: Record<string, unknown>): Record<string, unk
   }
   const first = variables[0];
   if (first == null) return {};
+  // OCPP 1.6 sets the Basic Auth password as AuthorizationKey, hex-encoded
+  // (Security Whitepaper; OCTT TC_073).
+  if (
+    (first.component as Record<string, unknown> | undefined)?.name === 'SecurityCtrlr' &&
+    (first.variable as Record<string, unknown> | undefined)?.name === 'BasicAuthPassword'
+  ) {
+    return { key: 'AuthorizationKey', value: toAuthorizationKeyHex(String(first.attributeValue)) };
+  }
   return {
     key: configKey16(first),
     value: first.attributeValue,

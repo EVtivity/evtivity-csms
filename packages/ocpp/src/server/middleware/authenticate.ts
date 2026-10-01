@@ -97,7 +97,8 @@ export async function authenticateConnection(
 
   // Look up station in database
   const rows = await sql`
-    SELECT id, security_profile, basic_auth_password_hash, availability, onboarding_status
+    SELECT id, security_profile, pending_security_profile, basic_auth_password_hash, availability,
+           onboarding_status
     FROM charging_stations
     WHERE station_id = ${stationId}
   `;
@@ -105,6 +106,7 @@ export async function authenticateConnection(
     | {
         id: string;
         security_profile: number;
+        pending_security_profile: number | null;
         basic_auth_password_hash: string | null;
         availability: string;
         onboarding_status: string;
@@ -138,7 +140,46 @@ export async function authenticateConnection(
   // Blocked stations are rejected here at the connection level.
 
   const remoteAddress = clientIp;
-  const securityProfile = station.security_profile;
+  const ctx = { req, sql, logger, stationId, station, remoteAddress };
+
+  // An upgrade sent to the station is pending until the station connects with
+  // the new profile. Try it first; on success promote it, after which the old
+  // profile is no longer accepted (OCPP 2.1 A05.FR.07). Its failures are not
+  // logged: until the station switches, every connection fails this check.
+  const pending = station.pending_security_profile;
+  if (pending != null && pending !== station.security_profile) {
+    const upgraded = await authenticateForProfile(pending, ctx, false);
+    if (upgraded.authenticated) {
+      await promotePendingSecurityProfile(
+        sql,
+        station.id,
+        station.security_profile,
+        pending,
+        remoteAddress,
+        logger,
+      );
+      return upgraded;
+    }
+  }
+  return authenticateForProfile(station.security_profile, ctx, true);
+}
+
+interface ProfileAuthContext {
+  req: IncomingMessage;
+  sql: postgres.Sql;
+  logger: Logger;
+  stationId: string;
+  station: { id: string; basic_auth_password_hash: string | null };
+  remoteAddress: string | null;
+}
+
+async function authenticateForProfile(
+  securityProfile: number,
+  ctx: ProfileAuthContext,
+  logFailures: boolean,
+): Promise<AuthResult> {
+  const { req, sql, logger, stationId, station, remoteAddress } = ctx;
+  const logEvent = logFailures ? logAuthEvent : async (): Promise<void> => {};
 
   // SP0: no authentication required
   if (securityProfile === 0) {
@@ -150,7 +191,7 @@ export async function authenticateConnection(
   if (securityProfile === 3) {
     const isTls = 'encrypted' in req.socket && req.socket.encrypted === true;
     if (!isTls) {
-      await logAuthEvent(
+      await logEvent(
         sql,
         station.id,
         'auth_failed',
@@ -172,7 +213,7 @@ export async function authenticateConnection(
     const tlsSocket = req.socket as import('node:tls').TLSSocket;
     const cert = tlsSocket.getPeerCertificate();
     if (Object.keys(cert).length === 0) {
-      await logAuthEvent(
+      await logEvent(
         sql,
         station.id,
         'auth_failed',
@@ -193,7 +234,7 @@ export async function authenticateConnection(
 
     if (!tlsSocket.authorized) {
       const authError = tlsSocket.authorizationError;
-      await logAuthEvent(
+      await logEvent(
         sql,
         station.id,
         'auth_failed',
@@ -224,7 +265,7 @@ export async function authenticateConnection(
     // not registered" instead of the real "no serial" reason. Cover both.
     const certSerial = cert.serialNumber as string | undefined;
     if (certSerial == null || certSerial === '') {
-      await logAuthEvent(
+      await logEvent(
         sql,
         station.id,
         'auth_failed',
@@ -254,7 +295,7 @@ export async function authenticateConnection(
       LIMIT 1
     `;
     if (certRows.length === 0) {
-      await logAuthEvent(
+      await logEvent(
         sql,
         station.id,
         'auth_failed',
@@ -285,7 +326,7 @@ export async function authenticateConnection(
   if (securityProfile === 2) {
     const isTls = 'encrypted' in req.socket && req.socket.encrypted === true;
     if (!isTls) {
-      await logAuthEvent(
+      await logEvent(
         sql,
         station.id,
         'auth_failed',
@@ -308,7 +349,7 @@ export async function authenticateConnection(
   // SP1 and SP2: require Basic auth
   const authHeader = req.headers['authorization'];
   if (authHeader == null) {
-    await logAuthEvent(
+    await logEvent(
       sql,
       station.id,
       'auth_failed',
@@ -328,7 +369,7 @@ export async function authenticateConnection(
   }
 
   if (!authHeader.startsWith('Basic ')) {
-    await logAuthEvent(
+    await logEvent(
       sql,
       station.id,
       'auth_failed',
@@ -357,7 +398,7 @@ export async function authenticateConnection(
   // station presenting valid credentials for station A could connect to
   // station B's URL and inherit B's identity for the session.
   if (username !== stationId) {
-    await logAuthEvent(
+    await logEvent(
       sql,
       station.id,
       'auth_failed',
@@ -377,7 +418,7 @@ export async function authenticateConnection(
   }
 
   if (station.basic_auth_password_hash == null) {
-    await logAuthEvent(
+    await logEvent(
       sql,
       station.id,
       'auth_failed',
@@ -399,7 +440,7 @@ export async function authenticateConnection(
   try {
     const valid = await verify(station.basic_auth_password_hash, password);
     if (!valid) {
-      await logAuthEvent(
+      await logEvent(
         sql,
         station.id,
         'auth_failed',
@@ -433,6 +474,38 @@ export async function authenticateConnection(
 
   logger.debug({ stationId }, 'Station authenticated via Basic Auth');
   return { authenticated: true, stationId, stationDbId: station.id };
+}
+
+async function promotePendingSecurityProfile(
+  sql: postgres.Sql,
+  stationDbId: string,
+  fromProfile: number,
+  toProfile: number,
+  remoteAddress: string | null,
+  logger: Logger,
+): Promise<void> {
+  // Fail open: the station authenticated with the new profile; a failed write
+  // only delays the promotion to its next connection.
+  try {
+    await sql`
+      UPDATE charging_stations
+      SET security_profile = ${toProfile}, pending_security_profile = NULL, updated_at = now(),
+        basic_auth_password_hash = CASE WHEN ${toProfile} = 3 THEN NULL ELSE basic_auth_password_hash END
+      WHERE id = ${stationDbId} AND pending_security_profile = ${toProfile}
+    `;
+  } catch (err) {
+    logger.warn({ err, stationDbId, toProfile }, 'Failed to promote pending security profile');
+    return;
+  }
+  logger.info({ stationDbId, fromProfile, toProfile }, 'Security profile upgrade completed');
+  await logAuthEvent(
+    sql,
+    stationDbId,
+    'security_profile_upgraded',
+    remoteAddress,
+    { fromProfile, toProfile },
+    logger,
+  );
 }
 
 async function logAuthEvent(

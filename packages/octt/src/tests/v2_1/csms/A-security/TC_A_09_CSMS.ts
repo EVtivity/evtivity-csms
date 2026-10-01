@@ -1,8 +1,16 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { OcppClient } from '@evtivity/css/ocpp-client';
-import type { TestCase, StepResult } from '../../../../types.js';
+import type { StepResult, TestCase } from '../../../../types.js';
+import {
+  isPasswordString,
+  newTestPassword,
+  reconnectWith,
+  tryConnect,
+  waitForOnline,
+} from '../../../../security-test-helpers.js';
+
+const INITIAL_PASSWORD = newTestPassword(24);
 
 export const TC_A_09_CSMS: TestCase = {
   id: 'TC_A_09_CSMS',
@@ -10,164 +18,126 @@ export const TC_A_09_CSMS: TestCase = {
   module: 'A-security',
   version: 'ocpp2.1',
   sut: 'csms',
-  description:
-    'This test case verifies the CSMS can set a new BasicAuthPassword on the Charging Station and subsequently accept the new credentials.',
+  description: 'The CSMS sets a new BasicAuthPassword; the Charging Station reconnects with it.',
   purpose:
-    'To verify if the CSMS is able to successfully set the new BasicAuthPassword and only accepts the new password.',
+    'To verify if the CSMS is able to successfully set the new BasicAuthPassword and only accepts the new password afterwards.',
+  provision: { securityProfile: 1, password: INITIAL_PASSWORD },
   execute: async (ctx) => {
     const steps: StepResult[] = [];
+    if (ctx.callApi == null || ctx.stationDbId == null) {
+      steps.push({
+        step: 1,
+        description: 'Operator changes the password through the CSMS API',
+        status: 'failed',
+        expected: 'API available',
+        actual: 'API client not available',
+      });
+      return { status: 'failed', durationMs: 0, steps };
+    }
 
-    // Boot the station first
     await ctx.client.sendCall('BootNotification', {
       chargingStation: { model: 'OCTT-Virtual', vendorName: 'OCTT' },
       reason: 'PowerUp',
     });
 
-    // Step 1: The CSMS sends a SetVariablesRequest to set a new BasicAuthPassword.
-    // We wait for the CSMS-initiated SetVariables and respond with Accepted.
-    let setVariablesReceived = false;
-    let variableName = '';
-    let componentName = '';
-    let newPassword = '';
-
-    ctx.client.setIncomingCallHandler(async (_messageId, action, payload) => {
+    let received: { component: string; variable: string; value: string } | null = null;
+    ctx.client.setIncomingCallHandler((_messageId, action, payload) => {
       if (action === 'SetVariables') {
-        setVariablesReceived = true;
-        const setVariableData = payload['setVariableData'] as
-          | Array<Record<string, unknown>>
-          | undefined;
-        if (setVariableData != null && setVariableData.length > 0) {
-          const firstEntry = setVariableData[0];
-          if (firstEntry != null) {
-            const variable = firstEntry['variable'] as Record<string, unknown> | undefined;
-            const component = firstEntry['component'] as Record<string, unknown> | undefined;
-            variableName = String(variable?.['name'] ?? '');
-            componentName = String(component?.['name'] ?? '');
-            newPassword = String(firstEntry['attributeValue'] ?? '');
-          }
+        const data = (payload['setVariableData'] as Record<string, unknown>[] | undefined)?.[0];
+        const component = data?.['component'] as { name?: string } | undefined;
+        const variable = data?.['variable'] as { name?: string } | undefined;
+        // Ignore the configuration the CSMS pushes after boot.
+        const isPassword = variable?.name === 'BasicAuthPassword';
+        if (isPassword) {
+          received = {
+            component: component?.name ?? '',
+            variable: variable?.name ?? '',
+            value: String(data?.['attributeValue'] ?? ''),
+          };
         }
-        return {
+        return Promise.resolve({
           setVariableResult: [
             {
               attributeStatus: 'Accepted',
-              component: { name: 'SecurityCtrlr' },
-              variable: { name: 'BasicAuthPassword' },
+              component: data?.['component'] ?? {},
+              variable: data?.['variable'] ?? {},
             },
           ],
-        };
+        });
       }
-      return { status: 'NotSupported' };
+      return Promise.resolve({});
     });
 
-    if (ctx.triggerCommand != null) {
-      await ctx.triggerCommand('v21', 'SetVariables', {
-        stationId: ctx.stationId,
-        setVariableData: [
-          {
-            attributeType: 'Actual',
-            attributeValue: 'NewBasicAuthPassword123',
-            component: { name: 'SecurityCtrlr' },
-            variable: { name: 'BasicAuthPassword' },
-          },
-        ],
-      });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
+    // Manual action: update the Basic Auth password on the CSMS.
+    const newPassword = newTestPassword(32);
+    await waitForOnline(ctx);
+    const api = await ctx.callApi('POST', `/stations/${ctx.stationDbId}/credentials`, {
+      password: newPassword,
+    });
 
+    // Step 1 validations: SecurityCtrlr.BasicAuthPassword, a passwordString of
+    // 16-40 characters (A00.FR.205).
+    const sent = received as { component: string; variable: string; value: string } | null;
+    const valid =
+      sent?.component === 'SecurityCtrlr' &&
+      sent.variable === 'BasicAuthPassword' &&
+      sent.value === newPassword &&
+      sent.value.length >= 16 &&
+      sent.value.length <= 40 &&
+      isPasswordString(sent.value);
     steps.push({
       step: 1,
-      description: 'CSMS sends SetVariablesRequest for BasicAuthPassword',
-      status: setVariablesReceived ? 'passed' : 'failed',
-      expected: 'SetVariablesRequest with variable.name = BasicAuthPassword',
-      actual: setVariablesReceived
-        ? `Received SetVariables: component=${componentName}, variable=${variableName}`
-        : 'No SetVariablesRequest received within timeout',
+      description: 'CSMS sends SetVariablesRequest for SecurityCtrlr.BasicAuthPassword',
+      status: valid ? 'passed' : 'failed',
+      expected: 'SecurityCtrlr.BasicAuthPassword = new passwordString of 16-40 characters',
+      actual:
+        sent == null
+          ? 'No SetVariablesRequest received'
+          : `${sent.component}.${sent.variable}, length ${String(sent.value.length)}`,
     });
 
-    // Step 2: Respond with Accepted (handled by the incoming call handler above)
     steps.push({
       step: 2,
-      description: 'Respond with SetVariablesResponse status Accepted',
-      status: setVariablesReceived ? 'passed' : 'failed',
-      expected: 'SetVariablesResponse sent with status Accepted',
-      actual: setVariablesReceived ? 'Response sent' : 'No request to respond to',
+      description: 'The CSMS switches to the new password after Accepted (A01.FR.03)',
+      status: api.status === 200 && api.body['appliedTo'] === 'station' ? 'passed' : 'failed',
+      expected: '200 appliedTo=station',
+      actual: `${String(api.status)} ${JSON.stringify(api.body)}`,
     });
 
-    // Step 3: Disconnect the current connection
-    ctx.client.disconnect();
+    // Steps 3-6: reconnect with the new password; the CSMS upgrades the connection.
+    const reconnected = await reconnectWith(ctx, { password: newPassword, securityProfile: 1 });
     steps.push({
       step: 3,
-      description: 'Disconnect current connection after accepting new password',
-      status: !ctx.client.isConnected ? 'passed' : 'failed',
-      expected: 'Disconnected',
-      actual: ctx.client.isConnected ? 'Still connected' : 'Disconnected',
-    });
-
-    // Step 4: Reconnect with the new password from the SetVariables payload
-    const reconnectPassword =
-      newPassword !== '' ? newPassword : (ctx.config.password ?? 'password');
-    const newClient = new OcppClient({
-      serverUrl: ctx.config.serverUrl,
-      stationId: ctx.stationId,
-      ocppProtocol: 'ocpp2.1',
-      password: reconnectPassword,
-      securityProfile: 1,
-    });
-
-    let reconnected = false;
-    try {
-      await newClient.connect();
-      reconnected = newClient.isConnected;
-    } catch {
-      reconnected = false;
-    }
-
-    steps.push({
-      step: 4,
-      description: 'Reconnect with new password from SetVariables payload',
+      description: 'The Test System reconnects with the new BasicAuthPassword',
       status: reconnected ? 'passed' : 'failed',
-      expected: 'Connected with new password',
-      actual: reconnected ? 'Connected with new password' : 'Failed to connect with new password',
+      expected: 'Connection accepted',
+      actual: reconnected ? 'Connected' : 'Not connected',
     });
-
-    // Step 5: Send BootNotification on the new connection
     if (reconnected) {
-      try {
-        const bootRes = await newClient.sendCall('BootNotification', {
-          chargingStation: { model: 'OCTT-Virtual', vendorName: 'OCTT' },
-          reason: 'PowerUp',
-        });
-        const status = bootRes['status'] as string;
-        steps.push({
-          step: 5,
-          description:
-            'BootNotificationResponse after reconnect with new password has status Accepted',
-          status: status === 'Accepted' ? 'passed' : 'failed',
-          expected: 'status = Accepted',
-          actual: `status = ${status}`,
-        });
-      } catch {
-        steps.push({
-          step: 5,
-          description:
-            'BootNotificationResponse after reconnect with new password has status Accepted',
-          status: 'failed',
-          expected: 'status = Accepted',
-          actual: 'Error sending BootNotification',
-        });
-      }
-      newClient.disconnect();
-    } else {
+      const boot = await ctx.client.sendCall('BootNotification', {
+        chargingStation: { model: 'OCTT-Virtual', vendorName: 'OCTT' },
+        reason: 'PowerUp',
+      });
       steps.push({
-        step: 5,
-        description:
-          'BootNotificationResponse after reconnect with new password has status Accepted',
-        status: 'failed',
-        expected: 'status = Accepted',
-        actual: 'Skipped: not connected',
+        step: 4,
+        description: 'BootNotificationResponse after reconnecting',
+        status: boot['status'] === 'Accepted' ? 'passed' : 'failed',
+        expected: 'status Accepted',
+        actual: `status ${String(boot['status'])}`,
       });
     }
+
+    const oldStatus = await tryConnect(ctx, {
+      serverUrl: ctx.config.serverUrl,
+      password: INITIAL_PASSWORD,
+    });
+    steps.push({
+      step: 5,
+      description: 'The previous password is no longer accepted (A01.FR.03)',
+      status: oldStatus === 401 ? 'passed' : 'failed',
+      expected: 'HTTP 401',
+      actual: `HTTP ${String(oldStatus)}`,
+    });
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

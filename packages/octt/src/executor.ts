@@ -4,7 +4,8 @@
 import type { Logger } from 'pino';
 import { db, chargingStations } from '@evtivity/database';
 import { createId } from '@evtivity/database/src/lib/id.js';
-import type { TestCase, TestCaseResult, RunConfig, TriggerCommandFn } from './types.js';
+import { hash } from 'argon2';
+import type { TestCase, TestCaseResult, RunConfig, TriggerCommandFn, CallApiFn } from './types.js';
 import { createTestClient, generateStationId } from './client.js';
 
 export async function executeTest(
@@ -12,19 +13,25 @@ export async function executeTest(
   config: RunConfig,
   logger: Logger,
   triggerCommand?: TriggerCommandFn,
+  callApi?: CallApiFn,
 ): Promise<TestCaseResult> {
   const stationId = generateStationId(testCase.module, testCase.id);
   const provisionStations = config.provisionStations ?? true;
 
-  // Register the station as SP0 before connecting so the CSMS accepts the connection,
-  // then remove it after the test completes.
-  if (provisionStations) {
+  // Register the station before connecting so the CSMS accepts the connection (SP0
+  // unless the test asks for another profile), then remove it after the test completes.
+  const provision = testCase.provision ?? { securityProfile: 0 };
+  const stationDbId = provisionStations ? createId('station') : null;
+  if (provisionStations && stationDbId != null) {
     await db
       .insert(chargingStations)
       .values({
-        id: createId('station'),
+        id: stationDbId,
         stationId,
-        securityProfile: 0,
+        securityProfile: provision.securityProfile,
+        ...(provision.password != null
+          ? { basicAuthPasswordHash: await hash(provision.password) }
+          : {}),
         availability: 'available',
         onboardingStatus: testCase.onboardingStatus ?? 'accepted',
       })
@@ -35,8 +42,8 @@ export async function executeTest(
     serverUrl: config.serverUrl,
     stationId,
     version: testCase.version,
-    password: config.password,
-    securityProfile: provisionStations ? 0 : undefined,
+    password: provision.password ?? config.password,
+    securityProfile: provisionStations ? provision.securityProfile : undefined,
   });
 
   const log = logger.child({ testId: testCase.id, stationId });
@@ -86,9 +93,11 @@ export async function executeTest(
     const result = await testCase.execute({
       client,
       stationId,
+      stationDbId,
       logger: log,
       config,
       triggerCommand,
+      callApi,
     });
 
     result.durationMs = Date.now() - start;

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { TestCase, StepResult } from '../../../../types.js';
+import { OCTT_CSR, OCTT_SIGNED_CERTIFICATE_CHAIN } from '../../../../certificate-fixtures.js';
+import { signPendingCsr, waitFor } from '../../../../security-test-helpers.js';
 
 export const TC_A_12_CSMS: TestCase = {
   id: 'TC_A_12_CSMS',
@@ -61,15 +63,15 @@ export const TC_A_12_CSMS: TestCase = {
       // Step 2: Respond with TriggerMessageResponse Accepted (handled above).
       steps.push({
         step: 1,
-        description: 'CSMS sends TriggerMessageRequest',
-        status: 'passed',
-        expected: 'TriggerMessageRequest received',
+        description: 'CSMS sends TriggerMessageRequest for SignV2GCertificate',
+        status: triggerRequestedMessage === 'SignV2GCertificate' ? 'passed' : 'failed',
+        expected: 'requestedMessage = SignV2GCertificate',
         actual: `requestedMessage = ${triggerRequestedMessage}`,
       });
 
       // Step 3: Send SignCertificateRequest with V2GCertificate type
       const signRes = await ctx.client.sendCall('SignCertificate', {
-        csr: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0Z3VS5JJcds3xfn/ygWeCXIQP+cFgMB+no',
+        csr: OCTT_CSR,
         certificateType: 'V2GCertificate',
       });
 
@@ -84,7 +86,9 @@ export const TC_A_12_CSMS: TestCase = {
       });
 
       // Step 5-6: CSMS sends CertificateSignedRequest, we respond with Accepted
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+      // Manual action: the operator signs the queued CSR (manual PKI provider).
+      const signError = await signPendingCsr(ctx, OCTT_SIGNED_CERTIFICATE_CHAIN);
+      if (signError == null) await waitFor(() => certificateSignedReceived);
 
       steps.push({
         step: 3,
@@ -93,7 +97,7 @@ export const TC_A_12_CSMS: TestCase = {
         expected: 'CertificateSignedRequest received',
         actual: certificateSignedReceived
           ? 'CertificateSignedRequest received'
-          : 'No CertificateSignedRequest within timeout',
+          : (signError ?? 'No CertificateSignedRequest within timeout'),
       });
     } else {
       steps.push({
@@ -115,7 +119,7 @@ export const TC_A_12_CSMS: TestCase = {
     });
 
     return {
-      status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
+      status: steps.every((s) => s.status !== 'failed') ? 'passed' : 'failed',
       durationMs: 0,
       steps,
     };

@@ -566,7 +566,6 @@
     "port": "Port {{id}}",
     "security": "Sicherheit",
     "securityProfile": "Sicherheitsprofil",
-    "security16Info": "Änderungen am Sicherheitsprofil und Passwort müssen direkt an der Station konfiguriert werden. Das CSMS speichert das Passwort nur zur Verbindungsauthentifizierung.",
     "changeProfile": "Profil ändern",
     "sp0": "Keine Authentifizierung",
     "sp1": "Basic Auth",
@@ -595,7 +594,7 @@
     "passwordRequiredForProfile": "Ein Passwort ist erforderlich, um dieses Sicherheitsprofil zu aktivieren.",
     "password": "Passwort",
     "savePassword": "Passwort speichern",
-    "passwordPlaceholder": "Mindestens 8 Zeichen",
+    "passwordPlaceholder": "{{min}}-{{max}} Zeichen",
     "rotateCredentials": "Anmeldedaten erneuern",
     "rotating": "Wird erneuert...",
     "rotateCredentialsConfirm": "Dadurch wird ein neues Passwort für {{stationId}} erzeugt und über OCPP SetVariables an die Station übertragen. Das alte Passwort funktioniert sofort nicht mehr.",
@@ -813,7 +812,16 @@
     "connectorRegionEuropean": "Europa",
     "connectorRegionUniversal": "Universal / Sonstige",
     "connectorUnknown": "Unbekannt",
-    "uploadFailed": "Bild konnte nicht hochgeladen werden. Bitte erneut versuchen."
+    "uploadFailed": "Bild konnte nicht hochgeladen werden. Bitte erneut versuchen.",
+    "profileUpgradePending": "Upgrade auf Sicherheitsprofil {{profile}} ausstehend. Es gilt, sobald die Ladestation sich damit neu verbindet; bis dahin bleibt das aktuelle Profil aktiv.",
+    "cancelProfileUpgrade": "Upgrade abbrechen",
+    "profileUpgradeSent": "Upgrade auf Sicherheitsprofil {{profile}} an die Ladestation gesendet",
+    "profileSaved": "Sicherheitsprofil gespeichert",
+    "passwordAccepted": "Die Ladestation hat das neue Passwort angenommen",
+    "passwordStored": "Passwort gespeichert. Konfigurieren Sie dasselbe Passwort an der Ladestation.",
+    "securityChangeFailed": "Sicherheitsaenderung fehlgeschlagen",
+    "passwordInvalidCharacters": "Nur Buchstaben, Ziffern und * - _ = : + | @ . verwenden",
+    "profileChangeOnline": "Die Aenderung wird an die Ladestation gesendet, die sich mit dem neuen Profil neu verbindet. Bis dahin bleibt das aktuelle Profil aktiv."
   },
   "eventAlertRules": {
     "title": "Ereigniswarnregeln",
@@ -2325,7 +2333,10 @@
     "TOO_MANY_WATCHES": "Sie beobachten zu viele Ladestationen",
     "STATION_WATCH_NOT_FOUND": "Beobachtung nicht gefunden",
     "STATUS_CHECK_REJECTED": "Ladestation hat die Statusabfrage abgelehnt",
-    "STATUS_CHECK_TIMEOUT": "Zeitüberschreitung bei der Statusabfrage. Stecker neu einstecken und erneut versuchen."
+    "STATUS_CHECK_TIMEOUT": "Zeitüberschreitung bei der Statusabfrage. Stecker neu einstecken und erneut versuchen.",
+    "SECURITY_PROFILE_DOWNGRADE": "Eine verbundene Ladestation kann nicht auf ein niedrigeres Sicherheitsprofil gesetzt werden",
+    "STATION_TLS_URL_NOT_CONFIGURED": "Die oeffentliche TLS-Adresse fuer Ladestationen (OCPP_STATION_TLS_URL) ist nicht konfiguriert",
+    "STATION_SECURITY_CHANGE_REJECTED": "Die Ladestation hat die Sicherheitsaenderung nicht angenommen; die aktuellen Einstellungen bleiben unveraendert"
   },
   "logs": {
     "title": "Protokolle",

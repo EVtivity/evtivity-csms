@@ -332,6 +332,24 @@ describe('command-translation', () => {
       });
     });
 
+    describe('1.6 Basic Auth password', () => {
+      it('maps SecurityCtrlr.BasicAuthPassword to a hex AuthorizationKey (OCTT TC_073)', () => {
+        const result = translateCommand('SetVariables', 'ocpp1.6', {
+          setVariableData: [
+            {
+              component: { name: 'SecurityCtrlr' },
+              variable: { name: 'BasicAuthPassword' },
+              attributeValue: 'OCA_OCTT_admin_test',
+            },
+          ],
+        });
+        expect(result).toEqual({
+          action: 'ChangeConfiguration',
+          payload: { key: 'AuthorizationKey', value: '4F43415F4F4354545F61646D696E5F74657374' },
+        });
+      });
+    });
+
     describe('1.6 configuration keys', () => {
       it('uses the variable name when the component name is empty (1.6 templates)', () => {
         const result = translateCommand('SetVariables', 'ocpp1.6', {

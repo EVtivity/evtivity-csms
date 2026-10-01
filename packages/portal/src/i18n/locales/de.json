@@ -696,7 +696,10 @@
     "TOO_MANY_WATCHES": "Sie beobachten zu viele Ladestationen",
     "STATION_WATCH_NOT_FOUND": "Beobachtung nicht gefunden",
     "STATUS_CHECK_REJECTED": "Ladestation hat die Statusabfrage abgelehnt",
-    "STATUS_CHECK_TIMEOUT": "Zeitüberschreitung bei der Statusabfrage. Stecker neu einstecken und erneut versuchen."
+    "STATUS_CHECK_TIMEOUT": "Zeitüberschreitung bei der Statusabfrage. Stecker neu einstecken und erneut versuchen.",
+    "SECURITY_PROFILE_DOWNGRADE": "Eine verbundene Ladestation kann nicht auf ein niedrigeres Sicherheitsprofil gesetzt werden",
+    "STATION_TLS_URL_NOT_CONFIGURED": "Die oeffentliche TLS-Adresse fuer Ladestationen (OCPP_STATION_TLS_URL) ist nicht konfiguriert",
+    "STATION_SECURITY_CHANGE_REJECTED": "Die Ladestation hat die Sicherheitsaenderung nicht angenommen; die aktuellen Einstellungen bleiben unveraendert"
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",

@@ -19,6 +19,9 @@
     },
     "./number": {
       "import": "./src/number.ts"
+    },
+    "./station-password": {
+      "import": "./src/station-password.ts"
     }
   },
   "scripts": {

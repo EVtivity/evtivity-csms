@@ -62,6 +62,7 @@ interface Station {
   lastHeartbeat: string | null;
   ocppProtocol: string | null;
   securityProfile: number;
+  pendingSecurityProfile: number | null;
   hasPassword: boolean;
   latitude: string | null;
   longitude: string | null;
@@ -294,6 +295,7 @@ export function StationDetail(): React.JSX.Element {
             stationId={station.stationId}
             stationDbId={station.id}
             securityProfile={station.securityProfile}
+            pendingSecurityProfile={station.pendingSecurityProfile}
             hasPassword={station.hasPassword}
             isOnline={station.isOnline}
             timezone={siteTimezone}

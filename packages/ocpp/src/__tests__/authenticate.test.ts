@@ -683,3 +683,112 @@ describe('rejectionFor', () => {
     expect(rejectionFor(base).status).toBe(503);
   });
 });
+
+describe('authenticateConnection with a pending security profile upgrade', () => {
+  const PASSWORD = 'pending-upgrade-pw';
+  let passwordHash = '';
+  const basic = (user: string): string =>
+    'Basic ' + Buffer.from(`${user}:${PASSWORD}`).toString('base64');
+
+  // Records each query's SQL text and values, answering the station lookup.
+  function recordingSql(station: Record<string, unknown>) {
+    const queries: { text: string; values: unknown[] }[] = [];
+    const fn = vi.fn();
+    const proxy = new Proxy(fn, {
+      apply(_t, _this, args: unknown[]) {
+        const [strings, ...values] = args as [TemplateStringsArray, ...unknown[]];
+        const text = strings.join('?');
+        queries.push({ text, values });
+        return Promise.resolve(text.includes('FROM charging_stations') ? [station] : []) as unknown;
+      },
+      get(target, prop) {
+        if (prop === 'then') return undefined;
+        if (prop === 'json') return (v: unknown) => v;
+        return target[prop as keyof typeof target];
+      },
+    });
+    return { sql: proxy as unknown as Parameters<typeof authenticateConnection>[2], queries };
+  }
+
+  beforeEach(async () => {
+    if (passwordHash === '') passwordHash = await hash(PASSWORD);
+  });
+
+  it('accepts the pending profile and promotes it (A05.FR.06)', async () => {
+    const { sql, queries } = recordingSql({
+      id: 'sta_up',
+      security_profile: 0,
+      pending_security_profile: 1,
+      basic_auth_password_hash: passwordHash,
+      onboarding_status: 'accepted',
+    });
+    const result = await authenticateConnection(
+      createMockRequest('/CS-UP', basic('CS-UP')),
+      createMockLogger(),
+      sql,
+    );
+
+    expect(result.authenticated).toBe(true);
+    const update = queries.find((q) => q.text.includes('UPDATE charging_stations'));
+    expect(update?.text).toContain('pending_security_profile = NULL');
+    expect(update?.values).toEqual([1, 1, 'sta_up', 1]);
+    // The password hash is cleared only for an upgrade to Mutual TLS (profile 3).
+    expect(update?.text).toContain('basic_auth_password_hash = CASE WHEN');
+    expect(queries.some((q) => q.values.includes('security_profile_upgraded'))).toBe(true);
+  });
+
+  it('still accepts the current profile while the upgrade is pending, without logging failures', async () => {
+    const { sql, queries } = recordingSql({
+      id: 'sta_up',
+      security_profile: 0,
+      pending_security_profile: 1,
+      basic_auth_password_hash: passwordHash,
+      onboarding_status: 'accepted',
+    });
+    const result = await authenticateConnection(
+      createMockRequest('/CS-UP'),
+      createMockLogger(),
+      sql,
+    );
+
+    expect(result.authenticated).toBe(true);
+    expect(queries.some((q) => q.text.includes('UPDATE charging_stations'))).toBe(false);
+    expect(queries.some((q) => q.values.includes('auth_failed'))).toBe(false);
+  });
+
+  it('does not promote to TLS profile 2 on a plain connection; profile 1 still applies', async () => {
+    const { sql, queries } = recordingSql({
+      id: 'sta_up',
+      security_profile: 1,
+      pending_security_profile: 2,
+      basic_auth_password_hash: passwordHash,
+      onboarding_status: 'accepted',
+    });
+    const result = await authenticateConnection(
+      createMockRequest('/CS-UP', basic('CS-UP')),
+      createMockLogger(),
+      sql,
+    );
+
+    expect(result.authenticated).toBe(true);
+    expect(queries.some((q) => q.text.includes('UPDATE charging_stations'))).toBe(false);
+  });
+
+  it('rejects the lower profile once the upgrade is promoted (A05.FR.07)', async () => {
+    const { sql } = recordingSql({
+      id: 'sta_up',
+      security_profile: 1,
+      pending_security_profile: null,
+      basic_auth_password_hash: passwordHash,
+      onboarding_status: 'accepted',
+    });
+    const result = await authenticateConnection(
+      createMockRequest('/CS-UP'),
+      createMockLogger(),
+      sql,
+    );
+
+    expect(result.authenticated).toBe(false);
+    expect(result.failure).toBe('credentials');
+  });
+});

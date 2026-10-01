@@ -104,6 +104,7 @@ export const chargingStations = pgTable(
     loadPriority: integer('load_priority').notNull().default(5),
     circuitId: text('circuit_id'),
     securityProfile: integer('security_profile').notNull().default(1),
+    pendingSecurityProfile: integer('pending_security_profile'),
     ocppProtocol: varchar('ocpp_protocol', { length: 20 }),
     basicAuthPasswordHash: varchar('basic_auth_password_hash', { length: 512 }),
     metadata: jsonb('metadata'),

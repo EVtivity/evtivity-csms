@@ -25,7 +25,8 @@ export interface OcspResult {
 }
 
 export interface PkiProvider {
-  signCsr(csr: string, certificateType: string): Promise<SignCsrResult>;
+  /** `stationDbId` links a CSR queued for manual signing to its station. */
+  signCsr(csr: string, certificateType: string, stationDbId: string | null): Promise<SignCsrResult>;
   getContractCertificate(exiRequest: string): Promise<ContractCertResult>;
   getOcspStatus(ocspRequestData: OcspRequestData): Promise<OcspResult>;
   getRootCertificates(type: string): Promise<string[]>;

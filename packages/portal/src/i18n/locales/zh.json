@@ -696,7 +696,10 @@
     "TOO_MANY_WATCHES": "您关注的充电站过多",
     "STATION_WATCH_NOT_FOUND": "未找到关注",
     "STATUS_CHECK_REJECTED": "充电站拒绝了状态检查",
-    "STATUS_CHECK_TIMEOUT": "状态检查超时。请重新插入连接器后重试。"
+    "STATUS_CHECK_TIMEOUT": "状态检查超时。请重新插入连接器后重试。",
+    "SECURITY_PROFILE_DOWNGRADE": "已连接的充电站不能降级到更低的安全配置文件",
+    "STATION_TLS_URL_NOT_CONFIGURED": "未配置充电站的公共 TLS 地址 (OCPP_STATION_TLS_URL)",
+    "STATION_SECURITY_CHANGE_REJECTED": "充电站未接受安全更改，当前设置保持不变"
   },
   "validation": {
     "required": "此字段为必填项",

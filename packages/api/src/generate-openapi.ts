@@ -6,18 +6,21 @@ import { writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Set defaults so buildApp() can initialize without a running environment.
+// Set defaults so buildApp() can initialize without a running environment or .env.
 // JWT_SECRET must be set to a non-guessable value even for spec generation,
 // because the JWT plugin validates its presence on startup.
 process.env['API_PORT'] ??= '3001';
+process.env['OCPP_PORT'] ??= '3003';
 process.env['CORS_ORIGIN'] ??= 'http://localhost';
 process.env['JWT_SECRET'] ??= `openapi-gen-${crypto.randomUUID()}`;
-
-import { buildApp } from './app.js';
+// Throwaway 32-character key: the config requires one, and spec generation encrypts nothing.
+process.env['SETTINGS_ENCRYPTION_KEY'] ??= crypto.randomBytes(16).toString('hex');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 async function generate(): Promise<void> {
+  // Imported here, not at the top: a static import is evaluated before the defaults above.
+  const { buildApp } = await import('./app.js');
   const app = await buildApp({ logger: false });
   await app.ready();
 
@@ -30,6 +33,7 @@ async function generate(): Promise<void> {
 }
 
 generate().catch((err: unknown) => {
-  console.error('Failed to generate OpenAPI spec:', err);
+  // A ZodError from the config can crash console.error's formatter, so print the stack.
+  console.error('Failed to generate OpenAPI spec:', err instanceof Error ? err.stack : String(err));
   process.exit(1);
 });

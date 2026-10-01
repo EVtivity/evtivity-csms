@@ -193,3 +193,26 @@ export async function disableCssPair(stationId: string, tx?: Executor): Promise<
     .set({ enabled: false, updatedAt: new Date() })
     .where(eq(cssStations.stationId, stationId));
 }
+
+/**
+ * Keeps a paired simulator's credentials in step with a security change made
+ * while it is offline, so it reconnects with the password and transport the
+ * CSMS now expects. Online changes reach the simulator over OCPP instead.
+ */
+export async function syncCssStationSecurity(
+  stationId: string,
+  opts: { securityProfile: number; password?: string | undefined },
+  exec: Executor = db,
+): Promise<void> {
+  const requiresTls = opts.securityProfile >= 2;
+  await exec
+    .update(cssStations)
+    .set({
+      targetUrl: requiresTls
+        ? (process.env['OCPP_TLS_SERVER_URL'] ?? 'wss://ocpp:8443')
+        : (process.env['OCPP_SERVER_URL'] ?? 'ws://ocpp:8080'),
+      ...(opts.password != null ? { password: opts.password } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(cssStations.stationId, stationId));
+}

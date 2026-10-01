@@ -52,7 +52,7 @@ export async function handleSignCertificate(ctx: HandlerContext): Promise<Record
   //   out an invalid cert.
   try {
     const provider = await getPkiProvider();
-    const result = await provider.signCsr(request.csr, certificateType);
+    const result = await provider.signCsr(request.csr, certificateType, ctx.stationDbId);
 
     await ctx.eventBus.publish({
       eventType: 'pnc.CsrSigned',

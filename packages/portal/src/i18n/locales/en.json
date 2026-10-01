@@ -696,7 +696,10 @@
     "TOO_MANY_WATCHES": "You are watching too many stations",
     "STATION_WATCH_NOT_FOUND": "Watch not found",
     "STATUS_CHECK_REJECTED": "Station rejected the status check",
-    "STATUS_CHECK_TIMEOUT": "Status check timed out. Replug the connector and try again."
+    "STATUS_CHECK_TIMEOUT": "Status check timed out. Replug the connector and try again.",
+    "SECURITY_PROFILE_DOWNGRADE": "A connected station cannot be moved to a lower security profile",
+    "STATION_TLS_URL_NOT_CONFIGURED": "The public TLS address for stations (OCPP_STATION_TLS_URL) is not configured",
+    "STATION_SECURITY_CHANGE_REJECTED": "The station did not accept the security change; its current settings are unchanged"
   },
   "validation": {
     "required": "This field is required",

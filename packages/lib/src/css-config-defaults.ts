@@ -70,6 +70,7 @@ export function buildCssConfigDefaults(input: CssConfigDefaultsInput): CssConfig
       t('ConnectorPhaseRotation', '1.RST', true),
       t('GetConfigurationMaxKeys', '50', true),
       t('AuthorizationKey', '', false),
+      t('SecurityProfile', String(input.securityProfile), false),
       t('ChargePointVendor', input.vendorName, true),
       t('ChargePointModel', input.model, true),
       t('ChargePointSerialNumber', input.serialNumber, true),
@@ -90,7 +91,8 @@ export function buildCssConfigDefaults(input: CssConfigDefaultsInput): CssConfig
     t('ChargingStation.SerialNumber', input.serialNumber, true),
     t('ChargingStation.FirmwareVersion', input.firmwareVersion, true),
     t('ChargingStation.AvailabilityState', 'Available', false),
-    t('SecurityCtrlr.SecurityProfile', sp, false),
+    // ReadOnly in OCPP 2.1 (Part 2 2.2.5): profiles change via SetNetworkProfile (A05).
+    t('SecurityCtrlr.SecurityProfile', sp, true),
     t('SecurityCtrlr.Identity', input.stationId, false),
     t('SecurityCtrlr.BasicAuthPassword', '', false),
     t('SecurityCtrlr.AllowSecurityDowngrade', 'false', false),

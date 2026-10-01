@@ -42,9 +42,10 @@ export class OcppClient {
 
   private readonly _stationId: string;
   private readonly _protocol: 'ocpp1.6' | 'ocpp2.1';
-  private readonly serverUrl: string;
-  private readonly password: string;
-  private readonly securityProfile: number;
+  private serverUrl: string;
+  private password: string;
+  private securityProfile: number;
+  private beforeReconnectAttempt: ((attempt: number) => void) | null = null;
   private readonly clientCert: string | undefined;
   private readonly clientKey: string | undefined;
   private readonly caCert: string | undefined;
@@ -88,6 +89,30 @@ export class OcppClient {
 
   setConnectedHandler(handler: () => void): void {
     this.onConnectedCallback = handler;
+  }
+
+  /** Connection settings used from the next connect (password or security profile change). */
+  updateConnection(opts: {
+    serverUrl?: string;
+    password?: string;
+    securityProfile?: number;
+  }): void {
+    if (opts.serverUrl != null) this.serverUrl = opts.serverUrl;
+    if (opts.password != null) this.password = opts.password;
+    if (opts.securityProfile != null) this.securityProfile = opts.securityProfile;
+  }
+
+  get connection(): { serverUrl: string; password: string; securityProfile: number } {
+    return {
+      serverUrl: this.serverUrl,
+      password: this.password,
+      securityProfile: this.securityProfile,
+    };
+  }
+
+  /** Called before each reconnect attempt, so a station can fall back to another network profile. */
+  setBeforeReconnectAttempt(handler: (attempt: number) => void): void {
+    this.beforeReconnectAttempt = handler;
   }
 
   setDisconnectedHandler(handler: () => void): void {
@@ -256,6 +281,7 @@ export class OcppClient {
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (this.destroyed) break;
 
+      this.beforeReconnectAttempt?.(attempt);
       try {
         await this.connect();
         console.log(`[${this._stationId}] Reconnected after ${String(attempt)} attempt(s)`);

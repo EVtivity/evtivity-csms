@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { Logger } from 'pino';
-import type { TriggerCommandFn } from './types.js';
+import type { CallApiFn, TriggerCommandFn } from './types.js';
 
 export interface OcttApiClient {
   triggerCommand: TriggerCommandFn;
+  callApi: CallApiFn;
 }
 
 const MAX_RETRIES = 3;
@@ -41,6 +42,24 @@ export async function createApiClient(
   }
 
   return {
+    async callApi(method, path, body) {
+      const res = await fetch(`${apiUrl}/v1${path}`, {
+        method,
+        headers: {
+          ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+          Authorization: `Bearer ${apiToken}`,
+        },
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      });
+      const text = await res.text();
+      let parsed: Record<string, unknown> = {};
+      try {
+        parsed = text === '' ? {} : (JSON.parse(text) as Record<string, unknown>);
+      } catch {
+        parsed = { raw: text };
+      }
+      return { status: res.status, body: parsed };
+    },
     async triggerCommand(version, action, body) {
       const url = `${apiUrl}/v1/ocpp/commands/${version}/${action}`;
 

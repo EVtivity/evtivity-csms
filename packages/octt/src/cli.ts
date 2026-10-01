@@ -13,6 +13,7 @@ async function main(): Promise<void> {
   const module = getArg(args, '--module');
   const concurrency = Number(getArg(args, '--concurrency') ?? '10');
   const password = getArg(args, '--password');
+  const tlsServerUrl = getArg(args, '--tls-server');
   const apiUrl =
     getArg(args, '--api-url') ?? process.env['OCTT_API_URL'] ?? 'http://localhost:7102';
 
@@ -25,7 +26,7 @@ async function main(): Promise<void> {
   logger.info({ serverUrl, version, sut, module, concurrency }, 'Starting OCTT runner');
 
   const summary = await runTests(
-    { serverUrl, version, sut, module, concurrency, password, apiUrl },
+    { serverUrl, version, sut, module, concurrency, password, apiUrl, tlsServerUrl },
     (result) => {
       const icon = result.result.status === 'passed' ? 'PASS' : 'FAIL';
       const color = result.result.status === 'passed' ? '\x1b[32m' : '\x1b[31m';

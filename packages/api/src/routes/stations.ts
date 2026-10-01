@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { randomBytes, randomUUID, X509Certificate } from 'node:crypto';
+import { randomUUID, X509Certificate } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { hash } from 'argon2';
@@ -33,7 +33,6 @@ import {
   sites,
   vendors,
   ocppMessageLogs,
-  connectionLogs,
   stationCertificates,
   pricingGroupStations,
   pricingGroups,
@@ -79,7 +78,12 @@ import {
 import { buildDerivedStatusSubquery } from '../lib/station-derived-status.js';
 import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.js';
 import { enableCssPair, disableCssPair } from '../lib/css-pairing.js';
-import { mapConnectorTypeToCss } from '@evtivity/lib';
+import {
+  changeSecurityProfile,
+  changeStationPassword,
+  rotateStationPassword,
+} from '../services/station-security.service.js';
+import { mapConnectorTypeToCss, validateStationPassword } from '@evtivity/lib';
 import { authorize } from '../middleware/rbac.js';
 import type { JwtPayload } from '../plugins/auth.js';
 
@@ -178,6 +182,17 @@ const stationListQuery = paginationQuery.merge(
   }),
 );
 
+// OCPP passwordString, 16-40 characters (2.1 A00.FR.205). The 1.6 limit of 20
+// is checked against the station's protocol by the station security service.
+const stationPassword = z
+  .string()
+  .min(16)
+  .max(40)
+  .regex(/^[a-zA-Z0-9*\-_=:+|@.]+$/)
+  .describe(
+    'Basic Auth password: 16-40 characters (16-20 for OCPP 1.6) from a-z A-Z 0-9 * - _ = : + | @ .',
+  );
+
 const createStationBody = z.object({
   stationId: z.string().min(1).max(255).describe('OCPP station identifier'),
   model: z.string().max(255).optional(),
@@ -196,7 +211,7 @@ const createStationBody = z.object({
     .max(3)
     .optional()
     .describe('OCPP security profile (0=none, 1=basic auth, 2=TLS+basic auth, 3=mTLS)'),
-  password: z.string().min(8).max(128).optional().describe('Basic auth password for SP1/SP2'),
+  password: stationPassword.optional(),
   isSimulator: z.boolean().optional().describe('Whether this station is a simulator'),
   latitude: z.string().max(20).optional().describe('Station latitude'),
   longitude: z.string().max(20).optional().describe('Station longitude'),
@@ -217,7 +232,7 @@ const updateStationBody = z.object({
     .max(3)
     .optional()
     .describe('OCPP security profile (0=none, 1=basic auth, 2=TLS+basic auth, 3=mTLS)'),
-  password: z.string().min(8).max(128).optional().describe('Basic auth password for SP1/SP2'),
+  password: stationPassword.optional(),
   isSimulator: z.boolean().optional().describe('Whether this station is a simulator'),
   latitude: z.string().max(20).optional().describe('Station latitude'),
   longitude: z.string().max(20).optional().describe('Station longitude'),
@@ -228,8 +243,18 @@ const updateStationBody = z.object({
 });
 
 const setCredentialsBody = z.object({
-  password: z.string().min(8).max(128),
+  password: stationPassword,
 });
+
+const passwordChangeResponse = z
+  .object({
+    appliedTo: z
+      .enum(['station', 'stored'])
+      .describe(
+        'station: the station accepted the password. stored: saved for an offline station or one not using a password yet; configure it on the station.',
+      ),
+  })
+  .passthrough();
 
 const stationItem = z
   .object({
@@ -271,6 +296,13 @@ const stationItem = z
       .min(0)
       .max(3)
       .describe('OCPP security profile: 0=plain, 1=Basic Auth, 2=TLS+Basic, 3=mTLS'),
+    pendingSecurityProfile: z
+      .number()
+      .int()
+      .nullable()
+      .describe(
+        'Security profile an upgrade was sent for; the station is moved to it when it connects with that profile',
+      ),
     ocppProtocol: z
       .enum(['ocpp1.6', 'ocpp2.1'])
       .nullable()
@@ -354,6 +386,13 @@ const stationDetail = z
       .min(0)
       .max(3)
       .describe('OCPP security profile: 0=plain, 1=Basic Auth, 2=TLS+Basic, 3=mTLS'),
+    pendingSecurityProfile: z
+      .number()
+      .int()
+      .nullable()
+      .describe(
+        'Security profile an upgrade was sent for; the station is moved to it when it connects with that profile',
+      ),
     ocppProtocol: z
       .enum(['ocpp1.6', 'ocpp2.1'])
       .nullable()
@@ -421,6 +460,13 @@ const stationCreated = z
       .min(0)
       .max(3)
       .describe('OCPP security profile: 0=plain, 1=Basic Auth, 2=TLS+Basic, 3=mTLS'),
+    pendingSecurityProfile: z
+      .number()
+      .int()
+      .nullable()
+      .describe(
+        'Security profile an upgrade was sent for; the station is moved to it when it connects with that profile',
+      ),
     hasPassword: z
       .boolean()
       .describe('Whether a Basic Auth password is configured for this station'),
@@ -786,6 +832,7 @@ export function stationRoutes(app: FastifyInstance): void {
           isSimulator: chargingStations.isSimulator,
           loadPriority: chargingStations.loadPriority,
           securityProfile: chargingStations.securityProfile,
+          pendingSecurityProfile: chargingStations.pendingSecurityProfile,
           ocppProtocol: chargingStations.ocppProtocol,
           hasPassword: sql<boolean>`${chargingStations.basicAuthPasswordHash} IS NOT NULL`,
           metadata: chargingStations.metadata,
@@ -870,6 +917,7 @@ export function stationRoutes(app: FastifyInstance): void {
           isSimulator: chargingStations.isSimulator,
           loadPriority: chargingStations.loadPriority,
           securityProfile: chargingStations.securityProfile,
+          pendingSecurityProfile: chargingStations.pendingSecurityProfile,
           ocppProtocol: chargingStations.ocppProtocol,
           hasPassword: sql<boolean>`${chargingStations.basicAuthPasswordHash} IS NOT NULL`,
           metadata: chargingStations.metadata,
@@ -988,6 +1036,7 @@ export function stationRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         body: zodSchema(createStationBody),
         response: {
+          400: errorWith('Invalid station', [ERROR_CODES.VALIDATION_ERROR]),
           201: itemResponse(stationCreated),
           404: errorWith('Resource not found', [
             ERROR_CODES.SITE_NOT_FOUND,
@@ -1030,6 +1079,14 @@ export function stationRoutes(app: FastifyInstance): void {
       }
 
       const { password, ...insertFields } = body;
+      // The schema allows 16-40 characters; an OCPP 1.6 AuthorizationKey is at most 20.
+      if (password != null && validateStationPassword(password, body.ocppProtocol) != null) {
+        await reply.status(400).send({
+          error: 'Password must be 16-20 characters for an OCPP 1.6 station',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
       const basicAuthPasswordHash = password != null ? await hash(password) : undefined;
 
       // The chargingStations INSERT and the css_stations pairing must commit
@@ -1062,6 +1119,7 @@ export function stationRoutes(app: FastifyInstance): void {
               isSimulator: chargingStations.isSimulator,
               loadPriority: chargingStations.loadPriority,
               securityProfile: chargingStations.securityProfile,
+              pendingSecurityProfile: chargingStations.pendingSecurityProfile,
               ocppProtocol: chargingStations.ocppProtocol,
               createdAt: chargingStations.createdAt,
               updatedAt: chargingStations.updatedAt,
@@ -1156,10 +1214,19 @@ export function stationRoutes(app: FastifyInstance): void {
         body: zodSchema(updateStationBody),
         response: {
           200: itemResponse(stationCreated),
-          400: errorWith('Password required', [ERROR_CODES.PASSWORD_REQUIRED]),
+          400: errorWith('Invalid security change', [
+            ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.PASSWORD_REQUIRED,
+            ERROR_CODES.SECURITY_PROFILE_DOWNGRADE,
+            ERROR_CODES.STATION_TLS_URL_NOT_CONFIGURED,
+          ]),
           404: errorWith('Resource not found', [
             ERROR_CODES.SITE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
+          ]),
+          502: errorWith('The station did not accept the change', [
+            ERROR_CODES.STATION_SECURITY_CHANGE_REJECTED,
+            ERROR_CODES.OCPP_COMMAND_FAILED,
           ]),
         },
       },
@@ -1182,41 +1249,27 @@ export function stationRoutes(app: FastifyInstance): void {
           return;
         }
       }
-      const { password, ...body } = request.body as z.infer<typeof updateStationBody>;
+      const { password, securityProfile, ...body } = request.body as z.infer<
+        typeof updateStationBody
+      >;
       // Check access to the new siteId if being reassigned
       if (body.siteId != null && !(await userCanAccessSite(userId, body.siteId))) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
 
-      // Upgrading to SP1/SP2 requires a password if none is configured (SP3 uses client certs)
-      if (
-        body.securityProfile != null &&
-        body.securityProfile >= 1 &&
-        body.securityProfile < 3 &&
-        password == null
-      ) {
-        const [existing] = await db
-          .select({
-            hasPassword: sql<boolean>`${chargingStations.basicAuthPasswordHash} IS NOT NULL`,
-          })
-          .from(chargingStations)
-          .where(eq(chargingStations.id, id));
-        if (existing != null && !existing.hasPassword) {
-          await reply.status(400).send({
-            error: 'Password required when upgrading to SP1 or SP2',
-            code: 'PASSWORD_REQUIRED',
-          });
-          return;
+      // Password and security profile changes go through the station security
+      // service: version-correct OCPP commands, applied only once accepted.
+      if (securityProfile != null || password != null) {
+        const securityCtx = { actor: getAuditActor(request), log: request.log };
+        if (securityProfile != null) {
+          await changeSecurityProfile(id, securityProfile, password, securityCtx);
+        } else if (password != null) {
+          await changeStationPassword(id, password, securityCtx);
         }
       }
 
       const updates: Record<string, unknown> = { ...body, updatedAt: new Date() };
-      if (password != null) {
-        updates.basicAuthPasswordHash = await hash(password);
-      } else if (body.securityProfile === 0 || body.securityProfile === 3) {
-        updates.basicAuthPasswordHash = null;
-      }
 
       // When enabling simulator, ensure ocpp_protocol is set so the simulator can negotiate
       // a WebSocket subprotocol. Stations created without an explicit protocol default to 1.6.
@@ -1257,6 +1310,7 @@ export function stationRoutes(app: FastifyInstance): void {
             isSimulator: chargingStations.isSimulator,
             loadPriority: chargingStations.loadPriority,
             securityProfile: chargingStations.securityProfile,
+            pendingSecurityProfile: chargingStations.pendingSecurityProfile,
             ocppProtocol: chargingStations.ocppProtocol,
             hasPassword: sql<boolean>`${chargingStations.basicAuthPasswordHash} IS NOT NULL`,
             createdAt: chargingStations.createdAt,
@@ -1321,47 +1375,6 @@ export function stationRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
-
-      // Push security profile change to station via OCPP SetVariables (if online and profile changed)
-      if (body.securityProfile != null && station.isOnline) {
-        const setVariableData: Array<{
-          component: { name: string };
-          variable: { name: string };
-          attributeValue: string;
-        }> = [
-          {
-            component: { name: 'SecurityCtrlr' },
-            variable: { name: 'SecurityProfile' },
-            attributeValue: String(body.securityProfile),
-          },
-        ];
-
-        if (password != null) {
-          setVariableData.push({
-            component: { name: 'SecurityCtrlr' },
-            variable: { name: 'BasicAuthPassword' },
-            attributeValue: password,
-          });
-        }
-
-        const commandPayload = {
-          commandId: randomUUID(),
-          stationId: station.stationId,
-          action: 'SetVariables',
-          payload: { setVariableData },
-        };
-
-        await getPubSub().publish('ocpp_commands', JSON.stringify(commandPayload));
-
-        // Reset the station so it reconnects with the new security profile
-        const resetPayload = {
-          commandId: randomUUID(),
-          stationId: station.stationId,
-          action: 'Reset',
-          payload: { type: 'OnIdle' },
-        };
-        await getPubSub().publish('ocpp_commands', JSON.stringify(resetPayload));
-      }
 
       return station;
     },
@@ -3081,14 +3094,19 @@ export function stationRoutes(app: FastifyInstance): void {
         tags: ['Stations'],
         summary: 'Set or update station Basic Auth password',
         description:
-          'Hashes the provided password with argon2 and stores it on the station record. If the station is online, dispatches SetVariables(SecurityCtrlr.BasicAuthPassword) and a Reset(OnIdle) command so the station reconnects with the new credential. Logs a password_changed entry to the connection log.',
+          'Validates the password for the station protocol (16-20 characters for OCPP 1.6, 16-40 for OCPP 2.1, OCPP passwordString characters). When the station is online and uses security profile 1 or 2, sends it to the station (SetVariables BasicAuthPassword; ChangeConfiguration AuthorizationKey for OCPP 1.6) and stores it only after the station accepts. Otherwise stores it for provisioning. Logs a password_changed entry to the connection log.',
         operationId: 'setStationCredentials',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
         body: zodSchema(setCredentialsBody),
         response: {
-          200: successResponse,
+          200: itemResponse(passwordChangeResponse),
+          400: errorWith('Invalid password', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+          502: errorWith('The station did not accept the password', [
+            ERROR_CODES.STATION_SECURITY_CHANGE_REJECTED,
+            ERROR_CODES.OCPP_COMMAND_FAILED,
+          ]),
         },
       },
     },
@@ -3100,76 +3118,10 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
       const { password } = request.body as z.infer<typeof setCredentialsBody>;
-
-      const passwordHash = await hash(password);
-      const [station] = await db
-        .update(chargingStations)
-        .set({ basicAuthPasswordHash: passwordHash, updatedAt: new Date() })
-        .where(eq(chargingStations.id, id))
-        .returning({
-          id: chargingStations.id,
-          stationId: chargingStations.stationId,
-          isOnline: chargingStations.isOnline,
-        });
-
-      if (station == null) {
-        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
-        return;
-      }
-
-      try {
-        await db.insert(connectionLogs).values({
-          stationId: id,
-          event: 'password_changed',
-          metadata: { changedBy: 'operator' },
-        });
-      } catch (err) {
-        request.log.warn({ err, stationId: id }, 'Failed to write connection_logs row');
-      }
-
-      const actor = getAuditActor(request);
-      await writeAudit(
-        { table: stationAuditLog, idColumn: 'station_id' },
-        {
-          entityId: station.id,
-          entityIdSnapshot: station.id,
-          action: 'updated',
-          ...actor,
-          notes: 'Station credentials set',
-        },
-        db,
-        request.log,
-      );
-
-      // Push password to station via OCPP SetVariables (if online)
-      if (station.isOnline) {
-        const commandPayload = {
-          commandId: randomUUID(),
-          stationId: station.stationId,
-          action: 'SetVariables',
-          payload: {
-            setVariableData: [
-              {
-                component: { name: 'SecurityCtrlr' },
-                variable: { name: 'BasicAuthPassword' },
-                attributeValue: password,
-              },
-            ],
-          },
-        };
-        await getPubSub().publish('ocpp_commands', JSON.stringify(commandPayload));
-
-        // Reset the station so it reconnects with the new password
-        const resetPayload = {
-          commandId: randomUUID(),
-          stationId: station.stationId,
-          action: 'Reset',
-          payload: { type: 'OnIdle' },
-        };
-        await getPubSub().publish('ocpp_commands', JSON.stringify(resetPayload));
-      }
-
-      return { success: true };
+      return changeStationPassword(id, password, {
+        actor: getAuditActor(request),
+        log: request.log,
+      });
     },
   );
 
@@ -3182,7 +3134,7 @@ export function stationRoutes(app: FastifyInstance): void {
         tags: ['Stations'],
         summary: 'Rotate station Basic Auth password via OCPP',
         description:
-          'Generates a fresh 20-character Basic Auth password, dispatches SetVariables(SecurityCtrlr.BasicAuthPassword) to the station, and stores the new hash on success. Times out after 35s; the previous credential remains active until the new one is acknowledged. Returns 502 if the station rejects the SetVariables call and 409 if the station is offline.',
+          'Generates a fresh 20-character Basic Auth password, sends it to the station (SetVariables BasicAuthPassword; ChangeConfiguration AuthorizationKey for OCPP 1.6), and stores it only after the station accepts. Times out after 35s; the previous credential stays active unless the station accepts the new one. Returns 502 if the station rejects or does not answer and 409 if the station is offline.',
         operationId: 'rotateStationCredentials',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -3193,7 +3145,10 @@ export function stationRoutes(app: FastifyInstance): void {
           ]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
           409: errorWith('Station offline', [ERROR_CODES.STATION_OFFLINE]),
-          502: errorWith('Station rejected the command', [ERROR_CODES.STATION_REJECTED]),
+          502: errorWith('The station did not accept the password', [
+            ERROR_CODES.STATION_SECURITY_CHANGE_REJECTED,
+            ERROR_CODES.OCPP_COMMAND_FAILED,
+          ]),
         },
       },
     },
@@ -3204,144 +3159,8 @@ export function stationRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
-
-      // Verify station exists and is online
-      const [station] = await db
-        .select({
-          id: chargingStations.id,
-          stationId: chargingStations.stationId,
-          isOnline: chargingStations.isOnline,
-          securityProfile: chargingStations.securityProfile,
-        })
-        .from(chargingStations)
-        .where(eq(chargingStations.id, id));
-
-      if (station == null) {
-        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
-        return;
-      }
-
-      // BasicAuth password rotation only applies to SP1 (BasicAuth) and SP2
-      // (BasicAuth + TLS). SP0 has no auth and SP3 uses mTLS client certs, so
-      // pushing SecurityCtrlr.BasicAuthPassword to those profiles is a no-op
-      // that the station will reject. Reject up-front with a clear error.
-      if (station.securityProfile !== 1 && station.securityProfile !== 2) {
-        await reply.status(400).send({
-          error: 'Credential rotation only applies to security profiles 1 and 2',
-          code: 'ROTATION_NOT_APPLICABLE',
-        });
-        return;
-      }
-
-      if (!station.isOnline) {
-        await reply.status(409).send({ error: 'Station is offline', code: 'STATION_OFFLINE' });
-        return;
-      }
-
-      // Generate new password
-      const newPassword = randomBytes(15).toString('base64url').slice(0, 20);
-
-      // Send SetVariables command via pg_notify
-      const commandId = randomUUID();
-      const commandPayload = {
-        commandId,
-        stationId: station.stationId,
-        action: 'SetVariables',
-        payload: {
-          setVariableData: [
-            {
-              component: { name: 'SecurityCtrlr' },
-              variable: { name: 'BasicAuthPassword' },
-              attributeValue: newPassword,
-            },
-          ],
-        },
-      };
-
-      await getPubSub().publish('ocpp_commands', JSON.stringify(commandPayload));
-
-      // Wait for result on ocpp_command_results channel
-      const pubsub = getPubSub();
-      const result = await new Promise<{ success: boolean; error?: string }>((resolve) => {
-        const timeout = setTimeout(() => {
-          resolve({ success: false, error: 'Command timed out' });
-        }, 35_000);
-
-        void pubsub
-          .subscribe('ocpp_command_results', (payload: string) => {
-            try {
-              const parsed = JSON.parse(payload) as {
-                commandId: string;
-                success: boolean;
-                error?: string;
-              };
-              if (parsed.commandId !== commandId) return;
-
-              clearTimeout(timeout);
-              resolve(
-                parsed.error != null
-                  ? { success: parsed.success, error: parsed.error }
-                  : { success: parsed.success },
-              );
-            } catch {
-              // Ignore parse errors from other messages
-            }
-          })
-          .catch(() => {
-            clearTimeout(timeout);
-            resolve({ success: false, error: 'Failed to listen for result' });
-          });
-      });
-
-      if (!result.success) {
-        await reply
-          .status(502)
-          .send({ error: result.error ?? 'Credential rotation failed', code: 'ROTATION_FAILED' });
-        return;
-      }
-
-      // On success, hash and store the new password
-      const passwordHash = await hash(newPassword);
-      await db
-        .update(chargingStations)
-        .set({ basicAuthPasswordHash: passwordHash, updatedAt: new Date() })
-        .where(eq(chargingStations.id, id));
-
-      // Log the event (best-effort: don't fail the rotation if forensic log fails)
-      try {
-        await db.insert(connectionLogs).values({
-          stationId: id,
-          event: 'credentials_rotated',
-          metadata: { rotatedBy: 'operator' },
-        });
-      } catch (err) {
-        request.log.warn({ err, stationId: id }, 'Failed to write connection_logs row');
-      }
-
-      // Reset the station so it reconnects with the new password
-      const resetPayload = {
-        commandId: randomUUID(),
-        stationId: station.stationId,
-        action: 'Reset',
-        payload: { type: 'OnIdle' },
-      };
-      await getPubSub().publish('ocpp_commands', JSON.stringify(resetPayload));
-
-      const actor = getAuditActor(request);
-      await writeAudit(
-        { table: stationAuditLog, idColumn: 'station_id' },
-        {
-          entityId: station.id,
-          entityIdSnapshot: station.id,
-          action: 'command_dispatched',
-          ...actor,
-          notes: 'Credentials rotated via SetVariables',
-        },
-        db,
-        request.log,
-      );
-
-      return { success: true };
+      await rotateStationPassword(id, { actor: getAuditActor(request), log: request.log });
+      return { success: true as const };
     },
   );
 

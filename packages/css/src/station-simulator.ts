@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
 import { buildCssConfigDefaults } from '@evtivity/lib';
 import { OcppClient } from './ocpp-client.js';
+import { config as cssConfig } from './lib/config.js';
 import { MeterValueGenerator } from './meter-value-generator.js';
 import { PersistedCache } from './lib/persisted-cache.js';
 import type { CachePersistor, CacheLogger } from './lib/persisted-cache.js';
@@ -32,6 +33,16 @@ export interface StationConfig {
     voltage: number;
   }>;
 }
+
+// Connection settings a station tries after a reboot, in order.
+interface ConnectionCandidate {
+  serverUrl: string;
+  password: string;
+  securityProfile: number;
+}
+
+// Attempts per network profile before falling back to the next one.
+const CONNECTION_ATTEMPTS_PER_PROFILE = 3;
 
 interface Reservation {
   id: number;
@@ -108,6 +119,10 @@ export class StationSimulator {
   private bootStatus: 'Accepted' | 'Pending' | 'Rejected' | null = null;
   private pendingReset: string | null = null;
   private destroyed = false;
+  private rebootCandidates: ConnectionCandidate[] | null = null;
+  private activeRebootCandidate: ConnectionCandidate | null = null;
+  // OCPP 1.6 SecurityProfile accepted via ChangeConfiguration, applied on reset.
+  private pendingSecurityProfile16: number | null = null;
   private offlineFlag = false;
   // Readiness for the manager's self-heal watchdog. ready is true once the
   // station has booted Accepted and reported its connector statuses.
@@ -679,6 +694,10 @@ export class StationSimulator {
 
     this.client.setConnectedHandler(() => {
       void this.onReconnect();
+    });
+
+    this.client.setBeforeReconnectAttempt((attempt) => {
+      this.chooseRebootConnection(attempt);
     });
 
     this.client.setDisconnectedHandler(() => {
@@ -3634,6 +3653,9 @@ export class StationSimulator {
           }
 
           this.configVariables.set(effectiveKey, { value: newValue, readonly: false });
+          if (compName === 'SecurityCtrlr' && varName === 'BasicAuthPassword') {
+            this.applyNewPassword(newValue);
+          }
 
           return {
             attributeStatus: 'Accepted',
@@ -3654,14 +3676,24 @@ export class StationSimulator {
           for (const k of requestedKeys) {
             const entry = this.configVariables.get(k);
             if (entry != null) {
-              configurationKey.push({ key: k, readonly: entry.readonly, value: entry.value });
+              configurationKey.push({
+                key: k,
+                readonly: entry.readonly,
+                // AuthorizationKey is write-only (OCPP 1.6 Security Whitepaper).
+                value: k === 'AuthorizationKey' ? '' : entry.value,
+              });
             } else {
               unknownKey.push(k);
             }
           }
         } else {
           for (const [k, entry] of this.configVariables) {
-            configurationKey.push({ key: k, readonly: entry.readonly, value: entry.value });
+            configurationKey.push({
+              key: k,
+              readonly: entry.readonly,
+              // AuthorizationKey is write-only (OCPP 1.6 Security Whitepaper).
+              value: k === 'AuthorizationKey' ? '' : entry.value,
+            });
           }
         }
 
@@ -3672,6 +3704,23 @@ export class StationSimulator {
         const cfgKey = payload['key'] as string;
         const cfgValue = payload['value'] as string;
         const existing = this.configVariables.get(cfgKey);
+
+        // OCPP 1.6 Security Whitepaper: the Basic Auth password arrives hex-encoded,
+        // 16-20 bytes (OCTT TC_073); the station reconnects with it.
+        if (cfgKey === 'AuthorizationKey') {
+          if (!/^(?:[0-9A-Fa-f]{2}){16,20}$/.test(cfgValue)) return { status: 'Rejected' };
+          this.configVariables.set('AuthorizationKey', { value: cfgValue, readonly: false });
+          this.applyNewPassword(Buffer.from(cfgValue, 'hex').toString('latin1'));
+          return { status: 'Accepted' };
+        }
+        // Only an upgrade is allowed; it applies after the next reset.
+        if (cfgKey === 'SecurityProfile') {
+          const next = Number(cfgValue);
+          const current = Number(this.getConfigValue('SecurityProfile') ?? '0');
+          if (!Number.isInteger(next) || next <= current || next > 3) return { status: 'Rejected' };
+          this.pendingSecurityProfile16 = next;
+          return { status: 'Accepted' };
+        }
 
         if (existing == null) {
           return { status: 'NotSupported' };
@@ -4687,6 +4736,7 @@ export class StationSimulator {
                 : undefined,
             ],
             ['SecurityProfile', newSecProfile != null ? String(newSecProfile) : undefined],
+            ['BasicAuthPassword', connData['basicAuthPassword'] as string | undefined],
             ['VpnEnabled', 'false'],
             ['ApnEnabled', 'false'],
           ];
@@ -5282,6 +5332,14 @@ export class StationSimulator {
     await new Promise((resolve) => setTimeout(resolve, 500));
     if (this.destroyed) return;
 
+    // A pending password or security profile change applies on a real reconnect.
+    const candidates = this.rebootConnections();
+    if (candidates != null) {
+      this.rebootCandidates = candidates;
+      this.client.simulateConnectionLoss();
+      return;
+    }
+
     try {
       await this.sendBootNotification(bootReason);
       for (const evse of this.config.evses) {
@@ -5295,6 +5353,124 @@ export class StationSimulator {
       }
     } catch {
       // Ignore errors during reset
+    }
+  }
+
+  // The connections to try after a reboot when a security change is pending,
+  // or null when the station reconnects as before.
+  private rebootConnections(): ConnectionCandidate[] | null {
+    const current = this.client.connection;
+    if (this.is16) {
+      const next = this.pendingSecurityProfile16;
+      if (next == null) return null;
+      const serverUrl = next >= 2 ? cssConfig.OCPP_TLS_SERVER_URL : current.serverUrl;
+      return [{ ...current, serverUrl, securityProfile: next }, current];
+    }
+    const priority = (this.getConfigValue('OCPPCommCtrlr.NetworkConfigurationPriority') ?? '')
+      .split(',')
+      .map((slot) => slot.trim())
+      .filter((slot) => slot !== '');
+    const candidates = priority.flatMap((slot): ConnectionCandidate[] => {
+      const serverUrl = this.getConfigValue(`NetworkConfiguration.OcppCsmsUrl#${slot}`) ?? '';
+      if (serverUrl === '') return [];
+      return [
+        {
+          serverUrl,
+          securityProfile: Number(
+            this.getConfigValue(`NetworkConfiguration.SecurityProfile#${slot}`) ??
+              current.securityProfile,
+          ),
+          password:
+            this.getConfigValue(`NetworkConfiguration.BasicAuthPassword#${slot}`) ||
+            this.getConfigValue('SecurityCtrlr.BasicAuthPassword') ||
+            current.password,
+        },
+      ];
+    });
+    const first = candidates[0];
+    if (
+      first == null ||
+      (first.serverUrl === current.serverUrl &&
+        first.securityProfile === current.securityProfile &&
+        first.password === current.password)
+    ) {
+      return null;
+    }
+    return candidates;
+  }
+
+  private chooseRebootConnection(attempt: number): void {
+    if (this.rebootCandidates == null || this.rebootCandidates.length === 0) return;
+    const index =
+      Math.floor((attempt - 1) / CONNECTION_ATTEMPTS_PER_PROFILE) % this.rebootCandidates.length;
+    const candidate = this.rebootCandidates[index];
+    if (candidate == null) return;
+    this.activeRebootCandidate = candidate;
+    this.client.updateConnection(candidate);
+  }
+
+  // Connected with a new connection: make it permanent (OCPP 2.1 A05.FR.06).
+  private async commitConnection(candidate: ConnectionCandidate): Promise<void> {
+    this.rebootCandidates = null;
+    this.activeRebootCandidate = null;
+    if (this.is16) {
+      if (candidate.securityProfile === this.pendingSecurityProfile16) {
+        this.configVariables.set('SecurityProfile', {
+          value: String(candidate.securityProfile),
+          readonly: false,
+        });
+      }
+      this.pendingSecurityProfile16 = null;
+    } else {
+      const current = Number(this.getConfigValue('SecurityCtrlr.SecurityProfile') ?? '0');
+      if (candidate.securityProfile > current) {
+        this.configVariables.set('SecurityCtrlr.SecurityProfile', {
+          value: String(candidate.securityProfile),
+          readonly: true,
+        });
+        const kept = (this.getConfigValue('OCPPCommCtrlr.NetworkConfigurationPriority') ?? '')
+          .split(',')
+          .map((slot) => slot.trim())
+          .filter(
+            (slot) =>
+              Number(this.getConfigValue(`NetworkConfiguration.SecurityProfile#${slot}`) ?? '0') >=
+              candidate.securityProfile,
+          );
+        this.configVariables.set('OCPPCommCtrlr.NetworkConfigurationPriority', {
+          value: kept.join(','),
+          readonly: false,
+        });
+      }
+    }
+    this.config.targetUrl = candidate.serverUrl;
+    this.config.password = candidate.password;
+    this.config.securityProfile = candidate.securityProfile;
+    await this.persistConnection();
+  }
+
+  // A new Basic Auth password: use it from the next connection, reconnect to apply.
+  private applyNewPassword(password: string): void {
+    this.client.updateConnection({ password });
+    this.config.password = password;
+    void this.persistConnection();
+    setTimeout(() => {
+      if (!this.destroyed) this.client.simulateConnectionLoss();
+    }, 2000);
+  }
+
+  // Keep css_stations in step so a simulator restart uses the current credentials.
+  private async persistConnection(): Promise<void> {
+    try {
+      await this.sql`
+        UPDATE css_stations
+        SET target_url = ${this.config.targetUrl}, password = ${this.config.password ?? null},
+            updated_at = now()
+        WHERE id = ${this.config.id}
+      `;
+    } catch (err) {
+      console.warn(
+        `[${this.config.stationId}] Failed to save connection settings: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -5617,6 +5793,9 @@ export class StationSimulator {
   }
 
   private async onReconnect(): Promise<void> {
+    if (this.activeRebootCandidate != null) {
+      await this.commitConnection(this.activeRebootCandidate);
+    }
     try {
       await this.updateStationStatus('booting');
       await this.sendBootNotification('PowerUp');

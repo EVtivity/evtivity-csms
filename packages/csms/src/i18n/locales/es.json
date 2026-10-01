@@ -566,7 +566,6 @@
     "port": "Puerto {{id}}",
     "security": "Seguridad",
     "securityProfile": "Perfil de Seguridad",
-    "security16Info": "El perfil de seguridad y los cambios de contrasena deben configurarse directamente en la estacion. El CSMS almacena la contrasena solo para autenticacion de conexion.",
     "changeProfile": "Cambiar perfil",
     "sp0": "Sin Autenticacion",
     "sp1": "Autenticacion Basica",
@@ -595,7 +594,7 @@
     "passwordRequiredForProfile": "Se requiere una contrasena para habilitar este perfil de seguridad.",
     "password": "Contrasena",
     "savePassword": "Guardar Contrasena",
-    "passwordPlaceholder": "Min. 8 caracteres",
+    "passwordPlaceholder": "{{min}}-{{max}} caracteres",
     "rotateCredentials": "Rotar Credenciales",
     "rotating": "Rotando...",
     "rotateCredentialsConfirm": "Esto generara una nueva contrasena para {{stationId}} y la enviara a la estacion via OCPP SetVariables. La contrasena anterior dejara de funcionar inmediatamente.",
@@ -813,7 +812,16 @@
     "connectorRegionEuropean": "Europa",
     "connectorRegionUniversal": "Universal / Otros",
     "connectorUnknown": "Desconocido",
-    "uploadFailed": "No se pudo subir la imagen. Intente nuevamente."
+    "uploadFailed": "No se pudo subir la imagen. Intente nuevamente.",
+    "profileUpgradePending": "Actualizacion al perfil de seguridad {{profile}} pendiente. Se aplica cuando la estacion se reconecta con el; hasta entonces sigue activo el perfil actual.",
+    "cancelProfileUpgrade": "Cancelar actualizacion",
+    "profileUpgradeSent": "Actualizacion al perfil de seguridad {{profile}} enviada a la estacion",
+    "profileSaved": "Perfil de seguridad guardado",
+    "passwordAccepted": "La estacion acepto la nueva contrasena",
+    "passwordStored": "Contrasena guardada. Configure la misma contrasena en la estacion.",
+    "securityChangeFailed": "El cambio de seguridad fallo",
+    "passwordInvalidCharacters": "Use solo letras, digitos y * - _ = : + | @ .",
+    "profileChangeOnline": "El cambio se envia a la estacion, que se reconecta con el nuevo perfil. Hasta entonces sigue activo el perfil actual."
   },
   "eventAlertRules": {
     "title": "Reglas de Alerta de Eventos",
@@ -2325,7 +2333,10 @@
     "TOO_MANY_WATCHES": "Estas vigilando demasiadas estaciones",
     "STATION_WATCH_NOT_FOUND": "Vigilancia no encontrada",
     "STATUS_CHECK_REJECTED": "La estación rechazó la verificación de estado",
-    "STATUS_CHECK_TIMEOUT": "La verificación de estado expiró. Vuelva a conectar el conector e inténtelo de nuevo."
+    "STATUS_CHECK_TIMEOUT": "La verificación de estado expiró. Vuelva a conectar el conector e inténtelo de nuevo.",
+    "SECURITY_PROFILE_DOWNGRADE": "Una estacion conectada no puede pasar a un perfil de seguridad inferior",
+    "STATION_TLS_URL_NOT_CONFIGURED": "La direccion TLS publica para estaciones (OCPP_STATION_TLS_URL) no esta configurada",
+    "STATION_SECURITY_CHANGE_REJECTED": "La estacion no acepto el cambio de seguridad; su configuracion actual no cambio"
   },
   "logs": {
     "title": "Registros",

@@ -20,6 +20,8 @@ vi.mock('@evtivity/database', () => {
       'onConflictDoUpdate',
       'where',
       'from',
+      'innerJoin',
+      'orderBy',
       'limit',
       'set',
       'returning',
@@ -44,6 +46,7 @@ vi.mock('@evtivity/database', () => {
     driverTokens: { id: 'id', driverId: 'driver_id' },
     refreshTokens: { id: 'id' },
     users: { id: 'id' },
+    roles: { id: 'id', name: 'name' },
     pricingGroups: { id: 'id' },
     tariffs: { id: 'id' },
     pricingGroupDrivers: { id: 'id' },
@@ -55,6 +58,8 @@ vi.mock('@evtivity/database/src/lib/id.js', () => ({
 }));
 
 vi.mock('drizzle-orm', () => ({
+  and: vi.fn(),
+  asc: vi.fn(),
   eq: vi.fn(),
   like: vi.fn(),
   inArray: vi.fn(),
@@ -121,6 +126,7 @@ vi.mock('../api-client.js', () => ({
   })),
 }));
 
+import { eq } from 'drizzle-orm';
 import { runTests } from '../runner.js';
 
 describe('runTests', () => {
@@ -154,5 +160,10 @@ describe('runTests', () => {
     const onResult = vi.fn();
     await runTests(config, onResult);
     expect(onResult).toHaveBeenCalledTimes(3);
+  });
+
+  it('creates the API key for an active admin-role user', async () => {
+    await runTests({ ...config, apiUrl: 'http://localhost:7102' }, vi.fn());
+    expect(eq).toHaveBeenCalledWith('name', 'admin');
   });
 });

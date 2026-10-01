@@ -566,7 +566,6 @@
     "port": "端口 {{id}}",
     "security": "安全",
     "securityProfile": "安全配置",
-    "security16Info": "安全配置文件和密码更改必须直接在充电站上配置。CSMS 仅存储用于连接认证的密码。",
     "changeProfile": "更改配置",
     "sp0": "无认证",
     "sp1": "基本认证",
@@ -595,7 +594,7 @@
     "passwordRequiredForProfile": "启用此安全配置文件需要设置密码。",
     "password": "密码",
     "savePassword": "保存密码",
-    "passwordPlaceholder": "至少 8 个字符",
+    "passwordPlaceholder": "{{min}}-{{max}} 个字符",
     "rotateCredentials": "轮换凭证",
     "rotating": "轮换中...",
     "rotateCredentialsConfirm": "这将为 {{stationId}} 生成新密码，并通过 OCPP SetVariables 推送到充电站。旧密码将立即失效。",
@@ -813,7 +812,16 @@
     "connectorRegionEuropean": "欧洲",
     "connectorRegionUniversal": "通用 / 其他",
     "connectorUnknown": "未知",
-    "uploadFailed": "上传图片失败，请重试。"
+    "uploadFailed": "上传图片失败，请重试。",
+    "profileUpgradePending": "正在等待升级到安全配置文件 {{profile}}。充电站使用该配置文件重新连接后生效；在此之前保持当前配置文件。",
+    "cancelProfileUpgrade": "取消升级",
+    "profileUpgradeSent": "已将安全配置文件 {{profile}} 升级发送到充电站",
+    "profileSaved": "安全配置文件已保存",
+    "passwordAccepted": "充电站已接受新密码",
+    "passwordStored": "密码已保存。请在充电站上配置相同的密码。",
+    "securityChangeFailed": "安全更改失败",
+    "passwordInvalidCharacters": "只能使用字母、数字和 * - _ = : + | @ .",
+    "profileChangeOnline": "更改将发送到充电站，充电站会使用新配置文件重新连接。在此之前保持当前配置文件。"
   },
   "eventAlertRules": {
     "title": "事件告警规则",
@@ -2325,7 +2333,10 @@
     "TOO_MANY_WATCHES": "您关注的充电站过多",
     "STATION_WATCH_NOT_FOUND": "未找到关注",
     "STATUS_CHECK_REJECTED": "充电站拒绝了状态检查",
-    "STATUS_CHECK_TIMEOUT": "状态检查超时。请重新插入连接器后重试。"
+    "STATUS_CHECK_TIMEOUT": "状态检查超时。请重新插入连接器后重试。",
+    "SECURITY_PROFILE_DOWNGRADE": "已连接的充电站不能降级到更低的安全配置文件",
+    "STATION_TLS_URL_NOT_CONFIGURED": "未配置充电站的公共 TLS 地址 (OCPP_STATION_TLS_URL)",
+    "STATION_SECURITY_CHANGE_REJECTED": "充电站未接受安全更改，当前设置保持不变"
   },
   "logs": {
     "title": "日志",

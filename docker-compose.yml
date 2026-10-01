@@ -71,6 +71,8 @@ services:
       OCPP_PORT: ${OCPP_PORT:-7103}
       OCPP_SERVER_URL: ws://ocpp:${OCPP_PORT:-7103}
       OCPP_TLS_SERVER_URL: wss://ocpp:8443
+      # Address stations get when moved to TLS; the simulators reach the ocpp service by name.
+      OCPP_STATION_TLS_URL: ${OCPP_STATION_TLS_URL:-wss://ocpp:8443}
       JWT_SECRET: dev-secret-change-in-production!
       SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-dev-encryption-key-32chars-long!}
       CORS_ORIGIN: local

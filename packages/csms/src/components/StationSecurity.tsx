@@ -12,6 +12,8 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useToast } from '@/components/ui/toast';
 import { SecurityProfileBadge } from '@/components/SecurityProfileBadge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -19,11 +21,18 @@ import { Pagination } from '@/components/ui/pagination';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 import { SEVERITY_VARIANT } from '@/lib/severity';
+import { getErrorMessage } from '@/lib/error-message';
+import {
+  generateStationPassword,
+  stationPasswordRules,
+  validateStationPassword,
+} from '@evtivity/lib/station-password';
 
 interface StationSecurityProps {
   stationId: string;
   stationDbId: string;
   securityProfile: number;
+  pendingSecurityProfile: number | null;
   hasPassword: boolean;
   isOnline: boolean;
   timezone: string;
@@ -40,10 +49,14 @@ interface SecurityLog {
   createdAt: string;
 }
 
+const PROFILE_LABELS = ['stations.sp0', 'stations.sp1', 'stations.sp2', 'stations.sp3'] as const;
+
 const CONNECTION_EVENT_OPTIONS = [
   'auth_failed',
   'password_changed',
   'credentials_rotated',
+  'security_profile_change_sent',
+  'security_profile_upgraded',
   'connected',
   'disconnected',
 ] as const;
@@ -74,12 +87,16 @@ export function StationSecurity({
   stationId,
   stationDbId,
   securityProfile,
+  pendingSecurityProfile,
   hasPassword,
   isOnline,
   timezone,
   ocppProtocol,
 }: StationSecurityProps): React.JSX.Element {
   const { t } = useTranslation();
+  const { toast } = useToast();
+  const is16 = ocppProtocol === 'ocpp1.6';
+  const passwordRules = stationPasswordRules(is16 ? 'ocpp1.6' : 'ocpp2.1');
   const queryClient = useQueryClient();
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [passwordConfirmOpen, setPasswordConfirmOpen] = useState(false);
@@ -125,10 +142,26 @@ export function StationSecurity({
     },
   });
 
+  function showSecurityError(err: unknown): void {
+    toast({
+      title: t('stations.securityChangeFailed'),
+      description: getErrorMessage(err, t),
+      variant: 'destructive',
+    });
+  }
+
   const updateProfileMutation = useMutation({
     mutationFn: (data: { securityProfile: number; password?: string }) =>
-      api.patch(`/v1/stations/${stationDbId}`, data),
-    onSuccess: () => {
+      api.patch<{ pendingSecurityProfile: number | null }>(`/v1/stations/${stationDbId}`, data),
+    onError: showSecurityError,
+    onSuccess: (station) => {
+      toast({
+        title:
+          station.pendingSecurityProfile != null
+            ? t('stations.profileUpgradeSent', { profile: station.pendingSecurityProfile })
+            : t('stations.profileSaved'),
+        variant: 'success',
+      });
       void queryClient.invalidateQueries({ queryKey: ['stations'] });
       setPendingProfile(null);
       setProfileConfirmOpen(false);
@@ -140,8 +173,18 @@ export function StationSecurity({
 
   const setPasswordMutation = useMutation({
     mutationFn: (pw: string) =>
-      api.post(`/v1/stations/${stationDbId}/credentials`, { password: pw }),
-    onSuccess: () => {
+      api.post<{ appliedTo: 'station' | 'stored' }>(`/v1/stations/${stationDbId}/credentials`, {
+        password: pw,
+      }),
+    onError: showSecurityError,
+    onSuccess: (result) => {
+      toast({
+        title:
+          result.appliedTo === 'station'
+            ? t('stations.passwordAccepted')
+            : t('stations.passwordStored'),
+        variant: 'success',
+      });
       void queryClient.invalidateQueries({ queryKey: ['stations'] });
       setPasswordConfirmOpen(false);
       setShowPasswordForm(false);
@@ -152,9 +195,16 @@ export function StationSecurity({
   });
 
   function generatePassword(): string {
-    const bytes = new Uint8Array(15);
-    crypto.getRandomValues(bytes);
-    return btoa(String.fromCharCode(...bytes)).slice(0, 20);
+    return generateStationPassword();
+  }
+
+  function passwordRuleError(pw: string): string | undefined {
+    if (pw.trim() === '') return t('validation.required');
+    const error = validateStationPassword(pw, is16 ? 'ocpp1.6' : 'ocpp2.1');
+    if (error === 'tooShort') return t('validation.minLength', { min: passwordRules.min });
+    if (error === 'tooLong') return t('validation.maxLength', { max: passwordRules.max });
+    if (error === 'invalidCharacters') return t('stations.passwordInvalidCharacters');
+    return undefined;
   }
 
   function handleRotateCredentials(): void {
@@ -209,13 +259,8 @@ export function StationSecurity({
 
   function getPasswordErrors(): Record<string, string> {
     const errs: Record<string, string> = {};
-    if (password.trim() === '') {
-      errs.password = t('validation.required');
-    } else if (password.length < 8) {
-      errs.password = t('validation.minLength', { min: 8 });
-    } else if (password.length > 128) {
-      errs.password = t('validation.maxLength', { max: 128 });
-    }
+    const passwordError = passwordRuleError(password);
+    if (passwordError != null) errs.password = passwordError;
     if (confirmPassword.trim() === '') {
       errs.confirmPassword = t('validation.required');
     } else if (password !== confirmPassword) {
@@ -226,11 +271,8 @@ export function StationSecurity({
 
   function getProfilePasswordErrors(): Record<string, string> {
     const errs: Record<string, string> = {};
-    if (profilePassword.trim() === '') {
-      errs.profilePassword = t('validation.required');
-    } else if (profilePassword.length < 8) {
-      errs.profilePassword = t('validation.minLength', { min: 8 });
-    }
+    const profilePasswordError = passwordRuleError(profilePassword);
+    if (profilePasswordError != null) errs.profilePassword = profilePasswordError;
     if (profilePasswordConfirm.trim() === '') {
       errs.profilePasswordConfirm = t('validation.required');
     } else if (profilePassword !== profilePasswordConfirm) {
@@ -242,7 +284,6 @@ export function StationSecurity({
   const passwordErrors = getPasswordErrors();
   const profilePasswordErrors = getProfilePasswordErrors();
 
-  const is16 = ocppProtocol === 'ocpp1.6';
   const needsPassword =
     pendingProfile != null && pendingProfile >= 1 && pendingProfile < 3 && !hasPassword;
   const showProfileConfirm = pendingProfile != null && !needsPassword;
@@ -264,90 +305,27 @@ export function StationSecurity({
             </span>
           </div>
 
-          {is16 ? (
-            <>
-              <p className="text-sm text-muted-foreground">{t('stations.security16Info')}</p>
-
-              <div className="border-t pt-4">
-                <div className="flex items-center gap-3">
-                  <span className="text-sm">{t('stations.passwordStatus')}</span>
-                  <Badge variant={hasPassword ? 'default' : 'outline'}>
-                    {hasPassword ? t('stations.passwordSet') : t('stations.passwordNotSet')}
-                  </Badge>
-                </div>
-              </div>
-
-              {!showPasswordForm && (
+          {pendingSecurityProfile != null && (
+            <Alert variant="info">
+              <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  {t('stations.profileUpgradePending', { profile: pendingSecurityProfile })}
+                </span>
                 <Button
                   variant="outline"
                   size="sm"
+                  disabled={updateProfileMutation.isPending}
                   onClick={() => {
-                    setPassword('');
-                    setConfirmPassword('');
-                    setShowPasswordForm(true);
+                    updateProfileMutation.mutate({ securityProfile });
                   }}
                 >
-                  {hasPassword ? t('stations.changePassword') : t('stations.setPassword')}
+                  {t('stations.cancelProfileUpgrade')}
                 </Button>
-              )}
+              </AlertDescription>
+            </Alert>
+          )}
 
-              {showPasswordForm && (
-                <div className="rounded-md border p-4 space-y-3">
-                  <p className="text-sm font-medium">
-                    {hasPassword ? t('stations.changePassword') : t('stations.setPassword')}
-                  </p>
-                  <div className="space-y-2">
-                    <Label htmlFor="new-password">{t('stations.newPassword')}</Label>
-                    <PasswordInput
-                      id="new-password"
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                      }}
-                      placeholder={t('stations.passwordPlaceholder')}
-                      className={
-                        hasSubmittedPassword && passwordErrors.password ? 'border-destructive' : ''
-                      }
-                    />
-                    {hasSubmittedPassword && passwordErrors.password && (
-                      <p className="text-sm text-destructive">{passwordErrors.password}</p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="confirm-password">{t('stations.confirmPassword')}</Label>
-                    <PasswordInput
-                      id="confirm-password"
-                      value={confirmPassword}
-                      onChange={(e) => {
-                        setConfirmPassword(e.target.value);
-                      }}
-                      className={
-                        hasSubmittedPassword && passwordErrors.confirmPassword
-                          ? 'border-destructive'
-                          : ''
-                      }
-                    />
-                    {hasSubmittedPassword && passwordErrors.confirmPassword && (
-                      <p className="text-sm text-destructive">{passwordErrors.confirmPassword}</p>
-                    )}
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <CancelButton onClick={resetPasswordForm} />
-                    <SaveButton
-                      isPending={setPasswordMutation.isPending}
-                      type="button"
-                      onClick={() => {
-                        setHasSubmittedPassword(true);
-                        if (Object.keys(passwordErrors).length > 0) return;
-                        setPasswordMutation.mutate(password);
-                      }}
-                      label={hasPassword ? t('stations.changePassword') : t('stations.setPassword')}
-                    />
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
+          {
             <>
               <div className="flex items-center gap-2 flex-wrap">
                 <Label htmlFor="security-profile" className="text-sm whitespace-nowrap">
@@ -362,10 +340,18 @@ export function StationSecurity({
                   className="h-9"
                   disabled={updateProfileMutation.isPending}
                 >
-                  <option value="0">{t('stations.sp0')}</option>
-                  <option value="1">{t('stations.sp1')}</option>
-                  <option value="2">{t('stations.sp2')}</option>
-                  <option value="3">{t('stations.sp3')}</option>
+                  {/* A connected station cannot be moved to a lower profile over OCPP. */}
+                  {[0, 1, 2, 3]
+                    .filter((profile) => !is16 || profile < 3)
+                    .map((profile) => (
+                      <option
+                        key={profile}
+                        value={String(profile)}
+                        disabled={isOnline && profile < securityProfile}
+                      >
+                        {t(PROFILE_LABELS[profile] ?? 'stations.sp0')}
+                      </option>
+                    ))}
                 </Select>
                 {securityProfile >= 1 && securityProfile < 3 && pendingProfile == null && (
                   <>
@@ -420,7 +406,7 @@ export function StationSecurity({
                       onChange={(e) => {
                         setProfilePassword(e.target.value);
                       }}
-                      placeholder={t('stations.passwordPlaceholder')}
+                      placeholder={t('stations.passwordPlaceholder', passwordRules)}
                       className={
                         hasSubmittedProfilePassword && profilePasswordErrors.profilePassword
                           ? 'border-destructive'
@@ -481,6 +467,11 @@ export function StationSecurity({
               {showProfileConfirm && (
                 <div className="rounded-md border p-4 space-y-3">
                   <p className="text-sm font-medium">{t('stations.changeProfile')}</p>
+                  {isOnline && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('stations.profileChangeOnline')}
+                    </p>
+                  )}
                   {!isOnline && (
                     <p className="text-xs text-destructive">
                       {t('stations.profileChangeOcppOffline')}
@@ -509,7 +500,7 @@ export function StationSecurity({
                       onChange={(e) => {
                         setPassword(e.target.value);
                       }}
-                      placeholder={t('stations.passwordPlaceholder')}
+                      placeholder={t('stations.passwordPlaceholder', passwordRules)}
                       className={
                         hasSubmittedPassword && passwordErrors.password ? 'border-destructive' : ''
                       }
@@ -570,7 +561,7 @@ export function StationSecurity({
                 </div>
               </div>
             </>
-          )}
+          }
         </CardContent>
       </Card>
 

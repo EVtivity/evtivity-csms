@@ -18,6 +18,8 @@ export interface TestCase {
   purpose: string;
   /** Override the onboarding status used when provisioning the test station (default: 'accepted') */
   onboardingStatus?: 'accepted' | 'pending' | 'blocked' | undefined;
+  /** Provision the test station with this security profile and Basic Auth password (default: profile 0). */
+  provision?: { securityProfile: number; password?: string | undefined } | undefined;
   execute: (ctx: TestContext) => Promise<TestResult>;
 }
 
@@ -27,12 +29,22 @@ export type TriggerCommandFn = (
   body: Record<string, unknown>,
 ) => Promise<Record<string, unknown>>;
 
+/** Calls the CSMS REST API (path under /v1) with the runner's API key. */
+export type CallApiFn = (
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  path: string,
+  body?: Record<string, unknown>,
+) => Promise<{ status: number; body: Record<string, unknown> }>;
+
 export interface TestContext {
   client: OcppClient;
   stationId: string;
+  /** charging_stations.id of the provisioned test station. */
+  stationDbId: string | null;
   logger: Logger;
   config: RunConfig;
   triggerCommand?: TriggerCommandFn | undefined;
+  callApi?: CallApiFn | undefined;
 }
 
 export interface TestResult {
@@ -61,6 +73,8 @@ export interface RunConfig {
   logLevel?: string | undefined;
   provisionStations?: boolean | undefined;
   apiUrl?: string | undefined;
+  /** wss:// address of the CSMS TLS endpoint, for tests that reconnect with security profile 2. */
+  tlsServerUrl?: string | undefined;
 }
 
 export interface RunSummary {

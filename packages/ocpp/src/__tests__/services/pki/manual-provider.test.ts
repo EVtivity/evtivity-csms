@@ -34,7 +34,7 @@ describe('ManualProvider.signCsr', () => {
     const provider = new ManualProvider();
     let thrown: (Error & { code?: string }) | null = null;
     try {
-      await provider.signCsr('csr-pem', 'V2GCertificate');
+      await provider.signCsr('csr-pem', 'V2GCertificate', 'sta_1');
     } catch (err) {
       thrown = err as Error & { code?: string };
     }
@@ -44,7 +44,7 @@ describe('ManualProvider.signCsr', () => {
     expect(thrown?.code).toBe('MANUAL_SIGNING_REQUIRED');
 
     // The tagged-template call: first arg is the SQL strings array, then the
-    // interpolated values in order (csr, certificateType).
+    // interpolated values in order (csr, certificateType, station ID).
     expect(clientMock).toHaveBeenCalledTimes(1);
     const callArgs = clientMock.mock.calls[0] as unknown[];
     const sqlStrings = callArgs[0] as string[];
@@ -52,6 +52,7 @@ describe('ManualProvider.signCsr', () => {
     expect(sqlStrings.join('?')).toContain("'pending'");
     expect(callArgs[1]).toBe('csr-pem');
     expect(callArgs[2]).toBe('V2GCertificate');
+    expect(callArgs[3]).toBe('sta_1');
   });
 });
 

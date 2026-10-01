@@ -44,7 +44,8 @@ describe('zodSchema', () => {
           body: zodSchema(z.object({ kind: z.enum(['a', 'b']).nullable().optional() })),
         },
       },
-      async (request) => request.body,
+      // Report what Ajv let through rather than echoing the body back.
+      async (request) => ({ kindIsNull: (request.body as { kind?: unknown }).kind === null }),
     );
 
     afterAll(async () => {
@@ -55,7 +56,7 @@ describe('zodSchema', () => {
       const res = await app.inject({ method: 'PATCH', url: '/things', payload: { kind: null } });
 
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ kind: null });
+      expect(res.json()).toEqual({ kindIsNull: true });
     });
 
     it('still rejects values outside the enum', async () => {
@@ -100,7 +101,7 @@ describe('assertZodRefinements', () => {
     const app = Fastify();
     app.post('/panels', { schema: { body: zodSchema(phases) } }, async (request) => {
       assertZodRefinements(phases, request.body);
-      return request.body;
+      return { ok: true };
     });
 
     afterAll(async () => {

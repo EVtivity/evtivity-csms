@@ -696,7 +696,10 @@
     "TOO_MANY_WATCHES": "Estas vigilando demasiadas estaciones",
     "STATION_WATCH_NOT_FOUND": "Vigilancia no encontrada",
     "STATUS_CHECK_REJECTED": "La estación rechazó la verificación de estado",
-    "STATUS_CHECK_TIMEOUT": "La verificación de estado expiró. Vuelva a conectar el conector e inténtelo de nuevo."
+    "STATUS_CHECK_TIMEOUT": "La verificación de estado expiró. Vuelva a conectar el conector e inténtelo de nuevo.",
+    "SECURITY_PROFILE_DOWNGRADE": "Una estacion conectada no puede pasar a un perfil de seguridad inferior",
+    "STATION_TLS_URL_NOT_CONFIGURED": "La direccion TLS publica para estaciones (OCPP_STATION_TLS_URL) no esta configurada",
+    "STATION_SECURITY_CHANGE_REJECTED": "La estacion no acepto el cambio de seguridad; su configuracion actual no cambio"
   },
   "validation": {
     "required": "Este campo es obligatorio",

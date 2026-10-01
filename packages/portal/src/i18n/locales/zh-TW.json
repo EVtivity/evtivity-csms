@@ -696,7 +696,10 @@
     "TOO_MANY_WATCHES": "您關注的充電樁過多",
     "STATION_WATCH_NOT_FOUND": "未找到關注",
     "STATUS_CHECK_REJECTED": "充電站拒絕了狀態檢查",
-    "STATUS_CHECK_TIMEOUT": "狀態檢查逾時。請重新插入連接器後重試。"
+    "STATUS_CHECK_TIMEOUT": "狀態檢查逾時。請重新插入連接器後重試。",
+    "SECURITY_PROFILE_DOWNGRADE": "已連線的充電站不能降級至較低的安全設定檔",
+    "STATION_TLS_URL_NOT_CONFIGURED": "未設定充電站的公開 TLS 位址 (OCPP_STATION_TLS_URL)",
+    "STATION_SECURITY_CHANGE_REJECTED": "充電站未接受安全變更，目前設定維持不變"
   },
   "validation": {
     "required": "此欄位為必填項",

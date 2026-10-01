@@ -196,6 +196,19 @@ vi.mock('drizzle-orm', () => {
   };
 });
 
+const { changeStationPasswordMock, changeSecurityProfileMock, rotateStationPasswordMock } =
+  vi.hoisted(() => ({
+    changeStationPasswordMock: vi.fn(),
+    changeSecurityProfileMock: vi.fn(),
+    rotateStationPasswordMock: vi.fn(),
+  }));
+
+vi.mock('../services/station-security.service.js', () => ({
+  changeStationPassword: changeStationPasswordMock,
+  changeSecurityProfile: changeSecurityProfileMock,
+  rotateStationPassword: rotateStationPasswordMock,
+}));
+
 vi.mock('argon2', () => ({
   hash: vi.fn().mockResolvedValue('hashed_password'),
 }));
@@ -282,6 +295,7 @@ describe('Station routes - handler logic', () => {
         isSimulator: false,
         loadPriority: 0,
         securityProfile: 0,
+        pendingSecurityProfile: null,
         ocppProtocol: null,
         hasPassword: false,
         metadata: null,
@@ -356,6 +370,7 @@ describe('Station routes - handler logic', () => {
         isSimulator: false,
         loadPriority: 0,
         securityProfile: 0,
+        pendingSecurityProfile: null,
         ocppProtocol: null,
         hasPassword: false,
         metadata: null,
@@ -410,6 +425,7 @@ describe('Station routes - handler logic', () => {
         isSimulator: false,
         loadPriority: 0,
         securityProfile: 0,
+        pendingSecurityProfile: null,
         hasPassword: false,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
@@ -444,6 +460,7 @@ describe('Station routes - handler logic', () => {
         isSimulator: false,
         loadPriority: 0,
         securityProfile: 1,
+        pendingSecurityProfile: null,
         hasPassword: false,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
@@ -455,11 +472,37 @@ describe('Station routes - handler logic', () => {
         method: 'POST',
         url: '/stations',
         headers: { authorization: 'Bearer ' + token },
-        payload: { stationId: 'SECURE-STATION', password: 'mypassword123' },
+        payload: { stationId: 'SECURE-STATION', password: 'mypassword123456' },
       });
 
       expect(response.statusCode).toBe(201);
       expect(response.json().hasPassword).toBe(true);
+    });
+
+    it('rejects a password longer than 20 characters for an OCPP 1.6 station', async () => {
+      setupDbResults([]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/stations',
+        headers: { authorization: 'Bearer ' + token },
+        payload: { stationId: 'SECURE-16', ocppProtocol: 'ocpp1.6', password: 'a'.repeat(21) },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects a password shorter than 16 characters or with characters OCPP does not allow', async () => {
+      for (const password of ['short-pass-123', 'has spaces in it 12']) {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/stations',
+          headers: { authorization: 'Bearer ' + token },
+          payload: { stationId: 'SECURE-X', password },
+        });
+        expect(response.statusCode).toBe(400);
+      }
     });
 
     it('returns 400 for missing stationId', async () => {
@@ -491,6 +534,7 @@ describe('Station routes - handler logic', () => {
         isSimulator: false,
         loadPriority: 0,
         securityProfile: 0,
+        pendingSecurityProfile: null,
         hasPassword: false,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
@@ -525,8 +569,10 @@ describe('Station routes - handler logic', () => {
     });
 
     it('returns 400 when upgrading security profile without password and station has none', async () => {
-      // First DB call: check existing hasPassword
-      setupDbResults([{ hasPassword: false }]);
+      const { AppError } = await import('@evtivity/lib');
+      changeSecurityProfileMock.mockRejectedValueOnce(
+        new AppError('Password required', 400, 'PASSWORD_REQUIRED'),
+      );
 
       const response = await app.inject({
         method: 'PATCH',
@@ -558,6 +604,7 @@ describe('Station routes - handler logic', () => {
         isSimulator: false,
         loadPriority: 0,
         securityProfile: 0,
+        pendingSecurityProfile: null,
         hasPassword: false,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
@@ -1129,27 +1176,43 @@ describe('Station routes - handler logic', () => {
   // --- POST /v1/stations/:id/credentials ---
 
   describe('POST /v1/stations/:id/credentials', () => {
-    it('sets password and returns success', async () => {
-      const station = { id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: false };
-      setupDbResults(
-        [station], // update returning
-        [], // insert connection log
+    it('hands the password to the station security service', async () => {
+      changeStationPasswordMock.mockResolvedValueOnce({ appliedTo: 'station' });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/credentials`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { password: 'newpassword12345' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ appliedTo: 'station' });
+      expect(changeStationPasswordMock).toHaveBeenCalledWith(
+        VALID_STATION_ID,
+        'newpassword12345',
+        expect.objectContaining({ actor: expect.any(Object) as unknown }),
+      );
+    });
+
+    it('returns the service error when the station rejects the password', async () => {
+      const { AppError } = await import('@evtivity/lib');
+      changeStationPasswordMock.mockRejectedValueOnce(
+        new AppError('rejected', 502, 'STATION_SECURITY_CHANGE_REJECTED'),
       );
 
       const response = await app.inject({
         method: 'POST',
         url: `/stations/${VALID_STATION_ID}/credentials`,
         headers: { authorization: 'Bearer ' + token },
-        payload: { password: 'newpassword123' },
+        payload: { password: 'newpassword12345' },
       });
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json().success).toBe(true);
+      expect(response.statusCode).toBe(502);
+      expect(response.json().code).toBe('STATION_SECURITY_CHANGE_REJECTED');
     });
 
-    it('returns 404 when station not found', async () => {
-      setupDbResults([]);
-
+    it('rejects a password that breaks the OCPP rules before calling the service', async () => {
       const response = await app.inject({
         method: 'POST',
         url: `/stations/${VALID_STATION_ID}/credentials`,
@@ -1157,8 +1220,8 @@ describe('Station routes - handler logic', () => {
         payload: { password: 'newpassword123' },
       });
 
-      expect(response.statusCode).toBe(404);
-      expect(response.json().code).toBe('STATION_NOT_FOUND');
+      expect(response.statusCode).toBe(400);
+      expect(changeStationPasswordMock).not.toHaveBeenCalled();
     });
   });
 
@@ -1399,54 +1462,33 @@ describe('Station routes - handler logic', () => {
     });
   });
 
-  // --- POST /v1/stations/:id/credentials (online station branch) ---
+  // --- PATCH /v1/stations/:id security fields ---
 
-  describe('POST /v1/stations/:id/credentials (online station)', () => {
-    it('publishes OCPP commands when station is online', async () => {
-      const station = { id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true };
-      setupDbResults(
-        [station], // update returning
-        [], // insert connection log
-      );
+  describe('PATCH /v1/stations/:id (security profile and password)', () => {
+    const station = {
+      id: VALID_STATION_ID,
+      stationId: 'STATION-001',
+      siteId: null,
+      vendorId: null,
+      model: null,
+      serialNumber: null,
+      firmwareVersion: null,
+      availability: 'available',
+      onboardingStatus: 'accepted',
+      isOnline: true,
+      isSimulator: false,
+      loadPriority: 0,
+      securityProfile: 1,
+      pendingSecurityProfile: 2,
+      ocppProtocol: 'ocpp2.1',
+      hasPassword: true,
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+    };
 
-      const response = await app.inject({
-        method: 'POST',
-        url: `/stations/${VALID_STATION_ID}/credentials`,
-        headers: { authorization: 'Bearer ' + token },
-        payload: { password: 'newpassword123' },
-      });
-
-      expect(response.statusCode).toBe(200);
-      expect(response.json().success).toBe(true);
-      // SetVariables + Reset = 2 publishes
-      expect(mockPublish).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  // --- PATCH /v1/stations/:id (online with security profile change) ---
-
-  describe('PATCH /v1/stations/:id (online + security profile)', () => {
-    it('publishes SetVariables and Reset when station is online and securityProfile changes', async () => {
-      const updated = {
-        id: VALID_STATION_ID,
-        stationId: 'STATION-001',
-        siteId: null,
-        vendorId: null,
-        model: null,
-        serialNumber: null,
-        firmwareVersion: null,
-        availability: 'available',
-        onboardingStatus: 'accepted',
-        isOnline: true,
-        isSimulator: false,
-        loadPriority: 0,
-        securityProfile: 2,
-        hasPassword: true,
-        createdAt: '2024-01-01T00:00:00.000Z',
-        updatedAt: '2024-01-01T00:00:00.000Z',
-      };
-      // 1: check existing hasPassword (SP2 requires password), 2: before SELECT, 3: UPDATE returning
-      setupDbResults([{ hasPassword: true }], [updated], [updated]);
+    it('hands a security profile change to the station security service', async () => {
+      changeSecurityProfileMock.mockResolvedValueOnce({ status: 'pending' });
+      setupDbResults([station], [station]);
 
       const response = await app.inject({
         method: 'PATCH',
@@ -1456,82 +1498,74 @@ describe('Station routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      // SetVariables + Reset
-      expect(mockPublish).toHaveBeenCalledTimes(2);
+      expect(response.json().pendingSecurityProfile).toBe(2);
+      expect(changeSecurityProfileMock).toHaveBeenCalledWith(
+        VALID_STATION_ID,
+        2,
+        undefined,
+        expect.any(Object),
+      );
+      expect(mockPublish).not.toHaveBeenCalled();
     });
 
-    it('allows SP1/SP2 upgrade when password is provided in body', async () => {
-      const updated = {
-        id: VALID_STATION_ID,
-        stationId: 'STATION-001',
-        siteId: null,
-        vendorId: null,
-        model: null,
-        serialNumber: null,
-        firmwareVersion: null,
-        availability: 'available',
-        onboardingStatus: 'accepted',
-        isOnline: false,
-        isSimulator: false,
-        loadPriority: 0,
-        securityProfile: 1,
-        hasPassword: true,
-        createdAt: '2024-01-01T00:00:00.000Z',
-        updatedAt: '2024-01-01T00:00:00.000Z',
-      };
-      // No hasPassword check (password in body). 1: before SELECT, 2: UPDATE returning
-      setupDbResults([updated], [updated]);
+    it('hands a password-only change to the password flow', async () => {
+      changeStationPasswordMock.mockResolvedValueOnce({ appliedTo: 'station' });
+      setupDbResults([station], [station]);
 
       const response = await app.inject({
         method: 'PATCH',
         url: `/stations/${VALID_STATION_ID}`,
         headers: { authorization: 'Bearer ' + token },
-        payload: { securityProfile: 1, password: 'newpassword123' },
+        payload: { password: 'abcdefghijklmnop' },
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json().securityProfile).toBe(1);
+      expect(changeStationPasswordMock).toHaveBeenCalledWith(
+        VALID_STATION_ID,
+        'abcdefghijklmnop',
+        expect.any(Object),
+      );
+      expect(changeSecurityProfileMock).not.toHaveBeenCalled();
     });
 
-    it('clears password hash when switching to SP0', async () => {
-      const updated = {
-        id: VALID_STATION_ID,
-        stationId: 'STATION-001',
-        siteId: null,
-        vendorId: null,
-        model: null,
-        serialNumber: null,
-        firmwareVersion: null,
-        availability: 'available',
-        onboardingStatus: 'accepted',
-        isOnline: false,
-        isSimulator: false,
-        loadPriority: 0,
-        securityProfile: 0,
-        hasPassword: false,
-        createdAt: '2024-01-01T00:00:00.000Z',
-        updatedAt: '2024-01-01T00:00:00.000Z',
-      };
-      // 1: before SELECT, 2: UPDATE returning
-      setupDbResults([updated], [updated]);
+    it('does not touch security for other field updates', async () => {
+      setupDbResults([station], [station]);
+
+      await app.inject({
+        method: 'PATCH',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { model: 'New Model' },
+      });
+
+      expect(changeSecurityProfileMock).not.toHaveBeenCalled();
+      expect(changeStationPasswordMock).not.toHaveBeenCalled();
+    });
+
+    it('stops the update when the service refuses a downgrade', async () => {
+      const { AppError } = await import('@evtivity/lib');
+      changeSecurityProfileMock.mockRejectedValueOnce(
+        new AppError('no downgrade', 400, 'SECURITY_PROFILE_DOWNGRADE'),
+      );
+      setupDbResults([station], [station]);
 
       const response = await app.inject({
         method: 'PATCH',
         url: `/stations/${VALID_STATION_ID}`,
         headers: { authorization: 'Bearer ' + token },
-        payload: { securityProfile: 0 },
+        payload: { securityProfile: 0, model: 'X' },
       });
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json().securityProfile).toBe(0);
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('SECURITY_PROFILE_DOWNGRADE');
     });
   });
 
   // --- POST /v1/stations/:id/rotate-credentials ---
 
   describe('POST /v1/stations/:id/rotate-credentials', () => {
-    it('returns 404 when station not found', async () => {
-      setupDbResults([]);
+    it('hands the rotation to the station security service', async () => {
+      rotateStationPasswordMock.mockResolvedValueOnce(undefined);
 
       const response = await app.inject({
         method: 'POST',
@@ -1539,14 +1573,16 @@ describe('Station routes - handler logic', () => {
         headers: { authorization: 'Bearer ' + token },
       });
 
-      expect(response.statusCode).toBe(404);
-      expect(response.json().code).toBe('STATION_NOT_FOUND');
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ success: true });
+      expect(rotateStationPasswordMock).toHaveBeenCalledWith(VALID_STATION_ID, expect.any(Object));
     });
 
-    it('returns 409 when station is offline', async () => {
-      setupDbResults([
-        { id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: false, securityProfile: 1 },
-      ]);
+    it('returns 409 when the service reports the station offline', async () => {
+      const { AppError } = await import('@evtivity/lib');
+      rotateStationPasswordMock.mockRejectedValueOnce(
+        new AppError('Station is offline', 409, 'STATION_OFFLINE'),
+      );
 
       const response = await app.inject({
         method: 'POST',
@@ -1556,65 +1592,6 @@ describe('Station routes - handler logic', () => {
 
       expect(response.statusCode).toBe(409);
       expect(response.json().code).toBe('STATION_OFFLINE');
-    });
-
-    it('returns 502 when command times out', async () => {
-      vi.useFakeTimers();
-      setupDbResults([
-        { id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true, securityProfile: 1 },
-      ]);
-
-      // Subscribe callback never fires a matching commandId, so it will timeout.
-      mockSubscribe.mockImplementationOnce(async (_channel: string, _cb: (raw: string) => void) => {
-        return { unsubscribe: vi.fn() };
-      });
-
-      const responsePromise = app.inject({
-        method: 'POST',
-        url: `/stations/${VALID_STATION_ID}/rotate-credentials`,
-        headers: { authorization: 'Bearer ' + token },
-      });
-
-      // Advance past the 35s timeout
-      await vi.advanceTimersByTimeAsync(36_000);
-
-      const response = await responsePromise;
-      expect(response.statusCode).toBe(502);
-      vi.useRealTimers();
-    });
-
-    it('returns success when OCPP command succeeds', async () => {
-      setupDbResults(
-        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true, securityProfile: 1 }],
-        [], // update password hash
-        [], // insert connection log
-      );
-
-      // Capture commandId from the first publish call, then when subscribe
-      // is called, immediately fire the callback with matching commandId.
-      let capturedCommandId: string | null = null;
-
-      mockPublish.mockImplementationOnce(async (_channel: string, payload: string) => {
-        const parsed = JSON.parse(payload);
-        capturedCommandId = parsed.commandId;
-      });
-
-      mockSubscribe.mockImplementationOnce(async (_channel: string, cb: (raw: string) => void) => {
-        // Fire callback immediately with the captured commandId
-        if (capturedCommandId != null) {
-          cb(JSON.stringify({ commandId: capturedCommandId, success: true }));
-        }
-        return { unsubscribe: vi.fn() };
-      });
-
-      const response = await app.inject({
-        method: 'POST',
-        url: `/stations/${VALID_STATION_ID}/rotate-credentials`,
-        headers: { authorization: 'Bearer ' + token },
-      });
-
-      expect(response.statusCode).toBe(200);
-      expect(response.json().success).toBe(true);
     });
   });
 
