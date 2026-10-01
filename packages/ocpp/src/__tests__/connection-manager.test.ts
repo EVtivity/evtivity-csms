@@ -53,6 +53,19 @@ describe('ConnectionManager', () => {
     expect(cm.count()).toBe(1);
   });
 
+  it('keeps the new connection when the replaced socket closes', () => {
+    const ws1 = mockWs();
+    const ws2 = mockWs();
+    cm.add('CS-001', ws1, createSessionState('CS-001'));
+    cm.add('CS-001', ws2, createSessionState('CS-001'));
+
+    expect(cm.remove('CS-001', ws1)).toBe(false);
+    expect(cm.get('CS-001')?.ws).toBe(ws2);
+
+    expect(cm.remove('CS-001', ws2)).toBe(true);
+    expect(cm.has('CS-001')).toBe(false);
+  });
+
   it('returns undefined for unknown station', () => {
     expect(cm.get('UNKNOWN')).toBeUndefined();
     expect(cm.has('UNKNOWN')).toBe(false);

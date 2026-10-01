@@ -450,7 +450,8 @@ export class OcppServer {
 
     ws.on('close', () => {
       this.correlator.clearPending(session);
-      this.connectionManager.remove(stationId);
+      // A connection replaced by a newer one is not a disconnect.
+      if (!this.connectionManager.remove(stationId, ws)) return;
       void this.eventBus.publish({
         eventType: 'station.Disconnected',
         aggregateType: 'ChargingStation',

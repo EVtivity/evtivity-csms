@@ -191,11 +191,11 @@ export function DriverDetailsTab({ driver, timezone }: DriverDetailsTabProps): R
               </div>
               <div>
                 <dt className="text-muted-foreground">{t('common.email')}</dt>
-                <dd className="font-medium">{driver.email ?? '-'}</dd>
+                <dd className="font-medium">{driver.email ?? t('common.na')}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">{t('drivers.phone')}</dt>
-                <dd className="font-medium">{driver.phone ?? '-'}</dd>
+                <dd className="font-medium">{driver.phone ?? t('common.na')}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">{t('common.status')}</dt>
