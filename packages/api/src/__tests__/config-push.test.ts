@@ -249,6 +249,10 @@ describe('processConfigPush (OCPP 1.6)', () => {
     await processConfigPush('ctp_1', [{ id: 'sta_1', stationId: 'CS-1' }], variables, '1.6');
 
     expect(findStationUpdate()?.set['status']).toBe('accepted');
+    // No version: the OCPP server translates SetVariables to ChangeConfiguration
+    // for 1.6. With a version the 2.1 action reached the station unchanged.
+    expect(sendOcppCommandAndWaitMock.mock.calls[0]?.[1]).toBe('SetVariables');
+    expect(sendOcppCommandAndWaitMock.mock.calls[0]).toHaveLength(3);
     expect(sendOcppCommandAndWaitMock.mock.calls[1]?.[1]).toBe('GetConfiguration');
   });
 

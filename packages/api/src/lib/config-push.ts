@@ -30,20 +30,15 @@ export async function processConfigPush(
               // OCPP 1.6: one SetVariables per variable, collect all results
               const errors: string[] = [];
               for (const v of variables) {
-                const result = await sendOcppCommandAndWait(
-                  station.stationId,
-                  'SetVariables',
-                  {
-                    setVariableData: [
-                      {
-                        component: { name: v.component },
-                        variable: { name: v.variable },
-                        attributeValue: v.value,
-                      },
-                    ],
-                  },
-                  ocppVersion,
-                );
+                const result = await sendOcppCommandAndWait(station.stationId, 'SetVariables', {
+                  setVariableData: [
+                    {
+                      component: { name: v.component },
+                      variable: { name: v.variable },
+                      attributeValue: v.value,
+                    },
+                  ],
+                });
 
                 if (result.error != null) {
                   errors.push(`${v.variable}: ${result.error}`);

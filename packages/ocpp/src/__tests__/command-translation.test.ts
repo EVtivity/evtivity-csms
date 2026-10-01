@@ -76,9 +76,11 @@ describe('command-translation', () => {
             },
           ],
         });
+        // The 1.6 key is the variable name; OCPPCommCtrlr is a 2.1 component
+        // that no 1.6 station knows as a configuration key.
         expect(result).toEqual({
           action: 'GetConfiguration',
-          payload: { key: ['OCPPCommCtrlr'] },
+          payload: { key: ['HeartbeatInterval'] },
         });
       });
     });
@@ -180,8 +182,8 @@ describe('command-translation', () => {
           evseId: 1,
           duration: 3600,
         });
-        expect(result?.payload).toHaveProperty('connectorId', 1);
-        expect(result?.payload).toHaveProperty('evseId', 1);
+        // The 1.6 schema rejects additional properties, so evseId must not leak.
+        expect(result?.payload).toEqual({ connectorId: 1, duration: 3600 });
       });
     });
 
@@ -327,6 +329,41 @@ describe('command-translation', () => {
           getVariableData: [null],
         });
         expect(result?.payload).toEqual({});
+      });
+    });
+
+    describe('1.6 configuration keys', () => {
+      it('uses the variable name when the component name is empty (1.6 templates)', () => {
+        const result = translateCommand('SetVariables', 'ocpp1.6', {
+          setVariableData: [
+            {
+              component: { name: '' },
+              variable: { name: 'HeartbeatInterval' },
+              attributeValue: '300',
+            },
+          ],
+        });
+        expect(result?.payload).toEqual({ key: 'HeartbeatInterval', value: '300' });
+      });
+
+      it('uses the variable name, not the 2.1 component, for SecurityProfile', () => {
+        const result = translateCommand('SetVariables', 'ocpp1.6', {
+          setVariableData: [
+            {
+              component: { name: 'SecurityCtrlr' },
+              variable: { name: 'SecurityProfile' },
+              attributeValue: '1',
+            },
+          ],
+        });
+        expect(result?.payload).toEqual({ key: 'SecurityProfile', value: '1' });
+      });
+
+      it('falls back to the component name when the variable name is empty', () => {
+        const result = translateCommand('GetVariables', 'ocpp1.6', {
+          getVariableData: [{ component: { name: 'LegacyKey' }, variable: { name: '' } }],
+        });
+        expect(result?.payload).toEqual({ key: ['LegacyKey'] });
       });
     });
 

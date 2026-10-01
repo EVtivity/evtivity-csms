@@ -4858,7 +4858,6 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const version = station.ocppProtocol === 'ocpp1.6' ? '1.6' : '2.1';
       const payload = {
         evseId: body.evseId ?? 0,
         duration: body.duration ?? 86400,
@@ -4869,7 +4868,6 @@ export function stationRoutes(app: FastifyInstance): void {
         station.stationId,
         'GetCompositeSchedule',
         payload,
-        version,
       );
 
       if (result.error != null) {
@@ -4953,8 +4951,6 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const version = station.ocppProtocol === 'ocpp1.6' ? '1.6' : '2.1';
-
       // Reshape API body into OCPP 2.1 ClearChargingProfileRequest. Criteria
       // (purpose/stackLevel/evseId) live under `chargingProfileCriteria`;
       // `chargingProfileId` stays at the top level. Empty criteria object is
@@ -4972,7 +4968,6 @@ export function stationRoutes(app: FastifyInstance): void {
         station.stationId,
         'ClearChargingProfile',
         ocppPayload,
-        version,
       );
 
       if (result.error != null) {
@@ -5123,18 +5118,13 @@ export function stationRoutes(app: FastifyInstance): void {
       // Best-effort clear existing profile with same purpose/stackLevel/evseId.
       // OCPP 2.1 wants the criteria nested under `chargingProfileCriteria`.
       try {
-        await sendOcppCommandAndWait(
-          station.stationId,
-          'ClearChargingProfile',
-          {
-            chargingProfileCriteria: {
-              chargingProfilePurpose: template.profilePurpose,
-              stackLevel: template.stackLevel,
-              evseId: template.evseId,
-            },
+        await sendOcppCommandAndWait(station.stationId, 'ClearChargingProfile', {
+          chargingProfileCriteria: {
+            chargingProfilePurpose: template.profilePurpose,
+            stackLevel: template.stackLevel,
+            evseId: template.evseId,
           },
-          version,
-        );
+        });
       } catch {
         // Non-critical: clear failure should not block set
       }
@@ -5162,12 +5152,7 @@ export function stationRoutes(app: FastifyInstance): void {
         },
       };
 
-      const result = await sendOcppCommandAndWait(
-        station.stationId,
-        'SetChargingProfile',
-        payload,
-        version,
-      );
+      const result = await sendOcppCommandAndWait(station.stationId, 'SetChargingProfile', payload);
 
       if (result.error != null) {
         return { success: false, status: 'Failed', errorInfo: result.error };
@@ -5322,20 +5307,15 @@ export function stationRoutes(app: FastifyInstance): void {
       if (ocppVersion === '1.6') {
         // OCPP 1.6: one SetVariables per variable
         for (const v of variables) {
-          const result = await sendOcppCommandAndWait(
-            station.stationId,
-            'SetVariables',
-            {
-              setVariableData: [
-                {
-                  component: { name: v.component },
-                  variable: { name: v.variable },
-                  attributeValue: v.value,
-                },
-              ],
-            },
-            ocppVersion,
-          );
+          const result = await sendOcppCommandAndWait(station.stationId, 'SetVariables', {
+            setVariableData: [
+              {
+                component: { name: v.component },
+                variable: { name: v.variable },
+                attributeValue: v.value,
+              },
+            ],
+          });
 
           if (result.error != null) {
             results.push({ component: v.component, variable: v.variable, status: result.error });

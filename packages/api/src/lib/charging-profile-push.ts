@@ -43,18 +43,13 @@ export async function processChargingProfilePush(
             // OCPP 2.1 requires the criteria nested under `chargingProfileCriteria`;
             // the 1.6 translator unwraps it and maps evseId -> connectorId.
             try {
-              await sendOcppCommandAndWait(
-                station.stationId,
-                'ClearChargingProfile',
-                {
-                  chargingProfileCriteria: {
-                    chargingProfilePurpose: template.profilePurpose,
-                    stackLevel: template.stackLevel,
-                    evseId: template.evseId,
-                  },
+              await sendOcppCommandAndWait(station.stationId, 'ClearChargingProfile', {
+                chargingProfileCriteria: {
+                  chargingProfilePurpose: template.profilePurpose,
+                  stackLevel: template.stackLevel,
+                  evseId: template.evseId,
                 },
-                `ocpp${ocppVersion}`,
-              );
+              });
             } catch {
               // Non-critical: clear failure should not block set
             }
@@ -86,7 +81,6 @@ export async function processChargingProfilePush(
               station.stationId,
               'SetChargingProfile',
               payload,
-              `ocpp${ocppVersion}`,
             );
 
             if (result.error != null) {
@@ -215,18 +209,13 @@ export async function processChargingProfileClear(
       await Promise.all(
         batch.map(async (station) => {
           try {
-            const result = await sendOcppCommandAndWait(
-              station.stationId,
-              'ClearChargingProfile',
-              {
-                chargingProfileCriteria: {
-                  chargingProfilePurpose: target.profilePurpose,
-                  stackLevel: target.stackLevel,
-                  evseId: target.evseId,
-                },
+            const result = await sendOcppCommandAndWait(station.stationId, 'ClearChargingProfile', {
+              chargingProfileCriteria: {
+                chargingProfilePurpose: target.profilePurpose,
+                stackLevel: target.stackLevel,
+                evseId: target.evseId,
               },
-              `ocpp${ocppVersion}`,
-            );
+            });
 
             if (result.error != null) {
               await db

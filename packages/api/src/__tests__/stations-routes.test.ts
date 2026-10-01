@@ -803,6 +803,46 @@ describe('Station routes - handler logic', () => {
     });
   });
 
+  // The payloads are OCPP 2.1 shaped. Without a version the OCPP server
+  // translates them for 1.6 stations (evseId -> connectorId, unwrapped criteria).
+  describe('charging profile commands to an OCPP 1.6 station', () => {
+    it('sends GetCompositeSchedule without a version', async () => {
+      const { sendOcppCommandAndWait } = await import('../lib/ocpp-command.js');
+      const sendMock = vi.mocked(sendOcppCommandAndWait);
+      sendMock.mockResolvedValueOnce({ commandId: 'm', response: { status: 'Rejected' } });
+      setupDbResults([{ stationId: 'CS-016', ocppProtocol: 'ocpp1.6', isOnline: true }]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/charging-profiles/composite`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { evseId: 1, duration: 3600 },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(sendMock.mock.calls[0]?.[1]).toBe('GetCompositeSchedule');
+      expect(sendMock.mock.calls[0]).toHaveLength(3);
+    });
+
+    it('sends ClearChargingProfile without a version', async () => {
+      const { sendOcppCommandAndWait } = await import('../lib/ocpp-command.js');
+      const sendMock = vi.mocked(sendOcppCommandAndWait);
+      sendMock.mockResolvedValueOnce({ commandId: 'm', response: { status: 'Unknown' } });
+      setupDbResults([{ stationId: 'CS-016', ocppProtocol: 'ocpp1.6', isOnline: true }]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/charging-profiles/clear`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { chargingProfilePurpose: 'TxDefaultProfile', stackLevel: 0, evseId: 1 },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(sendMock.mock.calls[0]?.[1]).toBe('ClearChargingProfile');
+      expect(sendMock.mock.calls[0]).toHaveLength(3);
+    });
+  });
+
   describe('POST /v1/stations/:id/evses/:evseId/stop-active-session', () => {
     it('dispatches RequestStopTransaction and returns ghostRecovered=false on Accepted', async () => {
       const { sendOcppCommandAndWait } = await import('../lib/ocpp-command.js');
