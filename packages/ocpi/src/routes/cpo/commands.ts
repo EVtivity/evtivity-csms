@@ -2,22 +2,24 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import { eq, and, lte, gte, sql } from 'drizzle-orm';
+import { eq, and, lte, gte, sql, asc } from 'drizzle-orm';
 import {
   db,
   chargingStations,
   chargingSessions,
-  evses,
   connectors,
   ocpiLocationPublish,
   ocpiExternalTokens,
   ocpiRoamingSessions,
   maintenanceEvents,
+  isStationLevelUnavailable,
 } from '@evtivity/database';
+import type { StationLevelState } from '@evtivity/database';
 import { createLogger, isPrivateUrl } from '@evtivity/lib';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
 import { ocpiAuthenticate } from '../../middleware/ocpi-auth.js';
 import { isLocationVisibleToPartner } from '../../lib/location-visibility.js';
+import { findEvseByUid } from '../../lib/evse-lookup.js';
 import { getCommandCallbackService } from '../../services/command-callback.service.js';
 import type {
   OcpiVersion,
@@ -72,25 +74,12 @@ async function resolveSiteId(locationId: string, partnerId: string): Promise<str
   return publish.siteId;
 }
 
-// EVSE uid format is ${siteId}-${evseId}. Three command handlers below
-// duplicated the same parse-and-coerce; extracting it here keeps the
-// format owned by one place.
-function parseEvseUidTail(evseUid: string | undefined): number | undefined {
-  if (evseUid == null) return undefined;
-  const parts = evseUid.split('-');
-  const tail = parts[parts.length - 1];
-  if (tail == null) return undefined;
-  const num = Number(tail);
-  return Number.isFinite(num) ? num : undefined;
+interface MaintenanceCoverage {
+  allAffected: boolean;
+  affectedStationIds: Set<string>;
 }
 
-/**
- * Returns true when the supplied station (resolved by site + optional evse uid)
- * is covered by an active maintenance window. Used to short-circuit external
- * START_SESSION / RESERVE_NOW commands so partners see a clean REJECTED rather
- * than dispatch OCPP traffic to a site that is currently inoperative.
- */
-async function isStationUnderMaintenance(siteId: string, stationDbId: string): Promise<boolean> {
+async function getMaintenanceCoverage(siteId: string): Promise<MaintenanceCoverage> {
   const now = new Date();
   const rows = await db
     .select({ affectedStationIds: maintenanceEvents.affectedStationIds })
@@ -103,47 +92,78 @@ async function isStationUnderMaintenance(siteId: string, stationDbId: string): P
         gte(maintenanceEvents.plannedEndAt, now),
       ),
     );
-  if (rows.length === 0) return false;
-  return rows.some((r) => {
+  const coverage: MaintenanceCoverage = { allAffected: false, affectedStationIds: new Set() };
+  for (const r of rows) {
     const f = r.affectedStationIds;
-    return f == null || f.length === 0 || f.includes(stationDbId);
-  });
+    if (f == null || f.length === 0) coverage.allAffected = true;
+    else for (const id of f) coverage.affectedStationIds.add(id);
+  }
+  return coverage;
 }
 
+function isCovered(coverage: MaintenanceCoverage, stationDbId: string): boolean {
+  return coverage.allAffected || coverage.affectedStationIds.has(stationDbId);
+}
+
+interface ResolvedStation {
+  stationDbId: string;
+  stationId: string;
+  stationState: StationLevelState;
+  evseDbId?: string;
+  evseNumber?: number;
+}
+
+// Without an EVSE uid, pick the first station at the site that can start a
+// session, so one disabled or maintained station does not block the site.
+// When none can, return the first one and let the caller's gates reject it.
 async function findStationForSite(
   siteId: string,
-  evseUid?: string,
-): Promise<{ stationDbId: string; stationId: string; evseDbId?: string } | null> {
+  evseUid: string | undefined,
+  coverage: MaintenanceCoverage,
+): Promise<ResolvedStation | null> {
   if (evseUid != null) {
-    const evseIdNum = parseEvseUidTail(evseUid);
-    if (evseIdNum == null) return null;
-
-    // Find the EVSE and its station
-    const results = await db
-      .select({
-        stationDbId: chargingStations.id,
-        stationId: chargingStations.stationId,
-        evseDbId: evses.id,
-      })
-      .from(evses)
-      .innerJoin(chargingStations, eq(evses.stationId, chargingStations.id))
-      .where(and(eq(chargingStations.siteId, siteId), eq(evses.evseId, evseIdNum)))
-      .limit(1);
-
-    const row = results[0];
-    if (row == null) return null;
-    return { stationDbId: row.stationDbId, stationId: row.stationId, evseDbId: row.evseDbId };
+    // The uid identifies one EVSE; it must belong to a station at this site.
+    const found = await findEvseByUid(evseUid);
+    if (found?.siteId !== siteId) return null;
+    return {
+      stationDbId: found.stationDbId,
+      stationId: found.stationOcppId,
+      stationState: found.stationState,
+      evseDbId: found.evseDbId,
+      evseNumber: found.evseNumber,
+    };
   }
 
-  // No EVSE specified, find any station at the site
-  const [station] = await db
-    .select({ stationDbId: chargingStations.id, stationId: chargingStations.stationId })
+  const stations = await db
+    .select({
+      stationDbId: chargingStations.id,
+      stationId: chargingStations.stationId,
+      disabledReason: chargingStations.disabledReason,
+      firmwareState: chargingStations.firmwareState,
+      reportedStatus: chargingStations.reportedStatus,
+    })
     .from(chargingStations)
     .where(eq(chargingStations.siteId, siteId))
-    .limit(1);
+    .orderBy(asc(chargingStations.stationId));
 
+  const station =
+    stations.find((s) => !isStationLevelUnavailable(s) && !isCovered(coverage, s.stationDbId)) ??
+    stations[0];
   if (station == null) return null;
-  return { stationDbId: station.stationDbId, stationId: station.stationId };
+  const { stationDbId, stationId, disabledReason, firmwareState, reportedStatus } = station;
+  return {
+    stationDbId,
+    stationId,
+    stationState: { disabledReason, firmwareState, reportedStatus },
+  };
+}
+
+// A maintenance window, a disable, a firmware install, or a station-level fault
+// rejects a start or reservation for every EVSE on the station.
+function canStartOn(station: ResolvedStation, coverage: MaintenanceCoverage): boolean {
+  return (
+    !isCovered(coverage, station.stationDbId) && !isStationLevelUnavailable(station.stationState)
+  );
 }
 
 async function findConnectorId(evseDbId: string, connectorIdStr: string): Promise<number | null> {
@@ -211,13 +231,9 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
       return ocpiSuccess(response);
     }
 
-    const station = await findStationForSite(siteId, body.evse_uid);
-    if (station == null) {
-      const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
-      return ocpiSuccess(response);
-    }
-
-    if (await isStationUnderMaintenance(siteId, station.stationDbId)) {
+    const coverage = await getMaintenanceCoverage(siteId);
+    const station = await findStationForSite(siteId, body.evse_uid, coverage);
+    if (station == null || !canStartOn(station, coverage)) {
       const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
       return ocpiSuccess(response);
     }
@@ -228,7 +244,7 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
       remoteStartId: Math.floor(Math.random() * 2_147_483_647),
     };
     if (station.evseDbId != null) {
-      const evseNum = parseEvseUidTail(body.evse_uid);
+      const evseNum = station.evseNumber;
       if (evseNum != null) {
         ocppPayload['evseId'] = evseNum;
       }
@@ -401,13 +417,9 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
       return ocpiSuccess(response);
     }
 
-    const station = await findStationForSite(siteId, body.evse_uid);
-    if (station == null) {
-      const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
-      return ocpiSuccess(response);
-    }
-
-    if (await isStationUnderMaintenance(siteId, station.stationDbId)) {
+    const coverage = await getMaintenanceCoverage(siteId);
+    const station = await findStationForSite(siteId, body.evse_uid, coverage);
+    if (station == null || !canStartOn(station, coverage)) {
       const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
       return ocpiSuccess(response);
     }
@@ -419,7 +431,7 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
       idToken: { idToken: tokenUid, type: 'ISO14443' },
     };
     if (station.evseDbId != null) {
-      const evseNum = parseEvseUidTail(body.evse_uid);
+      const evseNum = station.evseNumber;
       if (evseNum != null) {
         ocppPayload['evseId'] = evseNum;
       }
@@ -518,17 +530,17 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
         return ocpiSuccess(response);
       }
 
-      const station = await findStationForSite(siteId, body.evse_uid);
-      if (station == null || station.evseDbId == null) {
+      // The uid identifies one EVSE; it must belong to a station at this site.
+      const found = await findEvseByUid(body.evse_uid);
+      if (found?.siteId !== siteId) {
         const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
         return ocpiSuccess(response);
       }
 
-      // Parse EVSE and connector IDs
-      const evseNum = parseEvseUidTail(body.evse_uid) ?? Number.NaN;
+      const evseNum = found.evseNumber;
       const connectorNum = Number(body.connector_id);
 
-      if (Number.isNaN(evseNum) || Number.isNaN(connectorNum)) {
+      if (Number.isNaN(connectorNum)) {
         const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
         return ocpiSuccess(response);
       }
@@ -546,7 +558,7 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
         partner.partnerId,
         'UNLOCK_CONNECTOR',
       );
-      await callbackService.dispatchOcppCommand(commandId, station.stationId, 'UnlockConnector', {
+      await callbackService.dispatchOcppCommand(commandId, found.stationOcppId, 'UnlockConnector', {
         evseId: evseNum,
         connectorId: connectorNum,
       });

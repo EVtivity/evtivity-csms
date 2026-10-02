@@ -19,7 +19,14 @@ import {
   isNotNull,
   isNull,
 } from 'drizzle-orm';
-import { db, writeAudit, stationAuditLog, getCompanyCurrency } from '@evtivity/database';
+import {
+  db,
+  client,
+  writeAudit,
+  stationAuditLog,
+  getCompanyCurrency,
+  setStationDisabled,
+} from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
@@ -75,9 +82,14 @@ import {
   sendStatusCheckError,
   triggerAndWaitForStatus,
 } from '../lib/ocpp-command.js';
-import { buildDerivedStatusSubquery } from '../lib/station-derived-status.js';
+import {
+  buildDerivedStatusSubquery,
+  buildStatusReasonSubquery,
+} from '../lib/station-derived-status.js';
 import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.js';
 import { enableCssPair, disableCssPair } from '../lib/css-pairing.js';
+import { sendAvailabilityCommand } from '../lib/availability-command.js';
+import { publishStationStatusChanged } from '../lib/station-status-events.js';
 import {
   changeSecurityProfile,
   changeStationPassword,
@@ -221,9 +233,11 @@ const updateStationBody = z.object({
   model: z.string().max(255).optional(),
   serialNumber: z.string().max(255).optional(),
   availability: z
-    .enum(['available', 'unavailable', 'faulted'])
+    .enum(['available', 'unavailable'])
     .optional()
-    .describe('Station availability status'),
+    .describe(
+      'Enable (available) or disable (unavailable) the station. Sends ChangeAvailability to the station. Faulted is computed, not set.',
+    ),
   siteId: ID_PARAMS.siteId.nullable().optional().describe('Site ID to assign the station to'),
   securityProfile: z
     .number()
@@ -272,7 +286,27 @@ const stationItem = z
     imsi: z.string().max(20).nullable().describe('SIM card IMSI for cellular-connected stations'),
     availability: z
       .enum(['available', 'unavailable', 'faulted'])
-      .describe('Operator-controlled availability state'),
+      .describe(
+        'Station availability computed from the operator or security disable, firmware state, station-reported status, and connector faults',
+      ),
+    reportedStatus: z
+      .enum(['available', 'unavailable', 'faulted'])
+      .nullable()
+      .describe(
+        'Status the station reports for itself (OCPP 1.6 connector 0, 2.x ChargingStation), null until reported',
+      ),
+    statusReason: z
+      .enum([
+        'operator_disabled',
+        'security_disabled',
+        'firmware_failed',
+        'station_faulted',
+        'connector_faulted',
+        'firmware_installing',
+        'station_unavailable',
+      ])
+      .nullable()
+      .describe('Why the station is not available, null when it is'),
     onboardingStatus: z
       .enum(['pending', 'accepted', 'blocked'])
       .describe('Provisioning lifecycle state (pending awaiting approval, accepted, blocked)'),
@@ -362,7 +396,37 @@ const stationDetail = z
     imsi: z.string().max(20).nullable().describe('SIM card IMSI for cellular-connected stations'),
     availability: z
       .enum(['available', 'unavailable', 'faulted'])
-      .describe('Operator-controlled availability state'),
+      .describe(
+        'Station availability computed from the operator or security disable, firmware state, station-reported status, and connector faults',
+      ),
+    reportedStatus: z
+      .enum(['available', 'unavailable', 'faulted'])
+      .nullable()
+      .describe(
+        'Status the station reports for itself (OCPP 1.6 connector 0, 2.x ChargingStation), null until reported',
+      ),
+    disabledReason: z
+      .enum(['operator', 'security'])
+      .nullable()
+      .describe(
+        'Why the station is switched off: operator (disabled by an operator) or security (disabled after a critical security event), null when enabled',
+      ),
+    firmwareState: z
+      .enum(['installing', 'failed'])
+      .nullable()
+      .describe('Firmware install state: installing, failed, or null when no install is pending'),
+    statusReason: z
+      .enum([
+        'operator_disabled',
+        'security_disabled',
+        'firmware_failed',
+        'station_faulted',
+        'connector_faulted',
+        'firmware_installing',
+        'station_unavailable',
+      ])
+      .nullable()
+      .describe('Why the station is not available, null when it is'),
     onboardingStatus: z
       .enum(['pending', 'accepted', 'blocked'])
       .describe('Provisioning lifecycle state (pending awaiting approval, accepted, blocked)'),
@@ -440,7 +504,9 @@ const stationCreated = z
     firmwareVersion: z.string().max(50).nullable().describe('Currently installed firmware version'),
     availability: z
       .enum(['available', 'unavailable', 'faulted'])
-      .describe('Operator-controlled availability state'),
+      .describe(
+        'Station availability computed from the operator or security disable, firmware state, station-reported status, and connector faults',
+      ),
     onboardingStatus: z
       .enum(['pending', 'accepted', 'blocked'])
       .describe('Provisioning lifecycle state (pending awaiting approval, accepted, blocked)'),
@@ -826,6 +892,7 @@ export function stationRoutes(app: FastifyInstance): void {
           iccid: chargingStations.iccid,
           imsi: chargingStations.imsi,
           availability: chargingStations.availability,
+          reportedStatus: chargingStations.reportedStatus,
           onboardingStatus: chargingStations.onboardingStatus,
           lastHeartbeat: chargingStations.lastHeartbeat,
           isOnline: chargingStations.isOnline,
@@ -839,6 +906,7 @@ export function stationRoutes(app: FastifyInstance): void {
           createdAt: chargingStations.createdAt,
           updatedAt: chargingStations.updatedAt,
           status: derivedStatusSubquery,
+          statusReason: buildStatusReasonSubquery(chargingStations.id),
           connectorCount: sql<number>`(
             SELECT COUNT(c3.id)::int
             FROM ${evses} e3
@@ -911,6 +979,9 @@ export function stationRoutes(app: FastifyInstance): void {
           iccid: chargingStations.iccid,
           imsi: chargingStations.imsi,
           availability: chargingStations.availability,
+          reportedStatus: chargingStations.reportedStatus,
+          disabledReason: chargingStations.disabledReason,
+          firmwareState: chargingStations.firmwareState,
           onboardingStatus: chargingStations.onboardingStatus,
           lastHeartbeat: chargingStations.lastHeartbeat,
           isOnline: chargingStations.isOnline,
@@ -924,6 +995,7 @@ export function stationRoutes(app: FastifyInstance): void {
           createdAt: chargingStations.createdAt,
           updatedAt: chargingStations.updatedAt,
           status: derivedStatus,
+          statusReason: buildStatusReasonSubquery(chargingStations.id),
           siteHoursOfOperation: sites.hoursOfOperation,
           siteFreeVendEnabled: sql<boolean>`coalesce(${sites.freeVendEnabled}, false)`,
           underMaintenance: buildUnderMaintenanceSubquery(
@@ -1249,7 +1321,7 @@ export function stationRoutes(app: FastifyInstance): void {
           return;
         }
       }
-      const { password, securityProfile, ...body } = request.body as z.infer<
+      const { password, securityProfile, availability, ...body } = request.body as z.infer<
         typeof updateStationBody
       >;
       // Check access to the new siteId if being reassigned
@@ -1288,6 +1360,39 @@ export function stationRoutes(app: FastifyInstance): void {
         .from(chargingStations)
         .where(eq(chargingStations.id, id));
 
+      // Enable/disable goes through the station status entry point, which
+      // stores the operator's choice and recomputes availability, before the
+      // station is told (so the state is right even if the command is lost).
+      let availabilityChanged = false;
+      let disableStateChanged = false;
+      if (availability != null && beforeStation != null) {
+        const change = await setStationDisabled(
+          client,
+          id,
+          availability === 'unavailable' ? 'operator' : null,
+        );
+        availabilityChanged = change.availabilityChanged;
+        const [afterInputs] = await db
+          .select({
+            disabledReason: chargingStations.disabledReason,
+            firmwareState: chargingStations.firmwareState,
+          })
+          .from(chargingStations)
+          .where(eq(chargingStations.id, id));
+        // The audit follows the operator's choice (and the firmware state an
+        // enable clears), not the computed availability, which can stay the
+        // same when a connector fault or a station-reported state wins.
+        disableStateChanged =
+          afterInputs != null &&
+          (afterInputs.disabledReason !== beforeStation.disabledReason ||
+            afterInputs.firmwareState !== beforeStation.firmwareState);
+        void sendAvailabilityCommand(
+          beforeStation.stationId,
+          availability === 'unavailable' ? 'Inoperative' : 'Operative',
+          request.log,
+        );
+      }
+
       // Run the chargingStations UPDATE and any css_stations sync atomically so
       // a failure in pairing rolls the parent update back instead of leaving
       // the two tables out of sync.
@@ -1305,6 +1410,8 @@ export function stationRoutes(app: FastifyInstance): void {
             serialNumber: chargingStations.serialNumber,
             firmwareVersion: chargingStations.firmwareVersion,
             availability: chargingStations.availability,
+            disabledReason: chargingStations.disabledReason,
+            firmwareState: chargingStations.firmwareState,
             onboardingStatus: chargingStations.onboardingStatus,
             isOnline: chargingStations.isOnline,
             isSimulator: chargingStations.isSimulator,
@@ -1349,11 +1456,7 @@ export function stationRoutes(app: FastifyInstance): void {
       const actor = getAuditActor(request);
       // Determine the most specific action verb
       let action: string = 'updated';
-      if (
-        beforeStation != null &&
-        body.availability != null &&
-        body.availability !== beforeStation.availability
-      ) {
+      if (disableStateChanged) {
         action = 'availability_changed';
       } else if (
         beforeStation != null &&
@@ -1375,6 +1478,10 @@ export function stationRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+
+      if (availabilityChanged || disableStateChanged) {
+        await publishStationStatusChanged({ id, siteId: station.siteId }, request.log);
+      }
 
       return station;
     },
@@ -1586,6 +1693,7 @@ export function stationRoutes(app: FastifyInstance): void {
         body: zodSchema(createEvseBody),
         response: {
           201: itemResponse(evseResponse),
+          400: errorWith('Invalid connector numbering', [ERROR_CODES.CONNECTOR_ID_MISMATCH]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
           409: errorWith('Duplicate evse id', [ERROR_CODES.DUPLICATE_EVSE_ID]),
           500: errorWith('Internal error', [ERROR_CODES.INTERNAL_ERROR]),
@@ -1604,11 +1712,24 @@ export function stationRoutes(app: FastifyInstance): void {
 
       // Verify station exists
       const [station] = await db
-        .select({ id: chargingStations.id })
+        .select({ id: chargingStations.id, ocppProtocol: chargingStations.ocppProtocol })
         .from(chargingStations)
         .where(eq(chargingStations.id, id));
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
+
+      // OCPP 1.6 has no EVSEs: connector N is stored as EVSE N / connector N,
+      // which is how the station's StatusNotification for connector N lands.
+      if (
+        station.ocppProtocol === 'ocpp1.6' &&
+        (body.connectors.length !== 1 || body.connectors[0]?.connectorId !== body.evseId)
+      ) {
+        await reply.status(400).send({
+          error: 'An OCPP 1.6 EVSE has exactly one connector with the same number as the EVSE',
+          code: 'CONNECTOR_ID_MISMATCH',
+        });
         return;
       }
 
@@ -2076,6 +2197,7 @@ export function stationRoutes(app: FastifyInstance): void {
         body: zodSchema(addConnectorBody),
         response: {
           201: itemResponse(connectorResponse),
+          400: errorWith('Invalid connector numbering', [ERROR_CODES.CONNECTOR_ID_MISMATCH]),
           404: errorWith('Resource not found', [
             ERROR_CODES.EVSE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
@@ -2096,11 +2218,21 @@ export function stationRoutes(app: FastifyInstance): void {
 
       // Look up EVSE
       const [evse] = await db
-        .select({ id: evses.id })
+        .select({ id: evses.id, ocppProtocol: chargingStations.ocppProtocol })
         .from(evses)
+        .innerJoin(chargingStations, eq(chargingStations.id, evses.stationId))
         .where(and(eq(evses.stationId, id), eq(evses.evseId, ocppEvseId)));
       if (evse == null) {
         await reply.status(404).send({ error: 'EVSE not found', code: 'EVSE_NOT_FOUND' });
+        return;
+      }
+
+      // A 1.6 EVSE holds only connector N (its own number).
+      if (evse.ocppProtocol === 'ocpp1.6' && body.connectorId !== ocppEvseId) {
+        await reply.status(400).send({
+          error: 'An OCPP 1.6 EVSE has exactly one connector with the same number as the EVSE',
+          code: 'CONNECTOR_ID_MISMATCH',
+        });
         return;
       }
 

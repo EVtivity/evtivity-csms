@@ -815,6 +815,7 @@ export function reservationRoutes(app: FastifyInstance): void {
             ERROR_CODES.EVSE_IN_USE,
             ERROR_CODES.RESERVATION_CONFLICT,
             ERROR_CODES.RESERVATION_DURING_MAINTENANCE,
+            ERROR_CODES.STATION_UNAVAILABLE,
           ]),
           500: errorWith('Reservation create failed', [ERROR_CODES.RESERVATION_CREATE_FAILED]),
           502: errorWith('Station rejected the command', [ERROR_CODES.RESERVATION_REJECTED]),
@@ -834,6 +835,9 @@ export function reservationRoutes(app: FastifyInstance): void {
           siteId: chargingStations.siteId,
           isOnline: chargingStations.isOnline,
           reservationsEnabled: chargingStations.reservationsEnabled,
+          disabledReason: chargingStations.disabledReason,
+          firmwareState: chargingStations.firmwareState,
+          reportedStatus: chargingStations.reportedStatus,
         })
         .from(chargingStations)
         .where(eq(chargingStations.stationId, body.stationId));
@@ -1759,7 +1763,10 @@ export function reservationRoutes(app: FastifyInstance): void {
             ERROR_CODES.EVSE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
           ]),
-          409: errorWith('Conflict', [ERROR_CODES.RESERVATION_DURING_MAINTENANCE]),
+          409: errorWith('Conflict', [
+            ERROR_CODES.RESERVATION_DURING_MAINTENANCE,
+            ERROR_CODES.STATION_UNAVAILABLE,
+          ]),
         },
       },
     },
@@ -1823,6 +1830,9 @@ export function reservationRoutes(app: FastifyInstance): void {
           siteId: chargingStations.siteId,
           isOnline: chargingStations.isOnline,
           reservationsEnabled: chargingStations.reservationsEnabled,
+          disabledReason: chargingStations.disabledReason,
+          firmwareState: chargingStations.firmwareState,
+          reportedStatus: chargingStations.reportedStatus,
         })
         .from(chargingStations)
         .where(eq(chargingStations.stationId, newStationOcppId));

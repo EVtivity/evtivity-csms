@@ -65,7 +65,12 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  isStationLevelUnavailable: (
+    await vi.importActual<typeof import('../../../database/src/lib/station-status.js')>(
+      '../../../database/src/lib/station-status.js',
+    )
+  ).isStationLevelUnavailable,
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -907,6 +912,31 @@ describe('Reservation routes', () => {
         });
         expect(res.statusCode).toBe(403);
         expect(res.json().code).toBe('RESERVATION_DISABLED');
+      });
+
+      it.each([
+        { disabledReason: 'operator', firmwareState: null, reportedStatus: null },
+        { disabledReason: null, firmwareState: 'installing', reportedStatus: null },
+        { disabledReason: null, firmwareState: null, reportedStatus: 'faulted' },
+      ])('returns 409 STATION_UNAVAILABLE for a station-level state %o', async (state) => {
+        setupDbResults([
+          {
+            id: VALID_STATION_ID,
+            isOnline: true,
+            reservationsEnabled: true,
+            siteId: null,
+            ...state,
+          },
+        ]);
+
+        const res = await app.inject({
+          method: 'POST',
+          url: '/reservations',
+          payload: validBody,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(res.statusCode).toBe(409);
+        expect(res.json().code).toBe('STATION_UNAVAILABLE');
       });
 
       it('allows reservation when all toggles are enabled', async () => {

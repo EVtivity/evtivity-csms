@@ -56,6 +56,10 @@ import {
   errorWith,
   errorResponse,
 } from '../lib/response-schemas.js';
+import {
+  buildDerivedStatusSubquery,
+  buildStatusReasonSubquery,
+} from '../lib/station-derived-status.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import {
   exportSitesCsv,
@@ -417,7 +421,13 @@ const siteStationItem = z
     status: z
       .string()
       .describe(
-        'Derived station status from connector states (charging, reserved, faulted, available, unavailable, unknown)',
+        'Station status: a disable, firmware, or station-reported state first, else the connector summary (charging, reserved, faulted, available, unavailable, unknown)',
+      ),
+    statusReason: z
+      .string()
+      .nullable()
+      .describe(
+        'Why the station is not available (operator_disabled, security_disabled, firmware_failed, station_faulted, connector_faulted, firmware_installing, station_unavailable), null when it is',
       ),
     connectorCount: z.number().describe('Number of connectors installed on this station'),
     connectorTypes: z
@@ -538,7 +548,18 @@ const layoutStation = z
     id: z.string().describe('Internal station identifier (UUID)'),
     stationId: z.string().describe('OCPP station identifier'),
     model: z.string().nullable().describe('Hardware model name'),
-    status: z.string().nullable().describe('Station availability state'),
+    status: z
+      .string()
+      .nullable()
+      .describe(
+        'Station status: a disable, firmware, or station-reported state first, else the connector summary (charging, reserved, faulted, available, unavailable, unknown)',
+      ),
+    statusReason: z
+      .string()
+      .nullable()
+      .describe(
+        'Why the station is not available (operator_disabled, security_disabled, firmware_failed, station_faulted, connector_faulted, firmware_installing, station_unavailable), null when it is',
+      ),
     isOnline: z.boolean().describe('Whether the station is currently connected to the CSMS'),
     securityProfile: z.number().describe('OCPP security profile level (0-3)'),
     positionX: z.number().describe('X coordinate on the site layout canvas'),
@@ -753,7 +774,13 @@ export function siteRoutes(app: FastifyInstance): void {
       const { rows, updateExisting } = request.body as z.infer<typeof importSiteBody>;
       const { userId } = request.user as { userId: string };
       const allowedSiteIds = await getUserSiteIds(userId);
-      return importSitesCsv(rows, updateExisting, getAuditActor(request), allowedSiteIds);
+      return importSitesCsv(
+        rows,
+        updateExisting,
+        getAuditActor(request),
+        allowedSiteIds,
+        request.log,
+      );
     },
   );
 
@@ -1223,14 +1250,6 @@ export function siteRoutes(app: FastifyInstance): void {
       }
 
       const where = eq(chargingStations.siteId, id);
-      const derivedStatus = sql<string>`CASE
-        WHEN COUNT(${connectors.id}) FILTER (WHERE ${connectors.status} = 'occupied') > 0 THEN 'charging'
-        WHEN COUNT(${connectors.id}) FILTER (WHERE ${connectors.status} = 'reserved') > 0 THEN 'reserved'
-        WHEN COUNT(${connectors.id}) FILTER (WHERE ${connectors.status} = 'faulted') > 0 THEN 'faulted'
-        WHEN COUNT(${connectors.id}) = 0 THEN 'unknown'
-        WHEN COUNT(${connectors.id}) FILTER (WHERE ${connectors.status} = 'available') = COUNT(${connectors.id}) THEN 'available'
-        ELSE 'unavailable'
-      END`;
       const [data, countRows] = await Promise.all([
         db
           .select({
@@ -1245,7 +1264,8 @@ export function siteRoutes(app: FastifyInstance): void {
             isOnline: chargingStations.isOnline,
             createdAt: chargingStations.createdAt,
             updatedAt: chargingStations.updatedAt,
-            status: derivedStatus,
+            status: buildDerivedStatusSubquery(chargingStations.id),
+            statusReason: buildStatusReasonSubquery(chargingStations.id),
             connectorCount: sql<number>`COUNT(${connectors.id})::int`,
             connectorTypes: sql<
               string[]
@@ -1704,7 +1724,8 @@ export function siteRoutes(app: FastifyInstance): void {
           id: chargingStations.id,
           stationId: chargingStations.stationId,
           model: chargingStations.model,
-          availability: chargingStations.availability,
+          status: buildDerivedStatusSubquery(chargingStations.id),
+          statusReason: buildStatusReasonSubquery(chargingStations.id),
           isOnline: chargingStations.isOnline,
           securityProfile: chargingStations.securityProfile,
           positionX: stationLayoutPositions.positionX,
@@ -1805,7 +1826,8 @@ export function siteRoutes(app: FastifyInstance): void {
           id: station.id,
           stationId: station.stationId,
           model: station.model,
-          status: station.availability,
+          status: station.status,
+          statusReason: station.statusReason,
           isOnline: station.isOnline,
           securityProfile: station.securityProfile,
           positionX: Number(station.positionX ?? '0'),

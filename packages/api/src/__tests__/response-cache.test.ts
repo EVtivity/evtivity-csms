@@ -107,7 +107,7 @@ describe('extractWriteResource', () => {
 
 describe('tagsForWrite', () => {
   it('adds cross-resource tags', () => {
-    expect(tagsForWrite('stations')).toEqual(['stations', 'dashboard']);
+    expect(tagsForWrite('stations')).toEqual(['stations', 'dashboard', 'portal']);
     expect(tagsForWrite('pricing-holidays')).toEqual(['pricing-holidays', 'pricing']);
   });
 

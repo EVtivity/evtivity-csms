@@ -50,6 +50,7 @@ interface ChargerInfo {
     reservationExpiresAt: string | null;
   };
   maintenance: { active: boolean; plannedEndAt: string | null; message: string | null } | null;
+  stationUnavailable: boolean;
 }
 
 export function ChargerLanding(): React.JSX.Element {
@@ -177,7 +178,10 @@ export function ChargerLanding(): React.JSX.Element {
   // the reservation-holder case; guests must always be blocked.
   const isReserved = charger.evse.reservationExpiresAt != null;
   const isAvailable =
-    charger.maintenance?.active !== true && isStartable(connectorStatus) && !isReserved;
+    charger.maintenance?.active !== true &&
+    !charger.stationUnavailable &&
+    isStartable(connectorStatus) &&
+    !isReserved;
   const maxPower = charger.evse.connectors.reduce((max, c) => Math.max(max, c.maxPowerKw ?? 0), 0);
   const maxCurrent = charger.evse.connectors.reduce(
     (max, c) => Math.max(max, c.maxCurrentAmps ?? 0),
@@ -207,6 +211,11 @@ export function ChargerLanding(): React.JSX.Element {
           )}
         </CardHeader>
         <CardContent className="space-y-4">
+          {charger.stationUnavailable && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-left">
+              <p className="text-sm">{t('errors.STATION_UNAVAILABLE')}</p>
+            </div>
+          )}
           {charger.maintenance?.active === true && (
             <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-left">
               <p className="font-semibold text-sm">{t('charger.maintenanceTitle')}</p>

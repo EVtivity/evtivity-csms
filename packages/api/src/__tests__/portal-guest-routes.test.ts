@@ -49,7 +49,12 @@ function makeChain() {
   return chain;
 }
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  isStationLevelUnavailable: (
+    await vi.importActual<typeof import('../../../database/src/lib/station-status.js')>(
+      '../../../database/src/lib/station-status.js',
+    )
+  ).isStationLevelUnavailable,
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),

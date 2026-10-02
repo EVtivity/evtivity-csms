@@ -12,6 +12,7 @@ import {
   ocpiLocationPublish,
   ocpiLocationPublishPartners,
   maintenanceEvents,
+  isStationLevelUnavailable,
 } from '@evtivity/database';
 import { inArray } from 'drizzle-orm';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
@@ -24,6 +25,7 @@ import {
 } from '../../transformers/location.transformer.js';
 import { config } from '../../lib/config.js';
 import { isLocationVisibleToPartner } from '../../lib/location-visibility.js';
+import { findEvseByUid } from '../../lib/evse-lookup.js';
 import type { OcpiVersion } from '../../types/ocpi.js';
 
 function getCountryCode(): string {
@@ -37,8 +39,10 @@ function getPartyId(): string {
 interface EvseRow {
   id: string;
   stationId: string;
+  stationOcppId: string;
   evseId: number;
   updatedAt: Date;
+  stationLevelUnavailable: boolean;
 }
 
 interface ConnectorRow {
@@ -140,8 +144,18 @@ async function getEvsesWithConnectors(
   if (stationIds.length === 0) return new Map();
 
   const evseRows = await db
-    .select()
+    .select({
+      id: evses.id,
+      stationId: evses.stationId,
+      stationOcppId: chargingStations.stationId,
+      evseId: evses.evseId,
+      updatedAt: evses.updatedAt,
+      disabledReason: chargingStations.disabledReason,
+      firmwareState: chargingStations.firmwareState,
+      reportedStatus: chargingStations.reportedStatus,
+    })
     .from(evses)
+    .innerJoin(chargingStations, eq(chargingStations.id, evses.stationId))
     .where(sql`${evses.stationId} IN ${stationIds}`);
 
   const evseIds = evseRows.map((e) => e.id);
@@ -175,8 +189,10 @@ async function getEvsesWithConnectors(
     list.push({
       id: e.id,
       stationId: stId,
+      stationOcppId: e.stationOcppId,
       evseId: e.evseId,
       updatedAt: e.updatedAt,
+      stationLevelUnavailable: isStationLevelUnavailable(e),
       connectors: connectorsByEvse.get(e.id) ?? [],
     });
     result.set(stId, list);
@@ -224,6 +240,22 @@ async function findSiteMaintenanceCoverage(
     result.set(r.siteId, existing);
   }
   return result;
+}
+
+// Resolve a partner-supplied location_id (custom OCPI location id or site id)
+// to a published site id. Null when nothing published matches.
+async function resolvePublishedSiteId(locationId: string): Promise<string | null> {
+  const [publishRow] = await db
+    .select({ siteId: ocpiLocationPublish.siteId })
+    .from(ocpiLocationPublish)
+    .where(
+      and(
+        eq(ocpiLocationPublish.isPublished, true),
+        sql`(${ocpiLocationPublish.ocpiLocationId} = ${locationId} OR ${ocpiLocationPublish.siteId} = ${locationId})`,
+      ),
+    )
+    .limit(1);
+  return publishRow?.siteId ?? null;
 }
 
 function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): void {
@@ -325,18 +357,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
     }
 
     // Find site by OCPI location ID or direct site ID
-    const publishRow = await db
-      .select({ siteId: ocpiLocationPublish.siteId })
-      .from(ocpiLocationPublish)
-      .where(
-        and(
-          eq(ocpiLocationPublish.isPublished, true),
-          sql`(${ocpiLocationPublish.ocpiLocationId} = ${location_id} OR ${ocpiLocationPublish.siteId} = ${location_id})`,
-        ),
-      )
-      .limit(1);
-
-    const siteId = publishRow[0]?.siteId;
+    const siteId = await resolvePublishedSiteId(location_id);
     if (siteId == null) {
       await reply
         .status(404)
@@ -392,7 +413,10 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
     `${prefix}/:location_id/:evse_uid`,
     { onRequest: [ocpiAuthenticate] },
     async (request, reply) => {
-      const { evse_uid } = request.params as { location_id: string; evse_uid: string };
+      const { location_id, evse_uid } = request.params as {
+        location_id: string;
+        evse_uid: string;
+      };
 
       const partner = request.ocpiPartner;
       if (partner?.partnerId == null) {
@@ -400,53 +424,27 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
         return;
       }
 
-      // Parse evse_uid format: {siteId}-{evseId}
-      const dashIdx = evse_uid.lastIndexOf('-');
-      if (dashIdx === -1) {
+      // The EVSE must belong to the requested location.
+      const siteId = await resolvePublishedSiteId(location_id);
+      const found = siteId != null ? await findEvseByUid(evse_uid) : null;
+      if (
+        siteId == null ||
+        found?.siteId !== siteId ||
+        !(await isLocationVisibleToPartner(partner.partnerId, siteId))
+      ) {
         await reply
           .status(404)
           .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_LOCATION, 'EVSE not found'));
         return;
       }
-
-      const siteIdPart = evse_uid.slice(0, dashIdx);
-      const evseIdNum = parseInt(evse_uid.slice(dashIdx + 1), 10);
-
-      if (!(await isLocationVisibleToPartner(partner.partnerId, siteIdPart))) {
-        await reply
-          .status(404)
-          .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_LOCATION, 'EVSE not found'));
-        return;
-      }
-
-      // Find station at this site
-      const stationRows = await db
-        .select({ id: chargingStations.id })
-        .from(chargingStations)
-        .where(eq(chargingStations.siteId, siteIdPart));
-
-      if (stationRows.length === 0) {
-        await reply
-          .status(404)
-          .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_LOCATION, 'EVSE not found'));
-        return;
-      }
-
-      const stationIds = stationRows.map((s) => s.id);
-
-      const evseRows = await db
-        .select()
-        .from(evses)
-        .where(and(sql`${evses.stationId} IN ${stationIds}`, eq(evses.evseId, evseIdNum)))
-        .limit(1);
-
-      const evseRow = evseRows[0];
-      if (evseRow == null) {
-        await reply
-          .status(404)
-          .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_LOCATION, 'EVSE not found'));
-        return;
-      }
+      const evseRow = {
+        id: found.evseDbId,
+        stationId: found.stationDbId,
+        stationOcppId: found.stationOcppId,
+        evseId: found.evseNumber,
+        updatedAt: found.updatedAt,
+        stationLevelUnavailable: isStationLevelUnavailable(found.stationState),
+      };
 
       const connectorRows = await db
         .select()
@@ -466,7 +464,16 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
         })),
       };
 
-      const ocpiEvse = transformEvseStandalone(evseWithConnectors, siteIdPart, version);
+      const coverage = (await findSiteMaintenanceCoverage([siteId])).get(siteId);
+      const underMaintenance =
+        coverage != null &&
+        (coverage.allAffected || coverage.affectedStationIds.has(found.stationDbId));
+      const ocpiEvse = transformEvseStandalone(
+        evseWithConnectors,
+        version,
+        undefined,
+        underMaintenance,
+      );
       return ocpiSuccess(ocpiEvse);
     },
   );
@@ -476,7 +483,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
     `${prefix}/:location_id/:evse_uid/:connector_id`,
     { onRequest: [ocpiAuthenticate] },
     async (request, reply) => {
-      const { evse_uid, connector_id } = request.params as {
+      const { location_id, evse_uid, connector_id } = request.params as {
         location_id: string;
         evse_uid: string;
         connector_id: string;
@@ -488,46 +495,15 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
         return;
       }
 
-      const dashIdx = evse_uid.lastIndexOf('-');
-      if (dashIdx === -1) {
-        await reply
-          .status(404)
-          .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_LOCATION, 'Connector not found'));
-        return;
-      }
-
-      const siteIdPart = evse_uid.slice(0, dashIdx);
-      const evseIdNum = parseInt(evse_uid.slice(dashIdx + 1), 10);
       const connectorIdNum = parseInt(connector_id, 10);
-
-      if (!(await isLocationVisibleToPartner(partner.partnerId, siteIdPart))) {
-        await reply
-          .status(404)
-          .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_LOCATION, 'Connector not found'));
-        return;
-      }
-
-      const stationRows = await db
-        .select({ id: chargingStations.id })
-        .from(chargingStations)
-        .where(eq(chargingStations.siteId, siteIdPart));
-
-      if (stationRows.length === 0) {
-        await reply
-          .status(404)
-          .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_LOCATION, 'Connector not found'));
-        return;
-      }
-
-      const stationIds = stationRows.map((s) => s.id);
-
-      const evseRows = await db
-        .select({ id: evses.id })
-        .from(evses)
-        .where(and(sql`${evses.stationId} IN ${stationIds}`, eq(evses.evseId, evseIdNum)))
-        .limit(1);
-
-      if (evseRows[0] == null) {
+      // The EVSE must belong to the requested location.
+      const siteId = await resolvePublishedSiteId(location_id);
+      const found = siteId != null ? await findEvseByUid(evse_uid) : null;
+      if (
+        siteId == null ||
+        found?.siteId !== siteId ||
+        !(await isLocationVisibleToPartner(partner.partnerId, siteId))
+      ) {
         await reply
           .status(404)
           .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_LOCATION, 'Connector not found'));
@@ -538,7 +514,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
         .select()
         .from(connectors)
         .where(
-          and(eq(connectors.evseId, evseRows[0].id), eq(connectors.connectorId, connectorIdNum)),
+          and(eq(connectors.evseId, found.evseDbId), eq(connectors.connectorId, connectorIdNum)),
         )
         .limit(1);
 

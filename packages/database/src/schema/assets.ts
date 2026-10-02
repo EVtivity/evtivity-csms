@@ -14,6 +14,7 @@ import {
   jsonb,
   index,
   unique,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { createId } from '../lib/id.js';
 
@@ -22,6 +23,16 @@ export const chargingStationStatusEnum = pgEnum('charging_station_status', [
   'unavailable',
   'faulted',
 ]);
+
+// Why a station is switched off: by an operator, or by the critical-security
+// auto-disable. Null means enabled.
+export const stationDisabledReasonEnum = pgEnum('station_disabled_reason', [
+  'operator',
+  'security',
+]);
+
+// Firmware install state that affects availability. Null means none.
+export const stationFirmwareStateEnum = pgEnum('station_firmware_state', ['installing', 'failed']);
 
 export const onboardingStatusEnum = pgEnum('onboarding_status', ['pending', 'accepted', 'blocked']);
 
@@ -97,6 +108,11 @@ export const chargingStations = pgTable(
     iccid: varchar('iccid', { length: 20 }),
     imsi: varchar('imsi', { length: 20 }),
     availability: chargingStationStatusEnum('availability').notNull().default('available'),
+    // The status the station reports for itself as a whole: OCPP 1.6
+    // connector 0, OCPP 2.x NotifyEvent ChargingStation AvailabilityState.
+    reportedStatus: chargingStationStatusEnum('reported_status'),
+    disabledReason: stationDisabledReasonEnum('disabled_reason'),
+    firmwareState: stationFirmwareStateEnum('firmware_state'),
     onboardingStatus: onboardingStatusEnum('onboarding_status').notNull().default('pending'),
     lastHeartbeat: timestamp('last_heartbeat', { withTimezone: true }),
     isOnline: boolean('is_online').notNull().default(false),
@@ -138,7 +154,10 @@ export const evses = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index('idx_evses_station_id').on(table.stationId)],
+  (table) => [
+    index('idx_evses_station_id').on(table.stationId),
+    uniqueIndex('uq_evses_station_evse').on(table.stationId, table.evseId),
+  ],
 );
 
 export const connectors = pgTable(
@@ -162,6 +181,7 @@ export const connectors = pgTable(
   (table) => [
     index('idx_connectors_evse_id').on(table.evseId),
     index('idx_connectors_evse_status').on(table.evseId, table.status),
+    uniqueIndex('uq_connectors_evse_connector').on(table.evseId, table.connectorId),
   ],
 );
 

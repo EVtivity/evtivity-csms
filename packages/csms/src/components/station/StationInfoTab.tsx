@@ -44,6 +44,7 @@ interface Station {
   availability: string;
   onboardingStatus: string;
   status: string;
+  statusReason?: string | null | undefined;
   isOnline: boolean;
   isSimulator: boolean;
   lastHeartbeat: string | null;
@@ -316,7 +317,15 @@ export function StationInfoTab({
               </div>
               <div>
                 <dt className="text-muted-foreground">{t('common.status')}</dt>
-                <dd className="font-medium">{t(`status.${station.status}`, station.status)}</dd>
+                <dd className="font-medium">
+                  {t(`status.${station.status}`, station.status)}
+                  {station.statusReason != null &&
+                    (station.status === 'unavailable' || station.status === 'faulted') && (
+                      <span className="block text-sm font-normal text-muted-foreground">
+                        {t(`stations.statusReason.${station.statusReason}`, station.statusReason)}
+                      </span>
+                    )}
+                </dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">{t('stations.vendor')}</dt>

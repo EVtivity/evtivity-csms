@@ -181,11 +181,17 @@ export {
 } from './css-connector-types.js';
 export type { CssConnectorType } from './css-connector-types.js';
 
-export { buildCssConfigDefaults } from './css-config-defaults.js';
+export {
+  buildCssConfigDefaults,
+  CSS_STATUS_REPORTING_KEY,
+  CSS_STATUS_REPORTING_VALUES,
+  CSS_STATUS_REPORTING_DEFAULT,
+} from './css-config-defaults.js';
 export type {
   CssConfigDefaultsInput,
   CssConfigDefaultsEvse,
   CssConfigDefault,
+  CssStatusReporting,
 } from './css-config-defaults.js';
 
 export {

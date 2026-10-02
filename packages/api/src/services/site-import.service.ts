@@ -1,8 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import type { FastifyBaseLogger } from 'fastify';
 import { eq, or, ilike, and, asc, inArray, sql } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, client, recomputeStationAvailability, setStationDisabled } from '@evtivity/database';
 import { siteNameEq } from '../lib/site-lookup.js';
 import {
   sites,
@@ -12,8 +13,11 @@ import {
   vendors,
   writeAudit,
   siteAuditLog,
+  stationAuditLog,
 } from '@evtivity/database';
 import { csvEscape } from '@evtivity/lib';
+import { sendAvailabilityCommand } from '../lib/availability-command.js';
+import { publishStationStatusChanged } from '../lib/station-status-events.js';
 
 interface ImportActor {
   actor: 'operator' | 'driver' | 'api_key' | 'system' | 'ocpp';
@@ -85,7 +89,14 @@ export async function exportSitesCsv(search?: string, siteIds?: string[]): Promi
       stationId: chargingStations.stationId,
       stationModel: chargingStations.model,
       stationSerialNumber: chargingStations.serialNumber,
-      stationStatus: chargingStations.availability,
+      // The operator's choice, not the computed availability: a firmware,
+      // station-reported, or connector state must not come back as an
+      // operator disable when the file is imported again.
+      stationStatus: sql<string | null>`CASE
+        WHEN ${chargingStations.id} IS NULL THEN NULL
+        WHEN ${chargingStations.disabledReason} = 'operator' THEN 'unavailable'
+        ELSE 'available'
+      END`,
       onboardingStatus: chargingStations.onboardingStatus,
       evseId: evses.evseId,
       connectorId: connectors.connectorId,
@@ -138,6 +149,7 @@ export async function importSitesCsv(
   // null means full site access (admin). An array restricts the import to
   // updating sites already in the list; new-site creation is rejected per-row.
   allowedSiteIds?: string[] | null,
+  logger?: FastifyBaseLogger,
 ): Promise<ImportResult> {
   const result: ImportResult = {
     sitesCreated: 0,
@@ -189,9 +201,11 @@ export async function importSitesCsv(
     siteGroups.set(key, group);
   }
 
+  const stationUuidByStationId = new Map<string, string>();
+  // stationStatus per written station: true disables it, false enables it.
+  const operatorDisableByUuid = new Map<string, boolean>();
   await db.transaction(async (tx) => {
     const siteIdByName = new Map<string, string>();
-    const stationUuidByStationId = new Map<string, string>();
     const evseUuidByKey = new Map<string, string>();
     const vendorIdByName = new Map<string, string>();
 
@@ -317,7 +331,6 @@ export async function importSitesCsv(
           model?: string;
           serialNumber?: string;
           vendorId?: string;
-          availability?: 'available' | 'unavailable' | 'faulted';
         } = {
           stationId,
           siteId,
@@ -332,9 +345,7 @@ export async function importSitesCsv(
         if (vendorId) {
           stationValues.vendorId = vendorId;
         }
-        if (firstStationRow.row.stationStatus != null) {
-          stationValues.availability = firstStationRow.row.stationStatus;
-        }
+        const requestedStatus = firstStationRow.row.stationStatus;
 
         if (updateExisting) {
           const [station] = await tx
@@ -351,6 +362,9 @@ export async function importSitesCsv(
             });
           if (station != null) {
             stationUuidByStationId.set(stationId, station.id);
+            if (requestedStatus != null) {
+              operatorDisableByUuid.set(station.id, requestedStatus === 'unavailable');
+            }
             if (station.createdAt.getTime() === station.updatedAt.getTime()) {
               result.stationsCreated++;
             } else {
@@ -372,6 +386,9 @@ export async function importSitesCsv(
               .returning({ id: chargingStations.id });
             if (station != null) {
               stationUuidByStationId.set(stationId, station.id);
+              if (requestedStatus != null) {
+                operatorDisableByUuid.set(station.id, requestedStatus === 'unavailable');
+              }
               result.stationsCreated++;
             }
           }
@@ -519,5 +536,79 @@ export async function importSitesCsv(
     }
   });
 
+  await applyImportedAvailability(
+    [...stationUuidByStationId.values()],
+    operatorDisableByUuid,
+    actor,
+    logger,
+  );
+
   return result;
+}
+
+// After the import commits: apply each station's stationStatus through the
+// station status entry point, tell online stations, and publish the change.
+// `unavailable` is an operator disable and `available` (or `faulted`, which is
+// computed) removes it. A security disable is never changed here, and a
+// station whose disable already matches is left alone, so an exported file
+// imports without side effects. Other stations get a recompute for their new
+// connectors.
+async function applyImportedAvailability(
+  stationUuids: string[],
+  operatorDisableByUuid: Map<string, boolean>,
+  actor: ImportActor | undefined,
+  logger: FastifyBaseLogger | undefined,
+): Promise<void> {
+  if (stationUuids.length === 0) return;
+  const current = await db
+    .select({
+      id: chargingStations.id,
+      stationId: chargingStations.stationId,
+      siteId: chargingStations.siteId,
+      isOnline: chargingStations.isOnline,
+      disabledReason: chargingStations.disabledReason,
+    })
+    .from(chargingStations)
+    .where(inArray(chargingStations.id, stationUuids));
+
+  for (const station of current) {
+    const wantDisabled = operatorDisableByUuid.get(station.id);
+    const disableChanges =
+      wantDisabled != null &&
+      station.disabledReason !== 'security' &&
+      wantDisabled !== (station.disabledReason === 'operator');
+
+    if (!disableChanges) {
+      const { availabilityChanged } = await recomputeStationAvailability(client, station.id);
+      if (availabilityChanged) await publishStationStatusChanged(station, logger);
+      continue;
+    }
+
+    const nextReason = wantDisabled ? 'operator' : null;
+    await setStationDisabled(client, station.id, nextReason);
+    if (station.isOnline) {
+      void sendAvailabilityCommand(
+        station.stationId,
+        wantDisabled ? 'Inoperative' : 'Operative',
+        logger,
+      );
+    }
+    if (actor != null) {
+      await writeAudit(
+        { table: stationAuditLog, idColumn: 'station_id' },
+        {
+          entityId: station.id,
+          entityIdSnapshot: station.id,
+          action: 'availability_changed',
+          ...actor,
+          before: { disabledReason: station.disabledReason },
+          after: { disabledReason: nextReason },
+          notes: 'CSV import',
+        },
+        db,
+        logger,
+      );
+    }
+    await publishStationStatusChanged(station, logger);
+  }
 }

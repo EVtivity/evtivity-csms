@@ -86,7 +86,18 @@ const fleetStationItem = z
       .enum(['ocpp1.6', 'ocpp2.1'])
       .nullable()
       .describe('OCPP protocol version negotiated with the station'),
-    status: z.string().max(50).describe('Station availability status'),
+    status: z
+      .string()
+      .max(50)
+      .describe(
+        'Station status: a disable, firmware, or station-reported state first, else the connector summary (charging, reserved, faulted, available, unavailable, unknown)',
+      ),
+    statusReason: z
+      .string()
+      .nullable()
+      .describe(
+        'Why the station is not available (operator_disabled, security_disabled, firmware_failed, station_faulted, connector_faulted, firmware_installing, station_unavailable), null when it is',
+      ),
     connectorCount: z.number().int().min(0).describe('Total number of connectors on the station'),
     connectorTypes: z
       .array(z.string().max(50))

@@ -45,6 +45,7 @@ interface StationInfo {
   siteState: string | null;
   evses: EvseItem[];
   maintenance: { active: boolean; plannedEndAt: string | null; message: string | null } | null;
+  stationUnavailable: boolean;
 }
 
 export function ChargerStationLanding(): React.JSX.Element {
@@ -135,6 +136,12 @@ export function ChargerStationLanding(): React.JSX.Element {
             </div>
           ) : null}
 
+          {station.stationUnavailable && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
+              <p className="text-sm">{t('errors.STATION_UNAVAILABLE')}</p>
+            </div>
+          )}
+
           {station.maintenance?.active === true && (
             <div className="rounded-md border border-warning/40 bg-warning/10 p-3">
               <p className="font-semibold text-sm">{t('charger.maintenanceTitle')}</p>
@@ -169,6 +176,7 @@ export function ChargerStationLanding(): React.JSX.Element {
                   const isReserved = evse.reservationExpiresAt != null;
                   const isAvailable =
                     !maintenanceBlocks &&
+                    !station.stationUnavailable &&
                     !isReserved &&
                     isStartable(connectorStatus) &&
                     station.isOnline;

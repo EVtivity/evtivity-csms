@@ -94,6 +94,14 @@ vi.mock('drizzle-orm', () => ({
   between: vi.fn(),
 }));
 
+const { mockDerivedStatus } = vi.hoisted(() => ({
+  mockDerivedStatus: vi.fn(() => ({ __derivedStatus: true })),
+}));
+
+vi.mock('../lib/station-derived-status.js', () => ({
+  buildDerivedStatusSubquery: mockDerivedStatus,
+}));
+
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn().mockResolvedValue(null),
   invalidateSiteAccessCache: vi.fn(),
@@ -182,7 +190,7 @@ describe('Dashboard routes', () => {
   it('GET /v1/dashboard/stats returns station and session statistics', async () => {
     // First query: station rows grouped by availability and isOnline
     // Second query: session stats
-    // Third query: count of stations with a faulted connector (drives faultedStations)
+    // Third query: stations whose display status is faulted (drives faultedStations)
     setupDbResults(
       [
         { status: 'available', isOnline: true, count: 5 },
@@ -204,6 +212,8 @@ describe('Dashboard routes', () => {
     expect(body).toHaveProperty('totalSessions', 100);
     expect(body).toHaveProperty('totalEnergyWh', 500000);
     expect(body).toHaveProperty('faultedStations', 1);
+    // The faulted count reads the station list's display status.
+    expect(mockDerivedStatus).toHaveBeenCalled();
     expect(body).toHaveProperty('statusCounts');
     expect(body).toHaveProperty('onlinePercent');
   });

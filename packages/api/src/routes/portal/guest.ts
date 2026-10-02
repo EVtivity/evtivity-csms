@@ -6,7 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, or, asc, sql } from 'drizzle-orm';
 import type Stripe from 'stripe';
-import { db, getCompanyCurrency } from '@evtivity/database';
+import { db, getCompanyCurrency, isStationLevelUnavailable } from '@evtivity/database';
 import {
   chargingStations,
   connectors,
@@ -428,6 +428,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
             ERROR_CODES.EVSE_IN_USE,
             ERROR_CODES.RESERVATION_BUFFER_ACTIVE,
             ERROR_CODES.MAINTENANCE_ACTIVE,
+            ERROR_CODES.STATION_UNAVAILABLE,
           ]),
           502: errorWith('Station rejected', [ERROR_CODES.STATION_REJECTED]),
           504: errorWith('Station did not respond within timeout', [ERROR_CODES.STATION_TIMEOUT]),
@@ -447,7 +448,9 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           siteId: chargingStations.siteId,
           isOnline: chargingStations.isOnline,
           ocppProtocol: chargingStations.ocppProtocol,
-          availability: chargingStations.availability,
+          disabledReason: chargingStations.disabledReason,
+          firmwareState: chargingStations.firmwareState,
+          reportedStatus: chargingStations.reportedStatus,
           onboardingStatus: chargingStations.onboardingStatus,
         })
         .from(chargingStations)
@@ -472,6 +475,13 @@ export function portalGuestRoutes(app: FastifyInstance): void {
 
       if (!station.isOnline) {
         await reply.status(400).send({ error: 'Station is offline', code: 'STATION_OFFLINE' });
+        return;
+      }
+
+      if (isStationLevelUnavailable(station)) {
+        await reply
+          .status(409)
+          .send({ error: 'Station is unavailable', code: 'STATION_UNAVAILABLE' });
         return;
       }
 

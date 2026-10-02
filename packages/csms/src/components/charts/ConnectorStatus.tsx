@@ -7,6 +7,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip } from '@/components/ui/tooltip';
 import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
 import { SaveButton } from '@/components/save-button';
@@ -444,6 +445,9 @@ export function ConnectorStatus({
         <CreateButton
           label={t('stations.addEvse')}
           onClick={() => {
+            if (ocppProtocol === 'ocpp1.6') {
+              setNewEvseConnector((prev) => ({ ...prev, connectorId: newEvseId }));
+            }
             setAddEvseOpen(true);
           }}
         />
@@ -549,12 +553,14 @@ export function ConnectorStatus({
                       href={`${PORTAL_BASE_URL}/charge/${stationOcppId}/${String(evse.evseId)}`}
                       title={t('stations.openGuestCharger')}
                     />
-                    <AddIconButton
-                      onClick={() => {
-                        openAddConnector(evse.evseId);
-                      }}
-                      title={t('stations.addConnector')}
-                    />
+                    {ocppProtocol !== 'ocpp1.6' && (
+                      <AddIconButton
+                        onClick={() => {
+                          openAddConnector(evse.evseId);
+                        }}
+                        title={t('stations.addConnector')}
+                      />
+                    )}
                     <EditIconButton
                       onClick={() => {
                         openEditEvse(evse);
@@ -596,10 +602,16 @@ export function ConnectorStatus({
                           )}
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
-                          {conn.maxPowerKw != null && (
+                          {conn.maxPowerKw != null ? (
                             <span className="text-muted-foreground">
                               {t('charts.powerValue', { value: conn.maxPowerKw })}
                             </span>
+                          ) : (
+                            <Tooltip content={t('stations.maxPowerUnknownHint')}>
+                              <Badge variant="warning" className="text-xs font-normal">
+                                {t('stations.maxPowerUnknown')}
+                              </Badge>
+                            </Tooltip>
                           )}
                           {conn.maxCurrentAmps != null && (
                             <span className="text-muted-foreground">
@@ -663,6 +675,11 @@ export function ConnectorStatus({
                 value={newEvseId}
                 onChange={(e) => {
                   setNewEvseId(e.target.value);
+                  // A 1.6 EVSE holds only the connector with its own number.
+                  if (ocppProtocol === 'ocpp1.6') {
+                    const value = e.target.value;
+                    setNewEvseConnector((prev) => ({ ...prev, connectorId: value }));
+                  }
                 }}
               />
             </div>
@@ -674,6 +691,7 @@ export function ConnectorStatus({
                 min="1"
                 required
                 value={newEvseConnector.connectorId}
+                disabled={ocppProtocol === 'ocpp1.6'}
                 onChange={(e) => {
                   setNewEvseConnector((prev) => ({ ...prev, connectorId: e.target.value }));
                 }}

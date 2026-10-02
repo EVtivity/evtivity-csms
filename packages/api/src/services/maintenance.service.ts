@@ -20,6 +20,7 @@ import { getPubSub } from '../lib/pubsub.js';
 import { buildDerivedStatusSubquery } from '../lib/station-derived-status.js';
 import { sleep } from '../lib/sleep.js';
 import { sendOcppCommandAndWait } from '../lib/ocpp-command.js';
+import { sendAvailabilityCommand } from '../lib/availability-command.js';
 import { applyReservationCancellation } from '../lib/reservation-cancel.js';
 import { invalidateMaintenanceCheckCache } from '../lib/maintenance-check.js';
 import {
@@ -125,18 +126,6 @@ interface FanoutStationOutcome {
   error: string | null;
 }
 
-function classifyCommandResult(result: { response?: Record<string, unknown>; error?: string }): {
-  commandStatus: string;
-  error: string | null;
-} {
-  if (result.error != null) {
-    const offline = result.error.includes('is not connected');
-    return { commandStatus: offline ? 'offline' : 'failed', error: result.error };
-  }
-  const status = (result.response as { status?: string } | undefined)?.status;
-  return { commandStatus: (status ?? 'accepted').toLowerCase(), error: null };
-}
-
 // Stations send the StatusNotification that reflects a ChangeAvailability a
 // moment after replying Accepted. Snapshotting statusAfter immediately after
 // the command loop recorded the pre-command status (e.g. available -> available
@@ -199,35 +188,6 @@ async function recordFanoutOutcomes(
     );
   } catch (err) {
     logger?.warn({ err, eventId, phase }, 'maintenance fan-out result tracking insert failed');
-  }
-}
-
-// Canonical 2.1 payload with no version arg: the OCPP dispatcher translates
-// per the station's live protocol (1.6 gets { connectorId: 0, type }).
-// Passing a version would skip translation and send this payload raw to 1.6
-// stations, which silently ignore it.
-async function sendAvailabilityCommand(
-  stationOcppId: string,
-  operationalStatus: 'Inoperative' | 'Operative',
-  logger?: FastifyBaseLogger,
-): Promise<{ command: string; commandStatus: string; error: string | null }> {
-  const command = `ChangeAvailability(${operationalStatus})`;
-  try {
-    const result = await sendOcppCommandAndWait(stationOcppId, 'ChangeAvailability', {
-      operationalStatus,
-    });
-    const classified = classifyCommandResult(result);
-    if (classified.error != null) {
-      logger?.warn({ stationId: stationOcppId, error: classified.error }, `${command} failed`);
-    }
-    return { command, ...classified };
-  } catch (err) {
-    logger?.warn({ err, stationId: stationOcppId }, `${command} failed`);
-    return {
-      command,
-      commandStatus: 'failed',
-      error: err instanceof Error ? err.message : 'Unknown error',
-    };
   }
 }
 
@@ -349,10 +309,16 @@ async function loadEventById(eventId: string): Promise<MaintenanceEventRow | nul
   return row != null ? rowFromDb(row) : null;
 }
 
-async function loadSiteStations(
-  siteId: string,
-  filter: string[] | null,
-): Promise<Array<{ id: string; stationId: string; ocppProtocol: string | null }>> {
+// disabledReason lets the release fan-out leave operator- and security-disabled
+// stations Inoperative at the station.
+interface FanoutStation {
+  id: string;
+  stationId: string;
+  ocppProtocol: string | null;
+  disabledReason: string | null;
+}
+
+async function loadSiteStations(siteId: string, filter: string[] | null): Promise<FanoutStation[]> {
   const conditions = [eq(chargingStations.siteId, siteId)];
   if (filter != null && filter.length > 0) {
     conditions.push(inArray(chargingStations.id, filter));
@@ -362,6 +328,7 @@ async function loadSiteStations(
       id: chargingStations.id,
       stationId: chargingStations.stationId,
       ocppProtocol: chargingStations.ocppProtocol,
+      disabledReason: chargingStations.disabledReason,
     })
     .from(chargingStations)
     .where(and(...conditions));
@@ -843,19 +810,34 @@ async function runReleaseStations(
   event: MaintenanceEventRow,
   phase: string,
   logger?: FastifyBaseLogger,
-  stationsOverride?: Array<{ id: string; stationId: string; ocppProtocol: string | null }>,
+  stationsOverride?: FanoutStation[],
 ): Promise<void> {
   const stations =
     stationsOverride ?? (await loadSiteStations(event.siteId, event.affectedStationIds));
-  const statusBefore = await loadDerivedStatuses(stations.map((s) => s.id));
+  // A station the operator disabled, or one disabled after a critical security
+  // event, stays Inoperative: ending maintenance must not switch it back on at
+  // the station. Only the operator Enable (PATCH availability) does that. Its
+  // maintenance message is still cleared. A firmware install is not skipped:
+  // Inoperative persists across the install reboot, so the station needs
+  // Operative to charge afterwards.
+  const commanded = stations.filter((s) => s.disabledReason == null);
+  if (commanded.length < stations.length) {
+    logger?.info(
+      { eventId: event.id, skipped: stations.length - commanded.length, phase },
+      'maintenance release left disabled stations inoperative',
+    );
+  }
+  const statusBefore = await loadDerivedStatuses(commanded.map((s) => s.id));
   const outcomes: FanoutStationOutcome[] = [];
   await mapWithConcurrency(stations, STATION_FANOUT_CONCURRENCY, async (station) => {
-    const sent = await sendAvailabilityCommand(station.stationId, 'Operative', logger);
-    outcomes.push({
-      stationDbId: station.id,
-      stationOcppId: station.stationId,
-      ...sent,
-    });
+    if (station.disabledReason == null) {
+      const sent = await sendAvailabilityCommand(station.stationId, 'Operative', logger);
+      outcomes.push({
+        stationDbId: station.id,
+        stationOcppId: station.stationId,
+        ...sent,
+      });
+    }
     try {
       await clearStationMessageSlot(
         station.stationId,
@@ -866,7 +848,7 @@ async function runReleaseStations(
       logger?.warn({ err, stationId: station.stationId }, 'maintenance message clear failed');
     }
   });
-  const statusAfter = await loadDerivedStatusesAfterSettle(stations.map((s) => s.id));
+  const statusAfter = await loadDerivedStatusesAfterSettle(commanded.map((s) => s.id));
   await recordFanoutOutcomes(event.id, phase, outcomes, statusBefore, statusAfter, logger);
 
   logger?.info(
@@ -1425,6 +1407,7 @@ async function runRemoveStationSideEffects(
       id: chargingStations.id,
       stationId: chargingStations.stationId,
       ocppProtocol: chargingStations.ocppProtocol,
+      disabledReason: chargingStations.disabledReason,
     })
     .from(chargingStations)
     .where(inArray(chargingStations.id, removedStationIds));

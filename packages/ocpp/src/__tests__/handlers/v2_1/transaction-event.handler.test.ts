@@ -152,12 +152,34 @@ describe('v2_1 TransactionEvent handler', () => {
         stationDbId: 'sta_db_1',
         evseId: 1,
         meterValues: meterValue,
+        transactionId: 'tx-3',
         source: 'TransactionEvent',
       },
     });
   });
 
-  it('defaults the MeterValues evseId to 0 when no evse is present', async () => {
+  it('passes the reported connector on the transaction event', async () => {
+    const { handleTransactionEvent } =
+      await import('../../../handlers/v2_1/transaction-event.handler.js');
+    const { ctx, publishMock } = makeCtx({
+      eventType: 'Started',
+      timestamp: '2026-06-04T00:00:00Z',
+      triggerReason: 'Authorized',
+      seqNo: 0,
+      transactionInfo: { transactionId: 'tx-conn' },
+      evse: { id: 2, connectorId: 1 },
+    });
+    await handleTransactionEvent(ctx);
+
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'ocpp.TransactionEvent',
+        payload: expect.objectContaining({ evseId: 2, connectorId: 1 }) as unknown,
+      }),
+    );
+  });
+
+  it('keeps the transactionId on MeterValues when no evse is present', async () => {
     const meterValue = [{ timestamp: '2026-06-04T00:00:00Z', sampledValue: [{ value: 7 }] }];
     const { handleTransactionEvent } =
       await import('../../../handlers/v2_1/transaction-event.handler.js');
@@ -174,7 +196,7 @@ describe('v2_1 TransactionEvent handler', () => {
     expect(publishMock).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: 'ocpp.MeterValues',
-        payload: expect.objectContaining({ evseId: 0 }) as unknown,
+        payload: expect.objectContaining({ evseId: 0, transactionId: 'tx-no-evse' }) as unknown,
       }),
     );
   });

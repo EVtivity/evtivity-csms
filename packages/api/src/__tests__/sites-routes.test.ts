@@ -76,6 +76,11 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
+vi.mock('../lib/station-derived-status.js', () => ({
+  buildDerivedStatusSubquery: vi.fn(() => 'status'),
+  buildStatusReasonSubquery: vi.fn(() => null),
+}));
+
 vi.mock('@evtivity/database', () => ({
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
@@ -538,6 +543,7 @@ describe('Site routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
         status: 'available',
+        statusReason: null,
         connectorCount: 0,
         connectorTypes: null,
         underMaintenance: false,
@@ -735,7 +741,8 @@ describe('Site routes - handler logic', () => {
         id: 'sta_000000000003',
         stationId: 'STATION-001',
         model: 'Model X',
-        availability: 'available',
+        status: 'available',
+        statusReason: null,
         isOnline: true,
         securityProfile: 0,
         positionX: '100',

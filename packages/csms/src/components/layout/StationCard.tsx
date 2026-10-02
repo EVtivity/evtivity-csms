@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion, useMotionValue } from 'motion/react';
 import { MessageSquare, Plug, Zap, Circle, Plus, Minus, Power, Shield } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -34,6 +35,7 @@ export interface LayoutStation {
   stationId: string;
   model: string | null;
   status: string;
+  statusReason?: string | null | undefined;
   isOnline: boolean;
   securityProfile: number;
   positionX: number;
@@ -301,10 +303,21 @@ export function StationCard({
   allocatedLimitKw,
   collapseKey,
 }: StationCardProps): React.JSX.Element {
+  const { t } = useTranslation();
   const charging = isCharging(station);
   const energy = totalEnergy(station);
   const connectors = allConnectors(station);
   const level = stationLevel(station);
+  const reasonLabel =
+    station.statusReason != null &&
+    (station.status === 'unavailable' || station.status === 'faulted')
+      ? t(`stations.statusReason.${station.statusReason}`, station.statusReason)
+      : null;
+  const stationIcon = (
+    <StationIcon status={station.status} charging={charging} dc={level === 'DC Fast'} />
+  );
+  const iconWithReason =
+    reasonLabel != null ? <Tooltip label={reasonLabel}>{stationIcon}</Tooltip> : stationIcon;
   const motionX = useMotionValue(station.positionX);
   const motionY = useMotionValue(station.positionY);
   const [zIndex, setZIndex] = useState(0);
@@ -411,7 +424,7 @@ export function StationCard({
         {expanded ? (
           <>
             <div className="flex items-center gap-2">
-              <StationIcon status={station.status} charging={charging} dc={level === 'DC Fast'} />
+              {iconWithReason}
               {level !== '' && (
                 <span className="text-xs font-medium text-muted-foreground">{level}</span>
               )}
@@ -514,7 +527,7 @@ export function StationCard({
         ) : (
           <>
             <div className="flex items-center gap-2">
-              <StationIcon status={station.status} charging={charging} dc={level === 'DC Fast'} />
+              {iconWithReason}
               <div className="flex flex-col gap-1 min-w-0">
                 <div className="flex flex-wrap gap-1">
                   {connectors.map((conn, i) => (

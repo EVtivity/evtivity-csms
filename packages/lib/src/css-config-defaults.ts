@@ -30,6 +30,14 @@ export interface CssConfigDefault {
   readonly: boolean;
 }
 
+// Simulator-only (vendor) variable: how a 2.1 simulator reports connector status.
+// NotifyEvent mimics an OCPP 2.1 Edition 2 station that no longer sends the
+// deprecated StatusNotification.
+export const CSS_STATUS_REPORTING_KEY = 'SimulatorCtrlr.StatusReporting';
+export const CSS_STATUS_REPORTING_VALUES = ['Both', 'StatusNotification', 'NotifyEvent'] as const;
+export type CssStatusReporting = (typeof CSS_STATUS_REPORTING_VALUES)[number];
+export const CSS_STATUS_REPORTING_DEFAULT: CssStatusReporting = 'Both';
+
 export function buildCssConfigDefaults(input: CssConfigDefaultsInput): CssConfigDefault[] {
   const t = (key: string, value: string, readonly: boolean): CssConfigDefault => ({
     key,
@@ -152,6 +160,7 @@ export function buildCssConfigDefaults(input: CssConfigDefaultsInput): CssConfig
     t('TariffCostCtrlr.TariffFallbackMessage', 'See operator for pricing', false),
     t('TariffCostCtrlr.Currency', 'EUR', false),
     t('TariffCostCtrlr.MaxElements#Tariff', '10', true),
+    t(CSS_STATUS_REPORTING_KEY, CSS_STATUS_REPORTING_DEFAULT, false),
   ];
 
   for (const evse of input.evses) {

@@ -22,6 +22,7 @@ import { getOutboundToken } from '../lib/outbound-token.js';
 import { OcpiClient } from '../lib/ocpi-client.js';
 import { config } from '../lib/config.js';
 import { transformCdr } from '../transformers/cdr.transformer.js';
+import { ocpiEvseUid, ocpiEvseId } from '../lib/evse-uid.js';
 import { resolvePartnerVersion } from '../lib/ocpi-version.js';
 import { tariffInCurrency } from '../lib/tariff-currency.js';
 import { notifyRoamingCdrChanged } from '../lib/pubsub.js';
@@ -99,8 +100,8 @@ export async function generateCdr(
   if (session.evseId != null) {
     const [evse] = await db.select().from(evses).where(eq(evses.id, session.evseId)).limit(1);
     if (evse != null) {
-      evseUid = `${siteId ?? station.id}-${String(evse.evseId)}`;
-      evseIdStr = `${siteId ?? station.id}-EVSE-${String(evse.evseId)}`;
+      evseUid = ocpiEvseUid(evse);
+      evseIdStr = ocpiEvseId(station.stationId, evse.evseId);
     }
   }
 

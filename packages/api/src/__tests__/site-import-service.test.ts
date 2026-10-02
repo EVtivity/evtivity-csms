@@ -46,7 +46,28 @@ function makeChain() {
   return chain;
 }
 
+const { mockRecompute, mockSetDisabled, mockSendAvailability, mockPublishStatus } = vi.hoisted(
+  () => ({
+    mockRecompute: vi.fn().mockResolvedValue({ availabilityChanged: false }),
+    mockSetDisabled: vi.fn().mockResolvedValue({ availabilityChanged: true }),
+    mockSendAvailability: vi.fn().mockResolvedValue({}),
+    mockPublishStatus: vi.fn().mockResolvedValue(undefined),
+  }),
+);
+
+vi.mock('../lib/availability-command.js', () => ({
+  sendAvailabilityCommand: mockSendAvailability,
+}));
+
+vi.mock('../lib/station-status-events.js', () => ({
+  publishStationStatusChanged: mockPublishStatus,
+}));
+
 vi.mock('@evtivity/database', () => ({
+  client: {},
+  recomputeStationAvailability: mockRecompute,
+  setStationDisabled: mockSetDisabled,
+  stationAuditLog: { stationId: 'station_id' },
   db: {
     select: vi.fn(() => makeChain()),
     transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
@@ -74,6 +95,8 @@ vi.mock('@evtivity/database', () => ({
     model: 'model',
     serialNumber: 'serialNumber',
     availability: 'availability',
+    disabledReason: 'disabledReason',
+    isOnline: 'isOnline',
     onboardingStatus: 'onboardingStatus',
     vendorId: 'vendorId',
     createdAt: 'createdAt',
@@ -157,6 +180,22 @@ describe('exportSitesCsv', () => {
       'siteName,stationId,stationModel,stationSerialNumber,stationStatus,onboardingStatus,evseId,connectorId,connectorType,maxPowerKw,maxCurrentAmps,stationVendor',
     );
     expect(lines[1]).toBe('Site A,CS-001,Model X,SN-111,available,accepted,1,1,CCS2,150,200,ACME');
+  });
+
+  it('exports the operator choice as stationStatus, not the computed availability', async () => {
+    const { db } = await import('@evtivity/database');
+    setupDbResults([]);
+
+    await exportSitesCsv();
+
+    const selection = vi.mocked(db.select).mock.calls[0]?.[0] as unknown as Record<
+      string,
+      { args: unknown[] }
+    >;
+    const strings = (selection['stationStatus']?.args[0] as string[]).join('?');
+    expect(strings).toContain("= 'operator' THEN 'unavailable'");
+    expect(strings).toContain("ELSE 'available'");
+    expect(selection['stationStatus']?.args).toContain('disabledReason');
   });
 
   it('applies search filter', async () => {
@@ -476,6 +515,99 @@ describe('importSitesCsv', () => {
 
     expect(result.stationsUpdated).toBe(1);
     expect(result.stationsCreated).toBe(0);
+  });
+
+  function stationImportResults(current: Record<string, unknown>): unknown[][] {
+    const now = new Date();
+    return [
+      [], // site ilike pre-check: not found
+      [{ id: 'site-1', createdAt: now, updatedAt: now }], // site insert
+      [{ id: 'station-1', createdAt: now, updatedAt: now }], // station upsert (created)
+      [
+        {
+          id: 'station-1',
+          stationId: 'CS-001',
+          siteId: 'site-1',
+          isOnline: true,
+          disabledReason: null,
+          ...current,
+        },
+      ], // stored state after the import commits
+    ];
+  }
+
+  it('recomputes availability when stationStatus does not change the disable', async () => {
+    mockRecompute.mockResolvedValueOnce({ availabilityChanged: true });
+    setupDbResults(...stationImportResults({}));
+
+    await importSitesCsv(
+      [{ siteName: 'On', stationId: 'CS-001', stationStatus: 'available' }],
+      true,
+    );
+
+    expect(mockRecompute).toHaveBeenCalledWith({}, 'station-1');
+    expect(mockSetDisabled).not.toHaveBeenCalled();
+    expect(mockSendAvailability).not.toHaveBeenCalled();
+    expect(mockPublishStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'station-1', siteId: 'site-1' }),
+      undefined,
+    );
+  });
+
+  it('disables through the status entry point, tells the station, audits, and publishes', async () => {
+    setupDbResults(...stationImportResults({}));
+
+    await importSitesCsv(
+      [{ siteName: 'Off', stationId: 'CS-001', stationStatus: 'unavailable' }],
+      true,
+      { actor: 'operator', actorUserId: 'usr_1' },
+    );
+
+    expect(mockSetDisabled).toHaveBeenCalledWith({}, 'station-1', 'operator');
+    expect(mockSendAvailability).toHaveBeenCalledWith('CS-001', 'Inoperative', undefined);
+    expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: 'availability_changed',
+        before: { disabledReason: null },
+        after: { disabledReason: 'operator' },
+      }),
+      expect.anything(),
+      undefined,
+    );
+    expect(mockPublishStatus).toHaveBeenCalled();
+    expect(mockRecompute).not.toHaveBeenCalled();
+  });
+
+  it('enables an operator-disabled station and skips the command when offline', async () => {
+    setupDbResults(...stationImportResults({ disabledReason: 'operator', isOnline: false }));
+
+    await importSitesCsv([{ siteName: 'On', stationId: 'CS-001', stationStatus: 'faulted' }], true);
+
+    expect(mockSetDisabled).toHaveBeenCalledWith({}, 'station-1', null);
+    expect(mockSendAvailability).not.toHaveBeenCalled();
+    expect(mockPublishStatus).toHaveBeenCalled();
+  });
+
+  it('never clears or replaces a security disable', async () => {
+    for (const stationStatus of ['available', 'unavailable'] as const) {
+      mockSetDisabled.mockClear();
+      setupDbResults(...stationImportResults({ disabledReason: 'security' }));
+
+      await importSitesCsv([{ siteName: 'Sec', stationId: 'CS-001', stationStatus }], true);
+
+      expect(mockSetDisabled).not.toHaveBeenCalled();
+      expect(mockSendAvailability).not.toHaveBeenCalled();
+    }
+  });
+
+  it('leaves the disable alone when stationStatus is omitted', async () => {
+    setupDbResults(...stationImportResults({ disabledReason: 'operator' }));
+
+    await importSitesCsv([{ siteName: 'Keep', stationId: 'CS-001' }], true);
+
+    expect(mockSetDisabled).not.toHaveBeenCalled();
+    expect(mockRecompute).toHaveBeenCalledWith({}, 'station-1');
   });
 
   it('updates an existing EVSE and connector with maxCurrentAmps when updateExisting is true', async () => {

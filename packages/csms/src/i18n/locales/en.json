@@ -821,7 +821,26 @@
     "passwordStored": "Password saved. Configure the same password on the station.",
     "securityChangeFailed": "Security change failed",
     "passwordInvalidCharacters": "Use only letters, digits and * - _ = : + | @ .",
-    "profileChangeOnline": "The change is sent to the station, which reconnects with the new profile. Until it does, the current profile stays active."
+    "profileChangeOnline": "The change is sent to the station, which reconnects with the new profile. Until it does, the current profile stays active.",
+    "statusReason": {
+      "operator_disabled": "Disabled by an operator",
+      "security_disabled": "Disabled after a critical security event",
+      "firmware_failed": "Firmware install failed",
+      "station_faulted": "The station reports a fault",
+      "connector_faulted": "A connector reports a fault",
+      "firmware_installing": "Installing firmware",
+      "station_unavailable": "The station reports itself unavailable"
+    },
+    "enableStation": "Enable Station",
+    "disableStation": "Disable Station",
+    "enableStationTitle": "Enable this station?",
+    "enableStationDescription": "Drivers can start charging again. The station is told to become operative, and any stored firmware install state is cleared.",
+    "disableStationTitle": "Disable this station?",
+    "disableStationDescription": "Drivers cannot start charging until you enable it. The station is told to become inoperative. Sessions in progress are not stopped.",
+    "enabledSuccess": "Station enabled",
+    "disabledSuccess": "Station disabled",
+    "maxPowerUnknown": "Max power unknown",
+    "maxPowerUnknownHint": "Load management cannot cap this connector until its max power is set. Edit the EVSE to set it. OCPP 2.1 stations fill it in from their configuration report."
   },
   "eventAlertRules": {
     "title": "Event Alert Rules",
@@ -2137,6 +2156,7 @@
     "COMMAND_FAILED": "Command failed",
     "COMMAND_QUEUED": "Station offline, command queued",
     "COMMAND_TIMEOUT": "No response from station",
+    "CONNECTOR_ID_MISMATCH": "On an OCPP 1.6 station each EVSE has one connector with the same number.",
     "CONNECTOR_NOT_AVAILABLE": "Connector is not available for charging",
     "CONNECTOR_NOT_FOUND": "Connector not found",
     "CONNECTOR_OCCUPIED": "Cannot delete EVSE with occupied connectors",
@@ -2315,6 +2335,7 @@
     "STATION_OFFLINE": "Station is offline",
     "STATION_REJECTED": "Station rejected start: ...",
     "STATION_TIMEOUT": "Station did not respond",
+    "STATION_UNAVAILABLE": "This station is unavailable right now. Try another station.",
     "STORAGE_CONNECTION_FAILED": "Storage connection test failed",
     "STORAGE_NOT_CONFIGURED": "Attachment storage not configured",
     "SUPPORT_AI_NOT_CONFIGURED": "Support AI is not configured",

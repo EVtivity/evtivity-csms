@@ -3,7 +3,12 @@
 
 import { randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
-import { buildCssConfigDefaults } from '@evtivity/lib';
+import {
+  buildCssConfigDefaults,
+  CSS_STATUS_REPORTING_DEFAULT,
+  CSS_STATUS_REPORTING_KEY,
+  CSS_STATUS_REPORTING_VALUES,
+} from '@evtivity/lib';
 import { OcppClient } from './ocpp-client.js';
 import { config as cssConfig } from './lib/config.js';
 import { MeterValueGenerator } from './meter-value-generator.js';
@@ -800,6 +805,7 @@ export class StationSimulator {
     // For Pending/Rejected, the retry timer will handle re-boot and status after Accepted.
     if (this.bootStatus !== 'Accepted') return;
 
+    await this.sendChargePointStatus16();
     for (const evse of this.config.evses) {
       const ctx = this.evseContexts.get(evse.evseId) as EvseContext;
       ctx.state = 'Available';
@@ -1708,6 +1714,12 @@ export class StationSimulator {
     }
     if (this.bootStatus !== 'Accepted') return;
 
+    try {
+      await this.sendChargePointStatus16();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[${this.config.stationId}] Connector 0 StatusNotification failed: ${msg}`);
+    }
     for (const evse of this.config.evses) {
       const ctx = this.evseContexts.get(evse.evseId) as EvseContext;
       // Don't disturb a connector that's mid-transaction.
@@ -1786,6 +1798,7 @@ export class StationSimulator {
                 await this.sendBootNotification(reason);
                 // If boot was accepted after retry, send StatusNotification for all connectors
                 if (this.bootStatus === 'Accepted') {
+                  await this.sendChargePointStatus16();
                   for (const evse of this.config.evses) {
                     const ctx = this.evseContexts.get(evse.evseId) as EvseContext;
                     ctx.state = 'Available';
@@ -1820,6 +1833,15 @@ export class StationSimulator {
     return response;
   }
 
+  // OCPP 1.6 errata 3.22: after an accepted boot the charge point reports
+  // connector 0 (the charge point itself) before its connectors.
+  private async sendChargePointStatus16(): Promise<void> {
+    if (!this.is16) return;
+    const down =
+      this.availabilityState === 'Inoperative' || this.availabilityState === 'Unavailable';
+    await this.sendStatusNotification(0, 0, down ? 'Unavailable' : 'Available');
+  }
+
   async sendStatusNotification(
     evseId: number,
     connectorId: number,
@@ -1833,16 +1855,18 @@ export class StationSimulator {
         status,
       });
     } else {
-      await this.client.sendCall('StatusNotification', {
-        timestamp: new Date().toISOString(),
-        connectorStatus: status,
-        evseId,
-        connectorId,
-      });
-      // Per OCPP 2.1 spec: send NotifyEvent with Delta trigger for AvailabilityState
-      // when connector status changes
-      try {
-        await this.client.sendCall('NotifyEvent', {
+      const reporting =
+        this.configVariables.get(CSS_STATUS_REPORTING_KEY)?.value ?? CSS_STATUS_REPORTING_DEFAULT;
+      if (reporting !== 'NotifyEvent') {
+        await this.client.sendCall('StatusNotification', {
+          timestamp: new Date().toISOString(),
+          connectorStatus: status,
+          evseId,
+          connectorId,
+        });
+      }
+      if (reporting !== 'StatusNotification') {
+        const notifyEvent = this.client.sendCall('NotifyEvent', {
           generatedAt: new Date().toISOString(),
           seqNo: 0,
           tbc: false,
@@ -1858,8 +1882,17 @@ export class StationSimulator {
             },
           ],
         });
-      } catch {
-        // NotifyEvent may fail if connection is closing
+        if (reporting === 'NotifyEvent') {
+          // The only status report, so a failure propagates like StatusNotification's.
+          await notifyEvent;
+        } else {
+          try {
+            await notifyEvent;
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`[${this.config.stationId}] AvailabilityState NotifyEvent failed: ${msg}`);
+          }
+        }
       }
     }
     console.log(
@@ -2515,10 +2548,19 @@ export class StationSimulator {
             mutability: entry.readonly ? 'ReadOnly' : 'ReadWrite',
           },
         ],
-        variableCharacteristics: {
-          dataType: 'string',
-          supportsMonitoring: false,
-        },
+        // EVSE.Power must carry its rated power as maxLimit (2.1 device model).
+        variableCharacteristics:
+          componentName === 'EVSE' && variableName === 'Power'
+            ? {
+                unit: 'W',
+                dataType: 'decimal',
+                maxLimit: Number(entry.value),
+                supportsMonitoring: false,
+              }
+            : {
+                dataType: 'string',
+                supportsMonitoring: false,
+              },
       });
     }
 
@@ -3596,6 +3638,18 @@ export class StationSimulator {
 
           // Validate BasicAuthPassword length (16-40 chars per OCPP spec)
           if (varName === 'BasicAuthPassword' && (newValue.length < 16 || newValue.length > 40)) {
+            return {
+              attributeStatus: 'Rejected',
+              attributeType: reqAttrType,
+              component: item['component'],
+              variable: item['variable'],
+            };
+          }
+
+          if (
+            effectiveKey === CSS_STATUS_REPORTING_KEY &&
+            !(CSS_STATUS_REPORTING_VALUES as readonly string[]).includes(newValue)
+          ) {
             return {
               attributeStatus: 'Rejected',
               attributeType: reqAttrType,
@@ -6608,6 +6662,13 @@ export class StationSimulator {
     if (this.configVariables.size === 0) {
       this.seedDefaultConfigVariables();
     }
+    // Stations provisioned before this variable existed get it on boot.
+    if (!this.is16 && !this.configVariables.has(CSS_STATUS_REPORTING_KEY)) {
+      this.configVariables.set(CSS_STATUS_REPORTING_KEY, {
+        value: CSS_STATUS_REPORTING_DEFAULT,
+        readonly: false,
+      });
+    }
     await this.installedCertificatesCache.load();
     if (this.installedCertificatesCache.size === 0) {
       this.seedDefaultCertificates();
@@ -6615,14 +6676,6 @@ export class StationSimulator {
     await this.chargingProfilesCache.load();
     if (this.chargingProfilesCache.size === 0 && !this.is16) {
       this.seedDefaultChargingProfiles();
-    }
-    // OCTT 2.1 tariff tests (TC_I_113..117) reference the literal id
-    // 'test-tx' as the "current transaction" without first starting one.
-    // Seed it so ChangeTransactionTariff resolves the txId and exercises
-    // the spec validations the test is actually targeting.
-    if (!this.is16) {
-      this.activeTransactionIds.set(1, 'test-tx');
-      this.transactionTariffCurrency.set('test-tx', 'EUR');
     }
     await this.displayMessagesCache.load();
     await this.localAuthEntries.load();

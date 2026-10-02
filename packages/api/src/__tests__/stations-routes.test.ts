@@ -33,6 +33,19 @@ GYQS+sRDqF0Qhk6ZnPUUuqpEFcP7/Ib3/Bna1XC/6nitqfoF5jMPZcahQY9eOVR2
 qf/5BbM=
 -----END CERTIFICATE-----`;
 
+const { mockSetStationDisabled, mockSendAvailability } = vi.hoisted(() => ({
+  mockSetStationDisabled: vi.fn().mockResolvedValue({ availabilityChanged: true }),
+  mockSendAvailability: vi.fn().mockResolvedValue({
+    command: 'ChangeAvailability',
+    commandStatus: 'accepted',
+    error: null,
+  }),
+}));
+
+vi.mock('../lib/availability-command.js', () => ({
+  sendAvailabilityCommand: mockSendAvailability,
+}));
+
 const { mockPublish, mockSubscribe } = vi.hoisted(() => {
   const pub = vi.fn().mockResolvedValue(undefined);
   const sub = vi.fn().mockImplementation(async (_channel: string, _cb: (raw: string) => void) => {
@@ -124,6 +137,10 @@ vi.mock('@evtivity/database', () => {
   dbMock['transaction'] = vi.fn((cb: (tx: unknown) => Promise<unknown>) => cb(dbMock));
   return {
     db: dbMock,
+    client: {},
+    setStationDisabled: mockSetStationDisabled,
+    isRoamingEnabled: vi.fn(() => Promise.resolve(true)),
+    stationStatusReasonSql: () => 'NULL',
     getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
     // buildDerivedStatusSubquery and buildUnderMaintenanceSubquery read
     // .table and .name off the correlated columns.
@@ -289,6 +306,8 @@ describe('Station routes - handler logic', () => {
         iccid: null,
         imsi: null,
         availability: 'available',
+        reportedStatus: null,
+        statusReason: null,
         onboardingStatus: 'accepted',
         lastHeartbeat: null,
         isOnline: true,
@@ -364,6 +383,10 @@ describe('Station routes - handler logic', () => {
         iccid: null,
         imsi: null,
         availability: 'available',
+        reportedStatus: null,
+        disabledReason: null,
+        firmwareState: null,
+        statusReason: null,
         onboardingStatus: 'accepted',
         lastHeartbeat: null,
         isOnline: false,
@@ -420,6 +443,8 @@ describe('Station routes - handler logic', () => {
         serialNumber: null,
         firmwareVersion: null,
         availability: 'available',
+        reportedStatus: null,
+        statusReason: null,
         onboardingStatus: 'pending',
         isOnline: false,
         isSimulator: false,
@@ -455,6 +480,8 @@ describe('Station routes - handler logic', () => {
         serialNumber: null,
         firmwareVersion: null,
         availability: 'available',
+        reportedStatus: null,
+        statusReason: null,
         onboardingStatus: 'pending',
         isOnline: false,
         isSimulator: false,
@@ -529,6 +556,8 @@ describe('Station routes - handler logic', () => {
         serialNumber: null,
         firmwareVersion: null,
         availability: 'available',
+        reportedStatus: null,
+        statusReason: null,
         onboardingStatus: 'accepted',
         isOnline: false,
         isSimulator: false,
@@ -583,6 +612,166 @@ describe('Station routes - handler logic', () => {
 
       expect(response.statusCode).toBe(400);
       expect(response.json().code).toBe('PASSWORD_REQUIRED');
+    });
+
+    const stationRow = {
+      id: VALID_STATION_ID,
+      stationId: 'STATION-001',
+      siteId: 'sit_000000000001',
+      vendorId: null,
+      model: null,
+      serialNumber: null,
+      firmwareVersion: null,
+      availability: 'unavailable',
+      reportedStatus: null,
+      statusReason: null,
+      onboardingStatus: 'accepted',
+      isOnline: true,
+      isSimulator: false,
+      loadPriority: 0,
+      securityProfile: 0,
+      pendingSecurityProfile: null,
+      hasPassword: false,
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+    };
+
+    const enabledInputs = { disabledReason: null, firmwareState: null };
+    const operatorDisabled = { disabledReason: 'operator', firmwareState: null };
+
+    async function auditActions(): Promise<string[]> {
+      const { writeAudit } = await import('@evtivity/database');
+      return vi.mocked(writeAudit).mock.calls.map((c) => (c[1] as { action: string }).action);
+    }
+
+    it('disables the station through the status entry point and tells the station', async () => {
+      mockSetStationDisabled.mockClear();
+      mockSendAvailability.mockClear();
+      mockPublish.mockClear();
+      const { writeAudit } = await import('@evtivity/database');
+      vi.mocked(writeAudit).mockClear();
+      // 1: before SELECT, 2: stored inputs after the disable, 3: UPDATE returning
+      setupDbResults(
+        [{ ...stationRow, ...enabledInputs }],
+        [operatorDisabled],
+        [{ ...stationRow, ...operatorDisabled }],
+      );
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { availability: 'unavailable' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockSetStationDisabled).toHaveBeenCalledWith({}, VALID_STATION_ID, 'operator');
+      expect(mockSendAvailability).toHaveBeenCalledWith(
+        'STATION-001',
+        'Inoperative',
+        expect.anything(),
+      );
+      const published = mockPublish.mock.calls.map((c) => c[1] as string);
+      expect(published.some((p) => p.includes('station.status'))).toBe(true);
+      expect(mockPublish).toHaveBeenCalledWith(
+        'ocpi_push',
+        JSON.stringify({ type: 'location', siteId: 'sit_000000000001' }),
+      );
+      expect(await auditActions()).toEqual(['availability_changed']);
+      const auditArgs = vi.mocked(writeAudit).mock.calls[0]?.[1] as {
+        after: Record<string, unknown>;
+      };
+      expect(auditArgs.after.disabledReason).toBe('operator');
+    });
+
+    it('audits availability_changed when the disable changes but availability does not', async () => {
+      // A station that reports itself unavailable stays unavailable when the
+      // operator disables it, but the operator's choice still changed.
+      mockSetStationDisabled.mockClear();
+      mockSetStationDisabled.mockResolvedValueOnce({ availabilityChanged: false });
+      mockPublish.mockClear();
+      const { writeAudit } = await import('@evtivity/database');
+      vi.mocked(writeAudit).mockClear();
+      setupDbResults(
+        [{ ...stationRow, ...enabledInputs, reportedStatus: 'unavailable' }],
+        [operatorDisabled],
+        [{ ...stationRow, ...operatorDisabled }],
+      );
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { availability: 'unavailable' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(await auditActions()).toEqual(['availability_changed']);
+      const channels = mockPublish.mock.calls.map((c) => c[0] as string);
+      expect(channels).toContain('csms_events');
+      expect(channels).toContain('ocpi_push');
+    });
+
+    it('audits a plain update and publishes nothing when the disable is unchanged', async () => {
+      mockSetStationDisabled.mockClear();
+      mockSetStationDisabled.mockResolvedValueOnce({ availabilityChanged: false });
+      mockPublish.mockClear();
+      const { writeAudit } = await import('@evtivity/database');
+      vi.mocked(writeAudit).mockClear();
+      setupDbResults(
+        [{ ...stationRow, ...operatorDisabled }],
+        [operatorDisabled],
+        [{ ...stationRow, ...operatorDisabled }],
+      );
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { availability: 'unavailable' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(await auditActions()).toEqual(['updated']);
+      expect(mockPublish).not.toHaveBeenCalled();
+    });
+
+    it('enables the station and sends Operative', async () => {
+      mockSetStationDisabled.mockClear();
+      mockSendAvailability.mockClear();
+      setupDbResults(
+        [{ ...stationRow, ...operatorDisabled }],
+        [enabledInputs],
+        [{ ...stationRow, ...enabledInputs, availability: 'available' }],
+      );
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { availability: 'available' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockSetStationDisabled).toHaveBeenCalledWith({}, VALID_STATION_ID, null);
+      expect(mockSendAvailability).toHaveBeenCalledWith(
+        'STATION-001',
+        'Operative',
+        expect.anything(),
+      );
+    });
+
+    it('rejects faulted, which is computed rather than set', async () => {
+      mockSetStationDisabled.mockClear();
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { availability: 'faulted' },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(mockSetStationDisabled).not.toHaveBeenCalled();
     });
   });
 
@@ -762,6 +951,58 @@ describe('Station routes - handler logic', () => {
 
       expect(response.statusCode).toBe(409);
       expect(response.json().code).toBe('DUPLICATE_EVSE_ID');
+    });
+
+    it.each([
+      [[{ connectorId: 1, connectorType: 'CCS2', maxPowerKw: 50 }]],
+      [
+        [
+          { connectorId: 2, connectorType: 'CCS2', maxPowerKw: 50 },
+          { connectorId: 3, connectorType: 'CCS2', maxPowerKw: 50 },
+        ],
+      ],
+    ])('rejects a 1.6 EVSE whose connector does not match its number (%o)', async (conns) => {
+      setupDbResults([{ id: VALID_STATION_ID, ocppProtocol: 'ocpp1.6' }]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/evses`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { evseId: 2, connectors: conns },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('CONNECTOR_ID_MISMATCH');
+    });
+
+    it('accepts a 1.6 EVSE with connector N on EVSE N', async () => {
+      const evse = { id: 'evs_000000000002', evseId: 2, status: 'unavailable' };
+      setupDbResults(
+        [{ id: VALID_STATION_ID, ocppProtocol: 'ocpp1.6' }],
+        [],
+        [evse],
+        [
+          {
+            connectorId: 2,
+            connectorType: 'CCS2',
+            maxPowerKw: '50',
+            maxCurrentAmps: null,
+            status: 'unavailable',
+          },
+        ],
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/evses`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {
+          evseId: 2,
+          connectors: [{ connectorId: 2, connectorType: 'CCS2', maxPowerKw: 50 }],
+        },
+      });
+
+      expect(response.statusCode).toBe(201);
     });
   });
 
@@ -1397,6 +1638,20 @@ describe('Station routes - handler logic', () => {
       expect(response.json().connectorType).toBe('Type2');
     });
 
+    it('rejects a second connector on a 1.6 EVSE', async () => {
+      setupDbResults([{ id: 'evs_000000000001', ocppProtocol: 'ocpp1.6' }]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/evses/1/connectors`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { connectorId: 2, connectorType: 'Type2', maxPowerKw: 22 },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('CONNECTOR_ID_MISMATCH');
+    });
+
     it('returns 409 for duplicate connectorId', async () => {
       setupDbResults([{ id: 'evs_000000000001' }], [{ id: 'existing' }]);
 
@@ -1474,6 +1729,8 @@ describe('Station routes - handler logic', () => {
       serialNumber: null,
       firmwareVersion: null,
       availability: 'available',
+      reportedStatus: null,
+      statusReason: null,
       onboardingStatus: 'accepted',
       isOnline: true,
       isSimulator: false,

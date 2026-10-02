@@ -29,6 +29,12 @@ import {
   isSiteFreeVendEnabledByStation,
   getElectricityRatePeriodsForSite,
   getCompanyCurrency,
+  applyConnectorStatus,
+  applyEvseChargingState,
+  clearStationFirmwareInstalling,
+  setStationDisabled,
+  setStationFirmwareState,
+  setStationReportedStatus,
 } from '@evtivity/database';
 import { getSecuritySeverity } from '../lib/security-severity.js';
 import {
@@ -496,52 +502,34 @@ export function registerProjections(
     return uuid;
   }
 
-  async function resolveActiveSessionId(
+  // The session a transaction-scoped meter reading belongs to, with its EVSE.
+  // A transactionId is unique per station, so it decides alone and matches any status (a
+  // reading can arrive after the session ended or faulted). An unknown
+  // transactionId returns null so the caller buffers it until Started arrives,
+  // instead of guessing another session on the station.
+  async function resolveMeterValueSession(
     stationUuid: string,
     evseUuid: string | null,
     transactionId: string | undefined,
-    allowCompleted = false,
-  ): Promise<string | null> {
-    // 1. By transactionId (1.6 path)
-    if (transactionId != null) {
-      const rows = await sql`
-        SELECT id FROM charging_sessions
-        WHERE transaction_id = ${transactionId} AND status = 'active'
-        LIMIT 1
-      `;
-      if (rows[0] != null) return rows[0].id as string;
-
-      // When allowCompleted is true, also match completed sessions.
-      // This handles meter values from StopTransaction transactionData
-      // where the session was already ended before the MeterValues event.
-      if (allowCompleted) {
-        const completedRows = await sql`
-          SELECT id FROM charging_sessions
-          WHERE transaction_id = ${transactionId} AND status IN ('active', 'completed')
-          ORDER BY started_at DESC
-          LIMIT 1
-        `;
-        if (completedRows[0] != null) return completedRows[0].id as string;
-      }
-    }
-    // 2. By EVSE (newest first to avoid stale sessions)
-    if (evseUuid != null) {
-      const rows = await sql`
-        SELECT id FROM charging_sessions
-        WHERE station_id = ${stationUuid} AND evse_id = ${evseUuid} AND status = 'active'
-        ORDER BY started_at DESC
-        LIMIT 1
-      `;
-      if (rows[0] != null) return rows[0].id as string;
-    }
-    // 3. Fallback: any active session on this station (newest first)
-    const rows = await sql`
-      SELECT id FROM charging_sessions
-      WHERE station_id = ${stationUuid} AND status = 'active'
-      ORDER BY started_at DESC
-      LIMIT 1
-    `;
-    return (rows[0]?.id as string | null) ?? null;
+  ): Promise<{ id: string; evseUuid: string | null } | null> {
+    const rows =
+      transactionId != null
+        ? await sql`
+            SELECT id, evse_id FROM charging_sessions
+            WHERE station_id = ${stationUuid} AND transaction_id = ${transactionId}
+            LIMIT 1
+          `
+        : evseUuid != null
+          ? await sql`
+              SELECT id, evse_id FROM charging_sessions
+              WHERE evse_id = ${evseUuid} AND status = 'active'
+              ORDER BY started_at DESC
+              LIMIT 1
+            `
+          : [];
+    const row = rows[0];
+    if (row == null) return null;
+    return { id: row.id as string, evseUuid: (row.evse_id as string | null) ?? null };
   }
 
   function invalidateStationCache(stationId: string): void {
@@ -1062,11 +1050,14 @@ export function registerProjections(
             WHEN ${vendorName}::text IS NULL THEN metadata
             ELSE COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('bootVendor', ${vendorName}::text)
           END,
-          availability = 'available',
           is_online = true,
           updated_at = now()
         WHERE id = ${stationUuid}
       `;
+      // Availability comes from its inputs, so a disable or fault survives the
+      // reboot. A reboot ends a firmware install, so one still marked
+      // installing is cleared; a failed install stays until the operator enables.
+      await clearStationFirmwareInstalling(sql, stationUuid);
     } else {
       // Pending or blocked: update hardware info and online status but do not touch availability
       await sql`
@@ -1354,103 +1345,38 @@ export function registerProjections(
     const ocppStatus = payload.connectorStatus as string;
     const dbStatus = OCPP_STATUS_MAP[ocppStatus] ?? 'unavailable';
 
-    const evseRows = await sql`
-      SELECT id FROM evses WHERE station_id = ${stationUuid} AND evse_id = ${evseIdNum}
-    `;
-
-    const evseRow = evseRows[0];
-    let resolvedEvseUuid: string | undefined;
-    let previousDbStatus: string | undefined;
-    let didAutoCreateConnector = false;
-
-    if (evseRow == null) {
-      // Auto-create EVSE (only if station still exists)
-      const insertedEvse = await sql`
-        INSERT INTO evses (id, station_id, evse_id, auto_created)
-        SELECT ${generateId('evse')}, ${stationUuid}, ${evseIdNum}, true
-        WHERE EXISTS (SELECT 1 FROM charging_stations WHERE id = ${stationUuid})
-        RETURNING id
-      `;
-      if (insertedEvse.length === 0) {
-        invalidateStationCache(event.aggregateId);
-        return;
+    // EVSE 0 is the station itself (OCPP 1.6 connector 0, OCPP 2.x evseId 0 or
+    // NotifyEvent ChargingStation), never a plug: record it on the station
+    // instead of creating an EVSE 0 / connector 0 row.
+    if (evseIdNum === 0) {
+      const reported =
+        dbStatus === 'faulted'
+          ? 'faulted'
+          : dbStatus === 'unavailable'
+            ? 'unavailable'
+            : 'available';
+      await setStationReportedStatus(sql, stationUuid, reported);
+      const stationSiteId = await resolveSiteId(stationUuid);
+      await notifyChange('station.status', stationUuid, stationSiteId);
+      if (stationSiteId != null) {
+        await notifyOcpiPush('location', { siteId: stationSiteId });
       }
-      const newEvseUuid = insertedEvse[0]?.id as string;
-      resolvedEvseUuid = newEvseUuid;
-
-      // Auto-create connector. OCPP StatusNotification does not carry the
-      // connector type, so default to 'Unknown' rather than NULL — the
-      // stations list aggregation filters out NULL types, which would hide
-      // every connector on auto-discovered stations from the listing.
-      // Operators can edit the type later from the Connectors tab.
-      await sql`
-        INSERT INTO connectors (id, evse_id, connector_id, status, auto_created, connector_type)
-        VALUES (${generateId('connector')}, ${newEvseUuid}, ${connectorIdNum}, ${dbStatus}, true, 'Unknown')
-      `;
-      didAutoCreateConnector = true;
-
-      await sql`
-        INSERT INTO port_status_log (station_id, evse_id, connector_id, previous_status, new_status, timestamp)
-        VALUES (${stationUuid}, ${evseIdNum}, ${connectorIdNum}, ${null}, ${dbStatus}, now())
-      `;
-    } else {
-      const evseUuid = evseRow.id as string;
-      resolvedEvseUuid = evseUuid;
-
-      // Get previous connector status for audit log
-      const prevRows = await sql`
-        SELECT status FROM connectors WHERE evse_id = ${evseUuid} AND connector_id = ${connectorIdNum}
-      `;
-      const previousStatus = prevRows[0]?.status as string | undefined;
-      previousDbStatus = previousStatus;
-
-      // Skip the audit row when the status did not actually change. Stations
-      // retransmit StatusNotification on flaky links and some firmware sends
-      // periodic redundant ones; logging no-op transitions clutters the
-      // operator timeline and inflates transition-count metrics.
-      if (previousStatus !== dbStatus) {
-        await sql`
-          INSERT INTO port_status_log (station_id, evse_id, connector_id, previous_status, new_status, timestamp)
-          VALUES (${stationUuid}, ${evseIdNum}, ${connectorIdNum}, ${previousStatus ?? null}, ${dbStatus}, now())
-        `;
-      }
-
-      // Check if connector exists; create if missing. Same 'Unknown' default
-      // for connector_type as the EVSE-creation branch above.
-      if (prevRows.length === 0) {
-        await sql`
-          INSERT INTO connectors (id, evse_id, connector_id, status, auto_created, connector_type)
-          VALUES (${generateId('connector')}, ${evseUuid}, ${connectorIdNum}, ${dbStatus}, true, 'Unknown')
-        `;
-        didAutoCreateConnector = true;
-      } else {
-        await sql`
-          UPDATE connectors SET status = ${dbStatus}, updated_at = now()
-          WHERE evse_id = ${evseUuid} AND connector_id = ${connectorIdNum}
-        `;
-      }
+      return;
     }
 
-    // Reflect connector fault state on the station's availability: a faulted
-    // connector faults the station, and clearing the last connector fault
-    // returns it to available. An operator/security/firmware 'unavailable' is
-    // left untouched, and the write is skipped when the value would not change.
-    await sql`
-      WITH fault AS (
-        SELECT EXISTS (
-          SELECT 1 FROM connectors c
-          JOIN evses e ON e.id = c.evse_id
-          WHERE e.station_id = ${stationUuid} AND c.status = 'faulted'
-        ) AS has_fault
-      )
-      UPDATE charging_stations cs
-      SET availability = (CASE WHEN fault.has_fault THEN 'faulted' ELSE 'available' END)::charging_station_status,
-          updated_at = now()
-      FROM fault
-      WHERE cs.id = ${stationUuid}
-        AND cs.availability <> 'unavailable'
-        AND cs.availability <> (CASE WHEN fault.has_fault THEN 'faulted' ELSE 'available' END)::charging_station_status
-    `;
+    const applied = await applyConnectorStatus(sql, {
+      stationUuid,
+      evseId: evseIdNum,
+      connectorId: connectorIdNum,
+      status: dbStatus,
+    });
+    if (!applied.stationExists) {
+      invalidateStationCache(event.aggregateId);
+      return;
+    }
+    const resolvedEvseUuid = applied.evseUuid;
+    const previousDbStatus = applied.previousStatus;
+    const didAutoCreateConnector = applied.autoCreated;
 
     const siteId = await resolveSiteId(stationUuid);
     await notifyChange('station.status', stationUuid, siteId);
@@ -1676,6 +1602,12 @@ export function registerProjections(
     if (eventType === 'Started') {
       // For remote starts, link back to the session created by the portal/API
       // instead of creating a duplicate.
+      // The connector the station reports for the transaction (1.6 connectorId,
+      // 2.1 evse.connectorId). When it is missing or matches no connector, an
+      // EVSE with a single connector uses that one. Applied in the insert and
+      // the remote-start link.
+      const reportedConnector =
+        typeof payload.connectorId === 'number' ? payload.connectorId : null;
       let sessionId: string | null = null;
       if (triggerReason === 'RemoteStart') {
         // Atomic pick-and-link in one statement so concurrent Started events
@@ -1695,7 +1627,15 @@ export function registerProjections(
             FOR UPDATE SKIP LOCKED
           )
           UPDATE charging_sessions cs
-          SET transaction_id = ${transactionId}, updated_at = now()
+          SET transaction_id = ${transactionId},
+              connector_id = COALESCE(cs.connector_id, (
+                SELECT c.id FROM connectors c
+                WHERE c.evse_id = cs.evse_id
+                  AND (c.connector_id = ${reportedConnector}
+                    OR (SELECT count(*) FROM connectors c2 WHERE c2.evse_id = cs.evse_id) = 1)
+                LIMIT 1
+              )),
+              updated_at = now()
           FROM target
           WHERE cs.id = target.id
           RETURNING cs.id
@@ -1751,8 +1691,14 @@ export function registerProjections(
         // The session is billed in the company currency at its start.
         const initialCurrency = await getCompanyCurrency();
         const inserted = await sql`
-          INSERT INTO charging_sessions (id, station_id, evse_id, transaction_id, status, started_at, meter_start, is_roaming, currency)
-          VALUES (${newSessionId}, ${stationUuid}, ${txEvseUuid}, ${transactionId}, 'active', ${timestamp}, ${meterStartVal}, ${initialIsRoaming}, ${initialCurrency})
+          INSERT INTO charging_sessions (id, station_id, evse_id, connector_id, transaction_id, status, started_at, meter_start, is_roaming, currency)
+          VALUES (${newSessionId}, ${stationUuid}, ${txEvseUuid}, (
+            SELECT c.id FROM connectors c
+            WHERE c.evse_id = ${txEvseUuid}
+              AND (c.connector_id = ${reportedConnector}
+                OR (SELECT count(*) FROM connectors c2 WHERE c2.evse_id = ${txEvseUuid}) = 1)
+            LIMIT 1
+          ), ${transactionId}, 'active', ${timestamp}, ${meterStartVal}, ${initialIsRoaming}, ${initialCurrency})
           ON CONFLICT (transaction_id) DO UPDATE SET updated_at = now()
           RETURNING id
         `;
@@ -1793,15 +1739,7 @@ export function registerProjections(
             // unavailable connector should not be reset to ev_connected just
             // because a session started on it; the operator wants the bad
             // state visible until they explicitly clear it.
-            await sql`
-              UPDATE connectors
-              SET status = CASE
-                    WHEN status IN ('faulted', 'unavailable') THEN status
-                    ELSE 'ev_connected'
-                  END,
-                  updated_at = now()
-              WHERE evse_id = ${startEvseUuid}
-            `;
+            await applyEvseChargingState(sql, startEvseUuid, 'ev_connected');
             // Notify portal SSE: chargingState enrichment changes
             // connectors.status without sending a StatusNotification, so the
             // 'session.started' event below is not enough -- the portal SSE
@@ -2207,15 +2145,7 @@ export function registerProjections(
         if (chargingState != null) {
           const connectorStatus = CHARGING_STATE_TO_STATUS[chargingState];
           if (connectorStatus != null && sessionEvseUuid != null) {
-            await sql`
-              UPDATE connectors
-              SET status = CASE
-                    WHEN status IN ('faulted', 'unavailable') THEN status
-                    ELSE ${connectorStatus}
-                  END,
-                  updated_at = now()
-              WHERE evse_id = ${sessionEvseUuid}
-            `;
+            await applyEvseChargingState(sql, sessionEvseUuid, connectorStatus);
             const updatedStationStatusSiteId = await resolveSiteId(stationUuid);
             await notifyChange('station.status', stationUuid, updatedStationStatusSiteId);
           }
@@ -2337,15 +2267,7 @@ export function registerProjections(
         if (endedChargingState != null) {
           const endedConnectorStatus = CHARGING_STATE_TO_STATUS[endedChargingState];
           if (endedConnectorStatus != null && endedEvseUuid != null) {
-            await sql`
-              UPDATE connectors
-              SET status = CASE
-                    WHEN status IN ('faulted', 'unavailable') THEN status
-                    ELSE ${endedConnectorStatus}
-                  END,
-                  updated_at = now()
-              WHERE evse_id = ${endedEvseUuid}
-            `;
+            await applyEvseChargingState(sql, endedEvseUuid, endedConnectorStatus);
             const endedSiteId = await resolveSiteId(stationUuid);
             await notifyChange('station.status', stationUuid, endedSiteId);
           }
@@ -2757,23 +2679,29 @@ export function registerProjections(
     const transactionId = payload.transactionId as string | undefined;
     const source = (payload.source as string | undefined) ?? null;
 
-    const evseUuid = await resolveEvseUuid(stationUuid, ocppEvseId);
+    const reportedEvseUuid = await resolveEvseUuid(stationUuid, ocppEvseId);
     // Link meter values to a session when they came from a TransactionEvent or
     // when the MeterValues message includes a transactionId (OCPP 1.6 always does this).
     const isTransactionScoped = source === 'TransactionEvent' || transactionId != null;
-    const sessionId = isTransactionScoped
-      ? await resolveActiveSessionId(
-          stationUuid,
-          evseUuid,
-          transactionId,
-          source === 'TransactionEvent',
-        )
+    const session = isTransactionScoped
+      ? await resolveMeterValueSession(stationUuid, reportedEvseUuid, transactionId)
       : null;
+    const sessionId = session?.id ?? null;
 
     if (sessionId == null && transactionId != null && isTransactionScoped) {
       txBuffer.add(transactionId, event);
       return;
     }
+
+    // A 2.1 station names the EVSE only in the first TransactionEvent, so take it
+    // from the session.
+    const evseUuid = session?.evseUuid ?? reportedEvseUuid;
+    // Session updates below target the matched session only, so a late reading
+    // for an ended session never lands on a newer session on the same EVSE.
+    // Without a match, a reading on a known EVSE updates that EVSE's active
+    // session. A station-wide reading (EVSE 0, 1.6 connector 0, or a 2.1
+    // event without an EVSE) belongs to no session and is only stored.
+    const appliesToSession = sessionId != null || evseUuid != null;
 
     const meterValues = payload.meterValues as Array<Record<string, unknown>> | undefined;
     if (meterValues == null) return;
@@ -2870,18 +2798,19 @@ export function registerProjections(
         }
       }
 
-      // Update energy_delivered_wh on active sessions when we get an energy reading.
+      // Update energy_delivered_wh on the session when we get an energy reading.
       // Energy registers are cumulative, so we compute: currentValue - meterStart.
       // If meterStart is not yet set (OCPP 2.1 sessions), capture the first reading as meterStart.
-      // Both transaction-scoped (TransactionEvent, 1.6 MeterValues with transactionId) and
-      // standalone 2.1 MeterValues update energy if an active session exists on the EVSE.
+      // Transaction-scoped readings (TransactionEvent, 1.6 MeterValues with transactionId)
+      // update their own session while it is active. Standalone 2.1 MeterValues on an
+      // EVSE update the active session on that EVSE.
       const meterValue = overallValue(energySamples);
-      if (meterValue != null) {
+      if (appliesToSession && meterValue != null) {
         // Capture previous energy and meter_start for flat-reading idle detection
         const prevRows = await sql`
           SELECT energy_delivered_wh, meter_start FROM charging_sessions
           WHERE station_id = ${stationUuid} AND status = 'active'
-            AND (${evseUuid}::text IS NULL OR evse_id = ${evseUuid})
+            AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
         `;
         const prevEnergyWh = Number(prevRows[0]?.energy_delivered_wh ?? -1);
         const existingMeterStart = prevRows[0]?.meter_start as string | null | undefined;
@@ -2891,7 +2820,7 @@ export function registerProjections(
           UPDATE charging_sessions
           SET meter_start = ${Math.round(meterValue)}, updated_at = now()
           WHERE station_id = ${stationUuid} AND status = 'active'
-            AND (${evseUuid}::text IS NULL OR evse_id = ${evseUuid})
+            AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
             AND meter_start IS NULL
         `;
         // Compute energy as delta: currentReading - meterStart (clamp to 0 if meter resets).
@@ -2900,7 +2829,7 @@ export function registerProjections(
           UPDATE charging_sessions
           SET energy_delivered_wh = GREATEST(0, ${meterValue}::numeric - meter_start), updated_at = now()
           WHERE station_id = ${stationUuid} AND status = 'active'
-            AND (${evseUuid}::text IS NULL OR evse_id = ${evseUuid})
+            AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
             AND meter_start IS NOT NULL
         `;
 
@@ -2915,7 +2844,7 @@ export function registerProjections(
               UPDATE charging_sessions
               SET idle_started_at = ${mvTimestamp}, updated_at = now()
               WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NULL
-                AND (${evseUuid}::text IS NULL OR evse_id = ${evseUuid})
+                AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
             `;
           } else {
             // Energy increased: accumulate idle time and clear idle_started_at
@@ -2925,7 +2854,7 @@ export function registerProjections(
                   idle_started_at = NULL,
                   updated_at = now()
               WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NOT NULL
-                AND (${evseUuid}::text IS NULL OR evse_id = ${evseUuid})
+                AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
             `;
           }
         }
@@ -2934,14 +2863,14 @@ export function registerProjections(
       // Power-based idle detection (fallback for OCPP 1.6 and stations without chargingState)
       // Only transaction-scoped readings should update session idle state.
       const powerValue = overallValue(powerSamples);
-      if (isTransactionScoped && powerValue != null) {
+      if (appliesToSession && isTransactionScoped && powerValue != null) {
         if (powerValue === 0) {
           // No power flowing: mark idle start if not already set
           await sql`
             UPDATE charging_sessions
             SET idle_started_at = ${mvTimestamp}, updated_at = now()
             WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NULL
-              AND (${evseUuid}::text IS NULL OR evse_id = ${evseUuid})
+              AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
           `;
         } else {
           // Power resumed: accumulate idle time and clear idle_started_at
@@ -2951,7 +2880,7 @@ export function registerProjections(
                 idle_started_at = NULL,
                 updated_at = now()
             WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NOT NULL
-              AND (${evseUuid}::text IS NULL OR evse_id = ${evseUuid})
+              AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
           `;
         }
       }
@@ -2964,17 +2893,19 @@ export function registerProjections(
     // JOIN to charging_stations so the CostUpdated dispatch path below has the
     // transactionId and ocpp_protocol without a second SQL round-trip per
     // cost-change event (previously ran on every throttled dispatch).
-    const activeSessions = await sql`
-      SELECT cs.id, cs.transaction_id, cs.tariff_id, cs.driver_id, cs.started_at,
-             cs.energy_delivered_wh, cs.current_cost_cents,
-             cs.currency, cs.tariff_price_per_kwh, cs.tariff_price_per_minute,
-             cs.tariff_price_per_session, cs.tariff_idle_fee_price_per_minute, cs.tariff_tax_rate,
-             cs.idle_started_at, cs.idle_minutes, st.ocpp_protocol
-      FROM charging_sessions cs
-      JOIN charging_stations st ON st.id = cs.station_id
-      WHERE cs.station_id = ${stationUuid} AND cs.status = 'active' AND cs.tariff_id IS NOT NULL
-        AND (${evseUuid}::text IS NULL OR cs.evse_id = ${evseUuid})
-    `;
+    const activeSessions = appliesToSession
+      ? await sql`
+          SELECT cs.id, cs.transaction_id, cs.tariff_id, cs.driver_id, cs.started_at,
+                 cs.energy_delivered_wh, cs.current_cost_cents,
+                 cs.currency, cs.tariff_price_per_kwh, cs.tariff_price_per_minute,
+                 cs.tariff_price_per_session, cs.tariff_idle_fee_price_per_minute, cs.tariff_tax_rate,
+                 cs.idle_started_at, cs.idle_minutes, st.ocpp_protocol
+          FROM charging_sessions cs
+          JOIN charging_stations st ON st.id = cs.station_id
+          WHERE cs.station_id = ${stationUuid} AND cs.status = 'active' AND cs.tariff_id IS NOT NULL
+            AND (cs.id = ${sessionId} OR (${sessionId}::text IS NULL AND cs.evse_id = ${evseUuid}))
+        `
+      : [];
 
     const meterGracePeriod = await getIdlingGracePeriodMinutes();
     const splitBillingEnabled = await isSplitBillingEnabled();
@@ -3172,28 +3103,26 @@ export function registerProjections(
     const payload = event.payload;
     const status = payload.status as string;
 
-    if (status === 'Installed') {
-      await sql`
-        UPDATE charging_stations
-        SET availability = 'available', updated_at = now()
-        WHERE id = ${stationUuid}
-      `;
+    // A firmware install takes the station out of service while it runs and
+    // faults it when it fails, until the next install or an operator enable.
+    // Idle and DownloadFailed mean no install is running, so they end one that
+    // never reported its outcome but keep a failed one.
+    let fwChange: { availabilityChanged: boolean } | null = null;
+    if (status === 'Installing') {
+      fwChange = await setStationFirmwareState(sql, stationUuid, 'installing');
     } else if (
       status === 'InstallationFailed' ||
       status === 'InvalidSignature' ||
       status === 'InstallVerificationFailed'
     ) {
-      await sql`
-        UPDATE charging_stations
-        SET availability = 'faulted', updated_at = now()
-        WHERE id = ${stationUuid}
-      `;
-    } else if (status === 'Installing') {
-      await sql`
-        UPDATE charging_stations
-        SET availability = 'unavailable', updated_at = now()
-        WHERE id = ${stationUuid}
-      `;
+      fwChange = await setStationFirmwareState(sql, stationUuid, 'failed');
+    } else if (status === 'Installed') {
+      fwChange = await setStationFirmwareState(sql, stationUuid, null);
+    } else if (status === 'Idle' || status === 'DownloadFailed') {
+      fwChange = await clearStationFirmwareInstalling(sql, stationUuid);
+    }
+    if (fwChange?.availabilityChanged === true) {
+      await notifyChange('station.status', stationUuid, await resolveSiteId(stationUuid));
     }
 
     // Persist to firmware_updates table
@@ -3345,27 +3274,35 @@ export function registerProjections(
     if (severity === 'critical') {
       const autoDisable = await isAutoDisableOnCriticalEnabled();
       if (autoDisable) {
-        // CTE captures the prior availability so the audit row records the
-        // actual previous state, not a guess. RETURNING on the UPDATE alone
-        // would give the post-update value. Per-aggregate event queue
-        // (safeSubscribe) means no other write to this station's
-        // availability is in flight, so the SELECT + UPDATE pair is race-free
-        // even without an explicit transaction.
-        const flipped = await sql<Array<{ prior_availability: string }>>`
-          WITH prior AS (
-            SELECT availability FROM charging_stations
-            WHERE id = ${stationUuid} AND availability != 'unavailable'
-          ),
-          upd AS (
-            UPDATE charging_stations
-            SET availability = 'unavailable', updated_at = now()
-            WHERE id = ${stationUuid} AND availability != 'unavailable'
-            RETURNING id
-          )
-          SELECT prior.availability AS prior_availability FROM prior
-          WHERE EXISTS (SELECT 1 FROM upd)
+        const [prior] = await sql`
+          SELECT availability, disabled_reason FROM charging_stations WHERE id = ${stationUuid}
         `;
-        const priorAvailability = flipped[0]?.prior_availability;
+        const priorAvailability =
+          prior != null && prior.disabled_reason == null
+            ? (prior.availability as string)
+            : undefined;
+        if (priorAvailability != null) {
+          const disableChange = await setStationDisabled(sql, stationUuid, 'security');
+          if (disableChange.availabilityChanged) {
+            await notifyChange('station.status', stationUuid, await resolveSiteId(stationUuid));
+          }
+          // Tell the station too, as an operator disable does. No version: the
+          // command listener translates it for 1.6 (ChangeAvailability on
+          // connector 0). Fail-open: the disable is already stored.
+          try {
+            await pubsub.publish(
+              'ocpp_commands',
+              JSON.stringify({
+                commandId: crypto.randomUUID(),
+                stationId: event.aggregateId,
+                action: 'ChangeAvailability',
+                payload: { operationalStatus: 'Inoperative' },
+              }),
+            );
+          } catch (err) {
+            logger.warn({ err, stationUuid }, 'ChangeAvailability after security disable failed');
+          }
+        }
         if (priorAvailability != null) {
           // Record the system-initiated availability flip so the History tab
           // has a forensic trail and operators can correlate the disable
@@ -4624,6 +4561,8 @@ export function registerProjections(
 
   for (const eventType of notifiableEvents) {
     safeSubscribe(eventType, async (event: DomainEvent) => {
+      // A status taken from a NotifyEvent already notifies as ocpp.NotifyEvent.
+      if (event.payload.source === 'NotifyEvent') return;
       await dispatchOcppNotification(sql, event);
     });
   }
@@ -4808,6 +4747,29 @@ export function registerProjections(
               AND evses.evse_id = ${evseId}
               AND connectors.connector_id = ${connectorId}
               AND connectors.connector_type = 'Unknown'
+          `;
+        }
+      }
+
+      // The EVSE's rated power is EVSE.Power variableCharacteristics.maxLimit
+      // (required by the 2.1 device model; the Actual value is instantaneous
+      // power). It fills an auto-created connector's empty max power so load
+      // management can cap it, and never replaces an operator's value.
+      if (componentName === 'EVSE' && variableName === 'Power' && evseId != null) {
+        const characteristics = entry.variableCharacteristics as
+          | Record<string, unknown>
+          | undefined;
+        const maxLimit = Number(characteristics?.maxLimit);
+        if (Number.isFinite(maxLimit) && maxLimit > 0) {
+          const maxKw = characteristics?.unit === 'kW' ? maxLimit : maxLimit / 1000;
+          await sql`
+            UPDATE connectors
+            SET max_power_kw = ${String(maxKw)}, updated_at = now()
+            FROM evses
+            WHERE connectors.evse_id = evses.id
+              AND evses.station_id = ${stationUuid}
+              AND evses.evse_id = ${evseId}
+              AND connectors.max_power_kw IS NULL
           `;
         }
       }

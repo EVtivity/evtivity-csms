@@ -865,13 +865,9 @@ async function seed(): Promise<void> {
   // ------ Charging Stations (2000) ------
   // Stations 1-1000 (indices 0-999): OCPP 2.1
   // Stations 1001-2000 (indices 1000-1999): OCPP 1.6
-  const stationStatuses: Array<'available' | 'unavailable' | 'faulted'> = [
-    'available',
-    'available',
-    'available',
-    'unavailable',
-    'faulted',
-  ];
+  // About 1 in 5 demo stations is switched off by an operator. Availability is
+  // computed from that and the connectors, so it is not seeded directly.
+  const disabledReasons: Array<'operator' | null> = [null, null, null, null, 'operator'];
   // Hash default password for SP1/SP2 stations (matches simulator default STATION_PASSWORD=password)
   const stationPasswordHash = await argon2.hash('password');
   // Track Saratoga Springs site IDs for station-level coordinate assignment
@@ -890,7 +886,7 @@ async function seed(): Promise<void> {
     const siteRef = pick(createdSites);
     const modelInfo = is16 ? pick(STATION_MODELS_16) : pick(STATION_MODELS);
     stationModels.push(modelInfo);
-    const availability = pick(stationStatuses);
+    const disabledReason = pick(disabledReasons);
     // Simulator stations start offline; the CSS process sets them online when it connects.
     const isOnline = false;
     // Vary load priority: ~15% high (8-10), ~15% low (1-3), rest default (5)
@@ -940,7 +936,8 @@ async function seed(): Promise<void> {
         0,
         15,
       ),
-      availability,
+      disabledReason,
+      availability: disabledReason == null ? ('available' as const) : ('unavailable' as const),
       onboardingStatus: 'accepted' as const,
       isOnline,
       lastHeartbeat: null,
@@ -1123,8 +1120,8 @@ async function seed(): Promise<void> {
   // simulator hardware, so the simulator reports them and CSMS auto-creates.
   const autoCreateGapEvses: Array<{ stationIdx: number; evseId: number }> = [];
   for (let i = 0; i < createdStations.length; i++) {
-    const is16 = i >= 160;
-    // 1.6 stations get 1-2 connectors, each with its own EVSE (1:1 mapping)
+    const is16 = at(stationRows, i).ocppProtocol === 'ocpp1.6';
+    // 1.6 stations get 1-2 connectors, each with its own EVSE (EVSE N / connector N)
     // 2.1 stations get 2-3 EVSEs
     const numEvses = is16 ? randomInt(1, 2) : i % 5 === 0 ? 3 : 2;
     // For every 10th 2.1 station, skip the last EVSE so the simulator triggers auto-creation
@@ -1164,14 +1161,16 @@ async function seed(): Promise<void> {
   }> = [];
   for (let i = 0; i < createdEvses.length; i++) {
     const stationIdx = at(evseStationIdx, i);
-    const is16 = stationIdx >= 160;
+    const is16 = at(stationRows, stationIdx).ocppProtocol === 'ocpp1.6';
     const modelInfo = at(stationModels, stationIdx);
     const evse = at(createdEvses, i);
 
-    // Primary connector
+    // Primary connector. OCPP 1.6 connector N is EVSE N / connector N, the
+    // numbering the 1.6 StatusNotification handler and the simulator use.
+    // 2.1 connectors start at 1 per EVSE.
     connectorRows.push({
       evseId: evse.id,
-      connectorId: 1,
+      connectorId: is16 ? at(evseRows, i).evseId : 1,
       status: pick(connectorStatuses),
       connectorType: modelInfo.type,
       maxPowerKw: String(modelInfo.power),

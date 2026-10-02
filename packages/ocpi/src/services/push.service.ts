@@ -17,6 +17,7 @@ import {
   ocpiSyncLog,
   maintenanceEvents,
   getCompanyCurrency,
+  isStationLevelUnavailable,
 } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import type { PubSubClient, Subscription } from '@evtivity/lib';
@@ -181,18 +182,24 @@ async function pushLocationUpdate(siteId: string): Promise<void> {
     connectorsByEvse.set(c.evseId, list);
   }
 
-  const evsesWithConnectors = evseRows.map((e) => ({
-    ...e,
-    connectors: (connectorsByEvse.get(e.id) ?? []).map((c) => ({
-      id: c.id,
-      connectorId: c.connectorId,
-      connectorType: c.connectorType,
-      maxPowerKw: c.maxPowerKw,
-      maxCurrentAmps: c.maxCurrentAmps,
-      status: c.status,
-      updatedAt: c.updatedAt,
-    })),
-  }));
+  const stationById = new Map(stationRows.map((s) => [s.id, s]));
+  const evsesWithConnectors = evseRows.map((e) => {
+    const station = stationById.get(e.stationId);
+    return {
+      ...e,
+      stationOcppId: station?.stationId ?? e.stationId,
+      stationLevelUnavailable: station != null && isStationLevelUnavailable(station),
+      connectors: (connectorsByEvse.get(e.id) ?? []).map((c) => ({
+        id: c.id,
+        connectorId: c.connectorId,
+        connectorType: c.connectorType,
+        maxPowerKw: c.maxPowerKw,
+        maxCurrentAmps: c.maxCurrentAmps,
+        status: c.status,
+        updatedAt: c.updatedAt,
+      })),
+    };
+  });
 
   const locationId = publishSetting.ocpiLocationId ?? siteId;
   const countryCode = getCountryCode();

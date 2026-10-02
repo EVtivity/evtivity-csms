@@ -40,6 +40,10 @@ function createSqlMock() {
   // Mirror postgres-js's `sql.json(value)` helper so production code that
   // wraps JSONB values can run unchanged in tests.
   (sqlFn as unknown as { json: (v: unknown) => unknown }).json = (v) => v;
+  (sqlFn as unknown as { unsafe: (text: string) => string }).unsafe = (text) => text;
+  // Transactions run on the same mock, so their statements are recorded in order.
+  (sqlFn as unknown as { begin: (fn: (tx: unknown) => unknown) => unknown }).begin = (fn) =>
+    fn(sqlFn);
 
   return sqlFn as unknown;
 }
@@ -60,7 +64,11 @@ vi.mock('postgres', () => {
 
 const mockIsRoamingEnabled = vi.fn().mockResolvedValue(false);
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  // The real status entry point, running on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/station-status.js',
+  )),
   client: createSqlMock(),
   isRoamingEnabled: mockIsRoamingEnabled,
   getIdlingGracePeriodMinutes: vi.fn().mockResolvedValue(0),
@@ -472,6 +480,7 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'evs_000000000002' }], // INSERT evses
         [], // INSERT connectors
         [], // INSERT port_status_log
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: 'site-status' }], // resolveSiteId
       );
@@ -1348,7 +1357,7 @@ describe('Event projections - coverage expansion', () => {
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationId
-        [], // resolveActiveSessionId fallback
+        [], // resolveMeterValueSession fallback
         [], // INSERT meter_values
         // No UPDATE energy (not Energy.Active.Import.Register)
         [], // SELECT active sessions
@@ -1449,18 +1458,20 @@ describe('Event projections - coverage expansion', () => {
 
   describe('ocpp.MeterValues - active session cost unchanged', () => {
     it('skips CostUpdated when cost has not changed', async () => {
-      mockCalculateSessionCost.mockReturnValueOnce({ totalCents: 100 });
       await setup();
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationId
-        [], // resolveActiveSessionId fallback
+        [{ id: 'session-1', evse_id: 'evs_1' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
+        [], // SELECT previous energy
         [], // UPDATE meter_start
         [], // UPDATE energy
         [
           {
             id: 'session-1',
+            transaction_id: 'tx-1',
+            ocpp_protocol: 'ocpp2.1',
             tariff_id: 'tariff-1',
             started_at: '2024-01-01T00:00:00Z',
             energy_delivered_wh: 5000,
@@ -1485,6 +1496,7 @@ describe('Event projections - coverage expansion', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'tx-1',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -1509,6 +1521,7 @@ describe('Event projections - coverage expansion', () => {
         if (typeof c[1] !== 'string') return false;
         return c[1].includes('CostUpdated');
       });
+      expect(mockCalculateSessionCost).toHaveBeenCalled();
       expect(costUpdateCalls.length).toBe(0);
     });
   });
@@ -1528,13 +1541,16 @@ describe('Event projections - coverage expansion', () => {
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationId
-        [], // resolveActiveSessionId fallback
+        [{ id: 'session-1', evse_id: 'evs_1' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
+        [], // SELECT previous energy
         [], // UPDATE meter_start
         [], // UPDATE energy
         [
           {
             id: 'session-1',
+            transaction_id: 'tx-1',
+            ocpp_protocol: 'ocpp2.1',
             tariff_id: 'tariff-1',
             started_at: '2024-01-01T00:00:00Z',
             energy_delivered_wh: 5000,
@@ -1549,8 +1565,6 @@ describe('Event projections - coverage expansion', () => {
         ], // active sessions (includes snapshot columns)
         // No separate tariff SELECT - uses snapshot columns from session row
         [], // UPDATE cost
-        [{ transaction_id: 'tx-1' }], // SELECT transaction_id
-        [], // CostUpdated pubsub (will fail)
         [{ site_id: null }], // resolveSiteId
       );
 
@@ -1559,6 +1573,7 @@ describe('Event projections - coverage expansion', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'tx-1',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -1575,7 +1590,15 @@ describe('Event projections - coverage expansion', () => {
         }),
       );
 
-      expect(sqlCalls.length).toBeGreaterThanOrEqual(5);
+      const costUpdateCalls = (
+        mockPubSub.publish as Mock<PubSubClient['publish']>
+      ).mock.calls.filter(
+        (c: unknown[]) => typeof c[1] === 'string' && c[1].includes('CostUpdated'),
+      );
+      expect(costUpdateCalls.length).toBe(1);
+      expect(sqlCalls.some((c) => c.strings.join(' ').includes('SET current_cost_cents'))).toBe(
+        true,
+      );
     });
   });
 
@@ -3965,6 +3988,21 @@ describe('Event projections - coverage expansion', () => {
       await eventBus.emit('ocpp.DataTransfer', event);
 
       expect(mockDispatchOcpp).toHaveBeenCalledWith(expect.anything(), event);
+    });
+
+    it('skips a connector status taken from a NotifyEvent', async () => {
+      await setup();
+
+      const event = makeDomainEvent('ocpp.StatusNotification', 'CS-001', {
+        evseId: 1,
+        connectorId: 1,
+        connectorStatus: 'Available',
+        source: 'NotifyEvent',
+      });
+
+      await eventBus.emit('ocpp.StatusNotification', event);
+
+      expect(mockDispatchOcpp).not.toHaveBeenCalledWith(expect.anything(), event);
     });
   });
 

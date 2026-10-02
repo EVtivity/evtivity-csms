@@ -21,6 +21,7 @@ import { inCompanyCurrency } from '../lib/company-currency.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { buildDerivedStatusSubquery } from '../lib/station-derived-status.js';
 import { dateRangeQuery, parseDateRange, parseCalendarDate } from '../lib/date-range.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
@@ -501,20 +502,14 @@ export function dashboardRoutes(app: FastifyInstance): void {
           .where(inArray(chargingStations.siteId, siteIds));
       }
 
-      // Faults count stations that have at least one faulted connector (the
-      // same derived signal the station list filters on), not the operator-set
-      // charging_stations.availability column, so the dashboard and the station
-      // list agree.
-      const faultedConditions = [sql`${connectors.status} = 'faulted'`];
-      if (siteIds != null) {
-        faultedConditions.push(inArray(chargingStations.siteId, siteIds));
-      }
+      // Faulted stations use the station list's display status, so a station
+      // charging on one plug while another plug is faulted is not counted.
       const faultedStationsQueryBuilder = db
-        .select({ faulted: sql<number>`count(distinct ${chargingStations.id})` })
+        .select({
+          faulted: sql<number>`count(*) filter (where ${buildDerivedStatusSubquery(chargingStations.id)} = 'faulted')`,
+        })
         .from(chargingStations)
-        .innerJoin(evses, eq(evses.stationId, chargingStations.id))
-        .innerJoin(connectors, eq(connectors.evseId, evses.id))
-        .where(and(...faultedConditions));
+        .where(stationConditions.length > 0 ? and(...stationConditions) : undefined);
 
       const [stationRows, sessionStatsRows, faultedStationsRows] = await Promise.all([
         db

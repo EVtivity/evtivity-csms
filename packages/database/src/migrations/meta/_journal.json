@@ -645,6 +645,27 @@
       "when": 1790830787969,
       "tag": "0091_driver_portal_invite_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1790911526167,
+      "tag": "0092_station_reported_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1790913044003,
+      "tag": "0093_station_status_inputs",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1790917217500,
+      "tag": "0094_unique_evse_connector_numbers",
+      "breakpoints": true
     }
   ]
 }

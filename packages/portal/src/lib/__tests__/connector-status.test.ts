@@ -12,6 +12,7 @@ const chargeOnline = {
   mode: 'charge' as const,
   isOnline: true,
   maintenanceActive: false,
+  stationUnavailable: false,
   currentDriverId: 'drv_self',
 };
 
@@ -42,6 +43,19 @@ describe('isEvseSelectable (charge mode)', () => {
 
   it('rejects when the station is offline', () => {
     expect(isEvseSelectable(evse('available'), { ...chargeOnline, isOnline: false })).toBe(false);
+  });
+
+  it('rejects when the whole station is unavailable', () => {
+    expect(isEvseSelectable(evse('available'), { ...chargeOnline, stationUnavailable: true })).toBe(
+      false,
+    );
+    expect(
+      isEvseSelectable(evse('available'), {
+        ...chargeOnline,
+        mode: 'reserve',
+        stationUnavailable: true,
+      }),
+    ).toBe(false);
   });
 
   it('rejects when maintenance is active', () => {

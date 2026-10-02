@@ -25,6 +25,10 @@ function createSqlMock() {
   // wraps JSONB values can run unchanged in tests. Returning the raw value
   // is sufficient because the mock just records template strings + values.
   (sqlFn as unknown as { json: (v: unknown) => unknown }).json = (v) => v;
+  (sqlFn as unknown as { unsafe: (text: string) => string }).unsafe = (text) => text;
+  // Transactions run on the same mock, so their statements are recorded in order.
+  (sqlFn as unknown as { begin: (fn: (tx: unknown) => unknown) => unknown }).begin = (fn) =>
+    fn(sqlFn);
 
   return sqlFn as unknown;
 }
@@ -43,7 +47,11 @@ vi.mock('postgres', () => {
   return { default: factory };
 });
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  // The real status entry point, running on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/station-status.js',
+  )),
   client: createSqlMock(),
   isRoamingEnabled: vi.fn().mockResolvedValue(false),
   getIdlingGracePeriodMinutes: vi.fn().mockResolvedValue(0),
@@ -594,6 +602,7 @@ describe('Event projections', () => {
         [{ status: 'charging' }], // SELECT status FROM connectors (prevRows)
         [], // INSERT port_status_log
         [], // UPDATE connectors
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
         [], // UPDATE charging_sessions SET idle_started_at
@@ -701,6 +710,7 @@ describe('Event projections', () => {
         [{ status: 'available' }], // SELECT status FROM connectors (prev)
         [], // INSERT port_status_log
         [], // UPDATE connectors
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
         [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol for station_message_refresh
@@ -787,6 +797,7 @@ describe('Event projections', () => {
         [{ status: 'available' }], // SELECT status FROM connectors (prev)
         [], // INSERT port_status_log
         [], // UPDATE connectors
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
         [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol
@@ -816,6 +827,7 @@ describe('Event projections', () => {
         [{ id: 'evs_000000000001' }], // INSERT evses RETURNING id
         [], // INSERT connectors
         [], // INSERT port_status_log
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
         [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (auto-discovery GetBaseReport branch)
@@ -872,6 +884,41 @@ describe('Event projections', () => {
       );
 
       expect(sqlCalls.length).toBeGreaterThanOrEqual(5);
+    });
+
+    it('falls back to the only connector on the EVSE when the reported one does not match', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [{ id: 'evs_000000000001' }], // resolveEvseUuid
+        [{ id: 'session-1' }], // INSERT charging_sessions RETURNING id
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Started',
+          stationId: 'CS-001',
+          transactionId: 'tx-fallback',
+          evseId: 1,
+          connectorId: 2,
+          seqNo: 0,
+          triggerReason: 'Authorized',
+          timestamp: '2024-01-01T00:00:00Z',
+        }),
+      );
+
+      const insert = sqlCalls.find((c) =>
+        c.strings.join('?').includes('INSERT INTO charging_sessions'),
+      );
+      const text = insert?.strings.join('?') ?? '';
+      expect(insert?.values).toContain(2);
+      // The single-connector fallback applies whether or not a connector was reported.
+      expect(text).toContain('c.connector_id = ?');
+      expect(text).toMatch(
+        /OR \(SELECT count\(\*\) FROM connectors c2 WHERE c2\.evse_id = \?\) = 1/,
+      );
+      expect(text).not.toContain('IS NULL');
     });
 
     it('inserts NULL meter_start when payload omits meterStart (OCPP 2.1)', async () => {
@@ -1648,7 +1695,7 @@ describe('Event projections', () => {
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId fallback
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
         [{ energy_delivered_wh: 0, meter_start: 0 }], // SELECT prev energy for flat-reading check
         [], // UPDATE meter_start (set if NULL)
@@ -1663,6 +1710,7 @@ describe('Event projections', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'TX-MV',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -1686,7 +1734,7 @@ describe('Event projections', () => {
       await setup();
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId fallback
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
         [{ energy_delivered_wh: null, meter_start: null }], // SELECT prev energy
         [], // UPDATE meter_start (set if NULL)
@@ -1697,6 +1745,7 @@ describe('Event projections', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'TX-MV',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -1725,7 +1774,7 @@ describe('Event projections', () => {
       await setup();
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId fallback
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
         [{ energy_delivered_wh: null, meter_start: null }], // SELECT prev energy
         [], // UPDATE meter_start (set if NULL)
@@ -1736,6 +1785,7 @@ describe('Event projections', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'TX-MV',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -1757,7 +1807,7 @@ describe('Event projections', () => {
       await setup();
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId fallback
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
       );
 
@@ -1765,6 +1815,7 @@ describe('Event projections', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'TX-MV',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -1791,7 +1842,7 @@ describe('Event projections', () => {
       await setup();
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId fallback
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
         [{ energy_delivered_wh: 0, meter_start: 2909465 }], // SELECT prev energy
         [], // UPDATE meter_start (set if NULL)
@@ -1802,6 +1853,7 @@ describe('Event projections', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'TX-MV',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -1825,7 +1877,7 @@ describe('Event projections', () => {
       await setup();
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId fallback
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values (total)
         [], // INSERT meter_values (L1)
         [], // INSERT meter_values (L3)
@@ -1838,6 +1890,7 @@ describe('Event projections', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'TX-MV',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -1863,7 +1916,7 @@ describe('Event projections', () => {
       await setup();
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId fallback
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values (L1)
         [], // INSERT meter_values (L2)
         [], // INSERT meter_values (L3)
@@ -1876,6 +1929,7 @@ describe('Event projections', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'TX-MV',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -1898,7 +1952,7 @@ describe('Event projections', () => {
       await setup();
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId fallback
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
       );
 
@@ -1906,6 +1960,7 @@ describe('Event projections', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'TX-MV',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -1927,7 +1982,7 @@ describe('Event projections', () => {
       await setup();
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId fallback
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values (L1)
         [], // INSERT meter_values (L2)
         [], // INSERT meter_values (L3)
@@ -1937,6 +1992,7 @@ describe('Event projections', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'TX-MV',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -1980,7 +2036,7 @@ describe('Event projections', () => {
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId fallback
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
         [{ energy_delivered_wh: 4000, meter_start: 0 }], // SELECT prev energy for flat-reading check
         [], // UPDATE meter_start (set if NULL)
@@ -2014,6 +2070,7 @@ describe('Event projections', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'TX-MV',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -2068,7 +2125,7 @@ describe('Event projections', () => {
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId fallback
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
         [], // UPDATE idle_started_at (power = 0)
         [], // SELECT active sessions (no tariff)
@@ -2080,6 +2137,7 @@ describe('Event projections', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'TX-MV',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -2108,7 +2166,7 @@ describe('Event projections', () => {
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId fallback
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
         [], // UPDATE idle_minutes (power > 0, accumulate)
         [], // SELECT active sessions (no tariff)
@@ -2120,6 +2178,7 @@ describe('Event projections', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'TX-MV',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -2154,7 +2213,7 @@ describe('Event projections', () => {
       // New reading is also 6000 (same as before), so energy is flat.
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId fallback
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
         [{ energy_delivered_wh: 5000, meter_start: 1000 }], // SELECT prev energy
         [], // UPDATE meter_start (no-op, already set)
@@ -2169,6 +2228,7 @@ describe('Event projections', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'TX-MV',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -2199,7 +2259,7 @@ describe('Event projections', () => {
       // New reading is 8000, so energy increased by 2000 Wh.
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId fallback
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
         [{ energy_delivered_wh: 5000, meter_start: 1000 }], // SELECT prev energy
         [], // UPDATE meter_start (no-op)
@@ -2214,6 +2274,7 @@ describe('Event projections', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'TX-MV',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -2247,7 +2308,7 @@ describe('Event projections', () => {
       // Session has no meter_start yet (first reading). prevEnergyWh will be -1.
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId fallback
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
         [{ energy_delivered_wh: null, meter_start: null }], // SELECT prev energy (no previous)
         [], // UPDATE meter_start (sets it for first time)
@@ -2261,6 +2322,7 @@ describe('Event projections', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'TX-MV',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -2292,7 +2354,7 @@ describe('Event projections', () => {
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId fallback
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
         [{ energy_delivered_wh: 9000, meter_start: 0 }], // SELECT prev energy for flat-reading check
         [], // UPDATE meter_start (set if NULL)
@@ -2326,6 +2388,7 @@ describe('Event projections', () => {
         'ocpp.MeterValues',
         makeDomainEvent('ocpp.MeterValues', 'CS-001', {
           stationId: 'CS-001',
+          transactionId: 'TX-MV',
           source: 'TransactionEvent',
           meterValues: [
             {
@@ -2354,7 +2417,7 @@ describe('Event projections', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evs_000000000001' }], // resolveEvseUuid
-        [{ id: 'ses_000000000001' }], // resolveActiveSessionId (by evse)
+        [{ id: 'ses_000000000001' }], // resolveMeterValueSession (by evse)
         [], // INSERT meter_values
         [], // SELECT active sessions
         [{ site_id: null }], // resolveSiteId
@@ -2404,7 +2467,7 @@ describe('Event projections', () => {
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [{ id: 'ses_000000000001' }], // resolveActiveSessionId (by transactionId)
+        [{ id: 'ses_000000000001' }], // resolveMeterValueSession (by transactionId)
         [], // INSERT meter_values
         [], // SELECT active sessions
         [{ site_id: null }], // resolveSiteId
@@ -2446,7 +2509,7 @@ describe('Event projections', () => {
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [{ id: 'ses_000000000001' }], // resolveActiveSessionId by transactionId
+        [{ id: 'ses_000000000001' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
         [], // SELECT active sessions
         [{ site_id: null }], // resolveSiteId
@@ -2469,10 +2532,13 @@ describe('Event projections', () => {
         }),
       );
 
-      // The resolveActiveSessionId query should include transactionId
+      // The resolveMeterValueSession query should include transactionId
       const sessionLookup = sqlCalls[1]!;
       expect(sessionLookup.strings.join('')).toContain('transaction_id');
       expect(sessionLookup.values).toContain('99999');
+      // A transactionId is only unique per station.
+      expect(sessionLookup.strings.join('')).toContain('station_id');
+      expect(sessionLookup.values).toContain('sta_000000000001');
     });
 
     it('filters energy update by evse_id when available', async () => {
@@ -2481,7 +2547,7 @@ describe('Event projections', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evs_000000000001' }], // resolveEvseUuid
-        [{ id: 'ses_000000000001' }], // resolveActiveSessionId
+        [{ id: 'ses_000000000001' }], // resolveMeterValueSession
         [], // INSERT meter_values
         [{ energy_delivered_wh: 0, meter_start: 0 }], // SELECT prev energy for flat-reading check
         [], // UPDATE meter_start (set if NULL)
@@ -2519,7 +2585,95 @@ describe('Event projections', () => {
         return joined.includes('energy_delivered_wh') && joined.includes('evse_id');
       });
       expect(energyUpdate).toBeDefined();
-      expect(energyUpdate!.values).toContain('evs_000000000001');
+      expect(energyUpdate!.values).toContain('ses_000000000001');
+    });
+
+    it('scopes a late reading to its own ended session, not the newer one on the EVSE', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [{ id: 'evs_000000000001' }], // resolveEvseUuid
+        [{ id: 'ses_old', evse_id: 'evs_000000000001' }], // resolveMeterValueSession (completed)
+        [], // INSERT meter_values (energy)
+        [], // INSERT meter_values (power)
+        [], // SELECT prev energy (session no longer active)
+        [], // UPDATE meter_start
+        [], // UPDATE energy
+        [], // UPDATE idle (power)
+        [], // SELECT active sessions
+        [{ site_id: null }], // resolveSiteId
+      );
+
+      await eventBus.emit(
+        'ocpp.MeterValues',
+        makeDomainEvent('ocpp.MeterValues', 'CS-001', {
+          stationId: 'CS-001',
+          evseId: 1,
+          transactionId: 'TX-OLD',
+          source: 'TransactionEvent',
+          meterValues: [
+            {
+              timestamp: '2024-01-01T00:30:00Z',
+              sampledValue: [
+                { measurand: 'Energy.Active.Import.Register', value: 9000, unit: 'Wh' },
+                { measurand: 'Power.Active.Import', value: 0, unit: 'W' },
+              ],
+            },
+          ],
+        }),
+      );
+
+      const sessionCalls = sqlCalls.filter((c) => {
+        const joined = c.strings.join('');
+        return (
+          joined.includes('charging_sessions') &&
+          !joined.includes('transaction_id = ') &&
+          !joined.includes('INSERT INTO meter_values')
+        );
+      });
+      // prev energy, meter_start, energy, idle, cost query
+      expect(sessionCalls.length).toBe(5);
+      for (const call of sessionCalls) {
+        const joined = call.strings.join('?');
+        // Matched by session id, still only while active, never by EVSE alone.
+        expect(joined).toMatch(/[(.]id = \?/);
+        expect(joined).toContain("status = 'active'");
+        expect(call.values).toContain('ses_old');
+      }
+      const insert = sqlCalls.find((c) => c.strings.join('').includes('INSERT INTO meter_values'));
+      expect(insert?.values).toContain('ses_old');
+    });
+
+    it('stores a station-wide reading without touching any session', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [], // INSERT meter_values
+        [{ site_id: null }], // resolveSiteId
+      );
+
+      await eventBus.emit(
+        'ocpp.MeterValues',
+        makeDomainEvent('ocpp.MeterValues', 'CS-001', {
+          stationId: 'CS-001',
+          evseId: 0,
+          meterValues: [
+            {
+              timestamp: '2024-01-01T00:30:00Z',
+              sampledValue: [
+                { measurand: 'Energy.Active.Import.Register', value: 120000, unit: 'Wh' },
+              ],
+            },
+          ],
+        }),
+      );
+
+      const insert = sqlCalls.find((c) => c.strings.join('').includes('INSERT INTO meter_values'));
+      expect(insert).toBeDefined();
+      expect(insert?.values).toContain(120000);
+      expect(sqlCalls.some((c) => c.strings.join('').includes('charging_sessions'))).toBe(false);
     });
 
     it('stores signedMeterValue in signed_data', async () => {
@@ -3135,11 +3289,11 @@ describe('Event projections', () => {
       await setup();
 
       // MeterValues with transactionId but no active session
-      // SQL calls: resolveStationUuid, resolveActiveSessionId (by tx_id), resolveActiveSessionId (fallback)
+      // SQL calls: resolveStationUuid, resolveMeterValueSession (by tx_id), resolveMeterValueSession (fallback)
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // resolveActiveSessionId by transactionId (no session)
-        [], // resolveActiveSessionId fallback (no session)
+        [], // resolveMeterValueSession by transactionId (no session)
+        [], // resolveMeterValueSession fallback (no session)
       );
 
       const meterValuesEvent = makeDomainEvent('ocpp.MeterValues', 'CS-001', {

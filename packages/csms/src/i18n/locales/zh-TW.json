@@ -821,7 +821,26 @@
     "passwordStored": "密碼已儲存。請在充電站上設定相同的密碼。",
     "securityChangeFailed": "安全變更失敗",
     "passwordInvalidCharacters": "只能使用字母、數字和 * - _ = : + | @ .",
-    "profileChangeOnline": "變更會傳送至充電站，充電站會使用新設定檔重新連線。在此之前維持目前的設定檔。"
+    "profileChangeOnline": "變更會傳送至充電站，充電站會使用新設定檔重新連線。在此之前維持目前的設定檔。",
+    "statusReason": {
+      "operator_disabled": "已被營運人員停用",
+      "security_disabled": "因嚴重安全事件已停用",
+      "firmware_failed": "韌體安裝失敗",
+      "station_faulted": "充電站回報故障",
+      "connector_faulted": "有連接器回報故障",
+      "firmware_installing": "正在安裝韌體",
+      "station_unavailable": "充電站回報自身無法使用"
+    },
+    "enableStation": "啟用充電站",
+    "disableStation": "停用充電站",
+    "enableStationTitle": "啟用此充電站？",
+    "enableStationDescription": "駕駛可以再次充電。系統會通知充電站恢復運作，並清除已儲存的韌體安裝狀態。",
+    "disableStationTitle": "停用此充電站？",
+    "disableStationDescription": "在您重新啟用之前，駕駛無法開始充電。系統會通知充電站停止運作。進行中的工作階段不會被停止。",
+    "enabledSuccess": "充電站已啟用",
+    "disabledSuccess": "充電站已停用",
+    "maxPowerUnknown": "最大功率未知",
+    "maxPowerUnknownHint": "在設定最大功率之前，負載管理無法限制此連接器。請編輯 EVSE 進行設定。OCPP 2.1 充電站會根據其組態報告自動填寫。"
   },
   "eventAlertRules": {
     "title": "事件告警規則",
@@ -2137,6 +2156,7 @@
     "COMMAND_FAILED": "命令失敗",
     "COMMAND_QUEUED": "充電站離線,指令已加入佇列",
     "COMMAND_TIMEOUT": "充電站無響應",
+    "CONNECTOR_ID_MISMATCH": "在 OCPP 1.6 充電站上，每個 EVSE 只有一個編號相同的連接器。",
     "CONNECTOR_NOT_AVAILABLE": "連接器目前無法用於充電",
     "CONNECTOR_NOT_FOUND": "找不到連接器",
     "CONNECTOR_OCCUPIED": "無法刪除仍有連接器使用中的 EVSE",
@@ -2315,6 +2335,7 @@
     "STATION_OFFLINE": "充電站已離線",
     "STATION_REJECTED": "充電站拒絕啟動：...",
     "STATION_TIMEOUT": "充電站未回應",
+    "STATION_UNAVAILABLE": "此充電站目前無法使用。請嘗試其他充電站。",
     "STORAGE_CONNECTION_FAILED": "儲存連線測試失敗",
     "STORAGE_NOT_CONFIGURED": "尚未設定附件儲存",
     "SUPPORT_AI_NOT_CONFIGURED": "尚未設定客服 AI",

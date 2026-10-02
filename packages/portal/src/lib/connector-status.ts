@@ -33,10 +33,13 @@ export function isEvseSelectable(
     mode: 'charge' | 'reserve';
     isOnline: boolean;
     maintenanceActive: boolean;
+    // The whole station cannot charge (disabled, firmware install, or a
+    // station-level fault). Blocks charging and reserving.
+    stationUnavailable: boolean;
     currentDriverId: string | null;
   },
 ): boolean {
-  if (opts.maintenanceActive || !opts.isOnline) return false;
+  if (opts.maintenanceActive || !opts.isOnline || opts.stationUnavailable) return false;
   if (opts.mode === 'reserve') return evse.reservationDriverId == null;
   const connectorStatus = evse.connectors[0]?.status ?? 'unavailable';
   const reservedByOther =

@@ -24,22 +24,6 @@ export async function createStation(data: {
   return station;
 }
 
-export async function updateStation(
-  id: string,
-  data: {
-    model?: string | undefined;
-    serialNumber?: string | undefined;
-    status?: 'available' | 'unavailable' | 'faulted' | 'removed' | undefined;
-  },
-) {
-  const [station] = await db
-    .update(chargingStations)
-    .set({ ...data, updatedAt: new Date() })
-    .where(eq(chargingStations.id, id))
-    .returning();
-  return station ?? null;
-}
-
 export async function removeStation(id: string) {
   const [station] = await db
     .update(chargingStations)

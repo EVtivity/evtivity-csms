@@ -49,7 +49,12 @@ function makeChain() {
   return chain;
 }
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  isStationLevelUnavailable: (
+    await vi.importActual<typeof import('../../../database/src/lib/station-status.js')>(
+      '../../../database/src/lib/station-status.js',
+    )
+  ).isStationLevelUnavailable,
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),
@@ -543,6 +548,32 @@ describe('Portal charger routes - handler logic', () => {
       expect(response.json().code).toBe('EVSE_NOT_FOUND');
     });
 
+    it.each([
+      { disabledReason: 'operator', firmwareState: null, reportedStatus: null },
+      { disabledReason: null, firmwareState: 'failed', reportedStatus: null },
+      { disabledReason: null, firmwareState: null, reportedStatus: 'faulted' },
+    ])('returns 409 STATION_UNAVAILABLE for a station-level state %o', async (state) => {
+      setupDbResults([
+        {
+          id: VALID_STATION_ID,
+          stationId: 'CS-001',
+          siteId: null,
+          isOnline: true,
+          onboardingStatus: 'accepted',
+          ocppProtocol: 'ocpp2.1',
+          ...state,
+        },
+      ]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/chargers/CS-001/evse/1/start',
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: {},
+      });
+      expect(response.statusCode).toBe(409);
+      expect(response.json().code).toBe('STATION_UNAVAILABLE');
+    });
+
     it('returns 400 when connector is not available', async () => {
       setupDbResults(
         [
@@ -801,6 +832,31 @@ describe('Portal charger routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(400);
       expect(response.json().code).toBe('STATION_OFFLINE');
+    });
+
+    it('returns 409 STATION_UNAVAILABLE when the station is disabled', async () => {
+      setupDbResults([
+        {
+          id: VALID_STATION_ID,
+          isOnline: true,
+          onboardingStatus: 'accepted',
+          reservationsEnabled: true,
+          disabledReason: 'security',
+          firmwareState: null,
+          reportedStatus: null,
+        },
+      ]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/reservations',
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: {
+          stationId: 'CS-001',
+          expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        },
+      });
+      expect(response.statusCode).toBe(409);
+      expect(response.json().code).toBe('STATION_UNAVAILABLE');
     });
 
     it('returns 400 PAYMENT_METHOD_REQUIRED when driver has no default card', async () => {

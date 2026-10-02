@@ -821,7 +821,26 @@
     "passwordStored": "Passwort gespeichert. Konfigurieren Sie dasselbe Passwort an der Ladestation.",
     "securityChangeFailed": "Sicherheitsaenderung fehlgeschlagen",
     "passwordInvalidCharacters": "Nur Buchstaben, Ziffern und * - _ = : + | @ . verwenden",
-    "profileChangeOnline": "Die Aenderung wird an die Ladestation gesendet, die sich mit dem neuen Profil neu verbindet. Bis dahin bleibt das aktuelle Profil aktiv."
+    "profileChangeOnline": "Die Aenderung wird an die Ladestation gesendet, die sich mit dem neuen Profil neu verbindet. Bis dahin bleibt das aktuelle Profil aktiv.",
+    "statusReason": {
+      "operator_disabled": "Von einem Betreiber deaktiviert",
+      "security_disabled": "Nach einem kritischen Sicherheitsereignis deaktiviert",
+      "firmware_failed": "Firmware-Installation fehlgeschlagen",
+      "station_faulted": "Die Station meldet einen Fehler",
+      "connector_faulted": "Ein Anschluss meldet einen Fehler",
+      "firmware_installing": "Firmware wird installiert",
+      "station_unavailable": "Die Station meldet sich als nicht verfügbar"
+    },
+    "enableStation": "Station aktivieren",
+    "disableStation": "Station deaktivieren",
+    "enableStationTitle": "Diese Station aktivieren?",
+    "enableStationDescription": "Fahrer können wieder laden. Die Station wird auf betriebsbereit gesetzt, und ein gespeicherter Firmware-Installationsstatus wird zurückgesetzt.",
+    "disableStationTitle": "Diese Station deaktivieren?",
+    "disableStationDescription": "Fahrer können erst wieder laden, wenn Sie die Station aktivieren. Die Station wird auf außer Betrieb gesetzt. Laufende Ladevorgänge werden nicht beendet.",
+    "enabledSuccess": "Station aktiviert",
+    "disabledSuccess": "Station deaktiviert",
+    "maxPowerUnknown": "Maximale Leistung unbekannt",
+    "maxPowerUnknownHint": "Das Lastmanagement kann diesen Anschluss erst begrenzen, wenn seine maximale Leistung gesetzt ist. Bearbeiten Sie das EVSE, um sie festzulegen. OCPP-2.1-Stationen tragen sie aus ihrem Konfigurationsbericht ein."
   },
   "eventAlertRules": {
     "title": "Ereigniswarnregeln",
@@ -2137,6 +2156,7 @@
     "COMMAND_FAILED": "Befehl fehlgeschlagen",
     "COMMAND_QUEUED": "Ladestation offline, Befehl in Warteschlange",
     "COMMAND_TIMEOUT": "Keine Antwort von der Station",
+    "CONNECTOR_ID_MISMATCH": "Bei einer OCPP-1.6-Station hat jedes EVSE einen Anschluss mit derselben Nummer.",
     "CONNECTOR_NOT_AVAILABLE": "Stecker ist nicht zum Laden verfügbar",
     "CONNECTOR_NOT_FOUND": "Stecker nicht gefunden",
     "CONNECTOR_OCCUPIED": "EVSE mit belegten Steckern kann nicht gelöscht werden",
@@ -2315,6 +2335,7 @@
     "STATION_OFFLINE": "Ladestation ist offline",
     "STATION_REJECTED": "Ladestation hat Start abgelehnt: ...",
     "STATION_TIMEOUT": "Ladestation hat nicht geantwortet",
+    "STATION_UNAVAILABLE": "Diese Ladestation ist derzeit nicht verfügbar. Versuchen Sie eine andere Ladestation.",
     "STORAGE_CONNECTION_FAILED": "Speicher-Verbindungstest fehlgeschlagen",
     "STORAGE_NOT_CONFIGURED": "Anhang-Speicher nicht konfiguriert",
     "SUPPORT_AI_NOT_CONFIGURED": "Support-AI ist nicht konfiguriert",

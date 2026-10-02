@@ -32,6 +32,10 @@ function createSqlMock() {
     return Promise.resolve(resultWithCount);
   };
   (sqlFn as unknown as { json: (v: unknown) => unknown }).json = (v) => v;
+  (sqlFn as unknown as { unsafe: (text: string) => string }).unsafe = (text) => text;
+  // Transactions run on the same mock, so their statements are recorded in order.
+  (sqlFn as unknown as { begin: (fn: (tx: unknown) => unknown) => unknown }).begin = (fn) =>
+    fn(sqlFn);
   return sqlFn as unknown;
 }
 
@@ -61,7 +65,11 @@ const mockGetTxEndedMeasurands = vi.fn().mockResolvedValue('');
 const mockIsSiteFreeVend = vi.fn().mockResolvedValue(false);
 const mockIsSplitBilling = vi.fn().mockResolvedValue(false);
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  // The real status entry point, running on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/station-status.js',
+  )),
   client: createSqlMock(),
   isRoamingEnabled: mockIsRoamingEnabled,
   getIdlingGracePeriodMinutes: vi.fn().mockResolvedValue(0),
@@ -372,7 +380,7 @@ describe('Event projections - coverage round 2', () => {
       expect(sqlCalls.length).toBe(1);
     });
 
-    it('accepted station: sets availability=available and pushes 2.1 SetVariables config', async () => {
+    it('accepted station: leaves availability alone and pushes 2.1 SetVariables config', async () => {
       mockGetMeterValueInterval.mockResolvedValue(60);
       mockGetClockAlignedInterval.mockResolvedValue(900);
       mockGetSampledMeasurands.mockResolvedValue('Energy.Active.Import.Register,Temperature');
@@ -383,6 +391,9 @@ describe('Event projections - coverage round 2', () => {
         STA, // resolveStationUuid
         [{ onboarding_status: 'accepted' }], // SELECT onboarding_status
         [], // UPDATE charging_stations (accepted)
+        [], // UPDATE firmware_state (a reboot ends an install)
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
+        [], // availability recompute (unchanged)
         [{ site_id: null }], // resolveSiteId
         [{ ocpp_protocol: 'ocpp2.1' }], // SELECT protocol (config push)
         [{ ocpp_protocol: 'ocpp2.1' }], // SELECT protocol (station message refresh)
@@ -392,7 +403,12 @@ describe('Event projections - coverage round 2', () => {
         model: 'M',
         vendorName: 'Acme',
       });
-      expect(findSql(/availability = 'available'/)).toBeDefined();
+      // Boot never sets availability directly: it only recomputes it from its
+      // inputs, so a disable or fault survives a reboot.
+      expect(findSql(/availability = 'available'/)).toBeUndefined();
+      expect(findSql(/SET availability = .*IS DISTINCT FROM/s)).toBeDefined();
+      // A reboot ends an install, so only an 'installing' state is cleared.
+      expect(findSql(/SET firmware_state = NULL.*firmware_state = 'installing'/s)).toBeDefined();
       const cmds = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
         (c) => c[0] === 'ocpp_commands',
       );
@@ -435,6 +451,9 @@ describe('Event projections - coverage round 2', () => {
         STA,
         [{ onboarding_status: 'accepted' }],
         [],
+        [], // UPDATE firmware_state (a reboot ends an install)
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
+        [], // availability recompute
         [{ site_id: null }],
         [{ ocpp_protocol: 'ocpp1.6' }], // config push
         [{ ocpp_protocol: 'ocpp1.6' }], // station message check
@@ -454,6 +473,9 @@ describe('Event projections - coverage round 2', () => {
         STA,
         [{ onboarding_status: 'accepted' }],
         [],
+        [], // UPDATE firmware_state (a reboot ends an install)
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
+        [], // availability recompute
         [{ site_id: null }],
         [{ ocpp_protocol: 'ocpp2.1' }],
         [{ ocpp_protocol: 'ocpp2.1' }],
@@ -472,6 +494,9 @@ describe('Event projections - coverage round 2', () => {
         STA,
         [{ onboarding_status: 'accepted' }],
         [],
+        [], // UPDATE firmware_state (a reboot ends an install)
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
+        [], // availability recompute
         [{ site_id: null }],
         [{ ocpp_protocol: 'ocpp1.6' }],
         [{ ocpp_protocol: 'ocpp1.6' }],
@@ -490,6 +515,9 @@ describe('Event projections - coverage round 2', () => {
         STA,
         [{ onboarding_status: 'accepted' }],
         [],
+        [], // UPDATE firmware_state (a reboot ends an install)
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
+        [], // availability recompute
         [{ site_id: null }],
         [{ ocpp_protocol: 'ocpp2.1' }], // station message refresh check
       );
@@ -1047,6 +1075,8 @@ describe('Event projections - coverage round 2', () => {
         [{ id: 'evs_new' }], // INSERT evses
         [], // INSERT connectors
         [], // INSERT port_status_log
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
+        [], // availability recompute (unchanged)
         [{ site_id: null }], // resolveSiteId
         [{ ocpp_protocol: 'ocpp2.1' }], // GetBaseReport branch
         [{ ocpp_protocol: 'ocpp2.1' }], // station_message_refresh branch
@@ -1125,6 +1155,7 @@ describe('Event projections - coverage round 2', () => {
         [{ id: 'evs_1' }],
         [{ status: 'occupied' }],
         [], // UPDATE connectors
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: 'site-9' }], // resolveSiteId
       );
@@ -1147,6 +1178,7 @@ describe('Event projections - coverage round 2', () => {
         [{ status: 'charging' }],
         [], // INSERT port_status_log (charging -> suspended_ev)
         [], // UPDATE connectors
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
         [], // UPDATE charging_sessions set idle_started_at
@@ -1216,7 +1248,7 @@ describe('Event projections - coverage round 2', () => {
       await setup();
       setupSqlResults(
         STA, // resolveStationUuid
-        [], // resolveActiveSessionId by transactionId -> none
+        [], // resolveMeterValueSession by transactionId -> none
         [], // allowCompleted -> none
         [], // by station active -> none
       );
@@ -1248,7 +1280,7 @@ describe('Event projections - coverage round 2', () => {
       await setup();
       setupSqlResults(
         STA, // 0 resolveStationUuid
-        [{ id: 'ses_1' }], // 1 resolveActiveSessionId by transactionId
+        [{ id: 'ses_1' }], // 1 resolveMeterValueSession by transactionId
         [], // 2 INSERT meter_values (count 1, success)
         [{ energy_delivered_wh: 100, meter_start: '50' }], // 3 prev energy/meter_start
         [], // 4 UPDATE meter_start (no-op, already set)
@@ -1385,35 +1417,70 @@ describe('Event projections - coverage round 2', () => {
   // ---- ocpp.FirmwareStatusNotification ----
 
   describe('ocpp.FirmwareStatusNotification', () => {
-    it('marks station available on Installed and upserts firmware (2.1 path), no campaign', async () => {
+    it('clears the firmware state on Installed and upserts firmware (2.1 path), no campaign', async () => {
       await setup();
-      setupSqlResults(STA, [], [{ campaign_id: null }]);
+      // firmware_state UPDATE, availability recompute (unchanged), firmware upsert
+      setupSqlResults(STA, [], [], [{ campaign_id: null }]);
       await emit('ocpp.FirmwareStatusNotification', 'CS-1', { status: 'Installed', requestId: 5 });
-      const avail = findSql(/UPDATE charging_stations\s+SET availability = 'available'/);
-      expect(avail).toBeDefined();
+      expect(findSql(/SET firmware_state = /)?.values[0]).toBeNull();
+      expect(findSql(/SET availability = /)).toBeDefined();
       expect(findSql(/INSERT INTO firmware_updates .* ON CONFLICT/s)).toBeDefined();
       // No campaign linked -> no campaign station update
       expect(findSql(/UPDATE firmware_campaign_stations/)).toBeUndefined();
     });
 
-    it('marks station faulted on InstallationFailed', async () => {
+    it('records a failed install on InstallationFailed', async () => {
       await setup();
-      setupSqlResults(STA, [], [{ campaign_id: null }]);
+      setupSqlResults(STA, [], [], [{ campaign_id: null }]);
       await emit('ocpp.FirmwareStatusNotification', 'CS-1', {
         status: 'InstallationFailed',
         requestId: 6,
       });
-      expect(findSql(/SET availability = 'faulted'/)).toBeDefined();
+      expect(findSql(/SET firmware_state = /)?.values[0]).toBe('failed');
     });
 
-    it('marks station unavailable on Installing', async () => {
+    it('records an install in progress on Installing', async () => {
       await setup();
-      setupSqlResults(STA, [], [{ campaign_id: null }]);
+      setupSqlResults(STA, [], [], [{ campaign_id: null }]);
       await emit('ocpp.FirmwareStatusNotification', 'CS-1', {
         status: 'Installing',
         requestId: 7,
       });
-      expect(findSql(/SET availability = 'unavailable'/)).toBeDefined();
+      expect(findSql(/SET firmware_state = /)?.values[0]).toBe('installing');
+    });
+
+    it.each(['Idle', 'DownloadFailed'])(
+      'ends an install in progress on %s but keeps a failed install',
+      async (status) => {
+        await setup();
+        setupSqlResults(
+          STA,
+          [],
+          [],
+          [{ id: 'sta_1' }],
+          [{ site_id: null }],
+          [{ campaign_id: null }],
+        );
+        await emit('ocpp.FirmwareStatusNotification', 'CS-1', { status, requestId: 11 });
+        const clear = findSql(/SET firmware_state = NULL/);
+        expect(clear?.strings.join(' ')).toContain("firmware_state = 'installing'");
+        expect(findSql(/SET firmware_state = 'failed'/)).toBeUndefined();
+        const published = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.map(
+          (c) => c[1] as string,
+        );
+        expect(published.some((p) => p.includes('station.status'))).toBe(true);
+      },
+    );
+
+    it('leaves the firmware state alone for a download in progress', async () => {
+      await setup();
+      setupSqlResults(STA, [{ campaign_id: null }]);
+      await emit('ocpp.FirmwareStatusNotification', 'CS-1', {
+        status: 'Downloading',
+        requestId: 12,
+      });
+      expect(findSql(/SET firmware_state/)).toBeUndefined();
+      expect(findSql(/SET availability/)).toBeUndefined();
     });
 
     it('1.6 path: updates most recent non-terminal firmware row', async () => {
@@ -1435,7 +1502,9 @@ describe('Event projections - coverage round 2', () => {
       await setup();
       setupSqlResults(
         STA,
-        [], // UPDATE charging_stations (Installed)
+        [], // UPDATE charging_stations firmware_state (Installed)
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
+        [], // availability recompute (unchanged)
         [{ campaign_id: 'fwc_1' }], // upsert firmware_updates RETURNING
         [], // UPDATE firmware_campaign_stations
         [{ id: 'fwc_1' }], // UPDATE firmware_campaigns RETURNING (completed)
@@ -1457,8 +1526,9 @@ describe('Event projections - coverage round 2', () => {
       await setup();
       setupSqlResults(
         STA,
-        // DownloadFailed does not flip charging_stations availability, so the
-        // next SQL call is the firmware_updates upsert.
+        [], // UPDATE firmware_state (DownloadFailed ends an install in progress)
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
+        [], // availability recompute (unchanged)
         [{ campaign_id: 'fwc_2' }], // upsert RETURNING
         [], // UPDATE firmware_campaign_stations
         EMPTY, // UPDATE firmware_campaigns -> count 0 (not all terminal)
@@ -1483,8 +1553,8 @@ describe('Event projections - coverage round 2', () => {
         timestamp: 't',
       });
       expect(findSql(/INSERT INTO security_events/)).toBeDefined();
-      // non-critical -> no availability flip
-      expect(findSql(/SET availability = 'unavailable'/)).toBeUndefined();
+      // non-critical -> no disable
+      expect(findSql(/SET disabled_reason = 'security'/)).toBeUndefined();
     });
 
     it('auto-disables station and writes audit when critical and toggle enabled', async () => {
@@ -1493,15 +1563,31 @@ describe('Event projections - coverage round 2', () => {
       setupSqlResults(
         STA,
         [], // INSERT security_events
-        [{ prior_availability: 'available' }], // CTE flip RETURNING prior
-        [{ site_id: 'site-1' }], // resolveSiteId
+        [{ availability: 'available', disabled_reason: null }], // prior state
+        [], // UPDATE disabled_reason
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
+        [{ id: 'sta_1' }], // availability recompute (changed)
+        [{ site_id: 'site-1' }], // resolveSiteId (station.status)
+        [{ site_id: 'site-1' }], // resolveSiteId (station.securityEvent)
       );
       // FirmwareSignatureVerificationFailed is a critical security event
       await emit('ocpp.SecurityEventNotification', 'CS-1', {
         type: 'InvalidFirmwareSignature',
         timestamp: 't',
       });
-      expect(findSql(/SET availability = 'unavailable'/)).toBeDefined();
+      expect(findSql(/SET disabled_reason = 'security'/)).toBeDefined();
+      const published = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c) => c[1] as string,
+      );
+      expect(published.some((p) => p.includes('station.status'))).toBe(true);
+      const command = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => c[0] === 'ocpp_commands',
+      );
+      expect(JSON.parse(command?.[1] as string)).toMatchObject({
+        stationId: 'CS-1',
+        action: 'ChangeAvailability',
+        payload: { operationalStatus: 'Inoperative' },
+      });
       expect(mockWriteAudit).toHaveBeenCalledWith(
         { table: { __table: 'station_audit_log' }, idColumn: 'station_id' },
         expect.objectContaining({
@@ -1515,19 +1601,25 @@ describe('Event projections - coverage round 2', () => {
       );
     });
 
-    it('critical but already unavailable: no audit (CTE returns no prior)', async () => {
+    it('critical but already disabled: no audit', async () => {
       mockIsAutoDisableOnCritical.mockResolvedValue(true);
       await setup();
       setupSqlResults(
         STA,
         [], // INSERT
-        [], // CTE flip -> already unavailable, no prior returned
+        [{ availability: 'unavailable', disabled_reason: 'operator' }], // already disabled
         [{ site_id: null }],
       );
       await emit('ocpp.SecurityEventNotification', 'CS-1', {
         type: 'InvalidFirmwareSignature',
       });
       expect(mockWriteAudit).not.toHaveBeenCalled();
+      // Already disabled: the station was told when that happened.
+      expect(
+        (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.some(
+          (c) => c[0] === 'ocpp_commands',
+        ),
+      ).toBe(false);
     });
 
     it('critical but toggle disabled: no flip', async () => {
@@ -1535,7 +1627,7 @@ describe('Event projections - coverage round 2', () => {
       await setup();
       setupSqlResults(STA, [], [{ site_id: null }]);
       await emit('ocpp.SecurityEventNotification', 'CS-1', { type: 'InvalidFirmwareSignature' });
-      expect(findSql(/SET availability = 'unavailable'/)).toBeUndefined();
+      expect(findSql(/SET disabled_reason = 'security'/)).toBeUndefined();
     });
   });
 

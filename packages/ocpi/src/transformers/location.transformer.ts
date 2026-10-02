@@ -11,6 +11,7 @@ import type {
   OcpiPowerType,
   OcpiVersion,
 } from '../types/ocpi.js';
+import { ocpiEvseUid, ocpiEvseId } from '../lib/evse-uid.js';
 
 // Internal DB types (matching Drizzle schema select results)
 
@@ -36,8 +37,15 @@ interface EvseRow {
   /** Internal DB id of the owning station. Used by the OCPI transformer to
    *  apply per-station maintenance masking. */
   stationId: string;
+  // OCPP identifier of the owning station, for the readable evse_id.
+  stationOcppId: string;
   evseId: number;
   updatedAt: Date;
+  /** True when the owning station cannot start a session at all
+   *  (`isStationLevelUnavailable`: disabled, firmware installing or failed,
+   *  station-reported Unavailable or Faulted). Masks the EVSE as INOPERATIVE
+   *  the same way maintenance does. */
+  stationLevelUnavailable: boolean;
   connectors: ConnectorRow[];
 }
 
@@ -179,17 +187,18 @@ function deriveEvseStatus(connectors: ConnectorRow[]): OcpiEVSEStatus {
 
 function transformEvse(
   evse: EvseRow,
-  siteId: string,
   version: OcpiVersion,
   tariffIds?: string[],
   underMaintenance?: boolean,
 ): OcpiEVSE {
   const status: OcpiEVSEStatus =
-    underMaintenance === true ? 'INOPERATIVE' : deriveEvseStatus(evse.connectors);
+    underMaintenance === true || evse.stationLevelUnavailable
+      ? 'INOPERATIVE'
+      : deriveEvseStatus(evse.connectors);
 
   return {
-    uid: `${siteId}-${String(evse.evseId)}`,
-    evse_id: `${siteId}-EVSE-${String(evse.evseId)}`,
+    uid: ocpiEvseUid(evse),
+    evse_id: ocpiEvseId(evse.stationOcppId, evse.evseId),
     status,
     connectors: evse.connectors.map((c) => transformConnector(c, version, tariffIds)),
     capabilities: ['REMOTE_START_STOP_CAPABLE', 'RFID_READER'],
@@ -234,7 +243,7 @@ export function transformLocation(
     },
     time_zone: site.timezone,
     evses: evses.map((e) =>
-      transformEvse(e, site.id, version, tariffIds, isEvseUnderMaintenance(e, input.maintenance)),
+      transformEvse(e, version, tariffIds, isEvseUnderMaintenance(e, input.maintenance)),
     ),
     last_updated: site.updatedAt.toISOString(),
   };
@@ -265,12 +274,11 @@ export function transformLocation(
 
 export function transformEvseStandalone(
   evse: EvseRow,
-  siteId: string,
   version: OcpiVersion,
   tariffIds?: string[],
   underMaintenance?: boolean,
 ): OcpiEVSE {
-  return transformEvse(evse, siteId, version, tariffIds, underMaintenance);
+  return transformEvse(evse, version, tariffIds, underMaintenance);
 }
 
 export function transformConnectorStandalone(

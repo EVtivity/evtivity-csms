@@ -92,6 +92,7 @@ export const TC_I_113_CS: CsTestCase = {
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     setupHandler(ctx);
+    ctx.station.setConfigValue('_seedTestTransaction', 'true');
 
     // Step 1-2: GetVariables for TariffMaxElements
     const getVarRes = await ctx.server.sendCommand('GetVariables', {
@@ -165,6 +166,7 @@ export const TC_I_114_CS: CsTestCase = {
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     setupHandler(ctx);
+    ctx.station.setConfigValue('_seedTestTransaction', 'true');
 
     const res = await ctx.server.sendCommand('ChangeTransactionTariff', {
       transactionId: 'test-tx',
@@ -231,6 +233,7 @@ export const TC_I_115_CS: CsTestCase = {
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     setupHandler(ctx);
+    ctx.station.setConfigValue('_seedTestTransaction', 'true');
 
     // Step 1-2: ChangeTransactionTariff with conditions - expect Accepted
     const res = await ctx.server.sendCommand('ChangeTransactionTariff', {
@@ -291,6 +294,7 @@ export const TC_I_116_CS: CsTestCase = {
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     setupHandler(ctx);
+    ctx.station.setConfigValue('_seedTestTransaction', 'true');
 
     // Step 1-2: SetDefaultTariff
     const setRes = await ctx.server.sendCommand('SetDefaultTariff', {
@@ -361,6 +365,7 @@ export const TC_I_117_CS: CsTestCase = {
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     setupHandler(ctx);
+    ctx.station.setConfigValue('_seedTestTransaction', 'true');
 
     // Step 1-2: Unknown transactionId - expect TxNotFound
     const res1 = await ctx.server.sendCommand('ChangeTransactionTariff', {

@@ -39,6 +39,11 @@ vi.mock('../services/fleet.service.js', () => mockFleetService);
 // db.select(...).from(table).where(eq(table.id, ...)) and resolves with the
 // returned array; mockResolvedValue provides a thenable matching that shape.
 const mockDbResults = vi.hoisted(() => ({ findRow: true }));
+vi.mock('../lib/station-derived-status.js', () => ({
+  buildDerivedStatusSubquery: vi.fn(() => 'status'),
+  buildStatusReasonSubquery: vi.fn(() => null),
+}));
+
 vi.mock('@evtivity/database', () => {
   const buildChain = (): Record<string, unknown> => {
     const chain: Record<string, unknown> = {};
@@ -562,6 +567,7 @@ describe('Fleet routes - handler logic', () => {
           securityProfile: null,
           ocppProtocol: null,
           status: 'online',
+          statusReason: null,
           connectorCount: 2,
           connectorTypes: ['CCS2'],
           isOnline: true,

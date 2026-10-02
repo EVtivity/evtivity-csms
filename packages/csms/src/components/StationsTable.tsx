@@ -16,9 +16,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { SecurityProfileBadge } from '@/components/SecurityProfileBadge';
+import { StationStatusBadge } from '@/components/StationStatusBadge';
 import { SVG_COLORS } from '@/lib/chart-theme';
 import { formatDateTime, formatRelativeTime } from '@/lib/timezone';
-import { stationStatusVariant, stationStatusClassName } from '@/lib/status-variants';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
 import { LoadingLogo } from '@/components/loading-logo';
 
@@ -89,6 +89,7 @@ export interface Station {
   securityProfile?: number | undefined;
   ocppProtocol?: string | null;
   status: string;
+  statusReason?: string | null;
   connectorCount: number;
   connectorTypes: string[] | null;
   isOnline: boolean;
@@ -496,12 +497,7 @@ export function StationsTable({
               {isVisible('ocppProtocol') && <TableCell>{station.ocppProtocol ?? '-'}</TableCell>}
               {isVisible('evseStatus') && (
                 <TableCell>
-                  <Badge
-                    variant={stationStatusVariant(station.status)}
-                    className={stationStatusClassName(station.status)}
-                  >
-                    {t(`status.${station.status}`, station.status)}
-                  </Badge>
+                  <StationStatusBadge status={station.status} statusReason={station.statusReason} />
                 </TableCell>
               )}
               {isVisible('connectors') && (

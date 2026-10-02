@@ -209,6 +209,9 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
           siteId: chargingStations.siteId,
           isOnline: chargingStations.isOnline,
           reservationsEnabled: chargingStations.reservationsEnabled,
+          disabledReason: chargingStations.disabledReason,
+          firmwareState: chargingStations.firmwareState,
+          reportedStatus: chargingStations.reportedStatus,
         })
         .from(chargingStations)
         .where(inArray(chargingStations.stationId, slotStationOcppIds));

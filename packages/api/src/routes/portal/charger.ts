@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, or, ilike, desc, asc, sql, gte, gt, isNull, count, inArray } from 'drizzle-orm';
-import { db, client, getCompanyCurrency } from '@evtivity/database';
+import { db, client, getCompanyCurrency, isStationLevelUnavailable } from '@evtivity/database';
 import { decryptString, formatCurrencyAmount } from '@evtivity/lib';
 import { config as apiConfig } from '../../lib/config.js';
 import {
@@ -116,6 +116,11 @@ const portalChargerDetail = z
       .passthrough()
       .nullable()
       .describe('Active maintenance window for the site; null when none'),
+    stationUnavailable: z
+      .boolean()
+      .describe(
+        'True when the whole station cannot charge right now (disabled, firmware install, or a station-level fault)',
+      ),
   })
   .passthrough();
 
@@ -178,6 +183,11 @@ const portalStationDetail = z
       .passthrough()
       .nullable()
       .describe('Active maintenance window for the site; null when none'),
+    stationUnavailable: z
+      .boolean()
+      .describe(
+        'True when the whole station cannot charge right now (disabled, firmware install, or a station-level fault)',
+      ),
   })
   .passthrough();
 
@@ -476,6 +486,9 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           siteId: chargingStations.siteId,
           model: chargingStations.model,
           isOnline: chargingStations.isOnline,
+          disabledReason: chargingStations.disabledReason,
+          firmwareState: chargingStations.firmwareState,
+          reportedStatus: chargingStations.reportedStatus,
           isSimulator: chargingStations.isSimulator,
           siteName: sites.name,
           siteAddress: sites.address,
@@ -568,6 +581,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           reservationDriverId,
         },
         maintenance,
+        stationUnavailable: isStationLevelUnavailable(station),
       };
     },
   );
@@ -1275,6 +1289,9 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           siteId: chargingStations.siteId,
           model: chargingStations.model,
           isOnline: chargingStations.isOnline,
+          disabledReason: chargingStations.disabledReason,
+          firmwareState: chargingStations.firmwareState,
+          reportedStatus: chargingStations.reportedStatus,
           isSimulator: chargingStations.isSimulator,
           siteName: sites.name,
           siteAddress: sites.address,
@@ -1409,6 +1426,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           reservationDriverId: reservationDriverMap.get(e.evseUuid) ?? null,
         })),
         maintenance,
+        stationUnavailable: isStationLevelUnavailable(station),
       };
     },
   );
@@ -1558,6 +1576,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
             ERROR_CODES.EVSE_IN_USE,
             ERROR_CODES.RESERVATION_BUFFER_ACTIVE,
             ERROR_CODES.MAINTENANCE_ACTIVE,
+            ERROR_CODES.STATION_UNAVAILABLE,
           ]),
           500: errorWith('Internal server error', [ERROR_CODES.INTERNAL_ERROR]),
           502: errorWith('Start rejected', [ERROR_CODES.START_REJECTED]),
@@ -1578,7 +1597,9 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           siteId: chargingStations.siteId,
           isOnline: chargingStations.isOnline,
           ocppProtocol: chargingStations.ocppProtocol,
-          availability: chargingStations.availability,
+          disabledReason: chargingStations.disabledReason,
+          firmwareState: chargingStations.firmwareState,
+          reportedStatus: chargingStations.reportedStatus,
           onboardingStatus: chargingStations.onboardingStatus,
           freeVendEnabled: sites.freeVendEnabled,
         })
@@ -1605,6 +1626,13 @@ export function portalChargerRoutes(app: FastifyInstance): void {
 
       if (!station.isOnline) {
         await reply.status(400).send({ error: 'Station is offline', code: 'STATION_OFFLINE' });
+        return;
+      }
+
+      if (isStationLevelUnavailable(station)) {
+        await reply
+          .status(409)
+          .send({ error: 'Station is unavailable', code: 'STATION_UNAVAILABLE' });
         return;
       }
 
@@ -2350,6 +2378,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
             ERROR_CODES.EVSE_IN_USE,
             ERROR_CODES.RESERVATION_CONFLICT,
             ERROR_CODES.RESERVATION_DURING_MAINTENANCE,
+            ERROR_CODES.STATION_UNAVAILABLE,
           ]),
           500: errorWith('Reservation create failed', [ERROR_CODES.RESERVATION_CREATE_FAILED]),
         },
@@ -2367,6 +2396,9 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           availability: chargingStations.availability,
           onboardingStatus: chargingStations.onboardingStatus,
           reservationsEnabled: chargingStations.reservationsEnabled,
+          disabledReason: chargingStations.disabledReason,
+          firmwareState: chargingStations.firmwareState,
+          reportedStatus: chargingStations.reportedStatus,
         })
         .from(chargingStations)
         .where(eq(chargingStations.stationId, body.stationId));

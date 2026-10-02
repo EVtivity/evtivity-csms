@@ -25,6 +25,28 @@ export type {
   WriteReservationAuditArgs,
 } from './lib/reservation-audit.js';
 export { writeAudit, redactAuditPayload } from './lib/audit.js';
+export {
+  recomputeStationAvailability,
+  setStationDisabled,
+  setStationFirmwareState,
+  clearStationFirmwareInstalling,
+  setStationReportedStatus,
+  applyConnectorStatus,
+  applyEvseChargingState,
+  stationAvailabilitySql,
+  stationStatusReasonSql,
+  isStationLevelUnavailable,
+} from './lib/station-status.js';
+export type {
+  StationAvailability,
+  StationDisabledReason,
+  StationFirmwareState,
+  StationStatusReason,
+  AvailabilityChange,
+  ConnectorStatusInput,
+  ConnectorStatusResult,
+  StationLevelState,
+} from './lib/station-status.js';
 export type { AuditActor, WriteAuditArgs } from './lib/audit.js';
 export { isFleetEnabled } from './lib/fleet-setting.js';
 export { isPortalRegistrationEnabled } from './lib/portal-registration-setting.js';

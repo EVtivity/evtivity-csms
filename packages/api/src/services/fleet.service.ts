@@ -19,6 +19,10 @@ import {
 } from '@evtivity/database';
 import type { PaginationParams } from '../lib/pagination.js';
 import { sessionCurrencySql } from '../lib/company-currency.js';
+import {
+  buildDerivedStatusSubquery,
+  buildStatusReasonSubquery,
+} from '../lib/station-derived-status.js';
 
 export async function listFleets(params: PaginationParams) {
   const { page, limit, search } = params;
@@ -139,15 +143,6 @@ export async function removeDriverFromFleet(fleetId: string, driverId: string) {
 }
 
 export async function getFleetStations(fleetId: string) {
-  const derivedStatus = sql<string>`CASE
-    WHEN COUNT(${connectors.id}) FILTER (WHERE ${connectors.status} = 'occupied') > 0 THEN 'charging'
-    WHEN COUNT(${connectors.id}) FILTER (WHERE ${connectors.status} = 'reserved') > 0 THEN 'reserved'
-    WHEN COUNT(${connectors.id}) FILTER (WHERE ${connectors.status} = 'faulted') > 0 THEN 'faulted'
-    WHEN COUNT(${connectors.id}) = 0 THEN 'unknown'
-    WHEN COUNT(${connectors.id}) FILTER (WHERE ${connectors.status} = 'available') = COUNT(${connectors.id}) THEN 'available'
-    ELSE 'unavailable'
-  END`;
-
   return db
     .select({
       id: chargingStations.id,
@@ -156,7 +151,8 @@ export async function getFleetStations(fleetId: string) {
       model: chargingStations.model,
       securityProfile: chargingStations.securityProfile,
       ocppProtocol: chargingStations.ocppProtocol,
-      status: derivedStatus,
+      status: buildDerivedStatusSubquery(chargingStations.id),
+      statusReason: buildStatusReasonSubquery(chargingStations.id),
       connectorCount: sql<number>`COUNT(${connectors.id})::int`,
       connectorTypes: sql<
         string[]

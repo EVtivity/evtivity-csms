@@ -48,6 +48,11 @@ function makeChain() {
   return chain;
 }
 
+vi.mock('../lib/station-derived-status.js', () => ({
+  buildDerivedStatusSubquery: vi.fn(() => 'status'),
+  buildStatusReasonSubquery: vi.fn(() => null),
+}));
+
 vi.mock('@evtivity/database', () => ({
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {

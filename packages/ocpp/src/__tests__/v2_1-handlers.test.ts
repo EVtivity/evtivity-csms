@@ -372,6 +372,98 @@ describe('NotifyEvent handler', () => {
       expect.objectContaining({ eventType: 'ocpp.NotifyEvent' }),
     );
   });
+
+  it('applies a Connector AvailabilityState as a connector status', async () => {
+    const { handleNotifyEvent } = await import('../handlers/v2_1/notify-event.handler.js');
+    const { ctx, publishMock } = makeCtx('NotifyEvent', {
+      generatedAt: '2024-01-01T00:00:00Z',
+      seqNo: 0,
+      eventData: [
+        {
+          eventId: 1,
+          timestamp: '2024-01-01T00:00:05Z',
+          trigger: 'Delta',
+          actualValue: 'Occupied',
+          component: { name: 'Connector', evse: { id: 2, connectorId: 1 } },
+          variable: { name: 'AvailabilityState' },
+        },
+      ],
+    });
+    await handleNotifyEvent(ctx);
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'ocpp.StatusNotification',
+        payload: expect.objectContaining({
+          evseId: 2,
+          connectorId: 1,
+          connectorStatus: 'Occupied',
+          timestamp: '2024-01-01T00:00:05Z',
+          source: 'NotifyEvent',
+        }) as unknown,
+      }),
+    );
+  });
+
+  it('applies a ChargingStation AvailabilityState as the station status (EVSE 0)', async () => {
+    const { handleNotifyEvent } = await import('../handlers/v2_1/notify-event.handler.js');
+    const { ctx, publishMock } = makeCtx('NotifyEvent', {
+      generatedAt: '2024-01-01T00:00:00Z',
+      seqNo: 0,
+      eventData: [
+        {
+          eventId: 1,
+          timestamp: '2024-01-01T00:00:00Z',
+          trigger: 'Delta',
+          actualValue: 'Faulted',
+          component: { name: 'ChargingStation' },
+          variable: { name: 'AvailabilityState' },
+        },
+      ],
+    });
+    await handleNotifyEvent(ctx);
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'ocpp.StatusNotification',
+        payload: expect.objectContaining({
+          evseId: 0,
+          connectorId: 0,
+          connectorStatus: 'Faulted',
+          source: 'NotifyEvent',
+        }) as unknown,
+      }),
+    );
+  });
+
+  it('ignores EVSE AvailabilityState and unknown values', async () => {
+    const { handleNotifyEvent } = await import('../handlers/v2_1/notify-event.handler.js');
+    const { ctx, publishMock } = makeCtx('NotifyEvent', {
+      generatedAt: '2024-01-01T00:00:00Z',
+      seqNo: 0,
+      eventData: [
+        {
+          eventId: 2,
+          timestamp: '2024-01-01T00:00:00Z',
+          trigger: 'Delta',
+          actualValue: 'Unavailable',
+          component: { name: 'EVSE', evse: { id: 1 } },
+          variable: { name: 'AvailabilityState' },
+        },
+        {
+          eventId: 3,
+          timestamp: '2024-01-01T00:00:00Z',
+          trigger: 'Delta',
+          actualValue: 'Bogus',
+          component: { name: 'Connector', evse: { id: 1, connectorId: 1 } },
+          variable: { name: 'AvailabilityState' },
+        },
+      ],
+    });
+    await handleNotifyEvent(ctx);
+    expect(publishMock).toHaveBeenCalledTimes(1);
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'ocpp.NotifyEvent' }),
+    );
+  });
 });
 
 describe('NotifyMonitoringReport handler', () => {

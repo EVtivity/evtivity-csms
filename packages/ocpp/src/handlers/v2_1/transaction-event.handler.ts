@@ -41,6 +41,7 @@ export async function handleTransactionEvent(
       idToken: request.idToken?.idToken,
       tokenType: request.idToken?.type,
       evseId: request.evse?.id ?? 0,
+      connectorId: request.evse?.connectorId,
       reservationId: request.reservationId,
     },
   });
@@ -55,6 +56,9 @@ export async function handleTransactionEvent(
         stationDbId: ctx.stationDbId,
         evseId: request.evse?.id ?? 0,
         meterValues: request.meterValue,
+        // Stations send evse only in the first event of a transaction, so later
+        // readings are matched to their session by transactionId.
+        transactionId: request.transactionInfo.transactionId,
         source: 'TransactionEvent',
       },
     });

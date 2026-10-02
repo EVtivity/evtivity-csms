@@ -1342,6 +1342,27 @@ describe('exitMaintenance', () => {
     expect(h.publish).toHaveBeenCalled();
   });
 
+  it('leaves operator- and security-disabled stations inoperative but clears their slot', async () => {
+    setSelect('maintenanceEvents', [makeEventRow({ status: 'active', affectedStationIds: null })]);
+    h.executeHandler.fn = (text) =>
+      text.includes("status = 'completed'") ? [{ id: 'mne_1' }] : [];
+    setSelect('chargingStations', [
+      { id: 'sta_1', stationId: 'CS-001', ocppProtocol: 'ocpp2.1', disabledReason: null },
+      { id: 'sta_2', stationId: 'CS-002', ocppProtocol: 'ocpp2.1', disabledReason: 'operator' },
+      { id: 'sta_3', stationId: 'CS-003', ocppProtocol: 'ocpp1.6', disabledReason: 'security' },
+    ]);
+
+    await exitMaintenance('mne_1', OPERATOR_ACTOR);
+
+    const availabilityTargets = h.sendOcppCommandAndWait.mock.calls
+      .filter((c) => c[1] === 'ChangeAvailability')
+      .map((c) => c[0]);
+    expect(availabilityTargets).toEqual(['CS-001']);
+    expect(h.clearStationMessageSlot).toHaveBeenCalledWith('CS-001', 'ocpp2.1', 9005);
+    expect(h.clearStationMessageSlot).toHaveBeenCalledWith('CS-002', 'ocpp2.1', 9005);
+    expect(h.clearStationMessageSlot).toHaveBeenCalledWith('CS-003', 'ocpp1.6', 9005);
+  });
+
   it('continues when Operative and slot clear throw (fail-open, null protocol)', async () => {
     setSelect('maintenanceEvents', [
       makeEventRow({ status: 'active', affectedStationIds: ['sta_1'] }),

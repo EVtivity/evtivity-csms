@@ -164,7 +164,6 @@ import {
   listStations,
   getStation,
   createStation,
-  updateStation,
   removeStation,
   getStationEvses,
   getEvseConnectors,
@@ -350,25 +349,6 @@ describe('Station Service', () => {
       const result = await createStation({ stationId: 'CS002', model: 'Model X' });
 
       expect(result).toEqual(station);
-    });
-  });
-
-  describe('updateStation', () => {
-    it('returns updated station when found', async () => {
-      const station = { id: 's1', model: 'Updated Model' };
-      setupDbResults([station]);
-
-      const result = await updateStation('s1', { model: 'Updated Model' });
-
-      expect(result).toEqual(station);
-    });
-
-    it('returns null when not found', async () => {
-      setupDbResults([]);
-
-      const result = await updateStation('nonexistent', { model: 'X' });
-
-      expect(result).toBeNull();
     });
   });
 

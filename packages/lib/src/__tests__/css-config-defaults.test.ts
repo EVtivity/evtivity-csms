@@ -80,6 +80,13 @@ describe('buildCssConfigDefaults', () => {
       expect(m.get('SecurityCtrlr.Identity')).toBe('TEST-001');
     });
 
+    it('reports connector status with both messages by default', () => {
+      const m = keyMap(buildCssConfigDefaults(baseInput()));
+      expect(m.get('SimulatorCtrlr.StatusReporting')).toBe('Both');
+      const m16 = keyMap(buildCssConfigDefaults(baseInput({ ocppProtocol: 'ocpp1.6' })));
+      expect(m16.has('SimulatorCtrlr.StatusReporting')).toBe(false);
+    });
+
     it('seeds NetworkConfiguration slot 1 with the simulator targetUrl', () => {
       const m = keyMap(buildCssConfigDefaults(baseInput({ targetUrl: 'wss://example:8443' })));
 

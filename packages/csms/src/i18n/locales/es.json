@@ -821,7 +821,26 @@
     "passwordStored": "Contrasena guardada. Configure la misma contrasena en la estacion.",
     "securityChangeFailed": "El cambio de seguridad fallo",
     "passwordInvalidCharacters": "Use solo letras, digitos y * - _ = : + | @ .",
-    "profileChangeOnline": "El cambio se envia a la estacion, que se reconecta con el nuevo perfil. Hasta entonces sigue activo el perfil actual."
+    "profileChangeOnline": "El cambio se envia a la estacion, que se reconecta con el nuevo perfil. Hasta entonces sigue activo el perfil actual.",
+    "statusReason": {
+      "operator_disabled": "Desactivada por un operador",
+      "security_disabled": "Desactivada tras un evento de seguridad crítico",
+      "firmware_failed": "Falló la instalación del firmware",
+      "station_faulted": "La estación informa de un fallo",
+      "connector_faulted": "Un conector informa de un fallo",
+      "firmware_installing": "Instalando firmware",
+      "station_unavailable": "La estación se informa como no disponible"
+    },
+    "enableStation": "Activar Estación",
+    "disableStation": "Desactivar Estación",
+    "enableStationTitle": "¿Activar esta estación?",
+    "enableStationDescription": "Los conductores podrán volver a cargar. Se indica a la estación que pase a operativa y se borra cualquier estado de instalación de firmware guardado.",
+    "disableStationTitle": "¿Desactivar esta estación?",
+    "disableStationDescription": "Los conductores no podrán cargar hasta que la active. Se indica a la estación que pase a inoperativa. Las sesiones en curso no se detienen.",
+    "enabledSuccess": "Estación activada",
+    "disabledSuccess": "Estación desactivada",
+    "maxPowerUnknown": "Potencia máxima desconocida",
+    "maxPowerUnknownHint": "La gestión de carga no puede limitar este conector hasta que se defina su potencia máxima. Edite el EVSE para definirla. Las estaciones OCPP 2.1 la completan desde su informe de configuración."
   },
   "eventAlertRules": {
     "title": "Reglas de Alerta de Eventos",
@@ -2137,6 +2156,7 @@
     "COMMAND_FAILED": "Comando fallido",
     "COMMAND_QUEUED": "Estacion fuera de linea, comando en cola",
     "COMMAND_TIMEOUT": "Sin respuesta de la estacion",
+    "CONNECTOR_ID_MISMATCH": "En una estación OCPP 1.6 cada EVSE tiene un conector con el mismo número.",
     "CONNECTOR_NOT_AVAILABLE": "El conector no esta disponible para carga",
     "CONNECTOR_NOT_FOUND": "Conector no encontrado",
     "CONNECTOR_OCCUPIED": "No se puede eliminar el EVSE con conectores ocupados",
@@ -2315,6 +2335,7 @@
     "STATION_OFFLINE": "La estacion esta fuera de linea",
     "STATION_REJECTED": "La estacion rechazo el inicio: ...",
     "STATION_TIMEOUT": "La estacion no respondio",
+    "STATION_UNAVAILABLE": "Esta estación no está disponible en este momento. Pruebe otra estación.",
     "STORAGE_CONNECTION_FAILED": "La prueba de conexion del almacenamiento fallo",
     "STORAGE_NOT_CONFIGURED": "Almacenamiento de adjuntos no configurado",
     "SUPPORT_AI_NOT_CONFIGURED": "La IA de soporte no esta configurada",
