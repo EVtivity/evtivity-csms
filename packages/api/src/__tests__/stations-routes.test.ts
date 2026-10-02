@@ -2143,6 +2143,51 @@ describe('Station routes - handler logic', () => {
       expect(response.statusCode).toBe(200);
       expect(response.json().success).toBe(true);
     });
+
+    it('asks a 1.6 station about each supported certificate type in its own request', async () => {
+      const { db } = await import('@evtivity/database');
+      (db.execute as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+        { station_id: 'STATION-016', ocpp_protocol: 'ocpp1.6' },
+      ]);
+      mockPublish.mockClear();
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/certificates/query`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(200);
+      const sent = mockPublish.mock.calls
+        .filter((c) => c[0] === 'ocpp_commands')
+        .map((c) => (JSON.parse(c[1] as string) as { payload: unknown }).payload);
+      expect(sent).toEqual([
+        { certificateType: ['CSMSRootCertificate'] },
+        { certificateType: ['ManufacturerRootCertificate'] },
+      ]);
+    });
+
+    it('skips certificate types a 1.6 station does not have', async () => {
+      const { db } = await import('@evtivity/database');
+      (db.execute as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+        { station_id: 'STATION-016', ocpp_protocol: 'ocpp1.6' },
+      ]);
+      mockPublish.mockClear();
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/certificates/query`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { certificateType: ['V2GRootCertificate', 'ManufacturerRootCertificate'] },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const sent = mockPublish.mock.calls
+        .filter((c) => c[0] === 'ocpp_commands')
+        .map((c) => (JSON.parse(c[1] as string) as { payload: unknown }).payload);
+      expect(sent).toEqual([{ certificateType: ['ManufacturerRootCertificate'] }]);
+    });
   });
 
   describe('POST /stations/:id/approve', () => {

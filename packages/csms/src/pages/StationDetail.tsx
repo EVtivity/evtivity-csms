@@ -443,6 +443,8 @@ export function StationDetail(): React.JSX.Element {
             stationId={id ?? ''}
             stationOcppId={station.stationId}
             guestChargingEnabled={guestChargingEnabled}
+            ocppProtocol={station.ocppProtocol}
+            isOnline={station.isOnline}
           />
         </TabsContent>
 

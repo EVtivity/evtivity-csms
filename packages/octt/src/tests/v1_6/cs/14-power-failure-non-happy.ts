@@ -2,6 +2,28 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { CsTestCase, StepResult } from '../../../cs-types.js';
+import type { OcppTestServer } from '../../../cs-server.js';
+import { drainMessages, waitForMatchingMessage } from '../../../cs-test-helpers.js';
+
+/** StatusNotifications after the boot, keyed by connectorId, until every connector reported. */
+async function collectConnectorStatuses(
+  server: OcppTestServer,
+  connectorIds: number[],
+  timeoutMs: number,
+): Promise<Map<number, string>> {
+  const statuses = new Map<number, string>();
+  const deadline = Date.now() + timeoutMs;
+  while (statuses.size < connectorIds.length && Date.now() < deadline) {
+    try {
+      const sn = await server.waitForMessage('StatusNotification', deadline - Date.now());
+      const connectorId = sn['connectorId'] as number;
+      if (connectorIds.includes(connectorId)) statuses.set(connectorId, sn['status'] as string);
+    } catch {
+      break;
+    }
+  }
+  return statuses;
+}
 
 export const TC_032_1_CS: CsTestCase = {
   id: 'TC_032_1_CS',
@@ -62,14 +84,40 @@ export const TC_032_1_CS: CsTestCase = {
       actual: `reason = ${String(stopTx['reason'])}`,
     });
 
-    // Step 5: BootNotification after power restore (reconnect may take a few seconds)
-    const boot = await ctx.server.waitForMessage('BootNotification', 15_000);
+    // Step 3: StatusNotification Finishing (sent before going down)
+    const finishing = await ctx.server.waitForMessage('StatusNotification', 10_000);
+    steps.push({
+      step: 3,
+      description: 'StatusNotification Finishing before going down',
+      status: (finishing['status'] as string) === 'Finishing' ? 'passed' : 'failed',
+      expected: 'status = Finishing',
+      actual: `status = ${String(finishing['status'])}`,
+    });
+
+    // Step 5: BootNotification after power restore (the reboot reconnects at once)
+    const boot = await ctx.server.waitForMessage('BootNotification', 10_000);
     steps.push({
       step: 5,
       description: 'BootNotification after power restore',
       status: boot !== undefined ? 'passed' : 'failed',
       expected: 'BootNotification received',
       actual: boot !== undefined ? 'Received' : 'Not received',
+    });
+
+    // Step 7: StatusNotification per connector and connectorId 0
+    const statuses = await collectConnectorStatuses(ctx.server, [0, 1], 10_000);
+    const txConnector = statuses.get(1);
+    const chargePoint = statuses.get(0);
+    steps.push({
+      step: 7,
+      description:
+        'StatusNotification: connector 1 Finishing or Preparing, connectorId 0 Available',
+      status:
+        (txConnector === 'Finishing' || txConnector === 'Preparing') && chargePoint === 'Available'
+          ? 'passed'
+          : 'failed',
+      expected: 'connector 1 = Finishing or Preparing, connector 0 = Available',
+      actual: `connector 1 = ${txConnector ?? 'not received'}, connector 0 = ${chargePoint ?? 'not received'}`,
     });
 
     const allPassed = steps.every((s) => s.status === 'passed');
@@ -122,19 +170,13 @@ export const TC_032_2_CS: CsTestCase = {
       /* drain */
     }
 
-    // Disconnect (simulating power loss - station goes offline abruptly)
-    ctx.server.disconnectStation(true);
-    await new Promise((r) => setTimeout(r, 500));
-    // Stop transaction while offline (queued for replay)
-    try {
-      await ctx.station.stopCharging(1, 'PowerLoss');
-    } catch {
-      // May fail since offline, but state should update
-    }
-    // Allow reconnection
-    ctx.server.acceptConnections();
+    await drainMessages(ctx.server, 'StatusNotification', 300);
 
-    // BootNotification after power restore
+    // Manual Action: disconnect and reconnect the power. Without back-up power
+    // the Charge Point cannot stop its transaction before going down.
+    await ctx.station.simulatePowerCyclePreserveTransactions();
+
+    // Step 1: BootNotification after power restore
     const boot = await ctx.server.waitForMessage('BootNotification', 10_000);
     steps.push({
       step: 1,
@@ -144,7 +186,29 @@ export const TC_032_2_CS: CsTestCase = {
       actual: boot !== undefined ? 'Received' : 'Not received',
     });
 
-    // StopTransaction (queued while offline, replayed after reconnect)
+    // Step 3: StatusNotification per connector and connectorId 0
+    const statuses = await collectConnectorStatuses(ctx.server, [0, 1], 10_000);
+    const txConnector = statuses.get(1);
+    const chargePoint = statuses.get(0);
+    steps.push({
+      step: 3,
+      description:
+        'StatusNotification: connector 1 Preparing, Finishing or Charging, connectorId 0 Available',
+      status:
+        (txConnector === 'Preparing' ||
+          txConnector === 'Finishing' ||
+          txConnector === 'Charging' ||
+          txConnector === 'Unavailable' ||
+          txConnector === 'Available') &&
+        chargePoint === 'Available'
+          ? 'passed'
+          : 'failed',
+      expected:
+        'connector 1 = Preparing, Finishing or Charging (Unavailable/Available allowed in between), connector 0 = Available',
+      actual: `connector 1 = ${txConnector ?? 'not received'}, connector 0 = ${chargePoint ?? 'not received'}`,
+    });
+
+    // Step 5: StopTransaction after the reboot
     const stopTx = await ctx.server.waitForMessage('StopTransaction', 10_000);
     const reason = stopTx['reason'] as string | undefined;
     const validReason = reason === 'PowerLoss' || reason === 'Local' || reason === undefined;
@@ -155,6 +219,24 @@ export const TC_032_2_CS: CsTestCase = {
       expected: 'reason = PowerLoss or Local or omitted',
       actual: `reason = ${String(reason)}`,
     });
+
+    // Step 7: StatusNotification Preparing or Finishing, unless step 3 already reported Finishing
+    if (txConnector !== 'Finishing') {
+      const after = await waitForMatchingMessage(
+        ctx.server,
+        'StatusNotification',
+        (sn) => sn['connectorId'] === 1,
+        10_000,
+      );
+      const afterStatus = after?.['status'] as string | undefined;
+      steps.push({
+        step: 7,
+        description: 'StatusNotification Preparing or Finishing',
+        status: afterStatus === 'Preparing' || afterStatus === 'Finishing' ? 'passed' : 'failed',
+        expected: 'status = Preparing or Finishing',
+        actual: `status = ${afterStatus ?? 'not received'}`,
+      });
+    }
 
     const allPassed = steps.every((s) => s.status === 'passed');
     return { status: allPassed ? 'passed' : 'failed', durationMs: 0, steps };
@@ -203,11 +285,14 @@ export const TC_034_CS: CsTestCase = {
       actual: `status = ${String(sn1['status'])}`,
     });
 
-    // Simulate power cycle (disconnect and reconnect)
+    // The other connector's Unavailable notification belongs to step 3 as well
+    await drainMessages(ctx.server, 'StatusNotification', 300);
+
+    // Manual Action: disconnect and reconnect the power
     await ctx.station.simulatePowerCycle();
 
-    // BootNotification after power cycle (reconnect may take a few seconds)
-    const boot = await ctx.server.waitForMessage('BootNotification', 15_000);
+    // BootNotification after power cycle
+    const boot = await ctx.server.waitForMessage('BootNotification', 10_000);
     steps.push({
       step: 5,
       description: 'BootNotification after power cycle',
@@ -216,14 +301,17 @@ export const TC_034_CS: CsTestCase = {
       actual: boot !== undefined ? 'Received' : 'Not received',
     });
 
-    // StatusNotification should still be Unavailable (persisted in evseConnectorStatus)
-    const sn2 = await ctx.server.waitForMessage('StatusNotification', 10_000);
+    // Step 7: per connector and connectorId 0, still Unavailable
+    const statuses = await collectConnectorStatuses(ctx.server, [0, 1], 10_000);
     steps.push({
       step: 7,
-      description: 'StatusNotification persisted Unavailable',
-      status: (sn2['status'] as string) === 'Unavailable' ? 'passed' : 'failed',
-      expected: 'status = Unavailable',
-      actual: `status = ${String(sn2['status'])}`,
+      description: 'StatusNotification Unavailable for connector 1 and connectorId 0',
+      status:
+        statuses.get(0) === 'Unavailable' && statuses.get(1) === 'Unavailable'
+          ? 'passed'
+          : 'failed',
+      expected: 'connector 0 = Unavailable, connector 1 = Unavailable',
+      actual: `connector 0 = ${statuses.get(0) ?? 'not received'}, connector 1 = ${statuses.get(1) ?? 'not received'}`,
     });
 
     const allPassed = steps.every((s) => s.status === 'passed');

@@ -3712,7 +3712,7 @@ export function stationRoutes(app: FastifyInstance): void {
       const body = request.body as z.infer<typeof getInstalledCertsBody>;
 
       const stationRows = await db.execute(
-        sql`SELECT station_id FROM charging_stations WHERE id = ${id}`,
+        sql`SELECT station_id, ocpp_protocol FROM charging_stations WHERE id = ${id}`,
       );
       const stationRow = stationRows[0];
       if (stationRow == null) {
@@ -3720,16 +3720,26 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const commandPayload = JSON.stringify({
-        commandId: randomUUID(),
-        stationId: stationRow.station_id as string,
-        action: 'GetInstalledCertificateIds',
-        payload: {
-          certificateType: body.certificateType,
-        },
-      });
+      // An OCPP 1.6 station is asked about one certificate type per request, and only
+      // knows the Central System and Manufacturer roots.
+      const certificateTypeBatches =
+        stationRow.ocpp_protocol === 'ocpp1.6'
+          ? (body.certificateType ?? ['CSMSRootCertificate', 'ManufacturerRootCertificate'])
+              .filter((t) => t === 'CSMSRootCertificate' || t === 'ManufacturerRootCertificate')
+              .map((t) => [t])
+          : [body.certificateType];
 
-      await getPubSub().publish('ocpp_commands', commandPayload);
+      for (const certificateType of certificateTypeBatches) {
+        await getPubSub().publish(
+          'ocpp_commands',
+          JSON.stringify({
+            commandId: randomUUID(),
+            stationId: stationRow.station_id as string,
+            action: 'GetInstalledCertificateIds',
+            payload: { certificateType },
+          }),
+        );
+      }
 
       const actor = getAuditActor(request);
       await writeAudit(

@@ -66,12 +66,7 @@ export const TC_E_16_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT-TOKEN-001');
     await new Promise((r) => setTimeout(r, 200));
     ctx.server.acceptConnections();
-    // Drain boot and status
-    try {
-      await ctx.server.waitForMessage('BootNotification', 10_000);
-    } catch {
-      /* ok */
-    }
+    // Drain status (a restored connection is not a reboot: no BootNotification)
     for (let _d = 0; _d < 5; _d++) {
       try {
         await ctx.server.waitForMessage('StatusNotification', 500);
@@ -92,8 +87,12 @@ export const TC_E_16_CS: CsTestCase = {
       actual: `offline=${offline1}`,
     });
 
-    // Step 3: CS sends TransactionEvent Ended with Deauthorized
-    const txMsg3 = await ctx.server.waitForMessage('TransactionEvent', 60000);
+    // Step 3: after emptying its queue (the remaining offline messages), the
+    // CS sends the TransactionEvent in which it deauthorizes the transaction
+    let txMsg3 = await ctx.server.waitForMessage('TransactionEvent', 60000);
+    while (txMsg3['offline'] === true) {
+      txMsg3 = await ctx.server.waitForMessage('TransactionEvent', 60000);
+    }
     const tx3Payload = txMsg3 as Record<string, unknown> | null;
     const evtType3 = tx3Payload?.['eventType'] as string | undefined;
     const trigReason3 = tx3Payload?.['triggerReason'] as string | undefined;

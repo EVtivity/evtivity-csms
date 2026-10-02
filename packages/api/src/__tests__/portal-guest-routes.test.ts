@@ -495,6 +495,104 @@ describe('Portal guest routes - handler logic', () => {
       expect(typeof response.json().sessionToken).toBe('string');
     });
 
+    it('caps a paid session at the pre-authorized amount and starts it as DirectPayment', async () => {
+      vi.mocked(isTariffFree).mockReturnValue(false);
+      setupDbResults(
+        [
+          {
+            id: 'sta_000000000001',
+            stationId: 'CS-001',
+            siteId: 'site-1',
+            isOnline: true,
+            onboardingStatus: 'accepted',
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
+        [{ id: 'evs_000000000001' }],
+        [{ status: 'available' }],
+        [], // active reservation gate (no reservation)
+        [], // evse active session check (none)
+        [{ freeVendEnabled: false }], // siteFreeVend lookup before tariff resolve
+      );
+      vi.mocked(getStripeConfig).mockResolvedValue({
+        stripe: { paymentIntents: { create: mockStripePaymentIntentsCreate } } as never,
+        publishableKey: 'pk_test',
+        currency: 'USD',
+        preAuthAmountCents: 5000,
+        configId: 1,
+        connectedAccountId: null,
+        platformFeePercent: 0,
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: {
+          paymentMethodId: 'pm_test',
+          guestEmail: 'guest@example.com',
+          maxEnergyWh: 20000,
+          maxCostCents: 9000,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const insertChain = vi.mocked(db.insert).mock.results[0]?.value as {
+        values: ReturnType<typeof vi.fn>;
+      };
+      expect(insertChain.values).toHaveBeenCalledWith(
+        expect.objectContaining({ maxCostCents: 5000, maxEnergyWh: 20000, maxTimeSeconds: null }),
+      );
+      expect(vi.mocked(sendOcppCommandAndWait)).toHaveBeenCalledWith(
+        'CS-001',
+        'RequestStartTransaction',
+        expect.objectContaining({
+          idToken: { idToken: response.json().sessionToken as string, type: 'DirectPayment' },
+        }),
+      );
+    });
+
+    it('stores the QR code limits of a free session and starts it as Central', async () => {
+      setupDbResults(
+        [
+          {
+            id: 'sta_000000000001',
+            stationId: 'CS-001',
+            siteId: null,
+            isOnline: true,
+            onboardingStatus: 'accepted',
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
+        [{ id: 'evs_000000000001' }],
+        [{ status: 'available' }],
+        [], // active reservation gate (no reservation)
+        [], // evse active session check (none)
+        [{ freeVendEnabled: false }], // siteFreeVend lookup before tariff resolve
+      );
+      vi.mocked(isTariffFree).mockReturnValue(true);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: { maxEnergyWh: 20000, maxTimeSeconds: 3600 },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const insertChain = vi.mocked(db.insert).mock.results[0]?.value as {
+        values: ReturnType<typeof vi.fn>;
+      };
+      expect(insertChain.values).toHaveBeenCalledWith(
+        expect.objectContaining({ maxCostCents: null, maxEnergyWh: 20000, maxTimeSeconds: 3600 }),
+      );
+      expect(vi.mocked(sendOcppCommandAndWait)).toHaveBeenCalledWith(
+        'CS-001',
+        'RequestStartTransaction',
+        expect.objectContaining({
+          idToken: { idToken: response.json().sessionToken as string, type: 'Central' },
+        }),
+      );
+    });
+
     it('returns 400 with invalid email', async () => {
       const response = await app.inject({
         method: 'POST',

@@ -11,9 +11,34 @@ export const TC_030_CS: CsTestCase = {
   sut: 'cs',
   description: 'This scenario is used to report a connector lock failure.',
   purpose: 'To test if the Charge Point is able to report a connector lock failure.',
-  // Prerequisite: Station has physical lock mechanism that can fail. CSS doesn't simulate lock failure.
-  execute: async (_ctx) => {
-    return { status: 'skipped', durationMs: 0, steps: [] };
+  execute: async (ctx) => {
+    const steps: StepResult[] = [];
+    ctx.server.setMessageHandler(async (action) => {
+      if (action === 'BootNotification')
+        return { status: 'Accepted', currentTime: new Date().toISOString(), interval: 300 };
+      if (action === 'Authorize') return { idTagInfo: { status: 'Accepted' } };
+      if (action === 'StartTransaction')
+        return { transactionId: 1, idTagInfo: { status: 'Accepted' } };
+      if (action === 'StopTransaction') return { idTagInfo: { status: 'Accepted' } };
+      if (action === 'Heartbeat') return { currentTime: new Date().toISOString() };
+      return {};
+    });
+
+    // Prerequisite: the Charge Point is in a state where a connector lock failure
+    // can be triggered (the tester jams the connector lock).
+    ctx.station.jamConnectorLock(1);
+
+    const resp = await ctx.server.sendCommand('UnlockConnector', { connectorId: 1 });
+    steps.push({
+      step: 2,
+      description: 'UnlockConnector.conf status is UnlockFailed',
+      status: resp['status'] === 'UnlockFailed' ? 'passed' : 'failed',
+      expected: 'status = UnlockFailed',
+      actual: `status = ${String(resp['status'])}`,
+    });
+    // Step 3 (StatusNotification Faulted or the current status) is optional in the OCTT.
+    const allPassed = steps.every((s) => s.status === 'passed');
+    return { status: allPassed ? 'passed' : 'failed', durationMs: 0, steps };
   },
 };
 

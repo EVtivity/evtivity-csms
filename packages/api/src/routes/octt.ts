@@ -12,6 +12,9 @@ import { getPubSub } from '../lib/pubsub.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
 
+const TEST_STATUSES = ['passed', 'failed', 'skipped', 'error', 'notApplicable'] as const;
+type OcttTestStatus = (typeof TEST_STATUSES)[number];
+
 const runResponseSchema = z
   .object({
     id: z.number().int().min(1).describe('Run ID'),
@@ -23,6 +26,11 @@ const runResponseSchema = z
     failed: z.number().int().min(0).describe('Number of failed tests'),
     skipped: z.number().int().min(0).describe('Number of skipped tests'),
     errors: z.number().int().min(0).describe('Number of tests that errored'),
+    notApplicable: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of tests the CSMS PICS excludes (reported, never executed)'),
     durationMs: z.number().int().min(0).nullable().describe('Total run duration in ms'),
     triggeredBy: z.string().nullable().describe('User ID that triggered the run'),
     startedAt: z.string().nullable().describe('Run start timestamp'),
@@ -39,10 +47,22 @@ const testResultSchema = z
     testName: z.string().max(500).describe('Human-readable test case name'),
     module: z.string().max(100).describe('OCTT module name'),
     ocppVersion: z.enum(['ocpp2.1', 'ocpp1.6']).describe('OCPP version for this test'),
-    status: z.enum(['passed', 'failed', 'skipped', 'error']).describe('Test status'),
+    status: z
+      .enum(TEST_STATUSES)
+      .describe('Test status. notApplicable: the CSMS PICS excludes the test, so it never ran'),
     durationMs: z.number().int().min(0).describe('Test duration in ms'),
     steps: z.array(z.record(z.unknown())).max(500).nullable().describe('Per-step result details'),
     error: z.string().max(10000).nullable().describe('Error message if the test failed or errored'),
+    notApplicableItem: z
+      .string()
+      .max(100)
+      .nullable()
+      .describe('PICS item that excludes the test, set when status is notApplicable'),
+    notApplicableReason: z
+      .string()
+      .max(10000)
+      .nullable()
+      .describe('Why the PICS excludes the test, set when status is notApplicable'),
     createdAt: z.string().describe('Row creation timestamp'),
   })
   .passthrough();
@@ -56,6 +76,7 @@ const moduleSummarySchema = z
     failed: z.number().int().min(0).describe('Number of failed tests'),
     skipped: z.number().int().min(0).describe('Number of skipped tests'),
     errors: z.number().int().min(0).describe('Number of tests that errored'),
+    notApplicable: z.number().int().min(0).describe('Number of tests the CSMS PICS excludes'),
   })
   .passthrough();
 
@@ -179,6 +200,7 @@ export function octtRoutes(app: FastifyInstance): void {
             failed: sql<number>`count(*) filter (where ${octtTestResults.status} = 'failed')::int`,
             skipped: sql<number>`count(*) filter (where ${octtTestResults.status} = 'skipped')::int`,
             errors: sql<number>`count(*) filter (where ${octtTestResults.status} = 'error')::int`,
+            notApplicable: sql<number>`count(*) filter (where ${octtTestResults.status} = 'notApplicable')::int`,
           })
           .from(octtTestResults)
           .where(inArray(octtTestResults.runId, inProgressIds))
@@ -193,6 +215,7 @@ export function octtRoutes(app: FastifyInstance): void {
             run.failed = counts.failed;
             run.skipped = counts.skipped;
             run.errors = counts.errors;
+            run.notApplicable = counts.notApplicable;
           }
         }
       }
@@ -215,7 +238,7 @@ export function octtRoutes(app: FastifyInstance): void {
         querystring: zodSchema(
           z.object({
             module: z.string().optional(),
-            status: z.enum(['passed', 'failed', 'skipped', 'error']).optional(),
+            status: z.enum(TEST_STATUSES).optional().describe('Filter by test status'),
           }),
         ),
         response: {
@@ -246,9 +269,7 @@ export function octtRoutes(app: FastifyInstance): void {
         conditions.push(eq(octtTestResults.module, query.module));
       }
       if (query.status != null) {
-        conditions.push(
-          eq(octtTestResults.status, query.status as 'passed' | 'failed' | 'skipped' | 'error'),
-        );
+        conditions.push(eq(octtTestResults.status, query.status as OcttTestStatus));
       }
 
       const results = await db
@@ -267,6 +288,7 @@ export function octtRoutes(app: FastifyInstance): void {
             failed: sql<number>`count(*) filter (where ${octtTestResults.status} = 'failed')::int`,
             skipped: sql<number>`count(*) filter (where ${octtTestResults.status} = 'skipped')::int`,
             errors: sql<number>`count(*) filter (where ${octtTestResults.status} = 'error')::int`,
+            notApplicable: sql<number>`count(*) filter (where ${octtTestResults.status} = 'notApplicable')::int`,
           })
           .from(octtTestResults)
           .where(eq(octtTestResults.runId, id));
@@ -277,6 +299,7 @@ export function octtRoutes(app: FastifyInstance): void {
           runData.failed = counts.failed;
           runData.skipped = counts.skipped;
           runData.errors = counts.errors;
+          runData.notApplicable = counts.notApplicable;
         }
       }
 
@@ -319,6 +342,7 @@ export function octtRoutes(app: FastifyInstance): void {
           failed: sql<number>`count(*) filter (where ${octtTestResults.status} = 'failed')::int`,
           skipped: sql<number>`count(*) filter (where ${octtTestResults.status} = 'skipped')::int`,
           errors: sql<number>`count(*) filter (where ${octtTestResults.status} = 'error')::int`,
+          notApplicable: sql<number>`count(*) filter (where ${octtTestResults.status} = 'notApplicable')::int`,
         })
         .from(octtTestResults)
         .where(eq(octtTestResults.runId, id))

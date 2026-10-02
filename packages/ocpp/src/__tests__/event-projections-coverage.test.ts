@@ -63,6 +63,7 @@ vi.mock('postgres', () => {
 });
 
 const mockIsRoamingEnabled = vi.fn().mockResolvedValue(false);
+const mockSettlePrepaidSession = vi.fn().mockResolvedValue(null);
 
 vi.mock('@evtivity/database', async () => ({
   // The real status entry point, running on the mocked client.
@@ -81,6 +82,7 @@ vi.mock('@evtivity/database', async () => ({
   getTxEndedMeasurands: vi.fn().mockResolvedValue([]),
   isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
+  settlePrepaidSession: (...args: unknown[]) => mockSettlePrepaidSession(...args),
 }));
 
 const mockDispatchOcpp = vi.fn().mockResolvedValue(undefined);
@@ -4030,30 +4032,6 @@ describe('Event projections - coverage expansion', () => {
     });
   });
 
-  // ---- 2.1 Stub Persistence: NotifyWebPaymentStarted ----
-
-  describe('ocpp.NotifyWebPaymentStarted', () => {
-    it('persists web payment event', async () => {
-      await setup();
-
-      setupSqlResults(
-        [{ id: 'sta_000000000001' }], // resolveStationId
-        [], // INSERT
-      );
-
-      await eventBus.emit(
-        'ocpp.NotifyWebPaymentStarted',
-        makeDomainEvent('ocpp.NotifyWebPaymentStarted', 'CS-TEST', {
-          evseId: 2,
-          timeout: 30,
-        }),
-      );
-
-      expect(sqlCalls.length).toBe(2);
-      expect(sqlCalls[1]?.strings.join('')).toContain('web_payment_events');
-    });
-  });
-
   // ---- 2.1 Stub Persistence: NotifyAllowedEnergyTransfer ----
 
   describe('ocpp.NotifyAllowedEnergyTransfer', () => {
@@ -4143,9 +4121,8 @@ describe('Event projections - coverage expansion', () => {
         'ocpp.ReportDERControl',
         makeDomainEvent('ocpp.ReportDERControl', 'CS-TEST', {
           requestId: 42,
-          seqNo: 0,
           tbc: false,
-          derControl: { controlType: 'FreqDroop' },
+          derControl: { freqDroop: [{ id: 'freqdroop_1' }] },
         }),
       );
 
@@ -4591,6 +4568,130 @@ describe('Event projections - coverage expansion', () => {
           evseId: 1,
         }),
       );
+    });
+  });
+  describe('prepaid tokens (C17)', () => {
+    const startedEvent = (transactionId: string) =>
+      makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+        eventType: 'Started',
+        stationId: 'CS-001',
+        transactionId,
+        seqNo: 0,
+        triggerReason: 'Authorized',
+        timestamp: '2024-01-01T00:00:00Z',
+        idToken: 'PREPAID-1',
+        tokenType: 'ISO14443',
+      });
+    const startedResults = (prepaidBalanceCents: number) => [
+      [{ id: 'sta_000000000001' }], // resolveStationId
+      [], // eager OCPI roaming check
+      [{ id: 'session-pp' }], // INSERT charging_sessions RETURNING id
+      [], // UPDATE stale sessions
+      [], // INSERT transaction_events
+      [{ is_roaming: false }], // SELECT is_roaming
+      [{ driver_id: null }], // SELECT driver_id
+      [{ id: 'dtk_pp', driver_id: 'drv_pp', prepaid_balance_cents: prepaidBalanceCents }], // driver_tokens
+    ];
+    const stopCommands = (): unknown[][] =>
+      (mockPubSub.publish as Mock<PubSubClient['publish']>).mock.calls.filter(
+        (c: unknown[]) =>
+          c[0] === 'ocpp_commands' &&
+          typeof c[1] === 'string' &&
+          c[1].includes('RequestStopTransaction'),
+      );
+
+    it('skips the card pre-authorization for a prepaid token with credit', async () => {
+      await setup();
+      setupSqlResults(...startedResults(5000));
+
+      await eventBus.emit('ocpp.TransactionEvent', startedEvent('tx-pp'));
+
+      expect(sqlCalls.some((c) => c.strings.join('?').includes('driver_payment_methods'))).toBe(
+        false,
+      );
+      expect(stopCommands()).toHaveLength(0);
+    });
+
+    it('stops a session started by a prepaid token without credit', async () => {
+      await setup();
+      setupSqlResults(...startedResults(0));
+
+      await eventBus.emit('ocpp.TransactionEvent', startedEvent('tx-pp-0'));
+
+      expect(stopCommands()).toHaveLength(1);
+      expect(sqlCalls.some((c) => c.strings.join('?').includes('driver_payment_methods'))).toBe(
+        false,
+      );
+    });
+
+    it('debits the prepaid balance when the session ends and skips the card capture', async () => {
+      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
+      await setup();
+      mockSettlePrepaidSession.mockResolvedValueOnce({
+        tokenId: 'dtk_pp',
+        debitedCents: 1000,
+        balanceCents: 4000,
+      });
+      setupSqlResults(
+        // First subscriber
+        [{ id: 'sta_000000000001' }],
+        [], // SELECT payment_records (no failed payment)
+        [],
+        [
+          {
+            id: 'session-pp-end',
+            tariff_id: null,
+            current_cost_cents: 0,
+            started_at: '2024-01-01T00:00:00Z',
+            ended_at: '2024-01-01T01:00:00Z',
+            energy_delivered_wh: 0,
+            currency: 'USD',
+            tariff_price_per_kwh: null,
+            tariff_price_per_minute: null,
+            tariff_price_per_session: null,
+            tariff_idle_fee_price_per_minute: null,
+            tariff_tax_rate: null,
+          },
+        ],
+        [],
+        [], // carbon query
+        [{ site_id: null }],
+        [
+          {
+            driver_id: null,
+            energy_delivered_wh: 0,
+            final_cost_cents: null,
+            currency: 'USD',
+            started_at: '2024-01-01T00:00:00Z',
+            ended_at: '2024-01-01T01:00:00Z',
+          },
+        ],
+        [], // SELECT ocpp_protocol
+        // Second subscriber
+        [{ id: 'session-pp-end', final_cost_cents: 1000, site_id: null }],
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Ended',
+          stationId: 'CS-001',
+          transactionId: 'tx-pp-end',
+          seqNo: 2,
+          triggerReason: 'EVDeparted',
+          timestamp: '2024-01-01T01:00:00Z',
+        }),
+      );
+
+      expect(mockSettlePrepaidSession).toHaveBeenCalledWith('session-pp-end', expect.anything());
+      expect(sqlCalls.some((c) => c.strings.join('?').includes("status = 'pre_authorized'"))).toBe(
+        false,
+      );
+      expect(mockPubSub.publish).toHaveBeenCalledWith(
+        'csms_events',
+        JSON.stringify({ eventType: 'token.changed', tokenId: 'dtk_pp' }),
+      );
+      expect(mockStripePaymentIntentsCapture).not.toHaveBeenCalled();
     });
   });
 });

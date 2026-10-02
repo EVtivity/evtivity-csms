@@ -47,13 +47,13 @@ export const TC_C_08_CSMS: TestCase = {
       seqNo: 1,
       transactionInfo: { transactionId: txId, chargingState: 'EVConnected' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
 
     const idTokenInfo = txRes['idTokenInfo'] as Record<string, unknown> | undefined;
     const authStatus = idTokenInfo?.['status'] as string | undefined;
     // TC_C_08 tests "Authorization through authorization cache - Accepted":
-    // The CSMS should confirm the token status authoritatively. OCTT-TOKEN-001 is a valid
+    // The CSMS should confirm the token status authoritatively. ctx.tokens.valid is a valid
     // active token, so the CSMS correctly returns Accepted. The station used cache offline;
     // the CSMS confirms the cache was correct.
     const validStatuses = ['Accepted'];

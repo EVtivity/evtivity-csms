@@ -36,6 +36,7 @@ const tokenSelect = {
   expiresAt: driverTokens.expiresAt,
   revokedAt: driverTokens.revokedAt,
   revokedReason: driverTokens.revokedReason,
+  prepaidBalanceCents: driverTokens.prepaidBalanceCents,
   createdAt: driverTokens.createdAt,
   updatedAt: driverTokens.updatedAt,
   driverFirstName: drivers.firstName,
@@ -156,6 +157,7 @@ interface TokenSnapshot {
   idToken: string;
   tokenType: string;
   driverId: string | null;
+  prepaidBalanceCents?: number | null;
 }
 
 async function writeTokenAudit(args: {
@@ -253,6 +255,7 @@ export async function createToken(
     idToken: string;
     tokenType: string;
     expiresAt?: Date | null | undefined;
+    prepaidBalanceCents?: number | null | undefined;
   },
   actor: TokenActor = { type: 'system' },
 ) {
@@ -275,7 +278,13 @@ export async function createToken(
     if (data.driverId != null && existing.driverId === data.driverId && !existing.isActive) {
       const reactivated = await updateToken(
         existing.id,
-        { isActive: true, expiresAt: data.expiresAt ?? null },
+        {
+          isActive: true,
+          expiresAt: data.expiresAt ?? null,
+          ...(data.prepaidBalanceCents !== undefined
+            ? { prepaidBalanceCents: data.prepaidBalanceCents }
+            : {}),
+        },
         actor,
       );
       return reactivated;
@@ -292,6 +301,7 @@ export async function createToken(
         tokenType: data.tokenType,
         driverId: data.driverId ?? null,
         expiresAt: data.expiresAt ?? null,
+        prepaidBalanceCents: data.prepaidBalanceCents ?? null,
       })
       .returning();
     token = inserted[0];
@@ -315,6 +325,7 @@ export async function createToken(
       idToken: token.idToken,
       tokenType: token.tokenType,
       driverId: token.driverId,
+      prepaidBalanceCents: token.prepaidBalanceCents,
     },
   });
   await notifyDriver(token.driverId, 'token.Added', {
@@ -335,6 +346,7 @@ export async function updateToken(
     isActive?: boolean | undefined;
     expiresAt?: Date | null | undefined;
     revokedReason?: string | null | undefined;
+    prepaidBalanceCents?: number | null | undefined;
   },
   actor: TokenActor = { type: 'system' },
 ) {
@@ -345,6 +357,7 @@ export async function updateToken(
       tokenType: driverTokens.tokenType,
       driverId: driverTokens.driverId,
       isActive: driverTokens.isActive,
+      prepaidBalanceCents: driverTokens.prepaidBalanceCents,
     })
     .from(driverTokens)
     .where(eq(driverTokens.id, id));
@@ -381,11 +394,13 @@ export async function updateToken(
     idToken: current.idToken,
     tokenType: current.tokenType,
     driverId: current.driverId,
+    prepaidBalanceCents: current.prepaidBalanceCents,
   };
   const afterSnapshot: TokenSnapshot = {
     idToken: token.idToken,
     tokenType: token.tokenType,
     driverId: token.driverId,
+    prepaidBalanceCents: token.prepaidBalanceCents,
   };
 
   // Audit + side effects driven by what actually changed.

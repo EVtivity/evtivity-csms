@@ -15,7 +15,7 @@ export const TC_005_1_CSMS: TestCase = {
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     const connectorId = 1;
-    const idTag = 'OCTT_TAG_001';
+    const idTag = ctx.tokens.valid;
     const timestamp = new Date().toISOString();
 
     await ctx.client.sendCall('BootNotification', {
@@ -23,19 +23,36 @@ export const TC_005_1_CSMS: TestCase = {
       chargePointModel: 'OCTT-Virtual-16',
     });
 
-    // Set up a charging session
+    // Reusable State Charging: the CSMS must accept the idTag in Authorize.conf
+    // and StartTransaction.conf (TC_003_CSMS tool validations).
     await ctx.client.sendCall('StatusNotification', {
       connectorId,
       status: 'Preparing',
       errorCode: 'NoError',
       timestamp,
     });
-    await ctx.client.sendCall('Authorize', { idTag });
+    const authResp = await ctx.client.sendCall('Authorize', { idTag });
+    const authStatus = (authResp['idTagInfo'] as Record<string, unknown> | undefined)?.['status'];
+    steps.push({
+      step: 1,
+      description: 'Charging state: Authorize.conf idTagInfo.status',
+      status: authStatus === 'Accepted' ? 'passed' : 'failed',
+      expected: 'idTagInfo.status = Accepted',
+      actual: `idTagInfo.status = ${String(authStatus)}`,
+    });
     const startResp = await ctx.client.sendCall('StartTransaction', {
       connectorId,
       idTag,
       meterStart: 0,
       timestamp,
+    });
+    const startStatus = (startResp['idTagInfo'] as Record<string, unknown> | undefined)?.['status'];
+    steps.push({
+      step: 2,
+      description: 'Charging state: StartTransaction.conf idTagInfo.status',
+      status: startStatus === 'Accepted' ? 'passed' : 'failed',
+      expected: 'idTagInfo.status = Accepted',
+      actual: `idTagInfo.status = ${String(startStatus)}`,
     });
     const transactionId = startResp['transactionId'] as number;
     await ctx.client.sendCall('StatusNotification', {
@@ -45,7 +62,7 @@ export const TC_005_1_CSMS: TestCase = {
       timestamp,
     });
 
-    // Step 1: StatusNotification SuspendedEV (cable disconnected at EV side)
+    // StatusNotification SuspendedEV (cable disconnected at EV side)
     const snResp1 = await ctx.client.sendCall('StatusNotification', {
       connectorId,
       status: 'SuspendedEV',
@@ -53,14 +70,14 @@ export const TC_005_1_CSMS: TestCase = {
       timestamp: new Date().toISOString(),
     });
     steps.push({
-      step: 1,
+      step: 3,
       description: 'Send StatusNotification (SuspendedEV)',
       status: snResp1 !== undefined ? 'passed' : 'failed',
       expected: 'StatusNotification.conf received',
       actual: snResp1 !== undefined ? 'Response received' : 'No response',
     });
 
-    // Step 2: StopTransaction with reason EVDisconnected
+    // StopTransaction with reason EVDisconnected
     const stopResp = await ctx.client.sendCall('StopTransaction', {
       transactionId,
       idTag,
@@ -69,14 +86,14 @@ export const TC_005_1_CSMS: TestCase = {
       reason: 'EVDisconnected',
     });
     steps.push({
-      step: 2,
+      step: 4,
       description: 'Send StopTransaction (reason: EVDisconnected)',
       status: stopResp !== undefined ? 'passed' : 'failed',
       expected: 'StopTransaction.conf received',
       actual: stopResp !== undefined ? 'Response received' : 'No response',
     });
 
-    // Step 3: StatusNotification Finishing
+    // StatusNotification Finishing
     const snResp2 = await ctx.client.sendCall('StatusNotification', {
       connectorId,
       status: 'Finishing',
@@ -84,14 +101,14 @@ export const TC_005_1_CSMS: TestCase = {
       timestamp: new Date().toISOString(),
     });
     steps.push({
-      step: 3,
+      step: 5,
       description: 'Send StatusNotification (Finishing)',
       status: snResp2 !== undefined ? 'passed' : 'failed',
       expected: 'StatusNotification.conf received',
       actual: snResp2 !== undefined ? 'Response received' : 'No response',
     });
 
-    // Step 4: StatusNotification Available (cable unplugged from CP)
+    // StatusNotification Available (cable unplugged from CP)
     const snResp3 = await ctx.client.sendCall('StatusNotification', {
       connectorId,
       status: 'Available',
@@ -99,7 +116,7 @@ export const TC_005_1_CSMS: TestCase = {
       timestamp: new Date().toISOString(),
     });
     steps.push({
-      step: 4,
+      step: 6,
       description: 'Send StatusNotification (Available)',
       status: snResp3 !== undefined ? 'passed' : 'failed',
       expected: 'StatusNotification.conf received',

@@ -3,6 +3,12 @@
 
 import type { TestCase, StepResult } from '../../../../types.js';
 import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { newPspRef, requestAdHocPayment } from '../../../../payment-test-helpers.js';
+
+/** Configured CardLast4Digits of the payment card presented to the terminal. */
+const CARD_LAST4 = '1234';
+/** Amount the payment terminal authorized, in cents. */
+const AUTHORIZED_AMOUNT_CENTS = 5000;
 
 export const TC_C_126_CSMS: TestCase = {
   id: 'TC_C_126_CSMS',
@@ -50,21 +56,14 @@ export const TC_C_126_CSMS: TestCase = {
       return { status: 'NotSupported' };
     });
 
-    // Wait for CSMS to initiate the start transaction
-    if (ctx.triggerCommand != null) {
-      await ctx.triggerCommand('v21', 'RequestStartTransaction', {
-        stationId: ctx.stationId,
-        evseId: 1,
-        idToken: {
-          idToken: 'OCTT-DIRECT-PAY',
-          type: 'DirectPayment',
-          additionalInfo: [{ additionalIdToken: '1234', type: 'CardLast4Digits' }],
-        },
-        remoteStartId: 1,
-      });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
+    // Manual Action: present a payment card to the payment terminal. The terminal
+    // reports the authorized payment to the CSMS, which sends RequestStartTransaction.
+    const paymentError = await requestAdHocPayment(ctx, {
+      pspRef: newPspRef(),
+      evseId: 1,
+      cardLast4Digits: CARD_LAST4,
+      maxCostCents: AUTHORIZED_AMOUNT_CENTS,
+    });
 
     const reqIdToken = requestStartPayload['idToken'] as Record<string, unknown> | undefined;
     const reqIdTokenType = reqIdToken?.['type'] as string | undefined;
@@ -81,7 +80,7 @@ export const TC_C_126_CSMS: TestCase = {
       expected: 'RequestStartTransaction received',
       actual: requestStartReceived
         ? `evseId = ${String(reqEvseId)}, remoteStartId = ${String(reqRemoteStartId)}`
-        : 'RequestStartTransaction not received',
+        : `RequestStartTransaction not received (${paymentError ?? 'no error'})`,
     });
 
     if (requestStartReceived) {
@@ -90,21 +89,27 @@ export const TC_C_126_CSMS: TestCase = {
         description:
           'Verify RequestStartTransaction has DirectPayment idToken with CardLast4Digits',
         status:
-          reqIdTokenType === 'DirectPayment' && additionalType === 'CardLast4Digits'
+          reqIdTokenType === 'DirectPayment' &&
+          additionalType === 'CardLast4Digits' &&
+          additionalIdToken === CARD_LAST4
             ? 'passed'
             : 'failed',
-        expected: 'idToken.type = DirectPayment, additionalInfo.type = CardLast4Digits',
+        expected: `idToken.type = DirectPayment, additionalInfo = CardLast4Digits ${CARD_LAST4}`,
         actual: `idToken.type = ${String(reqIdTokenType)}, additionalInfo.type = ${String(additionalType)}, additionalIdToken = ${String(additionalIdToken)}`,
       });
 
-      const evseIdPresent = reqEvseId != null;
-      const remoteStartIdPresent = reqRemoteStartId != null;
-
+      const reqIdTokenValue = reqIdToken?.['idToken'] as string | undefined;
       steps.push({
         step: 4,
-        description: 'Verify RequestStartTransaction has evseId and remoteStartId',
-        status: evseIdPresent && remoteStartIdPresent ? 'passed' : 'failed',
-        expected: 'evseId and remoteStartId present',
+        description: 'Verify RequestStartTransaction has evseId, remoteStartId, and an idToken',
+        status:
+          reqEvseId === 1 &&
+          reqRemoteStartId != null &&
+          reqIdTokenValue != null &&
+          reqIdTokenValue !== ''
+            ? 'passed'
+            : 'failed',
+        expected: 'evseId = 1, remoteStartId present, idToken.idToken not empty',
         actual: `evseId = ${String(reqEvseId)}, remoteStartId = ${String(reqRemoteStartId)}`,
       });
     }

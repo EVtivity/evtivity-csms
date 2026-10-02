@@ -3215,68 +3215,6 @@ describe('Event projections', () => {
     });
   });
 
-  describe('ocpp.NotifyQRCodeScanned', () => {
-    it('inserts QR code scan event', async () => {
-      await setup();
-
-      setupSqlResults(
-        [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // INSERT qr_scan_events
-      );
-
-      await eventBus.emit(
-        'ocpp.NotifyQRCodeScanned',
-        makeDomainEvent('ocpp.NotifyQRCodeScanned', 'CS-001', {
-          evseId: 1,
-          timeout: 30,
-        }),
-      );
-
-      expect(sqlCalls.length).toBe(2);
-      const insertCall = sqlCalls[1]!;
-      expect(insertCall.strings.join('')).toContain('INSERT INTO qr_scan_events');
-      expect(insertCall.values).toContain('sta_000000000001');
-      expect(insertCall.values).toContain(1);
-      expect(insertCall.values).toContain(30);
-    });
-
-    it('uses null for missing fields', async () => {
-      await setup();
-
-      setupSqlResults(
-        [{ id: 'sta_000000000001' }], // resolveStationUuid
-        [], // INSERT qr_scan_events
-      );
-
-      await eventBus.emit(
-        'ocpp.NotifyQRCodeScanned',
-        makeDomainEvent('ocpp.NotifyQRCodeScanned', 'CS-001', {}),
-      );
-
-      expect(sqlCalls.length).toBe(2);
-      const insertCall = sqlCalls[1]!;
-      expect(insertCall.values).toContain(null);
-    });
-
-    it('skips if station not found', async () => {
-      await setup();
-
-      setupSqlResults(
-        [], // resolveStationUuid returns no rows
-      );
-
-      await eventBus.emit(
-        'ocpp.NotifyQRCodeScanned',
-        makeDomainEvent('ocpp.NotifyQRCodeScanned', 'UNKNOWN-STATION', {
-          evseId: 2,
-          timeout: 60,
-        }),
-      );
-
-      expect(sqlCalls.length).toBe(1);
-    });
-  });
-
   describe('Reservation expiry check', () => {
     it('registers setInterval for reservation expiry', async () => {
       await setup();

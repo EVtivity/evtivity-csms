@@ -13,6 +13,13 @@ const mockLogNotification = vi.fn();
 const mockWrapEmailHtml = vi.fn();
 const mockDispatchDriverNotification = vi.fn();
 const mockRecordNotificationAttempt = vi.fn();
+const mockClearContractValidationCaCache = vi.fn();
+
+vi.mock('../services/pki/contract-certificate-validation.js', () => ({
+  clearContractValidationCaCache: () => {
+    mockClearContractValidationCaCache();
+  },
+}));
 
 vi.mock('@evtivity/lib', async () => {
   const actual = await vi.importActual<typeof import('@evtivity/lib')>('@evtivity/lib');
@@ -630,5 +637,24 @@ describe('subscribeOcppEventSettingsInvalidation', () => {
 
     await sub.unsubscribe();
     expect(unsubscribe).toHaveBeenCalled();
+  });
+
+  it('clears the contract validation CA cache on a pkiCaCertificates message', async () => {
+    const mod = await import('../server/notification-dispatcher.js');
+    let handler: ((p: string) => void) | null = null;
+    const pubsub = {
+      publish: vi.fn(),
+      subscribe: vi.fn((_channel: string, h: (p: string) => void) => {
+        handler = h;
+        return Promise.resolve({ unsubscribe: vi.fn().mockResolvedValue(undefined) });
+      }),
+      close: vi.fn(),
+    };
+    await mod.subscribeOcppEventSettingsInvalidation(pubsub);
+
+    handler!(JSON.stringify({ cache: 'ocppEventSettings' }));
+    expect(mockClearContractValidationCaCache).not.toHaveBeenCalled();
+    handler!(JSON.stringify({ cache: 'pkiCaCertificates' }));
+    expect(mockClearContractValidationCaCache).toHaveBeenCalledTimes(1);
   });
 });

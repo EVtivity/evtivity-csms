@@ -1,6 +1,13 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import {
+  FIRMWARE_IMAGE_BASE64,
+  FIRMWARE_SIGNING_CERTIFICATE,
+  INVALID_FIRMWARE_SIGNATURE,
+} from '../../../../firmware-fixtures.js';
 import type { CsTestCase, StepResult } from '../../../../cs-types.js';
 import { waitForChargingState, waitForTriggerReason } from '../../../../cs-test-helpers.js';
 
@@ -461,59 +468,83 @@ export const TC_F_19_CS: CsTestCase = {
 
     ctx.server.setMessageHandler(defaultHandler);
 
-    // Step 1-2: Send UpdateFirmwareRequest to start firmware download
-    const updateRes = await ctx.server.sendCommand('UpdateFirmware', {
-      requestId: 1,
-      firmware: {
-        location: 'https://example.com/firmware.bin',
-        retrieveDateTime: new Date(Date.now() - 7_200_000).toISOString(),
-        signingCertificate: 'MIIB...',
-        signature: 'invalid-signature',
-      },
+    // <Configured firmware_location>: a file server that takes 3 s to deliver
+    // the image, so the station is still downloading when the trigger arrives.
+    const image = Buffer.from(FIRMWARE_IMAGE_BASE64, 'base64');
+    const fileServer = createServer((_req, res) => {
+      setTimeout(() => {
+        res.writeHead(200, { 'content-length': image.length }).end(image);
+      }, 3000);
     });
-    const updateStatus = updateRes['status'] as string;
-    steps.push({
-      step: 2,
-      description: 'UpdateFirmwareResponse - status must be Accepted',
-      status: updateStatus === 'Accepted' ? 'passed' : 'failed',
-      expected: 'status = Accepted',
-      actual: `status = ${updateStatus}`,
+    await new Promise<void>((resolve) => {
+      fileServer.listen(0, '127.0.0.1', () => {
+        resolve();
+      });
     });
+    const address = fileServer.address() as AddressInfo;
+    try {
+      // Step 1-2: Send UpdateFirmwareRequest to start firmware download
+      const updateRes = await ctx.server.sendCommand('UpdateFirmware', {
+        requestId: 1,
+        firmware: {
+          location: `http://127.0.0.1:${String(address.port)}/firmware.bin`,
+          retrieveDateTime: new Date(Date.now() - 7_200_000).toISOString(),
+          signingCertificate: FIRMWARE_SIGNING_CERTIFICATE,
+          signature: INVALID_FIRMWARE_SIGNATURE,
+        },
+      });
+      const updateStatus = updateRes['status'] as string;
+      steps.push({
+        step: 2,
+        description: 'UpdateFirmwareResponse - status must be Accepted',
+        status: updateStatus === 'Accepted' ? 'passed' : 'failed',
+        expected: 'status = Accepted',
+        actual: `status = ${updateStatus}`,
+      });
 
-    // Step 3: Wait for FirmwareStatusNotificationRequest (Downloading)
-    const fwMsg1 = await ctx.server.waitForMessage('FirmwareStatusNotification', 10000);
-    const fwStatus1 = fwMsg1['status'] as string;
-    steps.push({
-      step: 3,
-      description: 'FirmwareStatusNotificationRequest - status must be Downloading',
-      status: fwStatus1 === 'Downloading' ? 'passed' : 'failed',
-      expected: 'status = Downloading',
-      actual: `status = ${fwStatus1}`,
-    });
+      // Step 3: Wait for FirmwareStatusNotificationRequest (Downloading)
+      const fwMsg1 = await ctx.server.waitForMessage('FirmwareStatusNotification', 10000);
+      const fwStatus1 = fwMsg1['status'] as string;
+      steps.push({
+        step: 3,
+        description: 'FirmwareStatusNotificationRequest - status must be Downloading',
+        status: fwStatus1 === 'Downloading' ? 'passed' : 'failed',
+        expected: 'status = Downloading',
+        actual: `status = ${fwStatus1}`,
+      });
 
-    // Step 5-6: Send TriggerMessageRequest for FirmwareStatusNotification
-    const triggerRes = await ctx.server.sendCommand('TriggerMessage', {
-      requestedMessage: 'FirmwareStatusNotification',
-    });
-    const triggerStatus = triggerRes['status'] as string;
-    steps.push({
-      step: 6,
-      description: 'TriggerMessageResponse - status must be Accepted',
-      status: triggerStatus === 'Accepted' ? 'passed' : 'failed',
-      expected: 'status = Accepted',
-      actual: `status = ${triggerStatus}`,
-    });
+      // Step 5-6: Send TriggerMessageRequest for FirmwareStatusNotification
+      const triggerRes = await ctx.server.sendCommand('TriggerMessage', {
+        requestedMessage: 'FirmwareStatusNotification',
+      });
+      const triggerStatus = triggerRes['status'] as string;
+      steps.push({
+        step: 6,
+        description: 'TriggerMessageResponse - status must be Accepted',
+        status: triggerStatus === 'Accepted' ? 'passed' : 'failed',
+        expected: 'status = Accepted',
+        actual: `status = ${triggerStatus}`,
+      });
 
-    // Step 7: Wait for FirmwareStatusNotificationRequest (Downloading)
-    const fwMsg2 = await ctx.server.waitForMessage('FirmwareStatusNotification', 10000);
-    const fwStatus2 = fwMsg2['status'] as string;
-    steps.push({
-      step: 7,
-      description: 'FirmwareStatusNotificationRequest - status must be Downloading',
-      status: fwStatus2 === 'Downloading' ? 'passed' : 'failed',
-      expected: 'status = Downloading',
-      actual: `status = ${fwStatus2}`,
-    });
+      // Step 7: Wait for FirmwareStatusNotificationRequest (Downloading)
+      const fwMsg2 = await ctx.server.waitForMessage('FirmwareStatusNotification', 10000);
+      const fwStatus2 = fwMsg2['status'] as string;
+      steps.push({
+        step: 7,
+        description: 'FirmwareStatusNotificationRequest - status must be Downloading',
+        status: fwStatus2 === 'Downloading' ? 'passed' : 'failed',
+        expected: 'status = Downloading',
+        actual: `status = ${fwStatus2}`,
+      });
+
+      // Step 9-14 (cleanup): the update ends with InvalidSignature
+      for (let i = 0; i < 3; i++) {
+        const msg = await ctx.server.waitForMessage('FirmwareStatusNotification', 10_000);
+        if (msg['status'] === 'InvalidSignature') break;
+      }
+    } finally {
+      fileServer.close();
+    }
 
     const allPassed = steps.every((s) => s.status === 'passed');
     return { status: allPassed ? 'passed' : 'failed', durationMs: 0, steps };

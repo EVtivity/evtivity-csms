@@ -15,3 +15,15 @@ export {
 } from './O04.js';
 export { TC_O_04_CS, TC_O_05_CS } from './O05.js';
 export { TC_O_12_CS } from './O06.js';
+export {
+  TC_O_19_CS,
+  TC_O_20_CS,
+  TC_O_22_CS,
+  TC_O_24_CS,
+  TC_O_36_CS,
+  TC_O_37_CS,
+  TC_O_38_CS,
+  TC_O_39_CS,
+  TC_O_100_CS,
+  TC_O_101_CS,
+} from './O01-states-languages.js';

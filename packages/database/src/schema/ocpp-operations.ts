@@ -172,11 +172,16 @@ export const stationConfigurations = pgTable(
   },
   (table) => [
     index('idx_station_configurations_station_id').on(table.stationId),
-    uniqueIndex('uq_station_configurations_composite').using(
+    // One row per OCPP 2.1 component/variable identity: component instance and
+    // variable instance are part of it (DeviceDataCtrlr.ItemsPerMessage[GetReport]
+    // and [GetVariables] are different variables).
+    uniqueIndex('uq_station_configurations_identity').using(
       'btree',
       table.stationId,
       table.component,
+      sql`COALESCE(instance, '')`,
       table.variable,
+      sql`COALESCE(variable_instance, '')`,
       sql`COALESCE(evse_id, -1)`,
       sql`COALESCE(connector_id, -1)`,
       table.attributeType,
@@ -379,20 +384,6 @@ export const periodicEventStreams = pgTable(
   (table) => [index('idx_periodic_event_streams_station').on(table.stationId)],
 );
 
-export const qrScanEvents = pgTable(
-  'qr_scan_events',
-  {
-    id: serial('id').primaryKey(),
-    stationId: text('station_id')
-      .notNull()
-      .references(() => chargingStations.id, { onDelete: 'cascade' }),
-    evseId: integer('evse_id'),
-    timeout: integer('timeout'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [index('idx_qr_scan_events_station').on(table.stationId)],
-);
-
 // -- OCPP 2.1 additional stub persistence tables --
 
 export const vatNumberValidations = pgTable(
@@ -407,20 +398,6 @@ export const vatNumberValidations = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index('idx_vat_number_validations_station').on(table.stationId)],
-);
-
-export const webPaymentEvents = pgTable(
-  'web_payment_events',
-  {
-    id: serial('id').primaryKey(),
-    stationId: text('station_id')
-      .notNull()
-      .references(() => chargingStations.id, { onDelete: 'cascade' }),
-    evseId: integer('evse_id'),
-    timeout: integer('timeout'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [index('idx_web_payment_events_station').on(table.stationId)],
 );
 
 export const allowedEnergyTransferEvents = pgTable(

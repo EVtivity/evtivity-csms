@@ -9,6 +9,12 @@ import { BackButton } from '@/components/back-button';
 import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
 import { TargetFilterFields, type TargetFilterValue } from '@/components/TargetFilterFields';
+import {
+  FirmwareSignatureFields,
+  firmwareSignaturePayload,
+  getFirmwareSignatureErrors,
+  type FirmwareSignatureValue,
+} from '@/components/FirmwareSignatureFields';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
@@ -23,6 +29,15 @@ interface Campaign {
   createdAt: string;
 }
 
+interface CreateCampaignBody {
+  name: string;
+  firmwareUrl: string;
+  version?: string;
+  signingCertificate?: string;
+  signature?: string;
+  targetFilter?: TargetFilterValue;
+}
+
 export function FirmwareCampaignCreate(): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -31,16 +46,15 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
   const [name, setName] = useState('');
   const [firmwareUrl, setFirmwareUrl] = useState('');
   const [version, setVersion] = useState('');
+  const [signing, setSigning] = useState<FirmwareSignatureValue>({
+    signingCertificate: '',
+    signature: '',
+  });
   const [filter, setFilter] = useState<TargetFilterValue>({});
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const createMutation = useMutation({
-    mutationFn: (body: {
-      name: string;
-      firmwareUrl: string;
-      version?: string;
-      targetFilter?: TargetFilterValue;
-    }) => api.post<Campaign>('/v1/firmware-campaigns', body),
+    mutationFn: (body: CreateCampaignBody) => api.post<Campaign>('/v1/firmware-campaigns', body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['firmware-campaigns'] });
       void navigate(`/firmware-campaigns/${created.id}`);
@@ -62,18 +76,18 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
     return errors;
   }
 
-  const errors = { ...getValidationErrors(), ...getApiErrorFieldDetails(createMutation.error) };
+  const signingErrors = getFirmwareSignatureErrors(signing, t);
+  const errors: Record<string, string> = {
+    ...getValidationErrors(),
+    ...signingErrors,
+    ...getApiErrorFieldDetails(createMutation.error),
+  };
 
   function handleSubmit(e: React.SyntheticEvent): void {
     e.preventDefault();
     setHasSubmitted(true);
     if (Object.keys(errors).length > 0) return;
-    const body: {
-      name: string;
-      firmwareUrl: string;
-      version?: string;
-      targetFilter?: TargetFilterValue;
-    } = { name, firmwareUrl };
+    const body: CreateCampaignBody = { name, firmwareUrl, ...firmwareSignaturePayload(signing) };
     if (version.trim() !== '') body.version = version;
     if (Object.keys(filter).length > 0) body.targetFilter = filter;
     createMutation.mutate(body);
@@ -130,6 +144,13 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
                 />
               </div>
             </div>
+
+            <FirmwareSignatureFields
+              value={signing}
+              onChange={setSigning}
+              idPrefix="campaign"
+              errors={hasSubmitted ? signingErrors : {}}
+            />
 
             <TargetFilterFields
               endpoint="/v1/firmware-campaigns/filter-options"

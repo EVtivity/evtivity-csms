@@ -5,6 +5,30 @@ import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vites
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
+// Real self-signed test PEM so the X509Certificate check accepts it.
+const TEST_PEM_CERTIFICATE = `-----BEGIN CERTIFICATE-----
+MIIDYTCCAkmgAwIBAgIUTRwcMo/cq2a8TDMda6I+GpAzyJQwDQYJKoZIhvcNAQEL
+BQAwQDELMAkGA1UEBhMCVVMxFjAUBgNVBAoMDUVWdGl2aXR5IFRlc3QxGTAXBgNV
+BAMMEEVWdGl2aXR5IFRlc3QgQ0EwHhcNMjYwMjIxMTgxNjEzWhcNMzYwMjE5MTgx
+NjEzWjBAMQswCQYDVQQGEwJVUzEWMBQGA1UECgwNRVZ0aXZpdHkgVGVzdDEZMBcG
+A1UEAwwQRVZ0aXZpdHkgVGVzdCBDQTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCC
+AQoCggEBANsDGoiIRlgTFls3z+pPNTFTG9lxQlXwBhlw9i/wV3yQJPdqSgxFDgp7
+PHCev7IHSgP0nBBfHQ560gFjtgMP+8Pgmeqtt8RGknxZPeSMePxwuzvkf1+XYfta
+Bg6QAgoChDJkdFbXlqANzE6BB685h+OKI6wDbvOqxFGReQHodBX2ENGk/c0p2BXn
+I/9IydpRL5FC918ex++GE9DAf9gZHO35J12WWp5QDmmZHBGrowFLv0nTuISZ0bQw
+U/vDGOVR8s/KJ4r0jyb9MuSQFJkg1VBM6j36Ge8vMrQmWoi2yZLGYYaKp+R1zN+V
+8DwkbXeQRy4jiqyBYApET5txG2uGuLECAwEAAaNTMFEwHQYDVR0OBBYEFH1zUD3V
+8/aR7jGSi5ptHCmMWIUDMB8GA1UdIwQYMBaAFH1zUD3V8/aR7jGSi5ptHCmMWIUD
+MA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBADQ2+W8418Zkytha
+LIilVOLJdK+AKpWrZWRNYkb/JnEu/husUfZXaxxOUQB+/gEhh4EeFcTSWkEh2GiU
+XZbZ9zXDVqKLNBgubMKRjJh7XA4uASdP2dKt7u/aerYdBGPd2Uuku6IBLVNWxHap
+GYQS+sRDqF0Qhk6ZnPUUuqpEFcP7/Ib3/Bna1XC/6nitqfoF5jMPZcahQY9eOVR2
+2t30h0+FJcLlHC2Sit+scgqcNsIH7dLrn/DGBqRGuNDbLr0en7Gwr1AXUOSpc8/W
+43o8KYRCfMwahBKbuSBXvueAXJNpWYEPGxEcZc+sH/IqssqdzsqB8ZGZghiLh6uI
+qf/5BbM=
+-----END CERTIFICATE-----`;
+const TEST_SIGNATURE = 'c2lnbmF0dXJlLWJ5dGVz';
+
 // -- DB mock helpers --
 
 let dbResults: unknown[][] = [];
@@ -238,6 +262,8 @@ describe('Firmware campaign routes', () => {
         name: 'Firmware v2.0 rollout',
         firmwareUrl: 'https://example.com/fw.bin',
         version: '2.0.0',
+        signingCertificate: null,
+        signature: null,
         status: 'draft',
         targetFilter: null,
         createdById: 'test-user-id',
@@ -309,6 +335,8 @@ describe('Firmware campaign routes', () => {
         name: 'Firmware v2.0 rollout',
         firmwareUrl: 'https://example.com/fw.bin',
         version: '2.0.0',
+        signingCertificate: null,
+        signature: null,
         status: 'active',
         targetFilter: null,
         createdById: 'test-user-id',
@@ -364,6 +392,8 @@ describe('Firmware campaign routes', () => {
         name: 'New campaign',
         firmwareUrl: 'https://example.com/fw.bin',
         version: '1.0.0',
+        signingCertificate: null,
+        signature: null,
         status: 'draft',
         targetFilter: null,
         createdById: 'test-user-id',
@@ -385,6 +415,8 @@ describe('Firmware campaign routes', () => {
           name: 'New campaign',
           firmwareUrl: 'https://example.com/fw.bin',
           version: '1.0.0',
+          signingCertificate: null,
+          signature: null,
         }),
       });
       expect(response.statusCode).toBe(201);
@@ -392,6 +424,81 @@ describe('Firmware campaign routes', () => {
       expect(body.id).toBe('camp-new');
       expect(body.name).toBe('New campaign');
       expect(body.status).toBe('draft');
+    });
+
+    it('stores the signing certificate and signature of a secure update', async () => {
+      const created = {
+        id: 'camp-signed',
+        name: 'Signed campaign',
+        firmwareUrl: 'https://example.com/fw.bin',
+        version: null,
+        signingCertificate: TEST_PEM_CERTIFICATE,
+        signature: TEST_SIGNATURE,
+        status: 'draft',
+        targetFilter: null,
+        createdById: 'test-user-id',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setupDbResults([created]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/firmware-campaigns',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Signed campaign',
+          firmwareUrl: 'https://example.com/fw.bin',
+          signingCertificate: TEST_PEM_CERTIFICATE,
+          signature: TEST_SIGNATURE,
+        }),
+      });
+
+      expect(response.statusCode).toBe(201);
+      const { db } = await import('@evtivity/database');
+      const insertChain = vi.mocked(db.insert).mock.results[0]?.value as {
+        values: ReturnType<typeof vi.fn>;
+      };
+      expect(insertChain.values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          signingCertificate: TEST_PEM_CERTIFICATE,
+          signature: TEST_SIGNATURE,
+        }),
+      );
+      expect(JSON.parse(response.body).signature).toBe(TEST_SIGNATURE);
+    });
+
+    it.each([
+      ['a signature without a certificate', { signature: TEST_SIGNATURE }],
+      ['a certificate without a signature', { signingCertificate: TEST_PEM_CERTIFICATE }],
+      ['a certificate that is not PEM', { signingCertificate: 'abc', signature: TEST_SIGNATURE }],
+      [
+        'a PEM block that is not a certificate',
+        {
+          signingCertificate: '-----BEGIN CERTIFICATE-----\nTUlJQg==\n-----END CERTIFICATE-----',
+          signature: TEST_SIGNATURE,
+        },
+      ],
+      [
+        'a signature that is not base64',
+        { signingCertificate: TEST_PEM_CERTIFICATE, signature: 'not base64!' },
+      ],
+    ])('returns 400 for %s', async (_label, fields) => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/firmware-campaigns',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Signed campaign',
+          firmwareUrl: 'https://example.com/fw.bin',
+          ...fields,
+        }),
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body).code).toBe('VALIDATION_ERROR');
+      const { db } = await import('@evtivity/database');
+      expect(db.insert).not.toHaveBeenCalled();
     });
   });
 
@@ -461,6 +568,8 @@ describe('Firmware campaign routes', () => {
         name: 'Draft campaign',
         firmwareUrl: 'https://example.com/fw.bin',
         version: '1.0.0',
+        signingCertificate: null,
+        signature: null,
         status: 'draft',
         targetFilter: null,
         createdById: 'test-user-id',
@@ -488,6 +597,81 @@ describe('Firmware campaign routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body.name).toBe('Updated campaign');
+    });
+
+    const signedDraft = {
+      id: 'camp-001',
+      name: 'Draft campaign',
+      firmwareUrl: 'https://example.com/fw.bin',
+      version: null,
+      signingCertificate: TEST_PEM_CERTIFICATE,
+      signature: TEST_SIGNATURE,
+      status: 'draft',
+      targetFilter: null,
+      createdById: 'test-user-id',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    it('returns 400 when an update leaves only one signing field', async () => {
+      setupDbResults([signedDraft]);
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/v1/firmware-campaigns/camp-001',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ signature: null }),
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body).code).toBe('VALIDATION_ERROR');
+    });
+
+    it('clears both signing fields', async () => {
+      setupDbResults(
+        [signedDraft],
+        [{ ...signedDraft, signingCertificate: null, signature: null }],
+      );
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/v1/firmware-campaigns/camp-001',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ signingCertificate: null, signature: null }),
+      });
+
+      expect(response.statusCode).toBe(200);
+      const { db } = await import('@evtivity/database');
+      const updateChain = vi.mocked(db.update).mock.results[0]?.value as {
+        set: ReturnType<typeof vi.fn>;
+      };
+      expect(updateChain.set).toHaveBeenCalledWith(
+        expect.objectContaining({ signingCertificate: null, signature: null }),
+      );
+    });
+
+    it('keeps the stored signing fields when the update does not name them', async () => {
+      setupDbResults([signedDraft], [{ ...signedDraft, name: 'Renamed' }]);
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/v1/firmware-campaigns/camp-001',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Renamed' }),
+      });
+
+      expect(response.statusCode).toBe(200);
+      const { db } = await import('@evtivity/database');
+      const updateChain = vi.mocked(db.update).mock.results[0]?.value as {
+        set: ReturnType<typeof vi.fn>;
+      };
+      expect(updateChain.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'Renamed',
+          signingCertificate: TEST_PEM_CERTIFICATE,
+          signature: TEST_SIGNATURE,
+        }),
+      );
     });
   });
 
@@ -706,6 +890,8 @@ describe('Firmware campaign routes', () => {
         name: 'Draft campaign',
         firmwareUrl: 'https://example.com/fw.bin',
         version: '2.0.0',
+        signingCertificate: null,
+        signature: null,
         status: 'draft',
         targetFilter: { siteId: 'site-001' },
         createdAt: new Date().toISOString(),
@@ -738,7 +924,48 @@ describe('Firmware campaign routes', () => {
         const payload = JSON.parse(call[1] as string);
         expect(payload.action).toBe('UpdateFirmware');
         expect(payload.payload.firmware.location).toBe('https://example.com/fw.bin');
+        expect(payload.payload.firmware).not.toHaveProperty('signature');
       }
+    });
+
+    it('sends the signing certificate and signature of a signed campaign', async () => {
+      const campaign = {
+        id: 'camp-001',
+        name: 'Signed campaign',
+        firmwareUrl: 'https://example.com/fw.bin',
+        version: '2.0.0',
+        signingCertificate: TEST_PEM_CERTIFICATE,
+        signature: TEST_SIGNATURE,
+        status: 'draft',
+        targetFilter: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setupDbResults(
+        [campaign],
+        [{ id: 'sta-uuid-001', stationId: 'STATION-001' }],
+        [{ id: 'camp-001' }],
+        [],
+        [],
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/firmware-campaigns/camp-001/start',
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockPublish).toHaveBeenCalledTimes(1);
+      const payload = JSON.parse(mockPublish.mock.calls[0]?.[1] as string);
+      expect(payload.version).toBeUndefined();
+      expect(payload.payload.firmware).toEqual(
+        expect.objectContaining({
+          location: 'https://example.com/fw.bin',
+          signingCertificate: TEST_PEM_CERTIFICATE,
+          signature: TEST_SIGNATURE,
+        }),
+      );
     });
   });
 

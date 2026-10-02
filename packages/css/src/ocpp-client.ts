@@ -3,6 +3,91 @@
 
 import WebSocket from 'ws';
 import { randomUUID } from 'node:crypto';
+import { checkServerIdentity, type PeerCertificate } from 'node:tls';
+
+// Errors a TLS client raises when it does not accept the server certificate.
+const SERVER_CERTIFICATE_ERRORS = new Set([
+  'CERT_HAS_EXPIRED',
+  'CERT_NOT_YET_VALID',
+  'CERT_SIGNATURE_FAILURE',
+  'CERT_UNTRUSTED',
+  'CERT_REJECTED',
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'UNABLE_TO_GET_ISSUER_CERT',
+  'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+  'ERR_TLS_CERT_WILDCARD',
+]);
+
+/** True when a connection failed because the server certificate was not accepted. */
+export function isServerCertificateError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && SERVER_CERTIFICATE_ERRORS.has(code);
+}
+
+// The server offered no TLS version the client accepts (TLS 1.2 or above).
+const TLS_VERSION_ERRORS = new Set([
+  'ERR_SSL_UNSUPPORTED_PROTOCOL',
+  'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION',
+  'ERR_SSL_WRONG_VERSION_NUMBER',
+]);
+
+/** True when a connection failed because the server's TLS version is below 1.2. */
+export function isTlsVersionError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  const message = err instanceof Error ? err.message : '';
+  return (
+    (typeof code === 'string' && TLS_VERSION_ERRORS.has(code)) ||
+    /unsupported protocol|alert protocol version/i.test(message)
+  );
+}
+
+/**
+ * Whether the client verifies the wss:// server certificate. Verification is on
+ * unless it is disabled explicitly: `verifyServerCertificate: false`, or
+ * TLS_REJECT_UNAUTHORIZED set to `false` or `0` when the option is not given.
+ */
+export function resolveVerifyServerCertificate(
+  option: boolean | undefined,
+  env: string | undefined = process.env['TLS_REJECT_UNAUTHORIZED'],
+): boolean {
+  if (option != null) return option;
+  const value = env?.trim().toLowerCase();
+  return value !== 'false' && value !== '0';
+}
+
+/**
+ * Host name check for a Central System / CSMS certificate: the standard check
+ * first (its error always wins), then the rule that a wildcard name is not
+ * accepted: OCPP 1.6 Security Whitepaper (AllowCentralSystemTLSWildcards false,
+ * OCTT TC_078) and OCPP 2.1 SecurityCtrlr.AllowCSMSTLSWildcards (not
+ * implemented, so false).
+ */
+export function checkCentralSystemIdentity(host: string, cert: PeerCertificate): Error | undefined {
+  const standard = checkServerIdentity(host, cert);
+  if (standard != null) return standard;
+  // A certificate without a subject has no subject field at runtime.
+  const subject: unknown = cert.subject;
+  const cn: unknown =
+    typeof subject === 'object' && subject !== null
+      ? (subject as Record<string, unknown>)['CN']
+      : undefined;
+  const commonNames = (Array.isArray(cn) ? cn : [cn]).filter(
+    (name): name is string => typeof name === 'string',
+  );
+  const altNames = (cert.subjectaltname ?? '')
+    .split(', ')
+    .filter((name) => name.startsWith('DNS:'))
+    .map((name) => name.slice(4));
+  if ([...commonNames, ...altNames].some((name) => name.includes('*'))) {
+    return Object.assign(new Error(`Wildcard server certificate for ${host} is not accepted`), {
+      code: 'ERR_TLS_CERT_WILDCARD',
+    });
+  }
+  return undefined;
+}
 
 type OcppCall = [2, string, string, Record<string, unknown>];
 type OcppCallResult = [3, string, Record<string, unknown>];
@@ -22,6 +107,14 @@ export interface OcppClientOptions {
   clientCert?: string | undefined;
   clientKey?: string | undefined;
   caCert?: string | undefined;
+  /** Verify the server certificate on wss:// (see resolveVerifyServerCertificate). */
+  verifyServerCertificate?: boolean | undefined;
+  /**
+   * Extra random delay (ms) added to the first reconnect attempt after a
+   * connection loss. A fleet sets it so thousands of stations do not
+   * reconnect at the same instant after a server restart. Default 0.
+   */
+  reconnectSpreadMs?: number | undefined;
 }
 
 export type IncomingCallHandler = (
@@ -29,6 +122,17 @@ export type IncomingCallHandler = (
   action: string,
   payload: Record<string, unknown>,
 ) => Promise<Record<string, unknown>>;
+
+/**
+ * OCPP 2.x reconnect back-off (Part 4 5.4): the first attempt after
+ * waitMinimumMs plus a random value up to randomRangeMs; every failed attempt
+ * doubles the back-off, at most repeatTimes times.
+ */
+export interface ReconnectBackOff {
+  waitMinimumMs: number;
+  randomRangeMs: number;
+  repeatTimes: number;
+}
 
 export class OcppClient {
   private ws: WebSocket | null = null;
@@ -46,18 +150,21 @@ export class OcppClient {
   private password: string;
   private securityProfile: number;
   private beforeReconnectAttempt: ((attempt: number) => void) | null = null;
-  private readonly clientCert: string | undefined;
-  private readonly clientKey: string | undefined;
-  private readonly caCert: string | undefined;
+  private reconnectBackOff: (() => ReconnectBackOff | null) | null = null;
+  private clientCert: string | undefined;
+  private clientKey: string | undefined;
+  // Trust anchors for the CSMS server certificate (installed CSMS root certificates).
+  private trustAnchors: string[];
+  private readonly verifyServerCertificate: boolean;
+  private onServerCertificateRejected: ((err: Error) => void) | null = null;
+  private onTlsVersionRejected: ((err: Error) => void) | null = null;
+  private readonly reconnectSpreadMs: number;
+  // Set by reconnectNow(): the wait (ms) before the next reconnect loop's first
+  // attempt, replacing the backoff.
+  private firstReconnectDelayMs: number | null = null;
 
   private static readonly BASE_RECONNECT_DELAY_MS = 2000;
   private static readonly MAX_RECONNECT_DELAY_MS = 300_000; // 5 minutes cap
-  // When the OCPP server restarts, every simulator in a 2000-station fleet
-  // sees the close at the same instant; with only the 20% backoff jitter they
-  // all reconnect (and re-run the full boot sequence) within ~2 seconds,
-  // which saturates postgres on the server side. The first attempt spreads
-  // uniformly over this window instead.
-  private static readonly RECONNECT_SPREAD_MS = 15_000;
   private static readonly CALL_TIMEOUT_MS = 30_000;
 
   constructor(options: OcppClientOptions) {
@@ -68,7 +175,24 @@ export class OcppClient {
     this.securityProfile = options.securityProfile ?? 1;
     this.clientCert = options.clientCert;
     this.clientKey = options.clientKey;
-    this.caCert = options.caCert;
+    this.trustAnchors = options.caCert != null ? [options.caCert] : [];
+    this.verifyServerCertificate = resolveVerifyServerCertificate(options.verifyServerCertificate);
+    this.reconnectSpreadMs = options.reconnectSpreadMs ?? 0;
+  }
+
+  /** Called when a connection attempt fails because the server certificate was not accepted. */
+  setServerCertificateRejectedHandler(handler: (err: Error) => void): void {
+    this.onServerCertificateRejected = handler;
+  }
+
+  /** Called when a connection attempt fails because the server's TLS version is below 1.2. */
+  setTlsVersionRejectedHandler(handler: (err: Error) => void): void {
+    this.onTlsVersionRejected = handler;
+  }
+
+  /** Root certificates the CSMS server certificate must chain to, from the next connect. */
+  setTrustAnchors(pems: string[]): void {
+    this.trustAnchors = [...pems];
   }
 
   get isConnected(): boolean {
@@ -91,15 +215,19 @@ export class OcppClient {
     this.onConnectedCallback = handler;
   }
 
-  /** Connection settings used from the next connect (password or security profile change). */
+  /** Connection settings used from the next connect (password, security profile, or client certificate change). */
   updateConnection(opts: {
     serverUrl?: string;
     password?: string;
     securityProfile?: number;
+    clientCert?: string;
+    clientKey?: string;
   }): void {
     if (opts.serverUrl != null) this.serverUrl = opts.serverUrl;
     if (opts.password != null) this.password = opts.password;
     if (opts.securityProfile != null) this.securityProfile = opts.securityProfile;
+    if (opts.clientCert != null) this.clientCert = opts.clientCert;
+    if (opts.clientKey != null) this.clientKey = opts.clientKey;
   }
 
   get connection(): { serverUrl: string; password: string; securityProfile: number } {
@@ -113,6 +241,15 @@ export class OcppClient {
   /** Called before each reconnect attempt, so a station can fall back to another network profile. */
   setBeforeReconnectAttempt(handler: (attempt: number) => void): void {
     this.beforeReconnectAttempt = handler;
+  }
+
+  /**
+   * Reconnect back-off from the station's device model, read before every
+   * attempt. Without it (or when it returns null) the client uses its own
+   * exponential back-off with a spread first attempt.
+   */
+  setReconnectBackOff(provider: () => ReconnectBackOff | null): void {
+    this.reconnectBackOff = provider;
   }
 
   setDisconnectedHandler(handler: () => void): void {
@@ -132,9 +269,14 @@ export class OcppClient {
     // WebSocket options: TLS for SP2/SP3, client cert for SP3
     const wsOptions: Record<string, unknown> = {
       headers,
-      rejectUnauthorized: process.env['TLS_REJECT_UNAUTHORIZED'] === 'true',
+      rejectUnauthorized: this.verifyServerCertificate,
+      // OCPP 2.1 A00.FR.314, 1.6 Security Whitepaper: TLS 1.2 or above.
+      minVersion: 'TLSv1.2',
     };
-    if (this.caCert != null) wsOptions['ca'] = this.caCert;
+    if (this.verifyServerCertificate) {
+      wsOptions['checkServerIdentity'] = checkCentralSystemIdentity;
+    }
+    if (this.trustAnchors.length > 0) wsOptions['ca'] = this.trustAnchors;
     if (this.securityProfile === 3) {
       if (this.clientCert != null) wsOptions['cert'] = this.clientCert;
       if (this.clientKey != null) wsOptions['key'] = this.clientKey;
@@ -174,6 +316,8 @@ export class OcppClient {
       this.ws.on('error', (err: Error) => {
         console.error(`[${this._stationId}] Error: ${err.message}`);
         if (!this.connected) {
+          if (isServerCertificateError(err)) this.onServerCertificateRejected?.(err);
+          else if (isTlsVersionError(err)) this.onTlsVersionRejected?.(err);
           reject(err);
         }
       });
@@ -207,6 +351,17 @@ export class OcppClient {
     });
   }
 
+  /**
+   * OCPP 2.1 SEND (MessageTypeId 6, Part 4 4.2.4): an unconfirmed message that
+   * expects no response, e.g. NotifyPeriodicEventStream. Returns false when
+   * not connected (nothing is sent).
+   */
+  sendSend(action: string, payload: Record<string, unknown>): boolean {
+    if (this.ws == null || !this.connected) return false;
+    this.ws.send(JSON.stringify([6, randomUUID(), action, payload]));
+    return true;
+  }
+
   sendCallResult(messageId: string, payload: Record<string, unknown>): void {
     if (this.ws == null || !this.connected) return;
     const result: OcppCallResult = [3, messageId, payload];
@@ -233,7 +388,9 @@ export class OcppClient {
     }
   }
 
-  /** Simulate a connection loss (close WS but allow auto-reconnect). */
+  /**
+   * Simulate a connection loss (close WS but allow auto-reconnect).
+   */
   simulateConnectionLoss(): void {
     for (const [id, p] of this.pending) {
       clearTimeout(p.timeout);
@@ -244,6 +401,17 @@ export class OcppClient {
       this.ws.close(1001, 'Connection lost');
       this.ws = null;
     }
+  }
+
+  /**
+   * Drop the connection and reconnect without the backoff wait, as a station
+   * does when it comes back up after a reboot or power cycle. delayMs is how
+   * long the station stays down before it connects again.
+   */
+  reconnectNow(delayMs = 0): void {
+    if (this.ws == null) return;
+    this.firstReconnectDelayMs = Math.max(0, delayMs);
+    this.simulateConnectionLoss();
   }
 
   private async reconnect(): Promise<void> {
@@ -258,18 +426,37 @@ export class OcppClient {
     }
 
     const { BASE_RECONNECT_DELAY_MS, MAX_RECONNECT_DELAY_MS } = OcppClient;
+    const firstDelayMs = this.firstReconnectDelayMs;
+    this.firstReconnectDelayMs = null;
     let attempt = 0;
+    // Back-off attempts so far (the reconnect after a reboot is not one).
+    let backOffAttempt = 0;
 
     while (!this.destroyed) {
       attempt++;
 
-      const delay = Math.min(
-        BASE_RECONNECT_DELAY_MS * Math.pow(2, attempt - 1),
-        MAX_RECONNECT_DELAY_MS,
-      );
-      const jitter = Math.random() * delay * 0.2;
-      const spread = attempt === 1 ? Math.random() * OcppClient.RECONNECT_SPREAD_MS : 0;
-      const waitMs = delay + jitter + spread;
+      let waitMs: number;
+      const backOff = this.reconnectBackOff?.() ?? null;
+      if (firstDelayMs != null && attempt === 1) {
+        // reconnectNow(): the station comes back up after a reboot or power-off.
+        waitMs = firstDelayMs;
+      } else if (backOff != null) {
+        // OCPP 2.1 Part 4 5.4: RetryBackOffWaitMinimum doubled RetryBackOffRepeatTimes
+        // times, plus a random part up to RetryBackOffRandomRange.
+        const doublings = Math.min(backOffAttempt, Math.max(0, backOff.repeatTimes));
+        waitMs =
+          backOff.waitMinimumMs * Math.pow(2, doublings) + Math.random() * backOff.randomRangeMs;
+        backOffAttempt++;
+      } else {
+        backOffAttempt++;
+        const delay = Math.min(
+          BASE_RECONNECT_DELAY_MS * Math.pow(2, backOffAttempt - 1),
+          MAX_RECONNECT_DELAY_MS,
+        );
+        const jitter = Math.random() * delay * 0.2;
+        const spread = backOffAttempt === 1 ? Math.random() * this.reconnectSpreadMs : 0;
+        waitMs = delay + jitter + spread;
+      }
 
       console.log(
         `[${this._stationId}] Reconnect attempt ${String(attempt)} in ${String(Math.round(waitMs))}ms...`,

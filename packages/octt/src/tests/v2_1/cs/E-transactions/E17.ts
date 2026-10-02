@@ -321,10 +321,8 @@ export const TC_E_116_CS: CsTestCase = {
     ctx.station.setConfigValue('TxCtrlr.AllowEnergyTransferResumption', 'false');
 
     ctx.server.clearBuffer();
-    await ctx.station.simulatePowerCyclePreserveTransactions();
-
-    // Wait for the resumption timeout to expire (reconnect takes time)
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    // Manual Action: cut the power, wait <ResumptionTimeout + 1> seconds, restore the power
+    await ctx.station.simulatePowerCyclePreserveTransactions(2000);
 
     // Step 1: BootNotificationRequest
     const bootMsg = await ctx.server.waitForMessage('BootNotification', 15000);

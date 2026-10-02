@@ -33,7 +33,7 @@ export const TC_048_4_CSMS: TestCase = {
         stationId: ctx.stationId,
         connectorId: 1,
         expiryDate: new Date(Date.now() + 300000).toISOString(),
-        idTag: 'OCTT-TOKEN-001',
+        idTag: ctx.tokens.valid,
         reservationId: 1,
       });
     } else {

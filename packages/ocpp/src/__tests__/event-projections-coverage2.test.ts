@@ -347,9 +347,7 @@ describe('Event projections - coverage round 2', () => {
       ['ocpp.NotifyEVChargingSchedule', {}],
       ['ocpp.BatterySwap', {}],
       ['ocpp.NotifyPeriodicEventStream', {}],
-      ['ocpp.NotifyQRCodeScanned', {}],
       ['ocpp.VatNumberValidation', {}],
-      ['ocpp.NotifyWebPaymentStarted', {}],
       ['ocpp.NotifyAllowedEnergyTransfer', {}],
       ['ocpp.NotifyDERAlarm', {}],
       ['ocpp.NotifyDERStartStop', {}],
@@ -635,6 +633,36 @@ describe('Event projections - coverage round 2', () => {
       const ins = findSql(/INSERT INTO station_configurations/);
       expect(ins?.values).toContain(null);
     });
+
+    it('keeps variable instances apart (ItemsPerMessage[GetReport] vs [GetVariables])', async () => {
+      await setup();
+      setupSqlResults(STA, [], []);
+      await emit('ocpp.NotifyReport', 'CS-1', {
+        reportData: [
+          {
+            component: { name: 'DeviceDataCtrlr' },
+            variable: { name: 'ItemsPerMessage', instance: 'GetReport' },
+            variableAttribute: [{ type: 'Actual', value: '10' }],
+          },
+          {
+            component: { name: 'DeviceDataCtrlr' },
+            variable: { name: 'ItemsPerMessage', instance: 'GetVariables' },
+            variableAttribute: [{ type: 'Actual', value: '4' }],
+          },
+        ],
+      });
+      const inserts = sqlCalls.filter((c) =>
+        /INSERT INTO station_configurations/.test(c.strings.join(' ')),
+      );
+      expect(inserts).toHaveLength(2);
+      for (const ins of inserts) {
+        const text = ins.strings.join(' ');
+        expect(text).toContain("(COALESCE(instance, ''))");
+        expect(text).toContain("(COALESCE(variable_instance, ''))");
+      }
+      expect(inserts[0]?.values).toEqual(expect.arrayContaining(['GetReport', '10']));
+      expect(inserts[1]?.values).toEqual(expect.arrayContaining(['GetVariables', '4']));
+    });
   });
 
   // ---- ocpp.NotifyCustomerInformation ----
@@ -775,8 +803,9 @@ describe('Event projections - coverage round 2', () => {
           ],
         },
       });
-      const ins = findSql(/INSERT INTO station_configurations .* 'GetVariables'/s);
+      const ins = findSql(/INSERT INTO station_configurations/);
       expect(ins).toBeDefined();
+      expect(ins?.values).toContain('GetVariables');
       expect(ins?.values).toContain('5');
     });
   });
@@ -802,8 +831,9 @@ describe('Event projections - coverage round 2', () => {
           ],
         },
       });
-      const ins = findSql(/INSERT INTO station_configurations .* 'GetConfiguration'/s);
+      const ins = findSql(/INSERT INTO station_configurations/);
       expect(ins).toBeDefined();
+      expect(ins?.values).toContain('GetConfiguration');
       expect(ins?.values).toContain('HeartbeatInterval');
       expect(ins?.values).toContain('300');
     });
@@ -1016,14 +1046,6 @@ describe('Event projections - coverage round 2', () => {
       await emit('ocpp.NotifyPeriodicEventStream', 'CS-1', { id: 7, data: [{ v: 1 }] });
       const ins = findSql(/INSERT INTO periodic_event_streams/);
       expect(ins?.values).toContain(7);
-    });
-
-    it('NotifyQRCodeScanned inserts a row', async () => {
-      await setup();
-      setupSqlResults(STA, []);
-      await emit('ocpp.NotifyQRCodeScanned', 'CS-1', { evseId: 2, timeout: 30 });
-      const ins = findSql(/INSERT INTO qr_scan_events/);
-      expect(ins?.values).toEqual(['sta_0001', 2, 30]);
     });
   });
 
@@ -1329,6 +1351,109 @@ describe('Event projections - coverage round 2', () => {
         (c) => c[0] === 'ocpp_commands' && (c[1] as string).includes('CostUpdated'),
       );
       expect(cost.length).toBe(1);
+    });
+
+    describe('prepaid credit on OCPP 1.6', () => {
+      const costSession = (ocppProtocol: string, prepaidBalanceCents: number | null) => ({
+        id: 'ses_1',
+        transaction_id: '1001',
+        tariff_id: 'trf_1',
+        driver_id: 'drv_1',
+        started_at: new Date(Date.now() - 3_600_000).toISOString(),
+        energy_delivered_wh: 950,
+        current_cost_cents: 0,
+        currency: 'USD',
+        tariff_price_per_kwh: '0.25',
+        tariff_price_per_minute: '0',
+        tariff_price_per_session: '0',
+        tariff_idle_fee_price_per_minute: '0',
+        tariff_tax_rate: '0',
+        idle_started_at: null,
+        idle_minutes: 0,
+        ocpp_protocol: ocppProtocol,
+        prepaid_balance_cents: prepaidBalanceCents,
+      });
+      // 950 Wh at 0.25/kWh costs 24 cents.
+      const results = (session: Record<string, unknown>, claim: unknown[]) => [
+        STA, // resolveStationUuid
+        [{ id: 'ses_1' }], // resolveMeterValueSession
+        [], // INSERT meter_values
+        [{ energy_delivered_wh: 100, meter_start: '50' }], // prev energy/meter_start
+        [], // UPDATE meter_start
+        [], // UPDATE energy_delivered_wh
+        [], // UPDATE idle accrue
+        [session], // active sessions
+        [], // UPDATE current_cost_cents
+        claim, // claim the prepaid stop (only when the credit is used up)
+        [{ site_id: null }], // resolveSiteId
+      ];
+      const emitReading = () =>
+        emit('ocpp.MeterValues', 'CS-1', {
+          stationId: 'CS-1',
+          evseId: 0,
+          transactionId: '1001',
+          source: 'TransactionEvent',
+          meterValues: [
+            {
+              timestamp: '2026-01-01T01:00:00Z',
+              sampledValue: [{ measurand: 'Energy.Active.Import.Register', value: 1000 }],
+            },
+          ],
+        });
+      const stopCommands = () =>
+        (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
+          (c) => c[0] === 'ocpp_commands' && (c[1] as string).includes('RequestStopTransaction'),
+        );
+
+      it('records the stop and sends RequestStopTransaction when the cost reaches the credit', async () => {
+        await setup();
+        setupSqlResults(...results(costSession('ocpp1.6', 20), [{ id: 'ses_1' }]));
+
+        await emitReading();
+
+        const claim = findSql(/stopped_reason IS NULL/);
+        expect(claim).toBeDefined();
+        expect(claim?.values).toContain('PrepaidCreditExhausted');
+        const stops = stopCommands();
+        expect(stops).toHaveLength(1);
+        expect(JSON.parse(stops[0]?.[1] as string)).toMatchObject({
+          stationId: 'CS-1',
+          action: 'RequestStopTransaction',
+          payload: { transactionId: '1001' },
+        });
+        // The session is not faulted: the StopTransaction settles the balance.
+        expect(findSql(/SET status = 'faulted'/)).toBeUndefined();
+      });
+
+      it('sends the stop only once (the session was already claimed)', async () => {
+        await setup();
+        setupSqlResults(...results(costSession('ocpp1.6', 20), []));
+
+        await emitReading();
+
+        expect(findSql(/stopped_reason IS NULL/)).toBeDefined();
+        expect(stopCommands()).toHaveLength(0);
+      });
+
+      it('keeps charging while the cost is below the credit', async () => {
+        await setup();
+        setupSqlResults(...results(costSession('ocpp1.6', 5000), []));
+
+        await emitReading();
+
+        expect(findSql(/stopped_reason IS NULL/)).toBeUndefined();
+        expect(stopCommands()).toHaveLength(0);
+      });
+
+      it('leaves an OCPP 2.1 prepaid transaction to the station transactionLimit', async () => {
+        await setup();
+        setupSqlResults(...results(costSession('ocpp2.1', 20), []));
+
+        await emitReading();
+
+        expect(findSql(/stopped_reason IS NULL/)).toBeUndefined();
+        expect(stopCommands()).toHaveLength(0);
+      });
     });
 
     it('flat energy reading marks session idle (Power not changing)', async () => {

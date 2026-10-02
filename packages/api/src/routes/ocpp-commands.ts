@@ -11,7 +11,7 @@ import {
   type ActionName16,
 } from '@evtivity/ocpp';
 import type { Subscription } from '@evtivity/lib';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import {
   db,
   chargingStations,
@@ -24,6 +24,7 @@ import { itemResponse, errorResponse } from '../lib/response-schemas.js';
 import { getPubSub } from '../lib/pubsub.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { assertFirmwareSignature } from '../lib/firmware-signature.js';
 
 // --- v21 type imports ---
 import {
@@ -446,6 +447,14 @@ async function dispatchCommand(
   return reply.status(result.code).send(result.body);
 }
 
+/** Checks the secure firmware update fields of an UpdateFirmware / SignedUpdateFirmware body. */
+function validateFirmwarePayload(payload: Record<string, unknown>): void {
+  const firmware = payload['firmware'] as
+    | { signingCertificate?: string; signature?: string }
+    | undefined;
+  assertFirmwareSignature(firmware?.signingCertificate, firmware?.signature);
+}
+
 // ---------------------------------------------------------------------------
 // Helper: register a typed command route
 // ---------------------------------------------------------------------------
@@ -458,6 +467,7 @@ function commandRoute(
   summary: string,
   bodySchema: z.ZodType,
   description: string,
+  validatePayload?: (payload: Record<string, unknown>) => void,
 ): void {
   app.post(
     `/ocpp/commands/${version}/${commandName}`,
@@ -476,6 +486,7 @@ function commandRoute(
     async (request, reply) => {
       const body = request.body as { stationId: string } & Record<string, unknown>;
       const { stationId, ...payload } = body;
+      validatePayload?.(payload);
       return dispatchCommand(
         app,
         request,
@@ -1235,7 +1246,8 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Update station firmware',
     updateFirmwareV21Body,
-    'Instructs the station to download and install firmware from the given URI at the scheduled time. The station replies Accepted/Rejected synchronously, then streams FirmwareStatusNotification messages as it downloads, installs, and reboots. Returns 502 on Rejected, or 504 on timeout.',
+    'Instructs the station to download and install firmware from the given URI at the scheduled time. For a secure firmware update (L01) set firmware.signingCertificate (PEM) and firmware.signature (base64) together; 400 VALIDATION_ERROR when only one is set or either is malformed. The station replies Accepted/Rejected synchronously, then streams FirmwareStatusNotification messages as it downloads, installs, and reboots. Returns 502 on Rejected, or 504 on timeout.',
+    validateFirmwarePayload,
   );
 
   commandRoute(
@@ -1300,24 +1312,24 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
 
       let itemsPerMessage = getVariableData.length; // default: no splitting
       if (station != null) {
-        // The unique constraint on station_configurations does not include variable_instance,
-        // so there may be only one ItemsPerMessage row regardless of instance. Query broadly
-        // and prefer the GetVariables instance if multiple rows exist.
-        const configs = await db
-          .select({
-            value: stationConfigurations.value,
-            variableInstance: stationConfigurations.variableInstance,
-          })
+        // B06.FR.05: the limit is DeviceDataCtrlr.ItemsPerMessage[GetVariables] (Actual).
+        // Other instances (GetReport) are different variables with their own limits.
+        const [match] = await db
+          .select({ value: stationConfigurations.value })
           .from(stationConfigurations)
           .where(
             and(
               eq(stationConfigurations.stationId, station.id),
               eq(stationConfigurations.component, 'DeviceDataCtrlr'),
+              isNull(stationConfigurations.instance),
+              isNull(stationConfigurations.evseId),
+              isNull(stationConfigurations.connectorId),
               eq(stationConfigurations.variable, 'ItemsPerMessage'),
+              eq(stationConfigurations.variableInstance, 'GetVariables'),
+              eq(stationConfigurations.attributeType, 'Actual'),
             ),
-          );
-        const match =
-          configs.find((c) => c.variableInstance === 'GetVariables') ?? configs[0] ?? null;
+          )
+          .limit(1);
         if (match?.value != null) {
           const parsed = parseInt(match.value, 10);
           if (!isNaN(parsed) && parsed > 0) {
@@ -1950,7 +1962,8 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Update firmware with signature verification',
     signedUpdateFirmwareV16Body,
-    'OCPP 1.6 Security Extension variant of UpdateFirmware that requires the firmware image to be signed by an installed manufacturer root certificate. Used by SP2/SP3 stations. Returns 502 with Rejected, AcceptedCanceled, InvalidCertificate, or RevokedCertificate, or 504 on timeout.',
+    'OCPP 1.6 Security Extension variant of UpdateFirmware that requires the firmware image to be signed by an installed manufacturer root certificate. Used by SP2/SP3 stations. Returns 400 VALIDATION_ERROR when the signing certificate is not PEM or the signature is not base64, 502 with Rejected, AcceptedCanceled, InvalidCertificate, or RevokedCertificate, or 504 on timeout.',
+    validateFirmwarePayload,
   );
 
   commandRoute(

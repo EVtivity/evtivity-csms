@@ -2,6 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { TestCase, StepResult } from '../../../../types.js';
+import {
+  enterEvConnectedPreSession,
+  pushOcspRequestSteps,
+  skippedWithoutOcsp,
+} from '../../../../ocsp-test-helpers.js';
 
 export const TC_C_50_CSMS: TestCase = {
   id: 'TC_C_50_CSMS',
@@ -14,76 +19,73 @@ export const TC_C_50_CSMS: TestCase = {
   purpose:
     'To verify if the CSMS is able to validate the certificate hash data and the provided eMAID.',
   execute: async (ctx) => {
+    const ocsp = ctx.ocsp;
+    if (ocsp == null) return skippedWithoutOcsp();
     const steps: StepResult[] = [];
 
-    // Step 1: Boot the station
-    const bootRes = await ctx.client.sendCall('BootNotification', {
+    await ctx.client.sendCall('BootNotification', {
       chargingStation: { model: 'OCTT-Virtual', vendorName: 'OCTT' },
       reason: 'PowerUp',
     });
-    steps.push({
-      step: 1,
-      description: 'Boot station',
-      status: bootRes['status'] === 'Accepted' ? 'passed' : 'failed',
-      expected: 'status = Accepted',
-      actual: `status = ${String(bootRes['status'])}`,
-    });
+    const transactionId = await enterEvConnectedPreSession(ctx);
 
-    // Step 2: Send AuthorizeRequest with eMAID and iso15118CertificateHashData
+    // Prerequisites: the configured eMAID is known by the CSMS as valid
+    // (ctx.tokens.emaid), the contract certificate is valid and its CN is the
+    // eMAID, and its responder URL points to the Test System OCSP service.
+    const contract = await ocsp.pki.issueContractCertificate(ctx.tokens.emaid);
+    const emaid = { idToken: ctx.tokens.emaid, type: 'eMAID' };
+
+    // Step 1: AuthorizeRequest with the eMAID and the chain's hash data.
     const authRes = await ctx.client.sendCall('Authorize', {
-      idToken: { idToken: 'OCTT-EMAID-001', type: 'eMAID' },
-      iso15118CertificateHashData: [
-        {
-          hashAlgorithm: 'SHA256',
-          issuerNameHash: 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
-          issuerKeyHash: 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
-          serialNumber: '01',
-          responderURL: 'http://ocsp.example.com',
-        },
-      ],
+      idToken: emaid,
+      iso15118CertificateHashData: ocsp.pki.contractHashData(contract),
     });
+    pushOcspRequestSteps(steps, ocsp, contract.cert.serialNumber, 'good');
 
-    const idTokenInfo = authRes['idTokenInfo'] as Record<string, unknown> | undefined;
-    const authStatus = idTokenInfo?.['status'] as string | undefined;
-    const certStatus = authRes['certificateStatus'] as string | undefined;
-
-    steps.push({
-      step: 2,
-      description: 'Send AuthorizeRequest with eMAID and certificate hash data',
-      status: authStatus === 'Accepted' ? 'passed' : 'failed',
-      expected: 'idTokenInfo.status = Accepted',
-      actual: `idTokenInfo.status = ${String(authStatus)}`,
-    });
-
-    steps.push({
-      step: 3,
-      description: 'Verify certificateStatus is Accepted',
-      status: certStatus === 'Accepted' ? 'passed' : 'failed',
-      expected: 'certificateStatus = Accepted',
-      actual: `certificateStatus = ${String(certStatus)}`,
-    });
-
-    // Step 4: Send TransactionEvent with triggerReason Authorized
-    const txId = `OCTT-TX-${String(Date.now())}`;
-    const txRes = await ctx.client.sendCall('TransactionEvent', {
-      eventType: 'Started',
-      timestamp: new Date().toISOString(),
-      triggerReason: 'Authorized',
-      seqNo: 0,
-      transactionInfo: { transactionId: txId, chargingState: 'EVConnected' },
-      evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-EMAID-001', type: 'eMAID' },
-    });
-
-    const txIdTokenInfo = txRes['idTokenInfo'] as Record<string, unknown> | undefined;
-    const txAuthStatus = txIdTokenInfo?.['status'] as string | undefined;
-
+    const authStatus = (authRes['idTokenInfo'] as Record<string, unknown> | undefined)?.['status'];
+    const certStatus = authRes['certificateStatus'];
     steps.push({
       step: 4,
-      description: 'Send TransactionEvent Started with triggerReason Authorized',
-      status: txAuthStatus === 'Accepted' ? 'passed' : 'failed',
+      description: 'AuthorizeResponse idTokenInfo.status Accepted, certificateStatus Accepted',
+      status: authStatus === 'Accepted' && certStatus === 'Accepted' ? 'passed' : 'failed',
+      expected: 'idTokenInfo.status = Accepted, certificateStatus = Accepted',
+      actual: `idTokenInfo.status = ${String(authStatus)}, certificateStatus = ${String(certStatus)}`,
+    });
+
+    // Step 5: TransactionEventRequest with triggerReason Authorized.
+    const txRes = await ctx.client.sendCall('TransactionEvent', {
+      eventType: 'Updated',
+      timestamp: new Date().toISOString(),
+      triggerReason: 'Authorized',
+      seqNo: 1,
+      transactionInfo: { transactionId, chargingState: 'EVConnected' },
+      evse: { id: 1, connectorId: 1 },
+      idToken: emaid,
+    });
+    const txStatus = (txRes['idTokenInfo'] as Record<string, unknown> | undefined)?.['status'];
+    steps.push({
+      step: 6,
+      description: 'TransactionEventResponse idTokenInfo.status Accepted',
+      status: txStatus === 'Accepted' ? 'passed' : 'failed',
       expected: 'idTokenInfo.status = Accepted',
-      actual: `idTokenInfo.status = ${String(txAuthStatus)}`,
+      actual: `idTokenInfo.status = ${String(txStatus)}`,
+    });
+
+    // Reusable State EnergyTransferStarted.
+    const chargingRes = await ctx.client.sendCall('TransactionEvent', {
+      eventType: 'Updated',
+      timestamp: new Date().toISOString(),
+      triggerReason: 'ChargingStateChanged',
+      seqNo: 2,
+      transactionInfo: { transactionId, chargingState: 'Charging' },
+      evse: { id: 1, connectorId: 1 },
+    });
+    steps.push({
+      step: 7,
+      description: 'EnergyTransferStarted: TransactionEventResponse received',
+      status: chargingRes != null ? 'passed' : 'failed',
+      expected: 'Response received',
+      actual: chargingRes != null ? 'Response received' : 'No response',
     });
 
     const allPassed = steps.every((s) => s.status === 'passed');

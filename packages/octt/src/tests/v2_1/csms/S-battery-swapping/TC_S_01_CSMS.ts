@@ -29,7 +29,7 @@ export const TC_S_102_CSMS: TestCase = {
       await ctx.triggerCommand('v21', 'RequestBatterySwap', {
         stationId: ctx.stationId,
         requestId: 1,
-        idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
       });
     } else {
       await new Promise((r) => setTimeout(r, 5000));

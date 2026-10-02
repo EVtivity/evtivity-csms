@@ -5,8 +5,14 @@ import { toAuthorizationKeyHex } from '@evtivity/lib';
 
 export interface CommandTranslation {
   action: string;
+  /** Picks the action from the 2.1 payload when one command maps to two (default `action`). */
+  resolveAction?: (payload: Record<string, unknown>) => string;
   translatePayload: (payload: Record<string, unknown>) => Record<string, unknown>;
-  translateResponse: (response: Record<string, unknown>) => Record<string, unknown>;
+  /** Maps the station's response back to the 2.1 shape; `request` is the 2.1 payload sent. */
+  translateResponse: (
+    response: Record<string, unknown>,
+    request: Record<string, unknown>,
+  ) => Record<string, unknown>;
 }
 
 const identity = (p: Record<string, unknown>): Record<string, unknown> => p;
@@ -183,14 +189,116 @@ function mapSetVariables16(payload: Record<string, unknown>): Record<string, unk
   };
 }
 
+/**
+ * A firmware update that carries a signing certificate and a signature goes
+ * to a 1.6 station as SignedUpdateFirmware (1.6 Security Whitepaper, the 1.6
+ * form of 2.1 L01 secure firmware update). Without them it is the plain 1.6
+ * UpdateFirmware.
+ */
+function isSignedFirmwareUpdate(payload: Record<string, unknown>): boolean {
+  const firmware = payload.firmware as Record<string, unknown> | undefined;
+  return typeof firmware?.signingCertificate === 'string' && typeof firmware.signature === 'string';
+}
+
 function mapUpdateFirmware16(payload: Record<string, unknown>): Record<string, unknown> {
   const firmware = payload.firmware as Record<string, unknown> | undefined;
+  if (firmware != null && isSignedFirmwareUpdate(payload)) {
+    return {
+      requestId: payload.requestId,
+      retries: payload.retries,
+      retryInterval: payload.retryInterval,
+      firmware: {
+        location: firmware.location,
+        retrieveDateTime: firmware.retrieveDateTime,
+        installDateTime: firmware.installDateTime,
+        signingCertificate: firmware.signingCertificate,
+        signature: firmware.signature,
+      },
+    };
+  }
   return {
     location: firmware?.location ?? payload.location,
     retrieveDate: firmware?.retrieveDateTime ?? payload.retrieveDate,
     retries: payload.retries,
     retryInterval: payload.retryInterval,
   };
+}
+
+// OCPP 1.6 Security Whitepaper certificate types. 2.1 types without a 1.6
+// equivalent (V2G, MO, OEM roots, V2G chains) are not supported on 1.6 stations.
+const CERTIFICATE_TYPE_16: Record<string, string> = {
+  CSMSRootCertificate: 'CentralSystemRootCertificate',
+  ManufacturerRootCertificate: 'ManufacturerRootCertificate',
+};
+const CERTIFICATE_TYPE_21: Record<string, string> = {
+  CentralSystemRootCertificate: 'CSMSRootCertificate',
+  ManufacturerRootCertificate: 'ManufacturerRootCertificate',
+};
+
+function certificateType16(type: unknown): string {
+  const mapped = typeof type === 'string' ? CERTIFICATE_TYPE_16[type] : undefined;
+  if (mapped == null) {
+    throw new Error(
+      `Certificate type "${String(type)}" is not supported on ocpp1.6 stations ` +
+        `(only CSMSRootCertificate and ManufacturerRootCertificate).`,
+    );
+  }
+  return mapped;
+}
+
+// CertificateHashDataType without 2.1-only fields (customData).
+function certificateHashData16(data: unknown): Record<string, unknown> {
+  const d = (data ?? {}) as Record<string, unknown>;
+  return {
+    hashAlgorithm: d.hashAlgorithm,
+    issuerNameHash: d.issuerNameHash,
+    issuerKeyHash: d.issuerKeyHash,
+    serialNumber: d.serialNumber,
+  };
+}
+
+function mapInstallCertificate16(payload: Record<string, unknown>): Record<string, unknown> {
+  return {
+    certificateType: certificateType16(payload.certificateType),
+    certificate: payload.certificate,
+  };
+}
+
+function mapDeleteCertificate16(payload: Record<string, unknown>): Record<string, unknown> {
+  return { certificateHashData: certificateHashData16(payload.certificateHashData) };
+}
+
+// 2.1 asks for any number of types; a 1.6 request names exactly one.
+function mapGetInstalledCertificateIds16(
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const types = payload.certificateType as unknown[] | undefined;
+  if (types?.length !== 1) {
+    throw new Error(
+      'GetInstalledCertificateIds to an ocpp1.6 station must request exactly one certificate ' +
+        `type; received ${String(types?.length ?? 0)}.`,
+    );
+  }
+  return { certificateType: certificateType16(types[0]) };
+}
+
+// 1.6 lists hash data for the requested type; 2.1 reports a chain entry per certificate.
+function mapGetInstalledCertificateIdsResponse16(
+  response: Record<string, unknown>,
+  request: Record<string, unknown>,
+): Record<string, unknown> {
+  const requested = (request.certificateType as unknown[] | undefined)?.[0];
+  const type16 = typeof requested === 'string' ? CERTIFICATE_TYPE_16[requested] : undefined;
+  const certificateType = type16 != null ? CERTIFICATE_TYPE_21[type16] : requested;
+  const hashData = (response.certificateHashData as unknown[] | undefined) ?? [];
+  const result: Record<string, unknown> = { status: response.status };
+  if (hashData.length > 0) {
+    result.certificateHashDataChain = hashData.map((data) => ({
+      certificateType,
+      certificateHashData: certificateHashData16(data),
+    }));
+  }
+  return result;
 }
 
 function mapGetLog16(payload: Record<string, unknown>): Record<string, unknown> {
@@ -349,6 +457,8 @@ const commandMap: Record<string, Record<string, CommandTranslation>> = {
     },
     'ocpp1.6': {
       action: 'UpdateFirmware',
+      resolveAction: (payload) =>
+        isSignedFirmwareUpdate(payload) ? 'SignedUpdateFirmware' : 'UpdateFirmware',
       translatePayload: mapUpdateFirmware16,
       translateResponse: identity,
     },
@@ -421,7 +531,7 @@ const commandMap: Record<string, Record<string, CommandTranslation>> = {
     },
     'ocpp1.6': {
       action: 'InstallCertificate',
-      translatePayload: identity,
+      translatePayload: mapInstallCertificate16,
       translateResponse: identity,
     },
   },
@@ -433,7 +543,7 @@ const commandMap: Record<string, Record<string, CommandTranslation>> = {
     },
     'ocpp1.6': {
       action: 'DeleteCertificate',
-      translatePayload: identity,
+      translatePayload: mapDeleteCertificate16,
       translateResponse: identity,
     },
   },
@@ -445,8 +555,8 @@ const commandMap: Record<string, Record<string, CommandTranslation>> = {
     },
     'ocpp1.6': {
       action: 'GetInstalledCertificateIds',
-      translatePayload: identity,
-      translateResponse: identity,
+      translatePayload: mapGetInstalledCertificateIds16,
+      translateResponse: mapGetInstalledCertificateIdsResponse16,
     },
   },
   ExtendedTriggerMessage: {
@@ -485,7 +595,7 @@ export function translateCommand(
   }
 
   return {
-    action: translation.action,
+    action: translation.resolveAction?.(payload) ?? translation.action,
     payload: translation.translatePayload(payload),
   };
 }
@@ -494,8 +604,9 @@ export function translateResponse(
   commandName: string,
   version: string,
   response: Record<string, unknown>,
+  request: Record<string, unknown> = {},
 ): Record<string, unknown> {
   const translation = commandMap[commandName]?.[version];
   if (translation == null) return response;
-  return translation.translateResponse(response);
+  return translation.translateResponse(response, request);
 }

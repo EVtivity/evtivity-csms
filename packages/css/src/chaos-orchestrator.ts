@@ -313,7 +313,6 @@ const OCPP21_ACTIONS: Array<{
     name: 'sendNotifyPriorityCharging',
     params: () => ({ transactionId: 'sim-tx-001', activated: true }),
   },
-  { name: 'sendNotifyQRCodeScanned', params: () => ({ evseId: 1, timeout: 60 }) },
   {
     name: 'sendNotifyAllowedEnergyTransfer',
     params: () => ({
@@ -360,10 +359,6 @@ const OCPP21_ACTIONS: Array<{
   {
     name: 'sendPublishFirmwareStatusNotification',
     params: () => ({ status: pick(['Idle', 'Published', 'PublishFailed']) }),
-  },
-  {
-    name: 'sendNotifyWebPaymentStarted',
-    params: () => ({ evseId: 1, timeout: 300 }),
   },
   {
     name: 'sendNotifyPeriodicEventStream',

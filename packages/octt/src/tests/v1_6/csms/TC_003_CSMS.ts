@@ -16,7 +16,7 @@ export const TC_003_CSMS: TestCase = {
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     const connectorId = 1;
-    const idTag = 'OCTT_TAG_001';
+    const idTag = ctx.tokens.valid;
     const timestamp = new Date().toISOString();
 
     // Boot first

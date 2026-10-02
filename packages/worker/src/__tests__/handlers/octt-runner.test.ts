@@ -76,11 +76,12 @@ function makeLogger(): Logger {
 }
 
 const summary: RunSummary = {
-  total: 5,
+  total: 6,
   passed: 3,
   failed: 1,
   skipped: 1,
   errors: 0,
+  notApplicable: 1,
   durationMs: 4200,
 };
 
@@ -125,11 +126,12 @@ describe('octtRunnerHandler', () => {
 
     expect(updateSets[1]).toMatchObject({
       status: 'completed',
-      totalTests: 5,
+      totalTests: 6,
       passed: 3,
       failed: 1,
       skipped: 1,
       errors: 0,
+      notApplicable: 1,
       durationMs: 4200,
     });
     expect(updateSets[1]?.['completedAt']).toBeInstanceOf(Date);
@@ -199,6 +201,8 @@ describe('octtRunnerHandler', () => {
       durationMs: 120,
       steps: [{ name: 'boot', status: 'passed' }],
       error: null,
+      notApplicableItem: null,
+      notApplicableReason: null,
     });
 
     expect(mockPublish).toHaveBeenCalledWith(
@@ -210,6 +214,45 @@ describe('octtRunnerHandler', () => {
         status: 'passed',
       }),
     );
+  });
+
+  it('persists a notApplicable result with its PICS item and reason', async () => {
+    const result = makeResult({
+      testId: 'TC_M_26_CSMS',
+      result: {
+        status: 'notApplicable',
+        durationMs: 0,
+        steps: [],
+        notApplicable: {
+          item: 'ContractCertificateInstallationEV',
+          reason: 'PICS ContractCertificateInstallationEV not supported: no provisioning',
+        },
+      },
+    });
+    mockRunTests.mockImplementation(
+      async (_cfg: RunConfig, onResult: (r: TestCaseResult) => void) => {
+        onResult(result);
+        await Promise.resolve();
+        await Promise.resolve();
+        return summary;
+      },
+    );
+
+    const { octtRunnerHandler } = await import('../../handlers/octt-runner.js');
+    await octtRunnerHandler(
+      { runId: 5, ocppVersion: 'ocpp2.1', sutType: 'csms' },
+      makeLogger(),
+      pubsub,
+    );
+
+    expect(insertValues[0]).toMatchObject({
+      testId: 'TC_M_26_CSMS',
+      status: 'notApplicable',
+      durationMs: 0,
+      error: null,
+      notApplicableItem: 'ContractCertificateInstallationEV',
+      notApplicableReason: 'PICS ContractCertificateInstallationEV not supported: no provisioning',
+    });
   });
 
   it('coerces a missing result error to null on insert', async () => {

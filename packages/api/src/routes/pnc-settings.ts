@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
+import { isIP } from 'node:net';
 import { z } from 'zod';
 import { inArray } from 'drizzle-orm';
 import {
@@ -33,7 +34,20 @@ const PNC_KEYS = [
   'pnc.hubject.tokenUrl',
   'pnc.expirationWarningDays',
   'pnc.expirationCriticalDays',
+  'pnc.ocsp.allowedPrivateHosts',
 ];
+
+// A DNS hostname (RFC 1123 labels) or an IP literal, without scheme or port.
+const HOSTNAME =
+  /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/;
+
+const ocspAllowedHost = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .refine((host) => HOSTNAME.test(host) || isIP(host) !== 0, {
+    message: 'Must be a hostname or IP address without scheme or port',
+  });
 
 const updatePncSettingsBody = z.object({
   enabled: z.boolean().optional().describe('Enable or disable Plug and Charge'),
@@ -59,6 +73,13 @@ const updatePncSettingsBody = z.object({
     .max(90)
     .optional()
     .describe('Days before certificate expiry to trigger auto-renewal'),
+  ocspAllowedPrivateHosts: z
+    .array(ocspAllowedHost)
+    .max(20)
+    .optional()
+    .describe(
+      'Private or internal hosts the CSMS may send OCSP requests to (hostname or IP, no scheme or port)',
+    ),
 });
 
 function getEncryptionKey(): string {
@@ -155,6 +176,12 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
       if (body.expirationCriticalDays !== undefined) {
         updates.push({ key: 'pnc.expirationCriticalDays', value: body.expirationCriticalDays });
       }
+      if (body.ocspAllowedPrivateHosts !== undefined) {
+        updates.push({
+          key: 'pnc.ocsp.allowedPrivateHosts',
+          value: [...new Set(body.ocspAllowedPrivateHosts)],
+        });
+      }
 
       // Snapshot prior values so the audit entries can carry an honest
       // before/after. Settings page changes for PnC are operator-visible
@@ -185,7 +212,9 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
       const actor = getAuditActor(request);
       await Promise.allSettled(
         updates
-          .filter((update) => beforeMap.get(update.key) !== update.value)
+          .filter(
+            (update) => JSON.stringify(beforeMap.get(update.key)) !== JSON.stringify(update.value),
+          )
           .map((update) =>
             writeAudit(
               { table: settingAuditLog, idColumn: 'setting_key' },

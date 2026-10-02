@@ -859,6 +859,11 @@
     "scanPhoto": "Scan from a photo",
     "noQrFound": "No QR code found in that photo. Try again."
   },
+  "qr": {
+    "checking": "Checking QR code",
+    "invalidTitle": "QR code not valid",
+    "invalidMessage": "This QR code is not valid or has expired. Scan the QR code shown on the charging station again."
+  },
   "watch": {
     "notifyWhenFree": "Notify me when free",
     "watching": "Remove from Watching",

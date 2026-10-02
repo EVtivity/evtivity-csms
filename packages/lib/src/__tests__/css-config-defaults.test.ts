@@ -37,6 +37,29 @@ describe('buildCssConfigDefaults', () => {
       expect(m.get('FirmwareVersion')).toBe('1.0');
     });
 
+    it('includes the Security Whitepaper keys', () => {
+      const defaults = buildCssConfigDefaults(baseInput({ ocppProtocol: 'ocpp1.6' }));
+      const byKey = new Map(defaults.map((d) => [d.key, d]));
+
+      expect(byKey.get('CpoName')).toEqual({
+        key: 'CpoName',
+        value: 'TestVendor',
+        readonly: false,
+      });
+      expect(byKey.get('CertificateStoreMaxLength')?.readonly).toBe(true);
+      expect(byKey.get('CertificateSignedMaxChainSize')?.value).toBe('10000');
+      expect(byKey.get('AdditionalRootCertificateCheck')?.value).toBe('false');
+    });
+
+    it('reports AuthorizeRemoteTxRequests as read-only false (no Authorize before a remote start)', () => {
+      const defaults = buildCssConfigDefaults(baseInput({ ocppProtocol: 'ocpp1.6' }));
+      expect(defaults.find((d) => d.key === 'AuthorizeRemoteTxRequests')).toEqual({
+        key: 'AuthorizeRemoteTxRequests',
+        value: 'false',
+        readonly: true,
+      });
+    });
+
     it('reflects the EVSE count in NumberOfConnectors', () => {
       const m = keyMap(
         buildCssConfigDefaults(
@@ -78,6 +101,10 @@ describe('buildCssConfigDefaults', () => {
       expect(m.get('ChargingStation.Model')).toBe('TestModel');
       expect(m.get('SecurityCtrlr.SecurityProfile')).toBe('1');
       expect(m.get('SecurityCtrlr.Identity')).toBe('TEST-001');
+      // Certificate signing (A02, A00.FR.509)
+      expect(m.get('SecurityCtrlr.OrganizationName')).toBe('TestVendor');
+      expect(m.get('SecurityCtrlr.CertSigningWaitMinimum')).toBe('60');
+      expect(m.get('SecurityCtrlr.CertSigningRepeatTimes')).toBe('3');
     });
 
     it('reports connector status with both messages by default', () => {

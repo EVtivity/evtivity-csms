@@ -15,7 +15,7 @@ export const TC_011_2_CSMS: TestCase = {
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     const connectorId = 1;
-    const idTag = 'OCTT_TAG_001';
+    const idTag = ctx.tokens.valid;
 
     await ctx.client.sendCall('BootNotification', {
       chargePointVendor: 'OCTT',
@@ -36,7 +36,7 @@ export const TC_011_2_CSMS: TestCase = {
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v16', 'RemoteStartTransaction', {
         stationId: ctx.stationId,
-        idTag: 'OCTT-TOKEN-001',
+        idTag: ctx.tokens.valid,
         connectorId: 1,
       });
     } else {

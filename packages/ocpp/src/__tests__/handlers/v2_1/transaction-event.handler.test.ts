@@ -24,8 +24,28 @@ vi.mock('@evtivity/database', () => ({
     tokenType: 'token_type',
     expiresAt: 'expires_at',
     revokedAt: 'revoked_at',
+    prepaidBalanceCents: 'prepaid_balance_cents',
   },
   authorizeAttempts: {},
+  client: {},
+}));
+
+const costMock = vi.fn();
+vi.mock('../../../server/session-cost.js', () => ({
+  transactionCostAt: costMock,
+}));
+
+const settledMock = vi.fn();
+const waitForSignalMock = vi.fn();
+vi.mock('../../../server/projection-queue.js', () => ({
+  projectionQueueFor: () => ({ settled: settledMock, waitForSignal: waitForSignalMock }),
+  sessionPricedKey: (stationId: string, transactionId: string) =>
+    `session-priced:${stationId}:${transactionId}`,
+}));
+
+const findLimitMock = vi.fn();
+vi.mock('../../../handlers/ad-hoc-payment-limit.js', () => ({
+  findAdHocTransactionLimit: findLimitMock,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -69,6 +89,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   whereResult = [];
   insertValuesFn.mockResolvedValue(undefined);
+  findLimitMock.mockResolvedValue(null);
+  costMock.mockResolvedValue(null);
+  settledMock.mockResolvedValue(true);
+  waitForSignalMock.mockResolvedValue(true);
 });
 
 describe('v2_1 TransactionEvent handler', () => {
@@ -405,6 +429,303 @@ describe('v2_1 TransactionEvent handler', () => {
       await handleTransactionEvent(ctx);
       await Promise.resolve();
       expect(insertValuesFn).not.toHaveBeenCalled();
+    });
+  });
+  describe('prepaid tokens (C17)', () => {
+    const prepaidRow = (prepaidBalanceCents: number) => [
+      {
+        id: 'dtk_pp',
+        driverId: 'drv_pp',
+        isActive: true,
+        expiresAt: null,
+        revokedAt: null,
+        prepaidBalanceCents,
+      },
+    ];
+    const event = (eventType: string) => ({
+      eventType,
+      timestamp: '2026-06-04T00:00:00Z',
+      triggerReason: 'Authorized',
+      seqNo: 0,
+      transactionInfo: { transactionId: 'tx-pp', chargingState: 'Charging' },
+      idToken: { idToken: 'PREPAID-1', type: 'ISO14443' },
+    });
+
+    it('returns the credit as transactionLimit.maxCost with the Authorize cacheExpiryDateTime', async () => {
+      const { rememberPrepaidAuthorization, clearPrepaidAuthorizations } =
+        await import('../../../handlers/prepaid.js');
+      clearPrepaidAuthorizations();
+      const authorizedAt = rememberPrepaidAuthorization('CS-001', 'PREPAID-1');
+      whereResult = prepaidRow(1234);
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx } = makeCtx(event('Started'));
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response).toEqual({
+        transactionLimit: { maxCost: 12.34 },
+        idTokenInfo: {
+          status: 'Accepted',
+          groupIdToken: { idToken: 'PREPAID-1', type: 'ISO14443' },
+          cacheExpiryDateTime: authorizedAt,
+        },
+      });
+      expect(findLimitMock).not.toHaveBeenCalled();
+    });
+
+    it('sets cacheExpiryDateTime to now when the station did not authorize first', async () => {
+      const { clearPrepaidAuthorizations } = await import('../../../handlers/prepaid.js');
+      clearPrepaidAuthorizations();
+      whereResult = prepaidRow(500);
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx } = makeCtx(event('Started'));
+
+      const response = await handleTransactionEvent(ctx);
+      const info = response['idTokenInfo'] as Record<string, unknown>;
+
+      expect(Math.abs(Date.parse(info['cacheExpiryDateTime'] as string) - Date.now())).toBeLessThan(
+        5_000,
+      );
+    });
+
+    it('omits transactionLimit on the Ended event', async () => {
+      whereResult = prepaidRow(1234);
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx } = makeCtx({ ...event('Ended'), triggerReason: 'StopAuthorized' });
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response['transactionLimit']).toBeUndefined();
+    });
+
+    it('answers NoCredit without a limit when the balance is not positive', async () => {
+      whereResult = prepaidRow(0);
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx } = makeCtx(event('Started'));
+
+      const response = await handleTransactionEvent(ctx);
+      const info = response['idTokenInfo'] as Record<string, unknown>;
+
+      expect(info['status']).toBe('NoCredit');
+      expect(info['groupIdToken']).toBeUndefined();
+      expect(info['cacheExpiryDateTime']).toBeDefined();
+      expect(response['transactionLimit']).toBeUndefined();
+    });
+  });
+
+  describe('ad hoc payment limit (C24, C25)', () => {
+    const directPayment = (eventType: string) => ({
+      eventType,
+      timestamp: '2026-06-04T00:00:00Z',
+      triggerReason: 'RemoteStart',
+      seqNo: 0,
+      transactionInfo: { transactionId: 'tx-adhoc', chargingState: 'Charging' },
+      idToken: { idToken: 'PSP-REF-1', type: 'DirectPayment' },
+    });
+
+    it('returns the payment limit when the transaction starts', async () => {
+      whereResult = [];
+      findLimitMock.mockResolvedValue({ maxEnergy: 20000, maxCost: 50 });
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx } = makeCtx(directPayment('Started'));
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(findLimitMock).toHaveBeenCalledWith('CS-001', 'PSP-REF-1');
+      expect(response['transactionLimit']).toEqual({ maxEnergy: 20000, maxCost: 50 });
+      expect((response['idTokenInfo'] as Record<string, unknown>)['status']).toBe('Accepted');
+    });
+
+    it('does not look up a limit on Updated events', async () => {
+      whereResult = [];
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx } = makeCtx(directPayment('Updated'));
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(findLimitMock).not.toHaveBeenCalled();
+      expect(response['transactionLimit']).toBeUndefined();
+    });
+
+    it('responds without a limit when the lookup fails', async () => {
+      whereResult = [];
+      findLimitMock.mockRejectedValue(new Error('db down'));
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx } = makeCtx(directPayment('Started'));
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response['transactionLimit']).toBeUndefined();
+      expect((response['idTokenInfo'] as Record<string, unknown>)['status']).toBe('Accepted');
+    });
+  });
+
+  describe('totalCost (central cost calculation, I03.FR.02)', () => {
+    const ended = (overrides: Record<string, unknown> = {}) => ({
+      eventType: 'Ended',
+      timestamp: '2026-06-04T01:00:00Z',
+      triggerReason: 'StopAuthorized',
+      seqNo: 3,
+      transactionInfo: { transactionId: 'tx-cost', stoppedReason: 'Local' },
+      meterValue: [
+        {
+          timestamp: '2026-06-04T01:00:00Z',
+          sampledValue: [{ value: 15000.4, context: 'Transaction.End' }],
+        },
+      ],
+      ...overrides,
+    });
+
+    it('returns the final cost in major units and passes it and meterStop to the projection', async () => {
+      costMock.mockResolvedValue({ totalCostCents: 1234, calculated: true });
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx, publishMock } = makeCtx(ended());
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response['totalCost']).toBe(12.34);
+      expect(settledMock).toHaveBeenCalledWith(['tx-cost', 'CS-001'], 5000);
+      expect(costMock).toHaveBeenCalledWith(
+        {},
+        {
+          stationId: 'CS-001',
+          transactionId: 'tx-cost',
+          at: new Date('2026-06-04T01:00:00Z'),
+          meterRegisterWh: 15000,
+        },
+      );
+      expect(publishMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'ocpp.TransactionEvent',
+          payload: expect.objectContaining({ meterStop: 15000, finalCostCents: 1234 }) as unknown,
+        }),
+      );
+    });
+
+    it('returns 0.00 for an unbilled session without passing a cost to the projection', async () => {
+      costMock.mockResolvedValue({ totalCostCents: 0, calculated: false });
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx, publishMock } = makeCtx(ended());
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response['totalCost']).toBe(0);
+      const payload = (publishMock.mock.calls[0]?.[0] as { payload: Record<string, unknown> })
+        .payload;
+      expect(payload['finalCostCents']).toBeUndefined();
+    });
+
+    it('omits totalCost when the session is unknown', async () => {
+      costMock.mockResolvedValue(null);
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx } = makeCtx(ended());
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response).not.toHaveProperty('totalCost');
+    });
+
+    it('omits totalCost when the station calculates the cost (costDetails, TC_E_108)', async () => {
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx, publishMock } = makeCtx(
+        ended({
+          costDetails: {
+            totalCost: { currency: 'EUR', typeOfCost: 'NormalCost', total: { inclTax: 2 } },
+            totalUsage: { energy: 0, chargingTime: 120, idleTime: 0 },
+          },
+        }),
+      );
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response).not.toHaveProperty('totalCost');
+      expect(costMock).not.toHaveBeenCalled();
+      const payload = (publishMock.mock.calls[0]?.[0] as { payload: Record<string, unknown> })
+        .payload;
+      expect(payload['meterStop']).toBe(15000);
+    });
+
+    it('omits totalCost when earlier projections do not finish in time', async () => {
+      settledMock.mockResolvedValue(false);
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx } = makeCtx(ended());
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response).not.toHaveProperty('totalCost');
+      expect(costMock).not.toHaveBeenCalled();
+    });
+
+    it('omits totalCost when the cost lookup fails', async () => {
+      costMock.mockRejectedValue(new Error('db down'));
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx } = makeCtx(ended());
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response).not.toHaveProperty('totalCost');
+    });
+
+    it('returns the running cost on Updated without meterStop or finalCostCents', async () => {
+      costMock.mockResolvedValue({ totalCostCents: 450, calculated: true });
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx, publishMock } = makeCtx(ended({ eventType: 'Updated' }));
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response['totalCost']).toBe(4.5);
+      expect(settledMock).toHaveBeenCalledWith(['tx-cost', 'CS-001'], 5000);
+      expect(costMock).toHaveBeenCalledWith(
+        {},
+        expect.objectContaining({ transactionId: 'tx-cost', meterRegisterWh: 15000 }),
+      );
+      const payload = (publishMock.mock.calls[0]?.[0] as { payload: Record<string, unknown> })
+        .payload;
+      expect(payload).not.toHaveProperty('meterStop');
+      expect(payload).not.toHaveProperty('finalCostCents');
+    });
+
+    it('returns the running cost on Started once the session is priced', async () => {
+      costMock.mockResolvedValue({ totalCostCents: 100, calculated: true });
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx, publishMock } = makeCtx(ended({ eventType: 'Started', meterValue: undefined }));
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response['totalCost']).toBe(1);
+      expect(waitForSignalMock).toHaveBeenCalledWith('session-priced:CS-001:tx-cost', 5000);
+      // The Started event is published before the wait: its projection creates the session.
+      expect(publishMock.mock.invocationCallOrder[0]).toBeLessThan(
+        waitForSignalMock.mock.invocationCallOrder[0] ?? 0,
+      );
+    });
+
+    it('omits totalCost on Started when the session is not priced in time', async () => {
+      waitForSignalMock.mockResolvedValue(false);
+      settledMock.mockResolvedValue(false);
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx } = makeCtx(ended({ eventType: 'Started', meterValue: undefined }));
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response).not.toHaveProperty('totalCost');
+      expect(costMock).not.toHaveBeenCalled();
     });
   });
 });

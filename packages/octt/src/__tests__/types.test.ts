@@ -43,9 +43,12 @@ describe('types', () => {
       failed: 2,
       skipped: 1,
       errors: 0,
+      notApplicable: 0,
       durationMs: 5000,
     };
-    expect(summary.total).toBe(summary.passed + summary.failed + summary.skipped + summary.errors);
+    expect(summary.total).toBe(
+      summary.passed + summary.failed + summary.skipped + summary.errors + summary.notApplicable,
+    );
   });
 
   it('StepResult captures expected vs actual', () => {

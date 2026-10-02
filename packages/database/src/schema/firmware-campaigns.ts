@@ -39,6 +39,11 @@ export const firmwareCampaigns = pgTable(
     name: varchar('name', { length: 200 }).notNull(),
     firmwareUrl: text('firmware_url').notNull(),
     version: varchar('version', { length: 100 }),
+    // Secure firmware update (OCPP 2.1 L01, 1.6 SignedUpdateFirmware): the
+    // Firmware Signing certificate (PEM) and the firmware signature (base64).
+    // Both set or both null.
+    signingCertificate: text('signing_certificate'),
+    signature: text('signature'),
     status: firmwareCampaignStatusEnum('status').notNull().default('draft'),
     targetFilter: jsonb('target_filter'),
     createdById: text('created_by_id'),

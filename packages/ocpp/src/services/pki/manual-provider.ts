@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { client } from '@evtivity/database';
-import { createLogger, isPrivateUrl } from '@evtivity/lib';
+import { createLogger } from '@evtivity/lib';
 import type {
   PkiProvider,
   SignCsrResult,
@@ -10,14 +10,9 @@ import type {
   OcspRequestData,
   OcspResult,
 } from './pki-provider.js';
+import { getOcspResultForStation } from './ocsp.js';
 
 const logger = createLogger('manual-pki-provider');
-
-// OCSP responders can hang under load or attack. Without a timeout the
-// OCPP handler thread that initiated GetCertificateStatus blocks
-// indefinitely, the station's response promise rejects with a timeout,
-// and the offending OCSP host can pin worker capacity.
-const OCSP_TIMEOUT_MS = 15_000;
 
 export class ManualProvider implements PkiProvider {
   // Reuse the shared connection pool from @evtivity/database instead of
@@ -48,58 +43,17 @@ export class ManualProvider implements PkiProvider {
   }
 
   async getOcspStatus(ocspRequestData: OcspRequestData): Promise<OcspResult> {
-    // The OCSP responder URL comes from the station's GetCertificateStatus
-    // payload, which is partner-attested (CSR's AIA extension) rather than
-    // operator-controlled. A station with a hostile or compromised cert
-    // could point us at an internal address; without this guard the CSMS
-    // becomes an SSRF probe for partner-supplied URLs.
-    if (isPrivateUrl(ocspRequestData.responderURL)) {
+    // RFC 6960 request to the responder named by the station. The helper
+    // applies the SSRF guard (private addresses only when allowlisted).
+    const result = await getOcspResultForStation(ocspRequestData);
+    if (result.status !== 'Accepted') {
       logger.error(
-        { url: ocspRequestData.responderURL },
-        'Rejected OCSP responder URL pointing at a private/internal address',
+        { url: ocspRequestData.responderURL, reason: result.reason },
+        'OCSP status request failed',
       );
       return { status: 'Failed', ocspResult: '' };
     }
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      controller.abort();
-    }, OCSP_TIMEOUT_MS);
-    let response: Response;
-    try {
-      response = await fetch(ocspRequestData.responderURL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/ocsp-request' },
-        body: Buffer.from(
-          JSON.stringify({
-            hashAlgorithm: ocspRequestData.hashAlgorithm,
-            issuerNameHash: ocspRequestData.issuerNameHash,
-            issuerKeyHash: ocspRequestData.issuerKeyHash,
-            serialNumber: ocspRequestData.serialNumber,
-          }),
-        ),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      logger.error(
-        { err, url: ocspRequestData.responderURL },
-        'OCSP request failed (network or timeout)',
-      );
-      return { status: 'Failed', ocspResult: '' };
-    } finally {
-      clearTimeout(timer);
-    }
-
-    if (!response.ok) {
-      logger.error(
-        { status: response.status, url: ocspRequestData.responderURL },
-        'OCSP request failed',
-      );
-      return { status: 'Failed', ocspResult: '' };
-    }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-    return { status: 'Accepted', ocspResult: buffer.toString('base64') };
+    return { status: 'Accepted', ocspResult: result.ocspResult };
   }
 
   async getRootCertificates(type: string): Promise<string[]> {

@@ -51,7 +51,7 @@ export const TC_C_47_CSMS: TestCase = {
       seqNo: 0,
       transactionInfo: { transactionId: txId1, chargingState: 'Charging' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
 
     const txId2 = `OCTT-TX2-${String(Date.now())}`;
@@ -62,12 +62,12 @@ export const TC_C_47_CSMS: TestCase = {
       seqNo: 0,
       transactionInfo: { transactionId: txId2, chargingState: 'Charging' },
       evse: { id: 2, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-002', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid2, type: 'ISO14443' },
     });
 
     // Step 3: Send AuthorizeRequest with MasterPass idToken
     const authRes = await ctx.client.sendCall('Authorize', {
-      idToken: { idToken: 'OCTT-MASTERPASS-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.masterpass, type: 'ISO14443' },
     });
 
     const authIdTokenInfo = authRes['idTokenInfo'] as Record<string, unknown> | undefined;
@@ -109,7 +109,7 @@ export const TC_C_47_CSMS: TestCase = {
       seqNo: 1,
       transactionInfo: { transactionId: txId1, stoppedReason: 'MasterPass' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-MASTERPASS-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.masterpass, type: 'ISO14443' },
     });
 
     const endIdTokenInfo1 = txEndRes1['idTokenInfo'] as Record<string, unknown> | undefined;
@@ -138,7 +138,7 @@ export const TC_C_47_CSMS: TestCase = {
       seqNo: 1,
       transactionInfo: { transactionId: txId2, stoppedReason: 'MasterPass' },
       evse: { id: 2, connectorId: 1 },
-      idToken: { idToken: 'OCTT-MASTERPASS-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.masterpass, type: 'ISO14443' },
     });
 
     const endIdTokenInfo2 = txEndRes2['idTokenInfo'] as Record<string, unknown> | undefined;

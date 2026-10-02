@@ -154,6 +154,16 @@ async function buildApp(): Promise<FastifyInstance> {
   return app;
 }
 
+// Identity columns of a reported value with no instance, EVSE, or connector
+// (the row a template variable targets).
+const TOP_LEVEL = {
+  instance: null,
+  evseId: null,
+  connectorId: null,
+  variableInstance: null,
+  attributeType: 'Actual',
+};
+
 describe('Config template routes', () => {
   let app: FastifyInstance;
   let token: string;
@@ -808,8 +818,16 @@ describe('Config template routes', () => {
         },
       ];
       const actualVars = [
-        { component: 'EVSE', variable: 'MaxCurrent', value: '16' },
-        { component: 'EVSE', variable: 'MinCurrent', value: '6' },
+        { ...TOP_LEVEL, component: 'EVSE', variable: 'MaxCurrent', value: '16' },
+        { ...TOP_LEVEL, component: 'EVSE', variable: 'MinCurrent', value: '6' },
+        // Another instance of HeartbeatInterval is not the value the template sets.
+        {
+          ...TOP_LEVEL,
+          component: 'ChargingStation',
+          variable: 'HeartbeatInterval',
+          variableInstance: 'Other',
+          value: '60',
+        },
       ];
       // DB calls: 1. station, 2. templates, 3. station variables
       setupDbResults([station], templates, actualVars);
@@ -856,8 +874,8 @@ describe('Config template routes', () => {
         },
       ];
       const actualVars = [
-        { component: 'EVSE', variable: 'MaxCurrent', value: '32' },
-        { component: 'EVSE', variable: 'MinCurrent', value: '6' },
+        { ...TOP_LEVEL, component: 'EVSE', variable: 'MaxCurrent', value: '32' },
+        { ...TOP_LEVEL, component: 'EVSE', variable: 'MinCurrent', value: '6' },
       ];
       setupDbResults([station], templates, actualVars);
 

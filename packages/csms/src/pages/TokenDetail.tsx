@@ -28,6 +28,7 @@ interface TokenData {
   idToken: string;
   tokenType: string;
   isActive: boolean;
+  prepaidBalanceCents: number | null;
   createdAt: string;
   updatedAt: string;
   driverFirstName: string | null;

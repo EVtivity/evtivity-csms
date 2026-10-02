@@ -6,6 +6,7 @@ import type { RunConfig, RunSummary } from './types.js';
 import type { CsTestCase, CsTestCaseResult } from './cs-types.js';
 import { getCsRegistry } from './cs-registry.js';
 import { executeCsTest, closeCsSql } from './cs-executor.js';
+import { getNotApplicable } from './pics/index.js';
 
 const DEFAULT_CONCURRENCY = 3;
 
@@ -32,6 +33,7 @@ export async function runCsTests(
     failed: 0,
     skipped: 0,
     errors: 0,
+    notApplicable: 0,
     durationMs: 0,
   };
 
@@ -67,7 +69,22 @@ async function processTest(
   summary: RunSummary,
   onResult: (result: CsTestCaseResult) => void,
 ): Promise<void> {
-  const result = await executeCsTest(testCase, config, logger);
+  const notApplicable = getNotApplicable(testCase.id, testCase.version, 'cs');
+  const result: CsTestCaseResult =
+    notApplicable == null
+      ? await executeCsTest(testCase, config, logger)
+      : {
+          testId: testCase.id,
+          testName: testCase.name,
+          module: testCase.module,
+          version: testCase.version,
+          result: {
+            status: 'notApplicable',
+            durationMs: 0,
+            steps: [],
+            notApplicable,
+          },
+        };
 
   switch (result.result.status) {
     case 'passed':
@@ -81,6 +98,9 @@ async function processTest(
       break;
     case 'error':
       summary.errors++;
+      break;
+    case 'notApplicable':
+      summary.notApplicable++;
       break;
   }
 

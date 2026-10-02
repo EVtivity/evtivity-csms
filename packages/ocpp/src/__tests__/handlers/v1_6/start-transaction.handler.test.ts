@@ -261,6 +261,42 @@ describe('OCPP 1.6 StartTransaction handler', () => {
     });
   });
 
+  describe('prepaid tokens (no NoCredit in 1.6)', () => {
+    const prepaidRow = (prepaidBalanceCents: number) => ({
+      id: 'dtk_pp',
+      driverId: 'drv_pp',
+      isActive: true,
+      expiresAt: null,
+      revokedAt: null,
+      prepaidBalanceCents,
+    });
+
+    it('Accepted with expiryDate now for a prepaid token with credit', async () => {
+      selectFn
+        .mockReturnValueOnce(selectResolving([prepaidRow(5000)]))
+        .mockReturnValueOnce(selectResolving([])); // concurrent-tx lookup: none
+      const { ctx } = makeCtx(basePayload('PREPAID-TAG'));
+
+      const response = await handleStartTransaction(ctx);
+      const info = response.idTagInfo as Record<string, unknown>;
+
+      expect(info['status']).toBe('Accepted');
+      expect(Math.abs(Date.parse(info['expiryDate'] as string) - Date.now())).toBeLessThan(5_000);
+    });
+
+    it('Blocked with outcome no_credit when the balance is not positive', async () => {
+      selectFn
+        .mockReturnValueOnce(selectResolving([prepaidRow(-10)]))
+        .mockReturnValueOnce(selectResolving([])); // concurrent-tx lookup: none
+      const { ctx } = makeCtx(basePayload('NOCREDIT-TAG'));
+
+      const response = await handleStartTransaction(ctx);
+
+      expect((response.idTagInfo as Record<string, unknown>)['status']).toBe('Blocked');
+      expect(lastAttemptRow()).toMatchObject({ outcome: 'no_credit', reason: 'no_credit' });
+    });
+  });
+
   describe('driver_tokens validation matrix', () => {
     it('Accepted with expiryDate for an active future-expiry token', async () => {
       const future = new Date(Date.now() + 86_400_000);

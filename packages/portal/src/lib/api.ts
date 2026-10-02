@@ -67,6 +67,7 @@ function isPublicPage(): boolean {
   return (
     PUBLIC_PATHS.has(p) ||
     p.startsWith('/charge') ||
+    p.startsWith('/qr/') ||
     p.startsWith('/guest-session') ||
     p.startsWith('/location')
   );

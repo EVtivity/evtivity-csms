@@ -12,6 +12,11 @@ import { RemoveButton } from '@/components/remove-button';
 import { SaveButton } from '@/components/save-button';
 import { StartButton } from '@/components/start-button';
 import { TargetFilterFields, type TargetFilterValue } from '@/components/TargetFilterFields';
+import {
+  FirmwareSignatureFields,
+  getFirmwareSignatureErrors,
+  type FirmwareSignatureValue,
+} from '@/components/FirmwareSignatureFields';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
@@ -24,6 +29,8 @@ export interface CampaignDetail {
   name: string;
   firmwareUrl: string;
   version: string | null;
+  signingCertificate: string | null;
+  signature: string | null;
   status: string;
   targetFilter: Record<string, string> | null;
   createdAt: string;
@@ -41,6 +48,15 @@ interface Props {
   campaign: CampaignDetail;
 }
 
+interface UpdateCampaignBody {
+  name?: string;
+  firmwareUrl?: string;
+  version?: string;
+  signingCertificate?: string | null;
+  signature?: string | null;
+  targetFilter?: TargetFilterValue | null;
+}
+
 export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const timezone = useUserTimezone();
@@ -52,6 +68,10 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
   const [editName, setEditName] = useState('');
   const [editFirmwareUrl, setEditFirmwareUrl] = useState('');
   const [editVersion, setEditVersion] = useState('');
+  const [editSigning, setEditSigning] = useState<FirmwareSignatureValue>({
+    signingCertificate: '',
+    signature: '',
+  });
   const [editFilter, setEditFilter] = useState<TargetFilterValue>({});
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [startOpen, setStartOpen] = useState(false);
@@ -64,12 +84,7 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
   });
 
   const updateMutation = useMutation({
-    mutationFn: (body: {
-      name?: string;
-      firmwareUrl?: string;
-      version?: string;
-      targetFilter?: TargetFilterValue | null;
-    }) => api.patch(`/v1/firmware-campaigns/${id}`, body),
+    mutationFn: (body: UpdateCampaignBody) => api.patch(`/v1/firmware-campaigns/${id}`, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['firmware-campaigns', id] });
       setEditing(false);
@@ -108,12 +123,17 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
     return errors;
   }
 
-  const validationErrors = getValidationErrors();
+  const signingErrors = getFirmwareSignatureErrors(editSigning, t);
+  const validationErrors: Record<string, string> = { ...getValidationErrors(), ...signingErrors };
 
   function startEdit(): void {
     setEditName(campaign.name);
     setEditFirmwareUrl(campaign.firmwareUrl);
     setEditVersion(campaign.version ?? '');
+    setEditSigning({
+      signingCertificate: campaign.signingCertificate ?? '',
+      signature: campaign.signature ?? '',
+    });
     setEditFilter({
       ...(campaign.targetFilter?.siteId != null ? { siteId: campaign.targetFilter.siteId } : {}),
       ...(campaign.targetFilter?.vendorId != null
@@ -183,14 +203,14 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
                 e.preventDefault();
                 setHasSubmitted(true);
                 if (Object.keys(validationErrors).length > 0) return;
-                const body: {
-                  name?: string;
-                  firmwareUrl?: string;
-                  version?: string;
-                  targetFilter?: TargetFilterValue | null;
-                } = {
+                const signingCertificate = editSigning.signingCertificate.trim();
+                const signature = editSigning.signature.trim();
+                const body: UpdateCampaignBody = {
                   name: editName,
                   firmwareUrl: editFirmwareUrl,
+                  // Both empty clears them (an unsigned update).
+                  signingCertificate: signingCertificate !== '' ? signingCertificate : null,
+                  signature: signature !== '' ? signature : null,
                 };
                 if (editVersion !== '') body.version = editVersion;
                 body.targetFilter = Object.keys(editFilter).length > 0 ? editFilter : null;
@@ -242,6 +262,13 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
                 </div>
               </div>
 
+              <FirmwareSignatureFields
+                value={editSigning}
+                onChange={setEditSigning}
+                idPrefix="fcd-edit"
+                errors={hasSubmitted ? signingErrors : {}}
+              />
+
               <TargetFilterFields
                 endpoint="/v1/firmware-campaigns/filter-options"
                 queryKeyPrefix={['firmware-campaign-filter-options']}
@@ -269,6 +296,14 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
               <div>
                 <dt className="text-muted-foreground">{t('firmwareCampaigns.version')}</dt>
                 <dd className="font-medium">{campaign.version ?? 'n/a'}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('firmwareCampaigns.signatureStatus')}</dt>
+                <dd className="font-medium">
+                  {campaign.signingCertificate != null && campaign.signature != null
+                    ? t('firmwareCampaigns.signed')
+                    : t('firmwareCampaigns.unsigned')}
+                </dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">{t('common.created')}</dt>

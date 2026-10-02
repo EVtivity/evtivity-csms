@@ -45,12 +45,18 @@ export const TC_C_48_CSMS: TestCase = {
       seqNo: 0,
       transactionInfo: { transactionId: txId, chargingState: 'Charging' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
 
-    // Step 3: Send AuthorizeRequest with valid idToken (associated with MasterPass)
+    // Step 3: Send AuthorizeRequest with the MasterPass idToken. The doc's step 1 names
+    // the valid idToken, but its step 2 validation (groupIdToken = MasterPassGroupId)
+    // only holds for the MasterPass token, as in TC_C_47/TC_C_49.
+    // The doc validates groupIdToken.idToken = <Configured masterPassGroupId>. That
+    // equality check needs a CSMS MasterPass group model (idTokens whose group is the
+    // configured MasterPassGroupId), which is separate CSMS work. Until then the
+    // groupIdToken steps below only check that a groupIdToken is present.
     const authRes = await ctx.client.sendCall('Authorize', {
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.masterpass, type: 'ISO14443' },
     });
 
     const authIdTokenInfo = authRes['idTokenInfo'] as Record<string, unknown> | undefined;
@@ -61,7 +67,7 @@ export const TC_C_48_CSMS: TestCase = {
 
     steps.push({
       step: 2,
-      description: 'Send AuthorizeRequest with valid idToken',
+      description: 'Send AuthorizeRequest with MasterPass idToken',
       status: authStatus === 'Accepted' ? 'passed' : 'failed',
       expected: 'idTokenInfo.status = Accepted',
       actual: `idTokenInfo.status = ${String(authStatus)}`,
@@ -92,7 +98,7 @@ export const TC_C_48_CSMS: TestCase = {
       seqNo: 1,
       transactionInfo: { transactionId: txId, stoppedReason: 'MasterPass' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-MASTERPASS-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.masterpass, type: 'ISO14443' },
     });
 
     const endIdTokenInfo = txEndRes['idTokenInfo'] as Record<string, unknown> | undefined;

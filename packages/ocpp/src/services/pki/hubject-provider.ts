@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { createLogger, isPrivateUrl } from '@evtivity/lib';
+import { createLogger } from '@evtivity/lib';
 import type {
   PkiProvider,
   SignCsrResult,
@@ -9,10 +9,11 @@ import type {
   OcspRequestData,
   OcspResult,
 } from './pki-provider.js';
+import { getOcspResultForStation } from './ocsp.js';
 
 const logger = createLogger('hubject-provider');
 
-// Hubject endpoints and OCSP responders can hang under load. Without a
+// Hubject endpoints can hang under load. Without a
 // timeout the OCPP handler thread that initiated the certificate flow
 // blocks indefinitely, the station's response promise eventually rejects
 // with a timeout, and a slow upstream pins worker capacity.
@@ -140,42 +141,18 @@ export class HubjectProvider implements PkiProvider {
   }
 
   async getOcspStatus(ocspRequestData: OcspRequestData): Promise<OcspResult> {
-    // OCSP responder URL is attested by the requesting station via its
-    // certificate's AIA extension. Reject private/internal addresses so a
-    // hostile station cannot weaponize the CSMS into an SSRF probe.
-    if (isPrivateUrl(ocspRequestData.responderURL)) {
+    // OCSP is answered by the responder in the certificate's AIA extension,
+    // not by the Hubject API. The helper sends the RFC 6960 request and
+    // applies the SSRF guard (private addresses only when allowlisted).
+    const result = await getOcspResultForStation(ocspRequestData);
+    if (result.status !== 'Accepted') {
       logger.error(
-        { url: ocspRequestData.responderURL },
-        'Rejected OCSP responder URL pointing at a private/internal address',
+        { url: ocspRequestData.responderURL, reason: result.reason },
+        'OCSP status request failed',
       );
       return { status: 'Failed', ocspResult: '' };
     }
-
-    const ocspRequest = Buffer.from(
-      JSON.stringify({
-        hashAlgorithm: ocspRequestData.hashAlgorithm,
-        issuerNameHash: ocspRequestData.issuerNameHash,
-        issuerKeyHash: ocspRequestData.issuerKeyHash,
-        serialNumber: ocspRequestData.serialNumber,
-      }),
-    ).toString('base64');
-
-    const response = await fetchWithTimeout(ocspRequestData.responderURL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/ocsp-request' },
-      body: Buffer.from(ocspRequest, 'base64'),
-    });
-
-    if (!response.ok) {
-      logger.error(
-        { status: response.status, url: ocspRequestData.responderURL },
-        'OCSP request failed',
-      );
-      return { status: 'Failed', ocspResult: '' };
-    }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-    return { status: 'Accepted', ocspResult: buffer.toString('base64') };
+    return { status: 'Accepted', ocspResult: result.ocspResult };
   }
 
   async getRootCertificates(type: string): Promise<string[]> {

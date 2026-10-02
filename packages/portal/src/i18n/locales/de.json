@@ -859,6 +859,11 @@
     "scanPhoto": "Aus einem Foto scannen",
     "noQrFound": "In diesem Foto wurde kein QR-Code gefunden. Versuche es erneut."
   },
+  "qr": {
+    "checking": "QR-Code wird geprüft",
+    "invalidTitle": "QR-Code ungültig",
+    "invalidMessage": "Dieser QR-Code ist ungültig oder abgelaufen. Scannen Sie den QR-Code an der Ladestation erneut."
+  },
   "watch": {
     "notifyWhenFree": "Benachrichtigen wenn frei",
     "watching": "Nicht mehr beobachten",

@@ -7,6 +7,7 @@ import {
   startAndWaitForCharging,
   drainMessages,
 } from '../../../../cs-test-helpers.js';
+import { signedTxEndedMeterValues } from './signed-shared.js';
 
 function setupHandler(ctx: {
   server: {
@@ -249,8 +250,6 @@ export const TC_J_03_CS: CsTestCase = {
 /**
  * TC_J_04_CS: Clock-aligned Meter Values - Signed
  * Use case: J01 (J01.FR.21)
- *
- * Skipped: CSS does not support signed meter values (no metering PKI).
  */
 export const TC_J_04_CS: CsTestCase = {
   id: 'TC_J_04_CS',
@@ -261,17 +260,7 @@ export const TC_J_04_CS: CsTestCase = {
   description: 'The Charging Station provides signed clock-aligned meter values.',
   purpose:
     'To verify if the Charging Station is able to send signed clock-aligned Meter Values when a transaction ends.',
-  execute: async () => {
-    const steps: StepResult[] = [];
-    steps.push({
-      step: 1,
-      description: 'Signed meter values not supported by CSS (no metering PKI)',
-      status: 'skipped',
-      expected: 'signedMeterValue present',
-      actual: 'Test skipped: CSS does not support signed meter values',
-    });
-    return { status: 'skipped', durationMs: 0, steps };
-  },
+  execute: async (ctx) => signedTxEndedMeterValues(ctx, 'aligned'),
 };
 
 /**

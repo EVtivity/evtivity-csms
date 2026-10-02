@@ -180,6 +180,7 @@ describe('Token routes - handler logic', () => {
           expiresAt: null,
           revokedAt: null,
           revokedReason: null,
+          prepaidBalanceCents: null,
           createdAt: '2024-01-01T00:00:00.000Z',
           updatedAt: '2024-01-01T00:00:00.000Z',
           driverFirstName: 'John',
@@ -516,6 +517,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
         driverFirstName: 'John',
@@ -566,6 +568,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
@@ -593,6 +596,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
@@ -620,6 +624,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
@@ -635,6 +640,45 @@ describe('Token routes - handler logic', () => {
       const body = response.json();
       expect(body.idToken).toBe('RFID-UPDATED');
       expect(body.isActive).toBe(false);
+    });
+
+    it('sets a prepaid balance', async () => {
+      const updated = {
+        id: TOKEN_ID_2,
+        driverId: null,
+        idToken: 'RFID-PREPAID',
+        tokenType: 'ISO14443',
+        isActive: true,
+        expiresAt: null,
+        revokedAt: null,
+        revokedReason: null,
+        prepaidBalanceCents: 2500,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-02T00:00:00.000Z',
+      };
+      // current-row SELECT, update returning
+      setupDbResults(
+        [{ idToken: 'RFID-PREPAID', tokenType: 'ISO14443', prepaidBalanceCents: null }],
+        [updated],
+      );
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/tokens/${VALID_TOKEN_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { prepaidBalanceCents: 2500 },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().prepaidBalanceCents).toBe(2500);
+    });
+
+    it('rejects a fractional prepaid balance', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/tokens/${VALID_TOKEN_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { prepaidBalanceCents: 10.5 },
+      });
+      expect(response.statusCode).toBe(400);
     });
 
     it('returns 404 when token not found', async () => {
@@ -659,6 +703,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
@@ -688,6 +733,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
@@ -718,6 +764,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };

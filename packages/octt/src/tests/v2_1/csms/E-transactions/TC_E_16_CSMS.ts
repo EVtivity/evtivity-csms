@@ -1,18 +1,15 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { StepResult, TestCase } from '../../../../types.js';
+import type { StepResult, TestCase, TestContext } from '../../../../types.js';
 import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { setTokenCostLimit } from '../../../../payment-test-helpers.js';
+
+/** TC_E_109: the cost limit the CSMS is configured with for the token (10.00). */
+const COST_LIMIT_CENTS = 1000;
 
 // Helper: boot station and send initial StatusNotification
-async function bootAndStatus(ctx: {
-  client: {
-    sendCall: (
-      action: string,
-      payload: Record<string, unknown>,
-    ) => Promise<Record<string, unknown>>;
-  };
-}) {
+async function bootAndStatus(ctx: TestContext) {
   await ctx.client.sendCall('BootNotification', {
     chargingStation: { model: 'OCTT-Virtual', vendorName: 'OCTT' },
     reason: 'PowerUp',
@@ -26,14 +23,7 @@ async function bootAndStatus(ctx: {
 }
 
 // Helper: start a charging transaction and return the txId
-async function startChargingTransaction(ctx: {
-  client: {
-    sendCall: (
-      action: string,
-      payload: Record<string, unknown>,
-    ) => Promise<Record<string, unknown>>;
-  };
-}) {
+async function startChargingTransaction(ctx: TestContext) {
   const txId = `OCTT-TX-${String(Date.now())}`;
   await ctx.client.sendCall('TransactionEvent', {
     eventType: 'Started',
@@ -42,7 +32,7 @@ async function startChargingTransaction(ctx: {
     seqNo: 0,
     transactionInfo: { transactionId: txId, chargingState: 'Charging' },
     evse: { id: 1, connectorId: 1 },
-    idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+    idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
   });
   return txId;
 }
@@ -488,15 +478,16 @@ export const TC_E_108_CSMS: TestCase = {
 /**
  * TC_E_109_CSMS: Transactions with fixed cost, energy or time - CSMS calculates costs and specifies cost limit
  * Use case: E16 (E16.FR.02, E16.FR.11)
- * Before: State is EVConnectedPreSession
+ * Before: State is EVConnectedPreSession. The CSMS is configured with a cost
+ * limit of 10 for the token (the operator gives it 10.00 prepaid credit).
  * Scenario:
  *   1. Authorize
- *   2. CSMS responds
- *   3. TransactionEvent Started with Charging
- *   4. CSMS responds (totalCost not omitted, maxCost 10)
+ *   2. CSMS responds (idTokenInfo.status Accepted)
+ *   3. TransactionEvent Started, ChargingStateChanged, Charging
+ *   4. CSMS responds (totalCost not omitted, maxEnergy and maxTime omitted, maxCost 10)
  *   5. TransactionEvent Updated with LimitSet maxCost 10
  *   6. CSMS responds (totalCost not omitted, transactionLimit omitted)
- *   7. CSMS sends CostUpdatedRequest (optional)
+ *   7. CSMS sends CostUpdatedRequest (optional; validated when sent)
  *   8. Respond to CostUpdated
  */
 export const TC_E_109_CSMS: TestCase = {
@@ -510,34 +501,48 @@ export const TC_E_109_CSMS: TestCase = {
   purpose: 'To verify whether the CSMS correctly sends cost when central cost calculation is used.',
   execute: async (ctx) => {
     const steps: StepResult[] = [];
+    const idToken = ctx.tokens.prepaid;
 
     await bootAndStatus(ctx);
 
-    // Set up handler for CostUpdated from CSMS
-    let receivedCostUpdated = false;
+    // Before: the CSMS limits the cost of this token's transactions to 10.
+    const configError = await setTokenCostLimit(ctx, idToken, COST_LIMIT_CENTS);
+    if (configError != null) {
+      steps.push({
+        step: 0,
+        description: 'Configure a cost limit of 10 for the token in the CSMS',
+        status: 'failed',
+        expected: 'Token cost limit configured',
+        actual: configError,
+      });
+      return { status: 'failed', durationMs: 0, steps };
+    }
 
-    ctx.client.setIncomingCallHandler(async (_messageId: string, action: string) => {
-      if (action === 'CostUpdated') {
-        receivedCostUpdated = true;
-        return {};
-      }
-      return { status: 'NotSupported' };
-    });
+    let costUpdated: Record<string, unknown> | null = null;
+    ctx.client.setIncomingCallHandler(
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'CostUpdated') {
+          costUpdated = payload;
+          return {};
+        }
+        return { status: 'NotSupported' };
+      },
+    );
 
-    // Step 1: Authorize
+    // Step 1-2: Authorize
     const authRes = await ctx.client.sendCall('Authorize', {
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken, type: 'ISO14443' },
     });
     const idTokenInfo = authRes['idTokenInfo'] as Record<string, unknown> | undefined;
     steps.push({
       step: 1,
-      description: 'Authorize - idTokenInfo.status must be Accepted',
+      description: 'AuthorizeResponse - idTokenInfo.status must be Accepted',
       status: idTokenInfo?.['status'] === 'Accepted' ? 'passed' : 'failed',
       expected: 'Accepted',
       actual: String(idTokenInfo?.['status']),
     });
 
-    // Step 3: TransactionEvent Started
+    // Step 3-4: TransactionEvent Started
     const txId = `OCTT-TX-${String(Date.now())}`;
     const startRes = await ctx.client.sendCall('TransactionEvent', {
       eventType: 'Started',
@@ -546,51 +551,57 @@ export const TC_E_109_CSMS: TestCase = {
       seqNo: 0,
       transactionInfo: { transactionId: txId, chargingState: 'Charging' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken, type: 'ISO14443' },
+    });
+    const startLimit = startRes['transactionLimit'] as Record<string, unknown> | undefined;
+    const step4Ok =
+      typeof startRes['totalCost'] === 'number' &&
+      startLimit?.['maxEnergy'] === undefined &&
+      startLimit?.['maxTime'] === undefined &&
+      startLimit?.['maxCost'] === 10;
+    steps.push({
+      step: 2,
+      description:
+        'TransactionEventResponse (Started) - totalCost present, maxEnergy and maxTime omitted, maxCost 10',
+      status: step4Ok ? 'passed' : 'failed',
+      expected: 'totalCost <not omitted>, maxEnergy <omitted>, maxTime <omitted>, maxCost = 10',
+      actual: `totalCost = ${String(startRes['totalCost'])}, transactionLimit = ${JSON.stringify(startLimit ?? null)}`,
     });
 
-    pushSendAckStep(
-      steps,
-      2,
-      'TransactionEvent Started - Charging',
-      startRes,
-      'TransactionEventResponse received',
-      `Response keys: ${Object.keys(startRes).join(', ')}`,
-    );
-
-    // Step 5: TransactionEvent Updated with LimitSet, maxCost 10
-    const step5Res = await ctx.client.sendCall('TransactionEvent', {
+    // Step 5-6: TransactionEvent Updated with LimitSet, maxCost 10
+    const updRes = await ctx.client.sendCall('TransactionEvent', {
       eventType: 'Updated',
       timestamp: new Date().toISOString(),
       triggerReason: 'LimitSet',
       seqNo: 1,
-      transactionInfo: {
-        transactionId: txId,
-        transactionLimit: { maxCost: 10 },
-      },
-      evse: { id: 1, connectorId: 1 },
+      transactionInfo: { transactionId: txId, transactionLimit: { maxCost: 10 } },
+    });
+    const step6Ok =
+      typeof updRes['totalCost'] === 'number' && updRes['transactionLimit'] === undefined;
+    steps.push({
+      step: 3,
+      description:
+        'TransactionEventResponse (Updated, LimitSet) - totalCost present, transactionLimit omitted',
+      status: step6Ok ? 'passed' : 'failed',
+      expected: 'totalCost <not omitted>, transactionLimit <omitted>',
+      actual: `totalCost = ${String(updRes['totalCost'])}, transactionLimit = ${JSON.stringify(updRes['transactionLimit'] ?? null)}`,
     });
 
-    pushSendAckStep(
-      steps,
-      3,
-      'TransactionEvent Updated - LimitSet maxCost 10',
-      step5Res,
-      'TransactionEventResponse received',
-      `Response keys: ${Object.keys(step5Res).join(', ')}`,
-    );
-
-    // Wait for optional CostUpdated
+    // Step 7-8: CostUpdatedRequest is optional; when sent it is validated.
     await new Promise((resolve) => setTimeout(resolve, 5000));
-
+    const received = costUpdated as Record<string, unknown> | null;
+    const costUpdatedOk =
+      received == null ||
+      (received['transactionId'] === txId && typeof received['totalCost'] === 'number');
     steps.push({
       step: 4,
-      description: 'CSMS sends CostUpdatedRequest (optional)',
-      status: step5Res != null ? 'passed' : 'failed',
-      expected: 'CostUpdatedRequest (optional)',
-      actual: receivedCostUpdated
-        ? 'CostUpdatedRequest received'
-        : 'No CostUpdatedRequest (acceptable)',
+      description: 'CostUpdatedRequest (optional) - transactionId and totalCost',
+      status: costUpdatedOk ? 'passed' : 'failed',
+      expected: `not sent, or transactionId = ${txId} and totalCost <not omitted>`,
+      actual:
+        received == null
+          ? 'Not sent'
+          : `transactionId = ${String(received['transactionId'])}, totalCost = ${String(received['totalCost'])}`,
     });
 
     return {
@@ -635,7 +646,7 @@ export const TC_E_110_CSMS: TestCase = {
       seqNo: 0,
       transactionInfo: { transactionId: txId, chargingState: 'Charging' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
 
     const idTokenInfo = startRes['idTokenInfo'] as Record<string, unknown> | undefined;
@@ -732,7 +743,7 @@ export const TC_E_111_CSMS: TestCase = {
       seqNo: 0,
       transactionInfo: { transactionId: txId, chargingState: 'Charging' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
 
     const idTokenInfo = startRes['idTokenInfo'] as Record<string, unknown> | undefined;

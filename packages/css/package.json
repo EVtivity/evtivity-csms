@@ -31,7 +31,11 @@
   "dependencies": {
     "@evtivity/lib": "*",
     "@evtivity/ocpp": "*",
+    "@peculiar/asn1-schema": "^2.10.0",
+    "@peculiar/asn1-x509": "^2.10.0",
+    "@peculiar/x509": "^2.1.0",
     "postgres": "^3.4.5",
+    "reflect-metadata": "^0.2.2",
     "ws": "^8.19.0",
     "zod": "^3.24.0"
   },

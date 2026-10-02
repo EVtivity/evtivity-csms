@@ -73,3 +73,36 @@ export function overallValue(samples: PhaseSample[]): number | null {
 
 /** Location of a SampledValue without one (OCPP 1.6 and 2.1 default). */
 export const DEFAULT_LOCATION = 'Outlet';
+
+/**
+ * The energy register reading in Wh of an OCPP 2.1 MeterValue list (the
+ * meterValue of a TransactionEvent), from the samples that update session
+ * energy: Energy.Active.Import.Register (the default measurand) at location
+ * Outlet (the default location), multiplier applied, Wh or kWh, one overall
+ * value per MeterValue. The register is cumulative, so the highest reading is
+ * returned. Null when there is no usable reading.
+ */
+export function energyRegisterWh(meterValues: unknown): number | null {
+  if (!Array.isArray(meterValues)) return null;
+  let highest: number | null = null;
+  for (const meterValue of meterValues as Array<Record<string, unknown>>) {
+    const sampledValues = meterValue.sampledValue;
+    if (!Array.isArray(sampledValues)) continue;
+    const samples: PhaseSample[] = [];
+    for (const sv of sampledValues as Array<Record<string, unknown>>) {
+      const measurand = typeof sv.measurand === 'string' ? sv.measurand : DEFAULT_MEASURAND;
+      const location = typeof sv.location === 'string' ? sv.location : DEFAULT_LOCATION;
+      if (measurand !== DEFAULT_MEASURAND || location !== DEFAULT_LOCATION) continue;
+      const unitOfMeasure = sv.unitOfMeasure as Record<string, unknown> | undefined;
+      const unit = typeof unitOfMeasure?.unit === 'string' ? unitOfMeasure.unit : null;
+      const multiplier =
+        typeof unitOfMeasure?.multiplier === 'number' ? unitOfMeasure.multiplier : 0;
+      const wh = energyToWh(applyMultiplier(Number(sv.value), multiplier), unit);
+      if (wh == null) continue;
+      samples.push({ value: wh, phase: typeof sv.phase === 'string' ? sv.phase : null });
+    }
+    const value = overallValue(samples);
+    if (value != null && (highest == null || value > highest)) highest = value;
+  }
+  return highest;
+}

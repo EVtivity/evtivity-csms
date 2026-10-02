@@ -2,7 +2,20 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { CsTestCase, StepResult } from '../../../../cs-types.js';
-import { waitForChargingState } from '../../../../cs-test-helpers.js';
+import { sleep, waitForChargingState } from '../../../../cs-test-helpers.js';
+import {
+  acceptReconnect,
+  applyConfiguration,
+  closeConnectionAndRefuse,
+  collectQueuedTransactionEvents,
+  describeTx,
+  energyTransferStarted,
+  offlineConfiguration,
+  RETRY_BACKOFF_WAIT_MINIMUM_S,
+  stopWhileOffline,
+  TRANSACTION_DURATION_S,
+  useCsmsHandler,
+} from './offline-shared.js';
 
 function setupHandler(ctx: {
   server: {
@@ -68,8 +81,44 @@ export const TC_E_29_CS: CsTestCase = {
     'The CSMS is able to request the status of a transaction and to find out whether there are queued messages.',
   purpose:
     'To verify if the Charging Station is able to correctly respond to a GetTransactionStatusRequest with an ongoing transaction and queued messages.',
-  execute: async (_ctx) => {
-    return { status: 'skipped', durationMs: 0, steps: [] };
+  execute: async (ctx) => {
+    const steps: StepResult[] = [];
+    useCsmsHandler(ctx);
+    await applyConfiguration(ctx, offlineConfiguration(), steps);
+    const txId = await energyTransferStarted(ctx, 'OCTT-TOKEN-001', steps);
+    if (txId == null) return { status: 'failed', durationMs: 0, steps };
+
+    // Step 1-2: close the connection, refuse reconnects for RetryBackOffWaitMinimum
+    closeConnectionAndRefuse(ctx);
+    await sleep(RETRY_BACKOFF_WAIT_MINIMUM_S * 1000);
+    if (!(await acceptReconnect(ctx, steps))) return { status: 'failed', durationMs: 0, steps };
+
+    // Step 3-4: GetTransactionStatus the moment the connection is restored
+    const resp = await ctx.server.sendCommand('GetTransactionStatus', { transactionId: txId });
+    steps.push({
+      step: 4,
+      description: 'GetTransactionStatusResponse - ongoing transaction with queued messages',
+      status:
+        resp['ongoingIndicator'] === true && resp['messagesInQueue'] === true ? 'passed' : 'failed',
+      expected: 'ongoingIndicator true, messagesInQueue true',
+      actual: `ongoingIndicator=${String(resp['ongoingIndicator'])}, messagesInQueue=${String(resp['messagesInQueue'])}`,
+    });
+
+    // Step 5-6: the station empties its transaction message queue
+    const queued = await collectQueuedTransactionEvents(ctx);
+    const valid = queued.filter(
+      (m) => m['eventType'] === 'Updated' && m['meterValue'] != null && m['offline'] === true,
+    );
+    steps.push({
+      step: 5,
+      description: 'Queued TransactionEventRequest: eventType Updated, meterValue, offline true',
+      status: queued.length > 0 && valid.length === queued.length ? 'passed' : 'failed',
+      expected: 'At least one queued message, all Updated with meterValue and offline true',
+      actual: queued.length === 0 ? 'none' : queued.map(describeTx).join(', '),
+    });
+
+    const allPassed = steps.every((s) => s.status === 'passed');
+    return { status: allPassed ? 'passed' : 'failed', durationMs: 0, steps };
   },
 };
 
@@ -126,8 +175,65 @@ export const TC_E_31_CS: CsTestCase = {
     'The CSMS is able to request the status of a transaction and to find out whether there are queued messages.',
   purpose:
     'To verify if the Charging Station is able to correctly respond to a GetTransactionStatusRequest with an ended transaction and queued messages.',
-  execute: async (_ctx) => {
-    return { status: 'skipped', durationMs: 0, steps: [] };
+  execute: async (ctx) => {
+    const steps: StepResult[] = [];
+    useCsmsHandler(ctx);
+    await applyConfiguration(
+      ctx,
+      [
+        ...offlineConfiguration(TRANSACTION_DURATION_S),
+        { component: 'TxCtrlr', variable: 'StopTxOnEVSideDisconnect', value: 'true' },
+      ],
+      steps,
+    );
+    const token = 'OCTT-TOKEN-001';
+    const txId = await energyTransferStarted(ctx, token, steps);
+    if (txId == null) return { status: 'failed', durationMs: 0, steps };
+
+    // The Test System closes the connection and does not accept a reconnect.
+    closeConnectionAndRefuse(ctx);
+    // Scenario local: present the same idToken, disconnect the EV, wait.
+    await stopWhileOffline(ctx, token);
+    if (!(await acceptReconnect(ctx, steps))) return { status: 'failed', durationMs: 0, steps };
+
+    // Step 1-2: GetTransactionStatus the moment the connection is restored
+    const resp = await ctx.server.sendCommand('GetTransactionStatus', { transactionId: txId });
+    steps.push({
+      step: 2,
+      description: 'GetTransactionStatusResponse - ended transaction with queued messages',
+      status:
+        resp['ongoingIndicator'] === false && resp['messagesInQueue'] === true
+          ? 'passed'
+          : 'failed',
+      expected: 'ongoingIndicator false, messagesInQueue true',
+      actual: `ongoingIndicator=${String(resp['ongoingIndicator'])}, messagesInQueue=${String(resp['messagesInQueue'])}`,
+    });
+
+    // Step 3-4: all TransactionEventRequests of the transaction, StopAuthorized through the end
+    const queued = await collectQueuedTransactionEvents(ctx);
+    const ofTx = queued.filter(
+      (m) =>
+        (m['transactionInfo'] as Record<string, unknown> | undefined)?.['transactionId'] === txId,
+    );
+    const ended = ofTx.find((m) => m['eventType'] === 'Ended');
+    const stopAuthorized = ofTx.some((m) => m['triggerReason'] === 'StopAuthorized');
+    steps.push({
+      step: 3,
+      description:
+        'Queued TransactionEventRequests: offline true, StopAuthorized and Ended for the transaction',
+      status:
+        queued.length > 0 &&
+        queued.every((m) => m['offline'] === true) &&
+        stopAuthorized &&
+        ended != null
+          ? 'passed'
+          : 'failed',
+      expected: 'All offline true, one with triggerReason StopAuthorized, one with eventType Ended',
+      actual: queued.length === 0 ? 'none' : queued.map(describeTx).join(', '),
+    });
+
+    const allPassed = steps.every((s) => s.status === 'passed');
+    return { status: allPassed ? 'passed' : 'failed', durationMs: 0, steps };
   },
 };
 
@@ -195,8 +301,46 @@ export const TC_E_33_CS: CsTestCase = {
     'The CSMS is able to request the status of a transaction and to find out whether there are queued messages.',
   purpose:
     'To verify if the Charging Station is able to correctly respond to a GetTransactionStatusRequest without a transactionId and with queued messages.',
-  execute: async (_ctx) => {
-    return { status: 'skipped', durationMs: 0, steps: [] };
+  execute: async (ctx) => {
+    const steps: StepResult[] = [];
+    useCsmsHandler(ctx);
+    await applyConfiguration(ctx, offlineConfiguration(), steps);
+    const txId = await energyTransferStarted(ctx, 'OCTT-TOKEN-001', steps);
+    if (txId == null) return { status: 'failed', durationMs: 0, steps };
+
+    // Step 1-2: close the connection, refuse reconnects for RetryBackOffWaitMinimum
+    closeConnectionAndRefuse(ctx);
+    await sleep(RETRY_BACKOFF_WAIT_MINIMUM_S * 1000);
+    if (!(await acceptReconnect(ctx, steps))) return { status: 'failed', durationMs: 0, steps };
+
+    // Step 3-4: GetTransactionStatus without transactionId
+    const resp = await ctx.server.sendCommand('GetTransactionStatus', {});
+    steps.push({
+      step: 4,
+      description: 'GetTransactionStatusResponse - no transactionId with queued messages',
+      status:
+        resp['ongoingIndicator'] === undefined && resp['messagesInQueue'] === true
+          ? 'passed'
+          : 'failed',
+      expected: 'ongoingIndicator omitted, messagesInQueue true',
+      actual: `ongoingIndicator=${String(resp['ongoingIndicator'])}, messagesInQueue=${String(resp['messagesInQueue'])}`,
+    });
+
+    // Step 5-6: the station empties its transaction message queue
+    const queued = await collectQueuedTransactionEvents(ctx);
+    const valid = queued.filter(
+      (m) => m['eventType'] === 'Updated' && m['meterValue'] != null && m['offline'] === true,
+    );
+    steps.push({
+      step: 5,
+      description: 'Queued TransactionEventRequest: eventType Updated, meterValue, offline true',
+      status: queued.length > 0 && valid.length === queued.length ? 'passed' : 'failed',
+      expected: 'At least one queued message, all Updated with meterValue and offline true',
+      actual: queued.length === 0 ? 'none' : queued.map(describeTx).join(', '),
+    });
+
+    const allPassed = steps.every((s) => s.status === 'passed');
+    return { status: allPassed ? 'passed' : 'failed', durationMs: 0, steps };
   },
 };
 

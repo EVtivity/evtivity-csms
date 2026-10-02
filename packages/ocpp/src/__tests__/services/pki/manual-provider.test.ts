@@ -10,6 +10,12 @@ vi.mock('@evtivity/database', () => ({
   client: (...args: unknown[]) => clientMock(...args),
 }));
 
+const stationOcspMock = vi.fn();
+
+vi.mock('../../../services/pki/ocsp.js', () => ({
+  getOcspResultForStation: (...args: unknown[]) => stationOcspMock(...args) as unknown,
+}));
+
 import { ManualProvider } from '../../../services/pki/manual-provider.js';
 
 type FetchMock = ReturnType<typeof vi.fn<(url: string, init: RequestInit) => Promise<Response>>>;
@@ -18,6 +24,7 @@ let fetchMock: FetchMock;
 
 beforeEach(() => {
   clientMock.mockReset();
+  stationOcspMock.mockReset();
   fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>();
   vi.stubGlobal('fetch', fetchMock);
 });
@@ -70,108 +77,32 @@ describe('ManualProvider.getContractCertificate', () => {
 describe('ManualProvider.getOcspStatus', () => {
   const ocspData: OcspRequestData = {
     hashAlgorithm: 'SHA256',
-    issuerNameHash: 'name-hash',
-    issuerKeyHash: 'key-hash',
-    serialNumber: 'serial-1',
+    issuerNameHash: 'aa'.repeat(32),
+    issuerKeyHash: 'bb'.repeat(32),
+    serialNumber: '1f',
     responderURL: 'https://ocsp.public-responder.com/check',
   };
 
-  function binaryResponse(ok: boolean, status: number, bytes: Buffer): Response {
-    return {
-      ok,
-      status,
-      arrayBuffer: vi
-        .fn()
-        .mockResolvedValue(
-          bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
-        ),
-    } as unknown as Response;
-  }
+  it('returns the DER OCSP response the shared RFC 6960 helper fetched', async () => {
+    stationOcspMock.mockResolvedValueOnce({ status: 'Accepted', ocspResult: 'MIIB' });
 
-  it('posts the OCSP request to the responder and returns the base64 result', async () => {
-    const ocspBytes = Buffer.from('ocsp-binary-response');
-    fetchMock.mockResolvedValueOnce(binaryResponse(true, 200, ocspBytes));
+    const result = await new ManualProvider().getOcspStatus(ocspData);
 
-    const provider = new ManualProvider();
-    const result = await provider.getOcspStatus(ocspData);
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('https://ocsp.public-responder.com/check');
-    expect(init.method).toBe('POST');
-    expect(init.headers).toEqual({ 'Content-Type': 'application/ocsp-request' });
-
-    const sentBody = init.body as Buffer;
-    const decoded = JSON.parse(sentBody.toString('utf8')) as Record<string, string>;
-    expect(decoded).toEqual({
-      hashAlgorithm: 'SHA256',
-      issuerNameHash: 'name-hash',
-      issuerKeyHash: 'key-hash',
-      serialNumber: 'serial-1',
-    });
-
-    expect(result).toEqual({
-      status: 'Accepted',
-      ocspResult: ocspBytes.toString('base64'),
-    });
-  });
-
-  it('rejects a responder URL pointing at a private/internal address (SSRF guard)', async () => {
-    const provider = new ManualProvider();
-    const result = await provider.getOcspStatus({
-      ...ocspData,
-      responderURL: 'http://127.0.0.1:8080/ocsp',
-    });
-
-    expect(result).toEqual({ status: 'Failed', ocspResult: '' });
+    expect(stationOcspMock).toHaveBeenCalledWith(ocspData);
+    expect(result).toEqual({ status: 'Accepted', ocspResult: 'MIIB' });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('returns Failed when the fetch rejects (network error or timeout)', async () => {
-    fetchMock.mockRejectedValueOnce(new Error('aborted'));
+  it('returns Failed with an empty ocspResult when the helper fails', async () => {
+    stationOcspMock.mockResolvedValueOnce({
+      status: 'Failed',
+      ocspResult: '',
+      reason: 'OCSP responder returned HTTP 503',
+    });
 
-    const provider = new ManualProvider();
-    const result = await provider.getOcspStatus(ocspData);
-
-    expect(result).toEqual({ status: 'Failed', ocspResult: '' });
-  });
-
-  it('returns Failed when the responder returns a non-2xx response', async () => {
-    fetchMock.mockResolvedValueOnce(binaryResponse(false, 503, Buffer.from('')));
-
-    const provider = new ManualProvider();
-    const result = await provider.getOcspStatus(ocspData);
+    const result = await new ManualProvider().getOcspStatus(ocspData);
 
     expect(result).toEqual({ status: 'Failed', ocspResult: '' });
-  });
-
-  it('aborts the OCSP request and returns Failed once the timeout elapses', async () => {
-    vi.useFakeTimers();
-    let capturedSignal: AbortSignal | undefined;
-    const abortingFetch = (_url: string, init: RequestInit): Promise<Response> => {
-      capturedSignal = init.signal ?? undefined;
-      return new Promise<Response>((_resolve, reject) => {
-        init.signal?.addEventListener('abort', () => {
-          reject(new DOMException('aborted', 'AbortError'));
-        });
-      });
-    };
-    fetchMock.mockImplementation(abortingFetch);
-
-    const provider = new ManualProvider();
-    const resultPromise = provider.getOcspStatus(ocspData);
-
-    await Promise.resolve();
-    expect(capturedSignal?.aborted).toBe(false);
-
-    // Advance past the 15s OCSP timeout to fire the abort and reject fetch.
-    vi.advanceTimersByTime(15_000);
-    const result = await resultPromise;
-
-    expect(capturedSignal?.aborted).toBe(true);
-    expect(result).toEqual({ status: 'Failed', ocspResult: '' });
-
-    vi.useRealTimers();
   });
 });
 

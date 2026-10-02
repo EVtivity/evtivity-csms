@@ -3,6 +3,7 @@
 
 import { randomBytes } from 'node:crypto';
 import WebSocket from 'ws';
+import { resolveVerifyServerCertificate } from '@evtivity/css/ocpp-client';
 import type { TestContext } from './types.js';
 
 /** A fresh passwordString of `length` characters (16-20 for 1.6, up to 40 for 2.1). */
@@ -50,10 +51,11 @@ export function tryConnect(
               'Basic ' + Buffer.from(`${ctx.stationId}:${opts.password}`).toString('base64'),
           }
         : {};
-    // Same TLS verification setting as the test client (OcppClient).
+    // Same TLS verification as the test client (OcppClient): on unless disabled, trusting the run's CSMS CA.
     const ws = new WebSocket(`${opts.serverUrl}/${ctx.stationId}`, [ctx.client.protocol], {
       headers,
-      rejectUnauthorized: process.env['TLS_REJECT_UNAUTHORIZED'] === 'true',
+      rejectUnauthorized: resolveVerifyServerCertificate(undefined),
+      ...(ctx.config.tlsCaCert != null ? { ca: ctx.config.tlsCaCert } : {}),
     });
     ws.on('open', () => {
       ws.close();

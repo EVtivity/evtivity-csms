@@ -16,6 +16,12 @@ import type { AuthorizeRequest } from '../../generated/v2_1/types/messages/Autho
 import type { AuthorizeResponse } from '../../generated/v2_1/types/messages/AuthorizeResponse.js';
 import type { Logger } from '@evtivity/lib';
 import { logAuthorizeAttempt, parseOcpiValidThru } from '../authorize-log.js';
+import {
+  applyContractCertificateVerdict,
+  validateContractCertificate,
+  type ContractCertificateVerdict,
+} from '../../services/pki/contract-certificate-validation.js';
+import { prepaidCredit, rememberPrepaidAuthorization } from '../prepaid.js';
 
 // Tokens of these types may be generated on the fly (portal remote start) and
 // are accepted when not present in driver_tokens. Inactive matches still block.
@@ -23,9 +29,10 @@ const ACCEPT_WHEN_NOT_FOUND = new Set(['Central', 'Local', 'NoAuthorization']);
 
 // Token types accepted unconditionally without DB lookup.
 // MasterPass: stop-any-transaction admin token (OCPP 2.1 spec).
-// eMAID: ISO 15118 contract certificate identifier validated externally.
 // DirectPayment: payment terminal handles authorization.
-const ACCEPT_WITHOUT_LOOKUP = new Set(['MasterPass', 'eMAID', 'DirectPayment']);
+// An eMAID is looked up like any other token: C07 checks both the contract
+// certificate (below) and the eMAID itself (C07.FR.13).
+const ACCEPT_WITHOUT_LOOKUP = new Set(['MasterPass', 'DirectPayment']);
 
 export async function handleAuthorize(ctx: HandlerContext): Promise<Record<string, unknown>> {
   const request = ctx.payload as unknown as AuthorizeRequest;
@@ -87,6 +94,7 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     | 'invalid'
     | 'blocked'
     | 'expired'
+    | 'no_credit'
     | 'concurrent_tx'
     | 'unknown'
     | 'db_error' = 'accepted';
@@ -97,6 +105,7 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
   let groupIdToken: AuthorizeResponse['idTokenInfo']['groupIdToken'] | undefined;
   let certificateStatus: AuthorizeResponse['certificateStatus'] | undefined;
   let matchedExpiresAt: Date | null = null;
+  let matchedPrepaidBalanceCents: number | null = null;
 
   if (ACCEPT_WITHOUT_LOOKUP.has(tokenType)) {
     ctx.logger.info(
@@ -114,6 +123,7 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
           isActive: driverTokens.isActive,
           expiresAt: driverTokens.expiresAt,
           revokedAt: driverTokens.revokedAt,
+          prepaidBalanceCents: driverTokens.prepaidBalanceCents,
         })
         .from(driverTokens)
         .where(and(eq(driverTokens.idToken, idToken), eq(driverTokens.tokenType, tokenType)));
@@ -196,6 +206,7 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
           matchedTokenId = token.id;
           matchedDriverId = token.driverId;
           matchedExpiresAt = token.expiresAt;
+          matchedPrepaidBalanceCents = token.prepaidBalanceCents ?? null;
           groupIdToken = { idToken, type: tokenType };
           logReason = 'active';
         }
@@ -244,13 +255,56 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     }
   }
 
-  if (tokenType === 'eMAID') {
-    const hasHashData =
-      request.iso15118CertificateHashData != null && request.iso15118CertificateHashData.length > 0;
-    const hasCertificate = request.certificate != null;
-    if (hasHashData || hasCertificate) {
-      certificateStatus = 'Accepted';
+  // Prepaid token (C17.FR.01/02): NoCredit when the balance is not positive,
+  // and cacheExpiryDateTime = now either way so the station does not cache it.
+  let prepaidExpiry: string | undefined;
+  const credit = status === 'Accepted' ? prepaidCredit(matchedPrepaidBalanceCents) : 'not_prepaid';
+  if (credit !== 'not_prepaid') {
+    prepaidExpiry = rememberPrepaidAuthorization(ctx.stationId, idToken);
+    if (credit === 'no_credit') {
+      status = 'NoCredit';
+      outcome = 'no_credit';
+      logReason = 'no_credit';
+      groupIdToken = undefined;
     }
+  }
+
+  // C07: a contract certificate chain (hash data or PEM chain) is checked via
+  // OCSP whatever the token type, and a bad chain overrides the token status
+  // (C07.FR.05, FR.13 to FR.17). An unverifiable chain fails closed.
+  const hasHashData =
+    request.iso15118CertificateHashData != null && request.iso15118CertificateHashData.length > 0;
+  if (hasHashData || request.certificate != null) {
+    let verdict: ContractCertificateVerdict;
+    try {
+      verdict = await validateContractCertificate(
+        {
+          ...(request.iso15118CertificateHashData != null
+            ? { iso15118CertificateHashData: request.iso15118CertificateHashData }
+            : {}),
+          ...(request.certificate != null ? { certificate: request.certificate } : {}),
+        },
+        ctx.logger,
+      );
+    } catch (err) {
+      ctx.logger.error(
+        { err, stationId: ctx.stationId, idToken },
+        'Contract certificate validation failed',
+      );
+      verdict = 'CertChainError';
+    }
+    const applied = applyContractCertificateVerdict(status, verdict);
+    certificateStatus = applied.certificateStatus;
+    if (applied.status !== status) {
+      status = applied.status;
+      outcome = status === 'Expired' ? 'expired' : 'invalid';
+      logReason = `contract_certificate_${verdict}`;
+      groupIdToken = undefined;
+    }
+    ctx.logger.info(
+      { stationId: ctx.stationId, idToken, tokenType, verdict, status },
+      'Contract certificate validated',
+    );
   }
 
   let tariff: Record<string, unknown> | undefined;
@@ -283,9 +337,11 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     idTokenInfo: {
       status,
       ...(groupIdToken != null ? { groupIdToken } : {}),
-      ...(status === 'Accepted' && matchedExpiresAt != null
-        ? { cacheExpiryDateTime: matchedExpiresAt.toISOString() }
-        : {}),
+      ...(prepaidExpiry != null
+        ? { cacheExpiryDateTime: prepaidExpiry }
+        : status === 'Accepted' && matchedExpiresAt != null
+          ? { cacheExpiryDateTime: matchedExpiresAt.toISOString() }
+          : {}),
     },
     ...(certificateStatus != null ? { certificateStatus } : {}),
   };

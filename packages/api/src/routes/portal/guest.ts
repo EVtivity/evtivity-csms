@@ -39,6 +39,7 @@ import { getStripeConfig } from '../../services/stripe.service.js';
 import { resolveTariff, isTariffFree } from '../../services/tariff.service.js';
 import { isEvseInReservationBuffer } from '../../lib/reservation-buffer.js';
 import { getActiveMaintenanceForStation } from '../../services/maintenance.service.js';
+import { validateQrCodeUrl } from '../../services/web-payment.service.js';
 
 const guestPricingInfo = z
   .object({
@@ -168,9 +169,32 @@ const chargerConfigParams = z.object({
   evseId: z.coerce.number().int().min(1).describe('EVSE ID on the station'),
 });
 
+// The optional limits come from the QR code URL parameters maxenergy, maxtime,
+// and maxcost (OCPP 2.1 C25.FR.04-06) and are returned to the station as
+// transactionLimit when the transaction starts (C25.FR.24).
 const guestStartBody = z.object({
   paymentMethodId: z.string().min(1).max(255).optional(),
   guestEmail: z.string().email().max(255).optional(),
+  maxEnergyWh: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe('Energy limit in Wh requested by the EV driver (QR code maxenergy)'),
+  maxTimeSeconds: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe('Duration limit in seconds requested by the EV driver (QR code maxtime)'),
+  maxCostCents: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe(
+      'Cost limit in cents requested by the EV driver (QR code maxcost). A paid session never exceeds the pre-authorized amount',
+    ),
 });
 
 const sessionTokenParams = z.object({
@@ -184,7 +208,57 @@ const sessionTokenParams = z.object({
     .describe('Guest session token returned from the start endpoint (20-char hex)'),
 });
 
+const qrValidateBody = z.object({
+  url: z.string().min(1).max(2048).describe('Full URL the EV driver opened from the QR code'),
+});
+
+const qrValidateResponse = z
+  .object({
+    valid: z
+      .boolean()
+      .describe('Whether the QR code URL decodes and its one-time password is valid'),
+    stationId: z.string().optional().describe('OCPP station identity decoded from the URL'),
+    evseId: z.number().int().optional().describe('EVSE decoded from the URL'),
+    reason: z
+      .enum([
+        'malformed_url',
+        'missing_parameter',
+        'unknown_station',
+        'unsupported_version',
+        'invalid_totp',
+        'unknown_evse',
+      ])
+      .optional()
+      .describe('Why the URL is not valid'),
+  })
+  .passthrough();
+
 export function portalGuestRoutes(app: FastifyInstance): void {
+  app.post(
+    '/portal/guest/qr/validate',
+    {
+      schema: {
+        tags: ['Portal Guest'],
+        summary: 'Validate a dynamic QR code URL',
+        description:
+          'Decodes a scanned dynamic QR code URL (qr/{chargingstationid}/{evse}/{totp}/{version}) and checks its time-based one-time password against the shared secret the CSMS set in the station WebPaymentsCtrlr, accepting the current, previous, and next interval (OCPP 2.1 C25.FR.07-09). The portal continues to payment only for a valid URL (C25.FR.08, C25.FR.20). Rate limited 10/min per IP.',
+        operationId: 'portalGuestValidateQrCode',
+        security: [],
+        body: zodSchema(qrValidateBody),
+        response: { 200: itemResponse(qrValidateResponse) },
+      },
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (request) => {
+      const { url } = request.body as z.infer<typeof qrValidateBody>;
+      const result = await validateQrCodeUrl(url);
+      if (!result.valid) {
+        request.log.info({ reason: result.reason }, 'QR code URL refused');
+      }
+      return result;
+    },
+  );
+
   const guestCheckStatusParams = z.object({
     stationId: z.string().describe('Station OCPP ID'),
     evseId: z.coerce.number().describe('EVSE ID'),
@@ -401,7 +475,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         tags: ['Portal Guest'],
         summary: 'Start a guest charging session with payment',
         description:
-          'Creates a guest_sessions row with a 20-character session token (unique per guest), creates a Stripe PaymentIntent with capture_method=manual for paid sessions (free sessions skip Stripe), and dispatches RequestStartTransaction with the token as the OCPP idToken. Rate limited 5/min per IP. Returns 504 if the station does not ack within 35s (cancels the pre-auth and rolls back the row).',
+          'Creates a guest_sessions row with a 20-character session token (unique per guest), creates a Stripe PaymentIntent with capture_method=manual for paid sessions (free sessions skip Stripe), and dispatches RequestStartTransaction with the token as the OCPP idToken (type DirectPayment for paid sessions, Central for free ones). An OCPP 2.1 station receives the limits as transactionLimit when the transaction starts: maxCost is the pre-authorized amount (or the lower maxCostCents), maxEnergy and maxTime come from maxEnergyWh and maxTimeSeconds. Rate limited 5/min per IP. Returns 504 if the station does not ack within 35s (cancels the pre-auth and rolls back the row).',
         operationId: 'portalGuestStartCharging',
         security: [],
         params: zodSchema(chargerConfigParams),
@@ -603,6 +677,9 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           status: 'payment_authorized',
           sessionToken,
           expiresAt,
+          maxCostCents: body.maxCostCents ?? null,
+          maxEnergyWh: body.maxEnergyWh ?? null,
+          maxTimeSeconds: body.maxTimeSeconds ?? null,
         });
       } else {
         // Paid charging: require payment method and email
@@ -684,6 +761,14 @@ export function portalGuestRoutes(app: FastifyInstance): void {
             status: 'payment_authorized',
             sessionToken,
             expiresAt,
+            // The authorized amount is the cost ceiling (C25 step 9): a
+            // capture cannot exceed it.
+            maxCostCents: Math.min(
+              body.maxCostCents ?? config.preAuthAmountCents,
+              config.preAuthAmountCents,
+            ),
+            maxEnergyWh: body.maxEnergyWh ?? null,
+            maxTimeSeconds: body.maxTimeSeconds ?? null,
           });
         } catch (err: unknown) {
           request.log.error(
@@ -711,7 +796,11 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       const cmdResult = await sendOcppCommandAndWait(station.stationId, 'RequestStartTransaction', {
         evseId: params.evseId,
         remoteStartId: Math.floor(Math.random() * 2_147_483_647),
-        idToken: { idToken: sessionToken, type: 'Central' },
+        // A paid session is an ad hoc payment (OCPP 2.1 C25.FR.23): DirectPayment.
+        idToken: {
+          idToken: sessionToken,
+          type: paymentIntentId != null ? 'DirectPayment' : 'Central',
+        },
       });
 
       const cmdStatus = cmdResult.response?.['status'] as string | undefined;

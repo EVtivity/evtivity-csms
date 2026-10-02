@@ -211,7 +211,8 @@ export class CommandListener {
           aggregateId: stationId,
           payload: { request: payload, response },
         });
-      } else if (action === 'UpdateFirmware') {
+      } else if (action === 'UpdateFirmware' || action === 'SignedUpdateFirmware') {
+        // 1.6 SignedUpdateFirmware has the 2.1 UpdateFirmware payload shape.
         void this.eventBus.publish({
           eventType: 'command.UpdateFirmware',
           aggregateType: 'ChargingStation',

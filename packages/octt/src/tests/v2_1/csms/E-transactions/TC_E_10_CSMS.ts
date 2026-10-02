@@ -25,7 +25,7 @@ export const TC_E_10_CSMS: TestCase = {
 
     // Step 1: Authorize
     const authRes = await ctx.client.sendCall('Authorize', {
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
     const authStatus = (authRes['idTokenInfo'] as Record<string, unknown>)?.['status'] as string;
     steps.push({
@@ -45,7 +45,7 @@ export const TC_E_10_CSMS: TestCase = {
       seqNo: 0,
       transactionInfo: { transactionId: txId },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
     pushSendAckStep(
       steps,
@@ -113,7 +113,7 @@ export const TC_E_26_CSMS: TestCase = {
       seqNo: 0,
       transactionInfo: { transactionId: txId, chargingState: 'Charging' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
 
     // Move to SuspendedEV (EnergyTransferSuspended)

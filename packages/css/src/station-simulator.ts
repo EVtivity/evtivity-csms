@@ -1,19 +1,119 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
 import {
   buildCssConfigDefaults,
   CSS_STATUS_REPORTING_DEFAULT,
   CSS_STATUS_REPORTING_KEY,
   CSS_STATUS_REPORTING_VALUES,
+  cssSecurityCtrlrDefaults,
+  TOTP_VERSION_V1,
+  totpV1,
 } from '@evtivity/lib';
+import { validateStationPassword } from '@evtivity/lib/station-password';
 import { OcppClient } from './ocpp-client.js';
 import { config as cssConfig } from './lib/config.js';
 import { MeterValueGenerator } from './meter-value-generator.js';
+import { OcmfMeterSigner } from './signed-meter-values.js';
+import { computeCompositeSchedule } from './composite-schedule.js';
+import { CSS_MANUFACTURER_ROOT_CA_PEM, parseFirmwareImage } from './lib/manufacturer-root.js';
 import { PersistedCache } from './lib/persisted-cache.js';
 import type { CachePersistor, CacheLogger } from './lib/persisted-cache.js';
+import {
+  certificateHashData,
+  certificateMatchesPrivateKey,
+  chainsToTrustedRoot,
+  generateKeyPairAndCsr,
+  isCertificateHashAlgorithm,
+  isCaCertificate,
+  isIssuedBy,
+  isSelfSigned,
+  isWithinValidity,
+  parseCertificateChain,
+  sameCertificateHashData,
+  verifySignature,
+} from './lib/station-pki.js';
+import type { X509Certificate } from 'node:crypto';
+
+/**
+ * A variable monitor (OCPP 2.1 N04 SetVariableMonitoring, VariableMonitoringType)
+ * as stored in css_variable_monitors. Rows written before `value`, `transaction`,
+ * and `periodicEventStream` existed lack them.
+ */
+type VariableMonitor = {
+  id: number;
+  type: string;
+  severity: number;
+  component: Record<string, unknown>;
+  variable: Record<string, unknown>;
+  isHardwired: boolean;
+  value?: number | undefined;
+  transaction?: boolean | undefined;
+  periodicEventStream?: { interval?: number; values?: number } | undefined;
+  /** Factory (preconfigured) monitor: SetMonitoringBase HardWiredOnly removes it, FactoryDefault restores it. */
+  preconfigured?: boolean | undefined;
+};
+
+/** EventNotificationEnumType of a monitor's events and reports. */
+function monitorNotificationType(monitor: VariableMonitor): string {
+  if (monitor.isHardwired) return 'HardWiredMonitor';
+  return monitor.preconfigured === true ? 'PreconfiguredMonitor' : 'CustomMonitor';
+}
+
+/** Price sections of an OCPP 2.1 TariffType. */
+const TARIFF_PRICE_SECTIONS = [
+  'energy',
+  'chargingTime',
+  'idleTime',
+  'fixedFee',
+  'reservationTime',
+  'reservationFixed',
+] as const;
+
+/** Display languages (RFC 5646) the simulator can show: DisplayMessageCtrlr.Language valuesList. */
+const DISPLAY_LANGUAGES = ['en', 'de', 'nl', 'fr', 'es'];
+
+/**
+ * Device model variables that are WriteOnly: GetVariables rejects them (B06.FR.09), reports
+ * leave out their value, and monitors report them with an empty value.
+ */
+const WRITE_ONLY_VARIABLES = new Set([
+  'SecurityCtrlr.BasicAuthPassword',
+  'WebPaymentsCtrlr.SharedSecret',
+]);
+
+/** C25 URL query parameters for limits the EV driver enters (WebPaymentsCtrlr.URLParameters). */
+type WebPaymentLimits = { maxEnergy?: number; maxTime?: number; maxCost?: number };
+const WEB_PAYMENT_URL_PARAMETERS: ReadonlyArray<[keyof WebPaymentLimits, string]> = [
+  ['maxTime', 'maxtime'],
+  ['maxEnergy', 'maxenergy'],
+  ['maxCost', 'maxcost'],
+];
+
+/** A monitoring event with the severity of the monitor that raised it. */
+interface MonitorEvent {
+  severity: number;
+  event: Record<string, unknown>;
+}
+
+/** An open OCPP 2.1 periodic event stream (N11) for a Periodic monitor. */
+interface PeriodicStream {
+  id: number;
+  monitorId: number;
+  /** Seconds after which buffered data is sent (params.interval). */
+  interval: number;
+  /** Number of data elements sent together (params.values). */
+  values: number;
+  basetime: number;
+  data: Array<{ t: number; v: string }>;
+  sampleTimer: ReturnType<typeof setInterval> | null;
+  flushTimer: ReturnType<typeof setInterval> | null;
+}
+
+/** A 2.1 SampledValueType as the simulator builds it (value, measurand, unitOfMeasure, context, ...). */
+type SampledValueRecord = Record<string, unknown>;
 
 export interface StationConfig {
   id: string;
@@ -29,6 +129,13 @@ export interface StationConfig {
   clientCert?: string;
   clientKey?: string;
   caCert?: string;
+  /** Verify the server certificate on wss:// (on unless false, or TLS_REJECT_UNAUTHORIZED=false). */
+  verifyServerCertificate?: boolean;
+  /** Factory values that replace configuration defaults when the station is first seeded
+   *  (for example a 1.6 SupportedFeatureProfiles or LocalAuthListMaxLength). */
+  configOverrides?: Record<string, string>;
+  /** Random extra delay (ms) before the first reconnect after a connection loss. */
+  reconnectSpreadMs?: number;
   evses: Array<{
     evseId: number;
     connectorId: number;
@@ -36,7 +143,17 @@ export interface StationConfig {
     maxPowerW: number;
     phases: number;
     voltage: number;
+    /** The cable is fixed to the connector, so it has no lock to release. */
+    fixedCable?: boolean;
   }>;
+}
+
+// A certificate in the station's certificate store. `certificate` holds the PEM
+// for certificates the station parsed itself (OCPP 1.6 Security Whitepaper).
+interface InstalledCertificate {
+  certificateType: string;
+  certificateHashData: Record<string, string>;
+  certificate?: string;
 }
 
 // Connection settings a station tries after a reboot, in order.
@@ -128,7 +245,39 @@ export class StationSimulator {
   private activeRebootCandidate: ConnectionCandidate | null = null;
   // OCPP 1.6 SecurityProfile accepted via ChangeConfiguration, applied on reset.
   private pendingSecurityProfile16: number | null = null;
+  // OCPP 1.6 Security Whitepaper: private key of the CSR sent in SignCertificate,
+  // kept until CertificateSigned delivers the matching certificate.
+  private pendingChargePointKey16: string | null = null;
+  // OCPP 1.6 Security Whitepaper: requestId of the running SignedUpdateFirmware,
+  // so a new request cancels it (AcceptedCanceled).
+  private activeSignedFirmwareRequestId: number | null = null;
+  // OCPP 2.1 L01: the running UpdateFirmware (requestId, past Installing or not),
+  // and the EVSEs set Unavailable while an installation waits for transactions.
+  private activeFirmwareUpdate21: { requestId: number; installing: boolean } | null = null;
+  private readonly firmwareBlockedEvses = new Set<number>();
+  // Connectors whose lock is jammed (simulated hardware fault, jamConnectorLock()).
+  private readonly jammedLocks = new Set<number>();
   private offlineFlag = false;
+  // A reboot or power cycle dropped the connection: the next connection boots
+  // (BootNotification). A plain connection loss does not (1.6 4.2, 2.1 B01/B04).
+  private rebootOnReconnect = false;
+  // start() finished its boot sequence once. When the first connection failed,
+  // the reconnect that eventually succeeds runs it instead.
+  private initialBootDone = false;
+  // When the current offline period began, and the connector statuses last
+  // reported before it, so a reconnect reports what changed (2.1 B04).
+  private offlineSince: number | null = null;
+  private statusesAtDisconnect: Map<number, string> | null = null;
+  // Connector statuses the CSMS acknowledged. A report still in flight when the
+  // connection drops was not delivered, so the reconnect reports it (B04).
+  private readonly deliveredConnectorStatus = new Map<number, string>();
+  // OCPP 1.6: EVSEs whose transaction a power loss interrupted, stopped after the reboot.
+  private interruptedTransactions16 = new Set<number>();
+  // Key pairs of the CSRs sent per certificateType, awaiting CertificateSigned (A02).
+  private readonly pendingCsrKeys = new Map<string, string[]>();
+  // A02.FR.17-19 resend timers per certificateType.
+  private readonly certSigningTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private certificateReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   // Readiness for the manager's self-heal watchdog. ready is true once the
   // station has booted Accepted and reported its connector statuses.
   // notReadySince marks how long it has been continuously not-ready, so a brief
@@ -139,6 +288,21 @@ export class StationSimulator {
   // WebSocket is down. Each item is paired with its DB row id so the shift
   // path can delete the persisted row. Loaded on boot from
   // css_offline_messages so a power cycle doesn't drop pending messages.
+  // Signed meter values (2.1 J01.FR.21, J02.FR.21): the simulated meter's
+  // signing unit, created on first use, and the EVSEs whose transaction has
+  // already carried the public key (PublicKeyWithSignedMeterValue OncePerTransaction).
+  private meterSigner: OcmfMeterSigner | null = null;
+  private readonly evsePublicKeySent = new Set<number>();
+  // Meter data collected for the TransactionEvent Ended (2.1 J01/J02:
+  // SampledDataCtrlr.TxEndedInterval / AlignedDataCtrlr.TxEndedInterval).
+  private readonly evseTxEndedMeterValues = new Map<number, Array<Record<string, unknown>>>();
+  private readonly txEndedTimers = new Map<number, Array<ReturnType<typeof setTimeout>>>();
+
+  // O01: preferred language of the EV driver per EVSE (AuthorizeResponse language1).
+  private readonly evseDriverLanguage = new Map<number, string>();
+
+  /** True while replayOfflineQueue drains the queue (one drain at a time). */
+  private replayingOfflineQueue = false;
   private offlineMessageQueue: Array<{
     id: string;
     action: string;
@@ -179,17 +343,17 @@ export class StationSimulator {
 
   // Variable monitoring state
   private monitorIdCounter = 0;
-  private variableMonitors!: PersistedCache<
-    number,
-    {
-      id: number;
-      type: string;
-      severity: number;
-      component: Record<string, unknown>;
-      variable: Record<string, unknown>;
-      isHardwired: boolean;
-    }
-  >;
+  private variableMonitors!: PersistedCache<number, VariableMonitor>;
+  // Monitor evaluation state (volatile): last value a Delta monitor reported
+  // from, and whether a threshold monitor is currently exceeded.
+  private readonly monitorDeltaBase = new Map<number, number | string>();
+  private readonly monitorExceeded = new Set<number>();
+  private eventIdCounter = 0;
+  // N11-N15 periodic monitoring: NotifyEvent timers for Periodic monitors
+  // without a stream, and open periodic event streams keyed by monitor id.
+  private readonly periodicMonitorTimers = new Map<number, ReturnType<typeof setInterval>>();
+  private readonly periodicStreams = new Map<number, PeriodicStream>();
+  private streamIdCounter = 0;
   private monitoringLevel = 9; // default: report all severities (0-9)
 
   // Active log upload tracking
@@ -202,10 +366,7 @@ export class StationSimulator {
   // Device-storage-backed CSMS-command caches. Reads are local; .set/.delete
   // auto-persist to their css_* tables. Boot loaders run in start().
   private displayMessagesCache!: PersistedCache<number, Record<string, unknown>>;
-  private installedCertificatesCache!: PersistedCache<
-    string,
-    { certificateType: string; certificateHashData: Record<string, string> }
-  >;
+  private installedCertificatesCache!: PersistedCache<string, InstalledCertificate>;
   private chargingProfilesCache!: PersistedCache<number, Record<string, unknown>>;
 
   // Tariff store: tariffId -> { evseId, tariff data, inUse }
@@ -237,6 +398,11 @@ export class StationSimulator {
     number,
     { maxEnergy?: number; maxTime?: number; maxCost?: number } | null
   >();
+  // C25.FR.03: limits the EV driver entered for a QR code payment, per EVSE. Added to the
+  // QR code URL and to the transaction started on the EVSE (C25.FR.04-06).
+  private readonly evseWebPaymentLimits = new Map<number, WebPaymentLimits>();
+  // E05.FR.03: energy (Wh, transaction total) still allowed after CSMS rejected the idToken
+  private readonly evseInvalidIdMaxEnergy = new Map<number, number>();
   // Per-EVSE last reported local cost (for RunningCost event dedup)
   private readonly evseLastLocalCost = new Map<number, number>();
 
@@ -282,10 +448,7 @@ export class StationSimulator {
     };
     this.configVariables = new PersistedCache(configPersistor, cacheLogger, 'configVariables');
 
-    const certPersistor: CachePersistor<
-      string,
-      { certificateType: string; certificateHashData: Record<string, string> }
-    > = {
+    const certPersistor: CachePersistor<string, InstalledCertificate> = {
       load: async () => {
         const rows = await this.sql<
           Array<{
@@ -294,9 +457,11 @@ export class StationSimulator {
             issuer_name_hash: string | null;
             issuer_key_hash: string | null;
             serial_number: string;
+            certificate: string | null;
           }>
         >`
-          SELECT certificate_type, hash_algorithm, issuer_name_hash, issuer_key_hash, serial_number
+          SELECT certificate_type, hash_algorithm, issuer_name_hash, issuer_key_hash, serial_number,
+                 certificate
           FROM css_installed_certificates
           WHERE css_station_id = ${this.config.id}
         `;
@@ -312,29 +477,30 @@ export class StationSimulator {
                   issuerKeyHash: r.issuer_key_hash ?? '',
                   serialNumber: r.serial_number,
                 },
+                ...(r.certificate != null ? { certificate: r.certificate } : {}),
               },
-            ] as readonly [
-              string,
-              { certificateType: string; certificateHashData: Record<string, string> },
-            ],
+            ] as readonly [string, InstalledCertificate],
         );
       },
       upsert: async (serial, v) => {
         const id = 'ccr_' + randomUUID().replace(/-/g, '').slice(0, 12);
         await this.sql`
           INSERT INTO css_installed_certificates
-            (id, css_station_id, certificate_type, serial_number, hash_algorithm, issuer_name_hash, issuer_key_hash)
+            (id, css_station_id, certificate_type, serial_number, hash_algorithm, issuer_name_hash,
+             issuer_key_hash, certificate)
           VALUES (
             ${id}, ${this.config.id}, ${v.certificateType}, ${serial},
             ${v.certificateHashData['hashAlgorithm'] ?? 'SHA256'},
             ${v.certificateHashData['issuerNameHash'] ?? ''},
-            ${v.certificateHashData['issuerKeyHash'] ?? ''}
+            ${v.certificateHashData['issuerKeyHash'] ?? ''},
+            ${v.certificate ?? null}
           )
           ON CONFLICT (css_station_id, serial_number) DO UPDATE
           SET certificate_type = EXCLUDED.certificate_type,
               hash_algorithm = EXCLUDED.hash_algorithm,
               issuer_name_hash = EXCLUDED.issuer_name_hash,
-              issuer_key_hash = EXCLUDED.issuer_key_hash
+              issuer_key_hash = EXCLUDED.issuer_key_hash,
+              certificate = EXCLUDED.certificate
         `;
       },
       remove: async (serial) => {
@@ -506,14 +672,7 @@ export class StationSimulator {
     };
     this.localAuthEntries = new PersistedCache(localAuthPersistor, cacheLogger, 'localAuthEntries');
 
-    type MonitorValue = {
-      id: number;
-      type: string;
-      severity: number;
-      component: Record<string, unknown>;
-      variable: Record<string, unknown>;
-      isHardwired: boolean;
-    };
+    type MonitorValue = VariableMonitor;
     const monitorsPersistor: CachePersistor<number, MonitorValue> = {
       load: async () => {
         const rows = await this.sql<Array<{ monitor_id: number; monitor_data: MonitorValue }>>`
@@ -680,6 +839,8 @@ export class StationSimulator {
       clientCert: config.clientCert,
       clientKey: config.clientKey,
       caCert: config.caCert,
+      verifyServerCertificate: config.verifyServerCertificate,
+      reconnectSpreadMs: config.reconnectSpreadMs,
     });
 
     this.client.setIncomingCallHandler((messageId, action, payload) =>
@@ -701,12 +862,50 @@ export class StationSimulator {
       void this.onReconnect();
     });
 
+    // OCPP 2.1 Part 4 5.4: reconnect back-off from OCPPCommCtrlr.RetryBackOff*.
+    if (config.ocppProtocol === 'ocpp2.1') {
+      this.client.setReconnectBackOff(() => {
+        const seconds = (key: string, fallback: number): number => {
+          const n = Number(this.getConfigValue(`OCPPCommCtrlr.${key}`) ?? fallback);
+          return Number.isFinite(n) && n >= 0 ? n : fallback;
+        };
+        return {
+          waitMinimumMs: seconds('RetryBackOffWaitMinimum', 10) * 1000,
+          randomRangeMs: seconds('RetryBackOffRandomRange', 5) * 1000,
+          repeatTimes: seconds('RetryBackOffRepeatTimes', 3),
+        };
+      });
+    }
+
     this.client.setBeforeReconnectAttempt((attempt) => {
       this.chooseRebootConnection(attempt);
     });
 
     this.client.setDisconnectedHandler(() => {
+      if (this.offlineSince == null) {
+        this.offlineSince = Date.now();
+        this.statusesAtDisconnect = new Map(this.deliveredConnectorStatus);
+      }
       void this.updateStationStatus('disconnected');
+    });
+
+    // A rejected CSMS certificate (OCPP 1.6 Security Whitepaper, 2.1 A00.FR.311)
+    // or TLS version (2.1 A00.FR.417) is a critical security event, queued and
+    // sent once the station is connected again.
+    this.client.setServerCertificateRejectedHandler((err) => {
+      this.queueOfflineMessage('SecurityEventNotification', {
+        type: this.is16 ? 'InvalidCentralSystemCertificate' : 'InvalidCsmsCertificate',
+        timestamp: new Date().toISOString(),
+        techInfo: err.message.slice(0, 255),
+      });
+    });
+    this.client.setTlsVersionRejectedHandler((err) => {
+      if (this.is16) return;
+      this.queueOfflineMessage('SecurityEventNotification', {
+        type: 'InvalidTLSVersion',
+        timestamp: new Date().toISOString(),
+        techInfo: err.message.slice(0, 255),
+      });
     });
 
     // Create MeterValueGenerator per EVSE
@@ -730,6 +929,8 @@ export class StationSimulator {
       this.evseTransactionStartTime.delete(evse.evseId);
       this.evseLimitReached.delete(evse.evseId);
       this.evseLastDriverLimits.delete(evse.evseId);
+      this.evseInvalidIdMaxEnergy.delete(evse.evseId);
+      this.evseWebPaymentLimits.delete(evse.evseId);
       this.evseLastLocalCost.delete(evse.evseId);
       this.evseContexts.set(evse.evseId, {
         state: 'Available',
@@ -797,7 +998,18 @@ export class StationSimulator {
     this.offlineFlag = false;
 
     await this.loadConfigVariables();
+    // A failed first connection throws here. The client keeps retrying, and the
+    // connection that succeeds runs the boot sequence (onReconnect).
     await this.client.connect();
+    await this.bootAfterPowerUp();
+  }
+
+  // The boot sequence after power-up: BootNotification, then (when Accepted)
+  // connector statuses and the StartupOfTheDevice security event.
+  private async bootAfterPowerUp(): Promise<void> {
+    this.initialBootDone = true;
+    this.offlineSince = null;
+    this.statusesAtDisconnect = null;
     await this.updateStationStatus('booting');
     await this.sendBootNotification('PowerUp');
 
@@ -821,6 +1033,9 @@ export class StationSimulator {
 
     await this.updateStationStatus('available');
 
+    // OCPP 2.1 security event: the Charging Station has booted.
+    await this.sendStartupSecurityEvent();
+
     // Seed default hardwired monitors (AvailabilityState Delta for ChargingStation and EVSEs)
     if (!this.is16 && this.variableMonitors.size === 0) {
       this.seedDefaultMonitors();
@@ -831,6 +1046,9 @@ export class StationSimulator {
       this.customerDataStore.set('TEST_TOKEN', 'Customer: Test User, Email: test@example.com');
       this.customerDataStore.set('CUST-001', 'Customer: CUST-001, Account: Active');
     }
+
+    // Deliver messages queued before this boot (persisted in css_offline_messages)
+    await this.replayOfflineQueue();
 
     // Start clock-aligned meter value timer
     this.startClockAlignedTimer();
@@ -843,9 +1061,27 @@ export class StationSimulator {
     for (const [evseId] of this.meterTimers) {
       this.stopMeterLoop(evseId);
     }
+    for (const evseId of Array.from(this.txEndedTimers.keys())) {
+      this.stopTxEndedSampling(evseId);
+    }
+    for (const monitorId of Array.from(this.periodicMonitorTimers.keys())) {
+      this.stopPeriodicNotifyEvents(monitorId);
+    }
+    for (const stream of this.periodicStreams.values()) {
+      this.stopStreamTimers(stream);
+    }
+    this.periodicStreams.clear();
 
     this.stopHeartbeat();
     this.stopClockAlignedTimer();
+
+    for (const certificateType of [...this.certSigningTimers.keys()]) {
+      this.clearCertSigningTimer(certificateType);
+    }
+    if (this.certificateReconnectTimer != null) {
+      clearTimeout(this.certificateReconnectTimer);
+      this.certificateReconnectTimer = null;
+    }
 
     // Clear connection timeout timers
     for (const evseId of this.connectionTimeoutTimers.keys()) {
@@ -963,7 +1199,7 @@ export class StationSimulator {
         const statusField = 'idTokenInfo';
         return { [statusField]: { status } };
       }
-      const cached = this.authCache.get(idToken);
+      const cached = this.cachedIdTokenInfo(idToken);
       if (cached != null) {
         return { idTokenInfo: cached };
       }
@@ -1029,6 +1265,10 @@ export class StationSimulator {
     const statusField = this.is16 ? 'idTagInfo' : 'idTokenInfo';
     const authInfo = result[statusField] as Record<string, unknown> | undefined;
     if (authInfo?.['status'] !== 'Accepted') return result;
+
+    // O01: messages are shown in the EV driver's preferred language
+    const language1 = authInfo['language1'] as string | undefined;
+    if (!this.is16 && language1 != null) this.evseDriverLanguage.set(evseId, language1);
 
     // Store auth in context
     ctx.authorizedToken = idToken;
@@ -1148,7 +1388,7 @@ export class StationSimulator {
           const status = (localEntry['authStatus'] as string | undefined) ?? 'Accepted';
           authInfo = { status };
         } else {
-          const cached = this.authCache.get(idToken);
+          const cached = this.cachedIdTokenInfo(idToken);
           if (cached != null) {
             authInfo = cached;
           } else {
@@ -1224,6 +1464,7 @@ export class StationSimulator {
     this.evseTotalCost.delete(evseId);
     this.evseLimitReached.delete(evseId);
     this.evseLastDriverLimits.delete(evseId);
+    this.evseInvalidIdMaxEnergy.delete(evseId);
     this.evseLastLocalCost.delete(evseId);
 
     // Consume any reservation on this EVSE
@@ -1250,6 +1491,7 @@ export class StationSimulator {
     await this.updateEvseStatus(evseId, chargingStatus).catch(() => {});
 
     let txId: string;
+    let startRejected = false;
 
     if (this.is16) {
       if (this.client.isConnected) {
@@ -1293,22 +1535,39 @@ export class StationSimulator {
         idToken,
         tokenType,
       };
+      // C25.FR.04-06, E16.FR.01: limits the EV driver entered for the QR code payment are
+      // the station's limits for this transaction, reported once in transactionLimit.
+      const enteredLimits = this.evseWebPaymentLimits.get(evseId);
+      if (enteredLimits != null) {
+        this.evseWebPaymentLimits.delete(evseId);
+        this.evseTransactionLimits.set(evseId, { ...enteredLimits });
+        startedOpts.transactionLimit = { ...enteredLimits };
+      }
+      this.evsePublicKeySent.delete(evseId);
       if (startSampledValues.length > 0) {
         startedOpts.meterValue = [
-          { timestamp: new Date().toISOString(), sampledValue: startSampledValues },
+          this.signMeterValue(evseId, {
+            timestamp: new Date().toISOString(),
+            sampledValue: startSampledValues,
+          }),
         ];
       }
-      await this.sendTransactionEvent(evseId, 'Started', startedOpts);
-      // Follow up with Charging state (energy transfer begins)
-      const seqNo2 = (this.evseSeqNo.get(evseId) ?? 0) + 1;
-      this.evseSeqNo.set(evseId, seqNo2);
-      this.evseChargingState.set(evseId, 'Charging');
-      await this.sendTransactionEvent(evseId, 'Updated', {
-        triggerReason: 'ChargingStateChanged',
-        transactionId: txId,
-        chargingState: 'Charging',
-        seqNo: seqNo2,
-      });
+      this.startTxEndedSampling(evseId, txId);
+      const startedResponse = await this.sendTransactionEvent(evseId, 'Started', startedOpts);
+      startRejected = this.isRejectedIdTokenInfo(startedResponse);
+      // Follow up with Charging state (energy transfer begins), unless CSMS rejected the
+      // idToken and no energy may be delivered (E05.FR.02, E05.FR.10)
+      if (!startRejected || this.energyAllowedOnInvalidId()) {
+        const seqNo2 = (this.evseSeqNo.get(evseId) ?? 0) + 1;
+        this.evseSeqNo.set(evseId, seqNo2);
+        this.evseChargingState.set(evseId, 'Charging');
+        await this.sendTransactionEvent(evseId, 'Updated', {
+          triggerReason: 'ChargingStateChanged',
+          transactionId: txId,
+          chargingState: 'Charging',
+          seqNo: seqNo2,
+        });
+      }
     }
 
     // Create DB transaction record
@@ -1331,13 +1590,74 @@ export class StationSimulator {
     this.evseIdle.set(evseId, false);
     this.evseMeterTick.set(evseId, 0);
     this.evseTransactionStartTime.set(evseId, Date.now());
-    this.startMeterLoop(evseId);
+    // No energy transfer when CSMS rejected the idToken and none may be delivered (E05)
+    if (!startRejected || this.energyAllowedOnInvalidId()) this.startMeterLoop(evseId);
 
     // Update context
     ctx.state = 'Charging';
     ctx.transactionId = txId;
 
+    // E05: CSMS did not accept the idToken of the TransactionEvent Started
+    if (startRejected) await this.handleRejectedTransactionIdToken(evseId);
+
     return txId;
+  }
+
+  /** A TransactionEventResponse whose idTokenInfo does not allow charging (E05). */
+  private isRejectedIdTokenInfo(response: Record<string, unknown>): boolean {
+    const info = response['idTokenInfo'] as Record<string, unknown> | undefined;
+    return info != null && info['status'] !== 'Accepted';
+  }
+
+  /** E05.FR.03: StopTxOnInvalidId false and MaxEnergyOnInvalidId set allow some energy. */
+  private energyAllowedOnInvalidId(): boolean {
+    return (
+      this.getConfigValue('TxCtrlr.StopTxOnInvalidId') === 'false' &&
+      Number(this.getConfigValue('TxCtrlr.MaxEnergyOnInvalidId') ?? '0') > 0
+    );
+  }
+
+  /**
+   * OCPP 2.1 E05 / C12: CSMS answered a TransactionEventRequest with an idTokenInfo that is
+   * not Accepted while the transaction is ongoing. The simulator's transaction stops when
+   * the authorization ends (TxStopPoint Authorized/PowerPathClosed), so:
+   * - StopTxOnInvalidId true: end the transaction, triggerReason Deauthorized, stoppedReason
+   *   DeAuthorized (E05.FR.10). MaxEnergyOnInvalidId plays no role.
+   * - StopTxOnInvalidId false and MaxEnergyOnInvalidId not reached: keep delivering energy
+   *   until the transaction delivered that amount (E05.FR.03).
+   * - Otherwise suspend: TransactionEvent Updated, ChargingStateChanged, SuspendedEVSE
+   *   (E05.FR.02).
+   */
+  private async handleRejectedTransactionIdToken(evseId: number): Promise<void> {
+    const txId = this.evseContexts.get(evseId)?.transactionId;
+    if (txId == null) return;
+    if (this.getConfigValue('TxCtrlr.StopTxOnInvalidId') !== 'false') {
+      await this.stopCharging(evseId, 'DeAuthorized');
+      return;
+    }
+    const maxEnergy = Number(this.getConfigValue('TxCtrlr.MaxEnergyOnInvalidId') ?? '0');
+    const delivered = this.meterGens.get(evseId)?.energyWh ?? 0;
+    if (maxEnergy > 0 && delivered < maxEnergy) {
+      this.evseInvalidIdMaxEnergy.set(evseId, maxEnergy);
+      return;
+    }
+    await this.suspendForInvalidId(evseId, txId);
+  }
+
+  /** E05.FR.02: stop the energy transfer, the transaction stays ongoing. */
+  private async suspendForInvalidId(evseId: number, txId: string): Promise<void> {
+    this.evseInvalidIdMaxEnergy.delete(evseId);
+    this.stopMeterLoop(evseId);
+    if (this.evseChargingState.get(evseId) === 'SuspendedEVSE') return;
+    this.evseChargingState.set(evseId, 'SuspendedEVSE');
+    const seqNo = (this.evseSeqNo.get(evseId) ?? 0) + 1;
+    this.evseSeqNo.set(evseId, seqNo);
+    await this.sendTransactionEvent(evseId, 'Updated', {
+      triggerReason: 'ChargingStateChanged',
+      transactionId: txId,
+      chargingState: 'SuspendedEVSE',
+      seqNo,
+    });
   }
 
   async stopCharging(evseId: number, reason: string = 'Local'): Promise<void> {
@@ -1390,11 +1710,20 @@ export class StationSimulator {
         triggerReason = 'AbnormalCondition';
       }
       // Generate Transaction.End meter values for Ended event
-      const endMeasurands = this.getSampledMeasurands();
+      const endMeasurands = this.getTxEndedMeasurands();
       const endSampledValues =
         gen != null
           ? gen.generate(endMeasurands, false).map((sv) => ({ ...sv, context: 'Transaction.End' }))
           : [];
+      // Meter data collected during the transaction (TxEndedInterval)
+      this.stopTxEndedSampling(evseId);
+      const txEndedMeterValues = (this.evseTxEndedMeterValues.get(evseId) ?? []).map((mv) =>
+        this.signMeterValue(
+          evseId,
+          mv as { timestamp: string; sampledValue: SampledValueRecord[] },
+        ),
+      );
+      this.evseTxEndedMeterValues.delete(evseId);
 
       const endedOpts: Parameters<typeof this.sendTransactionEvent>[2] = {
         triggerReason,
@@ -1403,12 +1732,23 @@ export class StationSimulator {
         stoppedReason: reason,
         seqNo,
       };
+      const endMeterValues = [...txEndedMeterValues];
       if (endSampledValues.length > 0) {
-        endedOpts.meterValue = [
-          { timestamp: new Date().toISOString(), sampledValue: endSampledValues },
-        ];
+        endMeterValues.push(
+          this.signMeterValue(evseId, {
+            timestamp: new Date().toISOString(),
+            sampledValue: endSampledValues,
+          }),
+        );
+      }
+      if (endMeterValues.length > 0) {
+        endedOpts.meterValue = endMeterValues;
       }
       await this.sendTransactionEvent(evseId, 'Ended', endedOpts);
+      // N07: the energy transfer stopped, the EVSE Power is 0 now
+      this.dispatchMonitorEvents(
+        this.evaluateMonitors({ name: 'EVSE', evse: { id: evseId } }, 'Power', 0, tx.transactionId),
+      );
     }
 
     console.log(
@@ -1432,6 +1772,7 @@ export class StationSimulator {
     this.evseTransactionStartTime.delete(evseId);
     this.evseLimitReached.delete(evseId);
     this.evseLastDriverLimits.delete(evseId);
+    this.evseInvalidIdMaxEnergy.delete(evseId);
     this.evseLastLocalCost.delete(evseId);
 
     // Update EvseContext
@@ -1665,6 +2006,27 @@ export class StationSimulator {
     await this.updateEvseStatus(evseId, 'Faulted');
   }
 
+  /**
+   * Physical action: the EV driver pushes the plug in only halfway, so the
+   * connector lock cannot engage. The station reports ConnectorLockFailure and
+   * does not start the transaction a pending authorization was waiting for.
+   */
+  async plugInHalfway(evseId: number): Promise<void> {
+    const ctx = this.evseContexts.get(evseId) as EvseContext;
+    ctx.cablePlugged = true;
+    ctx.authorizedToken = null;
+    ctx.authorizedTokenType = null;
+    ctx.remoteStartId = null;
+    this.cancelConnectionTimeoutTimer(evseId);
+    this.cancelEvConnectTimeoutTimer(evseId);
+    await this.injectFault(evseId, 'ConnectorLockFailure');
+  }
+
+  /** Simulated hardware fault: the connector lock is jammed, so unlocking fails. */
+  jamConnectorLock(evseId: number): void {
+    this.jammedLocks.add(evseId);
+  }
+
   async clearFault(evseId: number): Promise<void> {
     // No-op if connector is not currently Faulted. Without this guard,
     // clearFault on an Available/Charging connector would force it back
@@ -1842,6 +2204,11 @@ export class StationSimulator {
     await this.sendStatusNotification(0, 0, down ? 'Unavailable' : 'Available');
   }
 
+  /**
+   * Report a connector status. OCPP 2.1 also evaluates the monitors on the
+   * Connector and EVSE AvailabilityState (N07) and sends their events after
+   * the status report, queueing them offline per OfflineQueuingSeverity.
+   */
   async sendStatusNotification(
     evseId: number,
     connectorId: number,
@@ -1854,50 +2221,80 @@ export class StationSimulator {
         errorCode: errorCode ?? 'NoError',
         status,
       });
+      this.deliveredConnectorStatus.set(evseId, status);
     } else {
-      const reporting =
-        this.configVariables.get(CSS_STATUS_REPORTING_KEY)?.value ?? CSS_STATUS_REPORTING_DEFAULT;
-      if (reporting !== 'NotifyEvent') {
-        await this.client.sendCall('StatusNotification', {
-          timestamp: new Date().toISOString(),
-          connectorStatus: status,
-          evseId,
-          connectorId,
-        });
-      }
-      if (reporting !== 'StatusNotification') {
-        const notifyEvent = this.client.sendCall('NotifyEvent', {
-          generatedAt: new Date().toISOString(),
-          seqNo: 0,
-          tbc: false,
-          eventData: [
-            {
-              eventId: Math.floor(Math.random() * 1000000),
-              timestamp: new Date().toISOString(),
-              trigger: 'Delta',
-              actualValue: status,
-              eventNotificationType: 'HardWiredMonitor',
-              component: { name: 'Connector', evse: { id: evseId, connectorId } },
-              variable: { name: 'AvailabilityState' },
-            },
-          ],
-        });
-        if (reporting === 'NotifyEvent') {
-          // The only status report, so a failure propagates like StatusNotification's.
-          await notifyEvent;
-        } else {
-          try {
-            await notifyEvent;
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.warn(`[${this.config.stationId}] AvailabilityState NotifyEvent failed: ${msg}`);
-          }
-        }
+      const transactionId = this.getActiveTransactionSync(evseId);
+      const monitorEvents = [
+        ...this.evaluateMonitors(
+          { name: 'Connector', evse: { id: evseId, connectorId } },
+          'AvailabilityState',
+          status,
+          transactionId,
+        ),
+        ...this.evaluateMonitors(
+          { name: 'EVSE', evse: { id: evseId } },
+          'AvailabilityState',
+          status,
+          transactionId,
+        ),
+      ];
+      try {
+        await this.reportConnectorStatus(evseId, connectorId, status);
+      } finally {
+        this.dispatchMonitorEvents(monitorEvents);
       }
     }
     console.log(
       `[${this.config.stationId}] StatusNotification: EVSE ${String(evseId)} connector ${String(connectorId)} = ${status}`,
     );
+  }
+
+  private async reportConnectorStatus(
+    evseId: number,
+    connectorId: number,
+    status: string,
+  ): Promise<void> {
+    const reporting =
+      this.configVariables.get(CSS_STATUS_REPORTING_KEY)?.value ?? CSS_STATUS_REPORTING_DEFAULT;
+    if (reporting !== 'NotifyEvent') {
+      await this.client.sendCall('StatusNotification', {
+        timestamp: new Date().toISOString(),
+        connectorStatus: status,
+        evseId,
+        connectorId,
+      });
+      this.deliveredConnectorStatus.set(evseId, status);
+    }
+    if (reporting !== 'StatusNotification') {
+      const notifyEvent = this.client.sendCall('NotifyEvent', {
+        generatedAt: new Date().toISOString(),
+        seqNo: 0,
+        tbc: false,
+        eventData: [
+          {
+            eventId: Math.floor(Math.random() * 1000000),
+            timestamp: new Date().toISOString(),
+            trigger: 'Delta',
+            actualValue: status,
+            eventNotificationType: 'HardWiredMonitor',
+            component: { name: 'Connector', evse: { id: evseId, connectorId } },
+            variable: { name: 'AvailabilityState' },
+          },
+        ],
+      });
+      if (reporting === 'NotifyEvent') {
+        // The only status report, so a failure propagates like StatusNotification's.
+        await notifyEvent;
+        this.deliveredConnectorStatus.set(evseId, status);
+      } else {
+        try {
+          await notifyEvent;
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[${this.config.stationId}] AvailabilityState NotifyEvent failed: ${msg}`);
+        }
+      }
+    }
   }
 
   // True when the station or the specific EVSE is administratively down, so a
@@ -2009,7 +2406,7 @@ export class StationSimulator {
         const sf = this.is16 ? 'idTagInfo' : 'idTokenInfo';
         return { [sf]: { status } };
       }
-      const cached = this.authCache.get(idToken);
+      const cached = this.cachedIdTokenInfo(idToken);
       if (cached != null) {
         const status = cached['status'] as string;
         if (status === 'Accepted') {
@@ -2035,7 +2432,7 @@ export class StationSimulator {
 
     // DisablePostAuthorize: if token is cached (any status), do not send to CSMS
     if (!this.is16 && this.getConfigValue('AuthCacheCtrlr.DisablePostAuthorize') === 'true') {
-      const cached = this.authCache.get(idToken);
+      const cached = this.cachedIdTokenInfo(idToken);
       if (cached != null) {
         const status = cached['status'] as string;
         console.log(
@@ -2054,7 +2451,7 @@ export class StationSimulator {
         const statusField = this.is16 ? 'idTagInfo' : 'idTokenInfo';
         return { [statusField]: { status } };
       }
-      const cached = this.authCache.get(idToken);
+      const cached = this.cachedIdTokenInfo(idToken);
       if (cached != null) {
         const status = cached['status'] as string;
         console.log(`[${this.config.stationId}] Authorize (offline/cached): ${status}`);
@@ -2088,7 +2485,7 @@ export class StationSimulator {
         const statusField = this.is16 ? 'idTagInfo' : 'idTokenInfo';
         return { [statusField]: { status } };
       }
-      const cached = this.authCache.get(idToken);
+      const cached = this.cachedIdTokenInfo(idToken);
       if (cached != null) {
         const status = cached['status'] as string;
         console.log(`[${this.config.stationId}] Authorize (connection error/cached): ${status}`);
@@ -2106,7 +2503,7 @@ export class StationSimulator {
 
     // Feature 2: Cache the auth result
     if (idTokenInfo != null) {
-      this.authCache.set(idToken, idTokenInfo);
+      this.cacheIdTokenInfo(idToken, idTokenInfo);
 
       // Feature 3: Store group token mapping if present
       // OCPP 2.1 uses groupIdToken, OCPP 1.6 uses parentIdTag
@@ -2158,6 +2555,38 @@ export class StationSimulator {
     return response;
   }
 
+  /**
+   * C10.FR.13: an idTokenInfo whose cacheExpiryDateTime has passed is not kept in the
+   * Authorization Cache (prepaid tokens, C17, get cacheExpiryDateTime = now).
+   */
+  private cacheEntryExpired(info: Record<string, unknown>): boolean {
+    if (this.is16) return false;
+    const expiry = info['cacheExpiryDateTime'];
+    if (typeof expiry !== 'string') return false;
+    const expiresAt = Date.parse(expiry);
+    return Number.isFinite(expiresAt) && expiresAt <= Date.now();
+  }
+
+  /** C10.FR.04/05/13: store an idTokenInfo, or remove the entry when it is already expired. */
+  private cacheIdTokenInfo(idToken: string, info: Record<string, unknown>): void {
+    if (this.cacheEntryExpired(info)) {
+      this.authCache.delete(idToken);
+      return;
+    }
+    this.authCache.set(idToken, info);
+  }
+
+  /** The cached idTokenInfo, removing it once its cacheExpiryDateTime has passed (C10.FR.13). */
+  private cachedIdTokenInfo(idToken: string): Record<string, unknown> | undefined {
+    const cached = this.authCache.get(idToken);
+    if (cached == null) return undefined;
+    if (this.cacheEntryExpired(cached)) {
+      this.authCache.delete(idToken);
+      return undefined;
+    }
+    return cached;
+  }
+
   clearAuthCache(): void {
     this.authCache.clear();
     this.tokenGroupMap.clear();
@@ -2175,6 +2604,116 @@ export class StationSimulator {
       this.tokenGroupMap.set(idToken, groupIdToken);
     }
     this.authCache.set(idToken, entry);
+  }
+
+  /**
+   * Store a SendLocalList entry. The OCPP entry carries the status and group in
+   * idTokenInfo (2.1) or idTagInfo (1.6); the local list readers use the flat
+   * `authStatus` / `groupIdToken` fields, so both are kept, and the group is
+   * registered for GroupId stop authorization (C09, E08.FR.02).
+   */
+  private storeLocalAuthEntry(idToken: string, entry: Record<string, unknown>): void {
+    const info = (this.is16 ? entry['idTagInfo'] : entry['idTokenInfo']) as
+      | Record<string, unknown>
+      | undefined;
+    const status = (info?.['status'] as string | undefined) ?? 'Accepted';
+    let groupIdToken: Record<string, unknown> | undefined;
+    if (this.is16) {
+      const parentIdTag = info?.['parentIdTag'] as string | undefined;
+      if (parentIdTag != null) groupIdToken = { idToken: parentIdTag, type: 'ISO14443' };
+    } else {
+      groupIdToken = info?.['groupIdToken'] as Record<string, unknown> | undefined;
+    }
+    const tokenType = this.is16
+      ? undefined
+      : ((entry['idToken'] as Record<string, unknown> | undefined)?.['type'] as string | undefined);
+    const stored: Record<string, unknown> = { ...entry, authStatus: status };
+    if (groupIdToken != null) {
+      stored['groupIdToken'] = groupIdToken;
+      this.tokenGroupMap.set(idToken, groupIdToken);
+    }
+    if (tokenType != null) stored['tokenType'] = tokenType;
+    this.localAuthEntries.set(idToken, stored);
+  }
+
+  /** SmartChargingCtrlr.RateUnit: the charging rate units the station accepts (K01). */
+  private supportedRateUnits(): string[] {
+    return (this.getConfigValue('SmartChargingCtrlr.RateUnit') ?? 'A,W')
+      .split(',')
+      .map((u) => u.trim())
+      .filter((u) => u !== '');
+  }
+
+  /**
+   * K01 SetChargingProfile checks the simulator applies before the generic
+   * ones: unknown EVSE, unsupported rate unit, additional purposes it does not
+   * support (UnsupportedPurpose), and schedule features it does not support
+   * (InvalidSchedule: useLocalTime, randomizedDelay, limitAtSoC, evseSleep;
+   * SmartChargingCtrlr.SupportsFeature[...] false).
+   */
+  private validateChargingProfile21(
+    profile: Record<string, unknown>,
+    evseId: number,
+  ): Record<string, unknown> | null {
+    if (evseId !== 0 && !this.config.evses.some((e) => e.evseId === evseId)) {
+      return { status: 'Rejected', statusInfo: { reasonCode: 'UnknownEVSE' } };
+    }
+    const purpose = profile['chargingProfilePurpose'] as string | undefined;
+    const additional = ['PriorityCharging', 'LocalGeneration'];
+    const supportedAdditional = (
+      this.getConfigValue('SmartChargingCtrlr.SupportedAdditionalPurposes') ?? ''
+    )
+      .split(',')
+      .map((v) => v.trim());
+    if (purpose != null && additional.includes(purpose) && !supportedAdditional.includes(purpose)) {
+      return { status: 'Rejected', statusInfo: { reasonCode: 'UnsupportedPurpose' } };
+    }
+    const feature = (name: string): boolean =>
+      this.getConfigValue(`SmartChargingCtrlr.SupportsFeature#${name}`) === 'true';
+    const rawSchedules = profile['chargingSchedule'];
+    const schedules = (
+      Array.isArray(rawSchedules) ? rawSchedules : rawSchedules != null ? [rawSchedules] : []
+    ) as Array<Record<string, unknown>>;
+    for (const schedule of schedules) {
+      const unit = schedule['chargingRateUnit'] as string | undefined;
+      if (unit != null && !this.supportedRateUnits().includes(unit)) {
+        return { status: 'Rejected', statusInfo: { reasonCode: 'UnsupportedRateUnit' } };
+      }
+      const periods = (schedule['chargingSchedulePeriod'] ?? []) as Array<Record<string, unknown>>;
+      const unsupported =
+        (schedule['useLocalTime'] === true && !feature('UseLocalTime')) ||
+        (schedule['randomizedDelay'] != null && !feature('RandomizedDelay')) ||
+        (schedule['limitAtSoC'] != null && !feature('LimitAtSoC')) ||
+        (periods.some((p) => p['evseSleep'] === true) && !feature('EvseSleep'));
+      if (unsupported) {
+        return { status: 'Rejected', statusInfo: { reasonCode: 'InvalidSchedule' } };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * K01: profiles with invalidAfterOfflineDuration become invalid for good
+   * when the station was offline longer than their maxOfflineDuration.
+   */
+  private invalidateProfilesAfterOffline(offlineMs: number): void {
+    for (const [id, profile] of Array.from(this.chargingProfilesCache)) {
+      const maxOffline = profile['maxOfflineDuration'] as number | undefined;
+      if (maxOffline == null || profile['invalidAfterOfflineDuration'] !== true) continue;
+      if (offlineMs > maxOffline * 1000 && profile['_invalidated'] !== true) {
+        this.chargingProfilesCache.set(id, { ...profile, _invalidated: true });
+      }
+    }
+  }
+
+  /** tariffId of the default tariff for an EVSE: its own, else the station-wide one (I07). */
+  private defaultTariffIdFor(evseId: number): string | null {
+    let stationWide: string | null = null;
+    for (const [tariffId, entry] of this.defaultTariffs) {
+      if (entry.evseId === evseId) return tariffId;
+      if (entry.evseId === 0) stationWide = tariffId;
+    }
+    return stationWide;
   }
 
   /** Add a token to the local auth list. For testing. */
@@ -2223,8 +2762,12 @@ export class StationSimulator {
     // Include tariffId from driver tariff or default tariff
     if (!this.is16) {
       const driverTariff = this.driverTariffs.get(evseId) ?? this.driverTariffs.get(0);
+      const defaultTariffId = this.defaultTariffIdFor(evseId);
       if (driverTariff != null) {
         transactionInfo['tariffId'] = driverTariff.tariffId;
+      } else if (defaultTariffId != null) {
+        // I07: the default tariff of the EVSE (or the station) applies
+        transactionInfo['tariffId'] = defaultTariffId;
       }
     }
     if (opts.stoppedReason != null) {
@@ -2265,7 +2808,43 @@ export class StationSimulator {
       return {};
     }
 
-    const response = await this.client.sendCall('TransactionEvent', payload);
+    // Transaction messages are delivered in order: while older ones wait in the
+    // queue, a new one joins the queue instead of overtaking them. The reconnect
+    // sequence (or the replay already running) delivers it after the connector
+    // statuses.
+    if (this.hasQueuedTransactionMessages()) {
+      this.queueOfflineMessage('TransactionEvent', payload);
+      return {};
+    }
+
+    let response: Record<string, unknown>;
+    try {
+      response = await this.client.sendCall('TransactionEvent', payload);
+    } catch (err) {
+      // Connection lost while the message was in flight: keep it for delivery
+      // after reconnect (E11.FR.01). Every message still queued when the
+      // station goes offline is set offline (E11.FR.07). isConnected is a
+      // getter that changed during the await.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (!this.client.isConnected) {
+        payload['offline'] = true;
+        this.queueOfflineMessage('TransactionEvent', payload);
+        return {};
+      }
+      throw err;
+    }
+
+    // C10.FR.05: the idTokenInfo of the response updates the Authorization Cache
+    if (!this.is16 && opts.idToken != null) {
+      const idTokenInfo = response['idTokenInfo'] as Record<string, unknown> | undefined;
+      if (idTokenInfo != null) this.cacheIdTokenInfo(opts.idToken, idTokenInfo);
+      // E05: a rejected idToken on an Updated event (beginTransaction handles Started)
+      if (eventType === 'Updated' && this.isRejectedIdTokenInfo(response)) {
+        setTimeout(() => {
+          void this.handleRejectedTransactionIdToken(evseId).catch(() => {});
+        }, 0);
+      }
+    }
 
     // OCPP 2.1: process transactionLimit and totalCost from response.
     // Deferred so the current call chain completes first (e.g., startCharging
@@ -2299,16 +2878,7 @@ export class StationSimulator {
     if (totalCost != null) {
       this.evseTotalCost.set(evseId, totalCost);
       // Immediately check cost limit (the meter loop check may have already run this tick)
-      const limits = this.evseTransactionLimits.get(evseId);
-      if (
-        limits?.maxCost != null &&
-        totalCost >= limits.maxCost &&
-        !(this.evseLimitReached.get(evseId) ?? false)
-      ) {
-        this.evseLimitReached.set(evseId, true);
-        await this.sendLimitReachedEvent(evseId, transactionId, 'CostLimitReached');
-        return;
-      }
+      if (await this.checkCentralCostLimit(evseId, transactionId)) return;
     }
 
     // Process transactionLimit from CSMS
@@ -2359,7 +2929,10 @@ export class StationSimulator {
 
   async sendLogStatusNotification(status: string, requestId?: number): Promise<void> {
     if (this.is16) {
-      await this.client.sendCall('DiagnosticsStatusNotification', { status });
+      // OCPP 1.6 Security Whitepaper: requestId is optional and omitted when idle.
+      const payload: Record<string, unknown> = { status };
+      if (requestId != null) payload['requestId'] = requestId;
+      await this.client.sendCall('LogStatusNotification', payload);
     } else {
       await this.client.sendCall('LogStatusNotification', {
         status,
@@ -2538,16 +3111,17 @@ export class StationSimulator {
       const variable: Record<string, unknown> = { name: variableName };
       if (instance != null) variable['instance'] = instance;
 
+      // B07: a report leaves out the value of a WriteOnly variable
+      const writeOnly = WRITE_ONLY_VARIABLES.has(`${componentName}.${variableName}`);
+      const attribute: Record<string, unknown> = {
+        type: 'Actual',
+        mutability: writeOnly ? 'WriteOnly' : entry.readonly ? 'ReadOnly' : 'ReadWrite',
+      };
+      if (!writeOnly) attribute['value'] = entry.value;
       reportData.push({
         component,
         variable,
-        variableAttribute: [
-          {
-            type: 'Actual',
-            value: entry.value,
-            mutability: entry.readonly ? 'ReadOnly' : 'ReadWrite',
-          },
-        ],
+        variableAttribute: [attribute],
         // EVSE.Power must carry its rated power as maxLimit (2.1 device model).
         variableCharacteristics:
           componentName === 'EVSE' && variableName === 'Power'
@@ -2734,10 +3308,6 @@ export class StationSimulator {
     });
   }
 
-  async sendNotifyQRCodeScanned(evseId: number, timeout: number): Promise<Record<string, unknown>> {
-    return this.client.sendCall('NotifyQRCodeScanned', { evseId, timeout });
-  }
-
   async sendNotifyAllowedEnergyTransfer(
     allowedEnergyTransfer: string[],
     transactionId: string = 'unknown',
@@ -2776,11 +3346,93 @@ export class StationSimulator {
     });
   }
 
-  async sendNotifyWebPaymentStarted(
-    evseId: number,
-    timeout: number,
-  ): Promise<Record<string, unknown>> {
-    return this.client.sendCall('NotifyWebPaymentStarted', { evseId, timeout });
+  /** WebPaymentsCtrlr.URLParameters: the query parameters the EV driver can enter. */
+  private webPaymentUrlParameters(): Set<string> {
+    const value = this.getConfigValue('WebPaymentsCtrlr.URLParameters') ?? '';
+    return new Set(
+      value
+        .split(',')
+        .map((p) => p.trim().toLowerCase())
+        .filter((p) => p !== ''),
+    );
+  }
+
+  /** WebPaymentsCtrlr value ranges (2.1 Part 2, Referenced Components and Variables). */
+  private isValidWebPaymentsValue(varName: string, value: string): boolean {
+    const n = Number(value);
+    switch (varName) {
+      case 'Enabled':
+        return value === 'true' || value === 'false';
+      case 'TOTPVersion':
+        return value === TOTP_VERSION_V1;
+      case 'ValidityTime':
+        return Number.isInteger(n) && n >= 6 && n <= 3600;
+      case 'Length':
+        return Number.isInteger(n) && n >= 6;
+      case 'SharedSecret':
+        return value.length >= 8;
+      default:
+        return true;
+    }
+  }
+
+  /**
+   * Manual action (C25.FR.03): the EV driver enters limits for a QR code payment on an EVSE
+   * before the QR code is shown. Only parameters listed in WebPaymentsCtrlr.URLParameters
+   * can be entered. The limits go into the QR code URL and apply to the next transaction
+   * on the EVSE (C25.FR.04-06).
+   */
+  enterWebPaymentLimits(evseId: number, limits: WebPaymentLimits): void {
+    if (this.is16) throw new Error('Web payments (C25) need OCPP 2.1');
+    const supported = this.webPaymentUrlParameters();
+    for (const [field, param] of WEB_PAYMENT_URL_PARAMETERS) {
+      if (limits[field] != null && !supported.has(param)) {
+        throw new Error(`WebPaymentsCtrlr.URLParameters does not contain ${param}`);
+      }
+    }
+    this.evseWebPaymentLimits.set(evseId, { ...limits });
+  }
+
+  /**
+   * C25.FR.01: the URL of the dynamic QR code the station shows for an EVSE, or null when
+   * WebPaymentsCtrlr is not enabled or not configured. The URL template placeholders are
+   * replaced per C25.FR.50-53 with a TOTP v1 of the current interval, and the limits the
+   * EV driver entered are added as query parameters (C25.FR.04-06).
+   */
+  webPaymentQrUrl(evseId: number, atMs: number = Date.now()): string | null {
+    if (this.is16 || this.getConfigValue('WebPaymentsCtrlr.Enabled') !== 'true') return null;
+    const template = this.getConfigValue('WebPaymentsCtrlr.URLTemplate') ?? '';
+    const version = this.getConfigValue('WebPaymentsCtrlr.TOTPVersion') ?? '';
+    const sharedSecret = this.getConfigValue('WebPaymentsCtrlr.SharedSecret') ?? '';
+    const validitySeconds = Number(this.getConfigValue('WebPaymentsCtrlr.ValidityTime'));
+    const length = Number(this.getConfigValue('WebPaymentsCtrlr.Length'));
+    if (
+      template === '' ||
+      !this.isValidWebPaymentsValue('TOTPVersion', version) ||
+      !this.isValidWebPaymentsValue('SharedSecret', sharedSecret) ||
+      !this.isValidWebPaymentsValue('ValidityTime', String(validitySeconds)) ||
+      !this.isValidWebPaymentsValue('Length', String(length))
+    ) {
+      return null;
+    }
+    const totp = totpV1({ sharedSecret, validitySeconds, length }, atMs);
+    const identity = this.getConfigValue('SecurityCtrlr.Identity') ?? this.config.stationId;
+    const roamingEvseId = this.getConfigValue('WebPaymentsCtrlr.RoamingEvseId') ?? '';
+    let url = template
+      .replaceAll('{chargingstationid}', encodeURIComponent(identity))
+      .replaceAll('{roamingevseid}', encodeURIComponent(roamingEvseId))
+      .replaceAll('{evse}', String(evseId))
+      .replaceAll('{totp}', totp)
+      .replaceAll('{version}', version);
+    const limits = this.evseWebPaymentLimits.get(evseId);
+    if (limits != null) {
+      const query = WEB_PAYMENT_URL_PARAMETERS.flatMap(([field, param]) => {
+        const value = limits[field];
+        return value != null ? [`${param}=${encodeURIComponent(String(value))}`] : [];
+      });
+      if (query.length > 0) url += (url.includes('?') ? '&' : '?') + query.join('&');
+    }
+    return url;
   }
 
   async sendNotifyPeriodicEventStream(
@@ -3071,7 +3723,15 @@ export class StationSimulator {
           const tokenStr = idToken['idToken'] as string;
           const tokenTypeStr = (idToken['type'] as string | undefined) ?? 'ISO14443';
 
+          // F01.FR.01/02: authorize the idToken first only when AuthorizeRemoteStart is true
+          const authorizeRemoteStart =
+            this.getConfigValue('AuthCtrlr.AuthorizeRemoteStart') !== 'false';
+
           if (cableEffective) {
+            if (!authorizeRemoteStart) {
+              evseCtx.authorizedToken = tokenStr;
+              evseCtx.authorizedTokenType = tokenTypeStr;
+            }
             const txId = await this.startCharging(evseId, tokenStr, tokenTypeStr, remoteStartId);
             return { status: 'Accepted', transactionId: txId };
           }
@@ -3081,6 +3741,12 @@ export class StationSimulator {
           evseCtx.authorizedTokenType = tokenTypeStr;
           evseCtx.remoteStartId = remoteStartId;
           this.startEvConnectTimeoutTimerPreTx(evseId);
+          if (authorizeRemoteStart) {
+            // F01.FR.01: respond first, then authorize as for a local action
+            setTimeout(() => {
+              void this.authorizeRemoteStart(evseId, tokenStr, tokenTypeStr);
+            }, 0);
+          }
           return { status: 'Accepted' };
         } catch (err: unknown) {
           const reason = err instanceof Error ? err.message : 'InternalError';
@@ -3208,16 +3874,14 @@ export class StationSimulator {
           if (timeout <= 0) {
             return { status: 'Rejected' };
           }
-          // Stop active transactions, reset, then resume
-          if (anyActive) {
-            for (const evse of this.config.evses) {
-              const tx = await this.getActiveTransaction(evse.evseId);
-              if (tx != null) {
-                await this.stopCharging(evse.evseId, immediateStopReason);
-              }
-            }
-          }
-          void this.simulateReset(resetType).catch(() => {});
+          // B13: keep the ongoing transactions, reset, then resume them. Runs
+          // after the ResetResponse is sent (B13 scenario step 2 before step 3).
+          setTimeout(() => {
+            void this.resetAndResumeTransactions(resetEvseId).catch((err: unknown) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.warn(`[${this.config.stationId}] ImmediateAndResume reset failed: ${msg}`);
+            });
+          }, 0);
           return { status: 'Accepted' };
         }
 
@@ -3280,6 +3944,19 @@ export class StationSimulator {
           unlockConnectorId !== unlockEvse.connectorId
         ) {
           return { status: 'UnknownConnector' };
+        }
+
+        // OCPP 1.6: a fixed cable has no connector lock to release.
+        if (this.is16 && unlockEvse.fixedCable === true) {
+          return { status: 'NotSupported' };
+        }
+
+        // A jammed lock cannot be released: report the lock failure after answering.
+        if (this.jammedLocks.has(unlockEvseId)) {
+          setTimeout(() => {
+            void this.injectFault(unlockEvseId, 'ConnectorLockFailure').catch(() => {});
+          }, 0);
+          return { status: 'UnlockFailed' };
         }
 
         // Check if connector is unavailable
@@ -3404,6 +4081,7 @@ export class StationSimulator {
           'LogStatusNotification',
           'TransactionEvent',
           'SignChargingStationCertificate',
+          'SignV2GCertificate',
           'PublishFirmwareStatusNotification',
           'CustomTrigger',
         ];
@@ -3528,6 +4206,16 @@ export class StationSimulator {
               };
             }
 
+            // B06.FR.09: a WriteOnly variable cannot be read
+            if (WRITE_ONLY_VARIABLES.has(`${compName}.${varName}`)) {
+              return {
+                attributeStatus: 'Rejected',
+                attributeType: reqAttrType,
+                component: item['component'],
+                variable: item['variable'],
+              };
+            }
+
             return {
               attributeStatus: 'Accepted',
               attributeType: reqAttrType,
@@ -3636,8 +4324,21 @@ export class StationSimulator {
             };
           }
 
-          // Validate BasicAuthPassword length (16-40 chars per OCPP spec)
-          if (varName === 'BasicAuthPassword' && (newValue.length < 16 || newValue.length > 40)) {
+          // A00.FR.205: BasicAuthPassword is a passwordString of 16 to 40 characters
+          if (
+            varName === 'BasicAuthPassword' &&
+            validateStationPassword(newValue, 'ocpp2.1') != null
+          ) {
+            return {
+              attributeStatus: 'Rejected',
+              attributeType: reqAttrType,
+              component: item['component'],
+              variable: item['variable'],
+            };
+          }
+
+          // WebPaymentsCtrlr value ranges (2.1 Part 2 Referenced Components and Variables)
+          if (compName === 'WebPaymentsCtrlr' && !this.isValidWebPaymentsValue(varName, newValue)) {
             return {
               attributeStatus: 'Rejected',
               attributeType: reqAttrType,
@@ -3690,12 +4391,22 @@ export class StationSimulator {
             }
           }
 
-          // Validate NetworkConfigurationPriority: all referenced slots must have a valid URL
+          // Validate NetworkConfigurationPriority: every slot needs a URL, a TLS profile a
+          // valid CSMS root certificate (A05.FR.02) and profile 3 a valid Charging Station
+          // certificate (A05.FR.03).
           if (compName === 'OCPPCommCtrlr' && varName === 'NetworkConfigurationPriority') {
             const slots = newValue.split(',').map((s) => s.trim());
             for (const slot of slots) {
               const url = this.configVariables.get(`NetworkConfiguration.OcppCsmsUrl#${slot}`);
-              if (url == null || url.value === '') {
+              const slotProfile = Number(
+                this.getConfigValue(`NetworkConfiguration.SecurityProfile#${slot}`) ?? '0',
+              );
+              if (
+                url == null ||
+                url.value === '' ||
+                (slotProfile >= 2 && !this.hasValidCsmsRootCertificate()) ||
+                (slotProfile === 3 && !this.hasValidChargingStationCertificate())
+              ) {
                 return {
                   attributeStatus: 'Rejected',
                   attributeType: reqAttrType,
@@ -3709,6 +4420,25 @@ export class StationSimulator {
           this.configVariables.set(effectiveKey, { value: newValue, readonly: false });
           if (compName === 'SecurityCtrlr' && varName === 'BasicAuthPassword') {
             this.applyNewPassword(newValue);
+          }
+          // N07: monitors on the variable see the new value after the response.
+          // A write-only variable reports an empty actualValue.
+          if (!this.is16) {
+            const numeric = Number(newValue);
+            const monitorValue = newValue !== '' && Number.isFinite(numeric) ? numeric : newValue;
+            const writeOnly = WRITE_ONLY_VARIABLES.has(`${compName}.${varName}`);
+            const events = this.evaluateMonitors(
+              comp,
+              varName,
+              monitorValue,
+              null,
+              writeOnly ? '' : undefined,
+            );
+            if (events.length > 0) {
+              setTimeout(() => {
+                this.dispatchMonitorEvents(events);
+              }, 0);
+            }
           }
 
           return {
@@ -3877,6 +4607,10 @@ export class StationSimulator {
 
         // Validate: TxProfile on connectorId 0 is rejected
         const profilePurpose = profile?.['chargingProfilePurpose'] as string | undefined;
+        if (!this.is16 && profile != null) {
+          const invalid = this.validateChargingProfile21(profile, evseIdForProfile);
+          if (invalid != null) return invalid;
+        }
         if (profilePurpose === 'TxProfile' && evseIdForProfile === 0) {
           return { status: 'Rejected' };
         }
@@ -3933,6 +4667,7 @@ export class StationSimulator {
             ...profile,
             _evseId: evseIdForProfile,
             _chargingLimitSource: source,
+            _setAt: new Date().toISOString(),
           });
         }
 
@@ -4011,31 +4746,52 @@ export class StationSimulator {
             },
           };
         }
-        // OCPP 2.1
+        // OCPP 2.1 K08
         const gcs_evseId = (payload['evseId'] as number | undefined) ?? 0;
         const gcs_duration = (payload['duration'] as number | undefined) ?? 86400;
-        // Reject unsupported chargingRateUnit (simulator only supports A)
-        if (gcs_rateUnit !== 'A') {
-          return { status: 'Rejected' };
+        // Reject unsupported chargingRateUnit (SmartChargingCtrlr.RateUnit)
+        if (!this.supportedRateUnits().includes(gcs_rateUnit)) {
+          return { status: 'Rejected', statusInfo: { reasonCode: 'UnsupportedRateUnit' } };
         }
         // Reject unknown EVSE IDs (0 is station-level, always valid)
-        if (gcs_evseId !== 0) {
-          const validEvse = this.config.evses.some((e) => e.evseId === gcs_evseId);
-          if (!validEvse) {
-            return { status: 'Rejected' };
-          }
+        const gcs_evses =
+          gcs_evseId === 0
+            ? this.config.evses
+            : this.config.evses.filter((e) => e.evseId === gcs_evseId);
+        if (gcs_evses.length === 0) {
+          return { status: 'Rejected', statusInfo: { reasonCode: 'UnknownEVSE' } };
         }
+        const gcs_now = new Date();
+        const gcs_txId = gcs_evseId === 0 ? null : this.getActiveTransactionSync(gcs_evseId);
+        const gcs_txStart = gcs_evseId === 0 ? null : this.evseTransactionStartTime.get(gcs_evseId);
+        const gcs_periods = computeCompositeSchedule({
+          profiles: Array.from(this.chargingProfilesCache.values()),
+          evseId: gcs_evseId,
+          now: gcs_now,
+          durationS: gcs_duration,
+          // Local limit: the EVSE hardware power (W) or current (A), summed for the station
+          localLimit: gcs_evses.reduce(
+            (sum, e) =>
+              sum +
+              (gcs_rateUnit === 'W'
+                ? e.maxPowerW
+                : Math.round(e.maxPowerW / (e.voltage * Math.max(1, e.phases)))),
+            0,
+          ),
+          unit: gcs_rateUnit === 'W' ? 'W' : 'A',
+          voltage: gcs_evses[0]?.voltage ?? 230,
+          numberPhases: Math.max(...gcs_evses.map((e) => e.phases)),
+          transactionId: gcs_txId,
+          transactionStart: gcs_txStart != null ? new Date(gcs_txStart) : null,
+        });
         return {
           status: 'Accepted',
           schedule: {
             evseId: gcs_evseId,
             duration: gcs_duration,
-            scheduleStart: new Date().toISOString(),
+            scheduleStart: gcs_now.toISOString(),
             chargingRateUnit: gcs_rateUnit,
-            chargingSchedulePeriod: [
-              { startPeriod: 0, limit: 32, numberPhases: 3 },
-              { startPeriod: 3600, limit: 32, numberPhases: 3 },
-            ],
+            chargingSchedulePeriod: gcs_periods,
           },
         };
       }
@@ -4096,24 +4852,40 @@ export class StationSimulator {
         }
 
         if (!this.is16) {
-          const reportEvseId = cpEvseId ?? 1;
-          // Strip internal metadata before sending
-          const cleanProfiles = filtered.map((p) => {
-            const { _evseId: _unused, _chargingLimitSource: _unused2, ...rest } = p;
+          // K09: one ReportChargingProfilesRequest per EVSE and limit source,
+          // tbc on all but the last; internal stamps are not reported.
+          const groups = new Map<string, Array<Record<string, unknown>>>();
+          for (const p of filtered) {
+            const evse = (p['_evseId'] as number | undefined) ?? 0;
+            const source = (p['_chargingLimitSource'] as string | undefined) ?? cpSource;
+            const key = `${String(evse)}|${source}`;
+            const {
+              _evseId: _unused,
+              _chargingLimitSource: _unused2,
+              _setAt: _unused3,
+              _invalidated: _unused4,
+              ...rest
+            } = p;
             void _unused;
             void _unused2;
-            return rest;
-          });
-          // Determine the chargingLimitSource from the matched profiles
-          const reportSource =
-            (filtered[0]?.['_chargingLimitSource'] as string | undefined) ?? cpSource;
+            void _unused3;
+            void _unused4;
+            groups.set(key, [...(groups.get(key) ?? []), rest]);
+          }
+          const reports = Array.from(groups.entries());
           setTimeout(() => {
-            void this.sendReportChargingProfiles(
-              cpRequestId,
-              cleanProfiles,
-              reportEvseId,
-              reportSource,
-            ).catch(() => {});
+            void (async () => {
+              for (const [i, [key, profiles]] of reports.entries()) {
+                const [evse, source] = key.split('|');
+                await this.client.sendCall('ReportChargingProfiles', {
+                  requestId: cpRequestId,
+                  chargingLimitSource: source,
+                  chargingProfile: profiles,
+                  evseId: Number(evse),
+                  tbc: i < reports.length - 1,
+                });
+              }
+            })().catch(() => {});
           }, 200);
         }
         return { status: 'Accepted' };
@@ -4337,13 +5109,15 @@ export class StationSimulator {
       }
 
       case 'CertificateSigned': {
+        if (this.is16) return this.certificateSigned16(payload);
         const certType =
           (payload['certificateType'] as string | undefined) ?? 'ChargingStationCertificate';
         console.log(`[${this.config.stationId}] CertificateSigned: ${certType}`);
-        return { status: 'Accepted' };
+        return this.handleCertificateSigned(payload);
       }
 
       case 'DeleteCertificate': {
+        if (this.is16) return this.deleteCertificate16(payload);
         const hashData = payload['certificateHashData'] as Record<string, string> | undefined;
         const serial = hashData?.['serialNumber'] ?? '';
         // Check in-memory cache first
@@ -4361,6 +5135,7 @@ export class StationSimulator {
       }
 
       case 'GetInstalledCertificateIds': {
+        if (this.is16) return this.getInstalledCertificateIds16(payload);
         const requestedTypes = payload['certificateType'] as string[] | undefined;
 
         // Build cert chain from in-memory cache (loaded from DB + defaults on startup,
@@ -4406,6 +5181,7 @@ export class StationSimulator {
       }
 
       case 'InstallCertificate': {
+        if (this.is16) return this.installCertificate16(payload);
         const installType =
           (payload['certificateType'] as string | undefined) ?? 'CSMSRootCertificate';
         const certPem = (payload['certificate'] as string | undefined) ?? '';
@@ -4422,6 +5198,11 @@ export class StationSimulator {
         const installSerial = randomUUID().slice(0, 8);
         const issuerNameHash = randomUUID().replace(/-/g, '').slice(0, 40);
         const issuerKeyHash = randomUUID().replace(/-/g, '').slice(0, 40);
+        const parsed = parseCertificateChain(certPem)?.[0];
+        // A real certificate must be within its validity period.
+        if (parsed != null && !isWithinValidity(parsed)) {
+          return { status: 'Rejected' };
+        }
 
         this.installedCertificatesCache.set(installSerial, {
           certificateType: installType,
@@ -4431,7 +5212,13 @@ export class StationSimulator {
             issuerKeyHash,
             serialNumber: installSerial,
           },
+          ...(parsed != null ? { certificate: parsed.toString() } : {}),
         });
+
+        // A real CSMS root joins the TLS trust store of the CSMS connection.
+        if (installType === 'CSMSRootCertificate' && parsed != null) {
+          this.refreshTrustAnchors();
+        }
 
         console.log(
           `[${this.config.stationId}] InstallCertificate: ${installType} (${installSerial})`,
@@ -4440,7 +5227,18 @@ export class StationSimulator {
         return { status: 'Accepted' };
       }
 
+      case 'ExtendedTriggerMessage':
+        if (this.is16) return this.extendedTriggerMessage16(payload);
+        return { status: 'NotSupported' };
+
+      case 'SignedUpdateFirmware':
+        if (this.is16) return this.signedUpdateFirmware16(payload);
+        return { status: 'NotSupported' };
+
       case 'GetLocalListVersion':
+        // OCPP 1.6 section 5.10: -1 means the Charge Point has no Local Authorization List
+        // (feature profile not supported, or LocalAuthListEnabled is false).
+        if (this.is16 && !this.localAuthListActive16()) return { listVersion: -1 };
         return this.is16
           ? { listVersion: this.localAuthListVersion }
           : { versionNumber: this.localAuthListVersion };
@@ -4460,8 +5258,12 @@ export class StationSimulator {
           return { status: 'VersionMismatch' };
         }
 
-        // Check max list size (100 entries)
-        const maxSize = 100;
+        if (this.is16 && !this.supportsFeatureProfile16('LocalAuthListManagement')) {
+          return { status: 'NotSupported' };
+        }
+
+        // List size limit: 1.6 LocalAuthListMaxLength, 100 entries for 2.1
+        const maxSize = this.is16 ? this.localAuthListMaxLength16() : 100;
         const totalAfterUpdate =
           updateType === 'Full'
             ? localAuthList.length
@@ -4480,7 +5282,7 @@ export class StationSimulator {
                   | string
                   | undefined);
             if (idTokenValue != null) {
-              this.localAuthEntries.set(idTokenValue, entry);
+              this.storeLocalAuthEntry(idTokenValue, entry);
             }
           }
         } else {
@@ -4493,7 +5295,7 @@ export class StationSimulator {
             if (idTokenValue == null) continue;
             const hasStatus = this.is16 ? entry['idTagInfo'] != null : entry['idTokenInfo'] != null;
             if (hasStatus) {
-              this.localAuthEntries.set(idTokenValue, entry);
+              this.storeLocalAuthEntry(idTokenValue, entry);
             } else {
               this.localAuthEntries.delete(idTokenValue);
             }
@@ -4519,9 +5321,10 @@ export class StationSimulator {
         // status updates to the originating request. Without it, the CSMS
         // creates a parallel "unknown" firmware_updates row per status and the
         // original row stays stuck at status=null.
+        if (!this.is16) return this.updateFirmware21(payload);
         const fwRequestId = payload['requestId'] as number | undefined;
         void this.simulateFirmwareUpdate(fwLocation, fwRequestId).catch(() => {});
-        return this.is16 ? {} : { status: 'Accepted' };
+        return {};
       }
 
       case 'PublishFirmware':
@@ -4534,7 +5337,8 @@ export class StationSimulator {
         const logRequestId = payload['requestId'] as number;
         const logObj = payload['log'] as Record<string, unknown> | undefined;
         const logLocation = (logObj?.['remoteLocation'] as string | undefined) ?? '';
-        const logFilename = `diagnostics-${this.config.stationId}-${String(Date.now())}.log`;
+        const logKind = payload['logType'] === 'SecurityLog' ? 'security' : 'diagnostics';
+        const logFilename = `${logKind}-${this.config.stationId}-${String(Date.now())}.log`;
 
         // If there is an active upload, a second request cancels it
         if (this.activeLogUploadRequestId != null) {
@@ -4603,11 +5407,11 @@ export class StationSimulator {
             variableMonitoring: [
               {
                 id: m.id,
-                transaction: false,
-                value: 0,
+                transaction: m.transaction ?? false,
+                value: m.value ?? 0,
                 type: m.type,
                 severity: m.severity,
-                eventNotificationType: m.isHardwired ? 'HardWiredMonitor' : 'CustomMonitor',
+                eventNotificationType: monitorNotificationType(m),
               },
             ],
           }));
@@ -4629,16 +5433,16 @@ export class StationSimulator {
         }
         if (monBase === 'HardWiredOnly') {
           // Remove all non-hardwired monitors
-          for (const [id, mon] of this.variableMonitors) {
+          for (const [id, mon] of Array.from(this.variableMonitors)) {
             if (!mon.isHardwired) {
-              this.variableMonitors.delete(id);
+              this.removeMonitor(id);
             }
           }
         } else if (monBase === 'FactoryDefault') {
           // Remove all non-hardwired monitors and re-seed factory defaults
-          for (const [id, mon] of this.variableMonitors) {
+          for (const [id, mon] of Array.from(this.variableMonitors)) {
             if (!mon.isHardwired) {
-              this.variableMonitors.delete(id);
+              this.removeMonitor(id);
             }
           }
           this.seedDefaultMonitors();
@@ -4714,16 +5518,91 @@ export class StationSimulator {
               };
             }
 
-            // Create monitor
-            const monId = ++this.monitorIdCounter;
-            this.variableMonitors.set(monId, {
+            // Threshold monitors need a numeric variable (N04: UnsupportedMonitorType)
+            const currentValue = this.monitoredValue(comp, variable['name'] as string);
+            if (
+              (monType === 'UpperThreshold' || monType === 'LowerThreshold') &&
+              currentValue != null &&
+              typeof currentValue !== 'number'
+            ) {
+              return {
+                status: 'UnsupportedMonitorType',
+                type: monType,
+                severity: monSeverity,
+                component: comp,
+                variable,
+                id: 0,
+              };
+            }
+
+            // Replace the monitor with the given id, or create a new one
+            const requestedId = item['id'] as number | undefined;
+            if (requestedId == null) {
+              // N04: a monitor of the same type and severity on the variable exists
+              const duplicate = Array.from(this.variableMonitors.values()).some(
+                (m) =>
+                  m.type === monType &&
+                  m.severity === monSeverity &&
+                  this.monitorMatches(m, comp, variable['name'] as string) &&
+                  JSON.stringify(m.component['evse'] ?? null) ===
+                    JSON.stringify(comp['evse'] ?? null),
+              );
+              if (duplicate) {
+                return {
+                  status: 'Duplicate',
+                  type: monType,
+                  severity: monSeverity,
+                  component: comp,
+                  variable,
+                  id: 0,
+                };
+              }
+            }
+            if (requestedId != null) {
+              const existingMon = this.variableMonitors.get(requestedId);
+              // A monitor keeps its component and variable (N04: replacing changes
+              // its settings only).
+              const sameTarget =
+                existingMon != null &&
+                existingMon.component['name'] === comp['name'] &&
+                JSON.stringify(existingMon.component['evse'] ?? null) ===
+                  JSON.stringify(comp['evse'] ?? null) &&
+                existingMon.variable['name'] === variable['name'];
+              if (existingMon == null || existingMon.isHardwired || !sameTarget) {
+                return {
+                  status: 'Rejected',
+                  type: monType,
+                  severity: monSeverity,
+                  component: comp,
+                  variable,
+                  id: requestedId,
+                };
+              }
+            }
+            const monId = requestedId ?? ++this.monitorIdCounter;
+            const periodicEventStream = item['periodicEventStream'] as
+              | { interval?: number; values?: number }
+              | undefined;
+            const monitor: VariableMonitor = {
               id: monId,
               type: monType,
               severity: monSeverity,
               component: comp,
               variable,
               isHardwired: false,
-            });
+              value: monValue,
+              transaction: (item['transaction'] as boolean | undefined) ?? false,
+              periodicEventStream,
+            };
+            this.variableMonitors.set(monId, monitor);
+            this.monitorExceeded.delete(monId);
+            const current = this.monitoredValue(comp, variable['name'] as string);
+            if (current != null) this.monitorDeltaBase.set(monId, current);
+            else this.monitorDeltaBase.delete(monId);
+            // Periodic monitors start reporting after the response is sent.
+            setTimeout(() => {
+              void this.applyPeriodicMonitor(monId).catch(() => {});
+            }, 0);
 
             return {
               status: 'Accepted',
@@ -4748,7 +5627,7 @@ export class StationSimulator {
             if (monitor.isHardwired) {
               return { status: 'Rejected', id };
             }
-            this.variableMonitors.delete(id);
+            this.removeMonitor(id);
             return { status: 'Accepted', id };
           }),
         };
@@ -4850,16 +5729,43 @@ export class StationSimulator {
         const msgState = msgInfo['state'] as string | undefined;
         const msgTransactionId = msgInfo['transactionId'] as string | undefined;
 
-        // Validate priority
-        const supportedPriorities = ['AlwaysFront', 'InFront', 'NormalCycle'];
+        // Validate priority, state, message formats, and languages against
+        // DisplayMessageCtrlr (O01: NotSupportedPriority, NotSupportedState,
+        // NotSupportedMessageFormat, LanguageNotSupported).
+        const memberList = (key: string, fallback: string): string[] =>
+          (this.getConfigValue(`DisplayMessageCtrlr.${key}`) ?? fallback)
+            .split(',')
+            .map((v) => v.trim())
+            .filter((v) => v !== '');
+        const supportedPriorities = memberList(
+          'SupportedPriorities',
+          'AlwaysFront,InFront,NormalCycle',
+        );
         if (msgPriority != null && !supportedPriorities.includes(msgPriority)) {
           return { status: 'NotSupportedPriority' };
         }
 
-        // Validate state
-        const supportedStates = ['Charging', 'Faulted', 'Idle', 'Unavailable'];
+        const supportedStates = memberList('SupportedStates', 'Charging,Faulted,Idle,Unavailable');
         if (msgState != null && !supportedStates.includes(msgState)) {
           return { status: 'NotSupportedState' };
+        }
+
+        const contents = [
+          msgInfo['message'] as Record<string, unknown> | undefined,
+          ...((msgInfo['messageExtra'] ?? []) as Array<Record<string, unknown>>),
+        ].filter((c): c is Record<string, unknown> => c != null);
+        const supportedFormats = memberList('SupportedFormats', 'ASCII,UTF8');
+        if (contents.some((c) => !supportedFormats.includes(c['format'] as string))) {
+          return { status: 'NotSupportedMessageFormat' };
+        }
+        if (
+          contents.some(
+            (c) =>
+              c['language'] != null &&
+              !DISPLAY_LANGUAGES.includes((c['language'] as string).toLowerCase()),
+          )
+        ) {
+          return { status: 'LanguageNotSupported' };
         }
 
         // Validate transactionId if provided: check if any transaction is active
@@ -4877,9 +5783,10 @@ export class StationSimulator {
           }
         }
 
-        // If AlwaysFront with transaction, replace existing AlwaysFront for same transaction
-        if (msgPriority === 'AlwaysFront' && msgTransactionId != null) {
-          for (const [existingId, existingMsg] of this.displayMessagesCache) {
+        // Only one AlwaysFront message is shown: a new one replaces the previous
+        // AlwaysFront message of the same scope (the same transaction, or none).
+        if (msgPriority === 'AlwaysFront') {
+          for (const [existingId, existingMsg] of Array.from(this.displayMessagesCache)) {
             if (
               existingId !== msgId &&
               existingMsg['priority'] === 'AlwaysFront' &&
@@ -4895,7 +5802,26 @@ export class StationSimulator {
         return { status: 'Accepted' };
       }
 
-      case 'CostUpdated':
+      case 'CostUpdated': {
+        // E16.FR.11/15: the running cost from CSMS when it calculates the cost
+        if (!this.is16) {
+          const costTxId = payload['transactionId'] as string;
+          const costEvseId = await this.findEvseForTransaction(costTxId);
+          if (costEvseId != null) {
+            this.evseTotalCost.set(costEvseId, payload['totalCost'] as number);
+            setTimeout(() => {
+              void this.checkCentralCostLimit(costEvseId, costTxId).catch(() => {});
+            }, 0);
+          }
+        }
+        return {};
+      }
+
+      case 'NotifyWebPaymentStarted':
+        // C25.FR.27: respond without parameters
+        console.log(
+          `[${this.config.stationId}] Web payment started on EVSE ${String(payload['evseId'])} (timeout ${String(payload['timeout'])} s)`,
+        );
         return {};
 
       case 'CustomerInformation': {
@@ -4942,7 +5868,7 @@ export class StationSimulator {
       case 'GetTransactionStatus': {
         const txIdQuery = payload['transactionId'] as string | undefined;
         if (txIdQuery != null) {
-          // Look up whether this specific transaction is ongoing
+          // Look up whether this specific transaction is ongoing (E14.FR.01-03)
           let ongoing = false;
           for (const [, id] of this.activeTransactionIds) {
             if (id === txIdQuery) {
@@ -4950,10 +5876,15 @@ export class StationSimulator {
               break;
             }
           }
-          return { messagesInQueue: false, ongoingIndicator: ongoing };
+          // E14.FR.04/05: queued messages about this transaction
+          return {
+            messagesInQueue: this.hasQueuedTransactionMessages(txIdQuery),
+            ongoingIndicator: ongoing,
+          };
         }
-        // No transactionId: return messagesInQueue only, omit ongoingIndicator
-        return { messagesInQueue: false };
+        // E14.FR.06-08: no transactionId, omit ongoingIndicator, report any queued
+        // transaction-related message
+        return { messagesInQueue: this.hasQueuedTransactionMessages() };
       }
 
       case 'DataTransfer':
@@ -4965,6 +5896,54 @@ export class StationSimulator {
         const sdt_evseId = payload['evseId'] as number;
         const sdt_tariff = payload['tariff'] as Record<string, unknown>;
         const sdt_tariffId = sdt_tariff['tariffId'] as string;
+        if (sdt_evseId !== 0 && !this.config.evses.some((e) => e.evseId === sdt_evseId)) {
+          return { status: 'Rejected', statusInfo: { reasonCode: 'UnknownEVSE' } };
+        }
+        const sections = TARIFF_PRICE_SECTIONS.map(
+          (key) => sdt_tariff[key] as Record<string, unknown> | undefined,
+        ).filter((section): section is Record<string, unknown> => section != null);
+        if (
+          !['energy', 'chargingTime', 'idleTime', 'fixedFee'].some((k) => sdt_tariff[k] != null)
+        ) {
+          return { status: 'Rejected', statusInfo: { reasonCode: 'InvalidValue' } };
+        }
+        // TariffCostCtrlr.MaxElements[Tariff]: price elements per tariff section
+        const sdt_maxElements = Number(
+          this.getConfigValue('TariffCostCtrlr.MaxElements#Tariff') ?? '10',
+        );
+        if (
+          sections.some(
+            (section) => ((section['prices'] ?? []) as unknown[]).length > sdt_maxElements,
+          )
+        ) {
+          return { status: 'TooManyElements' };
+        }
+        // TariffCostCtrlr.ConditionsSupported[Tariff] is false
+        if (
+          sections.some((section) =>
+            ((section['prices'] ?? []) as Array<Record<string, unknown>>).some(
+              (price) => price['conditions'] != null,
+            ),
+          )
+        ) {
+          return { status: 'ConditionNotSupported' };
+        }
+        if (this.defaultTariffs.has(sdt_tariffId)) {
+          return { status: 'DuplicateTariffId' };
+        }
+        // A default tariff replaces the previous default tariff of the same EVSE
+        // (EVSE 0: the whole station) with the same validFrom; tariffs that
+        // become valid later stay scheduled next to it.
+        const sdt_validFrom = sdt_tariff['validFrom'] ?? null;
+        for (const [tid, entry] of Array.from(this.defaultTariffs)) {
+          if (
+            entry.evseId === sdt_evseId &&
+            (entry.tariff['validFrom'] ?? null) === sdt_validFrom &&
+            !entry.inUse
+          ) {
+            this.defaultTariffs.delete(tid);
+          }
+        }
         this.defaultTariffs.set(sdt_tariffId, {
           evseId: sdt_evseId,
           tariff: sdt_tariff,
@@ -4978,13 +5957,19 @@ export class StationSimulator {
         const gt_evseId = payload['evseId'] as number | undefined;
         const assignments: Array<Record<string, unknown>> = [];
         for (const [tariffId, entry] of this.defaultTariffs) {
-          // Filter by evseId if specified (0 matches global tariffs)
-          if (gt_evseId != null && entry.evseId !== gt_evseId && entry.evseId !== 0) continue;
-          assignments.push({
-            tariffId,
-            tariffKind: 'DefaultTariff',
-            evseIds: entry.evseId === 0 ? this.config.evses.map((e) => e.evseId) : [entry.evseId],
-          });
+          // The EVSEs the tariff applies to: a station-wide (EVSE 0) tariff
+          // covers the EVSEs without their own default tariff.
+          const evseIds =
+            entry.evseId === 0
+              ? this.config.evses
+                  .map((e) => e.evseId)
+                  .filter(
+                    (id) => !Array.from(this.defaultTariffs.values()).some((t) => t.evseId === id),
+                  )
+              : [entry.evseId];
+          if (evseIds.length === 0) continue;
+          if (gt_evseId != null && gt_evseId !== 0 && !evseIds.includes(gt_evseId)) continue;
+          assignments.push({ tariffId, tariffKind: 'DefaultTariff', evseIds });
         }
         // Include driver tariffs
         for (const [evse, dt] of this.driverTariffs) {
@@ -5159,8 +6144,19 @@ export class StationSimulator {
       case 'AFRRSignal':
         return { status: 'Accepted' };
 
-      case 'AdjustPeriodicEventStream':
+      case 'AdjustPeriodicEventStream': {
+        // N15: change the transmission parameters of an open stream
+        const adjustId = payload['id'] as number;
+        const params = (payload['params'] ?? {}) as { interval?: number; values?: number };
+        const stream = Array.from(this.periodicStreams.values()).find((st) => st.id === adjustId);
+        if (stream == null) {
+          return { status: 'Rejected', statusInfo: { reasonCode: 'UnknownStream' } };
+        }
+        if (params.interval != null) stream.interval = params.interval;
+        if (params.values != null) stream.values = params.values;
+        this.scheduleStreamFlush(stream);
         return { status: 'Accepted' };
+      }
 
       case 'ClosePeriodicEventStream':
         return {};
@@ -5168,16 +6164,15 @@ export class StationSimulator {
       case 'OpenPeriodicEventStream':
         return { status: 'Accepted' };
 
-      case 'GetPeriodicEventStream':
-        return {
-          constantStreamData: [
-            {
-              id: 1,
-              variableMonitoringId: 100,
-              params: { interval: 60, values: 10 },
-            },
-          ],
-        };
+      case 'GetPeriodicEventStream': {
+        // N14: the open periodic event streams
+        const streams = Array.from(this.periodicStreams.values()).map((st) => ({
+          id: st.id,
+          variableMonitoringId: st.monitorId,
+          params: { interval: st.interval, values: st.values },
+        }));
+        return streams.length > 0 ? { constantStreamData: streams } : {};
+      }
 
       case 'ClearDERControl':
         return { status: 'Accepted' };
@@ -5213,6 +6208,582 @@ export class StationSimulator {
       default:
         console.log(`[${this.config.stationId}] Unhandled action: ${action}`);
         return { status: 'NotSupported' };
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // OCPP 1.6 Security Whitepaper: certificate store, certificate renewal,
+  // security log, and signed firmware update
+  // ---------------------------------------------------------------------------
+
+  // OCPP 1.6 SupportedFeatureProfiles (read-only, set at the factory).
+  private supportsFeatureProfile16(profile: string): boolean {
+    return (this.getConfigValue('SupportedFeatureProfiles') ?? '')
+      .split(',')
+      .map((p) => p.trim())
+      .includes(profile);
+  }
+
+  private localAuthListActive16(): boolean {
+    return (
+      this.supportsFeatureProfile16('LocalAuthListManagement') &&
+      this.getConfigValue('LocalAuthListEnabled') !== 'false'
+    );
+  }
+
+  // Entries the Local Authorization List can hold (LocalAuthListMaxLength, 0 = no storage).
+  private localAuthListMaxLength16(): number {
+    const max = Number(this.getConfigValue('LocalAuthListMaxLength'));
+    return Number.isInteger(max) && max >= 0 ? max : 100;
+  }
+
+  private configInt16(key: string, fallback: number): number {
+    const value = Number(this.getConfigValue(key));
+    return Number.isInteger(value) && value > 0 ? value : fallback;
+  }
+
+  // Certificates of a type in the store, parsed from their PEM.
+  private storedCertificates(type: string): X509Certificate[] {
+    const certs: X509Certificate[] = [];
+    for (const entry of this.installedCertificatesCache.values()) {
+      if (entry.certificateType !== type || entry.certificate == null) continue;
+      const parsed = parseCertificateChain(entry.certificate)?.[0];
+      if (parsed != null) certs.push(parsed);
+    }
+    return certs;
+  }
+
+  // The Central System root certificates the station trusts: the installed ones
+  // and the CA it was provisioned with for its TLS connection.
+  private centralSystemRoots16(): X509Certificate[] {
+    const provisioned =
+      this.config.caCert != null ? (parseCertificateChain(this.config.caCert) ?? []) : [];
+    return [...this.storedCertificates('CentralSystemRootCertificate'), ...provisioned];
+  }
+
+  // Factory state of a 1.6 station: the CA it was provisioned with is its
+  // CentralSystemRootCertificate.
+  private seedCertificates16(): void {
+    if (this.config.caCert == null) return;
+    for (const cert of parseCertificateChain(this.config.caCert) ?? []) {
+      if (!isSelfSigned(cert) || !isCaCertificate(cert)) continue;
+      const hashData = certificateHashData(cert, cert);
+      this.installedCertificatesCache.set(hashData.serialNumber, {
+        certificateType: 'CentralSystemRootCertificate',
+        certificateHashData: { ...hashData },
+        certificate: cert.toString(),
+      });
+    }
+  }
+
+  private installCertificate16(payload: Record<string, unknown>): Record<string, unknown> {
+    const certificateType = payload['certificateType'] as string;
+    if (
+      certificateType !== 'CentralSystemRootCertificate' &&
+      certificateType !== 'ManufacturerRootCertificate'
+    ) {
+      return { status: 'Rejected' };
+    }
+    const cert = parseCertificateChain((payload['certificate'] as string | undefined) ?? '')?.[0];
+    // Both types are CA certificates that anchor a chain.
+    if (cert == null || !isWithinValidity(cert) || !isCaCertificate(cert)) {
+      return { status: 'Rejected' };
+    }
+
+    // A root certificate signs itself; otherwise its issuer must already be in the store.
+    const issuer = isSelfSigned(cert)
+      ? cert
+      : this.storedCertificates(certificateType).find(
+          (c) => isCaCertificate(c) && isIssuedBy(cert, c),
+        );
+    if (issuer == null) return { status: 'Rejected' };
+
+    const hashData = certificateHashData(cert, issuer);
+    const alreadyInstalled = [...this.installedCertificatesCache.values()].some(
+      (entry) =>
+        entry.certificateType === certificateType &&
+        sameCertificateHashData(entry.certificateHashData, { ...hashData }),
+    );
+    if (!alreadyInstalled) {
+      if (
+        this.installedCertificatesCache.size >= this.configInt16('CertificateStoreMaxLength', 10)
+      ) {
+        return { status: 'Failed' };
+      }
+      this.installedCertificatesCache.set(hashData.serialNumber, {
+        certificateType,
+        certificateHashData: { ...hashData },
+        certificate: cert.toString(),
+      });
+    }
+    console.log(
+      `[${this.config.stationId}] InstallCertificate: ${certificateType} (${hashData.serialNumber})`,
+    );
+    return { status: 'Accepted' };
+  }
+
+  private getInstalledCertificateIds16(payload: Record<string, unknown>): Record<string, unknown> {
+    const certificateType = payload['certificateType'] as string;
+    const certificateHashData = [...this.installedCertificatesCache.values()]
+      .filter((entry) => entry.certificateType === certificateType)
+      .map((entry) => ({ ...entry.certificateHashData }));
+    if (certificateHashData.length === 0) return { status: 'NotFound' };
+    return { status: 'Accepted', certificateHashData };
+  }
+
+  private deleteCertificate16(payload: Record<string, unknown>): Record<string, unknown> {
+    const requested = payload['certificateHashData'] as Record<string, unknown> | undefined;
+    const hashAlgorithm = requested?.['hashAlgorithm'];
+    if (requested == null || !isCertificateHashAlgorithm(hashAlgorithm)) {
+      return { status: 'NotFound' };
+    }
+    const provisioned =
+      this.config.caCert != null ? (parseCertificateChain(this.config.caCert) ?? []) : [];
+    for (const [key, entry] of this.installedCertificatesCache) {
+      if (
+        entry.certificateType !== 'CentralSystemRootCertificate' &&
+        entry.certificateType !== 'ManufacturerRootCertificate'
+      ) {
+        continue;
+      }
+      const cert = entry.certificate != null ? parseCertificateChain(entry.certificate)?.[0] : null;
+      if (cert == null) continue;
+      const issuer = isSelfSigned(cert)
+        ? cert
+        : this.storedCertificates(entry.certificateType).find((c) => isIssuedBy(cert, c));
+      if (issuer == null) continue;
+      if (
+        !sameCertificateHashData({ ...certificateHashData(cert, issuer, hashAlgorithm) }, requested)
+      ) {
+        continue;
+      }
+      // The root the current TLS connection relies on cannot be removed.
+      if (provisioned.some((p) => p.raw.equals(cert.raw))) return { status: 'Failed' };
+      this.installedCertificatesCache.delete(key);
+      console.log(`[${this.config.stationId}] DeleteCertificate: removed ${key}`);
+      return { status: 'Accepted' };
+    }
+    return { status: 'NotFound' };
+  }
+
+  private extendedTriggerMessage16(payload: Record<string, unknown>): Record<string, unknown> {
+    const requestedMessage = payload['requestedMessage'] as string;
+    const connectorId = payload['connectorId'] as number | undefined;
+    const supported = [
+      'BootNotification',
+      'LogStatusNotification',
+      'FirmwareStatusNotification',
+      'Heartbeat',
+      'MeterValues',
+      'SignChargePointCertificate',
+      'StatusNotification',
+    ];
+    if (!supported.includes(requestedMessage)) return { status: 'NotImplemented' };
+    if (
+      connectorId != null &&
+      connectorId > 0 &&
+      !this.config.evses.some((e) => e.evseId === connectorId)
+    ) {
+      return { status: 'Rejected' };
+    }
+    setTimeout(() => {
+      void (async () => {
+        try {
+          if (requestedMessage === 'SignChargePointCertificate') {
+            await this.requestChargePointCertificate16();
+          } else if (requestedMessage === 'LogStatusNotification') {
+            await this.sendLogStatusNotification(
+              this.logUploadStatus,
+              this.activeLogUploadRequestId ?? undefined,
+            );
+          } else {
+            await this.handleTriggerMessage(requestedMessage, payload);
+          }
+        } catch (err) {
+          console.warn(
+            `[${this.config.stationId}] ExtendedTriggerMessage ${requestedMessage} failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      })();
+    }, 100);
+    return { status: 'Accepted' };
+  }
+
+  // New key pair and CSR: CN is the serial number, O the CpoName.
+  private async requestChargePointCertificate16(): Promise<void> {
+    const { csrPem, privateKeyPem } = await generateKeyPairAndCsr({
+      commonName: this.config.serialNumber,
+      organizationName: this.getConfigValue('CpoName') ?? this.config.vendorName,
+    });
+    this.pendingChargePointKey16 = privateKeyPem;
+    const response = await this.client.sendCall('SignCertificate', { csr: csrPem });
+    if (response['status'] !== 'Accepted') this.pendingChargePointKey16 = null;
+  }
+
+  private certificateSigned16(payload: Record<string, unknown>): Record<string, unknown> {
+    const chainPem = (payload['certificateChain'] as string | undefined) ?? '';
+    const chain = parseCertificateChain(chainPem);
+    const privateKey = this.pendingChargePointKey16;
+    const leaf = chain?.[0];
+    const valid =
+      privateKey != null &&
+      chain != null &&
+      leaf != null &&
+      chainPem.length <= this.configInt16('CertificateSignedMaxChainSize', 10000) &&
+      certificateMatchesPrivateKey(leaf, privateKey) &&
+      chainsToTrustedRoot(chain, this.centralSystemRoots16());
+    if (!valid) {
+      void this.sendSecurityEventNotification(
+        'InvalidChargePointCertificate',
+        undefined,
+        'CertificateSigned.req certificate chain failed validation',
+      ).catch(() => {});
+      return { status: 'Rejected' };
+    }
+
+    // The new certificate replaces the old one from the next connection.
+    this.pendingChargePointKey16 = null;
+    this.config.clientCert = chainPem;
+    this.config.clientKey = privateKey;
+    this.client.updateConnection({ clientCert: chainPem, clientKey: privateKey });
+    void this.persistClientCertificate();
+    if (this.client.connection.securityProfile === 3) {
+      setTimeout(() => {
+        if (!this.destroyed) this.client.simulateConnectionLoss();
+      }, 2000);
+    }
+    return { status: 'Accepted' };
+  }
+
+  private async persistClientCertificate(): Promise<void> {
+    try {
+      await this.sql`
+        UPDATE css_stations
+        SET client_cert = ${this.config.clientCert ?? null},
+            client_key = ${this.config.clientKey ?? null},
+            updated_at = now()
+        WHERE id = ${this.config.id}
+      `;
+    } catch (err) {
+      console.warn(
+        `[${this.config.stationId}] Failed to save the client certificate: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  private signedUpdateFirmware16(payload: Record<string, unknown>): Record<string, unknown> {
+    const requestId = payload['requestId'] as number;
+    const firmware = payload['firmware'] as Record<string, unknown>;
+    const signingChain = parseCertificateChain(
+      (firmware['signingCertificate'] as string | undefined) ?? '',
+    );
+    const signingCert = signingChain?.[0];
+    if (
+      signingChain == null ||
+      signingCert == null ||
+      !chainsToTrustedRoot(signingChain, this.storedCertificates('ManufacturerRootCertificate'))
+    ) {
+      void this.sendSecurityEventNotification(
+        'InvalidFirmwareSigningCertificate',
+        undefined,
+        'Firmware signing certificate does not chain to a ManufacturerRootCertificate',
+      ).catch(() => {});
+      return { status: 'InvalidCertificate' };
+    }
+    const canceled = this.activeSignedFirmwareRequestId != null;
+    this.activeSignedFirmwareRequestId = requestId;
+    void this.runSignedFirmwareUpdate16(requestId, firmware, signingCert, payload).catch(
+      (err: unknown) => {
+        console.warn(
+          `[${this.config.stationId}] Signed firmware update ${String(requestId)} failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      },
+    );
+    return { status: canceled ? 'AcceptedCanceled' : 'Accepted' };
+  }
+
+  async sendSignedFirmwareStatusNotification(status: string, requestId?: number): Promise<void> {
+    this.firmwareUpdateStatus = status;
+    const payload: Record<string, unknown> = { status };
+    if (requestId != null) payload['requestId'] = requestId;
+    await this.client.sendCall('SignedFirmwareStatusNotification', payload);
+  }
+
+  private async downloadFirmware16(
+    location: string,
+    retries: number,
+    retryIntervalSec: number,
+  ): Promise<Buffer | null> {
+    let url: URL;
+    try {
+      url = new URL(location);
+    } catch {
+      return null;
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, retryIntervalSec * 1000));
+      try {
+        const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+        if (response.ok) return Buffer.from(await response.arrayBuffer());
+      } catch {
+        // Retry below
+      }
+    }
+    return null;
+  }
+
+  private async runSignedFirmwareUpdate16(
+    requestId: number,
+    firmware: Record<string, unknown>,
+    signingCert: X509Certificate,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const current = (): boolean =>
+      !this.destroyed && this.activeSignedFirmwareRequestId === requestId;
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const finish = (): void => {
+      if (this.activeSignedFirmwareRequestId === requestId) {
+        this.activeSignedFirmwareRequestId = null;
+        this.firmwareUpdateStatus = 'Idle';
+      }
+    };
+
+    const retrieveAt = Date.parse((firmware['retrieveDateTime'] as string | undefined) ?? '');
+    if (Number.isFinite(retrieveAt) && retrieveAt > Date.now()) {
+      await this.sendSignedFirmwareStatusNotification('DownloadScheduled', requestId);
+      await wait(retrieveAt - Date.now());
+    }
+    if (!current()) return;
+
+    await this.sendSignedFirmwareStatusNotification('Downloading', requestId);
+    const image = await this.downloadFirmware16(
+      firmware['location'] as string,
+      (payload['retries'] as number | undefined) ?? 0,
+      (payload['retryInterval'] as number | undefined) ?? 0,
+    );
+    if (!current()) return;
+    if (image == null) {
+      await this.sendSignedFirmwareStatusNotification('DownloadFailed', requestId);
+      finish();
+      return;
+    }
+    await this.sendSignedFirmwareStatusNotification('Downloaded', requestId);
+
+    if (!verifySignature(image, (firmware['signature'] as string | undefined) ?? '', signingCert)) {
+      await this.sendSignedFirmwareStatusNotification('InvalidSignature', requestId);
+      await this.sendSecurityEventNotification(
+        'InvalidFirmwareSignature',
+        undefined,
+        'Firmware signature does not match the signing certificate',
+      );
+      finish();
+      return;
+    }
+    await this.sendSignedFirmwareStatusNotification('SignatureVerified', requestId);
+
+    const installAt = Date.parse((firmware['installDateTime'] as string | undefined) ?? '');
+    if (Number.isFinite(installAt) && installAt > Date.now()) {
+      await this.sendSignedFirmwareStatusNotification('InstallScheduled', requestId);
+      await wait(installAt - Date.now());
+    }
+    if (!current()) return;
+
+    await this.sendSignedFirmwareStatusNotification('Installing', requestId);
+    await wait(500);
+    if (!current()) return;
+    // The new firmware runs after a reboot: boot, report the connectors, then
+    // log the update and report the result.
+    await this.rebootStation();
+    await this.sendSecurityEventNotification('FirmwareUpdated');
+    await this.sendSignedFirmwareStatusNotification('Installed', requestId);
+    finish();
+  }
+
+  // ---------------------------------------------------------------------------
+  // OCPP 2.1 secure firmware update (L01)
+  // ---------------------------------------------------------------------------
+
+  /** ManufacturerRootCertificates the 2.1 station trusts for firmware signing certificates. */
+  private manufacturerRoots(): X509Certificate[] {
+    return this.storedCertificates('ManufacturerRootCertificate');
+  }
+
+  /**
+   * L01 UpdateFirmware: the signing certificate must chain to an installed
+   * ManufacturerRootCertificate and be valid (L01.FR.02), the firmware carries
+   * a signature (secure firmware update only). A request while an update has
+   * not started installing cancels it (AcceptedCanceled, L01.FR.24); once it
+   * is installing a new request is Rejected.
+   */
+  private updateFirmware21(payload: Record<string, unknown>): Record<string, unknown> {
+    const requestId = payload['requestId'] as number;
+    const firmware = (payload['firmware'] ?? {}) as Record<string, unknown>;
+    const signingPem = firmware['signingCertificate'] as string | undefined;
+    const signature = firmware['signature'] as string | undefined;
+    if (signingPem == null || signature == null) {
+      return { status: 'Rejected', statusInfo: { reasonCode: 'MissingParam' } };
+    }
+    const signingChain = parseCertificateChain(signingPem);
+    const signingCert = signingChain?.[0];
+    if (
+      signingChain == null ||
+      signingCert == null ||
+      !chainsToTrustedRoot(signingChain, this.manufacturerRoots())
+    ) {
+      void this.sendSecurityEventNotification(
+        'InvalidFirmwareSigningCertificate',
+        undefined,
+        'Firmware signing certificate is not valid or does not chain to a ManufacturerRootCertificate',
+      ).catch(() => {});
+      return { status: 'InvalidCertificate' };
+    }
+    const running = this.activeFirmwareUpdate21;
+    if (running != null && running.installing) {
+      return { status: 'Rejected', statusInfo: { reasonCode: 'TxInProgress' } };
+    }
+    const update = { requestId, installing: false };
+    this.activeFirmwareUpdate21 = update;
+    void this.runFirmwareUpdate21(update, firmware, signingCert, payload).catch((err: unknown) => {
+      console.warn(
+        `[${this.config.stationId}] Firmware update ${String(requestId)} failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+    return { status: running != null ? 'AcceptedCanceled' : 'Accepted' };
+  }
+
+  /** Waits until `until` (ms epoch) or until the update is no longer current. */
+  private async waitWhileCurrent(until: () => boolean, current: () => boolean): Promise<void> {
+    while (current() && !until()) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+
+  private hasOngoingTransaction(): boolean {
+    return this.config.evses.some((e) => this.evseContexts.get(e.evseId)?.transactionId != null);
+  }
+
+  private async runFirmwareUpdate21(
+    update: { requestId: number; installing: boolean },
+    firmware: Record<string, unknown>,
+    signingCert: X509Certificate,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const { requestId } = update;
+    const current = (): boolean => !this.destroyed && this.activeFirmwareUpdate21 === update;
+    const status = async (s: string): Promise<void> => {
+      this.firmwareUpdateStatus = s;
+      await this.sendFirmwareStatusNotification(s, requestId);
+    };
+    const finish = (): void => {
+      if (this.activeFirmwareUpdate21 === update) {
+        this.activeFirmwareUpdate21 = null;
+        this.firmwareUpdateStatus = 'Idle';
+      }
+    };
+
+    const retrieveAt = Date.parse((firmware['retrieveDateTime'] as string | undefined) ?? '');
+    if (Number.isFinite(retrieveAt) && retrieveAt > Date.now()) {
+      await status('DownloadScheduled');
+      await this.waitWhileCurrent(() => Date.now() >= retrieveAt, current);
+    }
+    if (!current()) return;
+
+    await status('Downloading');
+    const image = await this.downloadFirmware16(
+      firmware['location'] as string,
+      (payload['retries'] as number | undefined) ?? 0,
+      (payload['retryInterval'] as number | undefined) ?? 0,
+    );
+    if (!current()) return;
+    if (image == null) {
+      await status('DownloadFailed');
+      finish();
+      return;
+    }
+    await status('Downloaded');
+
+    if (!verifySignature(image, (firmware['signature'] as string | undefined) ?? '', signingCert)) {
+      await status('InvalidSignature');
+      await this.sendSecurityEventNotification(
+        'InvalidFirmwareSignature',
+        undefined,
+        'Firmware signature does not match the signing certificate',
+      );
+      finish();
+      return;
+    }
+    await status('SignatureVerified');
+
+    // Installation waits for installDateTime (L01.FR.15) and, because the
+    // simulator does not install with ongoing transactions (PICS C-43), for
+    // the transactions to end (L01.FR.06/07).
+    const installAt = Date.parse((firmware['installDateTime'] as string | undefined) ?? '');
+    const installDue = (): boolean =>
+      (!Number.isFinite(installAt) || Date.now() >= installAt) && !this.hasOngoingTransaction();
+    const blockedConnectors: number[] = [];
+    if (!installDue()) {
+      await status('InstallScheduled');
+      // AllowNewSessionsPendingFirmwareUpdate false: idle connectors become
+      // Unavailable until the firmware is installed.
+      const allowNew =
+        this.getConfigValue('ChargingStation.AllowNewSessionsPendingFirmwareUpdate') !== 'false';
+      if (!allowNew && this.hasOngoingTransaction()) {
+        for (const evse of this.config.evses) {
+          if (this.evseContexts.get(evse.evseId)?.transactionId != null) continue;
+          if ((this.evseConnectorStatus.get(evse.evseId) ?? 'Available') !== 'Available') continue;
+          this.evseConnectorStatus.set(evse.evseId, 'Unavailable');
+          this.firmwareBlockedEvses.add(evse.evseId);
+          blockedConnectors.push(evse.evseId);
+          await this.sendStatusNotification(evse.evseId, evse.connectorId, 'Unavailable').catch(
+            () => {},
+          );
+        }
+      }
+      await this.waitWhileCurrent(installDue, current);
+    }
+    if (!current()) return;
+
+    update.installing = true;
+    await status('Installing');
+    await new Promise((r) => setTimeout(r, 500));
+    const installed = parseFirmwareImage(image);
+    if (installed == null) {
+      // The image fails the installation verification: keep the running firmware.
+      await status('InstallVerificationFailed');
+      await this.releaseFirmwareBlockedConnectors();
+      finish();
+      return;
+    }
+    // The new firmware runs after a reboot: boot, report the connectors, then
+    // log the update and report the result.
+    this.config.firmwareVersion = installed.version;
+    this.firmwareBlockedEvses.clear();
+    this.stopHeartbeat();
+    await this.sendBootNotification('FirmwareUpdate');
+    for (const evse of this.config.evses) {
+      const statusNow =
+        this.evseContexts.get(evse.evseId)?.transactionId != null
+          ? (this.evseConnectorStatus.get(evse.evseId) ?? 'Occupied')
+          : this.evseContexts.get(evse.evseId)?.cablePlugged === true
+            ? 'Occupied'
+            : 'Available';
+      this.evseConnectorStatus.set(evse.evseId, statusNow);
+      await this.sendStatusNotification(evse.evseId, evse.connectorId, statusNow);
+    }
+    await this.sendSecurityEventNotification('FirmwareUpdated');
+    await status('Installed');
+    finish();
+  }
+
+  /** Connectors made Unavailable for a pending installation become Available again. */
+  private async releaseFirmwareBlockedConnectors(): Promise<void> {
+    for (const evseId of Array.from(this.firmwareBlockedEvses)) {
+      this.firmwareBlockedEvses.delete(evseId);
+      this.evseConnectorStatus.set(evseId, 'Available');
+      await this.sendStatusNotification(evseId, this.getConnectorId(evseId), 'Available').catch(
+        () => {},
+      );
     }
   }
 
@@ -5334,7 +6905,10 @@ export class StationSimulator {
           break;
         }
         case 'SignChargingStationCertificate':
-          await this.sendSignCertificate('simulated-csr-data', 'ChargingStationCertificate');
+          await this.requestCertificateSigning('ChargingStationCertificate');
+          break;
+        case 'SignV2GCertificate':
+          await this.requestCertificateSigning('V2GCertificate');
           break;
         case 'PublishFirmwareStatusNotification':
           await this.sendPublishFirmwareStatusNotification('Idle');
@@ -5390,7 +6964,24 @@ export class StationSimulator {
     const candidates = this.rebootConnections();
     if (candidates != null) {
       this.rebootCandidates = candidates;
-      this.client.simulateConnectionLoss();
+      this.rebootOnReconnect = true;
+      this.client.reconnectNow();
+      return;
+    }
+
+    // OCPP 1.6: a Hard or Soft reset reboots the Charge Point, so it opens a new
+    // connection and boots on it, reporting connector 0 and its connectors.
+    if (this.is16) {
+      for (const evse of this.config.evses) {
+        this.evseConnectorStatus.set(evse.evseId, 'Available');
+        const ctx = this.evseContexts.get(evse.evseId) as EvseContext;
+        ctx.state = 'Available';
+        ctx.cablePlugged = false;
+        ctx.authorizedToken = null;
+        ctx.transactionId = null;
+      }
+      this.rebootOnReconnect = true;
+      this.client.reconnectNow();
       return;
     }
 
@@ -5410,6 +7001,66 @@ export class StationSimulator {
     }
   }
 
+  /**
+   * OCPP 2.1 B13: Reset ImmediateAndResume with ongoing transactions. Reports
+   * ResetCommand for every ongoing transaction, stops the energy offer, resets
+   * (a full reboot with B01 cold boot when no evseId is given), then resumes
+   * every transaction with TxResumed. Energy transfer resumes only when
+   * TxCtrlr.AllowEnergyTransferResumption is true; a transaction that was
+   * Charging is otherwise resumed as SuspendedEVSE. All transactions are
+   * resumed regardless of TxCtrlr.ResumptionTimeout (B13 remark).
+   */
+  private async resetAndResumeTransactions(evseIdFilter?: number): Promise<void> {
+    const resumed: Array<{ evseId: number; transactionId: string; chargingState: string }> = [];
+    for (const evse of this.config.evses) {
+      if (evseIdFilter != null && evse.evseId !== evseIdFilter) continue;
+      const transactionId = this.evseContexts.get(evse.evseId)?.transactionId;
+      if (transactionId == null) continue;
+      const chargingState = this.evseChargingState.get(evse.evseId) ?? 'Charging';
+      const seqNo = (this.evseSeqNo.get(evse.evseId) ?? 0) + 1;
+      this.evseSeqNo.set(evse.evseId, seqNo);
+      await this.sendTransactionEvent(evse.evseId, 'Updated', {
+        triggerReason: 'ResetCommand',
+        transactionId,
+        chargingState,
+        seqNo,
+      });
+      // Remember the charging state and stop the energy offer.
+      this.stopMeterLoop(evse.evseId);
+      resumed.push({ evseId: evse.evseId, transactionId, chargingState });
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    if (this.destroyed) return;
+
+    if (evseIdFilter == null) {
+      // Reboot: B01 cold boot, connectors reported again.
+      this.stopHeartbeat();
+      await this.sendBootNotification('RemoteReset');
+      for (const evse of this.config.evses) {
+        const status = this.evseConnectorStatus.get(evse.evseId) ?? 'Available';
+        await this.sendStatusNotification(evse.evseId, evse.connectorId, status);
+      }
+      await this.sendSecurityEventNotification('ResetOrReboot');
+    }
+
+    const allowEnergy = this.getConfigValue('TxCtrlr.AllowEnergyTransferResumption') === 'true';
+    for (const r of resumed) {
+      const chargingState =
+        !allowEnergy && r.chargingState === 'Charging' ? 'SuspendedEVSE' : r.chargingState;
+      this.evseChargingState.set(r.evseId, chargingState);
+      const seqNo = (this.evseSeqNo.get(r.evseId) ?? 0) + 1;
+      this.evseSeqNo.set(r.evseId, seqNo);
+      await this.sendTransactionEvent(r.evseId, 'Updated', {
+        triggerReason: 'TxResumed',
+        transactionId: r.transactionId,
+        chargingState,
+        seqNo,
+      });
+      if (allowEnergy && chargingState === 'Charging') this.startMeterLoop(r.evseId);
+    }
+  }
+
   // The connections to try after a reboot when a security change is pending,
   // or null when the station reconnects as before.
   private rebootConnections(): ConnectionCandidate[] | null {
@@ -5417,7 +7068,12 @@ export class StationSimulator {
     if (this.is16) {
       const next = this.pendingSecurityProfile16;
       if (next == null) return null;
-      const serverUrl = next >= 2 ? cssConfig.OCPP_TLS_SERVER_URL : current.serverUrl;
+      // Moving from plain WebSocket (0/1) to TLS (2/3) needs the TLS endpoint;
+      // a station already on TLS keeps its URL.
+      const serverUrl =
+        next >= 2 && current.securityProfile < 2
+          ? cssConfig.OCPP_TLS_SERVER_URL
+          : current.serverUrl;
       return [{ ...current, serverUrl, securityProfile: next }, current];
     }
     const priority = (this.getConfigValue('OCPPCommCtrlr.NetworkConfigurationPriority') ?? '')
@@ -5616,6 +7272,41 @@ export class StationSimulator {
     }
   }
 
+  /**
+   * F01.FR.01: a remote start received before the EV is connected is authorized like a
+   * local action. A token that is not Accepted no longer authorizes the EVSE.
+   */
+  private async authorizeRemoteStart(
+    evseId: number,
+    idToken: string,
+    tokenType: string,
+  ): Promise<void> {
+    let status: string | undefined;
+    try {
+      const result = await this.sendAuthorize(idToken, tokenType);
+      status = (result['idTokenInfo'] as Record<string, unknown> | undefined)?.['status'] as
+        | string
+        | undefined;
+    } catch (err) {
+      console.warn(
+        `[${this.config.stationId}] Authorize for remote start failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+    const ctx = this.evseContexts.get(evseId);
+    // A response without idTokenInfo is malformed: keep the remote start
+    if (status == null || status === 'Accepted' || ctx == null) return;
+    if (ctx.transactionId != null || ctx.authorizedToken !== idToken) return;
+    console.log(
+      `[${this.config.stationId}] Remote start on EVSE ${String(evseId)} not authorized: ${status}`,
+    );
+    this.cancelEvConnectTimeoutTimer(evseId);
+    ctx.state = 'Available';
+    ctx.authorizedToken = null;
+    ctx.authorizedTokenType = null;
+    ctx.remoteStartId = null;
+  }
+
   /** OCPP 2.1: Pre-transaction EVConnectionTimeout for remote start without cable.
    *  No transaction has been started yet. When the timer fires, the station creates
    *  a brief transaction (Started + Ended) with EVConnectTimeout. */
@@ -5754,17 +7445,401 @@ export class StationSimulator {
     this.activeLogUploadRequestId = null;
   }
 
+  // ---------------------------------------------------------------------------
+  // Variable monitoring (OCPP 2.1 N07 events, N11-N15 periodic event streams)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Current value of a monitored variable: EVSE Power (W) from the meter,
+   * EVSE / Connector AvailabilityState from the connector status, otherwise
+   * the device model value. Null when the simulator does not know it.
+   */
+  private monitoredValue(
+    component: Record<string, unknown>,
+    variableName: string,
+  ): number | string | null {
+    const name = component['name'] as string;
+    const evse = component['evse'] as { id?: number; connectorId?: number } | undefined;
+    const evseId = evse?.id;
+    if (variableName === 'Power' && name === 'EVSE' && evseId != null) {
+      const gen = this.meterGens.get(evseId);
+      if (gen == null) return null;
+      return this.getActiveTransactionSync(evseId) != null ? gen.currentPowerW : 0;
+    }
+    if (variableName === 'AvailabilityState' && (name === 'EVSE' || name === 'Connector')) {
+      return evseId != null ? (this.evseConnectorStatus.get(evseId) ?? 'Available') : null;
+    }
+    const scope =
+      evseId != null && evse?.connectorId != null
+        ? `[${String(evseId)},${String(evse.connectorId)}]`
+        : evseId != null
+          ? `[${String(evseId)}]`
+          : '';
+    const raw = this.getConfigValue(`${name}${scope}.${variableName}`);
+    if (raw == null) return null;
+    const num = Number(raw);
+    return raw !== '' && Number.isFinite(num) ? num : raw;
+  }
+
+  private monitorMatches(
+    monitor: VariableMonitor,
+    component: Record<string, unknown>,
+    variableName: string,
+  ): boolean {
+    if (monitor.component['name'] !== component['name']) return false;
+    if (monitor.variable['name'] !== variableName) return false;
+    const mEvse = monitor.component['evse'] as { id?: number; connectorId?: number } | undefined;
+    const cEvse = component['evse'] as { id?: number; connectorId?: number } | undefined;
+    if (mEvse?.id != null && mEvse.id !== cEvse?.id) return false;
+    if (mEvse?.connectorId != null && mEvse.connectorId !== cEvse?.connectorId) return false;
+    return true;
+  }
+
+  /**
+   * N07: evaluate the threshold and delta monitors of a variable whose value
+   * is now `value`. Returns the events to report (severity filtered by the
+   * MonitoringLevel). A monitor's first observation only sets its baseline.
+   */
+  private evaluateMonitors(
+    component: Record<string, unknown>,
+    variableName: string,
+    value: number | string,
+    transactionId?: string | null,
+    reportedValue?: string,
+  ): MonitorEvent[] {
+    if (this.is16) return [];
+    if (this.getConfigValue('MonitoringCtrlr.Enabled') === 'false') return [];
+    const events: MonitorEvent[] = [];
+    for (const monitor of this.variableMonitors.values()) {
+      if (!this.monitorMatches(monitor, component, variableName)) continue;
+      if (monitor.transaction === true && transactionId == null) continue;
+      const fire = (trigger: string, cleared: boolean): void => {
+        if (monitor.severity > this.monitoringLevel) return;
+        const event: Record<string, unknown> = {
+          eventId: ++this.eventIdCounter,
+          timestamp: new Date().toISOString(),
+          trigger,
+          actualValue: reportedValue ?? String(value),
+          variableMonitoringId: monitor.id,
+          eventNotificationType: monitorNotificationType(monitor),
+          component: monitor.component['evse'] != null ? monitor.component : component,
+          variable: monitor.variable,
+          severity: monitor.severity,
+        };
+        if (cleared) event['cleared'] = true;
+        if (transactionId != null) event['transactionId'] = transactionId;
+        events.push({ severity: monitor.severity, event });
+      };
+      const limit = monitor.value;
+      if (monitor.type === 'UpperThreshold' || monitor.type === 'LowerThreshold') {
+        if (typeof value !== 'number' || limit == null) continue;
+        const beyond = monitor.type === 'UpperThreshold' ? value > limit : value < limit;
+        if (beyond && !this.monitorExceeded.has(monitor.id)) {
+          this.monitorExceeded.add(monitor.id);
+          fire('Alerting', false);
+        } else if (!beyond && this.monitorExceeded.has(monitor.id)) {
+          this.monitorExceeded.delete(monitor.id);
+          fire('Alerting', true);
+        }
+      } else if (monitor.type === 'Delta') {
+        const base = this.monitorDeltaBase.get(monitor.id);
+        if (base == null) {
+          this.monitorDeltaBase.set(monitor.id, value);
+          continue;
+        }
+        const changed =
+          typeof value === 'number' && typeof base === 'number'
+            ? value !== base && Math.abs(value - base) >= (limit ?? 0)
+            : String(value) !== String(base);
+        if (changed) {
+          this.monitorDeltaBase.set(monitor.id, value);
+          fire('Delta', false);
+        }
+      }
+    }
+    return events;
+  }
+
+  /**
+   * Send monitoring events. Offline, an event is queued only when its severity
+   * is at or below MonitoringCtrlr.OfflineQueuingSeverity (N07.FR.04);
+   * otherwise it is dropped.
+   */
+  private dispatchMonitorEvents(events: MonitorEvent[]): void {
+    for (const { severity, event } of events) {
+      const payload = {
+        generatedAt: new Date().toISOString(),
+        seqNo: 0,
+        tbc: false,
+        eventData: [event],
+      };
+      const queueIfAllowed = (): void => {
+        const queuing = Number(
+          this.getConfigValue('MonitoringCtrlr.OfflineQueuingSeverity') ?? '-1',
+        );
+        if (Number.isFinite(queuing) && severity <= queuing) {
+          this.queueOfflineMessage('NotifyEvent', payload);
+        }
+      };
+      if (!this.client.isConnected) {
+        queueIfAllowed();
+        continue;
+      }
+      void this.client.sendCall('NotifyEvent', payload).catch(() => {
+        if (!this.client.isConnected) queueIfAllowed();
+      });
+    }
+  }
+
+  /** Remove a monitor and stop what it was reporting (stream, periodic events). */
+  private removeMonitor(id: number): void {
+    this.variableMonitors.delete(id);
+    this.monitorDeltaBase.delete(id);
+    this.monitorExceeded.delete(id);
+    this.stopPeriodicNotifyEvents(id);
+    const stream = this.periodicStreams.get(id);
+    if (stream != null) {
+      // N13: the station closes the stream of a cleared monitor, after the
+      // ClearVariableMonitoringResponse.
+      setTimeout(() => {
+        void this.closeStream(stream);
+      }, 0);
+    }
+  }
+
+  /**
+   * N11-N13: a Periodic monitor reports its value every `value` seconds,
+   * through a periodic event stream when it has periodicEventStream params and
+   * the CSMS accepts the stream, otherwise through NotifyEvent (N11.FR.07).
+   * A monitor updated without stream params flushes and closes its stream.
+   */
+  private async applyPeriodicMonitor(monitorId: number): Promise<void> {
+    const monitor = this.variableMonitors.get(monitorId);
+    const existing = this.periodicStreams.get(monitorId);
+    if (monitor == null || monitor.type !== 'Periodic' || (monitor.value ?? 0) <= 0) {
+      this.stopPeriodicNotifyEvents(monitorId);
+      if (existing != null) await this.closeStream(existing);
+      return;
+    }
+    if (monitor.periodicEventStream == null) {
+      if (existing != null) await this.closeStream(existing);
+      this.startPeriodicNotifyEvents(monitor);
+      return;
+    }
+    if (existing != null) {
+      existing.interval = monitor.periodicEventStream.interval ?? existing.interval;
+      existing.values = monitor.periodicEventStream.values ?? existing.values;
+      this.restartStreamSampling(existing, monitor);
+      this.scheduleStreamFlush(existing);
+      return;
+    }
+    this.stopPeriodicNotifyEvents(monitorId);
+    const stream: PeriodicStream = {
+      id: ++this.streamIdCounter,
+      monitorId,
+      interval: monitor.periodicEventStream.interval ?? 0,
+      values: monitor.periodicEventStream.values ?? 0,
+      basetime: Date.now(),
+      data: [],
+      sampleTimer: null,
+      flushTimer: null,
+    };
+    const params: Record<string, number> = {};
+    if (monitor.periodicEventStream.interval != null) params['interval'] = stream.interval;
+    if (monitor.periodicEventStream.values != null) params['values'] = stream.values;
+    // Registered while the open request is pending: a CSMS request that arrives
+    // together with the OpenPeriodicEventStreamResponse (GetPeriodicEventStream,
+    // ClearVariableMonitoring) already sees the stream.
+    this.periodicStreams.set(monitorId, stream);
+    let accepted = false;
+    try {
+      const resp = await this.client.sendCall('OpenPeriodicEventStream', {
+        constantStreamData: { id: stream.id, variableMonitoringId: monitorId, params },
+      });
+      accepted = resp['status'] === 'Accepted';
+    } catch {
+      accepted = false;
+    }
+    if (this.periodicStreams.get(monitorId) !== stream) return; // cleared or replaced meanwhile
+    if (!accepted) {
+      // N11.FR.07: fall back to NotifyEvent
+      this.periodicStreams.delete(monitorId);
+      this.startPeriodicNotifyEvents(monitor);
+      return;
+    }
+    this.restartStreamSampling(stream, monitor);
+    this.scheduleStreamFlush(stream);
+  }
+
+  private startPeriodicNotifyEvents(monitor: VariableMonitor): void {
+    this.stopPeriodicNotifyEvents(monitor.id);
+    const periodMs = (monitor.value ?? 0) * 1000;
+    if (periodMs <= 0) return;
+    const timer = setInterval(() => {
+      const current = this.variableMonitors.get(monitor.id);
+      if (current == null) {
+        this.stopPeriodicNotifyEvents(monitor.id);
+        return;
+      }
+      if (current.severity > this.monitoringLevel) return;
+      const value = this.monitoredValue(current.component, current.variable['name'] as string);
+      if (value == null) return;
+      const evseId = (current.component['evse'] as { id?: number } | undefined)?.id;
+      const transactionId = evseId != null ? this.getActiveTransactionSync(evseId) : null;
+      const event: Record<string, unknown> = {
+        eventId: ++this.eventIdCounter,
+        timestamp: new Date().toISOString(),
+        trigger: 'Periodic',
+        actualValue: String(value),
+        variableMonitoringId: current.id,
+        eventNotificationType: monitorNotificationType(current),
+        component: current.component,
+        variable: current.variable,
+        severity: current.severity,
+      };
+      if (transactionId != null) event['transactionId'] = transactionId;
+      this.dispatchMonitorEvents([{ severity: current.severity, event }]);
+    }, periodMs);
+    this.periodicMonitorTimers.set(monitor.id, timer);
+  }
+
+  private stopPeriodicNotifyEvents(monitorId: number): void {
+    const timer = this.periodicMonitorTimers.get(monitorId);
+    if (timer != null) clearInterval(timer);
+    this.periodicMonitorTimers.delete(monitorId);
+  }
+
+  /** Record the monitored value every monitor `value` seconds into the stream buffer. */
+  private restartStreamSampling(stream: PeriodicStream, monitor: VariableMonitor): void {
+    if (stream.sampleTimer != null) clearInterval(stream.sampleTimer);
+    const periodMs = (monitor.value ?? 1) * 1000;
+    stream.sampleTimer = setInterval(() => {
+      const current = this.variableMonitors.get(stream.monitorId);
+      if (current == null) return;
+      const value = this.monitoredValue(current.component, current.variable['name'] as string);
+      if (value == null) return;
+      stream.data.push({ t: (Date.now() - stream.basetime) / 1000, v: String(value) });
+      if (stream.values > 0 && stream.data.length >= stream.values) this.flushStream(stream);
+    }, periodMs);
+  }
+
+  /** Send the buffered stream data every params.interval seconds. */
+  private scheduleStreamFlush(stream: PeriodicStream): void {
+    if (stream.flushTimer != null) clearInterval(stream.flushTimer);
+    stream.flushTimer =
+      stream.interval > 0
+        ? setInterval(() => {
+            this.flushStream(stream);
+          }, stream.interval * 1000)
+        : null;
+  }
+
+  /** NotifyPeriodicEventStream over the RPC framework SEND (no response). */
+  private flushStream(stream: PeriodicStream): void {
+    if (stream.data.length === 0) return;
+    const data = stream.data.splice(0, stream.data.length);
+    const sent = this.client.sendSend('NotifyPeriodicEventStream', {
+      id: stream.id,
+      pending: 0,
+      basetime: new Date(stream.basetime).toISOString(),
+      data: data.map((d) => ({ t: Math.round(d.t * 1000) / 1000, v: d.v })),
+    });
+    if (!sent) {
+      // Not connected: keep the data for the next send.
+      stream.data.unshift(...data);
+      return;
+    }
+    // Offsets of later data are relative to a new basetime.
+    stream.basetime = Date.now();
+  }
+
+  private stopStreamTimers(stream: PeriodicStream): void {
+    if (stream.sampleTimer != null) clearInterval(stream.sampleTimer);
+    if (stream.flushTimer != null) clearInterval(stream.flushTimer);
+    stream.sampleTimer = null;
+    stream.flushTimer = null;
+  }
+
+  /** N13: send what is buffered, then ClosePeriodicEventStream. */
+  private async closeStream(stream: PeriodicStream): Promise<void> {
+    this.stopStreamTimers(stream);
+    this.flushStream(stream);
+    this.periodicStreams.delete(stream.monitorId);
+    try {
+      await this.client.sendCall('ClosePeriodicEventStream', { id: stream.id });
+    } catch {
+      // Connection lost: the CSMS drops the streams of a disconnected station.
+    }
+  }
+
+  /**
+   * What the station's display shows for an EVSE (O01): the highest-priority
+   * configured message that applies now (start/end time, the EVSE state, the
+   * transaction), most recent first within a priority. The content is in the
+   * EV driver's preferred language when the message has it, otherwise the
+   * main message. Null when no message applies.
+   */
+  displayedMessage(evseId: number): { id: number; content: string; language?: string } | null {
+    if (this.is16) return null;
+    const now = Date.now();
+    const transactionId = this.evseContexts.get(evseId)?.transactionId ?? null;
+    const connectorStatus = this.evseConnectorStatus.get(evseId) ?? 'Available';
+    const state =
+      connectorStatus === 'Faulted'
+        ? 'Faulted'
+        : connectorStatus === 'Unavailable'
+          ? 'Unavailable'
+          : transactionId != null && this.evseChargingState.get(evseId) === 'Charging'
+            ? 'Charging'
+            : transactionId == null
+              ? 'Idle'
+              : null;
+    const rank: Record<string, number> = { AlwaysFront: 0, InFront: 1, NormalCycle: 2 };
+    const candidates = Array.from(this.displayMessagesCache.values()).filter((m) => {
+      const start = Date.parse((m['startDateTime'] as string | undefined) ?? '');
+      const end = Date.parse((m['endDateTime'] as string | undefined) ?? '');
+      if (Number.isFinite(start) && start > now) return false;
+      if (Number.isFinite(end) && end <= now) return false;
+      if (m['state'] != null && m['state'] !== state) return false;
+      if (m['transactionId'] != null && m['transactionId'] !== transactionId) return false;
+      return true;
+    });
+    candidates.sort(
+      (a, b) => (rank[a['priority'] as string] ?? 3) - (rank[b['priority'] as string] ?? 3),
+    );
+    const shown = candidates[0];
+    if (shown == null) return null;
+    const language = this.evseDriverLanguage.get(evseId);
+    const contents = [
+      shown['message'] as Record<string, unknown> | undefined,
+      ...((shown['messageExtra'] ?? []) as Array<Record<string, unknown>>),
+    ].filter((c): c is Record<string, unknown> => c != null);
+    const chosen =
+      (language != null ? contents.find((c) => c['language'] === language) : undefined) ??
+      contents[0];
+    if (chosen == null) return null;
+    const result: { id: number; content: string; language?: string } = {
+      id: shown['id'] as number,
+      content: String(chosen['content']),
+    };
+    if (typeof chosen['language'] === 'string') result.language = chosen['language'];
+    return result;
+  }
+
   private seedDefaultMonitors(): void {
-    // Seed custom (factory-default) Delta monitors on AvailabilityState.
-    // These are custom monitors that can be cleared by HardWiredOnly.
+    // Factory-default (preconfigured) Delta monitors on AvailabilityState with
+    // severity 9 (Debug). SetMonitoringBase HardWiredOnly removes them and
+    // FactoryDefault restores them. Severity 9 leaves the common severities free
+    // for CSMS monitors (N04.FR.10: Duplicate is per type and severity).
     const csMonId = ++this.monitorIdCounter;
     this.variableMonitors.set(csMonId, {
       id: csMonId,
       type: 'Delta',
-      severity: 8,
+      severity: 9,
       component: { name: 'ChargingStation' },
       variable: { name: 'AvailabilityState' },
       isHardwired: false,
+      preconfigured: true,
     });
 
     for (const evse of this.config.evses) {
@@ -5772,10 +7847,11 @@ export class StationSimulator {
       this.variableMonitors.set(evseMonId, {
         id: evseMonId,
         type: 'Delta',
-        severity: 8,
+        severity: 9,
         component: { name: 'EVSE', evse: { id: evse.evseId } },
         variable: { name: 'AvailabilityState' },
         isHardwired: false,
+        preconfigured: true,
       });
     }
 
@@ -5803,6 +7879,10 @@ export class StationSimulator {
       return true;
     }
     if (name === 'Connector') return true;
+    // Any other component of the device model (OCPPCommCtrlr, SecurityCtrlr, ...)
+    for (const key of this.configVariables.keys()) {
+      if (key.startsWith(name + '.') || key.startsWith(name + '[')) return true;
+    }
     return false;
   }
 
@@ -5815,11 +7895,15 @@ export class StationSimulator {
     const knownVars: Record<string, string[]> = {
       ChargingStation: ['AvailabilityState', 'Model', 'VendorName'],
       EVSE: ['AvailabilityState', 'Power'],
-      Connector: ['Available', 'ConnectorType'],
+      Connector: ['AvailabilityState', 'Available', 'ConnectorType'],
     };
-    const vars = knownVars[compName];
-    if (vars == null) return false;
-    return vars.includes(varName);
+    if (knownVars[compName]?.includes(varName) === true) return true;
+    // Any other variable of the device model
+    for (const key of this.configVariables.keys()) {
+      const parsed = this.parseConfigKey(key);
+      if (parsed.componentName === compName && parsed.variableName === varName) return true;
+    }
+    return false;
   }
 
   private async simulateDiagnosticsUpload(location: string): Promise<void> {
@@ -5850,9 +7934,40 @@ export class StationSimulator {
     if (this.activeRebootCandidate != null) {
       await this.commitConnection(this.activeRebootCandidate);
     }
+    if (!this.initialBootDone) {
+      // The first connection failed in start(); this one runs the boot sequence.
+      try {
+        await this.bootAfterPowerUp();
+        // Security events of the failed connection attempts
+        await this.replayOfflineQueue();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[${this.config.stationId}] Boot after reconnect failed: ${msg}`);
+      }
+      return;
+    }
+    // K01: profiles with invalidAfterOfflineDuration stop applying for good
+    // after an offline period longer than their maxOfflineDuration.
+    if (!this.is16 && this.offlineSince != null) {
+      this.invalidateProfilesAfterOffline(Date.now() - this.offlineSince);
+    }
+    // Only a reboot (or a boot not yet Accepted) sends BootNotification again.
+    // After a plain connection loss the station resumes the session (OCPP 1.6
+    // 4.2, OCPP 2.1 B01.FR.01 and B04).
+    const reboot = this.rebootOnReconnect || this.bootStatus !== 'Accepted';
+    this.rebootOnReconnect = false;
+    if (!reboot) {
+      await this.resumeAfterConnectionLoss();
+      return;
+    }
+    this.offlineSince = null;
+    this.statusesAtDisconnect = null;
     try {
       await this.updateStationStatus('booting');
       await this.sendBootNotification('PowerUp');
+      // Pending/Rejected: the boot retry timer reports the statuses once Accepted.
+      if (this.bootStatus !== 'Accepted') return;
+      await this.sendChargePointStatus16();
       // Report actual connector status (may have changed while offline)
       for (const evse of this.config.evses) {
         const ctx = this.evseContexts.get(evse.evseId);
@@ -5868,14 +7983,8 @@ export class StationSimulator {
         }
         await this.sendStatusNotification(evse.evseId, evse.connectorId, currentStatus);
       }
-      // Send SecurityEventNotification for startup (OCPP 2.1)
-      if (!this.is16) {
-        try {
-          await this.sendSecurityEventNotification('StartupOfTheDevice');
-        } catch {
-          // Non-critical
-        }
-      }
+      await this.sendStartupSecurityEvent();
+      if (this.is16) await this.stopInterruptedTransactions16();
       // Handle preserved transaction resumption (OCPP 2.1)
       if (!this.is16 && this.preservedTransactions.size > 0) {
         await this.handleTransactionResumption();
@@ -5886,6 +7995,205 @@ export class StationSimulator {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[${this.config.stationId}] Reconnect startup failed: ${msg}`);
+    }
+  }
+
+  /**
+   * OCPP 2.1 CSMS root certificates the station trusts: the CA it was
+   * provisioned with and the installed CSMSRootCertificates.
+   */
+  private csmsRootCertificates(): X509Certificate[] {
+    const provisioned =
+      this.config.caCert != null ? (parseCertificateChain(this.config.caCert) ?? []) : [];
+    return [...this.storedCertificates('CSMSRootCertificate'), ...provisioned];
+  }
+
+  /** OCPP 2.1: the TLS trust store follows the installed CSMS root certificates. */
+  private refreshTrustAnchors(): void {
+    if (this.is16) return;
+    this.client.setTrustAnchors(this.csmsRootCertificates().map((cert) => cert.toString()));
+  }
+
+  /** A05.FR.02: a valid CSMSRootCertificate is installed. */
+  private hasValidCsmsRootCertificate(): boolean {
+    return this.csmsRootCertificates().some((cert) => isWithinValidity(cert));
+  }
+
+  /** A05.FR.03: a valid ChargingStationCertificate (and its key) is installed. */
+  private hasValidChargingStationCertificate(): boolean {
+    const leaf = parseCertificateChain(this.config.clientCert ?? '')?.[0];
+    return (
+      leaf != null &&
+      this.config.clientKey != null &&
+      this.config.clientKey !== '' &&
+      isWithinValidity(leaf) &&
+      certificateMatchesPrivateKey(leaf, this.config.clientKey)
+    );
+  }
+
+  /**
+   * A02: generate a key pair and send its CSR in a SignCertificateRequest.
+   * When the CSMS accepts it but no CertificateSignedRequest follows, resend
+   * after CertSigningWaitMinimum, doubling the wait CertSigningRepeatTimes
+   * times (A02.FR.17-19).
+   */
+  private async requestCertificateSigning(certificateType: string): Promise<void> {
+    this.clearCertSigningTimer(certificateType);
+    const v2g = certificateType === 'V2GCertificate';
+    const organizationName =
+      this.getConfigValue('SecurityCtrlr.OrganizationName') ?? this.config.vendorName;
+    // A00.FR.511: CN of the Charging Station certificate is its serial number.
+    const { csrPem, privateKeyPem } = await generateKeyPairAndCsr({
+      commonName: v2g ? this.config.stationId : this.config.serialNumber,
+      organizationName,
+    });
+    this.pendingCsrKeys.set(certificateType, [privateKeyPem]);
+    await this.sendSignCertificateWithBackoff(certificateType, csrPem, 0);
+  }
+
+  private async sendSignCertificateWithBackoff(
+    certificateType: string,
+    csrPem: string,
+    doublings: number,
+  ): Promise<void> {
+    const response = await this.sendSignCertificate(csrPem, certificateType);
+    if (response['status'] !== 'Accepted') return;
+    const waitMinimum = Number(this.getConfigValue('SecurityCtrlr.CertSigningWaitMinimum') ?? '');
+    const repeatTimes = Number(this.getConfigValue('SecurityCtrlr.CertSigningRepeatTimes') ?? '');
+    if (!Number.isFinite(waitMinimum) || waitMinimum <= 0) return;
+    if (!Number.isFinite(repeatTimes) || doublings > repeatTimes) return;
+    const timer = setTimeout(
+      () => {
+        this.certSigningTimers.delete(certificateType);
+        if (this.destroyed || !this.pendingCsrKeys.has(certificateType)) return;
+        void this.sendSignCertificateWithBackoff(certificateType, csrPem, doublings + 1).catch(
+          (err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`[${this.config.stationId}] SignCertificate resend failed: ${msg}`);
+          },
+        );
+      },
+      waitMinimum * 1000 * Math.pow(2, doublings),
+    );
+    this.certSigningTimers.set(certificateType, timer);
+  }
+
+  private clearCertSigningTimer(certificateType: string): void {
+    const timer = this.certSigningTimers.get(certificateType);
+    if (timer != null) clearTimeout(timer);
+    this.certSigningTimers.delete(certificateType);
+  }
+
+  /**
+   * CertificateSignedRequest (A02.FR.06-08): accept a chain that is valid,
+   * matches a CSR of this station and is issued by a trusted root; otherwise
+   * reject it and raise InvalidChargingStationCertificate (A02.FR.07).
+   */
+  private handleCertificateSigned(payload: Record<string, unknown>): Record<string, unknown> {
+    const certificateType =
+      (payload['certificateType'] as string | undefined) ?? 'ChargingStationCertificate';
+    const chainPem = (payload['certificateChain'] as string | undefined) ?? '';
+    const v2g = certificateType === 'V2GCertificate';
+    const chain = parseCertificateChain(chainPem);
+    const leaf = chain?.[0];
+    // A02.FR.06: the leaf carries the key of a CSR this station sent, and the
+    // chain is valid and part of the CSO (or V2G) certificate hierarchy.
+    const privateKey =
+      leaf != null
+        ? (this.pendingCsrKeys.get(certificateType) ?? []).find((key) =>
+            certificateMatchesPrivateKey(leaf, key),
+          )
+        : undefined;
+    const roots = v2g ? this.storedCertificates('V2GRootCertificate') : this.csmsRootCertificates();
+    if (chain == null || leaf == null || privateKey == null || !chainsToTrustedRoot(chain, roots)) {
+      console.log(
+        `[${this.config.stationId}] CertificateSigned rejected: invalid ${certificateType}`,
+      );
+      void this.sendSecurityEventNotification(
+        'InvalidChargingStationCertificate',
+        undefined,
+        `CertificateSignedRequest ${certificateType} chain failed validation`,
+      ).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[${this.config.stationId}] Security event not sent: ${msg}`);
+      });
+      return { status: 'Rejected' };
+    }
+    this.clearCertSigningTimer(certificateType);
+    if (v2g) {
+      const issuer = chain[1] ?? roots.find((root) => isIssuedBy(leaf, root)) ?? leaf;
+      const hashData = certificateHashData(leaf, issuer);
+      this.installedCertificatesCache.set(hashData.serialNumber, {
+        certificateType: 'V2GCertificateChain',
+        certificateHashData: { ...hashData },
+        certificate: chainPem,
+      });
+      return { status: 'Accepted' };
+    }
+    // Switch to the new certificate by reconnecting (A02.FR.08).
+    this.config.clientCert = chainPem;
+    this.config.clientKey = privateKey;
+    this.client.updateConnection({ clientCert: chainPem, clientKey: privateKey });
+    void this.persistClientCertificate();
+    if (this.certificateReconnectTimer != null) clearTimeout(this.certificateReconnectTimer);
+    this.certificateReconnectTimer = setTimeout(() => {
+      this.certificateReconnectTimer = null;
+      if (!this.destroyed) this.client.reconnectNow();
+    }, 2000);
+    return { status: 'Accepted' };
+  }
+
+  /**
+   * Connection restored without a reboot: report the connector statuses that
+   * changed while offline (all of them when the offline period exceeded
+   * OCPPCommCtrlr.OfflineThreshold, 2.1 B04.FR.01/02) and send the queued
+   * messages. OCPP 1.6 sends the queued transaction messages first, so the
+   * Central System learns of an offline-started transaction before its
+   * Charging status (OCTT TC_037_1).
+   */
+  private async resumeAfterConnectionLoss(): Promise<void> {
+    const offlineMs = this.offlineSince == null ? 0 : Date.now() - this.offlineSince;
+    const before = this.statusesAtDisconnect ?? new Map<number, string>();
+    const thresholdSec = Number(this.getConfigValue('OCPPCommCtrlr.OfflineThreshold') ?? '');
+    const reportAll =
+      !this.is16 && Number.isFinite(thresholdSec) && offlineMs > thresholdSec * 1000;
+    try {
+      if (this.is16) await this.replayOfflineQueue();
+      for (const evse of this.config.evses) {
+        const current = this.evseConnectorStatus.get(evse.evseId) ?? 'Available';
+        if (reportAll || before.get(evse.evseId) !== current) {
+          await this.sendStatusNotification(evse.evseId, evse.connectorId, current);
+        }
+      }
+      if (!this.is16) await this.replayOfflineQueue();
+      // Reported: the next offline period starts from these statuses.
+      this.offlineSince = null;
+      this.statusesAtDisconnect = null;
+      await this.updateStationStatus('available');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[${this.config.stationId}] Resume after connection loss failed: ${msg}`);
+    }
+  }
+
+  /** OCPP 1.6: stop the transactions a power loss interrupted, reason PowerLoss. */
+  private async stopInterruptedTransactions16(): Promise<void> {
+    const evseIds = [...this.interruptedTransactions16];
+    this.interruptedTransactions16 = new Set();
+    for (const evseId of evseIds) {
+      if (this.evseContexts.get(evseId)?.transactionId == null) continue;
+      await this.stopCharging(evseId, 'PowerLoss');
+    }
+  }
+
+  /** OCPP 2.1 security event StartupOfTheDevice, sent once the boot is Accepted. */
+  private async sendStartupSecurityEvent(): Promise<void> {
+    if (this.is16) return;
+    try {
+      await this.sendSecurityEventNotification('StartupOfTheDevice');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[${this.config.stationId}] StartupOfTheDevice security event failed: ${msg}`);
     }
   }
 
@@ -5969,6 +8277,7 @@ export class StationSimulator {
         this.evseTransactionStartTime.delete(evseId);
         this.evseLimitReached.delete(evseId);
         this.evseLastDriverLimits.delete(evseId);
+        this.evseInvalidIdMaxEnergy.delete(evseId);
         this.evseLastLocalCost.delete(evseId);
 
         // For E_116: after ending, if cable is still plugged, start a new transaction
@@ -6015,13 +8324,41 @@ export class StationSimulator {
   }
 
   private async replayOfflineQueue(): Promise<void> {
+    if (this.replayingOfflineQueue) return;
+    this.replayingOfflineQueue = true;
+    try {
+      await this.drainOfflineQueue();
+    } finally {
+      this.replayingOfflineQueue = false;
+    }
+  }
+
+  private async drainOfflineQueue(): Promise<void> {
     while (this.offlineMessageQueue.length > 0) {
-      const msg = this.dequeueOfflineMessage();
+      // Peek, send, then dequeue: a message stays queued until the CSMS
+      // acknowledges it, so a connection lost mid-replay keeps it for the next
+      // reconnect and GetTransactionStatus still reports it (E14.FR.04).
+      const msg = this.offlineMessageQueue[0];
       if (msg == null) break;
+      let response: Record<string, unknown>;
       try {
         console.log(`[${this.config.stationId}] Replaying queued ${msg.action}`);
-        const response = await this.client.sendCall(msg.action, msg.payload);
-
+        response = await this.client.sendCall(msg.action, msg.payload);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (!this.client.isConnected) {
+          console.warn(
+            `[${this.config.stationId}] Replay of ${msg.action} interrupted (${errMsg}), kept in queue`,
+          );
+          return;
+        }
+        // The CSMS answered with a CALLERROR or did not answer: drop it.
+        this.dequeueOfflineMessage();
+        console.error(`[${this.config.stationId}] Failed to replay ${msg.action}: ${errMsg}`);
+        continue;
+      }
+      this.dequeueOfflineMessage();
+      try {
         // Handle StartTransaction response (1.6): check if CS rejected the idTag
         if (msg.action === 'StartTransaction' && this.is16) {
           const idTagInfo = response['idTagInfo'] as Record<string, unknown> | undefined;
@@ -6041,55 +8378,44 @@ export class StationSimulator {
           }
         }
 
-        // Handle TransactionEvent response (2.1): check if CS rejected the idToken
-        if (msg.action === 'TransactionEvent' && !this.is16) {
+        // Handle TransactionEvent response (2.1): idTokenInfo answers the idToken
+        // of the request, so only a request that carried one can be rejected.
+        if (msg.action === 'TransactionEvent' && !this.is16 && msg.payload['idToken'] != null) {
           const idTokenInfo = response['idTokenInfo'] as Record<string, unknown> | undefined;
           if (idTokenInfo != null && idTokenInfo['status'] !== 'Accepted') {
             // Update auth cache with the CSMS response
             const idTokenObj = msg.payload['idToken'] as Record<string, unknown> | undefined;
             const tokenValue = idTokenObj?.['idToken'] as string | undefined;
             if (tokenValue != null) {
-              this.authCache.set(tokenValue, idTokenInfo);
+              this.cacheIdTokenInfo(tokenValue, idTokenInfo);
             }
-            // Find the evseId from the payload
-            const evseObj = msg.payload['evse'] as Record<string, unknown> | undefined;
-            const evseId = (evseObj?.['id'] as number | undefined) ?? 1;
-            const stopOnInvalid = this.getConfigValue('TxCtrlr.StopTxOnInvalidId') === 'true';
-            const maxEnergy = Number(this.getConfigValue('TxCtrlr.MaxEnergyOnInvalidId') ?? '0');
-            if (stopOnInvalid && maxEnergy <= 0) {
-              // Stop the transaction with Deauthorized
-              await this.stopCharging(evseId, 'DeAuthorized');
-            } else if (!stopOnInvalid && maxEnergy <= 0) {
-              // Suspend EVSE (do not stop transaction)
-              const connectorId = this.getConnectorId(evseId);
-              this.evseConnectorStatus.set(evseId, 'SuspendedEVSE');
-              await this.sendStatusNotification(evseId, connectorId, 'SuspendedEVSE');
-              // Send TransactionEvent Updated with SuspendedEVSE chargingState
-              const ctx = this.evseContexts.get(evseId);
-              if (ctx?.transactionId != null) {
-                const seqNo = (this.evseSeqNo.get(evseId) ?? 0) + 1;
-                this.evseSeqNo.set(evseId, seqNo);
-                await this.sendTransactionEvent(evseId, 'Updated', {
-                  triggerReason: 'ChargingStateChanged',
-                  transactionId: ctx.transactionId,
-                  chargingState: 'SuspendedEVSE',
-                  seqNo,
-                });
-              }
-            }
-            // When maxEnergy > 0: continue charging with limited energy (handled by meter gen)
-            // When stopOnInvalid && maxEnergy > 0: deauthorize after delivering maxEnergy
-            if (stopOnInvalid && maxEnergy > 0) {
-              // For simplicity, deauthorize immediately (real station would wait until energy limit)
-              await this.stopCharging(evseId, 'DeAuthorized');
-            }
+            // E05 / C12: the transaction this queued message belongs to
+            const info = msg.payload['transactionInfo'] as Record<string, unknown> | undefined;
+            const evseId = await this.findEvseForTransaction(String(info?.['transactionId']));
+            if (evseId != null) await this.handleRejectedTransactionIdToken(evseId);
           }
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        console.error(`[${this.config.stationId}] Failed to replay ${msg.action}: ${errMsg}`);
+        console.error(
+          `[${this.config.stationId}] Failed to process replayed ${msg.action} response: ${errMsg}`,
+        );
       }
     }
+  }
+
+  /**
+   * True when the offline queue holds a transaction-related message that is not
+   * delivered yet (OCPP 2.1 E14): for the given transaction, or any when omitted.
+   * A message stays queued until the CSMS acknowledges it (replayOfflineQueue).
+   */
+  private hasQueuedTransactionMessages(transactionId?: string): boolean {
+    return this.offlineMessageQueue.some((m) => {
+      if (m.action !== 'TransactionEvent') return false;
+      if (transactionId == null) return true;
+      const info = m.payload['transactionInfo'] as Record<string, unknown> | undefined;
+      return info?.['transactionId'] === transactionId;
+    });
   }
 
   /** Queue a message for later replay when back online. */
@@ -6100,8 +8426,11 @@ export class StationSimulator {
     );
   }
 
-  /** Simulate a power cycle: stop active transactions, disconnect, reconnect. */
-  async simulatePowerCycle(reason: string = 'PowerLoss'): Promise<void> {
+  /**
+   * Simulate a power cycle: stop active transactions, disconnect, reconnect.
+   * powerOffMs is how long the station stays without power.
+   */
+  async simulatePowerCycle(reason: string = 'PowerLoss', powerOffMs = 0): Promise<void> {
     // Stop all active transactions with the given reason
     for (const evse of this.config.evses) {
       const ctx = this.evseContexts.get(evse.evseId);
@@ -6113,20 +8442,32 @@ export class StationSimulator {
         }
       }
     }
-    // Drop connection (simulates reboot). Auto-reconnect will trigger onReconnect.
-    this.client.simulateConnectionLoss();
+    // Drop the connection and come back up: the reconnect boots.
+    this.rebootOnReconnect = true;
+    this.client.reconnectNow(powerOffMs);
   }
 
   /**
-   * Simulate a power cycle that preserves transaction state (OCPP 2.1 only).
-   * On reconnect, the station checks TxCtrlr.ResumptionTimeout to decide
-   * whether to resume or end the transaction. Used for E_112-E_116 tests.
+   * Simulate a power loss without stopping the transactions first.
+   * OCPP 2.1: on reconnect, the station checks TxCtrlr.ResumptionTimeout to
+   * decide whether to resume or end the transaction (E_112-E_116).
+   * powerOffMs is how long the station stays without power.
    */
-  async simulatePowerCyclePreserveTransactions(): Promise<void> {
+  simulatePowerCyclePreserveTransactions(powerOffMs = 0): Promise<void> {
     if (this.is16) {
-      // 1.6 does not support transaction resumption
-      await this.simulatePowerCycle('PowerLoss');
-      return;
+      // OCPP 1.6 has no transaction resumption. A Charge Point without back-up
+      // power cannot stop its transactions before going down; it stops them
+      // with reason PowerLoss once it is back up (OCTT TC_032_2).
+      this.interruptedTransactions16 = new Set();
+      for (const evse of this.config.evses) {
+        if (this.evseContexts.get(evse.evseId)?.transactionId != null) {
+          this.interruptedTransactions16.add(evse.evseId);
+          this.stopMeterLoop(evse.evseId);
+        }
+      }
+      this.rebootOnReconnect = true;
+      this.client.reconnectNow(powerOffMs);
+      return Promise.resolve();
     }
 
     // Save transaction state per EVSE before disconnecting. Persist the
@@ -6164,8 +8505,10 @@ export class StationSimulator {
 
     this.preservedTransactions = preservedTransactions;
 
-    // Drop connection (simulates reboot). Auto-reconnect will trigger onReconnect.
-    this.client.simulateConnectionLoss();
+    // Drop the connection and come back up: the reconnect boots.
+    this.rebootOnReconnect = true;
+    this.client.reconnectNow(powerOffMs);
+    return Promise.resolve();
   }
 
   /** Simulate a connector lock failure by sending a NotifyEvent with
@@ -6227,6 +8570,19 @@ export class StationSimulator {
       // Advance simulation state
       gen.tick(idle, this.evsePowerLimits.get(evseId) ?? null);
 
+      // N07: threshold and delta monitors on the EVSE Power
+      if (!this.is16) {
+        const powerTx = this.getActiveTransactionSync(evseId);
+        this.dispatchMonitorEvents(
+          this.evaluateMonitors(
+            { name: 'EVSE', evse: { id: evseId } },
+            'Power',
+            powerTx != null ? gen.currentPowerW : 0,
+            powerTx,
+          ),
+        );
+      }
+
       // Read configured measurands
       const measurands = this.getSampledMeasurands();
       const sampledValues = gen.generate(measurands, this.is16);
@@ -6248,10 +8604,10 @@ export class StationSimulator {
           chargingState: this.evseChargingState.get(evseId) ?? 'Charging',
           seqNo,
           meterValue: [
-            {
+            this.signMeterValue(evseId, {
               timestamp: new Date().toISOString(),
               sampledValue: periodicValues,
-            },
+            }),
           ],
         }).catch(() => {});
       } else {
@@ -6279,6 +8635,15 @@ export class StationSimulator {
       // OCPP 2.1: send RunningCost event if local cost calculation is active
       if (!this.is16 && txId != null) {
         void this.sendRunningCostIfNeeded(evseId, txId, gen).catch(() => {});
+      }
+
+      // E05.FR.03: energy allowed after a rejected idToken is used up
+      const invalidIdMaxEnergy = this.evseInvalidIdMaxEnergy.get(evseId);
+      if (!this.is16 && txId != null && invalidIdMaxEnergy != null) {
+        if (gen.energyWh >= invalidIdMaxEnergy) {
+          void this.suspendForInvalidId(evseId, txId).catch(() => {});
+          return;
+        }
       }
 
       // OCPP 2.1: check transaction limits (energy, time, cost)
@@ -6424,17 +8789,45 @@ export class StationSimulator {
       }
     }
 
-    // Check cost limit (using CSMS-provided totalCost)
+    // Check cost limit: local cost calculation (E16.FR.16) or the cost from CSMS (E16.FR.15)
     if (effectiveMaxCost != null) {
-      const totalCost = this.evseTotalCost.get(evseId);
-      const localCost = this.calculateLocalCost(evseId, gen);
-      const currentCost = totalCost ?? localCost;
+      const currentCost = this.usesLocalCostCalculation(evseId)
+        ? this.calculateLocalCost(evseId, gen)
+        : this.evseTotalCost.get(evseId);
       if (currentCost != null && currentCost >= effectiveMaxCost) {
         this.evseLimitReached.set(evseId, true);
         await this.sendLimitReachedEvent(evseId, txId, 'CostLimitReached');
         return;
       }
     }
+  }
+
+  /**
+   * E16.FR.16: with TariffCostCtrlr enabled and a default tariff for the EVSE, the station
+   * calculates the cost itself and ignores cost updates from CSMS. Otherwise CSMS
+   * calculates the cost (E16.FR.11, E16.FR.15).
+   */
+  private usesLocalCostCalculation(evseId: number): boolean {
+    if (this.getConfigValue('TariffCostCtrlr.Enabled') === 'false') return false;
+    return this.defaultTariffIdFor(evseId) != null;
+  }
+
+  /**
+   * E16.FR.15: checks the cost from CSMS (TransactionEventResponse.totalCost or
+   * CostUpdatedRequest) against the cost limit. Returns true when the limit is reached now.
+   */
+  private async checkCentralCostLimit(evseId: number, txId: string): Promise<boolean> {
+    if (this.usesLocalCostCalculation(evseId)) return false;
+    if (this.evseLimitReached.get(evseId) ?? false) return false;
+    const maxCost = this.pickMostRestrictive(
+      this.evseTransactionLimits.get(evseId)?.maxCost,
+      this.getDriverSetLimits()?.maxCost,
+    );
+    const totalCost = this.evseTotalCost.get(evseId);
+    if (maxCost == null || totalCost == null || totalCost < maxCost) return false;
+    this.evseLimitReached.set(evseId, true);
+    await this.sendLimitReachedEvent(evseId, txId, 'CostLimitReached');
+    return true;
   }
 
   /** Return the smaller of two optional limit values. */
@@ -6571,6 +8964,122 @@ export class StationSimulator {
     return val.split(',').filter(Boolean);
   }
 
+  /** SampledDataCtrlr.TxEndedMeasurands (2.1), falling back to the TxUpdated set. */
+  private getTxEndedMeasurands(): string[] {
+    const val = this.getConfigValue('SampledDataCtrlr.TxEndedMeasurands');
+    if (val == null) return this.getSampledMeasurands();
+    return val.split(',').filter(Boolean);
+  }
+
+  /**
+   * OCPP 2.1 J01.FR.21 / J02.FR.21: when SignReadings is true for the kind of
+   * reading (AlignedDataCtrlr for Sample.Clock, SampledDataCtrlr otherwise),
+   * every sampled value gets a signedMeterValue from the meter's signing unit.
+   * publicKey follows OCPPCommCtrlr.PublicKeyWithSignedMeterValue: the key on
+   * every value (EveryMeterValue), on the first of the transaction
+   * (OncePerTransaction), or "" (Never).
+   */
+  private signMeterValue(
+    evseId: number,
+    meterValue: { timestamp: string; sampledValue: SampledValueRecord[] },
+  ): { timestamp: string; sampledValue: SampledValueRecord[] } {
+    if (this.is16) return meterValue;
+    const aligned = meterValue.sampledValue[0]?.['context'] === 'Sample.Clock';
+    const signKey = aligned ? 'AlignedDataCtrlr.SignReadings' : 'SampledDataCtrlr.SignReadings';
+    if (this.getConfigValue(signKey) !== 'true') return meterValue;
+    this.meterSigner ??= new OcmfMeterSigner({
+      vendorName: this.config.vendorName,
+      model: this.config.model,
+      serialNumber: this.config.serialNumber,
+      firmwareVersion: this.config.firmwareVersion,
+    });
+    const signer = this.meterSigner;
+    const mode = this.getConfigValue('OCPPCommCtrlr.PublicKeyWithSignedMeterValue') ?? 'Never';
+    return {
+      ...meterValue,
+      sampledValue: meterValue.sampledValue.map((sv) => {
+        let includeKey = mode === 'EveryMeterValue';
+        if (mode === 'OncePerTransaction' && !this.evsePublicKeySent.has(evseId)) {
+          includeKey = true;
+          this.evsePublicKeySent.add(evseId);
+        }
+        const unit = (sv['unitOfMeasure'] as { unit?: string } | undefined)?.unit;
+        return {
+          ...sv,
+          signedMeterValue: signer.sign(
+            {
+              value: Number(sv['value']),
+              measurand: sv['measurand'] as string | undefined,
+              unit,
+            },
+            meterValue.timestamp,
+            (sv['context'] as string | undefined) ?? 'Sample.Periodic',
+            includeKey,
+          ),
+        };
+      }),
+    };
+  }
+
+  /**
+   * Collect meter data for the TransactionEvent Ended while the transaction
+   * runs: a Sample.Periodic reading every SampledDataCtrlr.TxEndedInterval and
+   * a Sample.Clock reading at every AlignedDataCtrlr.TxEndedInterval boundary
+   * (0 disables either). Readings use the matching TxEndedMeasurands.
+   */
+  private startTxEndedSampling(evseId: number, transactionId: string): void {
+    this.stopTxEndedSampling(evseId);
+    if (this.is16) return;
+    this.evseTxEndedMeterValues.set(evseId, []);
+    const timers: Array<ReturnType<typeof setTimeout>> = [];
+    this.txEndedTimers.set(evseId, timers);
+    const record = (context: 'Sample.Periodic' | 'Sample.Clock', timestamp: Date): void => {
+      if (this.evseContexts.get(evseId)?.transactionId !== transactionId) return;
+      const gen = this.meterGens.get(evseId);
+      if (gen == null) return;
+      const measurandKey =
+        context === 'Sample.Clock'
+          ? 'AlignedDataCtrlr.TxEndedMeasurands'
+          : 'SampledDataCtrlr.TxEndedMeasurands';
+      const measurands = (this.getConfigValue(measurandKey) ?? '').split(',').filter(Boolean);
+      const sampledValue = gen.generate(measurands, false).map((sv) => ({ ...sv, context }));
+      if (sampledValue.length === 0) return;
+      this.evseTxEndedMeterValues
+        .get(evseId)
+        ?.push({ timestamp: timestamp.toISOString(), sampledValue });
+    };
+    const sampledS = Number(this.getConfigValue('SampledDataCtrlr.TxEndedInterval') ?? '0');
+    if (Number.isFinite(sampledS) && sampledS > 0) {
+      timers.push(
+        setInterval(() => {
+          record('Sample.Periodic', new Date());
+        }, sampledS * 1000),
+      );
+    }
+    const alignedS = Number(this.getConfigValue('AlignedDataCtrlr.TxEndedInterval') ?? '0');
+    if (Number.isFinite(alignedS) && alignedS > 0) {
+      const ms = alignedS * 1000;
+      const next = Math.ceil(Date.now() / ms) * ms;
+      timers.push(
+        setTimeout(() => {
+          record('Sample.Clock', new Date(next));
+          let boundary = next;
+          timers.push(
+            setInterval(() => {
+              boundary += ms;
+              record('Sample.Clock', new Date(boundary));
+            }, ms),
+          );
+        }, next - Date.now()),
+      );
+    }
+  }
+
+  private stopTxEndedSampling(evseId: number): void {
+    for (const timer of this.txEndedTimers.get(evseId) ?? []) clearTimeout(timer);
+    this.txEndedTimers.delete(evseId);
+  }
+
   private getSampledIntervalMs(): number {
     if (this.is16) {
       const secs = Number(this.getConfigValue('MeterValueSampleInterval') ?? '10');
@@ -6659,27 +9168,43 @@ export class StationSimulator {
 
   private async loadConfigVariables(): Promise<void> {
     await this.configVariables.load();
-    if (this.configVariables.size === 0) {
-      this.seedDefaultConfigVariables();
-    }
-    // Stations provisioned before this variable existed get it on boot.
+    // Seeds every default on first boot. Stations provisioned before a
+    // variable existed get it with its default (like a firmware update adding
+    // a device model variable); stored values are never overwritten.
+    this.seedDefaultConfigVariables();
+    // Stations provisioned before these variables existed get them on boot.
     if (!this.is16 && !this.configVariables.has(CSS_STATUS_REPORTING_KEY)) {
       this.configVariables.set(CSS_STATUS_REPORTING_KEY, {
         value: CSS_STATUS_REPORTING_DEFAULT,
         readonly: false,
       });
     }
+    if (!this.is16) {
+      for (const d of cssSecurityCtrlrDefaults(this.config.vendorName)) {
+        if (!this.configVariables.has(d.key)) {
+          this.configVariables.set(d.key, { value: d.value, readonly: d.readonly });
+        }
+      }
+    }
     await this.installedCertificatesCache.load();
     if (this.installedCertificatesCache.size === 0) {
-      this.seedDefaultCertificates();
+      if (this.is16) {
+        this.seedCertificates16();
+      } else {
+        this.seedDefaultCertificates();
+      }
     }
+    this.refreshTrustAnchors();
+    // No factory charging profiles: a station leaves the factory without any,
+    // so the composite schedule is the local limit until the CSMS sets one (K08).
     await this.chargingProfilesCache.load();
-    if (this.chargingProfilesCache.size === 0 && !this.is16) {
-      this.seedDefaultChargingProfiles();
-    }
     await this.displayMessagesCache.load();
     await this.localAuthEntries.load();
     await this.variableMonitors.load();
+    // Continue numbering after the stored monitors (hardwired ones use a high range).
+    for (const mon of this.variableMonitors.values()) {
+      if (!mon.isHardwired && mon.id > this.monitorIdCounter) this.monitorIdCounter = mon.id;
+    }
     await this.customerDataStore.load();
     await this.authCache.load();
     await this.loadOfflineMessageQueue();
@@ -6884,27 +9409,6 @@ export class StationSimulator {
     return item;
   }
 
-  private seedDefaultChargingProfiles(): void {
-    for (const evse of this.config.evses) {
-      const profileId = evse.evseId;
-      this.chargingProfilesCache.set(profileId, {
-        id: profileId,
-        chargingProfileId: profileId,
-        stackLevel: 0,
-        chargingProfilePurpose: 'TxDefaultProfile',
-        chargingProfileKind: 'Absolute',
-        _evseId: evse.evseId,
-        chargingSchedule: [
-          {
-            id: profileId,
-            chargingRateUnit: 'A',
-            chargingSchedulePeriod: [{ startPeriod: 0, limit: 32, numberPhases: 3 }],
-          },
-        ],
-      });
-    }
-  }
-
   private seedDefaultCertificates(): void {
     const defaults = [
       {
@@ -6915,16 +9419,6 @@ export class StationSimulator {
           issuerNameHash: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2',
           issuerKeyHash: 'b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3',
           serialNumber: '01',
-        },
-      },
-      {
-        serial: '02',
-        certificateType: 'ManufacturerRootCertificate',
-        certificateHashData: {
-          hashAlgorithm: 'SHA256',
-          issuerNameHash: 'c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4',
-          issuerKeyHash: 'd4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5',
-          serialNumber: '02',
         },
       },
       {
@@ -6964,6 +9458,16 @@ export class StationSimulator {
         certificateHashData: d.certificateHashData,
       });
     }
+    // Factory ManufacturerRootCertificate: firmware signing certificates chain to it (L01).
+    const manufacturerRoot = parseCertificateChain(CSS_MANUFACTURER_ROOT_CA_PEM)?.[0];
+    if (manufacturerRoot != null) {
+      const hashData = certificateHashData(manufacturerRoot, manufacturerRoot);
+      this.installedCertificatesCache.set(hashData.serialNumber, {
+        certificateType: 'ManufacturerRootCertificate',
+        certificateHashData: { ...hashData },
+        certificate: CSS_MANUFACTURER_ROOT_CA_PEM,
+      });
+    }
   }
 
   private seedDefaultConfigVariables(): void {
@@ -6985,7 +9489,19 @@ export class StationSimulator {
       })),
     });
     for (const d of defaults) {
-      this.configVariables.set(d.key, { value: d.value, readonly: d.readonly });
+      if (this.configVariables.has(d.key)) continue;
+      this.configVariables.set(d.key, {
+        value: this.config.configOverrides?.[d.key] ?? d.value,
+        readonly: d.readonly,
+      });
+    }
+    // WebPaymentsCtrlr.SharedSecret: a random value on first boot (2.1 Part 2, C25)
+    const sharedSecretKey = 'WebPaymentsCtrlr.SharedSecret';
+    if (!this.is16 && !this.configVariables.has(sharedSecretKey)) {
+      this.configVariables.set(sharedSecretKey, {
+        value: this.config.configOverrides?.[sharedSecretKey] ?? randomBytes(16).toString('hex'),
+        readonly: false,
+      });
     }
     // Test-tx transaction for OCTT tariff tests is seeded via
     // setConfigValue('_seedTestTransaction', 'true') from the test, not on every boot

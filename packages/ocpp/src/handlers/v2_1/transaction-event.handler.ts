@@ -2,11 +2,17 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { eq, and } from 'drizzle-orm';
-import { db, driverTokens } from '@evtivity/database';
+import { client, db, driverTokens } from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { TransactionEventRequest } from '../../generated/v2_1/types/messages/TransactionEventRequest.js';
 import type { TransactionEventResponse } from '../../generated/v2_1/types/messages/TransactionEventResponse.js';
 import { logAuthorizeAttempt } from '../authorize-log.js';
+import { prepaidCacheExpiry, prepaidCredit, prepaidMaxCost } from '../prepaid.js';
+import { findAdHocTransactionLimit } from '../ad-hoc-payment-limit.js';
+import { energyRegisterWh } from '../../server/meter-units.js';
+import { projectionQueueFor, sessionPricedKey } from '../../server/projection-queue.js';
+import { transactionCostAt } from '../../server/session-cost.js';
+import type { TransactionCost } from '../../server/session-cost.js';
 
 export async function handleTransactionEvent(
   ctx: HandlerContext,
@@ -23,6 +29,29 @@ export async function handleTransactionEvent(
     },
     'TransactionEvent received',
   );
+
+  const transactionId = request.transactionInfo.transactionId;
+  const queue = projectionQueueFor(ctx.eventBus);
+  // The energy register reading of this event, in whole Wh (meter_stop is an
+  // integer column). The Ended reading is the session's final meter value, as
+  // the 1.6 StopTransaction meterStop is.
+  const register = energyRegisterWh(request.meterValue);
+  const registerWh = register != null ? Math.round(register) : null;
+  const meterStopWh = request.eventType === 'Ended' ? registerWh : null;
+
+  // Central cost calculation: the response carries the running cost for
+  // Updated (I02 alternative scenario) and the final cost for Ended
+  // (I03.FR.02). A station that sends costDetails calculates the cost itself,
+  // and the CSMS then omits totalCost (OCTT TC_E_108_CSMS). Updated and Ended
+  // wait for the projections already queued for the transaction and the
+  // station (the station sends each event right after the previous response).
+  const centralCost = request.costDetails == null;
+  let cost: TransactionCost | null = null;
+  if (centralCost && request.eventType !== 'Started') {
+    cost = await costForTransaction(ctx, request, registerWh, () =>
+      queue.settled([transactionId, ctx.stationId], PROJECTION_SETTLE_TIMEOUT_MS),
+    );
+  }
 
   await ctx.eventBus.publish({
     eventType: 'ocpp.TransactionEvent',
@@ -43,6 +72,10 @@ export async function handleTransactionEvent(
       evseId: request.evse?.id ?? 0,
       connectorId: request.evse?.connectorId,
       reservationId: request.reservationId,
+      ...(meterStopWh != null ? { meterStop: meterStopWh } : {}),
+      ...(request.eventType === 'Ended' && cost?.calculated === true
+        ? { finalCostCents: cost.totalCostCents }
+        : {}),
     },
   });
 
@@ -64,7 +97,27 @@ export async function handleTransactionEvent(
     });
   }
 
+  // Started: the session row exists only once this event is projected, so the
+  // running cost waits for the projection to snapshot the tariff (a signal
+  // before its notifications and payment gate), or for the whole projection
+  // when it ends without one.
+  if (centralCost && request.eventType === 'Started') {
+    cost = await costForTransaction(ctx, request, registerWh, () =>
+      Promise.race([
+        queue.waitForSignal(
+          sessionPricedKey(ctx.stationId, transactionId),
+          PROJECTION_SETTLE_TIMEOUT_MS,
+        ),
+        queue.settled([transactionId], PROJECTION_SETTLE_TIMEOUT_MS),
+      ]),
+    );
+  }
+
   const response: TransactionEventResponse = {};
+  if (cost != null) {
+    // Major units of the session currency (two-decimal currencies only).
+    response.totalCost = cost.totalCostCents / 100;
+  }
 
   // Per OCPP 2.1 spec, include idTokenInfo when the request contains an idToken.
   // Stations may suspend charging when idTokenInfo is missing. We mirror the
@@ -82,7 +135,9 @@ export async function handleTransactionEvent(
     let matchedTokenId: string | null = null;
     let matchedDriverId: string | null = null;
     let matchedExpiresAt: Date | null = null;
-    let outcome: 'accepted' | 'blocked' | 'expired' | 'unknown' | 'db_error' = 'accepted';
+    let matchedPrepaidBalanceCents: number | null = null;
+    let outcome: 'accepted' | 'blocked' | 'expired' | 'no_credit' | 'unknown' | 'db_error' =
+      'accepted';
     let reason: string | null = null;
 
     try {
@@ -93,6 +148,7 @@ export async function handleTransactionEvent(
           isActive: driverTokens.isActive,
           expiresAt: driverTokens.expiresAt,
           revokedAt: driverTokens.revokedAt,
+          prepaidBalanceCents: driverTokens.prepaidBalanceCents,
         })
         .from(driverTokens)
         .where(and(eq(driverTokens.idToken, idToken), eq(driverTokens.tokenType, tokenType)));
@@ -112,6 +168,7 @@ export async function handleTransactionEvent(
         } else {
           groupIdToken = { idToken, type: tokenType };
           matchedExpiresAt = token.expiresAt;
+          matchedPrepaidBalanceCents = token.prepaidBalanceCents ?? null;
         }
       } else {
         // No row in driver_tokens. For Central/Local types this is expected
@@ -129,12 +186,48 @@ export async function handleTransactionEvent(
       reason = 'db_unreachable';
     }
 
+    // Prepaid token (C17): the remaining credit is the transaction's cost
+    // limit (C17.FR.03), sent once: stations send the idToken only in the event
+    // after authorization. The cacheExpiryDateTime repeats the Authorize one.
+    let prepaidExpiry: string | undefined;
+    const credit =
+      status === 'Accepted' ? prepaidCredit(matchedPrepaidBalanceCents) : 'not_prepaid';
+    if (credit === 'credit' && matchedPrepaidBalanceCents != null) {
+      prepaidExpiry = prepaidCacheExpiry(ctx.stationId, idToken);
+      if (request.eventType !== 'Ended') {
+        response.transactionLimit = { maxCost: prepaidMaxCost(matchedPrepaidBalanceCents) };
+      }
+    } else if (credit === 'no_credit') {
+      prepaidExpiry = new Date().toISOString();
+      status = 'NoCredit';
+      outcome = 'no_credit';
+      reason = 'no_credit';
+      groupIdToken = undefined;
+    }
+
+    // Ad hoc payment (C24 payment terminal, C25 QR code): the CSMS started the
+    // transaction with the payment's idToken and returns its limit when the
+    // transaction starts (C24.FR.02, C25.FR.24).
+    if (request.eventType === 'Started' && matchedTokenId == null && status === 'Accepted') {
+      try {
+        const limit = await findAdHocTransactionLimit(ctx.stationId, idToken);
+        if (limit != null) response.transactionLimit = limit;
+      } catch (err) {
+        ctx.logger.error(
+          { err, stationId: ctx.stationId, transactionId: request.transactionInfo.transactionId },
+          'Ad hoc payment limit lookup failed; responding without transactionLimit',
+        );
+      }
+    }
+
     response.idTokenInfo = {
       status,
       ...(groupIdToken != null ? { groupIdToken } : {}),
-      ...(status === 'Accepted' && matchedExpiresAt != null
-        ? { cacheExpiryDateTime: matchedExpiresAt.toISOString() }
-        : {}),
+      ...(prepaidExpiry != null
+        ? { cacheExpiryDateTime: prepaidExpiry }
+        : status === 'Accepted' && matchedExpiresAt != null
+          ? { cacheExpiryDateTime: matchedExpiresAt.toISOString() }
+          : {}),
     };
 
     // Forensic log on session start only: stations using LocalAuthList skip
@@ -159,4 +252,43 @@ export async function handleTransactionEvent(
   }
 
   return response as unknown as Record<string, unknown>;
+}
+
+/** Bound on waiting for the projections a TransactionEvent response depends on. */
+const PROJECTION_SETTLE_TIMEOUT_MS = 5000;
+
+/**
+ * Cost of the transaction at this event, or null when it is not known. Waits
+ * with `waitForSession` for the projections the session row depends on first.
+ * Fail-open: when the wait times out or the lookup fails, the response omits
+ * totalCost (for Ended, the projection then computes the final cost itself).
+ */
+async function costForTransaction(
+  ctx: HandlerContext,
+  request: TransactionEventRequest,
+  registerWh: number | null,
+  waitForSession: () => Promise<boolean>,
+): Promise<TransactionCost | null> {
+  const transactionId = request.transactionInfo.transactionId;
+  try {
+    if (!(await waitForSession())) {
+      ctx.logger.warn(
+        { stationId: ctx.stationId, transactionId, eventType: request.eventType },
+        'Projections still running; responding to TransactionEvent without totalCost',
+      );
+      return null;
+    }
+    return await transactionCostAt(client, {
+      stationId: ctx.stationId,
+      transactionId,
+      at: new Date(request.timestamp),
+      meterRegisterWh: registerWh,
+    });
+  } catch (err) {
+    ctx.logger.warn(
+      { err, stationId: ctx.stationId, transactionId, eventType: request.eventType },
+      'Transaction cost lookup failed; responding to TransactionEvent without totalCost',
+    );
+    return null;
+  }
 }

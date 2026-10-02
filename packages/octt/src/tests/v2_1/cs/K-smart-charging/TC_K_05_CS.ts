@@ -1,7 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { CsTestCase, StepResult } from '../../../../cs-types.js';
+import type { CsTestCase, CsTestContext, StepResult } from '../../../../cs-types.js';
+import { startAndWaitForCharging } from '../../../../cs-test-helpers.js';
 
 const handler = async (action: string) => {
   if (action === 'BootNotification')
@@ -15,6 +16,64 @@ const handler = async (action: string) => {
   return {};
 };
 
+/**
+ * Memory State: install a TxDefaultProfile (stackLevel 0, Absolute, limit 6 A)
+ * with the given id on an EVSE. A station leaves the factory without charging
+ * profiles, so every clear test installs the profile it clears.
+ */
+async function installProfile(
+  ctx: CsTestContext,
+  steps: StepResult[],
+  evseId: number,
+  id: number,
+  duration?: number,
+): Promise<void> {
+  const res = await ctx.server.sendCommand('SetChargingProfile', {
+    evseId,
+    chargingProfile: {
+      id,
+      stackLevel: 0,
+      chargingProfilePurpose: 'TxDefaultProfile',
+      chargingProfileKind: 'Absolute',
+      chargingSchedule: [
+        {
+          id,
+          chargingRateUnit: 'A',
+          startSchedule: new Date().toISOString(),
+          ...(duration != null ? { duration } : {}),
+          chargingSchedulePeriod: [{ startPeriod: 0, limit: 6, numberPhases: 3 }],
+        },
+      ],
+    },
+  });
+  steps.push({
+    step: 0,
+    description: `Memory State: TxDefaultProfile ${String(id)} on EVSE ${String(evseId)}`,
+    status: res['status'] === 'Accepted' ? 'passed' : 'failed',
+    expected: 'Accepted',
+    actual: String(res['status']),
+  });
+}
+
+/** Reusable State EnergyTransferStarted. */
+async function energyTransferStarted(ctx: CsTestContext, steps: StepResult[]): Promise<void> {
+  const charging = await startAndWaitForCharging(ctx, 1, 'OCTT-TOKEN-001');
+  steps.push({
+    step: 0,
+    description: 'Reusable State EnergyTransferStarted',
+    status: charging != null ? 'passed' : 'failed',
+    expected: 'chargingState Charging',
+    actual: charging != null ? 'Charging' : 'not reached',
+  });
+}
+
+const firstLimit = (res: Record<string, unknown>): number | undefined =>
+  (
+    (res['schedule'] as Record<string, unknown> | undefined)?.['chargingSchedulePeriod'] as
+      | Array<Record<string, unknown>>
+      | undefined
+  )?.[0]?.['limit'] as number | undefined;
+
 /** TC_K_05_CS: Clear Charging Profile - With chargingProfileId */
 export const TC_K_05_CS: CsTestCase = {
   id: 'TC_K_05_CS',
@@ -27,6 +86,7 @@ export const TC_K_05_CS: CsTestCase = {
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     ctx.server.setMessageHandler(handler);
+    await installProfile(ctx, steps, 1, 1);
     try {
       const res = await ctx.server.sendCommand('ClearChargingProfile', { chargingProfileId: 1 });
       const status = (res as Record<string, unknown>).status;
@@ -85,6 +145,8 @@ export const TC_K_06_CS: CsTestCase = {
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     ctx.server.setMessageHandler(handler);
+    await installProfile(ctx, steps, 1, 1);
+    await energyTransferStarted(ctx, steps);
     try {
       const res = await ctx.server.sendCommand('ClearChargingProfile', {
         chargingProfileCriteria: { chargingProfilePurpose: 'TxDefaultProfile', stackLevel: 0 },
@@ -223,6 +285,9 @@ export const TC_K_09_CS: CsTestCase = {
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     ctx.server.setMessageHandler(handler);
+    // Memory State: TxDefaultProfile, duration 400 + max time deviation, limit 6 A
+    await installProfile(ctx, steps, 1, 1, 402);
+    await energyTransferStarted(ctx, steps);
 
     // Step 1-2: GetCompositeSchedule before clear
     try {
@@ -232,12 +297,13 @@ export const TC_K_09_CS: CsTestCase = {
         chargingRateUnit: 'A',
       });
       const status = (res as Record<string, unknown>).status;
+      const limit = firstLimit(res);
       steps.push({
         step: 2,
-        description: 'GetCompositeScheduleResponse Accepted (before clear)',
-        status: status === 'Accepted' ? 'passed' : 'failed',
-        expected: 'Accepted',
-        actual: `status: ${String(status)}`,
+        description: 'GetCompositeScheduleResponse Accepted (before clear), limit of the profile',
+        status: status === 'Accepted' && limit === 6 ? 'passed' : 'failed',
+        expected: 'Accepted, limit 6',
+        actual: `status: ${String(status)}, limit ${String(limit)}`,
       });
     } catch (err) {
       steps.push({
@@ -280,12 +346,13 @@ export const TC_K_09_CS: CsTestCase = {
         chargingRateUnit: 'A',
       });
       const status = (res as Record<string, unknown>).status;
+      const limit = firstLimit(res);
       steps.push({
         step: 5,
-        description: 'GetCompositeScheduleResponse Accepted (after clear)',
-        status: status === 'Accepted' ? 'passed' : 'failed',
-        expected: 'Accepted with higher local limit',
-        actual: `status: ${String(status)}`,
+        description: 'GetCompositeScheduleResponse Accepted (after clear), the local limit',
+        status: status === 'Accepted' && limit != null && limit > 6 ? 'passed' : 'failed',
+        expected: 'Accepted with a limit above 6 (local limit)',
+        actual: `status: ${String(status)}, limit ${String(limit)}`,
       });
     } catch (err) {
       steps.push({
@@ -312,9 +379,13 @@ export const TC_K_24_CS: CsTestCase = {
   description:
     'The CSMS clears multiple profiles matching a stackLevel and purpose combination across EVSEs.',
   purpose: 'To verify clearing multiple profiles across EVSEs by purpose and stackLevel.',
+  // Prerequisite: the Charging Station has 2 or more EVSE.
+  stationConfig: { evseCount: 2 },
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     ctx.server.setMessageHandler(handler);
+    await installProfile(ctx, steps, 1, 1);
+    await installProfile(ctx, steps, 2, 2);
     try {
       const res = await ctx.server.sendCommand('ClearChargingProfile', {
         chargingProfileCriteria: { chargingProfilePurpose: 'TxDefaultProfile', stackLevel: 0 },

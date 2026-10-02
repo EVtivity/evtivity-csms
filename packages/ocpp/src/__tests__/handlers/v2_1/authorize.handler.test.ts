@@ -65,6 +65,20 @@ vi.mock('@evtivity/database', () => ({
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
 }));
 
+const validateContractCertificateMock = vi.fn();
+
+vi.mock('../../../services/pki/contract-certificate-validation.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import('../../../services/pki/contract-certificate-validation.js')
+    >();
+  return {
+    applyContractCertificateVerdict: actual.applyContractCertificateVerdict,
+    validateContractCertificate: (...args: unknown[]) =>
+      validateContractCertificateMock(...args) as unknown,
+  };
+});
+
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((a: unknown, b: unknown) => ({ type: 'eq', a, b })),
   and: vi.fn((...args: unknown[]) => ({ type: 'and', args })),
@@ -152,34 +166,133 @@ describe('v2_1 Authorize handler', () => {
     expect(selectFn).not.toHaveBeenCalled();
   });
 
-  it('accepts eMAID token without lookup and sets certificateStatus when certificate present', async () => {
+  it('looks up an eMAID token in driver_tokens like any other token', async () => {
+    whereQueue = [
+      [{ id: 'tok-e', driverId: 'drv-e', isActive: true, expiresAt: null, revokedAt: null }],
+      [],
+    ];
+    const { handleAuthorize } = await import('../../../handlers/v2_1/authorize.handler.js');
+    const { ctx } = makeCtx({ idToken: { idToken: 'emaid-1', type: 'eMAID' } });
+    const response = await handleAuthorize(ctx);
+
+    expect(response).toEqual({
+      idTokenInfo: { status: 'Accepted', groupIdToken: { idToken: 'emaid-1', type: 'eMAID' } },
+    });
+    expect(selectFn).toHaveBeenCalled();
+    expect(validateContractCertificateMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown eMAID as Invalid', async () => {
+    whereQueue = [[]];
+    const { handleAuthorize } = await import('../../../handlers/v2_1/authorize.handler.js');
+    const { ctx } = makeCtx({ idToken: { idToken: 'emaid-unknown', type: 'eMAID' } });
+    const response = await handleAuthorize(ctx);
+
+    expect(response).toEqual({ idTokenInfo: { status: 'Invalid' } });
+  });
+
+  it('returns certificateStatus Accepted for a valid chain and an accepted eMAID (C07.FR.14)', async () => {
+    whereQueue = [
+      [{ id: 'tok-e', driverId: 'drv-e', isActive: true, expiresAt: null, revokedAt: null }],
+      [],
+    ];
+    validateContractCertificateMock.mockResolvedValueOnce('Accepted');
+    const hashData = [
+      {
+        hashAlgorithm: 'SHA256',
+        issuerNameHash: 'aa',
+        issuerKeyHash: 'bb',
+        serialNumber: '1',
+        responderURL: 'https://ocsp.example.com',
+      },
+    ];
     const { handleAuthorize } = await import('../../../handlers/v2_1/authorize.handler.js');
     const { ctx } = makeCtx({
-      idToken: { idToken: 'emaid-1', type: 'eMAID' },
+      idToken: { idToken: 'emaid-2', type: 'eMAID' },
+      iso15118CertificateHashData: hashData,
+    });
+    const response = await handleAuthorize(ctx);
+
+    expect(validateContractCertificateMock).toHaveBeenCalledWith(
+      { iso15118CertificateHashData: hashData },
+      expect.anything(),
+    );
+    expect(response).toMatchObject({
+      idTokenInfo: { status: 'Accepted', groupIdToken: { idToken: 'emaid-2', type: 'eMAID' } },
+      certificateStatus: 'Accepted',
+    });
+  });
+
+  it('returns Invalid and CertificateRevoked for a revoked chain on any token type (C07.FR.16)', async () => {
+    whereQueue = [
+      [{ id: 'tok-1', driverId: 'drv-1', isActive: true, expiresAt: null, revokedAt: null }],
+      [],
+    ];
+    validateContractCertificateMock.mockResolvedValueOnce('CertificateRevoked');
+    const { handleAuthorize } = await import('../../../handlers/v2_1/authorize.handler.js');
+    const { ctx } = makeCtx({
+      idToken: { idToken: 'rfid-1', type: 'ISO14443' },
+      iso15118CertificateHashData: [
+        {
+          hashAlgorithm: 'SHA256',
+          issuerNameHash: 'aa',
+          issuerKeyHash: 'bb',
+          serialNumber: '1',
+          responderURL: 'https://ocsp.example.com',
+        },
+      ],
+    });
+    const response = await handleAuthorize(ctx);
+
+    expect(response).toEqual({
+      idTokenInfo: { status: 'Invalid' },
+      certificateStatus: 'CertificateRevoked',
+    });
+  });
+
+  it('returns ContractCancelled when the chain is valid but the eMAID is unknown (C07.FR.13)', async () => {
+    whereQueue = [[]];
+    validateContractCertificateMock.mockResolvedValueOnce('Accepted');
+    const { handleAuthorize } = await import('../../../handlers/v2_1/authorize.handler.js');
+    const { ctx } = makeCtx({
+      idToken: { idToken: 'emaid-3', type: 'eMAID' },
+      certificate: 'cert-pem',
+    });
+    const response = await handleAuthorize(ctx);
+
+    expect(validateContractCertificateMock).toHaveBeenCalledWith(
+      { certificate: 'cert-pem' },
+      expect.anything(),
+    );
+    expect(response).toEqual({
+      idTokenInfo: { status: 'Invalid' },
+      certificateStatus: 'ContractCancelled',
+    });
+  });
+
+  it('fails closed with CertChainError when the validation throws (C07.FR.17)', async () => {
+    whereQueue = [
+      [{ id: 'tok-e', driverId: 'drv-e', isActive: true, expiresAt: null, revokedAt: null }],
+      [],
+    ];
+    validateContractCertificateMock.mockRejectedValueOnce(new Error('db down'));
+    const { handleAuthorize } = await import('../../../handlers/v2_1/authorize.handler.js');
+    const { ctx } = makeCtx({
+      idToken: { idToken: 'emaid-4', type: 'eMAID' },
       certificate: 'cert-pem',
     });
     const response = await handleAuthorize(ctx);
 
     expect(response).toEqual({
-      idTokenInfo: { status: 'Accepted', groupIdToken: { idToken: 'emaid-1', type: 'eMAID' } },
-      certificateStatus: 'Accepted',
+      idTokenInfo: { status: 'Invalid' },
+      certificateStatus: 'CertChainError',
     });
   });
 
-  it('sets certificateStatus for eMAID when iso15118CertificateHashData present', async () => {
+  it('omits certificateStatus when no certificate or hash data is sent', async () => {
+    whereQueue = [[]];
     const { handleAuthorize } = await import('../../../handlers/v2_1/authorize.handler.js');
-    const { ctx } = makeCtx({
-      idToken: { idToken: 'emaid-2', type: 'eMAID' },
-      iso15118CertificateHashData: [{ hashAlgorithm: 'SHA256' }],
-    });
-    const response = await handleAuthorize(ctx);
-
-    expect(response).toMatchObject({ certificateStatus: 'Accepted' });
-  });
-
-  it('omits certificateStatus for eMAID when no certificate or hash data', async () => {
-    const { handleAuthorize } = await import('../../../handlers/v2_1/authorize.handler.js');
-    const { ctx } = makeCtx({ idToken: { idToken: 'emaid-3', type: 'eMAID' } });
+    const { ctx } = makeCtx({ idToken: { idToken: 'emaid-5', type: 'eMAID' } });
     const response = await handleAuthorize(ctx);
 
     expect(response).not.toHaveProperty('certificateStatus');

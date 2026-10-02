@@ -859,6 +859,11 @@
     "scanPhoto": "从照片扫描",
     "noQrFound": "未在该照片中找到二维码。请重试。"
   },
+  "qr": {
+    "checking": "正在检查二维码",
+    "invalidTitle": "二维码无效",
+    "invalidMessage": "此二维码无效或已过期。请重新扫描充电站上显示的二维码。"
+  },
   "watch": {
     "notifyWhenFree": "空闲时通知我",
     "watching": "取消关注",

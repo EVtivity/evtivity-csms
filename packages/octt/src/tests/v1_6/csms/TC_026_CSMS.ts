@@ -31,7 +31,7 @@ export const TC_026_CSMS: TestCase = {
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v16', 'RemoteStartTransaction', {
         stationId: ctx.stationId,
-        idTag: 'OCTT-TOKEN-001',
+        idTag: ctx.tokens.valid,
         connectorId: 1,
       });
     } else {

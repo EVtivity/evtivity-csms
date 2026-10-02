@@ -31,7 +31,7 @@ export const TC_B_21_CSMS: TestCase = {
       seqNo: 0,
       transactionInfo: { transactionId: txId, chargingState: 'Charging' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
 
     let receivedReset = false;
@@ -57,7 +57,7 @@ export const TC_B_21_CSMS: TestCase = {
                 triggerReason: 'StopAuthorized',
                 seqNo: 1,
                 transactionInfo: { transactionId: txId, chargingState: 'EVConnected' },
-                idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+                idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
               });
               await ctx.client.sendCall('TransactionEvent', {
                 eventType: 'Ended',

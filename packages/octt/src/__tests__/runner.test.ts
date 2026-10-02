@@ -128,6 +128,9 @@ vi.mock('../api-client.js', () => ({
 
 import { eq } from 'drizzle-orm';
 import { runTests } from '../runner.js';
+import { executeTest } from '../executor.js';
+import { getRegistry } from '../registry.js';
+import type { TestCase, TestCaseResult } from '../types.js';
 
 describe('runTests', () => {
   const config = {
@@ -165,5 +168,41 @@ describe('runTests', () => {
   it('creates the API key for an active admin-role user', async () => {
     await runTests({ ...config, apiUrl: 'http://localhost:7102' }, vi.fn());
     expect(eq).toHaveBeenCalledWith('name', 'admin');
+  });
+
+  it('reports tests the CSMS PICS excludes as notApplicable without executing them', async () => {
+    const testCase = (id: string): TestCase => ({
+      id,
+      name: id,
+      module: 'M-certificate-management',
+      version: 'ocpp2.1',
+      sut: 'csms',
+      description: 'test',
+      purpose: 'test',
+      execute: vi.fn(),
+    });
+    vi.mocked(getRegistry).mockReturnValueOnce([
+      testCase('TC_M_24_CSMS'),
+      testCase('TC_M_26_CSMS'),
+      testCase('TC_M_28_CSMS'),
+      testCase('TC_M_100_CSMS'),
+    ]);
+    vi.mocked(executeTest).mockClear();
+
+    const results: TestCaseResult[] = [];
+    const summary = await runTests(config, (r) => results.push(r));
+
+    expect(summary.total).toBe(4);
+    expect(summary.passed).toBe(1);
+    expect(summary.notApplicable).toBe(3);
+    expect(vi.mocked(executeTest)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(executeTest).mock.calls[0]?.[0].id).toBe('TC_M_24_CSMS');
+
+    const na = results.find((r) => r.testId === 'TC_M_26_CSMS');
+    expect(na?.result.status).toBe('notApplicable');
+    expect(na?.result.durationMs).toBe(0);
+    expect(na?.result.steps).toEqual([]);
+    expect(na?.result.notApplicable?.item).toBe('ContractCertificateInstallationEV');
+    expect(na?.result.notApplicable?.reason).toContain('contract certificate provisioning');
   });
 });

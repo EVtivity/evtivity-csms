@@ -4,7 +4,10 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import { createServer, type Server } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
+import { createServer as createNetServer, type Server as NetServer, type Socket } from 'node:net';
+import type { SecureContextOptions, SecureVersion, TLSSocket } from 'node:tls';
+import { randomUUID, type X509Certificate } from 'node:crypto';
 import type { OcppVersion } from './types.js';
 
 type OcppCall = [2, string, string, Record<string, unknown>];
@@ -29,6 +32,91 @@ type MessageWaiter = {
   timeout: ReturnType<typeof setTimeout>;
 };
 
+/** TLS settings for a wss:// test server (security profile 2 and 3 tests). */
+export interface TestServerTls {
+  /** Server certificate (PEM) and its private key. */
+  cert: string;
+  key: string;
+  /** Ask the station for a client certificate (security profile 3). */
+  requestCert: boolean;
+  /** CA certificates the station client certificates must chain to. */
+  ca?: string | undefined;
+  /** TLS versions the server offers (default TLS 1.2 to 1.3). */
+  minVersion?: SecureVersion | undefined;
+  maxVersion?: SecureVersion | undefined;
+}
+
+/** What the Test System observed of the TLS connection an HTTP upgrade came over. */
+export interface TlsHandshakeInfo {
+  protocol: string | null;
+  cipher: string | null;
+  /** Cipher suites the station offered in its ClientHello (IANA code points). */
+  offeredCipherSuites: number[];
+  /** Station client certificate, when it sent one. */
+  clientCertificate: X509Certificate | null;
+  /** The client certificate chains to the server's `ca`. */
+  clientCertificateAuthorized: boolean;
+  clientCertificateError: string | null;
+}
+
+/** One HTTP upgrade request the station sent. */
+export interface UpgradeAttempt {
+  at: number;
+  url: string;
+  authorization: string | null;
+  accepted: boolean;
+  tls: TlsHandshakeInfo | null;
+}
+
+// TLS cipher suite code points (IANA).
+export const TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 = 0xc02b;
+export const TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 = 0xc02c;
+export const TLS_RSA_WITH_AES_128_GCM_SHA256 = 0x009c;
+export const TLS_RSA_WITH_AES_256_GCM_SHA384 = 0x009d;
+
+/**
+ * Cipher suites of a TLS ClientHello record, or null while the record is
+ * incomplete. Throws when the data is not a ClientHello.
+ */
+export function parseClientHelloCipherSuites(data: Buffer): number[] | null {
+  if (data.length < 5) return null;
+  if (data[0] !== 0x16) throw new Error('Not a TLS handshake record');
+  const recordLength = data.readUInt16BE(3);
+  if (data.length < 5 + recordLength) return null;
+  let offset = 5;
+  if (data[offset] !== 0x01) throw new Error('Not a ClientHello');
+  offset += 4; // handshake type + length
+  offset += 2 + 32; // client_version + random
+  const sessionIdLength = data[offset] ?? 0;
+  offset += 1 + sessionIdLength;
+  const suitesLength = data.readUInt16BE(offset);
+  offset += 2;
+  const suites: number[] = [];
+  for (let i = 0; i < suitesLength; i += 2) suites.push(data.readUInt16BE(offset + i));
+  return suites;
+}
+
+function secureContextOptions(tls: TestServerTls): SecureContextOptions {
+  const legacy = tls.maxVersion === 'TLSv1' || tls.maxVersion === 'TLSv1.1';
+  return {
+    cert: tls.cert,
+    key: tls.key,
+    ...(tls.ca != null ? { ca: tls.ca } : {}),
+    minVersion: tls.minVersion ?? (legacy ? 'TLSv1' : 'TLSv1.2'),
+    maxVersion: tls.maxVersion ?? 'TLSv1.3',
+    // OpenSSL refuses TLS 1.0/1.1 at the default security level.
+    ...(legacy ? { ciphers: 'DEFAULT@SECLEVEL=0' } : {}),
+  };
+}
+
+/** A TLS handshake the server saw, with the client certificate (DER) when one was sent. */
+export interface TlsHandshake {
+  at: number;
+  ok: boolean;
+  clientCertificate: Buffer | null;
+  error?: string;
+}
+
 const DEFAULT_COMMAND_TIMEOUT_MS = 15_000;
 const DEFAULT_CONNECTION_TIMEOUT_MS = 5_000;
 
@@ -37,7 +125,15 @@ const DEFAULT_CONNECTION_TIMEOUT_MS = 5_000;
  * Accepts exactly one station connection per test.
  */
 export class OcppTestServer {
-  private httpServer: Server | null = null;
+  private httpServer: Server | HttpsServer | null = null;
+  // TLS mode: a TCP front reads each ClientHello before the TLS server takes the socket.
+  private netServer: NetServer | null = null;
+  private tlsSettings: TestServerTls | null = null;
+  private readonly offeredSuitesByPort = new Map<number, number[]>();
+  private readonly openSockets = new Set<Socket>();
+  private readonly _upgradeAttempts: UpgradeAttempt[] = [];
+  private readonly handshakes: TlsHandshake[] = [];
+  private readonly handshakeWaiters: Array<(h: TlsHandshake) => void> = [];
   private wss: WebSocketServer | null = null;
   private ws: WebSocket | null = null;
   private _stationId: string | null = null;
@@ -54,6 +150,11 @@ export class OcppTestServer {
   private connectionRejecter: ((reason: Error) => void) | null = null;
   private rejectConnections = false;
 
+  /** Times (ms epoch) of connection attempts the Test System refused. */
+  get refusedAttempts(): readonly number[] {
+    return this._upgradeAttempts.filter((a) => !a.accepted).map((a) => a.at);
+  }
+
   get isConnected(): boolean {
     return this._isConnected;
   }
@@ -66,12 +167,50 @@ export class OcppTestServer {
     return this._protocol;
   }
 
+  /** HTTP upgrade requests received, oldest first. */
+  get upgradeAttempts(): readonly UpgradeAttempt[] {
+    return this._upgradeAttempts;
+  }
+
+  /** The most recent HTTP upgrade request. */
+  get lastUpgrade(): UpgradeAttempt | null {
+    return this._upgradeAttempts[this._upgradeAttempts.length - 1] ?? null;
+  }
+
   /**
-   * Start the server on a dynamic port.
+   * Start the server on an ephemeral port. With `tls` it serves wss:// on localhost
+   * and records every TLS handshake (see tlsHandshakes()).
    */
-  async start(): Promise<{ port: number; url: string }> {
+  async start(tls?: TestServerTls): Promise<{ port: number; url: string }> {
     return new Promise((resolve, reject) => {
-      this.httpServer = createServer();
+      if (tls != null) {
+        this.tlsSettings = tls;
+        const server = createHttpsServer({
+          ...secureContextOptions(tls),
+          requestCert: tls.requestCert,
+          // The test validates the client certificate itself.
+          rejectUnauthorized: false,
+        });
+        server.on('secureConnection', (socket: TLSSocket) => {
+          const peer = socket.getPeerCertificate();
+          this.recordHandshake({
+            at: Date.now(),
+            ok: true,
+            clientCertificate: Object.keys(peer).length > 0 ? peer.raw : null,
+          });
+        });
+        server.on('tlsClientError', (err: Error) => {
+          this.recordHandshake({
+            at: Date.now(),
+            ok: false,
+            clientCertificate: null,
+            error: err.message,
+          });
+        });
+        this.httpServer = server;
+      } else {
+        this.httpServer = createServer();
+      }
       this.wss = new WebSocketServer({
         server: this.httpServer,
         handleProtocols: (protocols) => {
@@ -79,24 +218,141 @@ export class OcppTestServer {
           if (protocols.has('ocpp1.6')) return 'ocpp1.6';
           return false;
         },
+        // Records each upgrade. A Test System that does not accept a reconnect
+        // refuses the HTTP upgrade, so the station never sees an open connection.
+        verifyClient: (info, done) => {
+          const accepted = !this.rejectConnections;
+          this._upgradeAttempts.push({
+            at: Date.now(),
+            url: info.req.url ?? '/',
+            authorization: info.req.headers['authorization'] ?? null,
+            accepted,
+            tls: this.tlsSettings != null ? this.tlsInfo(info.req) : null,
+          });
+          if (!accepted) {
+            done(false, 503, 'Not accepting connections');
+            return;
+          }
+          done(true);
+        },
       });
 
       this.wss.on('connection', (socket: WebSocket, req: IncomingMessage) => {
         this.handleConnection(socket, req);
       });
 
-      this.httpServer.listen(0, '127.0.0.1', () => {
-        const addr = this.httpServer?.address();
+      // An ephemeral port per server, so parallel runs never collide.
+      const listener: Server | HttpsServer | NetServer =
+        tls != null ? this.createTlsFront() : this.httpServer;
+      listener.listen(0, '127.0.0.1', () => {
+        const addr = listener.address();
         if (addr == null || typeof addr === 'string') {
           reject(new Error('Failed to get server address'));
           return;
         }
         const port = addr.port;
-        resolve({ port, url: `ws://127.0.0.1:${String(port)}` });
+        // A TLS server is addressed by host name, which its certificate names.
+        resolve({
+          port,
+          url: tls != null ? `wss://localhost:${String(port)}` : `ws://127.0.0.1:${String(port)}`,
+        });
       });
 
-      this.httpServer.on('error', reject);
+      listener.on('error', reject);
     });
+  }
+
+  // TCP front of a TLS server: records the ClientHello cipher suites, then hands
+  // the socket (with the bytes read) to the HTTPS server.
+  private createTlsFront(): NetServer {
+    const https = this.httpServer as HttpsServer;
+    this.netServer = createNetServer((socket: Socket) => {
+      this.openSockets.add(socket);
+      socket.on('close', () => {
+        this.openSockets.delete(socket);
+      });
+      let buffered = Buffer.alloc(0);
+      const onData = (chunk: Buffer): void => {
+        buffered = Buffer.concat([buffered, chunk]);
+        let suites: number[] | null;
+        try {
+          suites = parseClientHelloCipherSuites(buffered);
+        } catch {
+          suites = [];
+        }
+        if (suites == null) return;
+        socket.removeListener('data', onData);
+        socket.pause();
+        if (socket.remotePort != null) this.offeredSuitesByPort.set(socket.remotePort, suites);
+        socket.unshift(buffered);
+        https.emit('connection', socket);
+      };
+      socket.on('data', onData);
+      socket.on('error', () => {
+        // The TLS server reports handshake failures (tlsClientError).
+      });
+    });
+    return this.netServer;
+  }
+
+  private tlsInfo(req: IncomingMessage): TlsHandshakeInfo {
+    const socket = req.socket as TLSSocket;
+    const peer = socket.getPeerX509Certificate();
+    return {
+      protocol: socket.getProtocol(),
+      cipher: socket.getCipher().standardName,
+      offeredCipherSuites:
+        socket.remotePort != null ? (this.offeredSuitesByPort.get(socket.remotePort) ?? []) : [],
+      clientCertificate: peer ?? null,
+      clientCertificateAuthorized: socket.authorized,
+      clientCertificateError: socket.authorized ? null : String(socket.authorizationError),
+    };
+  }
+
+  /**
+   * Replace the TLS settings (server certificate, CA, TLS versions) for the next
+   * handshakes. Connections already open keep theirs.
+   */
+  setTlsOptions(tls: TestServerTls): void {
+    if (this.tlsSettings == null || this.httpServer == null) {
+      throw new Error('setTlsOptions needs a TLS server');
+    }
+    this.tlsSettings = tls;
+    (this.httpServer as HttpsServer).setSecureContext(secureContextOptions(tls));
+  }
+
+  /** Serve a different certificate from the next TLS handshake. */
+  setServerCertificate(cert: string, key: string): void {
+    if (this.tlsSettings == null) {
+      throw new Error('setServerCertificate needs a TLS server');
+    }
+    this.setTlsOptions({ ...this.tlsSettings, cert, key });
+  }
+
+  /** TLS handshakes seen so far, oldest first. */
+  tlsHandshakes(): readonly TlsHandshake[] {
+    return this.handshakes;
+  }
+
+  /** Resolves with the next TLS handshake after this call. */
+  waitForTlsHandshake(timeoutMs: number): Promise<TlsHandshake> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const idx = this.handshakeWaiters.indexOf(onHandshake);
+        if (idx !== -1) this.handshakeWaiters.splice(idx, 1);
+        reject(new Error(`No TLS handshake within ${String(timeoutMs)}ms`));
+      }, timeoutMs);
+      const onHandshake = (h: TlsHandshake): void => {
+        clearTimeout(timer);
+        resolve(h);
+      };
+      this.handshakeWaiters.push(onHandshake);
+    });
+  }
+
+  private recordHandshake(h: TlsHandshake): void {
+    this.handshakes.push(h);
+    for (const waiter of this.handshakeWaiters.splice(0)) waiter(h);
   }
 
   /**
@@ -104,25 +360,23 @@ export class OcppTestServer {
    */
   async stop(): Promise<void> {
     this.cleanup();
-    return new Promise((resolve) => {
-      if (this.wss != null) {
-        this.wss.close(() => {
-          if (this.httpServer != null) {
-            this.httpServer.close(() => {
-              resolve();
-            });
-          } else {
-            resolve();
-          }
-        });
-      } else if (this.httpServer != null) {
-        this.httpServer.close(() => {
+    for (const socket of this.openSockets) socket.destroy();
+    this.openSockets.clear();
+    if (this.httpServer != null) this.httpServer.closeAllConnections();
+    const close = (server: { close: (cb: () => void) => unknown } | null): Promise<void> =>
+      new Promise((resolve) => {
+        if (server == null) {
+          resolve();
+          return;
+        }
+        server.close(() => {
           resolve();
         });
-      } else {
-        resolve();
-      }
-    });
+      });
+    await close(this.wss);
+    await close(this.netServer);
+    // In TLS mode the HTTPS server never listened itself.
+    if (this.netServer == null) await close(this.httpServer);
   }
 
   /**
@@ -246,8 +500,19 @@ export class OcppTestServer {
     // Clear buffered messages so post-reconnect messages are not mixed
     // with pre-disconnect messages
     this.receivedMessages.length = 0;
-    if (this.ws != null) {
-      this.ws.close();
+    const socket = this.ws;
+    if (socket != null) {
+      // The connection is gone for the Test System now: waitForConnection()
+      // waits for the next connection, and anything the station still sends on
+      // this socket is not received.
+      this.ws = null;
+      this._isConnected = false;
+      for (const [id, pending] of this.pending) {
+        clearTimeout(pending.timeout);
+        pending.reject(new Error('Station disconnected'));
+        this.pending.delete(id);
+      }
+      socket.close();
     }
   }
 
@@ -268,11 +533,6 @@ export class OcppTestServer {
   }
 
   private handleConnection(socket: WebSocket, req: IncomingMessage): void {
-    // Reject connections when the test has explicitly blocked them
-    if (this.rejectConnections) {
-      socket.close(4004, 'Server not accepting connections');
-      return;
-    }
     // Reject if a station is already connected
     if (this._isConnected) {
       socket.close(4001, 'Only one station connection allowed per test');
@@ -303,10 +563,15 @@ export class OcppTestServer {
     this._isConnected = true;
 
     socket.on('message', (data: Buffer | string) => {
+      // A socket the Test System already closed delivers nothing more.
+      if (this.ws !== socket) return;
       this.handleMessage(data);
     });
 
     socket.on('close', () => {
+      // disconnectStation() detaches the socket at once; a late close event of
+      // that socket must not touch a newer connection.
+      if (this.ws !== socket) return;
       this._isConnected = false;
       this.ws = null;
       // Reject all pending commands
@@ -343,6 +608,10 @@ export class OcppTestServer {
       // CALL from station
       const [, messageId, action, payload] = msg as OcppCall;
       this.handleIncomingCall(messageId, action, payload);
+    } else if (messageType === 6) {
+      // SEND from station (OCPP 2.1): recorded like a CALL, never answered
+      const [, , action, payload] = msg as OcppCall;
+      this.handleIncomingSend(action, payload);
     } else if (messageType === 3) {
       // CALLRESULT from station (response to our command)
       const [, messageId, payload] = msg as OcppCallResult;
@@ -411,6 +680,18 @@ export class OcppTestServer {
       // No handler: auto-accept with empty payload
       this.sendCallResult(messageId, {});
     }
+  }
+
+  private handleIncomingSend(action: string, payload: Record<string, unknown>): void {
+    const waiterIdx = this.messageWaiters.findIndex((w) => w.action === action);
+    if (waiterIdx !== -1) {
+      const waiter = this.messageWaiters[waiterIdx] as MessageWaiter;
+      clearTimeout(waiter.timeout);
+      this.messageWaiters.splice(waiterIdx, 1);
+      waiter.resolve(payload);
+      return;
+    }
+    this.receivedMessages.push({ action, payload });
   }
 
   private sendCallResult(messageId: string, payload: Record<string, unknown>): void {

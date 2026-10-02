@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi } from 'vitest';
-import { OcppClient } from '../ocpp-client.js';
+import { OcppClient, isServerCertificateError, isTlsVersionError } from '../ocpp-client.js';
 
 // We cannot easily test WebSocket connections in unit tests without a real server.
 // Test the constructor, option handling, and state management.
@@ -70,5 +70,29 @@ describe('OcppClient', () => {
       ocppProtocol: 'ocpp2.1',
     });
     expect(() => client.disconnect()).not.toThrow();
+  });
+});
+
+describe('connect failure classification', () => {
+  const err = (code: string, message = code) => Object.assign(new Error(message), { code });
+
+  it('recognizes a server certificate the station refused', () => {
+    for (const code of [
+      'CERT_HAS_EXPIRED',
+      'CERT_NOT_YET_VALID',
+      'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+      'DEPTH_ZERO_SELF_SIGNED_CERT',
+      'ERR_TLS_CERT_ALTNAME_INVALID',
+      'ERR_TLS_CERT_WILDCARD',
+    ]) {
+      expect(isServerCertificateError(err(code))).toBe(true);
+    }
+    expect(isServerCertificateError(err('ECONNREFUSED'))).toBe(false);
+  });
+
+  it('recognizes a TLS version below 1.2', () => {
+    expect(isTlsVersionError(err('ERR_SSL_UNSUPPORTED_PROTOCOL'))).toBe(true);
+    expect(isTlsVersionError(err('ERR_SSL_X', 'tlsv1 alert protocol version'))).toBe(true);
+    expect(isTlsVersionError(err('ECONNREFUSED'))).toBe(false);
   });
 });

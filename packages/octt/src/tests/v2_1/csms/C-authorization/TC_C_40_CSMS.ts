@@ -46,7 +46,7 @@ export const TC_C_40_CSMS: TestCase = {
       seqNo: 0,
       transactionInfo: { transactionId: txId, chargingState: 'Charging' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
 
     const idTokenInfo1 = txRes1['idTokenInfo'] as Record<string, unknown> | undefined;
@@ -86,7 +86,7 @@ export const TC_C_40_CSMS: TestCase = {
       seqNo: 1,
       transactionInfo: { transactionId: txId, chargingState: 'Idle' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-002', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid2, type: 'ISO14443' },
     });
 
     const idTokenInfo2 = txRes2['idTokenInfo'] as Record<string, unknown> | undefined;

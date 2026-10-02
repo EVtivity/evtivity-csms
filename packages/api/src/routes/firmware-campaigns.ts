@@ -32,6 +32,11 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getPubSub } from '../lib/pubsub.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
+import {
+  assertFirmwareSignature,
+  firmwareSignatureField,
+  firmwareSigningCertificateField,
+} from '../lib/firmware-signature.js';
 
 const campaignItem = z
   .object({
@@ -39,6 +44,14 @@ const campaignItem = z
     name: z.string().describe('Campaign name'),
     firmwareUrl: z.string().describe('Firmware download URL'),
     version: z.string().nullable().describe('Firmware version'),
+    signingCertificate: z
+      .string()
+      .nullable()
+      .describe('PEM Firmware Signing certificate sent with UpdateFirmware, null when unsigned'),
+    signature: z
+      .string()
+      .nullable()
+      .describe('Base64 firmware signature sent with UpdateFirmware, null when unsigned'),
     status: z.enum(firmwareCampaignStatusEnum.enumValues).describe('Campaign status'),
     targetFilter: z.record(z.unknown()).nullable().describe('Filter selecting target stations'),
     createdById: z.string().nullable().describe('User ID that created the campaign'),
@@ -101,6 +114,8 @@ const createCampaignBody = z.object({
   name: z.string().min(1).describe('Campaign name'),
   firmwareUrl: z.string().url().describe('Firmware download URL'),
   version: z.string().optional().describe('Firmware version'),
+  signingCertificate: firmwareSigningCertificateField.optional(),
+  signature: firmwareSignatureField.optional(),
   targetFilter: z
     .object({
       siteId: z.string().optional(),
@@ -117,6 +132,14 @@ const updateCampaignBody = z.object({
   name: z.string().min(1).optional(),
   firmwareUrl: z.string().url().optional(),
   version: z.string().optional(),
+  signingCertificate: firmwareSigningCertificateField
+    .nullable()
+    .optional()
+    .describe('PEM Firmware Signing certificate; null clears it (with signature)'),
+  signature: firmwareSignatureField
+    .nullable()
+    .optional()
+    .describe('Base64 firmware signature; null clears it (with signingCertificate)'),
   targetFilter: z
     .object({
       siteId: z.string().optional(),
@@ -134,6 +157,10 @@ const fwFilterOptionsQuery = z.object({
   vendorId: z.string().optional().describe('Filter stations by vendor'),
   model: z.string().optional().describe('Filter stations by model'),
 });
+
+function emptyToNull(value: string | null | undefined): string | null {
+  return value == null || value.trim() === '' ? null : value.trim();
+}
 
 export function firmwareCampaignRoutes(app: FastifyInstance): void {
   // Filter options for target filter dropdowns
@@ -322,12 +349,16 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         operationId: 'createFirmwareCampaign',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createCampaignBody),
-        response: { 201: itemResponse(campaignItem) },
+        response: {
+          201: itemResponse(campaignItem),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+        },
       },
     },
     async (request, reply) => {
       const body = request.body as z.infer<typeof createCampaignBody>;
       const userId = (request.user as { userId: string }).userId;
+      assertFirmwareSignature(body.signingCertificate, body.signature);
 
       const [campaign] = await db
         .insert(firmwareCampaigns)
@@ -335,6 +366,8 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
           name: body.name,
           firmwareUrl: body.firmwareUrl,
           version: body.version ?? null,
+          signingCertificate: emptyToNull(body.signingCertificate),
+          signature: emptyToNull(body.signature),
           targetFilter: body.targetFilter ?? null,
           createdById: userId,
         })
@@ -374,6 +407,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         body: zodSchema(updateCampaignBody),
         response: {
           200: itemResponse(campaignItem),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Campaign not found', [ERROR_CODES.CAMPAIGN_NOT_FOUND]),
           409: errorResponse,
         },
@@ -381,7 +415,9 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof campaignParams>;
-      const body = request.body as z.infer<typeof updateCampaignBody>;
+      const { signingCertificate, signature, ...fields } = request.body as z.infer<
+        typeof updateCampaignBody
+      >;
 
       const [campaign] = await db
         .select()
@@ -398,9 +434,22 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // The signing fields are checked as the campaign will hold them.
+      const nextSigningCertificate =
+        signingCertificate !== undefined
+          ? emptyToNull(signingCertificate)
+          : campaign.signingCertificate;
+      const nextSignature = signature !== undefined ? emptyToNull(signature) : campaign.signature;
+      assertFirmwareSignature(nextSigningCertificate, nextSignature);
+
       const [updated] = await db
         .update(firmwareCampaigns)
-        .set({ ...body, updatedAt: new Date() })
+        .set({
+          ...fields,
+          signingCertificate: nextSigningCertificate,
+          signature: nextSignature,
+          updatedAt: new Date(),
+        })
         .where(eq(firmwareCampaigns.id, id))
         .returning();
 
@@ -733,6 +782,14 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
               firmware: {
                 location: campaign.firmwareUrl,
                 retrieveDateTime: retrieveDateTime.toISOString(),
+                // Secure firmware update (L01.FR.11). The OCPP server sends a
+                // signed update to a 1.6 station as SignedUpdateFirmware.
+                ...(campaign.signingCertificate != null && campaign.signature != null
+                  ? {
+                      signingCertificate: campaign.signingCertificate,
+                      signature: campaign.signature,
+                    }
+                  : {}),
               },
             },
           };

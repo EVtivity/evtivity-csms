@@ -78,7 +78,7 @@ export const TC_F_02_CSMS: TestCase = {
       await ctx.triggerCommand('v21', 'RequestStartTransaction', {
         stationId: ctx.stationId,
         remoteStartId: 1,
-        idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
         evseId: 1,
       });
     } else {
@@ -206,7 +206,7 @@ export const TC_F_03_CSMS: TestCase = {
       await ctx.triggerCommand('v21', 'RequestStartTransaction', {
         stationId: ctx.stationId,
         remoteStartId: 1,
-        idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
         evseId: 1,
       });
     } else {
@@ -318,7 +318,7 @@ export const TC_F_04_CSMS: TestCase = {
       await ctx.triggerCommand('v21', 'RequestStartTransaction', {
         stationId: ctx.stationId,
         remoteStartId: 1,
-        idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
         evseId: 1,
       });
     } else {

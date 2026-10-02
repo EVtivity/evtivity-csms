@@ -2,6 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { CsTestCase, StepResult } from '../../../cs-types.js';
+import { waitForMatchingMessage } from '../../../cs-test-helpers.js';
+
+// A restored connection is not a reboot: no BootNotification (OCTT 1.6 TC_037_x,
+// TC_038, TC_039). The first reconnect attempt follows the 2 s (+20% jitter)
+// backoff, so waits on the replayed messages allow for more than that.
+const RESTORE_TIMEOUT_MS = 15_000;
 
 export const TC_036_CS: CsTestCase = {
   id: 'TC_036_CS',
@@ -97,35 +103,32 @@ export const TC_037_1_CS: CsTestCase = {
     await ctx.station.plugIn(1);
     await ctx.station.startCharging(1, 'OCTT_TAG_001');
 
-    // Come back online
+    // Restore connectivity
     ctx.server.acceptConnections();
 
-    // After connectivity restore, BootNotification then queued StartTransaction
-    const boot = await ctx.server.waitForMessage('BootNotification', 10_000);
-    steps.push({
-      step: 0,
-      description: 'BootNotification after restore',
-      status: boot !== undefined ? 'passed' : 'failed',
-      expected: 'BootNotification received',
-      actual: boot !== undefined ? 'Received' : 'Not received',
-    });
-
-    // Drain StatusNotifications from reconnect
-    for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
-    }
-
-    const startTx = await ctx.server.waitForMessage('StartTransaction', 10_000);
+    // Step 1: the queued StartTransaction (the Central System answers Accepted)
+    const startTx = await ctx.server.waitForMessage('StartTransaction', RESTORE_TIMEOUT_MS);
     steps.push({
       step: 1,
       description: 'StartTransaction received after restore',
-      status: startTx !== undefined ? 'passed' : 'failed',
-      expected: 'StartTransaction received',
-      actual: startTx !== undefined ? 'Received' : 'Not received',
+      status: startTx['idTag'] === 'OCTT_TAG_001' ? 'passed' : 'failed',
+      expected: 'StartTransaction with idTag OCTT_TAG_001',
+      actual: `idTag = ${String(startTx['idTag'])}`,
+    });
+
+    // Step 3: StatusNotification Charging
+    const charging = await waitForMatchingMessage(
+      ctx.server,
+      'StatusNotification',
+      (sn) => sn['connectorId'] === 1 && sn['status'] === 'Charging',
+      10_000,
+    );
+    steps.push({
+      step: 3,
+      description: 'StatusNotification Charging',
+      status: charging != null ? 'passed' : 'failed',
+      expected: 'status = Charging',
+      actual: charging != null ? 'Charging received' : 'Not received',
     });
 
     const allPassed = steps.every((s) => s.status === 'passed');
@@ -170,9 +173,8 @@ export const TC_037_2_CS: CsTestCase = {
     // Come back online
     ctx.server.acceptConnections();
 
-    // Wait for Boot, then StartTransaction (skip StatusNotifications via buffer)
-    await ctx.server.waitForMessage('BootNotification', 10_000);
-    const startTx = await ctx.server.waitForMessage('StartTransaction', 10_000);
+    // StartTransaction replayed after the restore (StatusNotifications stay buffered)
+    const startTx = await ctx.server.waitForMessage('StartTransaction', RESTORE_TIMEOUT_MS);
     steps.push({
       step: 1,
       description: 'StartTransaction received',
@@ -246,21 +248,7 @@ export const TC_037_3_CS: CsTestCase = {
     // Come back online
     ctx.server.acceptConnections();
 
-    // Drain boot and status messages
-    try {
-      await ctx.server.waitForMessage('BootNotification', 10_000);
-    } catch {
-      /* drain */
-    }
-    for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
-    }
-
-    const startTx = await ctx.server.waitForMessage('StartTransaction', 10_000);
+    const startTx = await ctx.server.waitForMessage('StartTransaction', RESTORE_TIMEOUT_MS);
     steps.push({
       step: 1,
       description: 'StartTransaction received',
@@ -342,21 +330,7 @@ export const TC_038_CS: CsTestCase = {
     // Come back online
     ctx.server.acceptConnections();
 
-    // Drain boot and status messages
-    try {
-      await ctx.server.waitForMessage('BootNotification', 10_000);
-    } catch {
-      /* drain */
-    }
-    for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
-    }
-
-    const stopTx = await ctx.server.waitForMessage('StopTransaction', 10_000);
+    const stopTx = await ctx.server.waitForMessage('StopTransaction', RESTORE_TIMEOUT_MS);
     const reason = stopTx['reason'] as string | undefined;
     const validReason = reason === 'Local' || reason === undefined;
     steps.push({
@@ -417,21 +391,7 @@ export const TC_039_CS: CsTestCase = {
     // Come back online
     ctx.server.acceptConnections();
 
-    // Drain boot and status messages
-    try {
-      await ctx.server.waitForMessage('BootNotification', 10_000);
-    } catch {
-      /* drain */
-    }
-    for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
-    }
-
-    const startTx = await ctx.server.waitForMessage('StartTransaction', 10_000);
+    const startTx = await ctx.server.waitForMessage('StartTransaction', RESTORE_TIMEOUT_MS);
     steps.push({
       step: 1,
       description: 'StartTransaction received',

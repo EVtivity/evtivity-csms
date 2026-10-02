@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import crypto from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc, count, sql as dsql } from 'drizzle-orm';
 import {
@@ -179,6 +179,19 @@ const signCsrBody = z.object({
 
 const idParams = z.object({ id: z.coerce.number().int().min(1).describe('Resource ID') });
 
+/**
+ * Tells the OCPP servers to drop their cached CA certificates (contract
+ * certificate validation) after an upload or delete. Non-critical: the
+ * cache expires within 60 s anyway.
+ */
+async function invalidateCaCertificateCache(log: FastifyBaseLogger): Promise<void> {
+  try {
+    await getPubSub().publish('cache_invalidate', JSON.stringify({ cache: 'pkiCaCertificates' }));
+  } catch (err: unknown) {
+    log.warn({ err }, 'Failed to publish CA certificate cache invalidation');
+  }
+}
+
 export function pncCertificateRoutes(app: FastifyInstance): void {
   // Gate the entire PnC certificate API on the pnc.enabled feature flag.
   // Certificate routes return 403 PNC_DISABLED when the feature is off.
@@ -316,6 +329,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
           db,
           request.log,
         );
+        await invalidateCaCertificateCache(request.log);
       }
 
       return row;
@@ -365,6 +379,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      await invalidateCaCertificateCache(request.log);
 
       return { success: true };
     },

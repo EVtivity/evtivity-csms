@@ -2,7 +2,69 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { applyMultiplier, energyToWh, overallValue } from '../server/meter-units.js';
+import {
+  applyMultiplier,
+  energyRegisterWh,
+  energyToWh,
+  overallValue,
+} from '../server/meter-units.js';
+
+describe('energyRegisterWh', () => {
+  const mv = (sampledValue: Array<Record<string, unknown>>) => ({
+    timestamp: '2026-01-01T00:00:00Z',
+    sampledValue,
+  });
+
+  it('reads a sample without measurand as the energy register', () => {
+    expect(energyRegisterWh([mv([{ value: 15000, context: 'Transaction.End' }])])).toBe(15000);
+  });
+
+  it('applies the multiplier and converts kWh', () => {
+    expect(
+      energyRegisterWh([
+        mv([
+          {
+            value: 15,
+            measurand: 'Energy.Active.Import.Register',
+            unitOfMeasure: { unit: 'kWh', multiplier: 0 },
+          },
+        ]),
+      ]),
+    ).toBe(15000);
+    expect(
+      energyRegisterWh([mv([{ value: 15, unitOfMeasure: { unit: 'Wh', multiplier: 3 } }])]),
+    ).toBe(15000);
+  });
+
+  it('ignores other measurands, Inlet samples, and unsupported units', () => {
+    expect(
+      energyRegisterWh([
+        mv([
+          { value: 7000, measurand: 'Power.Active.Import' },
+          { value: 9000, location: 'Inlet' },
+          { value: 9000, unitOfMeasure: { unit: 'varh' } },
+        ]),
+      ]),
+    ).toBeNull();
+  });
+
+  it('sums per-phase samples and returns the highest reading', () => {
+    expect(
+      energyRegisterWh([
+        mv([{ value: 1000 }]),
+        mv([
+          { value: 2000, phase: 'L1' },
+          { value: 2500, phase: 'L2' },
+        ]),
+      ]),
+    ).toBe(4500);
+  });
+
+  it('returns null without meter values', () => {
+    expect(energyRegisterWh(undefined)).toBeNull();
+    expect(energyRegisterWh([])).toBeNull();
+  });
+});
 
 describe('applyMultiplier', () => {
   it('scales by a power of ten', () => {

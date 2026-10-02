@@ -109,6 +109,45 @@ describe('OCPP command routes', () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it('rejects a v21 UpdateFirmware with a signature but no signing certificate', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/ocpp/commands/v21/UpdateFirmware',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        stationId: 'STATION-001',
+        requestId: 1,
+        firmware: {
+          location: 'https://example.com/fw.bin',
+          retrieveDateTime: '2026-01-01T00:00:00Z',
+          signature: 'c2lnbmF0dXJl',
+        },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).code).toBe('VALIDATION_ERROR');
+  });
+
+  it('rejects a v16 SignedUpdateFirmware whose signing certificate is not PEM', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/ocpp/commands/v16/SignedUpdateFirmware',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        stationId: 'STATION-001',
+        requestId: 1,
+        firmware: {
+          location: 'https://example.com/fw.bin',
+          retrieveDateTime: '2026-01-01T00:00:00Z',
+          signingCertificate: 'not a certificate',
+          signature: 'c2lnbmF0dXJl',
+        },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).code).toBe('VALIDATION_ERROR');
+  });
+
   it('returns 404 for unknown v21 action (no route)', async () => {
     const response = await app.inject({
       method: 'POST',

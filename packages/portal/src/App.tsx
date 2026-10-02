@@ -45,6 +45,7 @@ const PaymentMethods = lazy(() =>
   import('@/pages/PaymentMethods').then((m) => ({ default: m.PaymentMethods })),
 );
 const Profile = lazy(() => import('@/pages/Profile').then((m) => ({ default: m.Profile })));
+const QrLanding = lazy(() => import('@/pages/QrLanding').then((m) => ({ default: m.QrLanding })));
 const ChargerLanding = lazy(() =>
   import('@/pages/ChargerLanding').then((m) => ({ default: m.ChargerLanding })),
 );
@@ -137,6 +138,7 @@ export function App(): React.JSX.Element {
               <Route path="/activate" element={<Activate />} />
               <Route path="/privacy-policy" element={<PrivacyPolicy />} />
               <Route path="/terms-of-service" element={<TermsOfService />} />
+              <Route path="/qr/*" element={<QrLanding />} />
               <Route path="/charge/:stationId/:evseId" element={<ChargerLanding />} />
               <Route path="/charge/:stationId" element={<ChargerStationLanding />} />
               <Route path="/charge/:stationId/:evseId/checkout" element={<GuestCheckout />} />

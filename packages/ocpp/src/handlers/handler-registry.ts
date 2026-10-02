@@ -36,13 +36,11 @@ import { handleBatterySwap } from './v2_1/battery-swap.handler.js';
 import { handleNotifyPeriodicEventStream } from './v2_1/notify-periodic-event-stream.handler.js';
 import { handleOpenPeriodicEventStream } from './v2_1/open-periodic-event-stream.handler.js';
 import { handleClosePeriodicEventStream } from './v2_1/close-periodic-event-stream.handler.js';
-import { handleNotifyQRCodeScanned } from './v2_1/notify-qr-code-scanned.handler.js';
 import { handleVatNumberValidation } from './v2_1/vat-number-validation.handler.js';
 import { handleNotifyAllowedEnergyTransfer } from './v2_1/notify-allowed-energy-transfer.handler.js';
 import { handleNotifyDERAlarm } from './v2_1/notify-der-alarm.handler.js';
 import { handleNotifyDERStartStop } from './v2_1/notify-der-start-stop.handler.js';
 import { handleReportDERControl } from './v2_1/report-der-control.handler.js';
-import { handleNotifyWebPaymentStarted } from './v2_1/notify-web-payment-started.handler.js';
 
 // OCPP 1.6 handlers
 import { handleBootNotification as handleBootNotification16 } from './v1_6/boot-notification.handler.js';
@@ -109,8 +107,6 @@ export function registerHandlers(router: MessageRouter): void {
 
   // Settlements and payments
   router.register('ocpp2.1', 'NotifySettlement', handleNotifySettlement);
-  router.register('ocpp2.1', 'NotifyWebPaymentStarted', handleNotifyWebPaymentStarted);
-  router.register('ocpp2.1', 'NotifyQRCodeScanned', handleNotifyQRCodeScanned);
   router.register('ocpp2.1', 'VatNumberValidation', handleVatNumberValidation);
 
   // Energy transfer

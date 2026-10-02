@@ -52,7 +52,7 @@ export const TC_K_37_CSMS: TestCase = {
       await ctx.triggerCommand('v21', 'RequestStartTransaction', {
         stationId: ctx.stationId,
         remoteStartId: 1,
-        idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
         evseId: 1,
         chargingProfile: {
           id: 1,
@@ -100,7 +100,7 @@ export const TC_K_37_CSMS: TestCase = {
           remoteStartId,
         },
         evse: { id: 1, connectorId: 1 },
-        idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
       });
 
       pushSendAckStep(

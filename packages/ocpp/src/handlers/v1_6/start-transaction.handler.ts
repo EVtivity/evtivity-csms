@@ -13,6 +13,7 @@ import {
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { StartTransaction } from '../../generated/v1_6/types/messages/StartTransaction.js';
 import { logAuthorizeAttempt } from '../authorize-log.js';
+import { prepaidCredit } from '../prepaid.js';
 
 export async function handleStartTransaction(
   ctx: HandlerContext,
@@ -101,12 +102,14 @@ export async function handleStartTransaction(
     | 'invalid'
     | 'blocked'
     | 'expired'
+    | 'no_credit'
     | 'concurrent_tx'
     | 'unknown'
     | 'db_error' = 'accepted';
   let matchedTokenId: string | null = null;
   let matchedDriverId: string | null = null;
   let matchedExpiresAt: Date | null = null;
+  let matchedPrepaidBalanceCents: number | null = null;
   let reason: string | null = null;
 
   // Free-vend short-circuit. 1.6 stations frequently skip Authorize when the
@@ -146,6 +149,7 @@ export async function handleStartTransaction(
         isActive: driverTokens.isActive,
         expiresAt: driverTokens.expiresAt,
         revokedAt: driverTokens.revokedAt,
+        prepaidBalanceCents: driverTokens.prepaidBalanceCents,
       })
       .from(driverTokens)
       .where(eq(driverTokens.idToken, request.idTag));
@@ -213,6 +217,7 @@ export async function handleStartTransaction(
         matchedTokenId = usable.id;
         matchedDriverId = usable.driverId;
         matchedExpiresAt = usable.expiresAt;
+        matchedPrepaidBalanceCents = usable.prepaidBalanceCents ?? null;
       } else {
         const expiredRow = tokens.find(
           (t) => t.expiresAt != null && t.expiresAt.getTime() <= now.getTime(),
@@ -272,6 +277,15 @@ export async function handleStartTransaction(
     }
   }
 
+  // Prepaid token without credit: Blocked (OCPP 1.6 has no NoCredit).
+  const credit =
+    idTagStatus === 'Accepted' ? prepaidCredit(matchedPrepaidBalanceCents) : 'not_prepaid';
+  if (credit === 'no_credit') {
+    idTagStatus = 'Blocked';
+    outcome = 'no_credit';
+    reason = 'no_credit';
+  }
+
   // Forensic log: stations using LocalAuthList skip Authorize and come
   // straight to StartTransaction, so this is the only record of the
   // authorization decision for those flows.
@@ -291,10 +305,12 @@ export async function handleStartTransaction(
 
   // OCPP 1.6 StartTransaction's idTagInfo.status enum only includes
   // Accepted/Blocked/Expired/Invalid/ConcurrentTx (no NoCredit). Our 'Expired'
-  // maps directly.
+  // maps directly. A prepaid idTag expires from the cache at once.
 
   const idTagInfo: { status: typeof idTagStatus; expiryDate?: string } = { status: idTagStatus };
-  if (idTagStatus === 'Accepted' && matchedExpiresAt != null) {
+  if (credit !== 'not_prepaid') {
+    idTagInfo.expiryDate = new Date().toISOString();
+  } else if (idTagStatus === 'Accepted' && matchedExpiresAt != null) {
     idTagInfo.expiryDate = matchedExpiresAt.toISOString();
   }
   return {

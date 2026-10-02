@@ -93,6 +93,11 @@ export const guestSessions = pgTable(
     stripePaymentIntentId: varchar('stripe_payment_intent_id', { length: 255 }),
     guestEmail: varchar('guest_email', { length: 255 }).notNull(),
     preAuthAmountCents: integer('pre_auth_amount_cents'),
+    // Transaction limit returned in the OCPP 2.1 TransactionEventResponse when
+    // the transaction starts (C24.FR.02, C25.FR.24). Null means no limit.
+    maxCostCents: integer('max_cost_cents'),
+    maxEnergyWh: integer('max_energy_wh'),
+    maxTimeSeconds: integer('max_time_seconds'),
     status: guestSessionStatusEnum('status').notNull().default('pending_payment'),
     sessionToken: varchar('session_token', { length: 64 }).notNull().unique(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
@@ -120,6 +125,9 @@ export const driverTokens = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
     revokedReason: varchar('revoked_reason', { length: 100 }),
+    // Prepaid credit in cents of the company currency (OCPP 2.1 C17). Null
+    // means the token is not prepaid. Zero or less is answered NoCredit.
+    prepaidBalanceCents: integer('prepaid_balance_cents'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

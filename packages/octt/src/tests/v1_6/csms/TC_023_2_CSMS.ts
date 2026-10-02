@@ -19,7 +19,7 @@ export const TC_023_2_CSMS: TestCase = {
       chargePointModel: 'OCTT-Virtual-16',
     });
 
-    const authResp = await ctx.client.sendCall('Authorize', { idTag: 'EXPIRED_TAG_001' });
+    const authResp = await ctx.client.sendCall('Authorize', { idTag: ctx.tokens.expired });
     const authStatus = authResp['idTagInfo'] as Record<string, unknown> | undefined;
     const status = String(authStatus?.['status']);
     steps.push({

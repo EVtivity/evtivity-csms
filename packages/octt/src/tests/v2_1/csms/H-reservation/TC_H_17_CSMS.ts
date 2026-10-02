@@ -68,7 +68,7 @@ export const TC_H_17_CSMS: TestCase = {
         stationId: ctx.stationId,
         id: 1,
         expiryDateTime: new Date(Date.now() + 300000).toISOString(),
-        idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
         evseId: 1,
       });
     } else {

@@ -666,6 +666,69 @@
       "when": 1790917217500,
       "tag": "0094_unique_evse_connector_numbers",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1790923188308,
+      "tag": "0095_station_configuration_instances",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1790923903396,
+      "tag": "0096_seed_pnc_ocsp_allowed_private_hosts",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1790928821181,
+      "tag": "0097_css_installed_certificate_pem",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1790930000000,
+      "tag": "0098_prepaid_balance_and_payment_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1790940000000,
+      "tag": "0099_station_web_payment_configs",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1790950000000,
+      "tag": "0100_firmware_campaign_signature",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1790966000000,
+      "tag": "0101_octt_test_status_not_applicable",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1790966100000,
+      "tag": "0102_octt_not_applicable_counts",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1790970000000,
+      "tag": "0103_drop_web_payment_and_qr_scan_events",
+      "breakpoints": true
     }
   ]
 }

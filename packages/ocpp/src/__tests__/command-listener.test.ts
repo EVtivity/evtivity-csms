@@ -613,6 +613,27 @@ describe('CommandListener', () => {
     );
   });
 
+  it('publishes command.UpdateFirmware on 1.6 SignedUpdateFirmware success', async () => {
+    await createAndStart();
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-sfw',
+        stationId: 'CS-001',
+        action: 'SignedUpdateFirmware',
+        payload: {
+          requestId: 5,
+          firmware: { location: 'https://fw', retrieveDateTime: '2026-01-01T00:00:00Z' },
+        },
+        version: 'ocpp1.6',
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(eventBus.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'command.UpdateFirmware', aggregateId: 'CS-001' }),
+    );
+  });
+
   it('publishes command.GetLog on GetLog success', async () => {
     await createAndStart();
     subscribeHandler!(

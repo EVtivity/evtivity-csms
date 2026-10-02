@@ -26,6 +26,7 @@ export const octtTestStatusEnum = pgEnum('octt_test_status', [
   'failed',
   'skipped',
   'error',
+  'notApplicable',
 ]);
 
 export const octtRuns = pgTable('octt_runs', {
@@ -38,6 +39,7 @@ export const octtRuns = pgTable('octt_runs', {
   failed: integer('failed').notNull().default(0),
   skipped: integer('skipped').notNull().default(0),
   errors: integer('errors').notNull().default(0),
+  notApplicable: integer('not_applicable').notNull().default(0),
   durationMs: integer('duration_ms'),
   triggeredBy: text('triggered_by').references(() => users.id),
   startedAt: timestamp('started_at', { withTimezone: true }),
@@ -60,6 +62,10 @@ export const octtTestResults = pgTable(
     durationMs: integer('duration_ms').notNull(),
     steps: jsonb('steps'),
     error: text('error'),
+    /** PICS item that excludes a notApplicable test. */
+    notApplicableItem: varchar('not_applicable_item', { length: 100 }),
+    /** Why the PICS excludes a notApplicable test. */
+    notApplicableReason: text('not_applicable_reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

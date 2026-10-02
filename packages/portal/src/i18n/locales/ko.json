@@ -859,6 +859,11 @@
     "scanPhoto": "사진에서 스캔",
     "noQrFound": "사진에서 QR 코드를 찾을 수 없습니다. 다시 시도하세요."
   },
+  "qr": {
+    "checking": "QR 코드 확인 중",
+    "invalidTitle": "유효하지 않은 QR 코드",
+    "invalidMessage": "이 QR 코드는 유효하지 않거나 만료되었습니다. 충전소에 표시된 QR 코드를 다시 스캔하세요."
+  },
   "watch": {
     "notifyWhenFree": "사용 가능 시 알림",
     "watching": "알림 해제",

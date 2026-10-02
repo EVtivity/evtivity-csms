@@ -134,12 +134,10 @@ export const ACTION_VERSIONS: Record<string, 'all' | 'ocpp1.6' | 'ocpp2.1'> = {
   sendNotifyEVChargingSchedule: 'ocpp2.1',
   sendNotifySettlement: 'ocpp2.1',
   sendNotifyPriorityCharging: 'ocpp2.1',
-  sendNotifyQRCodeScanned: 'ocpp2.1',
   sendNotifyAllowedEnergyTransfer: 'ocpp2.1',
   sendGet15118EVCertificate: 'ocpp2.1',
   sendGetCertificateChainStatus: 'ocpp2.1',
   sendPublishFirmwareStatusNotification: 'ocpp2.1',
-  sendNotifyWebPaymentStarted: 'ocpp2.1',
   sendNotifyPeriodicEventStream: 'ocpp2.1',
   sendNotifyDERAlarm: 'ocpp2.1',
   sendNotifyDERStartStop: 'ocpp2.1',
@@ -599,11 +597,6 @@ const sendNotifyPriorityChargingBody = z.object({
   activated: z.boolean().describe('Whether priority charging is activated'),
 });
 
-const sendNotifyQRCodeScannedBody = z.object({
-  evseId: z.number().int().describe('EVSE ID'),
-  timeout: z.number().int().describe('Timeout in seconds'),
-});
-
 const sendNotifyAllowedEnergyTransferBody = z.object({
   transactionId: z.string().describe('Transaction ID'),
   allowedEnergyTransfer: z
@@ -650,11 +643,6 @@ const sendPublishFirmwareStatusNotificationBody = z.object({
     'Publish firmware status (Idle, DownloadScheduled, Downloading, Downloaded, Published, etc.)',
   ),
   requestId: z.number().int().optional().describe('Request ID (defaults to 0)'),
-});
-
-const sendNotifyWebPaymentStartedBody = z.object({
-  evseId: z.number().int().describe('EVSE ID'),
-  timeout: z.number().int().describe('Timeout in seconds'),
 });
 
 const sendNotifyPeriodicEventStreamBody = z
@@ -1628,13 +1616,6 @@ export function cssRoutes(app: FastifyInstance): void {
   );
   actionRoute(
     app,
-    'sendNotifyQRCodeScanned',
-    'ocpp2.1',
-    'Send NotifyQRCodeScanned',
-    sendNotifyQRCodeScannedBody,
-  );
-  actionRoute(
-    app,
     'sendNotifyAllowedEnergyTransfer',
     'ocpp2.1',
     'Send NotifyAllowedEnergyTransfer',
@@ -1660,13 +1641,6 @@ export function cssRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Send PublishFirmwareStatusNotification',
     sendPublishFirmwareStatusNotificationBody,
-  );
-  actionRoute(
-    app,
-    'sendNotifyWebPaymentStarted',
-    'ocpp2.1',
-    'Send NotifyWebPaymentStarted',
-    sendNotifyWebPaymentStartedBody,
   );
   actionRoute(
     app,

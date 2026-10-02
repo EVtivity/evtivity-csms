@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
-import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 /**
  * TC_I_02_CSMS: Show EV Driver Final Total Cost After Charging
@@ -17,7 +16,8 @@ import { pushSendAckStep } from '../../../../csms-test-helpers.js';
  *   7. TransactionEvent Ended with final meter value (6000)
  * Validations:
  *   Step 2: AuthorizeResponse - idTokenInfo.status = Accepted
- *   Step 4: TransactionEventResponse - idTokenInfo.status = Accepted, totalCost optional
+ *   Step 4: TransactionEventResponse - idTokenInfo.status = Accepted
+ *   Step 9: TransactionEventResponse (Ended) - totalCost not omitted
  *   Step 7: Optional CostUpdatedRequest
  */
 export const TC_I_02_CSMS: TestCase = {
@@ -71,7 +71,7 @@ export const TC_I_02_CSMS: TestCase = {
 
     // Step 2: Authorized
     const authRes = await ctx.client.sendCall('Authorize', {
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
     const authStatus = (authRes['idTokenInfo'] as Record<string, unknown>)?.['status'] as string;
     steps.push({
@@ -100,7 +100,7 @@ export const TC_I_02_CSMS: TestCase = {
       seqNo: 2,
       transactionInfo: { transactionId: txId, chargingState: 'EVConnected' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
     const stopIdTokenStatus = (stopAuthRes['idTokenInfo'] as Record<string, unknown>)?.[
       'status'
@@ -161,14 +161,15 @@ export const TC_I_02_CSMS: TestCase = {
       ],
     });
 
-    pushSendAckStep(
-      steps,
-      3,
-      'TransactionEvent Ended with final meter value',
-      endRes,
-      'TransactionEventResponse received',
-      `Response keys: ${Object.keys(endRes).join(', ')}`,
-    );
+    // Step 9 validation: totalCost <Not omitted> (I03.FR.02).
+    const totalCost = endRes['totalCost'];
+    steps.push({
+      step: 3,
+      description: 'TransactionEventResponse (Ended) carries totalCost',
+      status: typeof totalCost === 'number' ? 'passed' : 'failed',
+      expected: 'totalCost <not omitted>',
+      actual: `totalCost = ${String(totalCost)}`,
+    });
 
     // Wait for optional CostUpdatedRequest from CSMS
     let receivedCostUpdated = false;

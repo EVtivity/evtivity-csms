@@ -859,6 +859,11 @@
     "scanPhoto": "從照片掃描",
     "noQrFound": "未在該照片中找到 QR 碼。請重試。"
   },
+  "qr": {
+    "checking": "正在檢查 QR 碼",
+    "invalidTitle": "QR 碼無效",
+    "invalidMessage": "此 QR 碼無效或已過期。請重新掃描充電站上顯示的 QR 碼。"
+  },
   "watch": {
     "notifyWhenFree": "空閒時通知我",
     "watching": "取消關注",

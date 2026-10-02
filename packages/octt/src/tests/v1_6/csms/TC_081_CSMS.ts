@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../types.js';
 import { pushSendAckStep } from '../../../csms-test-helpers.js';
+import { FIRMWARE_SIGNATURE, FIRMWARE_SIGNING_CERTIFICATE } from '../../../firmware-fixtures.js';
 
 export const TC_081_CSMS: TestCase = {
   id: 'TC_081_CSMS',
@@ -36,8 +37,9 @@ export const TC_081_CSMS: TestCase = {
         firmware: {
           location: 'https://example.com/fw.bin',
           retrieveDateTime: new Date().toISOString(),
-          signingCertificate: '-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----',
-          signature: 'abc123',
+          // The CSMS checks the signing fields: PEM X.509 certificate, base64 signature.
+          signingCertificate: FIRMWARE_SIGNING_CERTIFICATE,
+          signature: FIRMWARE_SIGNATURE,
         },
       });
     } else {

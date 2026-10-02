@@ -14,7 +14,7 @@ import {
   jsonb,
   index,
 } from 'drizzle-orm/pg-core';
-import { sites } from './assets.js';
+import { sites, chargingStations } from './assets.js';
 import { drivers } from './drivers.js';
 import { chargingSessions } from './charging.js';
 import { users } from './identity.js';
@@ -100,3 +100,19 @@ export const paymentRecords = pgTable(
     index('idx_payment_records_site_payment_config_id').on(table.sitePaymentConfigId),
   ],
 );
+
+// Dynamic QR code ad hoc payments (OCPP 2.1 C25). One row per station that the
+// CSMS configured through WebPaymentsCtrlr. The shared secret is AES-256-GCM
+// ciphertext (SETTINGS_ENCRYPTION_KEY); the station holds it write-only.
+export const stationWebPaymentConfigs = pgTable('station_web_payment_configs', {
+  stationId: text('station_id')
+    .primaryKey()
+    .references(() => chargingStations.id, { onDelete: 'cascade' }),
+  sharedSecretEnc: text('shared_secret_enc').notNull(),
+  validitySeconds: integer('validity_seconds').notNull(),
+  totpLength: integer('totp_length').notNull(),
+  totpVersion: varchar('totp_version', { length: 10 }).notNull(),
+  urlTemplate: text('url_template').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

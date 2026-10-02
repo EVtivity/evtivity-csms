@@ -30,7 +30,7 @@ export const TC_S_103_CSMS: TestCase = {
       await ctx.triggerCommand('v21', 'RequestBatterySwap', {
         stationId: ctx.stationId,
         requestId: 1,
-        idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
       });
     } else {
       await new Promise((r) => setTimeout(r, 5000));
@@ -134,7 +134,7 @@ export const TC_S_103_CSMS: TestCase = {
       const resp11 = await ctx.client.sendCall('BatterySwap', {
         eventType: 'BatteryIn',
         requestId: 1,
-        idToken: { idToken: 'OCTT-TOKEN-01', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
         batteryData: [
           { evseId: 1, serialNumber: '1234', soC: 23, soH: 85 },
           { evseId: 2, serialNumber: '5678', soC: 45, soH: 87 },
@@ -244,7 +244,7 @@ export const TC_S_103_CSMS: TestCase = {
       const resp21 = await ctx.client.sendCall('BatterySwap', {
         eventType: 'BatteryOut',
         requestId: 1,
-        idToken: { idToken: 'OCTT-TOKEN-01', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
         batteryData: [
           { evseId: 3, serialNumber: '4321', soC: 80, soH: 95 },
           { evseId: 4, serialNumber: '8765', soC: 85, soH: 78 },

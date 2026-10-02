@@ -2,6 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { TestCase, StepResult } from '../../../../types.js';
+import {
+  enterEvConnectedPreSession,
+  pushOcspRequestSteps,
+  skippedWithoutOcsp,
+} from '../../../../ocsp-test-helpers.js';
 
 export const TC_C_51_CSMS: TestCase = {
   id: 'TC_C_51_CSMS',
@@ -14,55 +19,44 @@ export const TC_C_51_CSMS: TestCase = {
   purpose:
     'To verify if the CSMS is able to validate the certificate hash data and the provided eMAID.',
   execute: async (ctx) => {
+    const ocsp = ctx.ocsp;
+    if (ocsp == null) return skippedWithoutOcsp();
     const steps: StepResult[] = [];
 
-    // Step 1: Boot the station
-    const bootRes = await ctx.client.sendCall('BootNotification', {
+    await ctx.client.sendCall('BootNotification', {
       chargingStation: { model: 'OCTT-Virtual', vendorName: 'OCTT' },
       reason: 'PowerUp',
     });
-    steps.push({
-      step: 1,
-      description: 'Boot station',
-      status: bootRes['status'] === 'Accepted' ? 'passed' : 'failed',
-      expected: 'status = Accepted',
-      actual: `status = ${String(bootRes['status'])}`,
-    });
+    await enterEvConnectedPreSession(ctx);
 
-    // Step 2: Send AuthorizeRequest with valid idToken but revoked certificate hash data
+    // Prerequisites: the configured idToken is known by the CSMS as valid,
+    // the contract certificate is revoked, and its responder URL points to the
+    // Test System OCSP service. (The PDF's step 3 text says the service
+    // "responds that certificate is valid", but the prerequisite and the
+    // expected CertificateRevoked make clear it reports revoked.)
+    const contract = await ocsp.pki.issueContractCertificate(ctx.tokens.valid);
+    ocsp.pki.revoke(contract);
+
+    // Step 1: AuthorizeRequest with <Configured valid_idtoken_idtoken/type>.
     const authRes = await ctx.client.sendCall('Authorize', {
-      idToken: { idToken: 'OCTT-EMAID-REVOKED', type: 'eMAID' },
-      iso15118CertificateHashData: [
-        {
-          hashAlgorithm: 'SHA256',
-          issuerNameHash: 'deadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678',
-          issuerKeyHash: 'deadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678',
-          serialNumber: '99',
-          responderURL: 'http://ocsp.example.com',
-        },
-      ],
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
+      iso15118CertificateHashData: ocsp.pki.contractHashData(contract),
     });
+    pushOcspRequestSteps(steps, ocsp, contract.cert.serialNumber, 'revoked');
 
-    const idTokenInfo = authRes['idTokenInfo'] as Record<string, unknown> | undefined;
-    const authStatus = idTokenInfo?.['status'] as string | undefined;
-    const certStatus = authRes['certificateStatus'] as string | undefined;
-
+    const authStatus = (authRes['idTokenInfo'] as Record<string, unknown> | undefined)?.['status'];
+    const certStatus = authRes['certificateStatus'];
     steps.push({
-      step: 2,
-      description: 'Verify idTokenInfo.status is Invalid for revoked certificate',
-      status: authStatus === 'Invalid' ? 'passed' : 'failed',
-      expected: 'idTokenInfo.status = Invalid',
-      actual: `idTokenInfo.status = ${String(authStatus)}`,
+      step: 4,
+      description:
+        'AuthorizeResponse idTokenInfo.status Invalid, certificateStatus CertificateRevoked',
+      status: authStatus === 'Invalid' && certStatus === 'CertificateRevoked' ? 'passed' : 'failed',
+      expected: 'idTokenInfo.status = Invalid, certificateStatus = CertificateRevoked',
+      actual: `idTokenInfo.status = ${String(authStatus)}, certificateStatus = ${String(certStatus)}`,
     });
 
-    steps.push({
-      step: 3,
-      description: 'Verify certificateStatus is CertificateRevoked',
-      status: certStatus === 'CertificateRevoked' ? 'passed' : 'failed',
-      expected: 'certificateStatus = CertificateRevoked',
-      actual: `certificateStatus = ${String(certStatus)}`,
-    });
-
+    // Post scenario: the station does not authorize or charge (the test
+    // system sends no TransactionEvent with Authorized or Charging).
     const allPassed = steps.every((s) => s.status === 'passed');
     return { status: allPassed ? 'passed' : 'failed', durationMs: 0, steps };
   },

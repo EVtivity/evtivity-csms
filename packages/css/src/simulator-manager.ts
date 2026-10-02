@@ -61,6 +61,12 @@ interface CssCommand {
 // whose TLS server came up still boots within TTL of the next poll.
 const TLS_PROBE_FAILURE_TTL_MS = 15_000;
 
+// When the OCPP server restarts, every simulator in a 2000-station fleet sees
+// the close at the same instant; with only the 20% backoff jitter they all
+// reconnect within ~2 seconds, which saturates postgres on the server side.
+// The first reconnect attempt spreads uniformly over this window instead.
+const FLEET_RECONNECT_SPREAD_MS = 15_000;
+
 export class SimulatorManager {
   readonly simulators = new Map<string, StationSimulator>();
   private readonly clockAlignedScheduler: ClockAlignedScheduler;
@@ -364,18 +370,22 @@ export class SimulatorManager {
         ...(clientCertVal != null ? { clientCert: clientCertVal } : {}),
         ...(clientKeyVal != null ? { clientKey: clientKeyVal } : {}),
         ...(caCertVal != null ? { caCert: caCertVal } : {}),
+        reconnectSpreadMs: FLEET_RECONNECT_SPREAD_MS,
       };
 
+      const sim = this.makeSimulator(config, this.sql);
       try {
-        const sim = this.makeSimulator(config, this.sql);
         // Add to map BEFORE start() to prevent duplicate creation during async boot
         this.simulators.set(stationId, sim);
         await sim.start();
         this.clockAlignedScheduler.register(sim);
         console.log(`[simulator-manager] Started simulator: ${stationId}`);
       } catch (err: unknown) {
-        // Remove from map on failure so it can be retried next sync
+        // Remove from map on failure so it can be retried next sync. Stop it
+        // first: its client keeps retrying the connection in the background,
+        // and the next sync starts a fresh simulator for the station.
         this.simulators.delete(stationId);
+        await sim.stop().catch(() => {});
         const msg = err instanceof Error ? err.message : String(err);
         console.log(`[simulator-manager] Failed to start simulator ${stationId}: ${msg}`);
       }
@@ -633,9 +643,6 @@ export class SimulatorManager {
             params.activated as boolean,
           );
           break;
-        case 'sendNotifyQRCodeScanned':
-          await sim.sendNotifyQRCodeScanned(params.evseId as number, params.timeout as number);
-          break;
         case 'sendNotifyAllowedEnergyTransfer':
           await sim.sendNotifyAllowedEnergyTransfer(
             params.allowedEnergyTransfer as string[],
@@ -657,9 +664,6 @@ export class SimulatorManager {
             params.status as string,
             params.requestId as number | undefined,
           );
-          break;
-        case 'sendNotifyWebPaymentStarted':
-          await sim.sendNotifyWebPaymentStarted(params.evseId as number, params.timeout as number);
           break;
         case 'sendNotifyPeriodicEventStream':
           await sim.sendNotifyPeriodicEventStream(params);

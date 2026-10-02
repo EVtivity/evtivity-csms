@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { MapPin, Plug, Info } from 'lucide-react';
@@ -24,7 +24,11 @@ import {
   connectorStatusClassName,
   isStartable,
 } from '@/lib/connector-status';
-import { checkGuestConnectorStatus, formatConnectorType } from '@/lib/charger-utils';
+import {
+  checkGuestConnectorStatus,
+  formatConnectorType,
+  qrTransactionLimits,
+} from '@/lib/charger-utils';
 import { useStationEvents } from '@/hooks/use-station-events';
 import { useCableCheck } from '@/hooks/use-cable-check';
 
@@ -57,6 +61,7 @@ export function ChargerLanding(): React.JSX.Element {
   const { t } = useTranslation();
   const { stationId, evseId } = useParams<{ stationId: string; evseId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const isAuthenticated = useAuth((s) => s.isAuthenticated);
   const { companyName, companyLogo, branding } = useAuthBranding();
   useStationEvents(stationId);
@@ -116,7 +121,7 @@ export function ChargerLanding(): React.JSX.Element {
     try {
       const result = await api.post<{ sessionToken: string }>(
         `/v1/portal/guest/start/${stationId}/${evseId}`,
-        {},
+        qrTransactionLimits(searchParams),
       );
       void navigate(`/guest-session/${result.sessionToken}`);
     } catch (err: unknown) {
@@ -140,7 +145,8 @@ export function ChargerLanding(): React.JSX.Element {
     await runWithCableCheck(
       () => checkGuestConnectorStatus(stationId, evseId),
       () => {
-        void navigate(`/charge/${stationId}/${evseId}/checkout`);
+        // Keep the QR code limit parameters (maxenergy, maxtime, maxcost).
+        void navigate(`/charge/${stationId}/${evseId}/checkout?${searchParams.toString()}`);
       },
       setFreeStartError,
     );

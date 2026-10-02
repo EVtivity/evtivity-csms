@@ -481,6 +481,7 @@ async function seed(): Promise<void> {
     'pnc.hubject.tokenUrl': '',
     'pnc.expirationWarningDays': 30,
     'pnc.expirationCriticalDays': 7,
+    'pnc.ocsp.allowedPrivateHosts': [],
     'company.name': 'EVtivity',
     'company.currency': DEFAULT_CURRENCY,
     'company.contactEmail': 'contact@evtivity.local',

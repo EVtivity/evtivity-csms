@@ -22,6 +22,9 @@
     },
     "./station-password": {
       "import": "./src/station-password.ts"
+    },
+    "./firmware-signature": {
+      "import": "./src/firmware-signature.ts"
     }
   },
   "scripts": {

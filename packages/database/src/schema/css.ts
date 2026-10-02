@@ -285,6 +285,8 @@ export const cssInstalledCertificates = pgTable(
     hashAlgorithm: varchar('hash_algorithm', { length: 20 }).notNull().default('SHA256'),
     issuerNameHash: varchar('issuer_name_hash', { length: 255 }),
     issuerKeyHash: varchar('issuer_key_hash', { length: 255 }),
+    // PEM of the installed certificate (null for rows that only carry hash data).
+    certificate: text('certificate'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

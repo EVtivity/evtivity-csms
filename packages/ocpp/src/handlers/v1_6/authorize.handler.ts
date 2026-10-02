@@ -15,6 +15,7 @@ import {
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { Authorize } from '../../generated/v1_6/types/messages/Authorize.js';
 import { logAuthorizeAttempt, parseOcpiValidThru } from '../authorize-log.js';
+import { prepaidCredit } from '../prepaid.js';
 
 export async function handleAuthorize(ctx: HandlerContext): Promise<Record<string, unknown>> {
   const request = ctx.payload as unknown as Authorize;
@@ -71,12 +72,14 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     | 'invalid'
     | 'blocked'
     | 'expired'
+    | 'no_credit'
     | 'concurrent_tx'
     | 'unknown'
     | 'db_error' = 'accepted';
   let matchedTokenId: string | null = null;
   let matchedDriverId: string | null = null;
   let matchedExpiresAt: Date | null = null;
+  let matchedPrepaidBalanceCents: number | null = null;
   let reason: string | null = null;
 
   try {
@@ -90,6 +93,7 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
         isActive: driverTokens.isActive,
         expiresAt: driverTokens.expiresAt,
         revokedAt: driverTokens.revokedAt,
+        prepaidBalanceCents: driverTokens.prepaidBalanceCents,
       })
       .from(driverTokens)
       .where(eq(driverTokens.idToken, idTag));
@@ -242,6 +246,7 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
         matchedTokenId = usable.id;
         matchedDriverId = usable.driverId;
         matchedExpiresAt = usable.expiresAt;
+        matchedPrepaidBalanceCents = usable.prepaidBalanceCents ?? null;
         status = 'Accepted';
         outcome = 'accepted';
       } else {
@@ -305,6 +310,16 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     }
   }
 
+  // Prepaid token: OCPP 1.6 has no NoCredit status, so a token without credit
+  // is Blocked. expiryDate = now keeps a prepaid idTag out of the station's
+  // authorization cache, so every start asks the CSMS for the current balance.
+  const credit = status === 'Accepted' ? prepaidCredit(matchedPrepaidBalanceCents) : 'not_prepaid';
+  if (credit === 'no_credit') {
+    status = 'Blocked';
+    outcome = 'no_credit';
+    reason = 'no_credit';
+  }
+
   void logAuthorizeAttempt(
     {
       stationId: ctx.stationId,
@@ -320,7 +335,9 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
   );
 
   const idTagInfo: { status: typeof status; expiryDate?: string } = { status };
-  if (status === 'Accepted' && matchedExpiresAt != null) {
+  if (credit !== 'not_prepaid') {
+    idTagInfo.expiryDate = new Date().toISOString();
+  } else if (status === 'Accepted' && matchedExpiresAt != null) {
     idTagInfo.expiryDate = matchedExpiresAt.toISOString();
   }
   return { idTagInfo };

@@ -62,7 +62,7 @@ export const TC_Q_102_CSMS: TestCase = {
     );
     try {
       const resp = await ctx.client.sendCall('Authorize', {
-        idToken: { idToken: 'OCTT-TOKEN-V2X', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
       });
       const idTokenInfo = resp['idTokenInfo'] as Record<string, unknown> | undefined;
       const authStatus = idTokenInfo?.['status'] as string | undefined;

@@ -3,18 +3,40 @@
 
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 
+/** Control lists a ReportDERControlRequest can carry (schemas/ocpp-2.1/ReportDERControlRequest.json). */
+const DER_CONTROL_FIELDS = [
+  'curve',
+  'enterService',
+  'fixedPFAbsorb',
+  'fixedPFInject',
+  'fixedVar',
+  'freqDroop',
+  'gradient',
+  'limitMaxDischarge',
+] as const;
+
 export async function handleReportDERControl(
   ctx: HandlerContext,
 ): Promise<Record<string, unknown>> {
   const request = ctx.payload as {
     requestId: number;
-    seqNo: number;
     tbc?: boolean;
-    derControl?: unknown[];
-  };
+  } & Partial<Record<(typeof DER_CONTROL_FIELDS)[number], unknown[]>>;
+
+  // The reported controls, keyed by control list, with only the lists present.
+  const derControl: Record<string, unknown[]> = {};
+  for (const field of DER_CONTROL_FIELDS) {
+    const list = request[field];
+    if (list != null) derControl[field] = list;
+  }
 
   ctx.logger.info(
-    { stationId: ctx.stationId, requestId: request.requestId, seqNo: request.seqNo },
+    {
+      stationId: ctx.stationId,
+      requestId: request.requestId,
+      tbc: request.tbc ?? false,
+      controls: Object.keys(derControl),
+    },
     'ReportDERControl received',
   );
 
@@ -26,9 +48,8 @@ export async function handleReportDERControl(
       stationId: ctx.stationId,
       stationDbId: ctx.stationDbId,
       requestId: request.requestId,
-      seqNo: request.seqNo,
-      tbc: request.tbc,
-      derControl: request.derControl,
+      tbc: request.tbc ?? false,
+      derControl,
     },
   });
 

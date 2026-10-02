@@ -1,18 +1,11 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { StepResult, TestCase } from '../../../../types.js';
+import type { StepResult, TestCase, TestContext } from '../../../../types.js';
 import { pushSendAckStep } from '../../../../csms-test-helpers.js';
 
 // Helper: boot station
-async function boot(ctx: {
-  client: {
-    sendCall: (
-      action: string,
-      payload: Record<string, unknown>,
-    ) => Promise<Record<string, unknown>>;
-  };
-}) {
+async function boot(ctx: TestContext) {
   await ctx.client.sendCall('BootNotification', {
     chargingStation: { model: 'OCTT-Virtual', vendorName: 'OCTT' },
     reason: 'PowerUp',
@@ -26,14 +19,7 @@ async function boot(ctx: {
 }
 
 // Helper: start transaction
-async function startTx(ctx: {
-  client: {
-    sendCall: (
-      action: string,
-      payload: Record<string, unknown>,
-    ) => Promise<Record<string, unknown>>;
-  };
-}) {
+async function startTx(ctx: TestContext) {
   const txId = `OCTT-TX-${String(Date.now())}`;
   await ctx.client.sendCall('TransactionEvent', {
     eventType: 'Started',
@@ -42,7 +28,7 @@ async function startTx(ctx: {
     seqNo: 0,
     transactionInfo: { transactionId: txId, chargingState: 'Charging' },
     evse: { id: 1, connectorId: 1 },
-    idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+    idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
   });
   return txId;
 }

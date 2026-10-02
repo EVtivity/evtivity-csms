@@ -5,7 +5,11 @@ export * from './schema/index.js';
 export { db, client } from './config.js';
 export { PgEventPersistence } from './event-persistence.js';
 export { isRoamingEnabled, clearRoamingCache } from './lib/roaming-setting.js';
-export { isPncEnabled, clearPncSettingsCache } from './lib/pnc-setting.js';
+export {
+  isPncEnabled,
+  getOcspAllowedPrivateHosts,
+  clearPncSettingsCache,
+} from './lib/pnc-setting.js';
 export { isSiteFreeVendEnabledByStation, clearFreeVendCache } from './lib/free-vend-setting.js';
 export {
   getElectricityRatePeriodsForSite,
@@ -25,6 +29,8 @@ export type {
   WriteReservationAuditArgs,
 } from './lib/reservation-audit.js';
 export { writeAudit, redactAuditPayload } from './lib/audit.js';
+export { settlePrepaidSession } from './lib/prepaid-balance.js';
+export type { PrepaidSettlement } from './lib/prepaid-balance.js';
 export {
   recomputeStationAvailability,
   setStationDisabled,

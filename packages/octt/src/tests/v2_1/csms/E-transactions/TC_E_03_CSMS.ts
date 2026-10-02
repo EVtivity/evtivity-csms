@@ -25,7 +25,7 @@ export const TC_E_03_CSMS: TestCase = {
 
     // Step 1: Authorize
     const authRes = await ctx.client.sendCall('Authorize', {
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
     const authStatus = (authRes['idTokenInfo'] as Record<string, unknown>)?.['status'] as string;
     steps.push({
@@ -45,7 +45,7 @@ export const TC_E_03_CSMS: TestCase = {
       seqNo: 0,
       transactionInfo: { transactionId: txId, chargingState: 'Charging' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
     const txIdTokenStatus = (txRes['idTokenInfo'] as Record<string, unknown>)?.['status'] as
       | string
@@ -132,7 +132,7 @@ export const TC_E_04_CSMS: TestCase = {
 
     // Step 1: Authorize (Reusable State Authorized)
     const authRes = await ctx.client.sendCall('Authorize', {
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
     const idTokenInfo = authRes['idTokenInfo'] as Record<string, unknown> | undefined;
     steps.push({
@@ -151,7 +151,7 @@ export const TC_E_04_CSMS: TestCase = {
       seqNo: 1,
       transactionInfo: { transactionId: txId, chargingState: 'Charging' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
 
     pushSendAckStep(
@@ -206,7 +206,7 @@ export const TC_E_39_CSMS: TestCase = {
 
     // Step 1: Authorize
     const authRes = await ctx.client.sendCall('Authorize', {
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
     const idTokenInfo = authRes['idTokenInfo'] as Record<string, unknown> | undefined;
     steps.push({
@@ -226,7 +226,7 @@ export const TC_E_39_CSMS: TestCase = {
       seqNo: 0,
       transactionInfo: { transactionId: txId, chargingState: 'Charging' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
 
     pushSendAckStep(

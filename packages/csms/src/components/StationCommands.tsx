@@ -34,6 +34,13 @@ import type { ValidationErrors } from '@/lib/ocpp-schema';
 import { SchemaForm } from '@/components/SchemaForm';
 import { OCPP_21_VARIABLES, OCPP_16_KEYS } from '@/lib/ocpp-variables';
 import { LoadingLogo } from '@/components/loading-logo';
+import { newOcppRequestId } from '@/lib/ocpp-request-id';
+import {
+  FirmwareSignatureFields,
+  firmwareSignaturePayload,
+  getFirmwareSignatureErrors,
+  type FirmwareSignatureValue,
+} from '@/components/FirmwareSignatureFields';
 
 const RESET_TYPES = ['Immediate', 'OnIdle'] as const;
 
@@ -219,6 +226,8 @@ interface FormState {
   getConfigKey: string;
   firmwareRetries: string;
   firmwareRetryInterval: string;
+  firmwareSigningCertificate: string;
+  firmwareSignature: string;
 }
 
 const INITIAL_FORM: FormState = {
@@ -241,7 +250,31 @@ const INITIAL_FORM: FormState = {
   getConfigKey: '',
   firmwareRetries: '',
   firmwareRetryInterval: '',
+  firmwareSigningCertificate: '',
+  firmwareSignature: '',
 };
+
+function firmwareSigning(form: FormState): FirmwareSignatureValue {
+  return { signingCertificate: form.firmwareSigningCertificate, signature: form.firmwareSignature };
+}
+
+/**
+ * A signed firmware update for a 1.6 station is a SignedUpdateFirmware (1.6
+ * Security Whitepaper), which has the 2.1 UpdateFirmware payload shape.
+ */
+function buildSignedUpdateFirmware16(form: FormState): Record<string, unknown> {
+  const p: Record<string, unknown> = {
+    requestId: newOcppRequestId(),
+    firmware: {
+      location: form.firmwareUrl,
+      retrieveDateTime: new Date(form.retrieveDateTime).toISOString(),
+      ...firmwareSignaturePayload(firmwareSigning(form)),
+    },
+  };
+  if (form.firmwareRetries !== '') p['retries'] = Number(form.firmwareRetries);
+  if (form.firmwareRetryInterval !== '') p['retryInterval'] = Number(form.firmwareRetryInterval);
+  return p;
+}
 
 const INITIAL_FORM_16: FormState = {
   ...INITIAL_FORM,
@@ -310,8 +343,9 @@ function buildPayload(action: QuickAction, form: FormState): Record<string, unkn
         firmware: {
           location: form.firmwareUrl,
           retrieveDateTime: new Date(form.retrieveDateTime).toISOString(),
+          ...firmwareSignaturePayload(firmwareSigning(form)),
         },
-        requestId: Date.now(),
+        requestId: newOcppRequestId(),
       };
   }
 }
@@ -772,6 +806,17 @@ function QuickActionForm({
               }}
             />
           </div>
+          <FirmwareSignatureFields
+            value={firmwareSigning(form)}
+            onChange={(v) => {
+              onChange({
+                firmwareSigningCertificate: v.signingCertificate,
+                firmwareSignature: v.signature,
+              });
+            }}
+            idPrefix="cmd-fw"
+            errors={getFirmwareSignatureErrors(firmwareSigning(form), t)}
+          />
         </div>
       );
   }
@@ -1066,6 +1111,17 @@ function QuickActionForm16({
               }}
             />
           </div>
+          <FirmwareSignatureFields
+            value={firmwareSigning(form)}
+            onChange={(v) => {
+              onChange({
+                firmwareSigningCertificate: v.signingCertificate,
+                firmwareSignature: v.signature,
+              });
+            }}
+            idPrefix="cmd16-fw"
+            errors={getFirmwareSignatureErrors(firmwareSigning(form), t)}
+          />
         </div>
       );
   }
@@ -1193,10 +1249,14 @@ export function StationCommands({
     if (activeAction == null) return;
     setResult(null);
     if (is16) {
-      mutation.mutate({
-        action: activeAction,
-        payload: buildPayload16(activeAction as QuickAction16, form),
-      });
+      const signed =
+        activeAction === 'UpdateFirmware' &&
+        Object.keys(firmwareSignaturePayload(firmwareSigning(form))).length > 0;
+      mutation.mutate(
+        signed
+          ? { action: 'SignedUpdateFirmware', payload: buildSignedUpdateFirmware16(form) }
+          : { action: activeAction, payload: buildPayload16(activeAction as QuickAction16, form) },
+      );
     } else {
       mutation.mutate({
         action: activeAction,
@@ -1207,6 +1267,12 @@ export function StationCommands({
 
   function handleQuickSubmit(): void {
     if (activeAction == null) return;
+    if (
+      activeAction === 'UpdateFirmware' &&
+      Object.keys(getFirmwareSignatureErrors(firmwareSigning(form), t)).length > 0
+    ) {
+      return;
+    }
     if (DESTRUCTIVE_QUICK_ACTIONS.has(activeAction)) {
       setConfirmPending(true);
       return;

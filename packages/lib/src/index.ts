@@ -69,6 +69,16 @@ export {
   toAuthorizationKeyHex,
 } from './station-password.js';
 export type { StationOcppProtocol, StationPasswordError } from './station-password.js';
+export {
+  FIRMWARE_SIGNING_CERTIFICATE_MAX_LENGTH,
+  FIRMWARE_SIGNATURE_MAX_LENGTH,
+  isBase64,
+  isPemCertificate,
+  validateFirmwareSignature,
+} from './firmware-signature.js';
+export type { FirmwareSignatureError } from './firmware-signature.js';
+export { TOTP_VERSION_V1, totpV1, totpV1ForInterval, verifyTotpV1 } from './web-payment-totp.js';
+export type { TotpParameters } from './web-payment-totp.js';
 export { calculateSessionCost, calculateSplitSessionCost } from './cost-calculator.js';
 export type { TariffInput, CostBreakdown, TariffSegment } from './cost-calculator.js';
 
@@ -186,6 +196,7 @@ export {
   CSS_STATUS_REPORTING_KEY,
   CSS_STATUS_REPORTING_VALUES,
   CSS_STATUS_REPORTING_DEFAULT,
+  cssSecurityCtrlrDefaults,
 } from './css-config-defaults.js';
 export type {
   CssConfigDefaultsInput,

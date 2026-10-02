@@ -40,7 +40,11 @@ export const TC_073_CSMS: TestCase = {
     let received: { key: string; value: string } | null = null;
     ctx.client.setIncomingCallHandler((_messageId, action, payload) => {
       if (action === 'ChangeConfiguration') {
-        received = { key: String(payload['key'] ?? ''), value: String(payload['value'] ?? '') };
+        // The CSMS also pushes its boot configuration (meter value keys); keep the password change.
+        const key = String(payload['key'] ?? '');
+        if (key === 'AuthorizationKey' || received == null) {
+          received = { key, value: String(payload['value'] ?? '') };
+        }
         return Promise.resolve({ status: 'Accepted' });
       }
       return Promise.resolve({ status: 'NotSupported' });

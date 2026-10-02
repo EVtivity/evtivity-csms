@@ -12,10 +12,47 @@ export const TC_042_1_CS: CsTestCase = {
   description:
     'The Central System can request a Charge Point for the version number of the Local Authorization List.',
   purpose: 'Check whether the Charge Point provides the local list version when requested.',
-  execute: async (_ctx) => {
-    // Prerequisite: Station does not support Local Authorization List.
-    // Our CSS supports it (LocalAuthListEnabled = true), so skip.
-    return { status: 'skipped', durationMs: 0, steps: [] };
+  // Prerequisite: the Charge Point allows LocalAuthListEnabled = false.
+  execute: async (ctx) => {
+    const steps: StepResult[] = [];
+    ctx.server.setMessageHandler(async (action) => {
+      if (action === 'BootNotification')
+        return { status: 'Accepted', currentTime: new Date().toISOString(), interval: 300 };
+      if (action === 'Heartbeat') return { currentTime: new Date().toISOString() };
+      return {};
+    });
+
+    // Configuration State: LocalAuthListEnabled is false.
+    const cfg = await ctx.server.sendCommand('ChangeConfiguration', {
+      key: 'LocalAuthListEnabled',
+      value: 'false',
+    });
+    steps.push({
+      step: 0,
+      description: 'Before: ChangeConfiguration LocalAuthListEnabled = false',
+      status: cfg['status'] === 'Accepted' ? 'passed' : 'failed',
+      expected: 'status = Accepted',
+      actual: `status = ${String(cfg['status'])}`,
+    });
+
+    let listVersion: unknown;
+    let callError: string | null = null;
+    try {
+      const resp = await ctx.server.sendCommand('GetLocalListVersion', {});
+      listVersion = resp['listVersion'];
+    } catch (err) {
+      callError = err instanceof Error ? err.message : String(err);
+    }
+    steps.push({
+      step: 2,
+      description: 'GetLocalListVersion.conf listVersion is -1 (or a CallError)',
+      status:
+        listVersion === -1 || callError?.startsWith('CALLERROR') === true ? 'passed' : 'failed',
+      expected: 'listVersion = -1, or CallError',
+      actual: callError ?? `listVersion = ${String(listVersion)}`,
+    });
+    const allPassed = steps.every((s) => s.status === 'passed');
+    return { status: allPassed ? 'passed' : 'failed', durationMs: 0, steps };
   },
 };
 
@@ -119,9 +156,45 @@ export const TC_043_1_CS: CsTestCase = {
   description: 'Check whether a Charge Point can refuse a sent Local Authorization List.',
   purpose:
     'Check whether a Charge Point can refuse a sent Local Authorization List if it does not support it.',
-  // Prerequisite: Station does not support Local Authorization List. CSS supports it.
-  execute: async (_ctx) => {
-    return { status: 'skipped', durationMs: 0, steps: [] };
+  // Prerequisite: the Charge Point does not support the Local Auth List Management feature profile.
+  stationConfig: {
+    configOverrides: {
+      SupportedFeatureProfiles: 'Core,FirmwareManagement,Reservation,SmartCharging,RemoteTrigger',
+    },
+  },
+  execute: async (ctx) => {
+    const steps: StepResult[] = [];
+    ctx.server.setMessageHandler(async (action) => {
+      if (action === 'BootNotification')
+        return { status: 'Accepted', currentTime: new Date().toISOString(), interval: 300 };
+      if (action === 'Heartbeat') return { currentTime: new Date().toISOString() };
+      return {};
+    });
+
+    let status: unknown;
+    let callError: string | null = null;
+    try {
+      const resp = await ctx.server.sendCommand('SendLocalList', {
+        listVersion: 1,
+        updateType: 'Full',
+        localAuthorizationList: [{ idTag: 'OCTT_TAG_001', idTagInfo: { status: 'Accepted' } }],
+      });
+      status = resp['status'];
+    } catch (err) {
+      callError = err instanceof Error ? err.message : String(err);
+    }
+    steps.push({
+      step: 2,
+      description: 'SendLocalList.conf status is NotSupported (or CallError NotSupported)',
+      status:
+        status === 'NotSupported' || callError?.startsWith('CALLERROR NotSupported') === true
+          ? 'passed'
+          : 'failed',
+      expected: 'status = NotSupported, or CallError NotSupported',
+      actual: callError ?? `status = ${String(status)}`,
+    });
+    const allPassed = steps.every((s) => s.status === 'passed');
+    return { status: allPassed ? 'passed' : 'failed', durationMs: 0, steps };
   },
 };
 
@@ -194,9 +267,48 @@ export const TC_043_3_CS: CsTestCase = {
   sut: 'cs',
   description: 'Check whether a Charge Point can refuse a sent Local Authorization List.',
   purpose: 'Check whether a Charge Point reports Failed.',
-  // Prerequisite: Station has limited or disabled local auth list storage. CSS supports 100 entries.
-  execute: async (_ctx) => {
-    return { status: 'skipped', durationMs: 0, steps: [] };
+  // Prerequisite: the Charge Point is in a state in which it fails to set the list: its
+  // Local Authorization List storage holds one entry (LocalAuthListMaxLength = 1).
+  stationConfig: { configOverrides: { LocalAuthListMaxLength: '1' } },
+  execute: async (ctx) => {
+    const steps: StepResult[] = [];
+    ctx.server.setMessageHandler(async (action) => {
+      if (action === 'BootNotification')
+        return { status: 'Accepted', currentTime: new Date().toISOString(), interval: 300 };
+      if (action === 'Heartbeat') return { currentTime: new Date().toISOString() };
+      return {};
+    });
+
+    // Configuration State: LocalAuthListEnabled is true.
+    const cfg = await ctx.server.sendCommand('ChangeConfiguration', {
+      key: 'LocalAuthListEnabled',
+      value: 'true',
+    });
+    steps.push({
+      step: 0,
+      description: 'Before: ChangeConfiguration LocalAuthListEnabled = true',
+      status: cfg['status'] === 'Accepted' ? 'passed' : 'failed',
+      expected: 'status = Accepted',
+      actual: `status = ${String(cfg['status'])}`,
+    });
+
+    const resp = await ctx.server.sendCommand('SendLocalList', {
+      listVersion: 2,
+      updateType: 'Full',
+      localAuthorizationList: [
+        { idTag: 'OCTT_TAG_001', idTagInfo: { status: 'Accepted' } },
+        { idTag: 'OCTT_TAG_002', idTagInfo: { status: 'Accepted' } },
+      ],
+    });
+    steps.push({
+      step: 2,
+      description: 'SendLocalList.conf status is Failed',
+      status: resp['status'] === 'Failed' ? 'passed' : 'failed',
+      expected: 'status = Failed',
+      actual: `status = ${String(resp['status'])}`,
+    });
+    const allPassed = steps.every((s) => s.status === 'passed');
+    return { status: allPassed ? 'passed' : 'failed', durationMs: 0, steps };
   },
 };
 

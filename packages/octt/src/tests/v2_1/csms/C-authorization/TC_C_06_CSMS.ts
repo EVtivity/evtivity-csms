@@ -30,7 +30,7 @@ export const TC_C_06_CSMS: TestCase = {
 
     // Step 2: Send AuthorizeRequest with a blocked idToken
     const authRes = await ctx.client.sendCall('Authorize', {
-      idToken: { idToken: 'BLOCKED-TOKEN-99999', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.blocked, type: 'ISO14443' },
     });
 
     const idTokenInfo = authRes['idTokenInfo'] as Record<string, unknown> | undefined;

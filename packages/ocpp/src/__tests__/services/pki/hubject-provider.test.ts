@@ -2,6 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+const stationOcspMock = vi.fn();
+
+vi.mock('../../../services/pki/ocsp.js', () => ({
+  getOcspResultForStation: (...args: unknown[]) => stationOcspMock(...args) as unknown,
+}));
+
 import { HubjectProvider } from '../../../services/pki/hubject-provider.js';
 import type { OcspRequestData } from '../../../services/pki/pki-provider.js';
 
@@ -42,23 +48,12 @@ function jsonResponse(ok: boolean, status: number, body: unknown): Response {
   } as unknown as Response;
 }
 
-function binaryResponse(ok: boolean, status: number, bytes: Buffer): Response {
-  return {
-    ok,
-    status,
-    arrayBuffer: vi
-      .fn()
-      .mockResolvedValue(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)),
-    text: vi.fn().mockResolvedValue(''),
-    json: vi.fn(),
-  } as unknown as Response;
-}
-
 type FetchMock = ReturnType<typeof vi.fn<(url: string, init: RequestInit) => Promise<Response>>>;
 
 let fetchMock: FetchMock;
 
 beforeEach(() => {
+  stationOcspMock.mockReset();
   fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>();
   vi.stubGlobal('fetch', fetchMock);
 });
@@ -213,58 +208,30 @@ describe('HubjectProvider.getContractCertificate', () => {
 describe('HubjectProvider.getOcspStatus', () => {
   const ocspData: OcspRequestData = {
     hashAlgorithm: 'SHA256',
-    issuerNameHash: 'name-hash',
-    issuerKeyHash: 'key-hash',
-    serialNumber: 'serial-1',
+    issuerNameHash: 'aa'.repeat(32),
+    issuerKeyHash: 'bb'.repeat(32),
+    serialNumber: '1f',
     responderURL: 'https://ocsp.public-responder.com/check',
   };
 
-  it('posts a base64 OCSP request to the responder and returns the base64 result', async () => {
-    const ocspBytes = Buffer.from('ocsp-binary-response');
-    fetchMock.mockResolvedValueOnce(binaryResponse(true, 200, ocspBytes));
+  it('returns the DER OCSP response the shared RFC 6960 helper fetched', async () => {
+    stationOcspMock.mockResolvedValueOnce({ status: 'Accepted', ocspResult: 'MIIB' });
 
-    const provider = new HubjectProvider(config);
-    const result = await provider.getOcspStatus(ocspData);
+    const result = await new HubjectProvider(config).getOcspStatus(ocspData);
 
-    // No OAuth token fetch on the OCSP path; it goes straight to the responder.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('https://ocsp.public-responder.com/check');
-    expect(init.method).toBe('POST');
-    expect(init.headers).toEqual({ 'Content-Type': 'application/ocsp-request' });
-
-    // The body is the decoded form of a base64-encoded JSON OCSP request.
-    const sentBody = init.body as Buffer;
-    const decoded = JSON.parse(sentBody.toString('utf8')) as Record<string, string>;
-    expect(decoded).toEqual({
-      hashAlgorithm: 'SHA256',
-      issuerNameHash: 'name-hash',
-      issuerKeyHash: 'key-hash',
-      serialNumber: 'serial-1',
-    });
-
-    expect(result).toEqual({
-      status: 'Accepted',
-      ocspResult: ocspBytes.toString('base64'),
-    });
-  });
-
-  it('rejects a responder URL pointing at a private/internal address (SSRF guard)', async () => {
-    const provider = new HubjectProvider(config);
-    const result = await provider.getOcspStatus({
-      ...ocspData,
-      responderURL: 'http://169.254.169.254/latest/meta-data',
-    });
-
-    expect(result).toEqual({ status: 'Failed', ocspResult: '' });
+    expect(stationOcspMock).toHaveBeenCalledWith(ocspData);
+    expect(result).toEqual({ status: 'Accepted', ocspResult: 'MIIB' });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('returns Failed when the OCSP responder returns a non-2xx response', async () => {
-    fetchMock.mockResolvedValueOnce(binaryResponse(false, 503, Buffer.from('')));
+  it('returns Failed with an empty ocspResult when the helper fails', async () => {
+    stationOcspMock.mockResolvedValueOnce({
+      status: 'Failed',
+      ocspResult: '',
+      reason: 'OCSP responder returned HTTP 503',
+    });
 
-    const provider = new HubjectProvider(config);
-    const result = await provider.getOcspStatus(ocspData);
+    const result = await new HubjectProvider(config).getOcspStatus(ocspData);
 
     expect(result).toEqual({ status: 'Failed', ocspResult: '' });
   });

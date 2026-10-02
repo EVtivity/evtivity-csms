@@ -31,7 +31,7 @@ export const TC_I_109_CSMS: TestCase = {
 
     // Step 1-2: Authorize
     const authRes = await ctx.client.sendCall('Authorize', {
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
 
     const idTokenInfo = authRes['idTokenInfo'] as Record<string, unknown> | undefined;

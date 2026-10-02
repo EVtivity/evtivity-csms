@@ -21,7 +21,7 @@ export const TC_028_CSMS: TestCase = {
 
     // Start a session first so the CSMS has something to stop
     const connectorId = 1;
-    const idTag = 'OCTT_TAG_001';
+    const idTag = ctx.tokens.valid;
     const timestamp = new Date().toISOString();
     await ctx.client.sendCall('StatusNotification', {
       connectorId,

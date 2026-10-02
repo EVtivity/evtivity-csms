@@ -8,6 +8,8 @@ export type {
   TestResult,
   StepResult,
   TestStatus,
+  ReportedTestStatus,
+  ReportedTestResult,
   OcppVersion,
   SutType,
   RunConfig,

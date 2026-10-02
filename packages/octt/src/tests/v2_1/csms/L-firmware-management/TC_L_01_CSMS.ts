@@ -3,6 +3,11 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import {
+  futureFirmwareDateStep,
+  sendSecureFirmwareUpdate,
+  signedFirmwareStep,
+} from '../../../../firmware-test-helpers.js';
 
 // L01: Secure Firmware Update - Installation successful
 export const TC_L_01_CSMS: TestCase = {
@@ -38,18 +43,7 @@ export const TC_L_01_CSMS: TestCase = {
       },
     );
 
-    if (ctx.triggerCommand != null) {
-      await ctx.triggerCommand('v21', 'UpdateFirmware', {
-        stationId: ctx.stationId,
-        requestId: 1,
-        firmware: {
-          location: 'https://example.com/fw.bin',
-          retrieveDateTime: new Date().toISOString(),
-        },
-      });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
+    await sendSecureFirmwareUpdate(ctx);
 
     steps.push({
       step: 1,
@@ -62,6 +56,7 @@ export const TC_L_01_CSMS: TestCase = {
     if (!receivedUpdateFirmware) {
       return { status: 'failed', durationMs: 0, steps };
     }
+    steps.push(signedFirmwareStep(1, updateFirmwarePayload));
 
     // Step 2: Send firmware status notifications through the update lifecycle
     const statuses = [
@@ -188,27 +183,23 @@ export const TC_L_02_CSMS: TestCase = {
     });
 
     let receivedUpdateFirmware = false;
+    let updateFirmwarePayload: Record<string, unknown> | null = null;
 
-    ctx.client.setIncomingCallHandler(async (_messageId: string, action: string) => {
-      if (action === 'UpdateFirmware') {
-        receivedUpdateFirmware = true;
-        return { status: 'Accepted' };
-      }
-      return {};
+    ctx.client.setIncomingCallHandler(
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'UpdateFirmware') {
+          receivedUpdateFirmware = true;
+          updateFirmwarePayload = payload;
+          return { status: 'Accepted' };
+        }
+        return {};
+      },
+    );
+
+    const sentAt = Date.now();
+    await sendSecureFirmwareUpdate(ctx, {
+      installDateTime: new Date(sentAt + 3_600_000).toISOString(),
     });
-
-    if (ctx.triggerCommand != null) {
-      await ctx.triggerCommand('v21', 'UpdateFirmware', {
-        stationId: ctx.stationId,
-        requestId: 1,
-        firmware: {
-          location: 'https://example.com/fw.bin',
-          retrieveDateTime: new Date().toISOString(),
-        },
-      });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
 
     steps.push({
       step: 1,
@@ -221,6 +212,8 @@ export const TC_L_02_CSMS: TestCase = {
     if (!receivedUpdateFirmware) {
       return { status: 'failed', durationMs: 0, steps };
     }
+    steps.push(futureFirmwareDateStep(1, updateFirmwarePayload, 'installDateTime', sentAt));
+    steps.push(signedFirmwareStep(1, updateFirmwarePayload));
 
     const statuses = [
       'Downloading',
@@ -298,27 +291,23 @@ export const TC_L_03_CSMS: TestCase = {
     });
 
     let receivedUpdateFirmware = false;
+    let updateFirmwarePayload: Record<string, unknown> | null = null;
 
-    ctx.client.setIncomingCallHandler(async (_messageId: string, action: string) => {
-      if (action === 'UpdateFirmware') {
-        receivedUpdateFirmware = true;
-        return { status: 'Accepted' };
-      }
-      return {};
+    ctx.client.setIncomingCallHandler(
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'UpdateFirmware') {
+          receivedUpdateFirmware = true;
+          updateFirmwarePayload = payload;
+          return { status: 'Accepted' };
+        }
+        return {};
+      },
+    );
+
+    const sentAt = Date.now();
+    await sendSecureFirmwareUpdate(ctx, {
+      retrieveDateTime: new Date(sentAt + 3_600_000).toISOString(),
     });
-
-    if (ctx.triggerCommand != null) {
-      await ctx.triggerCommand('v21', 'UpdateFirmware', {
-        stationId: ctx.stationId,
-        requestId: 1,
-        firmware: {
-          location: 'https://example.com/fw.bin',
-          retrieveDateTime: new Date().toISOString(),
-        },
-      });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
 
     steps.push({
       step: 1,
@@ -331,6 +320,8 @@ export const TC_L_03_CSMS: TestCase = {
     if (!receivedUpdateFirmware) {
       return { status: 'failed', durationMs: 0, steps };
     }
+    steps.push(futureFirmwareDateStep(1, updateFirmwarePayload, 'retrieveDateTime', sentAt));
+    steps.push(signedFirmwareStep(1, updateFirmwarePayload));
 
     const statuses = [
       'DownloadScheduled',
@@ -414,18 +405,7 @@ export const TC_L_04_CSMS: TestCase = {
       return {};
     });
 
-    if (ctx.triggerCommand != null) {
-      await ctx.triggerCommand('v21', 'UpdateFirmware', {
-        stationId: ctx.stationId,
-        requestId: 1,
-        firmware: {
-          location: 'https://example.com/fw.bin',
-          retrieveDateTime: new Date().toISOString(),
-        },
-      });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
+    await sendSecureFirmwareUpdate(ctx);
 
     steps.push({
       step: 1,
@@ -479,18 +459,7 @@ export const TC_L_05_CSMS: TestCase = {
       return {};
     });
 
-    if (ctx.triggerCommand != null) {
-      await ctx.triggerCommand('v21', 'UpdateFirmware', {
-        stationId: ctx.stationId,
-        requestId: 1,
-        firmware: {
-          location: 'https://example.com/fw.bin',
-          retrieveDateTime: new Date().toISOString(),
-        },
-      });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
+    await sendSecureFirmwareUpdate(ctx);
 
     steps.push({
       step: 1,
@@ -535,18 +504,7 @@ export const TC_L_06_CSMS: TestCase = {
       return {};
     });
 
-    if (ctx.triggerCommand != null) {
-      await ctx.triggerCommand('v21', 'UpdateFirmware', {
-        stationId: ctx.stationId,
-        requestId: 1,
-        firmware: {
-          location: 'https://example.com/fw.bin',
-          retrieveDateTime: new Date().toISOString(),
-        },
-      });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
+    await sendSecureFirmwareUpdate(ctx);
 
     steps.push({
       step: 1,
@@ -638,18 +596,7 @@ export const TC_L_07_CSMS: TestCase = {
       return {};
     });
 
-    if (ctx.triggerCommand != null) {
-      await ctx.triggerCommand('v21', 'UpdateFirmware', {
-        stationId: ctx.stationId,
-        requestId: 1,
-        firmware: {
-          location: 'https://example.com/fw.bin',
-          retrieveDateTime: new Date().toISOString(),
-        },
-      });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
+    await sendSecureFirmwareUpdate(ctx);
 
     steps.push({
       step: 1,
@@ -725,18 +672,7 @@ export const TC_L_08_CSMS: TestCase = {
       return {};
     });
 
-    if (ctx.triggerCommand != null) {
-      await ctx.triggerCommand('v21', 'UpdateFirmware', {
-        stationId: ctx.stationId,
-        requestId: 1,
-        firmware: {
-          location: 'https://example.com/fw.bin',
-          retrieveDateTime: new Date().toISOString(),
-        },
-      });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
+    await sendSecureFirmwareUpdate(ctx);
 
     steps.push({
       step: 1,
@@ -818,18 +754,7 @@ export const TC_L_09_CSMS: TestCase = {
       return {};
     });
 
-    if (ctx.triggerCommand != null) {
-      await ctx.triggerCommand('v21', 'UpdateFirmware', {
-        stationId: ctx.stationId,
-        requestId: 1,
-        firmware: {
-          location: 'https://example.com/fw.bin',
-          retrieveDateTime: new Date().toISOString(),
-        },
-      });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
+    await sendSecureFirmwareUpdate(ctx);
 
     steps.push({
       step: 1,
@@ -924,18 +849,7 @@ export const TC_L_10_CSMS: TestCase = {
       },
     );
 
-    if (ctx.triggerCommand != null) {
-      await ctx.triggerCommand('v21', 'UpdateFirmware', {
-        stationId: ctx.stationId,
-        requestId: 1,
-        firmware: {
-          location: 'https://example.com/fw.bin',
-          retrieveDateTime: new Date().toISOString(),
-        },
-      });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
+    await sendSecureFirmwareUpdate(ctx);
 
     steps.push({
       step: 1,
@@ -1009,18 +923,7 @@ export const TC_L_11_CSMS: TestCase = {
       return {};
     });
 
-    if (ctx.triggerCommand != null) {
-      await ctx.triggerCommand('v21', 'UpdateFirmware', {
-        stationId: ctx.stationId,
-        requestId: 1,
-        firmware: {
-          location: 'https://example.com/fw.bin',
-          retrieveDateTime: new Date().toISOString(),
-        },
-      });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
+    await sendSecureFirmwareUpdate(ctx);
 
     steps.push({
       step: 1,
@@ -1037,18 +940,10 @@ export const TC_L_11_CSMS: TestCase = {
     await ctx.client.sendCall('FirmwareStatusNotification', { status: 'Downloading' });
 
     // Wait for second UpdateFirmware (cancel attempt)
-    if (ctx.triggerCommand != null) {
-      await ctx.triggerCommand('v21', 'UpdateFirmware', {
-        stationId: ctx.stationId,
-        requestId: 2,
-        firmware: {
-          location: 'https://example.com/fw-cancel.bin',
-          retrieveDateTime: new Date().toISOString(),
-        },
-      });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
+    await sendSecureFirmwareUpdate(ctx, {
+      requestId: 2,
+      location: 'https://example.com/fw-cancel.bin',
+    });
 
     // Continue with installation
     const statuses = ['Downloaded', 'SignatureVerified', 'Installing', 'InstallRebooting'];
@@ -1107,17 +1002,19 @@ export const TC_L_13_CSMS: TestCase = {
       seqNo: 0,
       transactionInfo: { transactionId: txId, chargingState: 'Charging' },
       evse: { id: 1, connectorId: 1 },
-      idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
 
     // Wait for UpdateFirmware from CSMS
     let receivedUpdateFirmware = false;
     let requestId: number | null = null;
+    let updateFirmwarePayload: Record<string, unknown> | null = null;
 
     ctx.client.setIncomingCallHandler(
       async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'UpdateFirmware') {
           receivedUpdateFirmware = true;
+          updateFirmwarePayload = payload;
           requestId = payload['requestId'] as number | null;
           return { status: 'Accepted' };
         }
@@ -1125,18 +1022,7 @@ export const TC_L_13_CSMS: TestCase = {
       },
     );
 
-    if (ctx.triggerCommand != null) {
-      await ctx.triggerCommand('v21', 'UpdateFirmware', {
-        stationId: ctx.stationId,
-        requestId: 1,
-        firmware: {
-          location: 'https://example.com/fw.bin',
-          retrieveDateTime: new Date().toISOString(),
-        },
-      });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
+    await sendSecureFirmwareUpdate(ctx);
 
     steps.push({
       step: 1,
@@ -1149,6 +1035,7 @@ export const TC_L_13_CSMS: TestCase = {
     if (!receivedUpdateFirmware) {
       return { status: 'failed', durationMs: 0, steps };
     }
+    steps.push(signedFirmwareStep(1, updateFirmwarePayload));
 
     // Send DownloadScheduled status
     try {

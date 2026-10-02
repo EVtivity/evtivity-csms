@@ -41,10 +41,8 @@ export const OCPP_21_EVENTS = [
   'ocpp.NotifyMonitoringReport',
   'ocpp.NotifyPeriodicEventStream',
   'ocpp.NotifyPriorityCharging',
-  'ocpp.NotifyQRCodeScanned',
   'ocpp.NotifyReport',
   'ocpp.NotifySettlement',
-  'ocpp.NotifyWebPaymentStarted',
   'ocpp.PublishFirmwareStatusNotification',
   'ocpp.PullDynamicScheduleUpdate',
   'ocpp.ReportChargingProfiles',
@@ -273,19 +271,11 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'stationId', description: 'Station identifier' },
     { name: 'occurredAt', description: 'Timestamp' },
   ],
-  'ocpp.NotifyQRCodeScanned': [
-    { name: 'stationId', description: 'Station identifier' },
-    { name: 'occurredAt', description: 'Timestamp' },
-  ],
   'ocpp.NotifyReport': [
     { name: 'stationId', description: 'Station identifier' },
     { name: 'occurredAt', description: 'Timestamp' },
   ],
   'ocpp.NotifySettlement': [
-    { name: 'stationId', description: 'Station identifier' },
-    { name: 'occurredAt', description: 'Timestamp' },
-  ],
-  'ocpp.NotifyWebPaymentStarted': [
     { name: 'stationId', description: 'Station identifier' },
     { name: 'occurredAt', description: 'Timestamp' },
   ],

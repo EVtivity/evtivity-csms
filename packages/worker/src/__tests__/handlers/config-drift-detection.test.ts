@@ -65,6 +65,16 @@ vi.mock('@evtivity/api/src/lib/pubsub.js', () => ({
   getPubSub: () => ({ publish: mockPublish }),
 }));
 
+// Identity columns of a reported value with no instance, EVSE, or connector
+// (the row a template variable targets).
+const TOP_LEVEL = {
+  instance: null,
+  evseId: null,
+  connectorId: null,
+  variableInstance: null,
+  attributeType: 'Actual',
+};
+
 const log = {
   info: vi.fn(),
   warn: vi.fn(),
@@ -132,7 +142,15 @@ describe('configDriftDetectionHandler', () => {
         },
       ],
       [{ id: 'sta_drift' }], // targetStations
-      [{ stationId: 'sta_drift', component: 'AuthCtrlr', variable: 'Enabled', value: 'false' }],
+      [
+        {
+          stationId: 'sta_drift',
+          ...TOP_LEVEL,
+          component: 'AuthCtrlr',
+          variable: 'Enabled',
+          value: 'false',
+        },
+      ],
     );
 
     const { configDriftDetectionHandler } =
@@ -190,9 +208,16 @@ describe('configDriftDetectionHandler', () => {
       ],
       [{ id: 'sta_ok' }],
       [
-        { stationId: 'sta_ok', component: 'AuthCtrlr', variable: 'Enabled', value: 'true' },
         {
           stationId: 'sta_ok',
+          ...TOP_LEVEL,
+          component: 'AuthCtrlr',
+          variable: 'Enabled',
+          value: 'true',
+        },
+        {
+          stationId: 'sta_ok',
+          ...TOP_LEVEL,
           component: 'TxCtrlr',
           variable: 'TxStartPoint',
           value: 'EVConnected',
@@ -222,9 +247,16 @@ describe('configDriftDetectionHandler', () => {
       ],
       [{ id: 'sta_two_drift' }],
       [
-        { stationId: 'sta_two_drift', component: 'AuthCtrlr', variable: 'Enabled', value: 'false' },
         {
           stationId: 'sta_two_drift',
+          ...TOP_LEVEL,
+          component: 'AuthCtrlr',
+          variable: 'Enabled',
+          value: 'false',
+        },
+        {
+          stationId: 'sta_two_drift',
+          ...TOP_LEVEL,
           component: 'TxCtrlr',
           variable: 'TxStartPoint',
           value: 'Authorized',
@@ -251,8 +283,20 @@ describe('configDriftDetectionHandler', () => {
       ],
       [{ id: 'sta_ok' }, { id: 'sta_bad' }],
       [
-        { stationId: 'sta_ok', component: 'AuthCtrlr', variable: 'Enabled', value: 'true' },
-        { stationId: 'sta_bad', component: 'AuthCtrlr', variable: 'Enabled', value: 'false' },
+        {
+          stationId: 'sta_ok',
+          ...TOP_LEVEL,
+          component: 'AuthCtrlr',
+          variable: 'Enabled',
+          value: 'true',
+        },
+        {
+          stationId: 'sta_bad',
+          ...TOP_LEVEL,
+          component: 'AuthCtrlr',
+          variable: 'Enabled',
+          value: 'false',
+        },
       ],
     );
 
@@ -302,7 +346,15 @@ describe('configDriftDetectionHandler', () => {
         },
       ],
       [{ id: 'sta_drift' }],
-      [{ stationId: 'sta_drift', component: 'AuthCtrlr', variable: 'Enabled', value: 'false' }],
+      [
+        {
+          stationId: 'sta_drift',
+          ...TOP_LEVEL,
+          component: 'AuthCtrlr',
+          variable: 'Enabled',
+          value: 'false',
+        },
+      ],
     );
 
     const { configDriftDetectionHandler } =
@@ -310,6 +362,53 @@ describe('configDriftDetectionHandler', () => {
     await expect(configDriftDetectionHandler(log)).resolves.toBeUndefined();
 
     // driftCount still incremented despite the publish failure.
+    expect(log.info).toHaveBeenCalledWith({ driftCount: 1 }, 'Configuration drift detected');
+  });
+
+  it('compares only the row the template sets, not other instances or EVSEs', async () => {
+    setupDbResults(
+      [
+        {
+          id: 'tpl_1',
+          variables: [{ component: 'TxCtrlr', variable: 'EVConnectionTimeOut', value: '60' }],
+          targetFilter: null,
+        },
+      ],
+      [{ id: 'sta_other_rows' }],
+      [
+        // Same component and variable, but an EVSE-level row, a variable
+        // instance, and a MaxSet attribute: none is the value the template sets.
+        {
+          stationId: 'sta_other_rows',
+          ...TOP_LEVEL,
+          evseId: 1,
+          component: 'TxCtrlr',
+          variable: 'EVConnectionTimeOut',
+          value: '60',
+        },
+        {
+          stationId: 'sta_other_rows',
+          ...TOP_LEVEL,
+          variableInstance: 'Other',
+          component: 'TxCtrlr',
+          variable: 'EVConnectionTimeOut',
+          value: '60',
+        },
+        {
+          stationId: 'sta_other_rows',
+          ...TOP_LEVEL,
+          attributeType: 'MaxSet',
+          component: 'TxCtrlr',
+          variable: 'EVConnectionTimeOut',
+          value: '60',
+        },
+      ],
+    );
+
+    const { configDriftDetectionHandler } =
+      await import('../../handlers/config-drift-detection.js');
+    await configDriftDetectionHandler(log);
+
     expect(log.info).toHaveBeenCalledWith({ driftCount: 1 }, 'Configuration drift detected');
   });
 });

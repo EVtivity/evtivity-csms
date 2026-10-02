@@ -3,6 +3,13 @@
 
 import type { TestCase, StepResult } from '../../../../types.js';
 
+/** cacheExpiryDateTime must be the current date/time: the token must not stay cached. */
+function isCurrentTime(value: string | undefined): boolean {
+  if (value == null) return false;
+  const at = Date.parse(value);
+  return !Number.isNaN(at) && Math.abs(at - Date.now()) <= 60_000;
+}
+
 export const TC_C_104_CSMS: TestCase = {
   id: 'TC_C_104_CSMS',
   name: 'Authorization with prepaid card - no credit',
@@ -30,7 +37,7 @@ export const TC_C_104_CSMS: TestCase = {
 
     // Step 2: Send AuthorizeRequest with prepaid card that has no credit
     const authRes = await ctx.client.sendCall('Authorize', {
-      idToken: { idToken: 'OCTT-PREPAID-NOCREDIT', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.noCredit, type: 'ISO14443' },
     });
 
     const authIdTokenInfo = authRes['idTokenInfo'] as Record<string, unknown> | undefined;
@@ -47,9 +54,9 @@ export const TC_C_104_CSMS: TestCase = {
 
     steps.push({
       step: 3,
-      description: 'Verify cacheExpiryDateTime is present',
-      status: cacheExpiry != null ? 'passed' : 'failed',
-      expected: 'idTokenInfo.cacheExpiryDateTime present',
+      description: 'Verify cacheExpiryDateTime is the current date/time',
+      status: isCurrentTime(cacheExpiry) ? 'passed' : 'failed',
+      expected: 'idTokenInfo.cacheExpiryDateTime = <current date/time>',
       actual: `cacheExpiryDateTime = ${String(cacheExpiry)}`,
     });
 

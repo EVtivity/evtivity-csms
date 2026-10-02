@@ -54,6 +54,8 @@ export async function octtRunnerHandler(
             durationMs: result.result.durationMs,
             steps: result.result.steps,
             error: result.result.error ?? null,
+            notApplicableItem: result.result.notApplicable?.item ?? null,
+            notApplicableReason: result.result.notApplicable?.reason ?? null,
           })
           .then(() =>
             pubsub.publish(
@@ -85,6 +87,7 @@ export async function octtRunnerHandler(
         failed: summary.failed,
         skipped: summary.skipped,
         errors: summary.errors,
+        notApplicable: summary.notApplicable,
         durationMs: summary.durationMs,
         completedAt: new Date(),
       })

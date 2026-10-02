@@ -49,6 +49,7 @@ export const TC_C_119_CSMS: TestCase = {
       transactionInfo: {
         transactionId: txId,
         chargingState: 'Charging',
+        transactionLimit: { maxCost: 50.0 },
       },
       evse: { id: 1, connectorId: 1 },
       idToken: {
@@ -88,7 +89,8 @@ export const TC_C_119_CSMS: TestCase = {
       },
     });
 
-    // Step 4: Send NotifySettlement with status Failed
+    // Step 5: Send NotifySettlement with status Failed (receiptUrl omitted). The doc has
+    // no tool validations, so only the response is checked.
     try {
       const settlementRes = await ctx.client.sendCall('NotifySettlement', {
         transactionId: txId,
@@ -98,8 +100,6 @@ export const TC_C_119_CSMS: TestCase = {
         settlementAmount: 18.15,
       });
 
-      const receiptUrl = settlementRes['receiptUrl'] as string | undefined;
-
       pushSendAckStep(
         steps,
         2,
@@ -108,14 +108,6 @@ export const TC_C_119_CSMS: TestCase = {
         'NotifySettlementResponse received',
         `Response keys: ${Object.keys(settlementRes).join(', ')}`,
       );
-
-      steps.push({
-        step: 3,
-        description: 'Verify receiptUrl is present in NotifySettlementResponse',
-        status: receiptUrl != null && receiptUrl.length > 0 ? 'passed' : 'failed',
-        expected: 'receiptUrl must be present',
-        actual: `receiptUrl = ${String(receiptUrl)}`,
-      });
     } catch {
       steps.push({
         step: 2,

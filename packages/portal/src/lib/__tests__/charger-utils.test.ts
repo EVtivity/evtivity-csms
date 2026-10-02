@@ -3,7 +3,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ApiError } from '../api';
-import { checkGuestConnectorStatus } from '../charger-utils';
+import { checkGuestConnectorStatus, qrTransactionLimits } from '../charger-utils';
 
 function mockFetch(status: number, body: unknown): void {
   vi.stubGlobal(
@@ -49,5 +49,25 @@ describe('checkGuestConnectorStatus', () => {
     const err = await checkGuestConnectorStatus('CS-1', '1').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).body).toBeNull();
+  });
+});
+
+describe('qrTransactionLimits', () => {
+  it('reads maxenergy, maxtime, and maxcost (major units to cents)', () => {
+    const params = new URLSearchParams('maxenergy=20000&maxtime=3600&maxcost=12.34');
+    expect(qrTransactionLimits(params)).toEqual({
+      maxEnergyWh: 20000,
+      maxTimeSeconds: 3600,
+      maxCostCents: 1234,
+    });
+  });
+
+  it('returns an empty object without limit parameters', () => {
+    expect(qrTransactionLimits(new URLSearchParams(''))).toEqual({});
+  });
+
+  it('leaves out invalid, zero, and negative values', () => {
+    const params = new URLSearchParams('maxenergy=abc&maxtime=0&maxcost=-5');
+    expect(qrTransactionLimits(params)).toEqual({});
   });
 });

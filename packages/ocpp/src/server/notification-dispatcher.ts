@@ -22,6 +22,7 @@ import {
   recordNotificationAttempt,
   clearNotificationSettingsCache,
 } from '@evtivity/lib';
+import { clearContractValidationCaCache } from '../services/pki/contract-certificate-validation.js';
 
 export { dispatchSystemNotification };
 
@@ -95,6 +96,10 @@ export async function subscribeOcppEventSettingsInvalidation(
       if (msg.cache === 'ocppEventSettings') {
         clearOcppEventSettingsCache();
         log.info('OCPP event settings cache invalidated');
+      }
+      if (msg.cache === 'pkiCaCertificates') {
+        clearContractValidationCaCache();
+        log.info('CA certificate cache invalidated');
       }
       if (msg.kind === 'notification_settings') {
         clearNotificationSettingsCache();

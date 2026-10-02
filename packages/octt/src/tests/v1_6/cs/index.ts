@@ -135,4 +135,9 @@ export {
   TC_079_CS,
   TC_080_CS,
   TC_081_CS,
+  TC_083_CS,
+  TC_084_CS,
+  TC_085_CS,
+  TC_086_CS,
+  TC_087_CS,
 } from './25-security.js';

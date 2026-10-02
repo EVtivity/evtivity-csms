@@ -78,7 +78,7 @@ export class CommandDispatcher {
       translated.payload,
     );
 
-    return translateResponse(commandName, version, response);
+    return translateResponse(commandName, version, response, payload);
   }
 
   async requestStartTransaction(

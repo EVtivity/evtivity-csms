@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { CsTestCase, StepResult } from '../../../../cs-types.js';
+import { collectMessages } from '../../../../cs-test-helpers.js';
 
 /**
  * TC_C_26_CS: Offline Authorization - Unknown Id
@@ -81,15 +82,14 @@ export const TC_C_26_CS: CsTestCase = {
     });
 
     // Step 4: After Invalid response, look for SuspendedEVSE chargingState
-    let suspendedFound = false;
-    try {
-      const txNext = await ctx.server.waitForMessage('TransactionEvent', 10000);
-      const txInfo = txNext['transactionInfo'] as Record<string, unknown> | undefined;
-      const chargingState = txInfo?.['chargingState'] as string | undefined;
-      if (chargingState === 'SuspendedEVSE') suspendedFound = true;
-    } catch {
-      // May not arrive
-    }
+    // One of the messages: the queue is emptied first, then the station reports
+    // the suspension it decided on after the Invalid response.
+    const following = await collectMessages(ctx.server, 'TransactionEvent', 5000, 10000);
+    const suspendedFound = following.some(
+      (m) =>
+        (m['transactionInfo'] as Record<string, unknown> | undefined)?.['chargingState'] ===
+        'SuspendedEVSE',
+    );
     steps.push({
       step: 4,
       description: 'Station sends TransactionEventRequest with chargingState SuspendedEVSE',

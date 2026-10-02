@@ -30,19 +30,19 @@ export const TC_C_07_CSMS: TestCase = {
 
     // Step 2: Send AuthorizeRequest with an expired idToken
     const authRes = await ctx.client.sendCall('Authorize', {
-      idToken: { idToken: 'EXPIRED-TOKEN-99999', type: 'ISO14443' },
+      idToken: { idToken: ctx.tokens.expired, type: 'ISO14443' },
     });
 
     const idTokenInfo = authRes['idTokenInfo'] as Record<string, unknown> | undefined;
     const authStatus = idTokenInfo?.['status'] as string | undefined;
-    const validStatuses = ['Blocked', 'Invalid'];
+    const validStatuses = ['Expired', 'Invalid'];
     const statusValid = authStatus != null && validStatuses.includes(authStatus);
 
     steps.push({
       step: 2,
       description: 'Send AuthorizeRequest with expired idToken',
       status: statusValid ? 'passed' : 'failed',
-      expected: 'idTokenInfo.status = Blocked or Invalid',
+      expected: 'idTokenInfo.status = Expired or Invalid',
       actual: `idTokenInfo.status = ${String(authStatus)}`,
     });
 

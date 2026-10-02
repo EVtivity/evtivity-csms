@@ -859,6 +859,11 @@
     "scanPhoto": "Escanear desde una foto",
     "noQrFound": "No se encontró ningún código QR en esa foto. Inténtalo de nuevo."
   },
+  "qr": {
+    "checking": "Comprobando el código QR",
+    "invalidTitle": "Código QR no válido",
+    "invalidMessage": "Este código QR no es válido o ha caducado. Vuelva a escanear el código QR que muestra la estación de carga."
+  },
   "watch": {
     "notifyWhenFree": "Avisarme cuando este libre",
     "watching": "Dejar de seguir",

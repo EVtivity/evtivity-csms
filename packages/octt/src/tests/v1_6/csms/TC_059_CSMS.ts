@@ -37,7 +37,7 @@ export const TC_059_CSMS: TestCase = {
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v16', 'RemoteStartTransaction', {
         stationId: ctx.stationId,
-        idTag: 'OCTT-TOKEN-001',
+        idTag: ctx.tokens.valid,
         connectorId: 1,
         chargingProfile: {
           chargingProfileId: 1,
@@ -62,7 +62,7 @@ export const TC_059_CSMS: TestCase = {
       actual: received ? `Received, hasProfile=${String(hasProfile)}` : 'Not received',
     });
 
-    const idTag = remoteIdTag || 'OCTT_TAG_001';
+    const idTag = remoteIdTag || ctx.tokens.valid;
     const authResp = await ctx.client.sendCall('Authorize', { idTag });
     const authStatus = authResp['idTagInfo'] as Record<string, unknown> | undefined;
     steps.push({

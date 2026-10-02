@@ -5,6 +5,7 @@ import { eq, and, inArray } from 'drizzle-orm';
 import { db, chargingStations, configTemplates, stationConfigurations } from '@evtivity/database';
 import type { Logger } from 'pino';
 import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
+import { findTemplateTargetConfiguration } from '@evtivity/api/src/lib/config-drift.js';
 
 export async function configDriftDetectionHandler(log: Logger): Promise<void> {
   const templates = await db.select().from(configTemplates);
@@ -49,8 +50,10 @@ export async function configDriftDetectionHandler(log: Logger): Promise<void> {
     for (const station of targetStations) {
       const actualVars = varsByStation.get(station.id) ?? [];
       for (const expected of variables) {
-        const actual = actualVars.find(
-          (v) => v.component === expected.component && v.variable === expected.variable,
+        const actual = findTemplateTargetConfiguration(
+          actualVars,
+          expected.component,
+          expected.variable,
         );
         if (actual == null || actual.value !== expected.value) {
           driftCount++;

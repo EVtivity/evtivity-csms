@@ -68,6 +68,7 @@
     "pnc.hubject.tokenUrl": "",
     "pnc.expirationWarningDays": 30,
     "pnc.expirationCriticalDays": 7,
+    "pnc.ocsp.allowedPrivateHosts": [],
     "security.recaptcha.enabled": false,
     "security.recaptcha.siteKey": "",
     "security.recaptcha.secretKey": "",

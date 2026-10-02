@@ -74,7 +74,7 @@ export const TC_H_01_CSMS: TestCase = {
         stationId: ctx.stationId,
         id: 1,
         expiryDateTime: new Date(Date.now() + 300000).toISOString(),
-        idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
         evseId: 1,
       });
     } else {
@@ -167,7 +167,7 @@ export const TC_H_07_CSMS: TestCase = {
         stationId: ctx.stationId,
         id: 1,
         expiryDateTime: new Date(Date.now() + 300000).toISOString(),
-        idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
         evseId: 1,
       });
     } else {
@@ -267,7 +267,7 @@ export const TC_H_08_CSMS: TestCase = {
         stationId: ctx.stationId,
         id: 1,
         expiryDateTime: new Date(Date.now() + 300000).toISOString(),
-        idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
         evseId: 1,
       });
     } else {
@@ -358,7 +358,7 @@ export const TC_H_14_CSMS: TestCase = {
         stationId: ctx.stationId,
         id: 1,
         expiryDateTime: new Date(Date.now() + 300000).toISOString(),
-        idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
         evseId: 1,
       });
     } else {
@@ -449,7 +449,7 @@ export const TC_H_15_CSMS: TestCase = {
         stationId: ctx.stationId,
         id: 1,
         expiryDateTime: new Date(Date.now() + 300000).toISOString(),
-        idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
         evseId: 1,
       });
     } else {
@@ -542,7 +542,7 @@ export const TC_H_19_CSMS: TestCase = {
         stationId: ctx.stationId,
         id: 1,
         expiryDateTime: new Date(Date.now() + 300000).toISOString(),
-        idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
         evseId: 1,
       });
     } else {
@@ -628,7 +628,7 @@ export const TC_H_20_CSMS: TestCase = {
         stationId: ctx.stationId,
         id: 1,
         expiryDateTime: new Date(Date.now() + 300000).toISOString(),
-        idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
         evseId: 1,
       });
     } else {
@@ -746,7 +746,7 @@ export const TC_H_22_CSMS: TestCase = {
         stationId: ctx.stationId,
         id: 1,
         expiryDateTime: new Date(Date.now() + 300000).toISOString(),
-        idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+        idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
         evseId: 1,
       });
     } else {

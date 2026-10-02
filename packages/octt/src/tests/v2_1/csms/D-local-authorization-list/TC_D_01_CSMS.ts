@@ -80,7 +80,7 @@ export const TC_D_01_CSMS: TestCase = {
         updateType: 'Full',
         localAuthorizationList: [
           {
-            idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+            idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
             idTokenInfo: { status: 'Accepted' },
           },
         ],
@@ -201,7 +201,7 @@ export const TC_D_02_CSMS: TestCase = {
         updateType: 'Differential',
         localAuthorizationList: [
           {
-            idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
+            idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
             idTokenInfo: { status: 'Accepted' },
           },
         ],
@@ -300,7 +300,7 @@ export const TC_D_03_CSMS: TestCase = {
         stationId: ctx.stationId,
         versionNumber: 3,
         updateType: 'Differential',
-        localAuthorizationList: [{ idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' } }],
+        localAuthorizationList: [{ idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' } }],
       });
     } else {
       await new Promise((resolve) => setTimeout(resolve, 10000));

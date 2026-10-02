@@ -28,6 +28,7 @@ import {
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { processConfigPush } from '../lib/config-push.js';
+import { findTemplateTargetConfiguration } from '../lib/config-drift.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 
@@ -1011,8 +1012,10 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         }>;
 
         for (const expected of variables) {
-          const actual = actualVars.find(
-            (v) => v.component === expected.component && v.variable === expected.variable,
+          const actual = findTemplateTargetConfiguration(
+            actualVars,
+            expected.component,
+            expected.variable,
           );
           const actualValue = actual?.value ?? null;
           if (actualValue !== expected.value) {

@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -101,6 +102,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
   const [pncHubjectTokenUrl, setPncHubjectTokenUrl] = useState('');
   const [pncWarningDays, setPncWarningDays] = useState('30');
   const [pncCriticalDays, setPncCriticalDays] = useState('7');
+  const [pncOcspAllowedHosts, setPncOcspAllowedHosts] = useState('');
 
   const roamingEnabled = settings != null && settings['roaming.enabled'] === true;
 
@@ -117,6 +119,10 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     setPncHubjectTokenUrl(s('pnc.hubject.tokenUrl'));
     setPncWarningDays(s('pnc.expirationWarningDays') || '30');
     setPncCriticalDays(s('pnc.expirationCriticalDays') || '7');
+    const hosts = pncSettings['pnc.ocsp.allowedPrivateHosts'];
+    setPncOcspAllowedHosts(
+      Array.isArray(hosts) ? hosts.filter((h) => typeof h === 'string').join('\n') : '',
+    );
   }, [pncSettings]);
 
   useEffect(() => {
@@ -357,6 +363,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
       hubjectTokenUrl: string;
       expirationWarningDays: number;
       expirationCriticalDays: number;
+      ocspAllowedPrivateHosts: string[];
     }) => api.put('/v1/pnc/settings', vals),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['pnc-settings'] });
@@ -722,6 +729,24 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                   </div>
                 </div>
 
+                <div className="space-y-2">
+                  <Label htmlFor="pnc-ocsp-allowed-hosts">
+                    {t('settings.pncOcspAllowedPrivateHosts')}
+                  </Label>
+                  <Textarea
+                    id="pnc-ocsp-allowed-hosts"
+                    rows={3}
+                    value={pncOcspAllowedHosts}
+                    onChange={(e) => {
+                      setPncOcspAllowedHosts(e.target.value);
+                    }}
+                    placeholder="ocsp.internal.example"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings.pncOcspAllowedPrivateHostsHint')}
+                  </p>
+                </div>
+
                 {pncProvider === 'hubject' && (
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
@@ -799,6 +824,10 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                         hubjectTokenUrl: pncHubjectTokenUrl,
                         expirationWarningDays: Number(pncWarningDays),
                         expirationCriticalDays: Number(pncCriticalDays),
+                        ocspAllowedPrivateHosts: pncOcspAllowedHosts
+                          .split(/[\s,]+/)
+                          .map((h) => h.trim())
+                          .filter((h) => h !== ''),
                       });
                     }}
                   />

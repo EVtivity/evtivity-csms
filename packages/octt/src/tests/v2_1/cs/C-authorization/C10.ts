@@ -40,9 +40,11 @@ export const TC_C_32_CS: CsTestCase = {
     ctx.station.setConfigValue('AuthCtrlr.LocalPreAuthorize', 'true');
     ctx.station.addToAuthCache('OCTT-TOKEN-001', 'Accepted');
 
-    // Simulate power cycle (auth cache should persist)
+    // Reusable State Booted: power cycle (the auth cache must persist). The
+    // reboot ends with the StartupOfTheDevice security event.
     await ctx.station.simulatePowerCycle('PowerUp');
-    await ctx.server.waitForConnection(60000);
+    await ctx.server.waitForMessage('BootNotification', 15_000);
+    await ctx.server.waitForMessage('SecurityEventNotification', 10_000);
     ctx.server.clearBuffer();
 
     // Step 2: Reusable State Authorized (Cached idToken) - present token
