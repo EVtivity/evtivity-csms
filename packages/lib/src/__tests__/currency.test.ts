@@ -6,6 +6,7 @@ import {
   DEFAULT_CURRENCY,
   SUPPORTED_CURRENCIES,
   formatCurrencyAmount,
+  formatUnitPrice,
   isSupportedCurrency,
 } from '../currency.js';
 
@@ -65,5 +66,16 @@ describe('isSupportedCurrency', () => {
       'TND',
     ];
     for (const code of notTwoDecimal) expect(isSupportedCurrency(code)).toBe(false);
+  });
+});
+
+describe('formatUnitPrice', () => {
+  it('keeps up to four fraction digits', () => {
+    expect(formatUnitPrice(0.256088, 'EUR')).toBe('€0.2561');
+    expect(formatUnitPrice(0.1, 'USD')).toBe('$0.10');
+  });
+
+  it('uses the separators of the locale', () => {
+    expect(formatUnitPrice(0.2561, 'EUR', 'de')).toBe('0,2561\u00a0€');
   });
 });

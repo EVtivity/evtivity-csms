@@ -10,6 +10,8 @@ import { LANGUAGES } from '@/components/ui/language-select';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { TIMEZONE_OPTIONS } from '@/lib/timezone';
+import { useCompanyPriceDisplay } from '@/hooks/use-price-display';
+import { isPriceDisplay, type PriceDisplay } from '@evtivity/lib/price-display';
 
 export function AccountPersonalInfo(): React.JSX.Element {
   const { t } = useTranslation();
@@ -30,6 +32,11 @@ export function AccountPersonalInfo(): React.JSX.Element {
   const [selectedDistanceUnit, setSelectedDistanceUnit] = useState<'miles' | 'km'>(
     driver?.distanceUnit ?? 'miles',
   );
+  // Null follows the company setting.
+  const [selectedPriceDisplay, setSelectedPriceDisplay] = useState<PriceDisplay | null>(
+    driver?.priceDisplay ?? null,
+  );
+  const companyPriceDisplay = useCompanyPriceDisplay();
   const [profileMsg, setProfileMsg] = useState('');
   const [profileLoading, setProfileLoading] = useState(false);
 
@@ -50,6 +57,7 @@ export function AccountPersonalInfo(): React.JSX.Element {
         timezone: selectedTimezone,
         themePreference: selectedTheme,
         distanceUnit: selectedDistanceUnit,
+        priceDisplay: selectedPriceDisplay,
       });
       if (selectedLanguage !== driver?.language) {
         await applyLanguageLocal(selectedLanguage);
@@ -186,6 +194,30 @@ export function AccountPersonalInfo(): React.JSX.Element {
         >
           <option value="miles">{t('profile.distanceMiles')}</option>
           <option value="km">{t('profile.distanceKm')}</option>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="acctPriceDisplay" className="text-sm font-medium">
+          {t('profile.priceDisplay')}
+        </label>
+        <Select
+          id="acctPriceDisplay"
+          value={selectedPriceDisplay ?? ''}
+          onChange={(e) => {
+            setSelectedPriceDisplay(isPriceDisplay(e.target.value) ? e.target.value : null);
+          }}
+        >
+          <option value="">
+            {t('profile.priceDisplayDefault', {
+              value: t(
+                companyPriceDisplay === 'gross'
+                  ? 'profile.priceDisplayGross'
+                  : 'profile.priceDisplayNet',
+              ),
+            })}
+          </option>
+          <option value="gross">{t('profile.priceDisplayGross')}</option>
+          <option value="net">{t('profile.priceDisplayNet')}</option>
         </Select>
       </div>
 

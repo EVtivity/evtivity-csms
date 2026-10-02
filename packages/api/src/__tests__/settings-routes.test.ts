@@ -357,6 +357,48 @@ describe('Settings routes', () => {
     expect(updateChain.set).toHaveBeenCalledWith(expect.objectContaining({ value: 'GBP' }));
   });
 
+  it('PUT /v1/settings/company.priceDisplay rejects a value other than gross or net', async () => {
+    vi.mocked(db.insert).mockClear();
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/company.priceDisplay',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 'brutto' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('VALIDATION_ERROR');
+    expect(response.json().error).toContain('company.priceDisplay');
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('PUT /v1/settings/company.priceDisplay stores gross and clears the cache', async () => {
+    vi.mocked(db.insert).mockClear();
+    vi.mocked(clearSystemSettingsCache).mockClear();
+    setupDbResults([], [{ key: 'company.priceDisplay', value: 'gross' }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/company.priceDisplay',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 'gross' },
+    });
+    expect(response.statusCode).toBe(200);
+    const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(insertChain.values).toHaveBeenCalledWith({
+      key: 'company.priceDisplay',
+      value: 'gross',
+    });
+    expect(clearSystemSettingsCache).toHaveBeenCalled();
+  });
+
+  it('GET /v1/portal/branding includes the company price display', async () => {
+    setupDbResults([{ key: 'company.priceDisplay', value: 'gross' }]);
+    const response = await app.inject({ method: 'GET', url: '/portal/branding' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().priceDisplay).toBe('gross');
+  });
+
   it('DELETE /v1/settings/:key deletes a setting', async () => {
     setupDbResults([{ key: 'smtp.host', value: 'mail.example.com' }]);
     const response = await app.inject({

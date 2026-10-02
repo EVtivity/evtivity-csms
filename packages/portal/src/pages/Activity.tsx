@@ -235,6 +235,9 @@ export function Activity(): React.JSX.Element {
         <CardContent className="space-y-4 py-6">
           <div className="text-center">
             <p className="text-xl font-bold">{centerText}</p>
+            {selectedMetric === 'cost' && (
+              <p className="text-xs text-muted-foreground">{t('common.inclTax')}</p>
+            )}
             <p className="text-xs text-muted-foreground">
               {summary?.sessionCount ?? 0} {t('activity.sessions')}
             </p>
@@ -345,6 +348,7 @@ export function Activity(): React.JSX.Element {
                 <p className="text-sm font-medium">
                   {formatCents(session.finalCostCents, session.currency)}
                 </p>
+                <p className="text-xs text-muted-foreground">{t('common.inclTax')}</p>
                 <p className="text-xs text-muted-foreground">
                   {formatDuration(session.startedAt, session.endedAt)}
                 </p>

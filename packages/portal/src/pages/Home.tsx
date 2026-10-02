@@ -185,7 +185,7 @@ export function Home(): React.JSX.Element {
                   <div className="text-right">
                     <p className="text-sm font-medium">{formatEnergy(session.energyDeliveredWh)}</p>
                     <p className="text-xs text-muted-foreground">
-                      {formatCents(session.finalCostCents, session.currency)}
+                      {formatCents(session.finalCostCents, session.currency)} {t('common.inclTax')}
                     </p>
                   </div>
                 </CardContent>

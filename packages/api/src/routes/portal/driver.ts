@@ -53,6 +53,12 @@ const portalDriverProfile = z
       .describe('Preferred IANA timezone (e.g. America/Los_Angeles)'),
     themePreference: z.enum(['light', 'dark']).describe('Preferred UI theme'),
     distanceUnit: z.enum(['miles', 'km']).describe('Preferred distance unit (miles or kilometers)'),
+    priceDisplay: z
+      .enum(['gross', 'net'])
+      .nullable()
+      .describe(
+        'Whether prices are shown including (gross) or excluding (net) tax. Null follows the company setting.',
+      ),
     isActive: z.boolean().describe('Whether the driver account is active'),
     createdAt: z.coerce.date().describe('Timestamp the driver account was created'),
   })
@@ -80,6 +86,8 @@ const updateProfileBody = z.object({
   timezone: z.string().max(50).optional(),
   themePreference: z.enum(['light', 'dark']).optional(),
   distanceUnit: z.enum(['miles', 'km']).optional(),
+  // Null follows the company setting company.priceDisplay.
+  priceDisplay: z.enum(['gross', 'net']).nullable().optional(),
 });
 
 const changePasswordBody = z.object({
@@ -116,6 +124,7 @@ export function portalDriverRoutes(app: FastifyInstance): void {
       if (body.timezone !== undefined) fields['timezone'] = body.timezone;
       if (body.themePreference !== undefined) fields['themePreference'] = body.themePreference;
       if (body.distanceUnit !== undefined) fields['distanceUnit'] = body.distanceUnit;
+      if (body.priceDisplay !== undefined) fields['priceDisplay'] = body.priceDisplay;
 
       const [updated] = await db
         .update(drivers)
@@ -131,6 +140,7 @@ export function portalDriverRoutes(app: FastifyInstance): void {
           timezone: drivers.timezone,
           themePreference: drivers.themePreference,
           distanceUnit: drivers.distanceUnit,
+          priceDisplay: drivers.priceDisplay,
           isActive: drivers.isActive,
           createdAt: drivers.createdAt,
         });

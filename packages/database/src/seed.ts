@@ -96,6 +96,7 @@ import {
   STATION_MESSAGE_DEFAULTS,
   mapConnectorTypeToCss,
   DEFAULT_CURRENCY,
+  DEFAULT_PRICE_DISPLAY,
 } from '@evtivity/lib';
 
 // Helper data
@@ -483,6 +484,7 @@ async function seed(): Promise<void> {
     'pnc.expirationCriticalDays': 7,
     'company.name': 'EVtivity',
     'company.currency': DEFAULT_CURRENCY,
+    'company.priceDisplay': DEFAULT_PRICE_DISPLAY,
     'company.contactEmail': 'contact@evtivity.local',
     'company.supportEmail': 'support@evtivity.local',
     'company.supportPhone': '+1 (555) 123-4567',

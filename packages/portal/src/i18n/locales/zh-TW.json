@@ -18,7 +18,8 @@
     "offline": "您已離線。部分功能可能無法使用。",
     "add": "新增",
     "deactivate": "停用",
-    "remove": "移除"
+    "remove": "移除",
+    "inclTax": "含稅"
   },
   "nav": {
     "home": "首頁",
@@ -124,8 +125,11 @@
     "ended": "結束時間",
     "energy": "電量",
     "energyAdded": "已輸送電量",
-    "cost": "預估費用",
-    "totalCost": "總費用",
+    "cost": "預估費用（含稅）",
+    "totalCost": "總費用（含稅）",
+    "netCost": "淨額",
+    "taxAdded": "加 {{rate}}% 稅",
+    "taxContained": "其中含 {{rate}}% 稅",
     "stopReason": "停止原因",
     "rfid": "RFID",
     "payment": "支付",
@@ -226,7 +230,11 @@
     "themeDark": "深色",
     "distanceUnit": "距離單位",
     "distanceMiles": "英里",
-    "distanceKm": "公里"
+    "distanceKm": "公里",
+    "priceDisplay": "價格顯示",
+    "priceDisplayDefault": "營運商預設（{{value}}）",
+    "priceDisplayGross": "含稅（總價）",
+    "priceDisplayNet": "未稅（淨價）"
   },
   "charger": {
     "loadingInfo": "載入充電樁資訊...",
@@ -261,6 +269,8 @@
     "sessionFee": "會話費",
     "idleFee": "/分鐘閒置費",
     "tax": "稅",
+    "taxIncluded": "含 {{rate}}% 稅",
+    "taxExcluded": "未含 {{rate}}% 稅",
     "startCharging": "開始充電",
     "freeCharging": "免費充電",
     "siteContact": "站點聯繫方式",
@@ -326,8 +336,8 @@
     "notFound": "未找到會話。",
     "duration": "時長",
     "energyDelivered": "已輸送電量",
-    "totalCost": "總費用",
-    "estimatedCost": "預估費用",
+    "totalCost": "總費用（含稅）",
+    "estimatedCost": "預估費用（含稅）",
     "started": "開始時間",
     "ended": "結束時間",
     "stopCharging": "停止充電",
@@ -739,7 +749,8 @@
     "total": "合計",
     "co2Avoided": "減少的CO₂",
     "totalCo2Avoided": "減少的CO₂總量",
-    "noSessions": "此期間沒有充電紀錄。"
+    "noSessions": "此期間沒有充電紀錄。",
+    "costInclTax": "費用（含稅）"
   },
   "account": {
     "title": "帳戶",

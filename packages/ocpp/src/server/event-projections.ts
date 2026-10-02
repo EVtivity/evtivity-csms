@@ -29,6 +29,7 @@ import {
   isSiteFreeVendEnabledByStation,
   getElectricityRatePeriodsForSite,
   getCompanyCurrency,
+  getCompanyPriceDisplay,
   applyConnectorStatus,
   applyEvseChargingState,
   clearStationFirmwareInstalling,
@@ -53,6 +54,9 @@ import {
   resolveElectricityRate,
   calculateElectricityCostCents,
   formatCurrencyAmount,
+  formatUnitPrice,
+  priceForDisplay,
+  resolvePriceDisplay,
 } from '@evtivity/lib';
 import type {
   TariffInput,
@@ -382,9 +386,11 @@ export function registerProjections(
     transactionId: string,
   ): Promise<void> {
     const idleSession = await sql`
-      SELECT driver_id, idle_started_at, tariff_idle_fee_price_per_minute,
-             UPPER(currency) AS currency
-      FROM charging_sessions WHERE id = ${sessionId} AND idle_started_at IS NOT NULL
+      SELECT cs.driver_id, cs.idle_started_at, cs.tariff_idle_fee_price_per_minute,
+             cs.tariff_tax_rate, d.price_display, UPPER(cs.currency) AS currency
+      FROM charging_sessions cs
+      LEFT JOIN drivers d ON d.id = cs.driver_id
+      WHERE cs.id = ${sessionId} AND cs.idle_started_at IS NOT NULL
     `;
     const idleRow = idleSession[0];
     if (idleRow == null) return;
@@ -394,6 +400,15 @@ export function registerProjections(
     const idleFeeRate = idleRow.tariff_idle_fee_price_per_minute as string | null;
     const idleSiteName = stationUuid != null ? await resolveSiteName(stationUuid) : null;
 
+    // Drivers see the idle fee as chosen in the portal (or the company
+    // setting); guests always see it including tax.
+    const priceDisplay =
+      idleRow.driver_id != null
+        ? resolvePriceDisplay(idleRow.price_display, await getCompanyPriceDisplay())
+        : 'gross';
+    const idleFee = idleFeeRate != null ? Number(idleFeeRate) : 0;
+    const taxRate = idleRow.tariff_tax_rate != null ? Number(idleRow.tariff_tax_rate) : 0;
+
     const templateVars = {
       siteName: idleSiteName ?? '',
       stationId,
@@ -401,6 +416,16 @@ export function registerProjections(
       idleStartedAt: idleRow.idle_started_at as string,
       gracePeriodMinutes,
       idleFeePricePerMinute: idleFeeRate ?? '0',
+      // Empty when there is no idle fee, so templates can test it with #if.
+      idleFeeFormatted:
+        idleFee > 0
+          ? formatUnitPrice(
+              priceForDisplay(idleFee, taxRate, priceDisplay),
+              idleRow.currency as string,
+            )
+          : '',
+      idleFeeIncludesTax: priceDisplay === 'gross',
+      taxRatePercent: taxRate > 0 ? String(Number((taxRate * 100).toFixed(2))) : '',
       currency: idleRow.currency as string,
     };
 

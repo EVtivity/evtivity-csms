@@ -56,6 +56,7 @@ export { getStaleSessionTimeoutHours } from './lib/session-settings.js';
 export {
   getSystemTimezone,
   getCompanyCurrency,
+  getCompanyPriceDisplay,
   clearSystemSettingsCache,
 } from './lib/system-settings.js';
 export {

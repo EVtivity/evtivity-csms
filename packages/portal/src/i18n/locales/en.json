@@ -18,7 +18,8 @@
     "offline": "You are offline. Some features may not work.",
     "add": "Add",
     "deactivate": "Deactivate",
-    "remove": "Remove"
+    "remove": "Remove",
+    "inclTax": "incl. tax"
   },
   "nav": {
     "home": "Home",
@@ -124,8 +125,11 @@
     "ended": "Ended",
     "energy": "Energy",
     "energyAdded": "Energy delivered",
-    "cost": "Estimated cost",
-    "totalCost": "Total cost",
+    "cost": "Estimated cost (incl. tax)",
+    "totalCost": "Total cost (incl. tax)",
+    "netCost": "Net amount",
+    "taxAdded": "+ {{rate}}% tax",
+    "taxContained": "Included {{rate}}% tax",
     "stopReason": "Stop reason",
     "rfid": "RFID",
     "payment": "Payment",
@@ -226,7 +230,11 @@
     "themeDark": "Dark",
     "distanceUnit": "Distance Unit",
     "distanceMiles": "Miles",
-    "distanceKm": "Kilometers"
+    "distanceKm": "Kilometers",
+    "priceDisplay": "Prices",
+    "priceDisplayDefault": "Operator default ({{value}})",
+    "priceDisplayGross": "Including tax (gross)",
+    "priceDisplayNet": "Excluding tax (net)"
   },
   "charger": {
     "loadingInfo": "Loading charger info...",
@@ -261,6 +269,8 @@
     "sessionFee": "session fee",
     "idleFee": "/min idle fee",
     "tax": "tax",
+    "taxIncluded": "incl. {{rate}}% tax",
+    "taxExcluded": "excl. {{rate}}% tax",
     "startCharging": "Start Charging",
     "freeCharging": "Free charging",
     "siteContact": "Site Contact",
@@ -326,8 +336,8 @@
     "notFound": "Session not found.",
     "duration": "Duration",
     "energyDelivered": "Energy delivered",
-    "totalCost": "Total cost",
-    "estimatedCost": "Estimated cost",
+    "totalCost": "Total cost (incl. tax)",
+    "estimatedCost": "Estimated cost (incl. tax)",
     "started": "Started",
     "ended": "Ended",
     "stopCharging": "Stop Charging",
@@ -739,7 +749,8 @@
     "total": "Total",
     "co2Avoided": "CO₂ Avoided",
     "totalCo2Avoided": "Total CO₂ Avoided",
-    "noSessions": "No charging sessions this period."
+    "noSessions": "No charging sessions this period.",
+    "costInclTax": "Cost (incl. tax)"
   },
   "account": {
     "title": "Account",

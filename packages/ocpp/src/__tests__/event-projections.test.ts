@@ -59,6 +59,7 @@ vi.mock('@evtivity/database', async () => ({
   getOfflineCommandTtlHours: vi.fn().mockResolvedValue(24),
   isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
+  getCompanyPriceDisplay: vi.fn().mockResolvedValue('net'),
 }));
 
 const mockDispatchOcpp = vi.fn().mockResolvedValue(undefined);
@@ -612,6 +613,8 @@ describe('Event projections', () => {
             driver_id: 'drv-1',
             idle_started_at: '2024-01-01T01:00:00Z',
             tariff_idle_fee_price_per_minute: '0.10',
+            tariff_tax_rate: '0.19',
+            price_display: 'gross',
             currency: 'USD',
           },
         ], // dispatchIdlingNotification: SELECT from charging_sessions
@@ -636,6 +639,64 @@ describe('Event projections', () => {
           stationId: 'CS-001',
           transactionId: 'tx-1',
           idleFeePricePerMinute: '0.10',
+          idleFeeFormatted: '$0.119',
+          idleFeeIncludesTax: true,
+          taxRatePercent: '19',
+          currency: 'USD',
+        }),
+        ['/mock/templates'],
+        expect.anything(),
+      );
+    });
+
+    it('shows the idle fee excluding tax when the driver follows a net company setting', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [{ id: 'evse_000000000001' }], // SELECT evses (found)
+        [{ status: 'charging' }], // SELECT status FROM connectors (prevRows)
+        [], // INSERT port_status_log
+        [], // UPDATE connectors
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
+        [], // UPDATE charging_stations (connector fault reconciliation)
+        [{ site_id: null }], // resolveSiteId
+        [], // UPDATE charging_sessions SET idle_started_at
+        [{ id: 'session-1', transaction_id: 'tx-1' }], // SELECT active session
+        [
+          {
+            driver_id: 'drv-1',
+            idle_started_at: '2024-01-01T01:00:00Z',
+            tariff_idle_fee_price_per_minute: '0.10',
+            tariff_tax_rate: '0.19',
+            price_display: null,
+            currency: 'USD',
+          },
+        ], // dispatchIdlingNotification: SELECT from charging_sessions
+        [{ name: 'Test Site' }], // dispatchIdlingNotification: resolveSiteName
+      );
+
+      await eventBus.emit(
+        'ocpp.StatusNotification',
+        makeDomainEvent('ocpp.StatusNotification', 'CS-001', {
+          evseId: 1,
+          connectorId: 1,
+          connectorStatus: 'SuspendedEV',
+          timestamp: '2024-01-01T01:00:00Z',
+        }),
+      );
+
+      expect(mockDispatchDriver).toHaveBeenCalledWith(
+        expect.anything(),
+        'session.IdlingStarted',
+        'drv-1',
+        expect.objectContaining({
+          stationId: 'CS-001',
+          transactionId: 'tx-1',
+          idleFeePricePerMinute: '0.10',
+          idleFeeFormatted: '$0.10',
+          idleFeeIncludesTax: false,
+          taxRatePercent: '19',
           currency: 'USD',
         }),
         ['/mock/templates'],
@@ -1411,6 +1472,8 @@ describe('Event projections', () => {
             driver_id: null,
             idle_started_at: '2024-01-01T01:00:00Z',
             tariff_idle_fee_price_per_minute: '0.10',
+            tariff_tax_rate: '0.19',
+            price_display: null,
             currency: 'USD',
           },
         ], // dispatchIdlingNotification: SELECT from charging_sessions (no driver)
@@ -1441,6 +1504,9 @@ describe('Event projections', () => {
           stationId: 'CS-001',
           transactionId: 'tx-1',
           idleFeePricePerMinute: '0.10',
+          idleFeeFormatted: '$0.119',
+          idleFeeIncludesTax: true,
+          taxRatePercent: '19',
           currency: 'USD',
         }),
         ['/mock/templates'],

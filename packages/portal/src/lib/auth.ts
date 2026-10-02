@@ -5,6 +5,7 @@ import { create } from 'zustand';
 import { api, ApiError } from './api';
 import { loadLanguage } from '../i18n/index';
 import { applyTheme, type Theme } from './theme';
+import type { PriceDisplay } from '@evtivity/lib/price-display';
 
 interface Driver {
   id: string;
@@ -16,6 +17,8 @@ interface Driver {
   timezone: string;
   themePreference: Theme;
   distanceUnit: 'miles' | 'km';
+  // Null follows the company setting (see usePriceDisplay).
+  priceDisplay: PriceDisplay | null;
   isActive: boolean;
   emailVerified: boolean;
 }

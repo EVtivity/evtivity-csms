@@ -111,6 +111,8 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
     clearNotificationSettingsCache: vi.fn(),
     isSupportedCurrency: actual.isSupportedCurrency,
     SUPPORTED_CURRENCIES: actual.SUPPORTED_CURRENCIES,
+    isPriceDisplay: actual.isPriceDisplay,
+    PRICE_DISPLAYS: actual.PRICE_DISPLAYS,
   };
 });
 

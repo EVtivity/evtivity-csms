@@ -28,7 +28,16 @@ import { useToast } from '@/components/ui/toast';
 import { SessionCharts } from '@/components/SessionCharts';
 import { ReportIssue } from '@/components/ReportIssue';
 import { api } from '@/lib/api';
-import { formatCents, formatEnergy, formatDate, formatDistance, formatNumber } from '@/lib/utils';
+import { includedTaxCents } from '@evtivity/lib/price-display';
+import {
+  formatCents,
+  formatEnergy,
+  formatDate,
+  formatDistance,
+  formatNumber,
+  formatTaxPercent,
+} from '@/lib/utils';
+import { usePriceDisplay } from '@/hooks/use-price-display';
 import { useAuth } from '@/lib/auth';
 import { useDriverTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -41,6 +50,7 @@ interface SessionDetailData {
   endedAt: string | null;
   energyDeliveredWh: string | null;
   currentCostCents: number | null;
+  tariffTaxRate: string | null;
   finalCostCents: number | null;
   currency: string;
   meterStart: number | null;
@@ -125,6 +135,7 @@ export function SessionDetail(): React.JSX.Element {
   const fromCharge = (location.state as { fromCharge?: boolean } | null)?.fromCharge === true;
   const timezone = useDriverTimezone();
   const distanceUnit = useAuth((s) => s.driver?.distanceUnit ?? 'miles');
+  const priceDisplay = usePriceDisplay();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [showStopConfirm, setShowStopConfirm] = useState(false);
@@ -237,6 +248,12 @@ export function SessionDetail(): React.JSX.Element {
     costCents != null && costCents === 0
       ? t('sessionDetail.free')
       : formatCents(costCents, session.currency);
+  // Costs include the tariff tax; show the tax it contains, or for net display
+  // the net amount and the tax added on top.
+  const taxRate = session.tariffTaxRate != null ? Number(session.tariffTaxRate) : 0;
+  const taxCents =
+    costCents != null && costCents > 0 && taxRate > 0 ? includedTaxCents(costCents, taxRate) : null;
+  const taxPercent = formatTaxPercent(taxRate);
   const energy = formatEnergy(session.energyDeliveredWh);
   const efficiency = session.vehicle?.efficiencyMiPerKwh ?? 3.5;
   const miles = formatDistance(session.energyDeliveredWh, efficiency, distanceUnit);
@@ -461,10 +478,28 @@ export function SessionDetail(): React.JSX.Element {
               value={`${formatNumber(session.batteryPercent, 0)}%`}
             />
           )}
+          {taxCents != null && costCents != null && priceDisplay === 'net' && (
+            <>
+              <Row
+                label={t('sessionDetail.netCost')}
+                value={formatCents(costCents - taxCents, session.currency)}
+              />
+              <Row
+                label={t('sessionDetail.taxAdded', { rate: taxPercent })}
+                value={formatCents(taxCents, session.currency)}
+              />
+            </>
+          )}
           <Row
             label={t(isActive ? 'sessionDetail.cost' : 'sessionDetail.totalCost')}
             value={cost}
           />
+          {taxCents != null && priceDisplay === 'gross' && (
+            <Row
+              label={t('sessionDetail.taxContained', { rate: taxPercent })}
+              value={formatCents(taxCents, session.currency)}
+            />
+          )}
           {session.stoppedReason != null && (
             <Row label={t('sessionDetail.stopReason')} value={session.stoppedReason} />
           )}

@@ -48,20 +48,18 @@
     >{{idleStartedAt}}</td>
   </tr>
 </table>
-{{#if idleFeePricePerMinute}}
+{{#if idleFeeFormatted}}
   {{#if gracePeriodMinutes}}
     <p
       style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
     >Las tarifas por inactividad de
-      {{idleFeePricePerMinute}}
-      {{currency}}/min comenzaran despues de
+      {{idleFeeFormatted}}/min {{#if taxRatePercent}}({{#if idleFeeIncludesTax}}impuestos del {{taxRatePercent}} % incluidos{{else}}más impuestos del {{taxRatePercent}} %{{/if}}){{/if}} comenzaran despues de
       {{gracePeriodMinutes}}
       minutos.</p>
   {{else}}
     <p
       style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
     >Las tarifas por inactividad de
-      {{idleFeePricePerMinute}}
-      {{currency}}/min se estan acumulando.</p>
+      {{idleFeeFormatted}}/min {{#if taxRatePercent}}({{#if idleFeeIncludesTax}}impuestos del {{taxRatePercent}} % incluidos{{else}}más impuestos del {{taxRatePercent}} %{{/if}}){{/if}} se estan acumulando.</p>
   {{/if}}
 {{/if}}

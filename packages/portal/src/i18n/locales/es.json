@@ -18,7 +18,8 @@
     "offline": "Estas sin conexion. Algunas funciones pueden no funcionar.",
     "add": "Añadir",
     "deactivate": "Desactivar",
-    "remove": "Quitar"
+    "remove": "Quitar",
+    "inclTax": "impuestos incluidos"
   },
   "nav": {
     "home": "Inicio",
@@ -124,8 +125,11 @@
     "ended": "Fin",
     "energy": "Energia",
     "energyAdded": "Energia entregada",
-    "cost": "Costo estimado",
-    "totalCost": "Costo total",
+    "cost": "Costo estimado (impuestos incluidos)",
+    "totalCost": "Costo total (impuestos incluidos)",
+    "netCost": "Importe neto",
+    "taxAdded": "más impuestos del {{rate}} %",
+    "taxContained": "incluye impuestos del {{rate}} %",
     "stopReason": "Razon de parada",
     "rfid": "RFID",
     "payment": "Pago",
@@ -226,7 +230,11 @@
     "themeDark": "Oscuro",
     "distanceUnit": "Unidad de distancia",
     "distanceMiles": "Millas",
-    "distanceKm": "Kilometros"
+    "distanceKm": "Kilometros",
+    "priceDisplay": "Precios",
+    "priceDisplayDefault": "Predeterminado del operador ({{value}})",
+    "priceDisplayGross": "Impuestos incluidos (bruto)",
+    "priceDisplayNet": "Sin impuestos (neto)"
   },
   "charger": {
     "loadingInfo": "Cargando informacion del cargador...",
@@ -261,6 +269,8 @@
     "sessionFee": "tarifa de sesion",
     "idleFee": "/min tarifa inactiva",
     "tax": "impuesto",
+    "taxIncluded": "impuestos del {{rate}} % incluidos",
+    "taxExcluded": "más impuestos del {{rate}} %",
     "startCharging": "Iniciar carga",
     "freeCharging": "Carga gratuita",
     "siteContact": "Contacto del sitio",
@@ -326,8 +336,8 @@
     "notFound": "Sesion no encontrada.",
     "duration": "Duracion",
     "energyDelivered": "Energia entregada",
-    "totalCost": "Costo total",
-    "estimatedCost": "Costo estimado",
+    "totalCost": "Costo total (impuestos incluidos)",
+    "estimatedCost": "Costo estimado (impuestos incluidos)",
     "started": "Inicio",
     "ended": "Fin",
     "stopCharging": "Detener carga",
@@ -739,7 +749,8 @@
     "total": "Total",
     "co2Avoided": "CO₂ evitado",
     "totalCo2Avoided": "CO₂ total evitado",
-    "noSessions": "No hay sesiones de carga en este periodo."
+    "noSessions": "No hay sesiones de carga en este periodo.",
+    "costInclTax": "Costo (impuestos incluidos)"
   },
   "account": {
     "title": "Cuenta",

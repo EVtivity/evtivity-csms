@@ -81,6 +81,7 @@ vi.mock('@evtivity/database', async () => ({
   getTxEndedMeasurands: vi.fn().mockResolvedValue([]),
   isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
+  getCompanyPriceDisplay: vi.fn().mockResolvedValue('net'),
 }));
 
 const mockDispatchOcpp = vi.fn().mockResolvedValue(undefined);

@@ -261,6 +261,7 @@ describe('Portal sessions routes - handler logic', () => {
           endedAt: '2024-01-01T01:00:00Z',
           energyDeliveredWh: 10000,
           currentCostCents: null,
+          tariffTaxRate: '0.19',
           finalCostCents: 500,
           currency: 'USD',
           meterStart: 0,
@@ -291,6 +292,7 @@ describe('Portal sessions routes - handler logic', () => {
             endedAt: '2024-01-01T01:00:00Z',
             energyDeliveredWh: 10000,
             currentCostCents: null,
+            tariffTaxRate: '0.19',
             finalCostCents: 500,
             currency: 'USD',
             meterStart: 0,
@@ -333,6 +335,7 @@ describe('Portal sessions routes - handler logic', () => {
       const body = response.json();
       expect(body.id).toBe(VALID_SESSION_ID);
       expect(body.status).toBe('completed');
+      expect(body.tariffTaxRate).toBe('0.19');
       expect(body.payment).toBeDefined();
       expect(body.payment.status).toBe('captured');
     });
@@ -348,6 +351,7 @@ describe('Portal sessions routes - handler logic', () => {
             endedAt: '2024-01-01T01:00:00Z',
             energyDeliveredWh: 10000,
             currentCostCents: null,
+            tariffTaxRate: '0.19',
             finalCostCents: 0,
             currency: 'USD',
             meterStart: 0,

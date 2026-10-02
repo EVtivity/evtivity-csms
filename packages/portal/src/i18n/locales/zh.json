@@ -18,7 +18,8 @@
     "offline": "您已离线。部分功能可能无法使用。",
     "add": "添加",
     "deactivate": "停用",
-    "remove": "移除"
+    "remove": "移除",
+    "inclTax": "含税"
   },
   "nav": {
     "home": "首页",
@@ -124,8 +125,11 @@
     "ended": "结束时间",
     "energy": "电量",
     "energyAdded": "已输送电量",
-    "cost": "预估费用",
-    "totalCost": "总费用",
+    "cost": "预估费用（含税）",
+    "totalCost": "总费用（含税）",
+    "netCost": "净额",
+    "taxAdded": "加 {{rate}}% 税",
+    "taxContained": "其中含 {{rate}}% 税",
     "stopReason": "停止原因",
     "rfid": "RFID",
     "payment": "支付",
@@ -226,7 +230,11 @@
     "themeDark": "深色",
     "distanceUnit": "距离单位",
     "distanceMiles": "英里",
-    "distanceKm": "公里"
+    "distanceKm": "公里",
+    "priceDisplay": "价格显示",
+    "priceDisplayDefault": "运营商默认（{{value}}）",
+    "priceDisplayGross": "含税（总价）",
+    "priceDisplayNet": "不含税（净价）"
   },
   "charger": {
     "loadingInfo": "加载充电桩信息...",
@@ -261,6 +269,8 @@
     "sessionFee": "会话费",
     "idleFee": "/分钟闲置费",
     "tax": "税",
+    "taxIncluded": "含 {{rate}}% 税",
+    "taxExcluded": "不含 {{rate}}% 税",
     "startCharging": "开始充电",
     "freeCharging": "免费充电",
     "siteContact": "站点联系方式",
@@ -326,8 +336,8 @@
     "notFound": "未找到会话。",
     "duration": "时长",
     "energyDelivered": "已输送电量",
-    "totalCost": "总费用",
-    "estimatedCost": "预估费用",
+    "totalCost": "总费用（含税）",
+    "estimatedCost": "预估费用（含税）",
     "started": "开始时间",
     "ended": "结束时间",
     "stopCharging": "停止充电",
@@ -739,7 +749,8 @@
     "total": "合计",
     "co2Avoided": "减少的CO₂",
     "totalCo2Avoided": "减少的CO₂总量",
-    "noSessions": "此期间没有充电记录。"
+    "noSessions": "此期间没有充电记录。",
+    "costInclTax": "费用（含税）"
   },
   "account": {
     "title": "账户",

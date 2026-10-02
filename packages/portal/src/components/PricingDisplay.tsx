@@ -5,7 +5,8 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { Plus, Minus, Clock } from 'lucide-react';
-import { formatNumber, formatPrice } from '@/lib/utils';
+import { priceForDisplay, type PriceDisplay } from '@evtivity/lib/price-display';
+import { formatTaxPercent, formatUnitPrice } from '@/lib/utils';
 
 export interface TariffRestrictionsLite {
   timeRange?: { startTime: string; endTime: string };
@@ -59,7 +60,15 @@ function formatRestrictions(
   return parts.length > 0 ? parts.join(' ') : null;
 }
 
-export function PricingDisplay({ pricing }: { pricing: PricingInfo }): React.JSX.Element {
+// Tariff prices are net. With priceDisplay 'gross' every price is shown with
+// the tax rate added; the note below the price says which one it is.
+export function PricingDisplay({
+  pricing,
+  priceDisplay,
+}: {
+  pricing: PricingInfo;
+  priceDisplay: PriceDisplay;
+}): React.JSX.Element {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const perKwh = pricing.pricePerKwh != null ? Number(pricing.pricePerKwh) : 0;
@@ -67,6 +76,8 @@ export function PricingDisplay({ pricing }: { pricing: PricingInfo }): React.JSX
   const perSession = pricing.pricePerSession != null ? Number(pricing.pricePerSession) : 0;
   const idleFee = pricing.idleFeePricePerMinute != null ? Number(pricing.idleFeePricePerMinute) : 0;
   const taxRate = pricing.taxRate != null ? Number(pricing.taxRate) : 0;
+  const formatPrice = (price: number): string =>
+    formatUnitPrice(priceForDisplay(price, taxRate, priceDisplay), pricing.currency);
   const restrictionLabel = formatRestrictions(pricing.restrictions, t);
 
   if (pricing.isFreeVend === true) {
@@ -86,21 +97,23 @@ export function PricingDisplay({ pricing }: { pricing: PricingInfo }): React.JSX
 
   const primaryPrice =
     perKwh > 0
-      ? `${formatPrice(perKwh, pricing.currency)}/${t('charger.unitKwh')}`
+      ? `${formatPrice(perKwh)}/${t('charger.unitKwh')}`
       : perMin > 0
-        ? `${formatPrice(perMin, pricing.currency)}/${t('charger.unitMin')}`
-        : formatPrice(perSession, pricing.currency);
+        ? `${formatPrice(perMin)}/${t('charger.unitMin')}`
+        : formatPrice(perSession);
 
   const breakdownLines: string[] = [];
-  if (perKwh > 0)
-    breakdownLines.push(`${formatPrice(perKwh, pricing.currency)} ${t('charger.perKwh')}`);
-  if (perMin > 0)
-    breakdownLines.push(`${formatPrice(perMin, pricing.currency)} ${t('charger.perMin')}`);
-  if (perSession > 0)
-    breakdownLines.push(`${formatPrice(perSession, pricing.currency)} ${t('charger.sessionFee')}`);
-  if (idleFee > 0)
-    breakdownLines.push(`${formatPrice(idleFee, pricing.currency)} ${t('charger.idleFee')}`);
-  if (taxRate > 0) breakdownLines.push(`${formatNumber(taxRate * 100, 0)}% ${t('charger.tax')}`);
+  if (perKwh > 0) breakdownLines.push(`${formatPrice(perKwh)} ${t('charger.perKwh')}`);
+  if (perMin > 0) breakdownLines.push(`${formatPrice(perMin)} ${t('charger.perMin')}`);
+  if (perSession > 0) breakdownLines.push(`${formatPrice(perSession)} ${t('charger.sessionFee')}`);
+  if (idleFee > 0) breakdownLines.push(`${formatPrice(idleFee)} ${t('charger.idleFee')}`);
+
+  const taxNote =
+    taxRate > 0
+      ? t(priceDisplay === 'gross' ? 'charger.taxIncluded' : 'charger.taxExcluded', {
+          rate: formatTaxPercent(taxRate),
+        })
+      : null;
 
   return (
     <div className="space-y-2">
@@ -118,6 +131,7 @@ export function PricingDisplay({ pricing }: { pricing: PricingInfo }): React.JSX
           <Plus className="h-4 w-4 text-muted-foreground" />
         )}
       </button>
+      {taxNote != null && <p className="text-center text-xs text-muted-foreground">{taxNote}</p>}
       {restrictionLabel != null && (
         <p className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
           <Clock className="h-3 w-3" />

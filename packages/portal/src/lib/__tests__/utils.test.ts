@@ -10,7 +10,8 @@ import {
   formatDistance,
   formatEnergy,
   formatNumber,
-  formatPrice,
+  formatTaxPercent,
+  formatUnitPrice,
 } from '../utils';
 
 describe('cn', () => {
@@ -163,7 +164,7 @@ describe('formatting in the UI language', () => {
   it('uses the separators of the selected language', async () => {
     await i18next.changeLanguage('de');
     expect(formatCents(123456, 'EUR')).toBe('1.234,56 €');
-    expect(formatPrice(0.49, 'EUR')).toBe('0,49 €');
+    expect(formatUnitPrice(0.49, 'EUR')).toBe('0,49 €');
     expect(formatNumber(1234.5, 1)).toBe('1.234,5');
     expect(formatEnergy(12_345)).toBe('12,35 kWh');
     expect(formatDistance(1_234_000, 1, 'miles')).toBe('1.234 Miles');
@@ -171,7 +172,19 @@ describe('formatting in the UI language', () => {
 
   it('keeps English formatting for English', async () => {
     await i18next.changeLanguage('en');
-    expect(formatPrice(0.49, 'EUR')).toBe('€0.49');
+    expect(formatUnitPrice(0.49, 'EUR')).toBe('€0.49');
     expect(formatEnergy(12_345)).toBe('12.35 kWh');
+  });
+
+  it('keeps up to four fraction digits of a unit price', async () => {
+    await i18next.changeLanguage('en');
+    expect(formatUnitPrice(0.256088, 'EUR')).toBe('€0.2561');
+    expect(formatUnitPrice(0.5, 'EUR')).toBe('€0.50');
+  });
+
+  it('formats a tax rate as a percentage without trailing zeros', async () => {
+    await i18next.changeLanguage('de');
+    expect(formatTaxPercent(0.19)).toBe('19');
+    expect(formatTaxPercent(0.075)).toBe('7,5');
   });
 });

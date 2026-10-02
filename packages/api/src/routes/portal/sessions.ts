@@ -90,6 +90,10 @@ const paymentRecordItem = z
 const portalSessionDetail = portalSessionListItem
   .extend({
     currentCostCents: z.number().int().min(0).nullable().describe('Running cost in cents'),
+    tariffTaxRate: z
+      .string()
+      .nullable()
+      .describe('Tax rate of the session tariff as a decimal (e.g. 0.19); costs include it'),
     meterStart: z.string().nullable().describe('Meter reading at session start in Wh'),
     meterStop: z.string().nullable().describe('Meter reading at session end in Wh'),
     stoppedReason: z
@@ -438,6 +442,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           co2AvoidedKg: chargingSessions.co2AvoidedKg,
           currentCostCents: chargingSessions.currentCostCents,
           finalCostCents: chargingSessions.finalCostCents,
+          tariffTaxRate: chargingSessions.tariffTaxRate,
           currency: sessionCurrencySql(),
           meterStart: chargingSessions.meterStart,
           meterStop: chargingSessions.meterStop,

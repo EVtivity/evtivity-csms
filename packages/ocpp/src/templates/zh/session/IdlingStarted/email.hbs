@@ -47,18 +47,17 @@
     >{{idleStartedAt}}</td>
   </tr>
 </table>
-{{#if idleFeePricePerMinute}}
+{{#if idleFeeFormatted}}
   {{#if gracePeriodMinutes}}
     <p
       style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
     >闲置费用为
-      {{idleFeePricePerMinute}}
-      {{currency}}/分钟，将在
+      {{idleFeeFormatted}}/分钟{{#if taxRatePercent}}（{{#if idleFeeIncludesTax}}含{{else}}不含{{/if}} {{taxRatePercent}}% 税）{{/if}}，将在
       {{gracePeriodMinutes}}
       分钟后开始计费。</p>
   {{else}}
     <p
       style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
-    >闲置费用为 {{idleFeePricePerMinute}} {{currency}}/分钟，正在计费中。</p>
+    >闲置费用为 {{idleFeeFormatted}}/分钟{{#if taxRatePercent}}（{{#if idleFeeIncludesTax}}含{{else}}不含{{/if}} {{taxRatePercent}}% 税）{{/if}}，正在计费中。</p>
   {{/if}}
 {{/if}}

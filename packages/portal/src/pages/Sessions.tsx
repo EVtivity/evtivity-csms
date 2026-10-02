@@ -93,7 +93,7 @@ export function Sessions(): React.JSX.Element {
                   <Badge variant={statusVariant(session.status)}>{session.status}</Badge>
                   <p className="text-sm font-medium">{formatEnergy(session.energyDeliveredWh)}</p>
                   <p className="text-xs text-muted-foreground">
-                    {formatCents(session.finalCostCents, session.currency)}
+                    {formatCents(session.finalCostCents, session.currency)} {t('common.inclTax')}
                   </p>
                 </div>
               </div>

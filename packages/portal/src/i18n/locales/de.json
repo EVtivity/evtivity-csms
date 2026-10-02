@@ -18,7 +18,8 @@
     "offline": "Du bist offline. Einige Funktionen sind möglicherweise nicht verfügbar.",
     "add": "Hinzufügen",
     "deactivate": "Deaktivieren",
-    "remove": "Entfernen"
+    "remove": "Entfernen",
+    "inclTax": "inkl. Steuer"
   },
   "nav": {
     "home": "Startseite",
@@ -124,8 +125,11 @@
     "ended": "Beendet",
     "energy": "Energie",
     "energyAdded": "Gelieferte Energie",
-    "cost": "Geschätzte Kosten",
-    "totalCost": "Gesamtkosten",
+    "cost": "Geschätzte Kosten (inkl. Steuer)",
+    "totalCost": "Gesamtkosten (inkl. Steuer)",
+    "netCost": "Nettobetrag",
+    "taxAdded": "zzgl. {{rate}} % Steuer",
+    "taxContained": "darin enthalten {{rate}} % Steuer",
     "stopReason": "Stoppgrund",
     "rfid": "RFID",
     "payment": "Zahlung",
@@ -226,7 +230,11 @@
     "themeDark": "Dunkel",
     "distanceUnit": "Entfernungseinheit",
     "distanceMiles": "Meilen",
-    "distanceKm": "Kilometer"
+    "distanceKm": "Kilometer",
+    "priceDisplay": "Preisangabe",
+    "priceDisplayDefault": "Vorgabe des Betreibers ({{value}})",
+    "priceDisplayGross": "Inklusive Steuer (brutto)",
+    "priceDisplayNet": "Exklusive Steuer (netto)"
   },
   "charger": {
     "loadingInfo": "Ladestationsinfos werden geladen...",
@@ -261,6 +269,8 @@
     "sessionFee": "Sitzungsgebühr",
     "idleFee": "/Min. Standgebühr",
     "tax": "Steuer",
+    "taxIncluded": "inkl. {{rate}} % Steuer",
+    "taxExcluded": "zzgl. {{rate}} % Steuer",
     "startCharging": "Ladevorgang starten",
     "freeCharging": "Kostenloses Laden",
     "siteContact": "Standortkontakt",
@@ -326,8 +336,8 @@
     "notFound": "Vorgang nicht gefunden.",
     "duration": "Dauer",
     "energyDelivered": "Gelieferte Energie",
-    "totalCost": "Gesamtkosten",
-    "estimatedCost": "Geschätzte Kosten",
+    "totalCost": "Gesamtkosten (inkl. Steuer)",
+    "estimatedCost": "Geschätzte Kosten (inkl. Steuer)",
     "started": "Gestartet",
     "ended": "Beendet",
     "stopCharging": "Ladevorgang beenden",
@@ -739,7 +749,8 @@
     "total": "Gesamt",
     "co2Avoided": "CO₂ eingespart",
     "totalCo2Avoided": "Gesamt CO₂ eingespart",
-    "noSessions": "Keine Ladevorgänge in diesem Zeitraum."
+    "noSessions": "Keine Ladevorgänge in diesem Zeitraum.",
+    "costInclTax": "Kosten (inkl. Steuer)"
   },
   "account": {
     "title": "Konto",

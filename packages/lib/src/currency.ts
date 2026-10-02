@@ -72,3 +72,21 @@ export function formatCurrencyAmount(
     return `${currency.toUpperCase()} ${(amountCents / 100).toFixed(2)}`;
   }
 }
+
+/**
+ * Formats a unit price in major units (e.g. a tariff rate of 0.2561 EUR/kWh)
+ * with 2 to 4 fraction digits, so rates finer than a cent are not rounded away.
+ * Falls back like formatCurrencyAmount.
+ */
+export function formatUnitPrice(amount: number, currency: string, locale = 'en-US'): string {
+  try {
+    return new Intl.NumberFormat(resolveLocale(locale), {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4,
+    }).format(amount);
+  } catch {
+    return `${currency.toUpperCase()} ${amount.toFixed(2)}`;
+  }
+}

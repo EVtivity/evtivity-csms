@@ -398,7 +398,14 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'transactionId', description: 'Transaction ID' },
     { name: 'idleStartedAt', description: 'When idling started' },
     { name: 'gracePeriodMinutes', description: 'Grace period in minutes' },
-    { name: 'idleFeePricePerMinute', description: 'Idle fee rate per minute' },
+    { name: 'idleFeePricePerMinute', description: 'Idle fee rate per minute, excluding tax' },
+    {
+      name: 'idleFeeFormatted',
+      description:
+        'Idle fee per minute with currency, including or excluding tax as the driver chose; empty without an idle fee',
+    },
+    { name: 'idleFeeIncludesTax', description: 'Whether idleFeeFormatted includes tax' },
+    { name: 'taxRatePercent', description: 'Tariff tax rate in percent; empty without tax' },
     { name: 'currency', description: 'Currency code' },
   ],
   'driver.Welcome': [

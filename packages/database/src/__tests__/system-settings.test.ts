@@ -101,3 +101,44 @@ describe('getCompanyCurrency', () => {
     expect(await getCompanyCurrency()).toBe('USD');
   });
 });
+
+describe('getCompanyPriceDisplay', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it('returns the configured price display', async () => {
+    mockSelect.mockReturnValue(makeChain([{ value: 'gross' }]));
+    const { getCompanyPriceDisplay } = await import('../lib/system-settings.js');
+    expect(await getCompanyPriceDisplay()).toBe('gross');
+  });
+
+  it('falls back to net when the setting is missing or invalid', async () => {
+    mockSelect.mockReturnValue(makeChain([{ value: 'brutto' }]));
+    const { getCompanyPriceDisplay, clearSystemSettingsCache } =
+      await import('../lib/system-settings.js');
+    expect(await getCompanyPriceDisplay()).toBe('net');
+    clearSystemSettingsCache();
+    mockSelect.mockReturnValue(makeChain([]));
+    expect(await getCompanyPriceDisplay()).toBe('net');
+  });
+
+  it('caches the value until the cache is cleared', async () => {
+    mockSelect.mockReturnValue(makeChain([{ value: 'gross' }]));
+    const { getCompanyPriceDisplay, clearSystemSettingsCache } =
+      await import('../lib/system-settings.js');
+    await getCompanyPriceDisplay();
+    await getCompanyPriceDisplay();
+    expect(mockSelect).toHaveBeenCalledTimes(1);
+    clearSystemSettingsCache();
+    mockSelect.mockReturnValue(makeChain([{ value: 'net' }]));
+    expect(await getCompanyPriceDisplay()).toBe('net');
+  });
+
+  it('returns net when the first query fails', async () => {
+    mockSelect.mockReturnValue(makeFailingChain());
+    const { getCompanyPriceDisplay } = await import('../lib/system-settings.js');
+    expect(await getCompanyPriceDisplay()).toBe('net');
+  });
+});

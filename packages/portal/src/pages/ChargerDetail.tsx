@@ -28,6 +28,7 @@ import { InfoNote } from '@/components/ui/info-note';
 import { ReportIssue } from '@/components/ReportIssue';
 import { useToast } from '@/components/ui/toast';
 import { PricingDisplay, isPricingFree } from '@/components/PricingDisplay';
+import { usePriceDisplay } from '@/hooks/use-price-display';
 import type { PricingInfo } from '@/components/PricingDisplay';
 import { EvPlugAnimation } from '@/components/EvPlugAnimation';
 import { api } from '@/lib/api';
@@ -127,6 +128,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const isAuthenticated = useAuth((s) => s.isAuthenticated);
+  const priceDisplay = usePriceDisplay();
   const currentDriverId = useAuth((s) => s.driver?.id ?? null);
   useStationEvents(stationId);
 
@@ -559,7 +561,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
       )}
 
       {/* Pricing */}
-      {pricing != null && <PricingDisplay pricing={pricing} />}
+      {pricing != null && <PricingDisplay pricing={pricing} priceDisplay={priceDisplay} />}
 
       {/* EVSE selection instruction */}
       {station.evses.length > 0 && !hasActiveSession && (

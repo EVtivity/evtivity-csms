@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { eq } from 'drizzle-orm';
-import { DEFAULT_CURRENCY, isSupportedCurrency } from '@evtivity/lib';
+import {
+  DEFAULT_CURRENCY,
+  DEFAULT_PRICE_DISPLAY,
+  isPriceDisplay,
+  isSupportedCurrency,
+  type PriceDisplay,
+} from '@evtivity/lib';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
 
@@ -14,6 +20,9 @@ let cachedAt = 0;
 
 let cachedCurrency: string | undefined;
 let cachedCurrencyAt = 0;
+
+let cachedPriceDisplay: PriceDisplay | undefined;
+let cachedPriceDisplayAt = 0;
 
 /**
  * Cached reader for the `system.timezone` setting. Used by dashboard
@@ -66,9 +75,37 @@ export async function getCompanyCurrency(): Promise<string> {
   }
 }
 
+/**
+ * Cached reader for the `company.priceDisplay` setting: whether drivers see
+ * prices including ('gross') or excluding ('net') tax unless they choose
+ * otherwise. Falls back to DEFAULT_PRICE_DISPLAY when unset or invalid, and on
+ * error.
+ */
+export async function getCompanyPriceDisplay(): Promise<PriceDisplay> {
+  const now = Date.now();
+  if (cachedPriceDisplay !== undefined && now - cachedPriceDisplayAt < TTL_MS) {
+    return cachedPriceDisplay;
+  }
+
+  try {
+    const [row] = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, 'company.priceDisplay'));
+
+    cachedPriceDisplay = isPriceDisplay(row?.value) ? row.value : DEFAULT_PRICE_DISPLAY;
+    cachedPriceDisplayAt = now;
+    return cachedPriceDisplay;
+  } catch {
+    return cachedPriceDisplay ?? DEFAULT_PRICE_DISPLAY;
+  }
+}
+
 export function clearSystemSettingsCache(): void {
   cachedTimezone = undefined;
   cachedAt = 0;
   cachedCurrency = undefined;
   cachedCurrencyAt = 0;
+  cachedPriceDisplay = undefined;
+  cachedPriceDisplayAt = 0;
 }

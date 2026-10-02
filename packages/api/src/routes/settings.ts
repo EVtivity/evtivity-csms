@@ -19,6 +19,8 @@ import {
   clearNotificationSettingsCache,
   isSupportedCurrency,
   SUPPORTED_CURRENCIES,
+  isPriceDisplay,
+  PRICE_DISPLAYS,
 } from '@evtivity/lib';
 import { getPubSub } from '../lib/pubsub.js';
 
@@ -60,12 +62,19 @@ const updateSettingBody = z.object({
 });
 
 const COMPANY_CURRENCY_KEY = 'company.currency';
+const COMPANY_PRICE_DISPLAY_KEY = 'company.priceDisplay';
+
+// Keys read through the cached getters in @evtivity/database system-settings.
+function isCachedSystemSetting(key: string): boolean {
+  return key === COMPANY_CURRENCY_KEY || key === COMPANY_PRICE_DISPLAY_KEY;
+}
 
 /**
  * Validates and normalizes values for keys with a constrained format. Returns
  * null when the value is invalid.
  */
 function normalizeSettingValue(key: string, value: unknown): { value: unknown } | null {
+  if (key === COMPANY_PRICE_DISPLAY_KEY) return isPriceDisplay(value) ? { value } : null;
   if (key !== COMPANY_CURRENCY_KEY) return { value };
   const code = typeof value === 'string' ? value.trim().toUpperCase() : value;
   return isSupportedCurrency(code) ? { value: code } : null;
@@ -75,6 +84,15 @@ const invalidCurrencyError = {
   error: `company.currency must be one of: ${SUPPORTED_CURRENCIES.join(', ')}`,
   code: 'VALIDATION_ERROR',
 };
+
+const invalidPriceDisplayError = {
+  error: `company.priceDisplay must be one of: ${PRICE_DISPLAYS.join(', ')}`,
+  code: 'VALIDATION_ERROR',
+};
+
+function invalidSettingError(key: string): { error: string; code: string } {
+  return key === COMPANY_PRICE_DISPLAY_KEY ? invalidPriceDisplayError : invalidCurrencyError;
+}
 
 const settingItem = z
   .object({
@@ -301,7 +319,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         (request.body as z.infer<typeof updateSettingBody>).value,
       );
       if (normalized == null) {
-        await reply.status(400).send(invalidCurrencyError);
+        await reply.status(400).send(invalidSettingError(key));
         return;
       }
       const storedValue = encryptForWrite(key, normalized.value);
@@ -329,7 +347,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
-      if (row.key === COMPANY_CURRENCY_KEY) clearSystemSettingsCache();
+      if (isCachedSystemSetting(row.key)) clearSystemSettingsCache();
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
@@ -359,7 +377,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         (request.body as z.infer<typeof updateSettingBody>).value,
       );
       if (normalized == null) {
-        await reply.status(400).send(invalidCurrencyError);
+        await reply.status(400).send(invalidSettingError(key));
         return;
       }
       const storedValue = encryptForWrite(key, normalized.value);
@@ -390,7 +408,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
-      if (row.key === COMPANY_CURRENCY_KEY) clearSystemSettingsCache();
+      if (isCachedSystemSetting(row.key)) clearSystemSettingsCache();
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
@@ -433,7 +451,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
-      if (row.key === COMPANY_CURRENCY_KEY) clearSystemSettingsCache();
+      if (isCachedSystemSetting(row.key)) clearSystemSettingsCache();
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },

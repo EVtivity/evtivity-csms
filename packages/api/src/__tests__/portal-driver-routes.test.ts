@@ -198,6 +198,7 @@ describe('Portal driver routes - handler logic', () => {
         timezone: 'America/New_York',
         themePreference: 'light',
         distanceUnit: 'miles',
+        priceDisplay: null,
         isActive: true,
         createdAt: '2024-01-01',
       };
@@ -226,6 +227,7 @@ describe('Portal driver routes - handler logic', () => {
           timezone: 'America/New_York',
           themePreference: 'light',
           distanceUnit: 'miles',
+          priceDisplay: null,
           isActive: true,
           createdAt: '2024-01-01',
         },
@@ -238,6 +240,50 @@ describe('Portal driver routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(response.json().language).toBe('es');
+    });
+    it('stores the price display and clears it with null', async () => {
+      const driverRow = {
+        id: DRIVER_ID,
+        firstName: 'John',
+        lastName: 'Doe',
+        email: 'john@example.com',
+        phone: null,
+        language: 'de',
+        timezone: 'Europe/Berlin',
+        themePreference: 'light',
+        distanceUnit: 'km',
+        isActive: true,
+        createdAt: '2024-01-01',
+      };
+      setupDbResults([{ ...driverRow, priceDisplay: 'gross' }]);
+      const gross = await app.inject({
+        method: 'PATCH',
+        url: '/portal/driver/profile',
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: { priceDisplay: 'gross' },
+      });
+      expect(gross.statusCode).toBe(200);
+      expect(gross.json().priceDisplay).toBe('gross');
+
+      setupDbResults([{ ...driverRow, priceDisplay: null }]);
+      const inherit = await app.inject({
+        method: 'PATCH',
+        url: '/portal/driver/profile',
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: { priceDisplay: null },
+      });
+      expect(inherit.statusCode).toBe(200);
+      expect(inherit.json().priceDisplay).toBeNull();
+    });
+
+    it('rejects an unknown price display', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/portal/driver/profile',
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: { priceDisplay: 'brutto' },
+      });
+      expect(response.statusCode).toBe(400);
     });
   });
 

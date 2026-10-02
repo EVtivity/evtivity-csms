@@ -34,14 +34,35 @@ describe('PricingDisplay', () => {
 
   it('shows prices with the separators and symbol position of German', async () => {
     await i18next.changeLanguage('de');
-    render(<PricingDisplay pricing={pricing} />);
+    render(<PricingDisplay pricing={pricing} priceDisplay="net" />);
     // Testing Library normalizes the non-breaking space before the symbol.
     expect(screen.getByText('0,49 €/charger.unitKwh')).toBeDefined();
   });
 
   it('shows prices in English format for English', async () => {
     await i18next.changeLanguage('en');
-    render(<PricingDisplay pricing={pricing} />);
+    render(<PricingDisplay pricing={pricing} priceDisplay="net" />);
     expect(screen.getByText('€0.49/charger.unitKwh')).toBeDefined();
+  });
+
+  it('adds the tax rate to every price for gross display', async () => {
+    await i18next.changeLanguage('en');
+    render(<PricingDisplay pricing={{ ...pricing, pricePerKwh: '0.2152' }} priceDisplay="gross" />);
+    expect(screen.getByText('€0.2561/charger.unitKwh')).toBeDefined();
+    expect(screen.getByText('charger.taxIncluded')).toBeDefined();
+  });
+
+  it('shows net prices and says that tax is added for net display', async () => {
+    await i18next.changeLanguage('en');
+    render(<PricingDisplay pricing={{ ...pricing, pricePerKwh: '0.2152' }} priceDisplay="net" />);
+    expect(screen.getByText('€0.2152/charger.unitKwh')).toBeDefined();
+    expect(screen.getByText('charger.taxExcluded')).toBeDefined();
+  });
+
+  it('shows no tax note without a tax rate', async () => {
+    await i18next.changeLanguage('en');
+    render(<PricingDisplay pricing={{ ...pricing, taxRate: null }} priceDisplay="gross" />);
+    expect(screen.getByText('€0.49/charger.unitKwh')).toBeDefined();
+    expect(screen.queryByText('charger.taxIncluded')).toBeNull();
   });
 });

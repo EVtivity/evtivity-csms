@@ -59,8 +59,18 @@ export {
   SUPPORTED_CURRENCIES,
   isSupportedCurrency,
   formatCurrencyAmount,
+  formatUnitPrice,
 } from './currency.js';
 export type { SupportedCurrency } from './currency.js';
+export {
+  PRICE_DISPLAYS,
+  DEFAULT_PRICE_DISPLAY,
+  isPriceDisplay,
+  resolvePriceDisplay,
+  priceForDisplay,
+  includedTaxCents,
+} from './price-display.js';
+export type { PriceDisplay } from './price-display.js';
 export {
   STATION_PASSWORD_CHARSET,
   stationPasswordRules,

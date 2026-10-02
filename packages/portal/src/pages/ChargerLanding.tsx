@@ -14,6 +14,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { PricingDisplay } from '@/components/PricingDisplay';
+import { usePriceDisplay } from '@/hooks/use-price-display';
 import type { PricingInfo } from '@/components/PricingDisplay';
 import { EvPlugAnimation } from '@/components/EvPlugAnimation';
 import { api } from '@/lib/api';
@@ -58,6 +59,7 @@ export function ChargerLanding(): React.JSX.Element {
   const { stationId, evseId } = useParams<{ stationId: string; evseId: string }>();
   const navigate = useNavigate();
   const isAuthenticated = useAuth((s) => s.isAuthenticated);
+  const priceDisplay = usePriceDisplay();
   const { companyName, companyLogo, branding } = useAuthBranding();
   useStationEvents(stationId);
 
@@ -277,7 +279,9 @@ export function ChargerLanding(): React.JSX.Element {
                   {t(`status.${connectorStatus}`)}
                 </Badge>
               </div>
-              {displayPricing != null && <PricingDisplay pricing={displayPricing} />}
+              {displayPricing != null && (
+                <PricingDisplay pricing={displayPricing} priceDisplay={priceDisplay} />
+              )}
             </>
           )}
 

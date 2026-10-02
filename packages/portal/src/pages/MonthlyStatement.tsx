@@ -115,7 +115,7 @@ export function MonthlyStatement(): React.JSX.Element {
                     <th className="hidden md:table-cell px-2 py-2 text-right">
                       {t('statement.miles')}
                     </th>
-                    <th className="px-2 py-2 text-right">{t('activity.cost')}</th>
+                    <th className="px-2 py-2 text-right">{t('statement.costInclTax')}</th>
                     {hasCo2Data && (
                       <th className="hidden md:table-cell px-2 py-2 text-right">
                         {t('statement.co2Avoided')}

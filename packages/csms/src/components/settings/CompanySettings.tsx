@@ -12,6 +12,11 @@ import {
   isSupportedCurrency,
   type SupportedCurrency,
 } from '@evtivity/lib/currency';
+import {
+  DEFAULT_PRICE_DISPLAY,
+  isPriceDisplay,
+  type PriceDisplay,
+} from '@evtivity/lib/price-display';
 import { SaveButton } from '@/components/save-button';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -90,6 +95,8 @@ export function CompanySettings({
 
   const [companyName, setCompanyName] = useState('EVtivity');
   const [companyCurrency, setCompanyCurrency] = useState(DEFAULT_CURRENCY);
+  const [companyPriceDisplay, setCompanyPriceDisplay] =
+    useState<PriceDisplay>(DEFAULT_PRICE_DISPLAY);
   const [companyContactEmail, setCompanyContactEmail] = useState('');
   const [companySupportEmail, setCompanySupportEmail] = useState('');
   const [companySupportPhone, setCompanySupportPhone] = useState('');
@@ -111,6 +118,8 @@ export function CompanySettings({
     };
     setCompanyName(s('company.name') || 'EVtivity');
     setCompanyCurrency(s('company.currency').trim().toUpperCase() || DEFAULT_CURRENCY);
+    const priceDisplay = s('company.priceDisplay');
+    setCompanyPriceDisplay(isPriceDisplay(priceDisplay) ? priceDisplay : DEFAULT_PRICE_DISPLAY);
     setCompanyContactEmail(s('company.contactEmail'));
     setCompanySupportEmail(s('company.supportEmail'));
     setCompanySupportPhone(s('company.supportPhone'));
@@ -129,6 +138,7 @@ export function CompanySettings({
     mutationFn: (vals: {
       name: string;
       currency: string;
+      priceDisplay: PriceDisplay;
       contactEmail: string;
       supportEmail: string;
       supportPhone: string;
@@ -145,6 +155,7 @@ export function CompanySettings({
       Promise.all([
         api.put('/v1/settings/company.name', { value: vals.name }),
         api.put('/v1/settings/company.currency', { value: vals.currency }),
+        api.put('/v1/settings/company.priceDisplay', { value: vals.priceDisplay }),
         api.put('/v1/settings/company.contactEmail', { value: vals.contactEmail }),
         api.put('/v1/settings/company.supportEmail', { value: vals.supportEmail }),
         api.put('/v1/settings/company.supportPhone', { value: vals.supportPhone }),
@@ -573,6 +584,7 @@ export function CompanySettings({
             companyMutation.mutate({
               name: companyName,
               currency: companyCurrency,
+              priceDisplay: companyPriceDisplay,
               contactEmail: companyContactEmail,
               supportEmail: companySupportEmail,
               supportPhone: companySupportPhone,
@@ -628,6 +640,24 @@ export function CompanySettings({
                   {t('settings.companyCurrencyUnsupported', { currency: savedCurrency })}
                 </p>
               )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="company-price-display">{t('settings.companyPriceDisplay')}</Label>
+              <Select
+                id="company-price-display"
+                value={companyPriceDisplay}
+                onChange={(e) => {
+                  if (isPriceDisplay(e.target.value)) setCompanyPriceDisplay(e.target.value);
+                }}
+                className="h-9"
+              >
+                <option value="gross">{t('settings.companyPriceDisplayGross')}</option>
+                <option value="net">{t('settings.companyPriceDisplayNet')}</option>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t('settings.companyPriceDisplayHelper')}
+              </p>
             </div>
 
             <div className="space-y-2">

@@ -45,6 +45,8 @@ export const drivers = pgTable(
     timezone: varchar('timezone', { length: 50 }).notNull().default('America/New_York'),
     themePreference: varchar('theme_preference', { length: 10 }).notNull().default('light'),
     distanceUnit: varchar('distance_unit', { length: 10 }).notNull().default('miles'),
+    // 'gross' or 'net'. Null follows the company setting company.priceDisplay.
+    priceDisplay: varchar('price_display', { length: 10 }),
     mfaEnabled: boolean('mfa_enabled').notNull().default(false),
     mfaMethod: varchar('mfa_method', { length: 20 }),
     totpSecretEnc: varchar('totp_secret_enc', { length: 500 }),

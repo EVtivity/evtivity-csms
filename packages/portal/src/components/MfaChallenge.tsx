@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import type { Theme } from '@/lib/theme';
+import type { PriceDisplay } from '@evtivity/lib/price-display';
 
 interface PortalMfaVerifyResponse {
   driver: {
@@ -22,6 +23,7 @@ interface PortalMfaVerifyResponse {
     timezone: string;
     themePreference: Theme;
     distanceUnit: 'miles' | 'km';
+    priceDisplay: PriceDisplay | null;
     isActive: boolean;
     emailVerified: boolean;
     createdAt: string;
