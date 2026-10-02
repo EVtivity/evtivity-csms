@@ -521,6 +521,12 @@ describe('station formatters', () => {
     expect(formatStationTime(time, 'de')).toBe('15:45');
   });
 
+  it('formats a time in the given time zone', () => {
+    const time = new Date('2026-05-06T15:45:00Z');
+    expect(formatStationTime(time, 'de', 'Europe/Berlin')).toBe('17:45');
+    expect(formatStationTime(time, 'en', 'America/New_York')).toMatch(/^11:45\sAM$/);
+  });
+
   it('formats the elapsed time in the display language', () => {
     const start = new Date(0);
     const minutes = (n: number): number => n * 60_000;

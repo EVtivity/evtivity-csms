@@ -20,6 +20,7 @@ import {
   getStationMessageBrandLine,
   isStationMessageEnabled,
   getCompanyCurrency,
+  getSystemTimezone,
   getCompanyPriceDisplay,
   getCompanyTaxBasis,
   resolveStationTariff,
@@ -263,9 +264,12 @@ async function resolveIdleState(
       .select({
         expiresAt: reservations.expiresAt,
         driverFirstName: drivers.firstName,
+        siteTimezone: sites.timezone,
       })
       .from(reservations)
       .leftJoin(drivers, eq(reservations.driverId, drivers.id))
+      .leftJoin(chargingStations, eq(reservations.stationId, chargingStations.id))
+      .leftJoin(sites, eq(chargingStations.siteId, sites.id))
       .where(
         and(
           eq(reservations.stationId, internalStationId),
@@ -280,7 +284,9 @@ async function resolveIdleState(
       result.driverFirstName = reservation.driverFirstName;
     }
     if (reservation?.expiresAt != null) {
-      result.reservationExpiresAt = formatStationTime(reservation.expiresAt, language);
+      // Shown on the station display, so in the time zone of the station's site.
+      const timezone = reservation.siteTimezone ?? (await getSystemTimezone());
+      result.reservationExpiresAt = formatStationTime(reservation.expiresAt, language, timezone);
     }
     return result;
   }

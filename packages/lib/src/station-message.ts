@@ -182,9 +182,20 @@ export function formatStationIdleFeeRate(input: {
   );
 }
 
-/** A clock time on a station screen in the display language ("3:45 PM", "15:45"). */
-export function formatStationTime(date: Date, language: StationMessageLanguage): string {
-  return date.toLocaleTimeString(resolveLocale(language), { hour: 'numeric', minute: '2-digit' });
+/**
+ * A clock time on a station screen in the display language ("3:45 PM",
+ * "15:45"), in the given time zone (the station's site) or the process's.
+ */
+export function formatStationTime(
+  date: Date,
+  language: StationMessageLanguage,
+  timeZone?: string,
+): string {
+  return date.toLocaleTimeString(resolveLocale(language), {
+    hour: 'numeric',
+    minute: '2-digit',
+    ...(timeZone != null ? { timeZone } : {}),
+  });
 }
 
 /**
