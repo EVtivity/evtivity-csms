@@ -79,12 +79,12 @@ function monthParamToDate(param: string): Date {
   return new Date(Number(y), Number(m) - 1, 1);
 }
 
-function monthAbbrev(param: string): string {
-  return monthParamToDate(param).toLocaleDateString('en-US', { month: 'short' });
+function monthAbbrev(param: string, locale: string): string {
+  return monthParamToDate(param).toLocaleDateString(locale, { month: 'short' });
 }
 
 export function Activity(): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const distanceUnit = useAuth((s) => s.driver?.distanceUnit ?? 'miles');
   const [selectedMonth, setSelectedMonth] = useState(() => new Date());
@@ -278,7 +278,7 @@ export function Activity(): React.JSX.Element {
                         active ? 'font-semibold text-foreground' : 'text-muted-foreground'
                       }`}
                     >
-                      {monthAbbrev(m)}
+                      {monthAbbrev(m, i18n.language)}
                     </span>
                   </button>
                 );

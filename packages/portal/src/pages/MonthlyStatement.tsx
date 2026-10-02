@@ -49,8 +49,12 @@ function monthLabel(month: string, locale: string): string {
   const [yearStr, monthStr] = month.split('-');
   const date = new Date(Number(yearStr), Number(monthStr) - 1, 1);
   const end = new Date(Number(yearStr), Number(monthStr), 0);
-  const monthName = date.toLocaleDateString(locale, { month: 'long' });
-  return `${monthName} ${String(date.getDate())} - ${monthName} ${String(end.getDate())}, ${String(date.getFullYear())}`;
+  // e.g. "October 1 – 31, 2026" (en) or "1.–31. Oktober 2026" (de)
+  return new Intl.DateTimeFormat(locale, {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).formatRange(date, end);
 }
 
 export function MonthlyStatement(): React.JSX.Element {

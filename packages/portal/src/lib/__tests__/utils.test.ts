@@ -172,6 +172,14 @@ describe('formatting in the UI language', () => {
     expect(formatDistance(1_234_000, 1, 'miles')).toBe('1.234 Miles');
   });
 
+  it('formats dates in the selected language without seconds', async () => {
+    await i18next.changeLanguage('de');
+    expect(formatDate('2026-03-05T08:04:09Z', 'Europe/Berlin')).toBe('05.03.2026, 09:04');
+    expect(formatMonthYear(new Date(2026, 9, 1))).toBe('OKTOBER 2026');
+    await i18next.changeLanguage('en');
+    expect(formatDate('2026-03-05T08:04:09Z', 'Europe/Berlin')).toMatch(/^Mar 5, 2026, 9:04\sAM$/);
+  });
+
   it('keeps English formatting for English', async () => {
     await i18next.changeLanguage('en');
     expect(formatUnitPrice(0.49, 'EUR')).toBe('€0.49');

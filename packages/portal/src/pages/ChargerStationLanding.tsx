@@ -53,6 +53,8 @@ export function ChargerStationLanding(): React.JSX.Element {
   const { stationId } = useParams<{ stationId: string }>();
   const navigate = useNavigate();
   const isAuthenticated = useAuth((s) => s.isAuthenticated);
+  // Signed-out visitors see times in the browser's time zone.
+  const timezone = useAuth((s) => s.driver?.timezone);
   const { companyName, companyLogo, branding } = useAuthBranding();
   useStationEvents(stationId);
 
@@ -148,7 +150,7 @@ export function ChargerStationLanding(): React.JSX.Element {
               {station.maintenance.plannedEndAt != null && (
                 <p className="mt-1 text-xs">
                   {t('charger.maintenanceUntil', {
-                    time: new Date(station.maintenance.plannedEndAt).toLocaleString(),
+                    time: formatDate(station.maintenance.plannedEndAt, timezone),
                   })}
                 </p>
               )}
@@ -227,7 +229,7 @@ export function ChargerStationLanding(): React.JSX.Element {
                           <p className="text-xs text-muted-foreground">
                             {evse.reservationExpiresAt != null
                               ? t('charger.reservedUntil', {
-                                  time: formatDate(evse.reservationExpiresAt),
+                                  time: formatDate(evse.reservationExpiresAt, timezone),
                                 })
                               : t('charger.reserved')}
                           </p>
