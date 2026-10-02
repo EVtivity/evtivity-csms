@@ -132,6 +132,17 @@ describe('notification-dispatch', () => {
       expect(result['issuedAt']).not.toContain('Z');
     });
 
+    it('formats in the given language without seconds', async () => {
+      const { formatDateVariables } = await import('../notification-dispatch.js');
+      const iso = '2026-03-05T08:04:09.000Z';
+      expect(formatDateVariables({ startedAt: iso }, 'Europe/Berlin', 'de')['startedAt']).toBe(
+        '05.03.2026, 09:04',
+      );
+      expect(formatDateVariables({ startedAt: iso }, 'Europe/Berlin')['startedAt']).toMatch(
+        /^Mar 5, 2026, 9:04\sAM$/,
+      );
+    });
+
     it('leaves non-date variables untouched', async () => {
       const { formatDateVariables } = notificationDispatchModule;
       const result = formatDateVariables(

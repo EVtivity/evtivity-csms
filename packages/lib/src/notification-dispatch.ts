@@ -109,15 +109,22 @@ export const DATE_VARIABLE_NAMES = [
   'refundedAt',
 ];
 
+/** Date and time without seconds, e.g. "Mar 5, 2026, 9:04 AM" (en) or "05.03.2026, 09:04" (de). */
+const NOTIFICATION_DATE_TIME: Intl.DateTimeFormatOptions = {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+};
+
 export function formatDateVariables(
   variables: Record<string, unknown>,
   timezone: string,
+  language = 'en',
 ): Record<string, unknown> {
   const result = { ...variables };
   for (const key of DATE_VARIABLE_NAMES) {
     const val = result[key];
     if (typeof val === 'string' && val.length > 0) {
-      result[key] = formatDateTime(val, timezone);
+      result[key] = formatDateTime(val, timezone, NOTIFICATION_DATE_TIME, language);
     }
   }
   return result;
@@ -782,9 +789,9 @@ export async function dispatchDriverNotification(
       ...variables,
     };
 
-    // Dates in the recipient's timezone, money and rates in their language.
+    // Dates in the recipient's timezone; dates, money and rates in their language.
     const formattedVariables = formatLocalizedVariables(
-      formatDateVariables(enrichedVariables, timezone),
+      formatDateVariables(enrichedVariables, timezone, language),
       language,
     );
 
@@ -1063,9 +1070,9 @@ export async function dispatchSystemNotification(
       ...variables,
     };
 
-    // Dates in the recipient's timezone, money and rates in their language.
+    // Dates in the recipient's timezone; dates, money and rates in their language.
     const formattedVariables = formatLocalizedVariables(
-      formatDateVariables(enrichedVariables, timezone),
+      formatDateVariables(enrichedVariables, timezone, language),
       language,
     );
 

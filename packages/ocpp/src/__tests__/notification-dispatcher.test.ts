@@ -370,6 +370,42 @@ describe('dispatchOcppNotification', () => {
     );
   });
 
+  it('formats date variables in the language of each recipient', async () => {
+    const { dispatchOcppNotification } = await import('../server/notification-dispatcher.js');
+
+    setupSqlResults([
+      {
+        event_type: 'ocpp.StatusNotification',
+        recipient: 'admin@test.com',
+        channel: 'webhook',
+        template_html: null,
+        language: null,
+      },
+    ]);
+    mockGetNotificationSettings.mockResolvedValue({
+      smtp: null,
+      twilio: null,
+      emailWrapperTemplate: null,
+    });
+    mockResolveRecipients.mockReturnValue([
+      { address: 'https://hook-en.test.com', language: 'en' },
+      { address: 'https://hook-de.test.com', language: 'de' },
+    ]);
+    mockRenderTemplate.mockResolvedValue({ subject: 'S', body: 'B' });
+    mockSendWebhook.mockResolvedValue('ok');
+
+    const sql = createSqlMock();
+    await dispatchOcppNotification(sql as never, makeEvent('ocpp.StatusNotification'));
+
+    const occurredAt = (call: unknown[]): unknown =>
+      (call[3] as Record<string, unknown>)['occurredAt'];
+    expect(mockRenderTemplate).toHaveBeenCalledTimes(2);
+    expect(occurredAt(mockRenderTemplate.mock.calls[0] as unknown[])).toMatch(/[A-Z][a-z]{2} \d/);
+    expect(occurredAt(mockRenderTemplate.mock.calls[1] as unknown[])).toMatch(
+      /^\d{2}\.\d{2}\.\d{4}, \d{2}:\d{2}$/,
+    );
+  });
+
   it('logs and swallows a failure thrown after loading settings', async () => {
     const { dispatchOcppNotification } = notificationDispatcherModule;
 

@@ -197,8 +197,6 @@ export async function dispatchOcppNotification(
       isFaulted: event.payload['connectorStatus'] === 'Faulted',
     };
 
-    const formattedVariables = formatDateVariables(variables, systemTimezone);
-
     // Dispatch to each enabled channel (email, webhook, or both)
     for (const setting of enabledSettings) {
       const recipients = resolveRecipients(sql, setting.recipient);
@@ -208,6 +206,7 @@ export async function dispatchOcppNotification(
       for (const recipient of recipients) {
         try {
           const language = settingLanguage !== '' ? settingLanguage : recipient.language;
+          const formattedVariables = formatDateVariables(variables, systemTimezone, language);
           let channel = settingChannel;
 
           if (channel === 'email' && notificationSettings.smtp == null) {
