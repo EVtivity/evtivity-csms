@@ -38,6 +38,7 @@ import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/timezone';
 import { useUserTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
+import { uiLocale } from '@/lib/formatting';
 
 type OcppVersion = '2.1' | '1.6';
 
@@ -108,7 +109,7 @@ function formatPeriodStart(
 ): string {
   if (startSchedule == null) return secondsToTimeString(startPeriodSec);
   const ms = new Date(startSchedule).getTime() + startPeriodSec * 1000;
-  return new Date(ms).toLocaleString('en-US', {
+  return new Date(ms).toLocaleString(uiLocale(), {
     timeZone: timezone,
     hour: 'numeric',
     minute: '2-digit',

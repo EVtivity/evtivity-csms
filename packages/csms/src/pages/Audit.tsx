@@ -22,6 +22,7 @@ import {
 import { actorDisplay, type AuditEntry } from '@/components/EntityHistoryTab';
 import { FilterPopover } from '@/components/FilterBar';
 import { LoadingLogo } from '@/components/loading-logo';
+import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
 interface AuditPage {
   data: AuditEntry[];
@@ -135,12 +136,13 @@ const ACTIONS = [
   'used',
 ] as const;
 
-function formatTimestamp(iso: string): string {
+function formatTimestamp(iso: string, timezone: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? iso : formatDateTime(d, timezone);
 }
 
 export function Audit(): React.JSX.Element {
+  const timezone = useUserTimezone();
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const [entityType, setEntityType] = useState('');
@@ -355,7 +357,7 @@ export function Audit(): React.JSX.Element {
                   {rows.map((row) => (
                     <TableRow key={`${row.entityType}-${String(row.id)}`}>
                       <TableCell className="whitespace-nowrap text-xs">
-                        {formatTimestamp(row.createdAt)}
+                        {formatTimestamp(row.createdAt, timezone)}
                       </TableCell>
                       <TableCell>
                         <Badge variant="secondary">{row.entityType}</Badge>

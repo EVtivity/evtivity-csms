@@ -31,6 +31,7 @@ import {
 } from './shared';
 import { StatusCell } from './StatusCell';
 import { LoadingLogo } from '@/components/loading-logo';
+import { useUserTimezone } from '@/lib/timezone';
 
 const EVENT_CATEGORIES: Record<string, readonly string[]> = {
   driver: DRIVER_EVENT_TYPES,
@@ -39,6 +40,7 @@ const EVENT_CATEGORIES: Record<string, readonly string[]> = {
 };
 
 export function EmailLogTab(): React.JSX.Element {
+  const timezone = useUserTimezone();
   const { t } = useTranslation();
   const [selectedEmail, setSelectedEmail] = useState<NotificationRecord | null>(null);
   const [eventCategory, setEventCategory] = useState('');
@@ -193,7 +195,7 @@ export function EmailLogTab(): React.JSX.Element {
                 }}
               >
                 <TableCell className="whitespace-nowrap" data-testid="row-click-target">
-                  {formatTimestamp(email.sentAt, email.createdAt)}
+                  {formatTimestamp(email.sentAt, email.createdAt, timezone)}
                 </TableCell>
                 <TableCell>{formatRecipient(email.recipient)}</TableCell>
                 <TableCell className="max-w-[300px] truncate">{email.subject ?? '-'}</TableCell>

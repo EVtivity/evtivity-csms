@@ -22,7 +22,7 @@ import { FilterPopover } from '@/components/FilterBar';
 import { api } from '@/lib/api';
 import { API_BASE_URL } from '@/lib/config';
 import { useAuth } from '@/lib/auth';
-import { formatCo2, formatEnergy, formatNumber } from '@/lib/formatting';
+import { formatCo2, formatEnergy, formatNumber, uiLocale } from '@/lib/formatting';
 import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
 import { LoadingLogo } from '@/components/loading-logo';
 
@@ -101,7 +101,11 @@ export function SustainabilityTab(): React.JSX.Element {
         labels: {
           formatter: (val: string) => {
             const d = new Date(val + '-01');
-            return d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
+            return d.toLocaleDateString(uiLocale(), {
+              month: 'short',
+              year: '2-digit',
+              timeZone: 'UTC',
+            });
           },
         },
       },

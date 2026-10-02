@@ -26,6 +26,7 @@ import { PanelTree } from './PanelTree';
 import { PanelForm } from './PanelForm';
 import { LoadingLogo } from '@/components/loading-logo';
 import { formatNumber } from '@/lib/formatting';
+import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
 interface CircuitStation {
   id: string;
@@ -117,6 +118,7 @@ interface LoadManagementProps {
 }
 
 export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Element {
+  const timezone = useUserTimezone();
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [strategy, setStrategy] = useState<'equal_share' | 'priority_based'>('equal_share');
@@ -276,7 +278,7 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
                   <div key={entry.id} className="border rounded p-3 text-sm space-y-1">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">
-                        {new Date(entry.createdAt).toLocaleString()}
+                        {formatDateTime(entry.createdAt, timezone)}
                       </span>
                       <Badge variant="outline">{entry.strategy}</Badge>
                     </div>

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { notificationStatusBadgeClass } from '@/lib/status-variants';
+import { formatDateTime } from '@/lib/timezone';
 
 export interface NotificationRecord {
   id: number;
@@ -18,8 +19,12 @@ export interface NotificationRecord {
 
 export const statusBadgeClass = notificationStatusBadgeClass;
 
-export function formatTimestamp(sentAt: string | null, createdAt: string): string {
-  return sentAt != null ? new Date(sentAt).toLocaleString() : new Date(createdAt).toLocaleString();
+export function formatTimestamp(
+  sentAt: string | null,
+  createdAt: string,
+  timezone: string,
+): string {
+  return formatDateTime(sentAt ?? createdAt, timezone);
 }
 
 /** Render the recipient column. Empty strings come from dispatch attempts

@@ -21,11 +21,11 @@ import {
 import i18next from 'i18next';
 
 /**
- * The selected UI language, which drives number and currency formatting. Read
+ * The selected UI language, which drives number, currency and date formatting. Read
  * from the global i18next instance that @/i18n initializes; falls back to "en"
  * before initialization (e.g. in unit tests).
  */
-function uiLocale(): string {
+export function uiLocale(): string {
   return i18next.isInitialized ? i18next.language : 'en';
 }
 

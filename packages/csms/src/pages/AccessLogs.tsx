@@ -23,6 +23,7 @@ import { FilterPopover } from '@/components/FilterBar';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { httpMethodVariant, httpStatusVariant, workerStatusVariant } from '@/lib/status-variants';
 import { LoadingLogo } from '@/components/loading-logo';
+import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
 interface AccessLog {
   id: number;
@@ -87,6 +88,7 @@ function DetailRow({ log, colSpan }: { log: AccessLog; colSpan: number }): React
 }
 
 function BrowserLogTab(): React.JSX.Element {
+  const timezone = useUserTimezone();
   const { t } = useTranslation();
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
@@ -144,7 +146,7 @@ function BrowserLogTab(): React.JSX.Element {
                     }}
                   >
                     <TableCell className="whitespace-nowrap" data-testid="row-click-target">
-                      {new Date(log.createdAt).toLocaleString()}
+                      {formatDateTime(log.createdAt, timezone)}
                     </TableCell>
                     <TableCell>{userName(log)}</TableCell>
                     <TableCell>{log.action}</TableCell>
@@ -171,6 +173,7 @@ function BrowserLogTab(): React.JSX.Element {
 }
 
 function PortalLogTab(): React.JSX.Element {
+  const timezone = useUserTimezone();
   const { t } = useTranslation();
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
@@ -228,7 +231,7 @@ function PortalLogTab(): React.JSX.Element {
                     }}
                   >
                     <TableCell className="whitespace-nowrap" data-testid="row-click-target">
-                      {new Date(log.createdAt).toLocaleString()}
+                      {formatDateTime(log.createdAt, timezone)}
                     </TableCell>
                     <TableCell>{userName(log)}</TableCell>
                     <TableCell>{log.action}</TableCell>
@@ -255,6 +258,7 @@ function PortalLogTab(): React.JSX.Element {
 }
 
 function ApiLogTab(): React.JSX.Element {
+  const timezone = useUserTimezone();
   const { t } = useTranslation();
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [filterMethod, setFilterMethod] = useState('');
@@ -398,7 +402,7 @@ function ApiLogTab(): React.JSX.Element {
                     }}
                   >
                     <TableCell className="whitespace-nowrap" data-testid="row-click-target">
-                      {new Date(log.createdAt).toLocaleString()}
+                      {formatDateTime(log.createdAt, timezone)}
                     </TableCell>
                     <TableCell>{log.apiKeyName ?? 'n/a'}</TableCell>
                     <TableCell>{userName(log)}</TableCell>
@@ -451,6 +455,7 @@ interface WorkerJobLog {
 }
 
 function WorkerLogTab(): React.JSX.Element {
+  const timezone = useUserTimezone();
   const { t } = useTranslation();
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [filterQueue, setFilterQueue] = useState('');
@@ -582,7 +587,7 @@ function WorkerLogTab(): React.JSX.Element {
                     }}
                   >
                     <TableCell className="whitespace-nowrap" data-testid="row-click-target">
-                      {new Date(log.startedAt).toLocaleString()}
+                      {formatDateTime(log.startedAt, timezone)}
                     </TableCell>
                     <TableCell>{log.jobName}</TableCell>
                     <TableCell>{log.queue}</TableCell>

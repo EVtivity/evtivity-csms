@@ -31,6 +31,7 @@ import { api } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { formatDateTime } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
+import { uiLocale } from '@/lib/formatting';
 
 interface ChargingProfile {
   id: number;
@@ -561,7 +562,7 @@ export function StationChargingProfilesTab({
                               if (anchorIso != null) {
                                 const ms =
                                   new Date(anchorIso).getTime() + period.startPeriod * 1000;
-                                const wallClock = new Date(ms).toLocaleString('en-US', {
+                                const wallClock = new Date(ms).toLocaleString(uiLocale(), {
                                   timeZone: timezone,
                                   hour: 'numeric',
                                   minute: '2-digit',
