@@ -51,6 +51,22 @@ export function formatDecimal(value: string | null | undefined): string {
 }
 
 /**
+ * Gross price for a net tariff price and a tax rate, both canonical decimal
+ * strings ("0.2152", "0.19"), in the UI language. The cost calculation adds
+ * the tax rate on top of the entered price. Uses the fraction digits of the
+ * net price, at least 2 and at most 4. Returns null when either value is not
+ * a plain non-negative decimal or the tax rate is 0.
+ */
+export function formatGrossPrice(price: string, taxRate: string): string | null {
+  const decimal = /^\d+(\.\d+)?$/;
+  if (!decimal.test(price) || !decimal.test(taxRate)) return null;
+  const rate = Number(taxRate);
+  if (rate === 0) return null;
+  const fractionDigits = Math.min(4, Math.max(2, price.split('.')[1]?.length ?? 0));
+  return formatNumber(Number(price) * (1 + rate), fractionDigits);
+}
+
+/**
  * Format cents in the ISO 4217 currency the amount is denominated in.
  * Returns 'n/a' for null/undefined values and "CODE 12.34" for an invalid code.
  */

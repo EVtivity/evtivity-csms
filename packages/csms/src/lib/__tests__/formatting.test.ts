@@ -9,6 +9,7 @@ import {
   formatDecimal,
   formatEnergy,
   formatFileSize,
+  formatGrossPrice,
   formatNumber,
   formatNumberUpTo,
   formatRatePerKwh,
@@ -99,6 +100,23 @@ describe('formatting in the UI language', () => {
       });
       expect(parseValue(`${formatNumberUpTo(99.87, 2)}%`, lang)).toMatchObject({ num: 99.87 });
     }
+  });
+
+  it('shows the gross price of a net tariff price', async () => {
+    await i18next.changeLanguage('de');
+    expect(formatGrossPrice('0.2152', '0.19')).toBe('0,2561');
+    expect(formatGrossPrice('1.00', '0.19')).toBe('1,19');
+    expect(formatGrossPrice('2', '0.07')).toBe('2,14');
+    await i18next.changeLanguage('en');
+    expect(formatGrossPrice('0.2152', '0.19')).toBe('0.2561');
+  });
+
+  it('shows no gross price without a usable price or tax rate', () => {
+    expect(formatGrossPrice('', '0.19')).toBeNull();
+    expect(formatGrossPrice('0.25', '')).toBeNull();
+    expect(formatGrossPrice('0.25', '0')).toBeNull();
+    expect(formatGrossPrice('abc', '0.19')).toBeNull();
+    expect(formatGrossPrice('-0.25', '0.19')).toBeNull();
   });
 });
 

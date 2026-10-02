@@ -16,6 +16,7 @@ import { SaveButton } from '@/components/save-button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DecimalInput } from '@/components/ui/decimal-input';
+import { GrossPriceHint } from '@/components/pricing/GrossPriceHint';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -371,6 +372,7 @@ export function TariffDetail(): React.JSX.Element {
                 {hasSubmitted && validationErrors.pricePerKwh && (
                   <p className="text-sm text-destructive">{validationErrors.pricePerKwh}</p>
                 )}
+                <GrossPriceHint price={pricePerKwh} taxRate={taxRate} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-min">{t('pricing.pricePerMinute')}</Label>
@@ -386,6 +388,7 @@ export function TariffDetail(): React.JSX.Element {
                 {hasSubmitted && validationErrors.pricePerMinute && (
                   <p className="text-sm text-destructive">{validationErrors.pricePerMinute}</p>
                 )}
+                <GrossPriceHint price={pricePerMinute} taxRate={taxRate} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-session">{t('pricing.pricePerSession')}</Label>
@@ -401,6 +404,7 @@ export function TariffDetail(): React.JSX.Element {
                 {hasSubmitted && validationErrors.pricePerSession && (
                   <p className="text-sm text-destructive">{validationErrors.pricePerSession}</p>
                 )}
+                <GrossPriceHint price={pricePerSession} taxRate={taxRate} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-idle-fee">{t('pricing.idleFeePricePerMinute')}</Label>
@@ -420,6 +424,7 @@ export function TariffDetail(): React.JSX.Element {
                     {validationErrors.idleFeePricePerMinute}
                   </p>
                 )}
+                <GrossPriceHint price={idleFeePricePerMinute} taxRate={taxRate} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-reservation-fee">{t('pricing.reservationFeePerMinute')}</Label>
@@ -440,6 +445,7 @@ export function TariffDetail(): React.JSX.Element {
                   </p>
                 )}
                 <p className="text-xs text-muted-foreground">{t('pricing.reservationFeeHelper')}</p>
+                <GrossPriceHint price={reservationFeePerMinute} taxRate={taxRate} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-tax-rate">{t('pricing.taxRate')}</Label>
