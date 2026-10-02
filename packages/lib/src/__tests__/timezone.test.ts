@@ -8,32 +8,32 @@ describe('formatDateTime', () => {
   it('converts UTC to America/New_York (winter, UTC-5)', () => {
     const result = formatDateTime('2025-01-15T17:30:00Z', 'America/New_York');
     expect(result).toContain('12:30:00');
-    expect(result).toContain('1/15/2025');
+    expect(result).toContain('Jan 15, 2025');
   });
 
   it('converts UTC to America/Los_Angeles (winter, UTC-8)', () => {
     const result = formatDateTime('2025-01-15T17:30:00Z', 'America/Los_Angeles');
     expect(result).toContain('9:30:00');
-    expect(result).toContain('1/15/2025');
+    expect(result).toContain('Jan 15, 2025');
   });
 
   it('handles DST (America/New_York summer, UTC-4)', () => {
     const result = formatDateTime('2025-07-15T17:30:00Z', 'America/New_York');
     expect(result).toContain('1:30:00');
-    expect(result).toContain('7/15/2025');
+    expect(result).toContain('Jul 15, 2025');
   });
 
   it('formats in UTC timezone', () => {
     const result = formatDateTime('2025-01-15T17:30:00Z', 'UTC');
     expect(result).toContain('5:30:00');
-    expect(result).toContain('1/15/2025');
+    expect(result).toContain('Jan 15, 2025');
   });
 
   it('accepts a Date object', () => {
     const date = new Date('2025-01-15T17:30:00Z');
     const result = formatDateTime(date, 'America/New_York');
     expect(result).toContain('12:30:00');
-    expect(result).toContain('1/15/2025');
+    expect(result).toContain('Jan 15, 2025');
   });
 
   it('accepts custom format options', () => {
@@ -42,28 +42,52 @@ describe('formatDateTime', () => {
     expect(result).toContain('5:30:00');
   });
 
+  it('formats in the locale (de)', () => {
+    const result = formatDateTime('2025-01-15T08:04:09Z', 'Europe/Berlin', undefined, 'de');
+    expect(result).toBe('15.01.2025, 09:04:09');
+  });
+
+  it('uses dateStyle and timeStyle options as given', () => {
+    const options = { dateStyle: 'medium', timeStyle: 'short' } as const;
+    expect(formatDateTime('2025-01-15T08:04:09Z', 'Europe/Berlin', options, 'de')).toBe(
+      '15.01.2025, 09:04',
+    );
+    expect(formatDateTime('2025-01-15T08:04:09Z', 'Europe/Berlin', options, 'en')).toMatch(
+      /^Jan 15, 2025, 9:04\sAM$/,
+    );
+  });
+
+  it('falls back to en-US for an invalid locale', () => {
+    const result = formatDateTime('2025-01-15T17:30:00Z', 'UTC', undefined, 'not a locale');
+    expect(result).toContain('Jan 15, 2025');
+  });
+
   it('handles midnight boundary', () => {
     const result = formatDateTime('2025-01-16T05:00:00Z', 'America/New_York');
     expect(result).toContain('12:00:00');
-    expect(result).toContain('1/16/2025');
+    expect(result).toContain('Jan 16, 2025');
   });
 });
 
 describe('formatDate', () => {
   it('handles cross-day boundary (3 AM UTC Jan 16 = Jan 15 in New York)', () => {
     const result = formatDate('2025-01-16T03:00:00Z', 'America/New_York');
-    expect(result).toBe('1/15/2025');
+    expect(result).toBe('Jan 15, 2025');
   });
 
   it('shows correct day in UTC', () => {
     const result = formatDate('2025-01-16T03:00:00Z', 'UTC');
-    expect(result).toBe('1/16/2025');
+    expect(result).toBe('Jan 16, 2025');
   });
 
   it('accepts a Date object', () => {
     const date = new Date('2025-01-16T03:00:00Z');
     const result = formatDate(date, 'America/New_York');
-    expect(result).toBe('1/15/2025');
+    expect(result).toBe('Jan 15, 2025');
+  });
+
+  it('formats in the locale (de)', () => {
+    expect(formatDate('2025-01-16T03:00:00Z', 'UTC', undefined, 'de')).toBe('16.01.2025');
   });
 
   it('accepts custom format options', () => {
@@ -106,7 +130,7 @@ describe('formatRelativeTime', () => {
     const twoDaysAgo = new Date(now - 48 * 3600_000);
     const result = formatRelativeTime(twoDaysAgo, 'UTC');
     expect(result).not.toContain('ago');
-    expect(result).toContain('/');
+    expect(result).toMatch(/\d{4}/);
     vi.restoreAllMocks();
   });
 
@@ -116,7 +140,7 @@ describe('formatRelativeTime', () => {
     const oneDayAgo = new Date(now - 24 * 3600_000);
     const result = formatRelativeTime(oneDayAgo, 'UTC');
     expect(result).not.toContain('ago');
-    expect(result).toContain('/');
+    expect(result).toMatch(/\d{4}/);
     vi.restoreAllMocks();
   });
 
@@ -126,7 +150,7 @@ describe('formatRelativeTime', () => {
     const threeDaysAgo = new Date(now - 72 * 3600_000).toISOString();
     const result = formatRelativeTime(threeDaysAgo, 'America/New_York');
     expect(result).not.toContain('ago');
-    expect(result).toContain('/');
+    expect(result).toMatch(/\d{4}/);
     vi.restoreAllMocks();
   });
 
@@ -144,6 +168,22 @@ describe('formatRelativeTime', () => {
     vi.spyOn(Date, 'now').mockReturnValue(now);
     const result = formatRelativeTime(new Date(now), 'UTC');
     expect(result).toBe('0s ago');
+    vi.restoreAllMocks();
+  });
+});
+
+describe('formatRelativeTime with locale', () => {
+  it('formats relative time in the locale (de)', () => {
+    const now = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    expect(formatRelativeTime(new Date(now - 30_000), 'UTC', 'de')).toBe('vor 30 s');
+    expect(formatRelativeTime(new Date(now - 3 * 3600_000), 'UTC', 'de')).toBe('vor 3 Std.');
+    vi.restoreAllMocks();
+  });
+
+  it('falls back to date and time in the locale (de)', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(new Date('2025-01-17T12:00:00Z').getTime());
+    expect(formatRelativeTime('2025-01-15T08:04:09Z', 'UTC', 'de')).toBe('15.01.2025, 08:04:09');
     vi.restoreAllMocks();
   });
 });
