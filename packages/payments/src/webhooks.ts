@@ -5,7 +5,14 @@ import { eq } from 'drizzle-orm';
 import { db, webhookEvents } from '@evtivity/database';
 import type { PaymentContext } from './context.js';
 import { PaymentProviderNotConfiguredError, WebhookNotConfiguredError } from './errors.js';
-import { findByPaymentId, markOpenPaymentFailed, markRefunded } from './payment-records.js';
+import {
+  findByChargePaymentId,
+  findByPaymentId,
+  lockRecord,
+  markOpenPaymentFailed,
+  markRefunded,
+} from './payment-records.js';
+import { paymentCharges, topUpCharges, withTopUpRefunds } from './top-ups.js';
 import type { NormalizedPaymentEvent, PaymentProviderId, WebhookAck } from './types.js';
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -79,6 +86,60 @@ export async function ingestPaymentWebhook(
   return { ack: provider.webhookAck(), applied, duplicates };
 }
 
+/**
+ * A cumulative refund reported for one charge of a record with top-ups (the
+ * hold or a top-up payment). The record is locked, that charge's refunded
+ * total is raised to the reported one (never lowered), and the record total
+ * is the sum over its charges, so the refund of one charge is never counted
+ * against another or twice. Full when the sum reaches the captured total.
+ */
+async function applyChargeRefund(
+  recordId: number,
+  chargePaymentId: string,
+  cumulativeRefundedCents: number,
+  ctx: PaymentContext,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const locked = await lockRecord(tx, recordId);
+    if (locked == null) return;
+    const charges = paymentCharges(locked);
+    const charge = charges.find((c) => c.paymentId === chargePaymentId);
+    if (charge == null) return;
+    const chargeRefunded = Math.min(
+      charge.capturedCents,
+      Math.max(charge.refundedCents, cumulativeRefundedCents),
+    );
+    if (chargeRefunded === charge.refundedCents) {
+      ctx.logger.info(
+        { paymentId: chargePaymentId, paymentRecordId: recordId },
+        'Refund webhook ignored: charge already refunded this far',
+      );
+      return;
+    }
+    const total = locked.refundedAmountCents + (chargeRefunded - charge.refundedCents);
+    const topUps = withTopUpRefunds(
+      topUpCharges(locked),
+      new Map(charge.kind === 'top_up' ? [[chargePaymentId, chargeRefunded]] : []),
+    );
+    const row = await markRefunded(
+      locked.id,
+      { refundedTotalCents: total, full: total >= (locked.capturedAmountCents ?? 0), topUps },
+      tx,
+    );
+    if (row != null) {
+      ctx.logger.info(
+        { paymentId: chargePaymentId, status: row.status, refundedAmount: total },
+        'Payment refund status updated via webhook',
+      );
+    } else {
+      ctx.logger.info(
+        { paymentId: chargePaymentId, status: locked.status },
+        'Refund webhook ignored: record not refundable',
+      );
+    }
+  });
+}
+
 /** Applies one verified, first-seen event to the payment records. */
 export async function applyPaymentEvent(
   providerId: PaymentProviderId,
@@ -109,7 +170,7 @@ export async function applyPaymentEvent(
       return;
     }
     case 'payment.refunded': {
-      const record = await findByPaymentId(event.paymentId);
+      const record = await findByChargePaymentId(event.paymentId);
       if (record == null) return;
       if (event.cumulativeRefundedCents == null) {
         // A refund reported as an increment (Adyen) needs the refund ids
@@ -124,6 +185,10 @@ export async function applyPaymentEvent(
       const refunded = event.cumulativeRefundedCents;
       if (refunded <= 0) {
         ctx.logger.info({ paymentId: event.paymentId }, 'Refund webhook without a refunded amount');
+        return;
+      }
+      if (topUpCharges(record).length > 0) {
+        await applyChargeRefund(record.id, event.paymentId, refunded, ctx);
         return;
       }
       // A partially captured hold refunds at most what was captured.

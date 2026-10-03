@@ -28,13 +28,16 @@ const h = vi.hoisted(() => {
     insert,
     deleteWhere: vi.fn(() => Promise.resolve()),
     findByPaymentId: vi.fn(),
+    findByChargePaymentId: vi.fn(),
+    lockRecord: vi.fn(),
+    transaction: vi.fn((fn: (tx: unknown) => Promise<unknown>) => fn({ tag: 'tx' })),
     markOpenPaymentFailed: vi.fn(),
     markRefunded: vi.fn(),
   };
 });
 
 vi.mock('@evtivity/database', () => ({
-  db: { insert: h.insert, delete: () => ({ where: h.deleteWhere }) },
+  db: { insert: h.insert, delete: () => ({ where: h.deleteWhere }), transaction: h.transaction },
   webhookEvents: { eventId: 'we.event_id' },
 }));
 vi.mock('drizzle-orm', () => ({
@@ -42,6 +45,8 @@ vi.mock('drizzle-orm', () => ({
 }));
 vi.mock('../payment-records.js', () => ({
   findByPaymentId: h.findByPaymentId,
+  findByChargePaymentId: h.findByChargePaymentId,
+  lockRecord: h.lockRecord,
   markOpenPaymentFailed: h.markOpenPaymentFailed,
   markRefunded: h.markRefunded,
 }));
@@ -98,6 +103,8 @@ beforeEach(() => {
     capturedAmountCents: 3000,
     refundedAmountCents: 0,
   });
+  // A record without top-ups is found by its own payment, as before.
+  h.findByChargePaymentId.mockImplementation((id: string) => h.findByPaymentId(id) as unknown);
   h.markOpenPaymentFailed.mockResolvedValue(true);
   h.markRefunded.mockResolvedValue({ id: 5, status: 'partially_refunded' });
 });
@@ -312,6 +319,152 @@ describe('applyPaymentEvent', () => {
     it('does nothing for an unknown payment', async () => {
       h.findByPaymentId.mockResolvedValue(null);
       await applyPaymentEvent('stripe', refunded(), ctx);
+      expect(h.markRefunded).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('payment.refunded on a record with top-ups', () => {
+    // Hold pi_1 captured 2000, top-up pi_top 600: captured 2600.
+    function topUpRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        id: 9,
+        status: 'captured',
+        stripePaymentIntentId: 'pi_1',
+        capturedAmountCents: 2600,
+        refundedAmountCents: 0,
+        preAuthAmountCents: 2000,
+        metadata: { topUps: [{ paymentId: 'pi_top', amountCents: 600, refundedCents: 0 }] },
+        ...overrides,
+      };
+    }
+
+    beforeEach(() => {
+      h.findByChargePaymentId.mockResolvedValue(topUpRecord());
+      h.lockRecord.mockResolvedValue(topUpRecord());
+      h.markRefunded.mockResolvedValue({ id: 9, status: 'partially_refunded' });
+    });
+
+    it('finds the record by the top-up and adds its refund to the record total', async () => {
+      await applyPaymentEvent(
+        'stripe',
+        refunded({ paymentId: 'pi_top', cumulativeRefundedCents: 600, capturedCents: 600 }),
+        ctx,
+      );
+      expect(h.findByChargePaymentId).toHaveBeenCalledWith('pi_top');
+      expect(h.lockRecord).toHaveBeenCalledWith({ tag: 'tx' }, 9);
+      expect(h.markRefunded).toHaveBeenCalledWith(
+        9,
+        {
+          refundedTotalCents: 600,
+          full: false,
+          topUps: [{ paymentId: 'pi_top', amountCents: 600, refundedCents: 600 }],
+        },
+        { tag: 'tx' },
+      );
+    });
+
+    it('is not full when only the hold charge is refunded in full', async () => {
+      await applyPaymentEvent(
+        'stripe',
+        refunded({ cumulativeRefundedCents: 2000, capturedCents: 2000 }),
+        ctx,
+      );
+      expect(h.markRefunded).toHaveBeenCalledWith(
+        9,
+        {
+          refundedTotalCents: 2000,
+          full: false,
+          topUps: [{ paymentId: 'pi_top', amountCents: 600, refundedCents: 0 }],
+        },
+        { tag: 'tx' },
+      );
+    });
+
+    it('is full when the last charge reaches its capture', async () => {
+      h.lockRecord.mockResolvedValue(
+        topUpRecord({ status: 'partially_refunded', refundedAmountCents: 2000 }),
+      );
+      await applyPaymentEvent(
+        'stripe',
+        refunded({ paymentId: 'pi_top', cumulativeRefundedCents: 600, capturedCents: 600 }),
+        ctx,
+      );
+      expect(h.markRefunded).toHaveBeenCalledWith(
+        9,
+        {
+          refundedTotalCents: 2600,
+          full: true,
+          topUps: [{ paymentId: 'pi_top', amountCents: 600, refundedCents: 600 }],
+        },
+        { tag: 'tx' },
+      );
+    });
+
+    it('never counts a refund the record already holds (our own refund, a replay)', async () => {
+      // The operator refund recorded hold 2000 and top-up 300.
+      h.lockRecord.mockResolvedValue(
+        topUpRecord({
+          status: 'partially_refunded',
+          refundedAmountCents: 2300,
+          metadata: { topUps: [{ paymentId: 'pi_top', amountCents: 600, refundedCents: 300 }] },
+        }),
+      );
+      await applyPaymentEvent(
+        'stripe',
+        refunded({ paymentId: 'pi_top', cumulativeRefundedCents: 300, capturedCents: 600 }),
+        ctx,
+      );
+      await applyPaymentEvent(
+        'stripe',
+        refunded({ cumulativeRefundedCents: 1500, capturedCents: 2000 }),
+        ctx,
+      );
+      expect(h.markRefunded).not.toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith(
+        { paymentId: 'pi_top', paymentRecordId: 9 },
+        'Refund webhook ignored: charge already refunded this far',
+      );
+    });
+
+    it('maps a legacy topUpIntentId record and caps a charge at its capture', async () => {
+      const legacy = topUpRecord({ metadata: { topUpIntentId: 'pi_top' } });
+      h.findByChargePaymentId.mockResolvedValue(legacy);
+      h.lockRecord.mockResolvedValue(legacy);
+      await applyPaymentEvent(
+        'stripe',
+        refunded({ paymentId: 'pi_top', cumulativeRefundedCents: 900, capturedCents: 600 }),
+        ctx,
+      );
+      expect(h.markRefunded).toHaveBeenCalledWith(
+        9,
+        {
+          refundedTotalCents: 600,
+          full: false,
+          topUps: [{ paymentId: 'pi_top', amountCents: 600, refundedCents: 600 }],
+        },
+        { tag: 'tx' },
+      );
+    });
+
+    it('logs when the record is no longer refundable', async () => {
+      h.markRefunded.mockResolvedValue(null);
+      await applyPaymentEvent(
+        'stripe',
+        refunded({ paymentId: 'pi_top', cumulativeRefundedCents: 600, capturedCents: 600 }),
+        ctx,
+      );
+      expect(logger.info).toHaveBeenCalledWith(
+        { paymentId: 'pi_top', status: 'captured' },
+        'Refund webhook ignored: record not refundable',
+      );
+    });
+
+    it('does nothing when the record vanished or does not list the charge', async () => {
+      h.lockRecord.mockResolvedValueOnce(null);
+      await applyPaymentEvent('stripe', refunded({ paymentId: 'pi_top' }), ctx);
+      h.findByChargePaymentId.mockResolvedValueOnce(topUpRecord());
+      h.lockRecord.mockResolvedValueOnce(topUpRecord({ stripePaymentIntentId: 'pi_other' }));
+      await applyPaymentEvent('stripe', refunded({ paymentId: 'pi_1' }), ctx);
       expect(h.markRefunded).not.toHaveBeenCalled();
     });
   });

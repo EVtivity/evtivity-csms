@@ -129,6 +129,7 @@ vi.mock('drizzle-orm', () => ({
   eq: (col: unknown, value: unknown) => ({ op: 'eq', col, value }),
   inArray: (col: unknown, values: unknown) => ({ op: 'inArray', col, values }),
   lte: (col: unknown, value: unknown) => ({ op: 'lte', col, value }),
+  or: (...args: unknown[]) => ({ op: 'or', args }),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
     op: 'sql',
     text: strings.join('?'),
@@ -137,11 +138,13 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 import {
+  findByChargePaymentId,
   findByPaymentId,
   findRecord,
   findReservationCharge,
   findSessionHold,
   findSessionRecord,
+  lockRecord,
   lockSessionRecord,
   markCancelled,
   markCaptured,
@@ -378,6 +381,33 @@ describe('reads', () => {
     expect(await findReservationCharge('r1', 'reservation_cancellation')).toBeNull();
   });
 
+  it('lockRecord selects a record by id for update on the given transaction', async () => {
+    const tx = { select: () => h.builder('select') };
+    h.results.push([{ id: 7 }]);
+    expect(await lockRecord(tx as never, 7)).toEqual({ id: 7 });
+    expect(last()).toMatchObject({ lock: 'update', where: { op: 'eq', col: 'pr.id', value: 7 } });
+    expect(await lockRecord(tx as never, 7)).toBeNull();
+  });
+
+  it('findByChargePaymentId finds the own payment first, else a listed top-up', async () => {
+    h.results.push([{ id: 3 }]);
+    expect(await findByChargePaymentId('pi_3')).toEqual({ id: 3 });
+    expect(h.calls.filter((c) => c.kind === 'select')).toHaveLength(1);
+
+    h.calls.length = 0;
+    h.results.push([], [{ id: 4 }]);
+    expect(await findByChargePaymentId('pi_top')).toEqual({ id: 4 });
+    const where = last().where as { op: string; args: Array<{ text: string; values: unknown[] }> };
+    expect(where.op).toBe('or');
+    expect(where.args[0]?.text).toContain("-> 'topUps' @>");
+    expect(where.args[0]?.values).toContain(JSON.stringify([{ paymentId: 'pi_top' }]));
+    expect(where.args[1]?.text).toContain("->> 'topUpIntentId' =");
+    expect(last().limit).toBe(1);
+
+    h.results.push([], []);
+    expect(await findByChargePaymentId('pi_none')).toBeNull();
+  });
+
   it('lockSessionRecord selects for update on the given transaction', async () => {
     const tx = { select: () => h.builder('select') };
     h.results.push([{ id: 6 }]);
@@ -421,24 +451,28 @@ describe('status updates are guarded by their from-states', () => {
     expect(call.where).toEqual(guard(1, ['pre_authorized']));
 
     h.results.push([]);
-    expect(
-      await markCaptured(1, { capturedCents: 1200, failureReason: null, topUpPaymentId: null }),
-    ).toBe(false);
+    expect(await markCaptured(1, { capturedCents: 1200, failureReason: null, topUp: null })).toBe(
+      false,
+    );
     expect(last().set).not.toHaveProperty('metadata');
   });
 
-  it('markCaptured writes metadata.topUpIntentId with a top-up id', async () => {
+  it('markCaptured appends the top-up to metadata.topUps unless it is listed', async () => {
     h.results.push([{ id: 1 }]);
     expect(
       await markCaptured(1, {
         capturedCents: 5000,
-        failureReason: 'Top-up declined',
-        topUpPaymentId: 'pi_top',
+        failureReason: null,
+        topUp: { paymentId: 'pi_top', amountCents: 3000 },
       }),
     ).toBe(true);
     const metadata = last().set?.['metadata'] as { text: string; values: unknown[] };
-    expect(metadata.text).toContain('{topUpIntentId}');
-    expect(metadata.values).toEqual(['pr.metadata', 'pi_top']);
+    expect(metadata.text).toContain("'{topUps}'");
+    expect(metadata.text).toContain('@> jsonb_build_array');
+    expect(metadata.values).toContain('pi_top');
+    expect(metadata.values).toContain(
+      JSON.stringify({ paymentId: 'pi_top', amountCents: 3000, refundedCents: 0 }),
+    );
   });
 
   it('markCancelled moves only pre_authorized', async () => {
@@ -519,6 +553,19 @@ describe('status updates are guarded by their from-states', () => {
     expect(last().set).toMatchObject({ lastActorUserId: 'u1', lastActionReason: 'Goodwill' });
   });
 
+  it('markRefunded replaces metadata.topUps and drops a legacy topUpIntentId', async () => {
+    h.results.push([{ id: 8 }]);
+    const topUps = [{ paymentId: 'pi_top', amountCents: 600, refundedCents: 600 }];
+    await markRefunded(8, { refundedTotalCents: 2600, full: true, topUps });
+    const metadata = last().set?.['metadata'] as { text: string; values: unknown[] };
+    expect(metadata.text).toContain("- 'topUpIntentId', '{topUps}'");
+    expect(metadata.values).toEqual(['pr.metadata', JSON.stringify(topUps)]);
+
+    h.results.push([{ id: 8 }]);
+    await markRefunded(8, { refundedTotalCents: 2600, full: true });
+    expect(last().set).not.toHaveProperty('metadata');
+  });
+
   it('markShortfallRecovered updates only a captured record and clears the reason', async () => {
     h.results.push([{ id: 9 }]);
     expect(
@@ -526,8 +573,14 @@ describe('status updates are guarded by their from-states', () => {
         capturedCents: 6000,
         actorUserId: 'u1',
         actionReason: 'Shortfall retried',
+        topUp: { paymentId: 'pi_retry', amountCents: 1000 },
       }),
     ).toEqual({ id: 9 });
+    const metadata = last().set?.['metadata'] as { text: string; values: unknown[] };
+    expect(metadata.text).toContain("'{topUps}'");
+    expect(metadata.values).toContain(
+      JSON.stringify({ paymentId: 'pi_retry', amountCents: 1000, refundedCents: 0 }),
+    );
     expect(last().set).toMatchObject({
       capturedAmountCents: 6000,
       failureReason: null,
@@ -546,6 +599,7 @@ describe('status updates are guarded by their from-states', () => {
         capturedCents: 6000,
         actorUserId: null,
         actionReason: 'r',
+        topUp: { paymentId: 'pi_retry', amountCents: 1000 },
       }),
     ).toBeNull();
     expect(last().set).not.toHaveProperty('lastActorUserId');

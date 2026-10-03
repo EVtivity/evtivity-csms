@@ -376,7 +376,7 @@ async function chargeShortfall(
   target: ShortfallTarget,
   description: string,
   ctx: PaymentContext,
-): Promise<{ topUpId: string; shortfallCents: number }> {
+): Promise<{ topUpId: string; topUpCents: number; shortfallCents: number }> {
   const { record, finalCostCents, charge } = target;
   const captured = record.capturedAmountCents ?? 0;
   const paymentId = record.stripePaymentIntentId as string;
@@ -405,7 +405,11 @@ async function chargeShortfall(
     description,
     idempotencyKey: `topup_retry_${String(record.id)}_${String(captured)}`,
   });
-  return { topUpId: topUp.paymentId, shortfallCents: finalCostCents - captured };
+  return {
+    topUpId: topUp.paymentId,
+    topUpCents: topUp.amountCents,
+    shortfallCents: finalCostCents - captured,
+  };
 }
 
 /**
@@ -432,7 +436,7 @@ export async function retryShortfallForRecord(
   if (charge == null || finalCostCents - captured <= 0) {
     return { status: 'not_recoverable', reason: 'No shortfall to recover' };
   }
-  let result: { topUpId: string; shortfallCents: number };
+  let result: { topUpId: string; topUpCents: number; shortfallCents: number };
   try {
     result = await chargeShortfall(
       { record, sessionId: record.sessionId, finalCostCents, charge },
@@ -449,6 +453,7 @@ export async function retryShortfallForRecord(
     capturedCents: finalCostCents,
     actorUserId: input.actorUserId,
     actionReason: `Operator retry top-up; recovered ${String(result.shortfallCents)}c via ${result.topUpId}`,
+    topUp: { paymentId: result.topUpId, amountCents: result.topUpCents },
   });
   return {
     status: 'recovered',
@@ -504,6 +509,7 @@ export async function retryShortfalls(
         capturedCents: finalCostCents,
         actorUserId: null,
         actionReason: `Cron retry top-up; recovered ${String(shortfall)}c via ${result.topUpId}`,
+        topUp: { paymentId: result.topUpId, amountCents: result.topUpCents },
       });
       recovered++;
       ctx.logger.info(
@@ -635,7 +641,7 @@ export async function settleSessionPayment(
   const finalCostCents = session.finalCostCents;
   let capturedCents = 0;
   let shortfallCents = 0;
-  let topUpPaymentId: string | null = null;
+  let topUp: { paymentId: string; amountCents: number } | null = null;
   let topUpFailureReason: string | null = null;
   try {
     const provider = await pinnedProvider(ctx.registry, {
@@ -673,7 +679,7 @@ export async function settleSessionPayment(
       if (finalCostCents > captureCents) {
         const deltaCents = finalCostCents - captureCents;
         try {
-          const topUp = await provider.chargeShortfall({
+          const charged = await provider.chargeShortfall({
             originalPaymentId: paymentId,
             ...(record.stripeCustomerId != null && record.stripePaymentMethodId != null
               ? {
@@ -691,7 +697,7 @@ export async function settleSessionPayment(
             description: `Top-up for session ${sessionId}`,
             idempotencyKey: `topup_${String(record.id)}`,
           });
-          topUpPaymentId = topUp.paymentId;
+          topUp = { paymentId: charged.paymentId, amountCents: charged.amountCents };
           capturedCents = finalCostCents;
         } catch (topUpErr) {
           shortfallCents = deltaCents;
@@ -728,7 +734,7 @@ export async function settleSessionPayment(
       : await markCaptured(record.id, {
           capturedCents,
           failureReason: topUpFailureReason,
-          topUpPaymentId,
+          topUp,
         });
     if (!recorded) {
       ctx.logger.warn(

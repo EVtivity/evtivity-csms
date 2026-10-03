@@ -4,15 +4,29 @@
 // Contract test of StripePaymentProvider against real Stripe test mode. Runs
 // only when STRIPE_TEST_SECRET_KEY holds a test-mode key (sk_test_ or
 // rk_test_); CI has none, so it is skipped there. Stripe Connect (destination
-// charges, platform fee) is not exercised: it needs a connected account.
+// charges, platform fee, reversals) is in stripe-connect-live.test.ts. The
+// last block runs the session and refund services on a session paid as hold
+// plus top-up, with payment records in memory.
 
 import crypto from 'node:crypto';
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import Stripe from 'stripe';
 
-vi.mock('@evtivity/database', () => ({ db: {}, settings: {}, sitePaymentConfigs: {} }));
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/session-db.js')).databaseMock,
+  settings: {},
+  sitePaymentConfigs: {},
+}));
+vi.mock('../settings.js', async () => (await import('./helpers/session-db.js')).settingsMock);
+vi.mock('../payment-records.js', async () => (await import('./helpers/memory-records.js')).records);
 
 import { StripePaymentProvider } from '../providers/stripe/index.js';
+import { authorizeSessionHold, settleSessionPayment } from '../session-payments.js';
+import { refundPaymentRecord } from '../refunds.js';
+import type { PaymentContext } from '../context.js';
+import type { PaymentProviderRegistry } from '../registry.js';
+import { memoryRecords } from './helpers/memory-records.js';
+import { sessionDb } from './helpers/session-db.js';
 import {
   PaymentDeclinedError,
   PaymentMethodOwnershipError,
@@ -311,4 +325,140 @@ describe.skipIf(!isTestKey)('StripePaymentProvider against Stripe test mode', ()
     const after = await client.paymentMethods.retrieve(extra.id);
     expect(after.customer).toBeNull();
   }, 60_000);
+
+  describe('refunds of a session paid as hold plus top-up (services)', () => {
+    // The session and refund services run against the real provider with
+    // payment records in memory (helpers/memory-records.ts) and the session
+    // reads answered by helpers/session-db.ts. No site config: no Connect.
+    const HOLD = 2000;
+    let ctx: PaymentContext;
+
+    beforeAll(() => {
+      sessionDb.method = { id: 1, customerId, methodId };
+      sessionDb.sitePaymentConfig = null;
+      sessionDb.platformFeePercent = 0;
+      ctx = {
+        registry: {
+          getPaymentProvider: () => Promise.resolve(provider),
+          settings: () => Promise.resolve({ preAuthAmountCents: HOLD }),
+        } as unknown as PaymentProviderRegistry,
+        logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      };
+    });
+
+    /** A held session, settled at `finalCostCents`. Returns the hold and top-up ids. */
+    async function settled(
+      name: string,
+      finalCostCents: number,
+    ): Promise<{ sessionId: string; intentId: string; topUpId: string }> {
+      const sessionId = `${run}_${name}`;
+      sessionDb.current = { sessionId, finalCostCents, siteId: 'site-1' };
+      const held = await authorizeSessionHold(
+        { sessionId, driverId: 'd1', methodRowId: null, siteId: null, trigger: 'projection_gate' },
+        ctx,
+      );
+      if (held.outcome !== 'authorized') throw new Error(`hold ${held.outcome}`);
+      expect(await settleSessionPayment(sessionId, ctx)).toMatchObject({
+        status: 'captured',
+        capturedCents: finalCostCents,
+      });
+      const metadata = memoryRecords.bySession(sessionId)?.metadata as {
+        topUps?: Array<{ paymentId: string; amountCents: number }>;
+      } | null;
+      expect(metadata?.topUps).toEqual([
+        {
+          paymentId: expect.stringMatching(/^pi_/),
+          amountCents: finalCostCents - HOLD,
+          refundedCents: 0,
+        },
+      ]);
+      return {
+        sessionId,
+        intentId: held.paymentId,
+        topUpId: metadata?.topUps?.[0]?.paymentId ?? '',
+      };
+    }
+
+    async function chargeRefunded(intentId: string): Promise<number> {
+      const intent = await client.paymentIntents.retrieve(intentId, { expand: ['latest_charge'] });
+      return (intent.latest_charge as Stripe.Charge).amount_refunded;
+    }
+
+    it('refunds both charges in full with the default amount', async () => {
+      const { sessionId, intentId, topUpId } = await settled('topup_full', 2600);
+      const outcome = await refundPaymentRecord({ sessionId }, ctx);
+      expect(outcome).toMatchObject({
+        status: 'refunded',
+        refundedNowCents: 2600,
+        full: true,
+        refunds: [
+          { paymentId: intentId, kind: 'hold', amountCents: HOLD },
+          { paymentId: topUpId, kind: 'top_up', amountCents: 600 },
+        ],
+      });
+      expect(await chargeRefunded(intentId)).toBe(HOLD);
+      expect(await chargeRefunded(topUpId)).toBe(600);
+      expect(memoryRecords.bySession(sessionId)).toMatchObject({
+        status: 'refunded',
+        refundedAmountCents: 2600,
+      });
+      // Nothing is left to refund.
+      expect(await refundPaymentRecord({ sessionId }, ctx)).toEqual({
+        status: 'no_captured_payment',
+      });
+    }, 120_000);
+
+    it('refunds partial amounts spanning the hold and the top-up, then the rest', async () => {
+      const { sessionId, intentId, topUpId } = await settled('topup_partials', 2600);
+      expect(await refundPaymentRecord({ sessionId, amountCents: 1500 }, ctx)).toMatchObject({
+        refunds: [{ paymentId: intentId, amountCents: 1500 }],
+      });
+      expect(await refundPaymentRecord({ sessionId, amountCents: 800 }, ctx)).toMatchObject({
+        refunds: [
+          { paymentId: intentId, amountCents: 500 },
+          { paymentId: topUpId, amountCents: 300 },
+        ],
+        full: false,
+      });
+      expect(await chargeRefunded(intentId)).toBe(HOLD);
+      expect(await chargeRefunded(topUpId)).toBe(300);
+      expect(await refundPaymentRecord({ sessionId }, ctx)).toMatchObject({
+        refundedNowCents: 300,
+        full: true,
+        refunds: [{ paymentId: topUpId, amountCents: 300 }],
+      });
+      expect(await chargeRefunded(topUpId)).toBe(600);
+      expect((await client.refunds.list({ payment_intent: intentId })).data).toHaveLength(2);
+      expect((await client.refunds.list({ payment_intent: topUpId })).data).toHaveLength(2);
+    }, 120_000);
+
+    it('replays a spanning refund request without refunding twice', async () => {
+      const { sessionId, intentId, topUpId } = await settled('topup_replay', 2600);
+      const record = memoryRecords.bySession(sessionId);
+      const base = `refund_${intentId}_${String(record?.id)}_0_2300`;
+      expect(await refundPaymentRecord({ sessionId, amountCents: 2300 }, ctx)).toMatchObject({
+        refundedNowCents: 2300,
+      });
+      const holdReplay = await provider.refund({
+        paymentId: intentId,
+        amountCents: HOLD,
+        currency: 'USD',
+        merchantReference: `sess_${sessionId}`,
+        idempotencyKey: base,
+      });
+      const topUpReplay = await provider.refund({
+        paymentId: topUpId,
+        amountCents: 300,
+        currency: 'USD',
+        merchantReference: `sess_${sessionId}`,
+        idempotencyKey: `${base}_topup_1`,
+      });
+      const holdRefunds = (await client.refunds.list({ payment_intent: intentId })).data;
+      const topUpRefunds = (await client.refunds.list({ payment_intent: topUpId })).data;
+      expect(holdRefunds).toHaveLength(1);
+      expect(topUpRefunds).toHaveLength(1);
+      expect(holdReplay).toMatchObject({ refundId: holdRefunds[0]?.id });
+      expect(topUpReplay).toMatchObject({ refundId: topUpRefunds[0]?.id });
+    }, 120_000);
+  });
 });

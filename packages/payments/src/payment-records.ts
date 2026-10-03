@@ -1,7 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { and, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, eq, inArray, lte, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import {
   chargingSessions,
   db,
@@ -13,6 +14,7 @@ import {
 } from '@evtivity/database';
 import type { PaymentChargeType } from '@evtivity/database';
 import type { PaymentLogger } from './context.js';
+import type { TopUpCharge } from './top-ups.js';
 import type { PaymentStatus } from './types.js';
 
 /**
@@ -137,14 +139,34 @@ function updated(rows: Array<{ id: number }>): boolean {
 }
 
 /**
+ * Appends a top-up payment to `metadata.topUps` (see `top-ups.ts`), unless
+ * the record already lists it (a replayed or concurrent retry charged the
+ * same top-up under the same idempotency key).
+ */
+function appendTopUp(topUp: { paymentId: string; amountCents: number }): SQL {
+  const list = sql`COALESCE(${paymentRecords.metadata} -> 'topUps', '[]'::jsonb)`;
+  const entry = JSON.stringify({
+    paymentId: topUp.paymentId,
+    amountCents: topUp.amountCents,
+    refundedCents: 0,
+  });
+  return sql`CASE WHEN ${list} @> jsonb_build_array(jsonb_build_object('paymentId', ${topUp.paymentId}::text)) THEN ${paymentRecords.metadata} ELSE jsonb_set(COALESCE(${paymentRecords.metadata}, '{}'::jsonb), '{topUps}', ${list} || jsonb_build_array(${entry}::jsonb)) END`;
+}
+
+/**
  * pre_authorized -> captured. `failureReason` carries an uncollected
- * shortfall (a declined top-up or a guest cost above the hold).
+ * shortfall (a declined top-up or a guest cost above the hold). `topUp` is
+ * the settlement top-up, recorded in `metadata.topUps`.
  */
 export async function markCaptured(
   id: number,
-  input: { capturedCents: number; failureReason: string | null; topUpPaymentId?: string | null },
+  input: {
+    capturedCents: number;
+    failureReason: string | null;
+    topUp?: { paymentId: string; amountCents: number } | null;
+  },
 ): Promise<boolean> {
-  const topUp = input.topUpPaymentId ?? null;
+  const topUp = input.topUp ?? null;
   return updated(
     await db
       .update(paymentRecords)
@@ -152,11 +174,7 @@ export async function markCaptured(
         status: 'captured',
         capturedAmountCents: input.capturedCents,
         failureReason: input.failureReason,
-        ...(topUp != null
-          ? {
-              metadata: sql`jsonb_set(COALESCE(${paymentRecords.metadata}, '{}'::jsonb), '{topUpIntentId}', to_jsonb(${topUp}::text))`,
-            }
-          : {}),
+        ...(topUp != null ? { metadata: appendTopUp(topUp) } : {}),
         updatedAt: new Date(),
       })
       .where(and(eq(paymentRecords.id, id), inArray(paymentRecords.status, FROM_HOLD)))
@@ -186,6 +204,16 @@ export async function markHoldFailed(id: number, reason: string): Promise<boolea
   );
 }
 
+/** Locks a record by id for a refund webhook (inside the caller's transaction). */
+export async function lockRecord(tx: Tx, id: number): Promise<PaymentRecord | null> {
+  const [row] = await tx
+    .select()
+    .from(paymentRecords)
+    .where(eq(paymentRecords.id, id))
+    .for('update');
+  return row ?? null;
+}
+
 /** Locks the session's record for a refund (inside the caller's transaction). */
 export async function lockSessionRecord(tx: Tx, sessionId: string): Promise<PaymentRecord | null> {
   const [row] = await tx
@@ -198,7 +226,9 @@ export async function lockSessionRecord(tx: Tx, sessionId: string): Promise<Paym
 
 /**
  * captured | partially_refunded -> partially_refunded | refunded. Never lowers
- * the refunded total (a delayed event or a replay).
+ * the refunded total (a delayed event or a replay). `topUps` replaces
+ * `metadata.topUps` with the per-charge refunded totals (a record with
+ * top-ups); a legacy `topUpIntentId` is dropped then, as `topUps` holds it.
  */
 export async function markRefunded(
   id: number,
@@ -207,6 +237,7 @@ export async function markRefunded(
     full: boolean;
     actorUserId?: string | null;
     actionReason?: string | null;
+    topUps?: TopUpCharge[];
   },
   executor: Executor = db,
 ): Promise<PaymentRecord | null> {
@@ -215,6 +246,11 @@ export async function markRefunded(
     .set({
       status: input.full ? 'refunded' : 'partially_refunded',
       refundedAmountCents: input.refundedTotalCents,
+      ...(input.topUps != null
+        ? {
+            metadata: sql`jsonb_set(COALESCE(${paymentRecords.metadata}, '{}'::jsonb) - 'topUpIntentId', '{topUps}', ${JSON.stringify(input.topUps)}::jsonb)`,
+          }
+        : {}),
       ...(input.actorUserId != null ? { lastActorUserId: input.actorUserId } : {}),
       ...(input.actionReason != null ? { lastActionReason: input.actionReason } : {}),
       updatedAt: new Date(),
@@ -230,15 +266,24 @@ export async function markRefunded(
   return row ?? null;
 }
 
-/** A recovered shortfall: the captured total reaches the final cost. */
+/**
+ * A recovered shortfall: the captured total reaches the final cost, and the
+ * retry top-up is appended to `metadata.topUps`.
+ */
 export async function markShortfallRecovered(
   id: number,
-  input: { capturedCents: number; actorUserId: string | null; actionReason: string },
+  input: {
+    capturedCents: number;
+    actorUserId: string | null;
+    actionReason: string;
+    topUp: { paymentId: string; amountCents: number };
+  },
 ): Promise<PaymentRecord | null> {
   const [row] = await db
     .update(paymentRecords)
     .set({
       capturedAmountCents: input.capturedCents,
+      metadata: appendTopUp(input.topUp),
       failureReason: null,
       ...(input.actorUserId != null ? { lastActorUserId: input.actorUserId } : {}),
       lastActionReason: input.actionReason,
@@ -349,6 +394,26 @@ export async function findByPaymentId(paymentId: string): Promise<PaymentRecord 
     .select()
     .from(paymentRecords)
     .where(eq(paymentRecords.stripePaymentIntentId, paymentId));
+  return row ?? null;
+}
+
+/**
+ * The record a provider payment belongs to: its own payment, else the record
+ * that lists it as a top-up (`metadata.topUps`, or a legacy `topUpIntentId`).
+ */
+export async function findByChargePaymentId(paymentId: string): Promise<PaymentRecord | null> {
+  const own = await findByPaymentId(paymentId);
+  if (own != null) return own;
+  const [row] = await db
+    .select()
+    .from(paymentRecords)
+    .where(
+      or(
+        sql`${paymentRecords.metadata} -> 'topUps' @> ${JSON.stringify([{ paymentId }])}::jsonb`,
+        sql`${paymentRecords.metadata} ->> 'topUpIntentId' = ${paymentId}`,
+      ),
+    )
+    .limit(1);
   return row ?? null;
 }
 

@@ -158,6 +158,25 @@ function componentData(payload: unknown): AdyenComponentData {
   return data;
 }
 
+/**
+ * The stored card plus the CVC the shopper entered in the stored-card
+ * component. Adyen refuses a shopper-present stored-card payment without the
+ * CVC ("Required field 'cvc' is not provided.") unless the account allows it.
+ * Only the CVC is taken from the payload, and only for the same token.
+ */
+function storedCardWithCvc(methodId: string, data: AdyenComponentData): Record<string, string> {
+  const pm = data.paymentMethod as Record<string, unknown>;
+  const stored = pm['storedPaymentMethodId'];
+  if (stored != null && stored !== methodId) {
+    throw new PaymentValidationError('The Adyen payload is for another stored card');
+  }
+  const cvc = pm['encryptedSecurityCode'];
+  if (typeof cvc !== 'string' || cvc === '') {
+    throw new PaymentValidationError('The Adyen stored-card payload has no encryptedSecurityCode');
+  }
+  return { type: 'scheme', storedPaymentMethodId: methodId, encryptedSecurityCode: cvc };
+}
+
 function requireBrowser(browser: BrowserContext | undefined, call: string): BrowserContext {
   if (browser == null) {
     throw new PaymentValidationError(
@@ -339,7 +358,16 @@ export class AdyenPaymentProvider implements PaymentProvider {
     return this.methodSetupStep(response, input.customerId);
   }
 
-  private methodSetupStep(response: AdyenPaymentResponse, customerId: string): MethodSetupStep {
+  /**
+   * The card summary comes in the payment response only when "Card summary"
+   * is selected under Customer Area > Developers > Additional data (a test
+   * account returns none by default). Without it the stored-method listing
+   * supplies the last four digits and brand.
+   */
+  private async methodSetupStep(
+    response: AdyenPaymentResponse,
+    customerId: string,
+  ): Promise<MethodSetupStep> {
     if (response.action != null) {
       return { status: 'action_required', action: { provider: this.id, data: response.action } };
     }
@@ -363,14 +391,15 @@ export class AdyenPaymentProvider implements PaymentProvider {
       nonEmpty(data['tokenization.shopperReference']) ??
       nonEmpty(data['recurring.shopperReference']);
     if (owner != null && owner !== customerId) throw new PaymentMethodOwnershipError();
+    const brand = nonEmpty(response.paymentMethod?.brand) ?? nonEmpty(data['paymentMethod']);
+    const last4 = nonEmpty(data['cardSummary']);
+    if (last4 != null) {
+      return { status: 'saved', method: { methodId, customerId, brand, last4 } };
+    }
+    const stored = await this.verifyMethod({ methodId, customerId });
     return {
       status: 'saved',
-      method: {
-        methodId,
-        customerId,
-        brand: nonEmpty(response.paymentMethod?.brand) ?? nonEmpty(data['paymentMethod']),
-        last4: nonEmpty(data['cardSummary']),
-      },
+      method: { methodId, customerId, brand: brand ?? stored.brand, last4: stored.last4 },
     };
   }
 
@@ -422,7 +451,11 @@ export class AdyenPaymentProvider implements PaymentProvider {
       } else {
         body['shopperInteraction'] = 'Ecommerce';
         body['recurringProcessingModel'] = 'CardOnFile';
-        Object.assign(body, shopperPresent(requireBrowser(method.browser, 'holds')));
+        const data = method.payload != null ? componentData(method.payload) : undefined;
+        if (data != null) {
+          body['paymentMethod'] = storedCardWithCvc(method.methodId, data);
+        }
+        Object.assign(body, shopperPresent(requireBrowser(method.browser, 'holds'), data));
       }
     } else {
       const data = componentData(method.payload);

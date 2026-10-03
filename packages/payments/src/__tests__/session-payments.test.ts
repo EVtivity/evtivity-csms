@@ -153,7 +153,7 @@ function fakeProvider(id: string): FakeProvider {
       Promise.resolve({ state: 'succeeded', capturedCents: 0, applicationFeeCents: 0 }),
     ),
     chargeShortfall: vi.fn(() =>
-      Promise.resolve({ paymentId: 'pi_top', amountCents: 0, applicationFeeCents: 0 }),
+      Promise.resolve({ paymentId: 'pi_top', amountCents: 2000, applicationFeeCents: 0 }),
     ),
   };
 }
@@ -733,6 +733,7 @@ describe('retryShortfallForRecord', () => {
       capturedCents: 7000,
       actorUserId: 'u1',
       actionReason: 'Operator retry top-up; recovered 2000c via pi_top',
+      topUp: { paymentId: 'pi_top', amountCents: 2000 },
     });
   });
 
@@ -817,6 +818,7 @@ describe('retryShortfalls', () => {
       capturedCents: 7000,
       actorUserId: null,
       actionReason: 'Cron retry top-up; recovered 2000c via pi_top1',
+      topUp: { paymentId: 'pi_top1', amountCents: 2000 },
     });
     expect(logger.info).toHaveBeenCalledWith(
       { paymentRecordId: 1, shortfall: 2000, topUpIntentId: 'pi_top1' },
@@ -1045,7 +1047,7 @@ describe('settleSessionPayment', () => {
     expect(h.markCaptured).toHaveBeenCalledWith(42, {
       capturedCents: 4000,
       failureReason: null,
-      topUpPaymentId: null,
+      topUp: null,
     });
   });
 
@@ -1080,7 +1082,7 @@ describe('settleSessionPayment', () => {
     expect(h.markCaptured).toHaveBeenCalledWith(42, {
       capturedCents: 7000,
       failureReason: null,
-      topUpPaymentId: 'pi_top',
+      topUp: { paymentId: 'pi_top', amountCents: 2000 },
     });
   });
 
@@ -1107,7 +1109,7 @@ describe('settleSessionPayment', () => {
     expect(h.markCaptured).toHaveBeenCalledWith(42, {
       capturedCents: 5000,
       failureReason: `Top-up declined: ${'z'.repeat(350)}; shortfall 2000c`,
-      topUpPaymentId: null,
+      topUp: null,
     });
     expect(logger.warn).toHaveBeenCalledWith(
       { err, paymentRecordId: 42, deltaCents: 2000 },

@@ -285,6 +285,14 @@ class FakeStripe {
       return settle(() => {
         const intent = getIntent(params['payment_intent'] as string);
         const amount = (params['amount'] as number | undefined) ?? intent.amount_received;
+        // Stripe refuses a refund above what the charge received.
+        if (amount > intent.amount_received) {
+          throw new FakeStripeError(
+            'StripeInvalidRequestError',
+            `Refund amount (${String(amount)}) is greater than charge amount (${String(intent.amount_received)})`,
+            { code: 'amount_too_large', statusCode: 400 },
+          );
+        }
         return {
           id: options?.idempotencyKey != null ? `re_${options.idempotencyKey}` : 're_nokey',
           object: 'refund',

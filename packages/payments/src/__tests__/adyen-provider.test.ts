@@ -318,12 +318,52 @@ describe('customers and saved methods', () => {
       details,
       idempotencyKey: 'method_d1_details',
     });
-    expect(adyen.last().url).toBe(`${TEST_BASE}/payments/details`);
-    expect(adyen.last().body).toEqual(details);
+    const detailsCall = adyen.calls.at(-2);
+    expect(detailsCall?.url).toBe(`${TEST_BASE}/payments/details`);
+    expect(detailsCall?.body).toEqual(details);
+    // No cardSummary in the response (the Customer Area default): the last
+    // four come from the shopper's stored methods; the response brand wins.
+    expect(adyen.last().method).toBe('GET');
+    expect(adyen.last().path).toBe('/v72/storedPaymentMethods');
+    expect(adyen.last().query).toEqual({ shopperReference: SHOPPER, merchantAccount: MERCHANT });
     expect(saved).toEqual({
       status: 'saved',
-      method: { methodId: TOKEN_ID, customerId: SHOPPER, brand: 'mc', last4: null },
+      method: { methodId: TOKEN_ID, customerId: SHOPPER, brand: 'mc', last4: '1111' },
     });
+  });
+
+  it('takes the brand from the stored methods and refuses a token they do not list', async () => {
+    const { provider, adyen } = fakeAdyenProvider();
+    const input = {
+      customerId: SHOPPER,
+      payload: { ...CARD, currency: 'EUR' },
+      browser: BROWSER,
+      idempotencyKey: 'method_d1',
+    };
+    adyen.next({
+      body: {
+        resultCode: 'Authorised',
+        pspReference: 'V4HZ4RBFJGXXGN82',
+        additionalData: { 'tokenization.storedPaymentMethodId': TOKEN_ID },
+      },
+    });
+    expect(await provider.submitMethodSetup(input)).toEqual({
+      status: 'saved',
+      method: { methodId: TOKEN_ID, customerId: SHOPPER, brand: 'visa', last4: '1111' },
+    });
+    adyen.next(
+      {
+        body: {
+          resultCode: 'Authorised',
+          pspReference: 'V4HZ4RBFJGXXGN82',
+          additionalData: { 'tokenization.storedPaymentMethodId': 'OTHERTOKEN' },
+        },
+      },
+      { body: { storedPaymentMethods: [] } },
+    );
+    await expect(provider.submitMethodSetup(input)).rejects.toBeInstanceOf(
+      PaymentMethodOwnershipError,
+    );
   });
 
   it('refuses a token of another shopper and fails loud without a token id', async () => {
@@ -438,6 +478,53 @@ describe('holds', () => {
     await expect(provider.authorizeHold(hold({ initiator: 'shopper' }))).rejects.toBeInstanceOf(
       PaymentValidationError,
     );
+  });
+
+  it('sends the CVC from the stored-card component with the shopper present', async () => {
+    const { provider, adyen } = fakeAdyenProvider();
+    const saved = (paymentMethod: Record<string, unknown>) =>
+      hold({
+        initiator: 'shopper',
+        method: {
+          kind: 'saved',
+          customerId: SHOPPER,
+          methodId: TOKEN_ID,
+          browser: { origin: BROWSER.origin, returnUrl: BROWSER.returnUrl },
+          payload: { paymentMethod, browserInfo: BROWSER.info },
+        },
+      });
+    await provider.authorizeHold(
+      saved({
+        type: 'scheme',
+        storedPaymentMethodId: TOKEN_ID,
+        encryptedSecurityCode: 'test_737',
+        encryptedCardNumber: 'ignored',
+      }),
+    );
+    expect(adyen.last().body).toMatchObject({
+      paymentMethod: {
+        type: 'scheme',
+        storedPaymentMethodId: TOKEN_ID,
+        encryptedSecurityCode: 'test_737',
+      },
+      shopperInteraction: 'Ecommerce',
+      recurringProcessingModel: 'CardOnFile',
+      browserInfo: BROWSER.info,
+    });
+    expect(
+      (adyen.last().body?.['paymentMethod'] as Record<string, unknown>)['encryptedCardNumber'],
+    ).toBeUndefined();
+
+    const calls = adyen.calls.length;
+    await expect(
+      provider.authorizeHold(
+        saved({ storedPaymentMethodId: 'OTHERTOKEN', encryptedSecurityCode: 'test_737' }),
+      ),
+    ).rejects.toBeInstanceOf(PaymentValidationError);
+    await expect(
+      provider.authorizeHold(saved({ storedPaymentMethodId: TOKEN_ID })),
+    ).rejects.toBeInstanceOf(PaymentValidationError);
+    expect(adyen.calls.length).toBe(calls);
   });
 
   it('holds a one-time card from the component without storing it', async () => {

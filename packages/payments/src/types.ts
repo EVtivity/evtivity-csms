@@ -69,6 +69,13 @@ export type PaymentMethodInput =
       methodId: string;
       /** Shopper-present use of a saved method (Adyen needs it for 3DS; Stripe ignores it). */
       browser?: BrowserContext;
+      /**
+       * Shopper-present only: the stored-card component's `state.data`. Adyen
+       * takes the CVC from it (`paymentMethod.encryptedSecurityCode`), which a
+       * stored-card payment with the shopper present needs unless Adyen allows
+       * it without CVC. Stripe ignores it.
+       */
+      payload?: unknown;
     }
   | { kind: 'one_time'; payload: unknown; browser?: BrowserContext };
 
