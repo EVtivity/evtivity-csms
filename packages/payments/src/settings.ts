@@ -1,0 +1,133 @@
+// Copyright (c) 2024-2026 EVtivity. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
+
+import { and, eq, inArray } from 'drizzle-orm';
+import { decryptString } from '@evtivity/lib';
+import { db, settings, sitePaymentConfigs } from '@evtivity/database';
+
+/** `payments.provider` value that turns payments off. */
+export const NO_PAYMENT_PROVIDER = 'none';
+
+/** Fallback hold amount when `stripe.preAuthAmountCents` is unset (the seeded default). */
+export const DEFAULT_PRE_AUTH_AMOUNT_CENTS = 5000;
+
+export interface StripeSettings {
+  secretKey: string | null;
+  publishableKey: string | null;
+  webhookSecret: string | null;
+}
+
+export interface PaymentSettings {
+  /** Active provider id, or NO_PAYMENT_PROVIDER. */
+  provider: string;
+  preAuthAmountCents: number;
+  stripe: StripeSettings;
+}
+
+export interface SitePaymentConfig {
+  configId: number;
+  /** Stripe connected account of the site (`acct_...`), or null. */
+  payoutAccountId: string | null;
+  preAuthAmountCents: number;
+}
+
+const TTL_MS = 60_000;
+const KEYS = [
+  'payments.provider',
+  'stripe.secretKeyEnc',
+  'stripe.publishableKey',
+  'stripe.webhookSecretEnc',
+  'stripe.preAuthAmountCents',
+];
+
+let settingsCache: { value: PaymentSettings; cachedAt: number } | null = null;
+const siteCache = new Map<string, { value: SitePaymentConfig | null; cachedAt: number }>();
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
+function decrypted(value: unknown, encryptionKey: string): string | null {
+  const stored = nonEmptyString(value);
+  return stored == null ? null : decryptString(stored, encryptionKey);
+}
+
+/**
+ * The payment settings, with `*Enc` values decrypted with the caller's
+ * SETTINGS_ENCRYPTION_KEY. Cached for 60 seconds. A read failure returns the
+ * last cached value and throws without one; a decrypt failure always throws,
+ * so a payment never runs on a key it cannot read.
+ */
+export async function getPaymentSettings(encryptionKey: string): Promise<PaymentSettings> {
+  const now = Date.now();
+  if (settingsCache != null && now - settingsCache.cachedAt < TTL_MS) return settingsCache.value;
+
+  let rows: Array<{ key: string; value: unknown }>;
+  try {
+    rows = await db
+      .select({ key: settings.key, value: settings.value })
+      .from(settings)
+      .where(inArray(settings.key, KEYS));
+  } catch (err) {
+    if (settingsCache != null) return settingsCache.value;
+    throw err;
+  }
+  const byKey = new Map(rows.map((r) => [r.key, r.value]));
+
+  const preAuth = Number(byKey.get('stripe.preAuthAmountCents'));
+  const value: PaymentSettings = {
+    provider: nonEmptyString(byKey.get('payments.provider')) ?? NO_PAYMENT_PROVIDER,
+    preAuthAmountCents:
+      Number.isInteger(preAuth) && preAuth > 0 ? preAuth : DEFAULT_PRE_AUTH_AMOUNT_CENTS,
+    stripe: {
+      secretKey: decrypted(byKey.get('stripe.secretKeyEnc'), encryptionKey),
+      publishableKey: nonEmptyString(byKey.get('stripe.publishableKey')),
+      webhookSecret: decrypted(byKey.get('stripe.webhookSecretEnc'), encryptionKey),
+    },
+  };
+  settingsCache = { value, cachedAt: now };
+  return value;
+}
+
+/**
+ * The enabled payment config of a site (payout account and hold amount), or
+ * null when the site has none or it is disabled. Cached per site for 60 seconds,
+ * with the same read-failure rule as getPaymentSettings.
+ */
+export async function getSitePaymentConfig(siteId: string): Promise<SitePaymentConfig | null> {
+  const now = Date.now();
+  const cached = siteCache.get(siteId);
+  if (cached != null && now - cached.cachedAt < TTL_MS) return cached.value;
+
+  let rows: Array<{ id: number; accountId: string | null; preAuthAmountCents: number }>;
+  try {
+    rows = await db
+      .select({
+        id: sitePaymentConfigs.id,
+        accountId: sitePaymentConfigs.stripeConnectedAccountId,
+        preAuthAmountCents: sitePaymentConfigs.preAuthAmountCents,
+      })
+      .from(sitePaymentConfigs)
+      .where(and(eq(sitePaymentConfigs.siteId, siteId), eq(sitePaymentConfigs.isEnabled, true)));
+  } catch (err) {
+    if (cached != null) return cached.value;
+    throw err;
+  }
+  const row = rows[0];
+  const value =
+    row == null
+      ? null
+      : {
+          configId: row.id,
+          payoutAccountId: nonEmptyString(row.accountId),
+          preAuthAmountCents: row.preAuthAmountCents,
+        };
+  siteCache.set(siteId, { value, cachedAt: now });
+  return value;
+}
+
+/** Drop the cached payment settings and site configs (after a settings change). */
+export function clearPaymentSettingsCache(): void {
+  settingsCache = null;
+  siteCache.clear();
+}

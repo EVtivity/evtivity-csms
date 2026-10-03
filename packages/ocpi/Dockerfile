@@ -5,6 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
 COPY packages/database/package.json packages/database/
+COPY packages/payments/package.json packages/payments/
 COPY packages/api/package.json packages/api/
 COPY packages/ocpp/package.json packages/ocpp/
 COPY packages/ocpi/package.json packages/ocpi/
@@ -33,6 +34,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
 COPY packages/database/package.json packages/database/
+COPY packages/payments/package.json packages/payments/
 COPY packages/api/package.json packages/api/
 COPY packages/ocpp/package.json packages/ocpp/
 COPY packages/ocpi/package.json packages/ocpi/

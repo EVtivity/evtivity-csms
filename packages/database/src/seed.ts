@@ -490,6 +490,8 @@ async function seed(): Promise<void> {
     's3.region': '',
     's3.accessKeyIdEnc': '',
     's3.secretAccessKeyEnc': '',
+    // Provider for new payments; 'none' turns payments off (migration 0116).
+    'payments.provider': 'none',
     'stripe.secretKeyEnc': '',
     'stripe.publishableKey': '',
     'stripe.webhookSecretEnc': '',

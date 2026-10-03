@@ -1,0 +1,165 @@
+// Copyright (c) 2024-2026 EVtivity. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { encryptString } from '@evtivity/lib';
+
+const mockSelect = vi.fn();
+vi.mock('@evtivity/database', () => ({
+  db: { select: mockSelect },
+  settings: { key: 'key', value: 'value' },
+  sitePaymentConfigs: {
+    id: 'id',
+    siteId: 'site_id',
+    isEnabled: 'is_enabled',
+    stripeConnectedAccountId: 'acct',
+    preAuthAmountCents: 'pre_auth',
+  },
+}));
+
+const KEY = 'test-encryption-key-32chars-long!';
+
+function chain(result: unknown) {
+  const c: Record<string, unknown> = {};
+  c['from'] = vi.fn(() => c);
+  c['where'] = vi.fn(() =>
+    result instanceof Error ? Promise.reject(result) : Promise.resolve(result),
+  );
+  return c;
+}
+
+function rows(values: Record<string, unknown>) {
+  return Object.entries(values).map(([key, value]) => ({ key, value }));
+}
+
+async function load() {
+  vi.resetModules();
+  return import('../settings.js');
+}
+
+describe('getPaymentSettings', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('decrypts the Enc keys and reads the provider and hold amount', async () => {
+    mockSelect.mockReturnValueOnce(
+      chain(
+        rows({
+          'payments.provider': 'stripe',
+          'stripe.secretKeyEnc': encryptString('sk_test_1', KEY),
+          'stripe.publishableKey': 'pk_test_1',
+          'stripe.webhookSecretEnc': encryptString('whsec_1', KEY),
+          'stripe.preAuthAmountCents': 7500,
+        }),
+      ),
+    );
+    const { getPaymentSettings } = await load();
+    expect(await getPaymentSettings(KEY)).toEqual({
+      provider: 'stripe',
+      preAuthAmountCents: 7500,
+      stripe: { secretKey: 'sk_test_1', publishableKey: 'pk_test_1', webhookSecret: 'whsec_1' },
+    });
+  });
+
+  it('treats missing and empty values as not configured', async () => {
+    mockSelect.mockReturnValueOnce(
+      chain(
+        rows({ 'payments.provider': '', 'stripe.secretKeyEnc': '', 'stripe.publishableKey': '' }),
+      ),
+    );
+    const { getPaymentSettings } = await load();
+    expect(await getPaymentSettings(KEY)).toEqual({
+      provider: 'none',
+      preAuthAmountCents: 5000,
+      stripe: { secretKey: null, publishableKey: null, webhookSecret: null },
+    });
+  });
+
+  it('caches for 60 seconds and reads again after clearPaymentSettingsCache', async () => {
+    mockSelect.mockReturnValue(chain(rows({ 'payments.provider': 'stripe' })));
+    const mod = await load();
+    const first = await mod.getPaymentSettings(KEY);
+    vi.advanceTimersByTime(59_000);
+    expect(await mod.getPaymentSettings(KEY)).toBe(first);
+    expect(mockSelect).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(2_000);
+    await mod.getPaymentSettings(KEY);
+    expect(mockSelect).toHaveBeenCalledTimes(2);
+    mod.clearPaymentSettingsCache();
+    await mod.getPaymentSettings(KEY);
+    expect(mockSelect).toHaveBeenCalledTimes(3);
+  });
+
+  it('returns the last value on a read failure and throws without one', async () => {
+    const mod = await load();
+    mockSelect.mockReturnValueOnce(chain(new Error('db down')));
+    await expect(mod.getPaymentSettings(KEY)).rejects.toThrow('db down');
+
+    mockSelect.mockReturnValueOnce(chain(rows({ 'payments.provider': 'stripe' })));
+    const cached = await mod.getPaymentSettings(KEY);
+    vi.advanceTimersByTime(61_000);
+    mockSelect.mockReturnValueOnce(chain(new Error('db down')));
+    expect(await mod.getPaymentSettings(KEY)).toBe(cached);
+  });
+
+  it('throws when a secret cannot be decrypted', async () => {
+    mockSelect.mockReturnValueOnce(
+      chain(
+        rows({
+          'stripe.secretKeyEnc': encryptString('sk_test_1', 'another-key-32-characters-long!!'),
+        }),
+      ),
+    );
+    const { getPaymentSettings } = await load();
+    await expect(getPaymentSettings(KEY)).rejects.toThrow();
+  });
+
+  it('ignores a non-positive or non-integer hold amount', async () => {
+    mockSelect.mockReturnValueOnce(chain(rows({ 'stripe.preAuthAmountCents': -5 })));
+    const { getPaymentSettings } = await load();
+    expect((await getPaymentSettings(KEY)).preAuthAmountCents).toBe(5000);
+  });
+});
+
+describe('getSitePaymentConfig', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('returns the enabled config with its payout account, cached per site', async () => {
+    mockSelect.mockReturnValue(chain([{ id: 3, accountId: 'acct_1', preAuthAmountCents: 9000 }]));
+    const mod = await load();
+    const config = await mod.getSitePaymentConfig('site-1');
+    expect(config).toEqual({ configId: 3, payoutAccountId: 'acct_1', preAuthAmountCents: 9000 });
+    expect(await mod.getSitePaymentConfig('site-1')).toBe(config);
+    expect(mockSelect).toHaveBeenCalledTimes(1);
+    await mod.getSitePaymentConfig('site-2');
+    expect(mockSelect).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns null without an enabled config and maps an empty account to null', async () => {
+    const mod = await load();
+    mockSelect.mockReturnValueOnce(chain([]));
+    expect(await mod.getSitePaymentConfig('site-1')).toBeNull();
+    mockSelect.mockReturnValueOnce(chain([{ id: 4, accountId: '', preAuthAmountCents: 5000 }]));
+    expect((await mod.getSitePaymentConfig('site-2'))?.payoutAccountId).toBeNull();
+  });
+
+  it('returns the last value on a read failure and throws without one', async () => {
+    const mod = await load();
+    mockSelect.mockReturnValueOnce(chain(new Error('db down')));
+    await expect(mod.getSitePaymentConfig('site-1')).rejects.toThrow('db down');
+    mockSelect.mockReturnValueOnce(chain([{ id: 3, accountId: null, preAuthAmountCents: 5000 }]));
+    const cached = await mod.getSitePaymentConfig('site-1');
+    vi.advanceTimersByTime(61_000);
+    mockSelect.mockReturnValueOnce(chain(new Error('db down')));
+    expect(await mod.getSitePaymentConfig('site-1')).toBe(cached);
+  });
+});

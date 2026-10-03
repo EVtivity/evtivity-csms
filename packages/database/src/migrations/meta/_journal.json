@@ -813,6 +813,13 @@
       "when": 1791000010007,
       "tag": "0115_seed_stripe_webhook_secret",
       "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1791000010008,
+      "tag": "0116_seed_payment_provider",
+      "breakpoints": true
     }
   ]
 }

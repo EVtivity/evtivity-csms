@@ -4,6 +4,7 @@
     { "path": "packages/ocpp" },
     { "path": "packages/database" },
     { "path": "packages/lib" },
+    { "path": "packages/payments" },
     { "path": "packages/api" },
     { "path": "packages/csms" },
     { "path": "packages/css" },

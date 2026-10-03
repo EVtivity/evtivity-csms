@@ -37,6 +37,7 @@ export const BANNER =
 const WORKSPACE_PACKAGES = {
   '@evtivity/lib': resolve(root, 'packages/lib'),
   '@evtivity/database': resolve(root, 'packages/database'),
+  '@evtivity/payments': resolve(root, 'packages/payments'),
   '@evtivity/ocpp': resolve(root, 'packages/ocpp'),
   '@evtivity/api': resolve(root, 'packages/api'),
   '@evtivity/css': resolve(root, 'packages/css'),

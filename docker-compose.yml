@@ -75,6 +75,7 @@ services:
       OCPP_STATION_TLS_URL: ${OCPP_STATION_TLS_URL:-wss://ocpp:8443}
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production!!}
       SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-dev-encryption-key-32chars-long!}
+      PAYMENTS_ALLOW_SIMULATED: ${PAYMENTS_ALLOW_SIMULATED:-true}
       CORS_ORIGIN: local
       LOG_LEVEL: info
       NODE_ENV: development
@@ -119,6 +120,7 @@ services:
       DATABASE_URL: postgres://evtivity:evtivity@postgres:5432/evtivity
       REDIS_URL: redis://redis:6379
       SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-dev-encryption-key-32chars-long!}
+      PAYMENTS_ALLOW_SIMULATED: ${PAYMENTS_ALLOW_SIMULATED:-true}
       NODE_INSPECT: ${NODE_INSPECT:-}
       OCPP_PORT: ${OCPP_PORT:-7103}
       OCPP_HEALTH_PORT: 8081
@@ -308,6 +310,7 @@ services:
       DATABASE_URL: postgres://evtivity:evtivity@postgres:5432/evtivity
       REDIS_URL: redis://redis:6379
       SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-dev-encryption-key-32chars-long!}
+      PAYMENTS_ALLOW_SIMULATED: ${PAYMENTS_ALLOW_SIMULATED:-true}
       API_PORT: ${API_PORT:-7102}
       OCPP_PORT: ${OCPP_PORT:-7103}
       OCPP_SERVER_URL: ws://ocpp:${OCPP_PORT:-7103}

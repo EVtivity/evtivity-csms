@@ -5,6 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
 COPY packages/database/package.json packages/database/
+COPY packages/payments/package.json packages/payments/
 COPY packages/api/package.json packages/api/
 COPY packages/ocpp/package.json packages/ocpp/
 COPY packages/ocpi/package.json packages/ocpi/
@@ -21,11 +22,12 @@ RUN npm ci --ignore-scripts
 COPY tsconfig.base.json tsconfig.json ./
 COPY packages/lib/ packages/lib/
 COPY packages/database/ packages/database/
+COPY packages/payments/ packages/payments/
 COPY packages/api/ packages/api/
 COPY packages/octt/ packages/octt/
 COPY packages/css/ packages/css/
 COPY packages/ocpp/ packages/ocpp/
 COPY packages/worker/ packages/worker/
-RUN npx tsc -b --force packages/lib packages/database packages/ocpp packages/api packages/css packages/octt
+RUN npx tsc -b --force packages/lib packages/database packages/payments packages/ocpp packages/api packages/css packages/octt
 
 CMD ["node", "--import", "tsx", "packages/worker/src/index.ts"]

@@ -27,6 +27,14 @@ const schema = z.object({
   OCPP_TRUSTED_PROXY_CIDRS: z.string().default(''),
   OCPP_MAX_CONNECTIONS_PER_IP: z.coerce.number().int().positive().default(2500),
   OCPP_MAX_MESSAGES_PER_IP_PER_SECOND: z.coerce.number().int().positive().default(5000),
+  // Allows the simulated (test) payment provider in this process (D-T1). Default:
+  // on when NODE_ENV is development (or unset) or test, off otherwise.
+  PAYMENTS_ALLOW_SIMULATED: z
+    .enum(['true', 'false'])
+    .default(
+      ['development', 'test'].includes(process.env['NODE_ENV'] ?? 'development') ? 'true' : 'false',
+    )
+    .transform((v) => v === 'true'),
 });
 
 export type OcppConfig = z.infer<typeof schema>;

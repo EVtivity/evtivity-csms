@@ -53,6 +53,7 @@
     "s3.region": "",
     "s3.accessKeyId": "",
     "s3.secretAccessKey": "",
+    "payments.provider": "stripe",
     "stripe.secretKey": "",
     "stripe.publishableKey": "",
     "stripe.webhookSecret": "",

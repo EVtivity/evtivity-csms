@@ -5,6 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
 COPY packages/database/package.json packages/database/
+COPY packages/payments/package.json packages/payments/
 COPY packages/api/package.json packages/api/
 COPY packages/ocpp/package.json packages/ocpp/
 COPY packages/ocpi/package.json packages/ocpi/
@@ -21,8 +22,9 @@ RUN npm ci --ignore-scripts
 COPY tsconfig.base.json tsconfig.json ./
 COPY packages/lib/ packages/lib/
 COPY packages/database/ packages/database/
+COPY packages/payments/ packages/payments/
 COPY packages/ocpp/ packages/ocpp/
-RUN npx tsc -b --force packages/lib packages/database
+RUN npx tsc -b --force packages/lib packages/database packages/payments
 
 COPY scripts/generate-test-certs.sh scripts/generate-test-certs.sh
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/* \

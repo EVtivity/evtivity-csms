@@ -5,6 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
 COPY packages/database/package.json packages/database/
+COPY packages/payments/package.json packages/payments/
 COPY packages/api/package.json packages/api/
 COPY packages/ocpp/package.json packages/ocpp/
 COPY packages/ocpi/package.json packages/ocpi/
@@ -22,6 +23,7 @@ COPY tsconfig.base.json tsconfig.json ./
 COPY scripts/build.mjs scripts/build.mjs
 COPY packages/lib/ packages/lib/
 COPY packages/database/ packages/database/
+COPY packages/payments/ packages/payments/
 COPY packages/ocpp/ packages/ocpp/
 
 RUN node scripts/build.mjs ocpp
@@ -33,6 +35,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
 COPY packages/database/package.json packages/database/
+COPY packages/payments/package.json packages/payments/
 COPY packages/api/package.json packages/api/
 COPY packages/ocpp/package.json packages/ocpp/
 COPY packages/ocpi/package.json packages/ocpi/
