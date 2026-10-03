@@ -3,114 +3,116 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-let dbResults: unknown[][] = [];
-let dbCallIndex = 0;
-
-function setupDbResults(...results: unknown[][]) {
-  dbResults = results;
-  dbCallIndex = 0;
-}
-
-function makeChain() {
-  const chain: Record<string, unknown> = {};
-  const methods = [
-    'select',
-    'from',
-    'where',
-    'orderBy',
-    'limit',
-    'offset',
-    'innerJoin',
-    'leftJoin',
-    'groupBy',
-    'values',
-    'returning',
-    'set',
-    'onConflictDoUpdate',
-    'delete',
-    'insert',
-    'update',
-  ];
-  for (const m of methods) {
-    chain[m] = vi.fn(() => chain);
-  }
-  let awaited = false;
-  chain['then'] = (onFulfilled?: (v: unknown) => unknown, onRejected?: (r: unknown) => unknown) => {
-    if (!awaited) {
-      awaited = true;
-      const result = dbResults[dbCallIndex] ?? [];
-      dbCallIndex++;
-      return Promise.resolve(result).then(onFulfilled, onRejected);
-    }
-    return Promise.resolve([]).then(onFulfilled, onRejected);
+const h = vi.hoisted(() => {
+  const state = {
+    // Queued select results per table, consumed in query order.
+    selectQueues: {} as Record<string, unknown[][]>,
+    // Rows inserted per table.
+    inserted: {} as Record<string, unknown[]>,
+    // When set, the invoices insert returns no row.
+    failInvoiceInsert: false,
   };
-  chain['catch'] = (onRejected?: (r: unknown) => unknown) => Promise.resolve([]).catch(onRejected);
-  return chain;
+
+  // Tables are tagged objects so the db mock can answer per table.
+  const table = (name: string) => ({ __table: name });
+
+  function selectChain() {
+    let tableName = '';
+    const chain: Record<string, unknown> = {};
+    for (const m of ['where', 'orderBy', 'limit', 'innerJoin', 'leftJoin', 'groupBy']) {
+      chain[m] = vi.fn(() => chain);
+    }
+    chain['from'] = vi.fn((t: { __table: string }) => {
+      tableName = t.__table;
+      return chain;
+    });
+    chain['then'] = (
+      onFulfilled?: (v: unknown) => unknown,
+      onRejected?: (r: unknown) => unknown,
+    ) => {
+      const result = state.selectQueues[tableName]?.shift() ?? [];
+      return Promise.resolve(result).then(onFulfilled, onRejected);
+    };
+    return chain;
+  }
+
+  function insertChain(t: { __table: string }) {
+    let rows: Array<Record<string, unknown>> = [];
+    const chain: Record<string, unknown> = {};
+    chain['values'] = vi.fn((v: Record<string, unknown> | Array<Record<string, unknown>>) => {
+      rows = Array.isArray(v) ? v : [v];
+      state.inserted[t.__table] = [...(state.inserted[t.__table] ?? []), ...rows];
+      return chain;
+    });
+    chain['returning'] = vi.fn(() => {
+      if (t.__table === 'invoices') {
+        return Promise.resolve(
+          state.failInvoiceInsert ? [] : rows.map((r) => ({ id: 'inv_1', ...r })),
+        );
+      }
+      return Promise.resolve(rows.map((r, i) => ({ id: i + 1, ...r })));
+    });
+    return chain;
+  }
+
+  function updateChain() {
+    const chain: Record<string, unknown> = {};
+    chain['set'] = vi.fn(() => chain);
+    chain['where'] = vi.fn(() => chain);
+    chain['returning'] = vi.fn(() => Promise.resolve(state.selectQueues['update']?.shift() ?? []));
+    return chain;
+  }
+
+  return { state, table, selectChain, insertChain, updateChain };
+});
+
+function queue(tableName: string, ...results: unknown[][]): void {
+  h.state.selectQueues[tableName] = [...(h.state.selectQueues[tableName] ?? []), ...results];
 }
 
-vi.mock('@evtivity/database', () => ({
-  getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
-  db: {
-    select: vi.fn(() => makeChain()),
-    insert: vi.fn(() => makeChain()),
-    update: vi.fn(() => makeChain()),
-    delete: vi.fn(() => makeChain()),
-    execute: vi.fn(() => Promise.resolve([{ seq: '1' }])),
-  },
-  invoices: {},
-  invoiceLineItems: {},
-  chargingSessions: {},
-  tariffs: {},
-  sessionTariffSegments: {},
-  drivers: {},
-  getIdlingGracePeriodMinutes: vi.fn().mockResolvedValue(5),
-}));
+vi.mock('@evtivity/database', () => {
+  const db = {
+    select: vi.fn(() => h.selectChain()),
+    insert: vi.fn((t: { __table: string }) => h.insertChain(t)),
+    update: vi.fn(() => h.updateChain()),
+    execute: vi.fn(() => Promise.resolve([{ seq: '42' }])),
+    transaction: vi.fn((cb: (tx: unknown) => unknown) => cb(db)),
+  };
+  return {
+    db,
+    invoices: h.table('invoices'),
+    invoiceLineItems: h.table('invoiceLineItems'),
+    chargingSessions: h.table('chargingSessions'),
+    drivers: h.table('drivers'),
+    paymentRecords: h.table('paymentRecords'),
+    getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
+  };
+});
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
   and: vi.fn(),
-  or: vi.fn(),
   sql: Object.assign(vi.fn(), { raw: vi.fn(), join: vi.fn() }),
-  desc: vi.fn(),
-  count: vi.fn(),
   isNull: vi.fn(),
   isNotNull: vi.fn(),
   between: vi.fn(),
+  asc: vi.fn(),
+  ne: vi.fn(),
+  inArray: vi.fn(),
 }));
 
-vi.mock('@evtivity/lib', () => ({
-  AppError: class AppError extends Error {
-    statusCode: number;
-    code: string;
-    constructor(message: string, statusCode: number, code: string) {
-      super(message);
-      this.name = 'AppError';
-      this.statusCode = statusCode;
-      this.code = code;
-    }
-  },
-  calculateSessionCost: vi.fn().mockReturnValue({
-    energyCostCents: 500,
-    timeCostCents: 200,
-    sessionFeeCents: 100,
-    idleFeeCents: 0,
-    subtotalCents: 800,
-    taxCents: 64,
-    totalCents: 864,
-    currency: 'USD',
-  }),
-  calculateSplitSessionCost: vi.fn().mockReturnValue({
-    energyCostCents: 600,
-    timeCostCents: 300,
-    sessionFeeCents: 200,
-    idleFeeCents: 0,
-    subtotalCents: 1100,
-    taxCents: 88,
-    totalCents: 1188,
-    currency: 'USD',
-  }),
+vi.mock('../lib/company-currency.js', () => ({
+  inCompanyCurrency: vi.fn(),
+  sessionCurrencySql: vi.fn(),
 }));
 
+import {
+  calculateSessionCost,
+  calculateSplitSessionCost,
+  chargedCostBreakdown,
+  toSessionCostBreakdown,
+} from '@evtivity/lib';
+import type { TariffInput, TaxBasis } from '@evtivity/lib';
 import {
   generateInvoiceNumber,
   createSessionInvoice,
@@ -118,674 +120,490 @@ import {
   getInvoice,
   voidInvoice,
 } from '../services/invoice.service.js';
-import { calculateSessionCost } from '@evtivity/lib';
+
+const ENDED = new Date('2026-06-04T11:00:00Z');
+
+function tariff(pricePerKwh: string, taxRate: string, extra: Partial<TariffInput> = {}) {
+  return {
+    pricePerKwh,
+    pricePerMinute: null,
+    pricePerSession: null,
+    idleFeePricePerMinute: null,
+    reservationFeePerMinute: null,
+    taxRate,
+    ...extra,
+  };
+}
+
+/** The breakdown session-pricing stores for a single-tariff session, as read back from jsonb. */
+function stored(
+  t: TariffInput,
+  energyWh: number,
+  holdingMinutes = 0,
+  basis: TaxBasis = 'net',
+): unknown {
+  return JSON.parse(
+    JSON.stringify(
+      toSessionCostBreakdown(calculateSessionCost(t, energyWh, 60, 0, 0, holdingMinutes, basis)),
+    ),
+  ) as unknown;
+}
+
+/** The breakdown stored for a split session: 10 kWh at 19%, then 5 kWh at 7%. */
+function storedSplit(): unknown {
+  return toSessionCostBreakdown(
+    calculateSplitSessionCost(
+      [
+        {
+          tariff: tariff('0.30', '0.19'),
+          durationMinutes: 30,
+          energyDeliveredWh: 10_000,
+          idleMinutes: 0,
+          isFirstSegment: true,
+        },
+        {
+          tariff: tariff('0.30', '0.07'),
+          durationMinutes: 30,
+          energyDeliveredWh: 5_000,
+          idleMinutes: 0,
+          isFirstSegment: false,
+        },
+      ],
+      0,
+    ),
+  );
+}
+
+function session(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'ses_1',
+    driverId: 'drv_1',
+    energyDeliveredWh: '10000',
+    endedAt: ENDED,
+    tariffTaxRate: '0.19',
+    // 10 kWh at 0.30 net, 19%: 300 + 57.
+    costBreakdown: stored(tariff('0.30', '0.19'), 10_000),
+    finalCostCents: 357,
+    currency: 'EUR',
+    status: 'completed',
+    ...overrides,
+  };
+}
+
+type LineRow = {
+  description: string;
+  totalCents: number;
+  taxCents: number;
+  taxRate: string;
+  metadata: Record<string, unknown>;
+  sessionId: string | null;
+  paymentRecordId?: number | null;
+};
+
+function insertedLines(): LineRow[] {
+  return (h.state.inserted['invoiceLineItems'] ?? []) as LineRow[];
+}
+
+function insertedInvoice(): Record<string, number | string> {
+  return (h.state.inserted['invoices'] ?? [])[0] as Record<string, number | string>;
+}
 
 beforeEach(() => {
-  dbResults = [];
-  dbCallIndex = 0;
-  vi.clearAllMocks();
+  h.state.selectQueues = {};
+  h.state.inserted = {};
+  h.state.failInvoiceInsert = false;
 });
 
-describe('Invoice Service', () => {
-  describe('generateInvoiceNumber', () => {
-    it('returns correct format INV-YYYYMM-NNNN using PostgreSQL sequence', async () => {
-      const { db } = await import('@evtivity/database');
-      (db.execute as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ seq: '1' }]);
+describe('generateInvoiceNumber', () => {
+  it('formats INV-YYYYMM-NNNN from the sequence', async () => {
+    const result = await generateInvoiceNumber();
+    const now = new Date();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    expect(result).toBe(`INV-${String(now.getFullYear())}${month}-0042`);
+  });
+});
 
-      const result = await generateInvoiceNumber();
+describe('createSessionInvoice', () => {
+  it('bills each stored component at its rate and totals the charged amount', async () => {
+    // 10 kWh at 0.30 = 300, session fee 100: subtotal 400, tax round(76) = 76.
+    queue('chargingSessions', [
+      session({
+        costBreakdown: stored(tariff('0.30', '0.19', { pricePerSession: '1.00' }), 10_000),
+        finalCostCents: 476,
+      }),
+    ]);
+    queue('invoiceLineItems', []);
 
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      expect(result).toBe(`INV-${String(year)}${month}-0001`);
-    });
+    await createSessionInvoice('ses_1');
 
-    it('pads sequence number to 4 digits', async () => {
-      const { db } = await import('@evtivity/database');
-      (db.execute as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ seq: '42' }]);
-
-      const result = await generateInvoiceNumber();
-
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      expect(result).toBe(`INV-${String(year)}${month}-0042`);
+    expect(
+      insertedLines().map((l) => [l.metadata['kind'], l.totalCents, l.taxCents, l.taxRate]),
+    ).toEqual([
+      ['energy', 300, 57, '0.19'],
+      ['sessionFee', 100, 19, '0.19'],
+    ]);
+    expect(insertedInvoice()).toMatchObject({
+      subtotalCents: 400,
+      taxCents: 76,
+      totalCents: 476,
+      currency: 'EUR',
+      driverId: 'drv_1',
     });
   });
 
-  describe('createSessionInvoice', () => {
-    it('creates invoice using finalCostCents as the authoritative total', async () => {
-      const sessionId = 'session-123';
-      const invoiceId = 'invoice-456';
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
+  it('no longer adds a separate tax line item', async () => {
+    queue('chargingSessions', [session()]);
+    queue('invoiceLineItems', []);
 
-      setupDbResults(
-        // 1. session query
-        [
-          {
-            id: sessionId,
-            driverId: 'driver-789',
-            tariffId: 'tariff-abc',
-            energyDeliveredWh: '10000',
-            startedAt: new Date(now.getTime() - 3600000),
-            endedAt: now,
-            finalCostCents: 864,
-            currency: 'USD',
-            status: 'completed',
-            idleMinutes: '0',
-            tariffPricePerKwh: '0.25',
-            tariffPricePerMinute: '0.05',
-            tariffPricePerSession: '1.00',
-            tariffIdleFeePricePerMinute: null,
-            tariffTaxRate: '0.08',
-          },
-        ],
-        // 2. session tariff segments query (no segments = single tariff)
-        [],
-        // 3. insert invoice returning (generateInvoiceNumber uses db.execute, not chained queries)
-        [
-          {
-            id: invoiceId,
-            invoiceNumber: `INV-${String(year)}${month}-0001`,
-            driverId: 'driver-789',
-            status: 'issued',
-            issuedAt: now,
-            dueAt: new Date(now.getTime() + 30 * 86400000),
-            currency: 'USD',
-            subtotalCents: 800,
-            taxCents: 64,
-            totalCents: 864,
-            metadata: null,
-            createdAt: now,
-            updatedAt: now,
-          },
-        ],
-        // 4. insert line items returning
-        [
-          { id: 'li-1', description: 'Energy charge', totalCents: 500 },
-          { id: 'li-2', description: 'Time charge', totalCents: 200 },
-          { id: 'li-3', description: 'Session fee', totalCents: 100 },
-          { id: 'li-4', description: 'Tax', totalCents: 64, taxCents: 64 },
-        ],
-      );
+    await createSessionInvoice('ses_1');
 
-      const result = await createSessionInvoice(sessionId);
+    expect(insertedLines().map((l) => l.description)).toEqual(['Energy charge']);
+  });
 
-      expect(result.invoice.id).toBe(invoiceId);
-      expect(result.invoice.status).toBe('issued');
-      expect(result.invoice.totalCents).toBe(864);
-      expect(result.lineItems).toHaveLength(4);
+  it('bills the stored reservation holding fee', async () => {
+    // Held 10 minutes at 0.10: 100 net, 19 tax.
+    queue('chargingSessions', [
+      session({
+        costBreakdown: stored(
+          tariff('0.30', '0.19', { reservationFeePerMinute: '0.10' }),
+          10_000,
+          10,
+        ),
+        finalCostCents: 357 + 119,
+      }),
+    ]);
+    queue('invoiceLineItems', []);
+
+    await createSessionInvoice('ses_1');
+
+    expect(insertedLines().map((l) => [l.metadata['kind'], l.totalCents, l.taxCents])).toEqual([
+      ['energy', 300, 57],
+      ['reservationFee', 100, 19],
+    ]);
+    expect(insertedInvoice()['totalCents']).toBe(476);
+  });
+
+  it('itemizes a split session per segment at each segment rate', async () => {
+    // Segment 1: 10 kWh at 0.30, 19% -> 300 + 57. Segment 2: 5 kWh at 0.30, 7% -> 150 + 11.
+    queue('chargingSessions', [session({ costBreakdown: storedSplit(), finalCostCents: 518 })]);
+    queue('invoiceLineItems', []);
+
+    await createSessionInvoice('ses_1');
+
+    expect(
+      insertedLines().map((l) => [l.description, l.metadata, l.totalCents, l.taxCents, l.taxRate]),
+    ).toEqual([
+      ['Segment 1 energy charge', { kind: 'energy', segment: 1 }, 300, 57, '0.19'],
+      ['Segment 2 energy charge', { kind: 'energy', segment: 2 }, 150, 11, '0.07'],
+    ]);
+    expect(insertedInvoice()).toMatchObject({ subtotalCents: 450, taxCents: 68, totalCents: 518 });
+  });
+
+  it('prints gross-basis lines whose net plus tax is each gross amount charged', async () => {
+    // Gross prices: 10 kWh at 0.357 = 357, session fee 1.19 = 119. 476 gross, 400 net.
+    queue('chargingSessions', [
+      session({
+        costBreakdown: stored(
+          tariff('0.357', '0.19', { pricePerSession: '1.19' }),
+          10_000,
+          0,
+          'gross',
+        ),
+        finalCostCents: 476,
+      }),
+    ]);
+    queue('invoiceLineItems', []);
+
+    await createSessionInvoice('ses_1');
+
+    expect(
+      insertedLines().map((l) => [l.metadata['kind'], l.totalCents + l.taxCents, l.taxCents]),
+    ).toEqual([
+      ['energy', 357, 57],
+      ['sessionFee', 119, 19],
+    ]);
+    expect(insertedInvoice()).toMatchObject({ subtotalCents: 400, taxCents: 76, totalCents: 476 });
+  });
+
+  it('writes one line per rate for a breakdown without components (backfilled sessions)', async () => {
+    queue('chargingSessions', [
+      session({ costBreakdown: chargedCostBreakdown(400, 0.19, 'net'), finalCostCents: 400 }),
+    ]);
+    queue('invoiceLineItems', []);
+
+    await createSessionInvoice('ses_1');
+
+    expect(insertedLines()).toHaveLength(1);
+    expect(insertedLines()[0]).toMatchObject({
+      totalCents: 336,
+      taxCents: 64,
+      taxRate: '0.19',
+      metadata: { kind: 'session', sessionDate: '2026-06-04', energyWh: 10_000 },
     });
+    expect(insertedInvoice()).toMatchObject({ subtotalCents: 336, taxCents: 64, totalCents: 400 });
+  });
 
-    it('throws when session is not found', async () => {
-      setupDbResults([]);
+  it('splits the charged amount at the snapshot rate when no breakdown is stored for it', async () => {
+    // The stored breakdown is for 357, the session was charged 400.
+    queue('chargingSessions', [session({ finalCostCents: 400 })]);
+    queue('invoiceLineItems', []);
 
-      await expect(createSessionInvoice('nonexistent')).rejects.toThrow('Session not found');
+    await createSessionInvoice('ses_1');
+
+    expect(insertedLines().map((l) => [l.taxRate, l.totalCents, l.taxCents])).toEqual([
+      ['0.19', 336, 64],
+    ]);
+    expect(insertedInvoice()['totalCents']).toBe(400);
+  });
+
+  it('bills a session without a tariff as one untaxed line', async () => {
+    queue('chargingSessions', [
+      session({
+        tariffTaxRate: null,
+        costBreakdown: chargedCostBreakdown(1500, 0, 'net'),
+        finalCostCents: 1500,
+      }),
+    ]);
+    queue('invoiceLineItems', []);
+
+    await createSessionInvoice('ses_1');
+
+    expect(insertedLines()).toHaveLength(1);
+    expect(insertedLines()[0]).toMatchObject({ totalCents: 1500, taxCents: 0, taxRate: '0' });
+    expect(insertedInvoice()).toMatchObject({ subtotalCents: 1500, taxCents: 0, totalCents: 1500 });
+  });
+
+  it('keeps one zero line for a session charged nothing', async () => {
+    queue('chargingSessions', [
+      session({
+        energyDeliveredWh: '0',
+        costBreakdown: chargedCostBreakdown(0, 0.19, 'net'),
+        finalCostCents: 0,
+      }),
+    ]);
+    queue('invoiceLineItems', []);
+
+    await createSessionInvoice('ses_1');
+
+    expect(insertedLines()).toHaveLength(1);
+    expect(insertedLines()[0]).toMatchObject({ totalCents: 0, taxCents: 0 });
+  });
+
+  it('throws when the session is not found', async () => {
+    queue('chargingSessions', []);
+    await expect(createSessionInvoice('missing')).rejects.toThrow('Session not found');
+  });
+
+  it('throws when the session is not completed', async () => {
+    queue('chargingSessions', [session({ status: 'active' })]);
+    await expect(createSessionInvoice('ses_1')).rejects.toThrow('Session is not completed');
+  });
+
+  it('throws when a completed session has no final cost', async () => {
+    queue('chargingSessions', [session({ finalCostCents: null })]);
+    await expect(createSessionInvoice('ses_1')).rejects.toThrow('no finalCostCents');
+  });
+
+  it('throws when the session is already invoiced', async () => {
+    queue('chargingSessions', [session()]);
+    queue('invoiceLineItems', [{ id: 7 }]);
+    await expect(createSessionInvoice('ses_1')).rejects.toThrow('already invoiced');
+    expect(h.state.inserted['invoices']).toBeUndefined();
+  });
+
+  it('throws when the invoice insert returns no row', async () => {
+    h.state.failInvoiceInsert = true;
+    queue('chargingSessions', [session()]);
+    queue('invoiceLineItems', []);
+    await expect(createSessionInvoice('ses_1')).rejects.toThrow('Failed to create invoice');
+  });
+});
+
+describe('createAggregatedInvoice', () => {
+  const start = new Date('2026-06-01T00:00:00Z');
+  const end = new Date('2026-06-30T23:59:59Z');
+
+  it('splits each session by its stored tax lines and totals what the driver was charged', async () => {
+    queue('chargingSessions', [
+      session({
+        id: 'ses_a',
+        costBreakdown: chargedCostBreakdown(1190, 0.19, 'net'),
+        finalCostCents: 1190,
+      }),
+      session({ id: 'ses_b', costBreakdown: storedSplit(), finalCostCents: 518 }),
+      session({
+        id: 'ses_c',
+        tariffTaxRate: '0',
+        costBreakdown: chargedCostBreakdown(250, 0, 'net'),
+        finalCostCents: 250,
+      }),
+    ]);
+
+    await createAggregatedInvoice('drv_1', start, end);
+
+    expect(insertedLines().map((l) => [l.sessionId, l.taxRate, l.totalCents, l.taxCents])).toEqual([
+      ['ses_a', '0.19', 1000, 190],
+      ['ses_b', '0.07', 150, 11],
+      ['ses_b', '0.19', 300, 57],
+      ['ses_c', '0', 250, 0],
+    ]);
+    expect(insertedLines()[0]?.metadata).toEqual({
+      kind: 'session',
+      sessionDate: '2026-06-04',
+      energyWh: 10_000,
     });
-
-    it('throws when session is not completed', async () => {
-      setupDbResults([
-        {
-          id: 'session-123',
-          driverId: 'driver-789',
-          tariffId: null,
-          energyDeliveredWh: null,
-          startedAt: new Date(),
-          endedAt: null,
-          finalCostCents: null,
-          currency: 'USD',
-          status: 'active',
-          idleMinutes: '0',
-          tariffPricePerKwh: null,
-          tariffPricePerMinute: null,
-          tariffPricePerSession: null,
-          tariffIdleFeePricePerMinute: null,
-          tariffTaxRate: null,
-        },
-      ]);
-
-      await expect(createSessionInvoice('session-123')).rejects.toThrow('Session is not completed');
-    });
-
-    it('throws when a completed session has no finalCostCents', async () => {
-      setupDbResults([
-        {
-          id: 'session-x',
-          driverId: 'd1',
-          tariffId: null,
-          energyDeliveredWh: '1000',
-          startedAt: new Date(),
-          endedAt: new Date(),
-          finalCostCents: null,
-          currency: 'USD',
-          status: 'completed',
-          idleMinutes: '0',
-          tariffPricePerKwh: null,
-          tariffPricePerMinute: null,
-          tariffPricePerSession: null,
-          tariffIdleFeePricePerMinute: null,
-          tariffTaxRate: null,
-        },
-      ]);
-
-      await expect(createSessionInvoice('session-x')).rejects.toThrow(
-        'cannot invoice an uncosted session',
-      );
-    });
-
-    it('creates a single line item from final cost when the session has no tariff', async () => {
-      const now = new Date();
-      setupDbResults(
-        [
-          {
-            id: 'ses-no-tariff',
-            driverId: 'd1',
-            tariffId: null, // no tariff -> costBreakdown stays null
-            energyDeliveredWh: '5000',
-            startedAt: new Date(now.getTime() - 3600000),
-            endedAt: now,
-            finalCostCents: 700,
-            currency: 'USD',
-            status: 'completed',
-            idleMinutes: '0',
-            tariffPricePerKwh: null,
-            tariffPricePerMinute: null,
-            tariffPricePerSession: null,
-            tariffIdleFeePricePerMinute: null,
-            tariffTaxRate: null, // taxRate 0 -> subtotal == total branch
-          },
-        ],
-        [], // segments: single tariff
-        [{ id: 'inv-1', totalCents: 700, status: 'issued' }], // invoice insert
-        [{ id: 'li-1', description: 'Charging session', totalCents: 700 }], // line items
-      );
-
-      const result = await createSessionInvoice('ses-no-tariff');
-
-      expect(result.lineItems).toHaveLength(1);
-      expect(result.lineItems[0]?.description).toBe('Charging session');
-    });
-
-    it('derives subtotal and tax from finalCostCents when no tariff but a tax rate exists', async () => {
-      const now = new Date();
-      setupDbResults(
-        [
-          {
-            id: 'ses-tax',
-            driverId: 'd1',
-            tariffId: null,
-            energyDeliveredWh: '5000',
-            startedAt: new Date(now.getTime() - 3600000),
-            endedAt: now,
-            finalCostCents: 1080,
-            currency: 'USD',
-            status: 'completed',
-            idleMinutes: '0',
-            tariffPricePerKwh: null,
-            tariffPricePerMinute: null,
-            tariffPricePerSession: null,
-            tariffIdleFeePricePerMinute: null,
-            tariffTaxRate: '0.08', // taxRate>0 with null costBreakdown
-          },
-        ],
-        [],
-        [{ id: 'inv-2', totalCents: 1080, status: 'issued' }],
-        [{ id: 'li-1', description: 'Charging session', totalCents: 1000 }],
-      );
-
-      const result = await createSessionInvoice('ses-tax');
-
-      // 1080 / 1.08 = 1000 subtotal, 80 tax.
-      expect(result.invoice.id).toBe('inv-2');
-    });
-
-    it('emits an idle-fee line item when the single-tariff breakdown has an idle fee', async () => {
-      vi.mocked(calculateSessionCost).mockReturnValueOnce({
-        energyCostCents: 500,
-        timeCostCents: 0,
-        sessionFeeCents: 0,
-        idleFeeCents: 150,
-        reservationHoldingFeeCents: 0,
-        subtotalCents: 650,
-        taxCents: 0,
-        totalCents: 650,
-      });
-      const now = new Date();
-      setupDbResults(
-        [
-          {
-            id: 'ses-idle',
-            driverId: 'd1',
-            tariffId: 'trf-1',
-            energyDeliveredWh: '5000',
-            startedAt: new Date(now.getTime() - 3600000),
-            endedAt: now,
-            finalCostCents: 650,
-            currency: 'USD',
-            status: 'completed',
-            idleMinutes: '10',
-            tariffPricePerKwh: '0.25',
-            tariffPricePerMinute: null,
-            tariffPricePerSession: null,
-            tariffIdleFeePricePerMinute: '0.15',
-            tariffTaxRate: null,
-          },
-        ],
-        [], // single tariff
-        [{ id: 'inv-3', totalCents: 650, status: 'issued' }],
-        [
-          { id: 'li-1', description: 'Energy charge', totalCents: 500 },
-          { id: 'li-2', description: 'Idle fee', totalCents: 150 },
-        ],
-      );
-
-      const result = await createSessionInvoice('ses-idle');
-
-      expect(result.lineItems.some((li) => li.description === 'Idle fee')).toBe(true);
-    });
-
-    it('builds multi-segment line items for split billing', async () => {
-      const now = new Date();
-      const seg1Start = new Date(now.getTime() - 3600000);
-      const seg2Start = new Date(now.getTime() - 1800000);
-      // Per-segment calculateSessionCost outputs (consumed in order).
-      vi.mocked(calculateSessionCost)
-        .mockReturnValueOnce({
-          energyCostCents: 300,
-          timeCostCents: 100,
-          sessionFeeCents: 200,
-          idleFeeCents: 50,
-          reservationHoldingFeeCents: 0,
-          subtotalCents: 650,
-          taxCents: 0,
-          totalCents: 650,
-        })
-        .mockReturnValueOnce({
-          energyCostCents: 300,
-          timeCostCents: 200,
-          sessionFeeCents: 0,
-          idleFeeCents: 0,
-          reservationHoldingFeeCents: 0,
-          subtotalCents: 500,
-          taxCents: 0,
-          totalCents: 500,
-        });
-
-      setupDbResults(
-        // 1. session
-        [
-          {
-            id: 'ses-split',
-            driverId: 'd1',
-            tariffId: 'trf-1',
-            energyDeliveredWh: '12000',
-            startedAt: seg1Start,
-            endedAt: now,
-            finalCostCents: 1188,
-            currency: 'USD',
-            status: 'completed',
-            idleMinutes: '5',
-            tariffPricePerKwh: '0.25',
-            tariffPricePerMinute: '0.05',
-            tariffPricePerSession: '2.00',
-            tariffIdleFeePricePerMinute: '0.15',
-            tariffTaxRate: '0.08',
-          },
-        ],
-        // 2. segments (two -> split billing)
-        [
-          {
-            startedAt: seg1Start,
-            endedAt: seg2Start,
-            energyWhStart: '0',
-            energyWhEnd: '6000',
-            idleMinutes: '3',
-            tariffId: 'trf-1',
-          },
-          {
-            startedAt: seg2Start,
-            endedAt: now,
-            energyWhStart: '6000',
-            energyWhEnd: '12000',
-            idleMinutes: '2',
-            tariffId: 'trf-2',
-          },
-        ],
-        // 3. tariffs IN query
-        [
-          {
-            id: 'trf-1',
-            pricePerKwh: '0.25',
-            pricePerMinute: '0.05',
-            pricePerSession: '2.00',
-            idleFeePricePerMinute: '0.15',
-            reservationFeePerMinute: null,
-            taxRate: '0.08',
-            currency: 'USD',
-          },
-          {
-            id: 'trf-2',
-            pricePerKwh: '0.30',
-            pricePerMinute: '0.05',
-            pricePerSession: null,
-            idleFeePricePerMinute: '0.15',
-            reservationFeePerMinute: null,
-            taxRate: '0.08',
-            currency: 'USD',
-          },
-        ],
-        // 4. invoice insert
-        [{ id: 'inv-split', totalCents: 1188, status: 'issued', taxCents: 88 }],
-        // 5. line items insert
-        [
-          { id: 'li-1', description: 'Segment 1 energy charge', totalCents: 300 },
-          { id: 'li-2', description: 'Segment 1 time charge', totalCents: 100 },
-          { id: 'li-3', description: 'Session fee', totalCents: 200 },
-          { id: 'li-4', description: 'Segment 1 idle fee', totalCents: 50 },
-          { id: 'li-5', description: 'Segment 2 energy charge', totalCents: 300 },
-          { id: 'li-6', description: 'Segment 2 time charge', totalCents: 200 },
-          { id: 'li-7', description: 'Tax', totalCents: 88 },
-        ],
-      );
-
-      const result = await createSessionInvoice('ses-split');
-
-      expect(result.invoice.id).toBe('inv-split');
-      expect(result.lineItems.length).toBeGreaterThan(4);
-    });
-
-    it('throws when the invoice insert returns no row', async () => {
-      const now = new Date();
-      setupDbResults(
-        [
-          {
-            id: 'ses-fail',
-            driverId: 'd1',
-            tariffId: null,
-            energyDeliveredWh: '1000',
-            startedAt: new Date(now.getTime() - 3600000),
-            endedAt: now,
-            finalCostCents: 500,
-            currency: 'USD',
-            status: 'completed',
-            idleMinutes: '0',
-            tariffPricePerKwh: null,
-            tariffPricePerMinute: null,
-            tariffPricePerSession: null,
-            tariffIdleFeePricePerMinute: null,
-            tariffTaxRate: null,
-          },
-        ],
-        [], // segments
-        [], // invoice insert returns nothing
-      );
-
-      await expect(createSessionInvoice('ses-fail')).rejects.toThrow('Failed to create invoice');
+    expect(insertedInvoice()).toMatchObject({
+      subtotalCents: 1700,
+      taxCents: 258,
+      totalCents: 1958,
+      currency: 'EUR',
     });
   });
 
-  describe('createAggregatedInvoice', () => {
-    it('creates invoice with tax breakdown from session tariff rates', async () => {
-      const driverId = 'driver-789';
-      const invoiceId = 'invoice-agg-1';
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
+  it('keeps a zero line for a session charged nothing so it counts as invoiced', async () => {
+    queue('chargingSessions', [
+      session({ costBreakdown: chargedCostBreakdown(0, 0.19, 'net'), finalCostCents: 0 }),
+    ]);
 
-      setupDbResults(
-        // 1. sessions query (leftJoin -> where)
-        [
-          {
-            id: 'session-1',
-            finalCostCents: 540,
-            currency: 'USD',
-            startedAt: new Date('2026-01-05'),
-            endedAt: new Date('2026-01-05T02:00:00Z'),
-            energyDeliveredWh: '8000',
-            tariffTaxRate: '0.08',
-          },
-          {
-            id: 'session-2',
-            finalCostCents: 324,
-            currency: 'USD',
-            startedAt: new Date('2026-01-15'),
-            endedAt: new Date('2026-01-15T01:30:00Z'),
-            energyDeliveredWh: '5000',
-            tariffTaxRate: '0.08',
-          },
-        ],
-        // 2. insert invoice returning (generateInvoiceNumber uses db.execute, not chained queries)
-        [
-          {
-            id: invoiceId,
-            invoiceNumber: `INV-${String(year)}${month}-0001`,
-            driverId,
-            status: 'issued',
-            issuedAt: now,
-            dueAt: new Date(now.getTime() + 30 * 86400000),
-            currency: 'USD',
-            subtotalCents: 800,
-            taxCents: 64,
-            totalCents: 864,
-            metadata: null,
-            createdAt: now,
-            updatedAt: now,
-          },
-        ],
-        // 3. insert line items returning
-        [
-          {
-            id: 'li-1',
-            invoiceId,
-            sessionId: 'session-1',
-            description: 'Charging session 2026-01-05 (8.00 kWh)',
-            totalCents: 500,
-            taxCents: 40,
-          },
-          {
-            id: 'li-2',
-            invoiceId,
-            sessionId: 'session-2',
-            description: 'Charging session 2026-01-15 (5.00 kWh)',
-            totalCents: 300,
-            taxCents: 24,
-          },
-        ],
-      );
+    await createAggregatedInvoice('drv_1', start, end);
 
-      const result = await createAggregatedInvoice(
-        driverId,
-        new Date('2026-01-01'),
-        new Date('2026-01-31'),
-      );
+    expect(insertedLines()).toHaveLength(1);
+    expect(insertedInvoice()['totalCents']).toBe(0);
+  });
 
-      expect(result.invoice.id).toBe(invoiceId);
-      expect(result.invoice.status).toBe('issued');
-      expect(result.lineItems).toHaveLength(2);
+  it('adds one line per reservation fee charged, at the rate it was taxed at', async () => {
+    queue('chargingSessions', [session({ id: 'ses_a', finalCostCents: 1190 })]);
+    queue('sessionTariffSegments', []);
+    queue('paymentRecords', [
+      {
+        id: 7,
+        chargeType: 'reservation_cancellation',
+        capturedAmountCents: 595,
+        taxRate: '0.19',
+        createdAt: new Date('2026-06-05T08:00:00Z'),
+      },
+      {
+        id: 8,
+        chargeType: 'reservation_no_show',
+        capturedAmountCents: 300,
+        taxRate: '0',
+        createdAt: new Date('2026-06-06T08:00:00Z'),
+      },
+    ]);
+
+    await createAggregatedInvoice('drv_1', start, end);
+
+    expect(
+      insertedLines().map((l) => [
+        l.sessionId,
+        l.paymentRecordId,
+        l.taxRate,
+        l.totalCents,
+        l.taxCents,
+      ]),
+    ).toEqual([
+      ['ses_a', null, '0.19', 1000, 190],
+      [null, 7, '0.19', 500, 95],
+      [null, 8, '0', 300, 0],
+    ]);
+    expect(insertedLines()[1]?.metadata).toEqual({
+      kind: 'cancellationFee',
+      chargeDate: '2026-06-05',
     });
-
-    it('throws an AppError with INVOICE_NO_SESSIONS when no uninvoiced sessions found', async () => {
-      setupDbResults([]);
-
-      await expect(
-        createAggregatedInvoice('driver-789', new Date('2026-01-01'), new Date('2026-01-31')),
-      ).rejects.toMatchObject({
-        message: 'No uninvoiced sessions found for this driver in the given date range',
-        statusCode: 400,
-        code: 'INVOICE_NO_SESSIONS',
-      });
-    });
-
-    it('handles a zero-tax session and a null endedAt/null energy session', async () => {
-      setupDbResults(
-        [
-          {
-            id: 'session-1',
-            finalCostCents: 500,
-            currency: 'USD',
-            startedAt: new Date('2026-01-05'),
-            endedAt: null, // -> 'unknown' date
-            energyDeliveredWh: null, // -> '0' kWh
-            tariffTaxRate: null, // -> taxRate 0 branch
-          },
-        ],
-        [{ id: 'inv-agg', totalCents: 500, status: 'issued' }],
-        [{ id: 'li-1', description: 'Charging session unknown (0 kWh)', totalCents: 500 }],
-      );
-
-      const result = await createAggregatedInvoice(
-        'd1',
-        new Date('2026-01-01'),
-        new Date('2026-01-31'),
-      );
-
-      expect(result.lineItems).toHaveLength(1);
-      expect(result.lineItems[0]?.description).toContain('unknown');
-    });
-
-    it('throws when the aggregated invoice insert returns no row', async () => {
-      setupDbResults(
-        [
-          {
-            id: 'session-1',
-            finalCostCents: 500,
-            currency: 'USD',
-            startedAt: new Date('2026-01-05'),
-            endedAt: new Date('2026-01-05T02:00:00Z'),
-            energyDeliveredWh: '5000',
-            tariffTaxRate: '0.08',
-          },
-        ],
-        [], // invoice insert -> nothing
-      );
-
-      await expect(
-        createAggregatedInvoice('d1', new Date('2026-01-01'), new Date('2026-01-31')),
-      ).rejects.toThrow('Failed to create invoice');
+    expect(insertedLines()[2]?.metadata).toEqual({ kind: 'noShowFee', chargeDate: '2026-06-06' });
+    expect(insertedInvoice()).toMatchObject({
+      subtotalCents: 1800,
+      taxCents: 285,
+      totalCents: 2085,
     });
   });
 
-  describe('getInvoice', () => {
-    it('returns the invoice with its line items when found', async () => {
-      const invoice = { id: 'inv-1', invoiceNumber: 'INV-202601-0001', status: 'issued' };
-      const lineItems = [{ id: 'li-1', invoiceId: 'inv-1', description: 'Energy charge' }];
-      setupDbResults([invoice], lineItems);
+  it('invoices reservation fees without sessions', async () => {
+    queue('chargingSessions', []);
+    queue('paymentRecords', [
+      {
+        id: 9,
+        chargeType: 'reservation_cancellation',
+        capturedAmountCents: 595,
+        taxRate: '0.19',
+        createdAt: new Date('2026-06-05T08:00:00Z'),
+      },
+    ]);
 
-      const result = await getInvoice('inv-1');
+    await createAggregatedInvoice('drv_1', start, end);
 
-      expect(result).toEqual({ invoice, lineItems, driver: null });
-    });
+    expect(insertedInvoice()).toMatchObject({ totalCents: 595, taxCents: 95 });
+  });
 
-    it('includes the driver when the invoice has a driverId', async () => {
-      const invoice = {
-        id: 'inv-2',
-        invoiceNumber: 'INV-202601-0002',
-        status: 'issued',
-        driverId: 'drv-1',
-      };
-      const lineItems = [{ id: 'li-2', invoiceId: 'inv-2', description: 'Energy charge' }];
-      const driver = { id: 'drv-1', firstName: 'Ada', lastName: 'Lovelace', email: 'ada@test.com' };
-      setupDbResults([invoice], lineItems, [driver]);
-
-      const result = await getInvoice('inv-2');
-
-      expect(result).toEqual({ invoice, lineItems, driver });
-    });
-
-    it('returns null when the invoice does not exist', async () => {
-      setupDbResults([]);
-
-      const result = await getInvoice('missing');
-
-      expect(result).toBeNull();
+  it('throws INVOICE_NO_SESSIONS when nothing is left to invoice', async () => {
+    queue('chargingSessions', []);
+    await expect(createAggregatedInvoice('drv_1', start, end)).rejects.toMatchObject({
+      code: 'INVOICE_NO_SESSIONS',
+      statusCode: 400,
     });
   });
 
-  describe('voidInvoice', () => {
-    it('sets invoice status to void', async () => {
-      const invoiceId = 'invoice-123';
-      const now = new Date();
+  it('throws when the invoice insert returns no row', async () => {
+    h.state.failInvoiceInsert = true;
+    queue('chargingSessions', [session()]);
+    await expect(createAggregatedInvoice('drv_1', start, end)).rejects.toThrow(
+      'Failed to create invoice',
+    );
+  });
+});
 
-      setupDbResults(
-        // 1. select invoice
-        [
-          {
-            id: invoiceId,
-            invoiceNumber: 'INV-202602-0001',
-            driverId: 'driver-789',
-            status: 'issued',
-            issuedAt: now,
-            dueAt: new Date(now.getTime() + 30 * 86400000),
-            currency: 'USD',
-            subtotalCents: 800,
-            taxCents: 64,
-            totalCents: 864,
-            metadata: null,
-            createdAt: now,
-            updatedAt: now,
-          },
-        ],
-        // 2. update returning
-        [
-          {
-            id: invoiceId,
-            invoiceNumber: 'INV-202602-0001',
-            driverId: 'driver-789',
-            status: 'void',
-            issuedAt: now,
-            dueAt: new Date(now.getTime() + 30 * 86400000),
-            currency: 'USD',
-            subtotalCents: 800,
-            taxCents: 64,
-            totalCents: 864,
-            metadata: null,
-            createdAt: now,
-            updatedAt: now,
-          },
-        ],
-      );
+describe('getInvoice', () => {
+  const invoice = { id: 'inv_1', driverId: 'drv_1', status: 'issued' };
 
-      const result = await voidInvoice(invoiceId);
+  it('returns line items, the driver with language, and the tax breakdown per rate', async () => {
+    queue('invoices', [invoice]);
+    queue('invoiceLineItems', [
+      { id: 1, totalCents: 300, taxCents: 57, taxRate: '0.19' },
+      { id: 2, totalCents: 150, taxCents: 11, taxRate: '0.07' },
+      { id: 3, totalCents: 100, taxCents: 19, taxRate: '0.1900' },
+    ]);
+    queue('drivers', [
+      { id: 'drv_1', firstName: 'Ana', lastName: 'Diaz', email: 'a@x.test', language: 'de' },
+    ]);
 
-      expect(result).not.toBeNull();
-      expect(result?.status).toBe('void');
-    });
+    const result = await getInvoice('inv_1');
 
-    it('returns null when invoice not found', async () => {
-      setupDbResults([]);
+    expect(result?.driver?.language).toBe('de');
+    expect(result?.lineItems).toHaveLength(3);
+    expect(result?.taxBreakdown).toEqual([
+      { taxRate: 0.07, netCents: 150, taxCents: 11, grossCents: 161 },
+      { taxRate: 0.19, netCents: 400, taxCents: 76, grossCents: 476 },
+    ]);
+  });
 
-      const result = await voidInvoice('nonexistent');
+  it('returns a null driver without a driverId', async () => {
+    queue('invoices', [{ ...invoice, driverId: null }]);
+    queue('invoiceLineItems', []);
+    const result = await getInvoice('inv_1');
+    expect(result?.driver).toBeNull();
+    expect(result?.taxBreakdown).toEqual([]);
+  });
 
-      expect(result).toBeNull();
-    });
+  it('returns null when the invoice does not exist', async () => {
+    queue('invoices', []);
+    expect(await getInvoice('missing')).toBeNull();
+  });
+});
 
-    it('returns existing invoice when already void', async () => {
-      const invoiceId = 'invoice-123';
-      const now = new Date();
+describe('voidInvoice', () => {
+  it('sets the status to void', async () => {
+    queue('invoices', [{ id: 'inv_1', status: 'issued' }]);
+    queue('update', [{ id: 'inv_1', status: 'void' }]);
+    expect((await voidInvoice('inv_1'))?.status).toBe('void');
+  });
 
-      setupDbResults([
-        {
-          id: invoiceId,
-          invoiceNumber: 'INV-202602-0001',
-          driverId: 'driver-789',
-          status: 'void',
-          issuedAt: now,
-          dueAt: new Date(now.getTime() + 30 * 86400000),
-          currency: 'USD',
-          subtotalCents: 800,
-          taxCents: 64,
-          totalCents: 864,
-          metadata: null,
-          createdAt: now,
-          updatedAt: now,
-        },
-      ]);
+  it('returns the invoice unchanged when already void', async () => {
+    queue('invoices', [{ id: 'inv_1', status: 'void' }]);
+    expect((await voidInvoice('inv_1'))?.status).toBe('void');
+  });
 
-      const result = await voidInvoice(invoiceId);
-
-      expect(result?.status).toBe('void');
-    });
+  it('returns null when the invoice does not exist', async () => {
+    queue('invoices', []);
+    expect(await voidInvoice('missing')).toBeNull();
   });
 });

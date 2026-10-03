@@ -48,7 +48,7 @@ vi.mock('@evtivity/database', () => ({
     select: vi.fn(() => makeSelectChain()),
     insert: vi.fn(() => makeInsertChain()),
   },
-  ocpiPartners: { id: {}, countryCode: {}, partyId: {} },
+  ocpiPartners: { id: {}, countryCode: {}, partyId: {}, version: {} },
   ocpiPartnerEndpoints: { url: {}, partnerId: {}, module: {}, interfaceRole: {} },
   ocpiExternalLocations: { partnerId: {}, countryCode: {}, partyId: {}, locationId: {} },
   ocpiExternalTariffs: { partnerId: {}, countryCode: {}, partyId: {}, tariffId: {} },
@@ -67,7 +67,7 @@ vi.mock('../lib/outbound-token.js', () => ({
   getOutboundToken: vi.fn(() => Promise.resolve('outbound-token')),
 }));
 
-import { pullLocations } from '../services/pull.service.js';
+import { pullCdrs, pullLocations } from '../services/pull.service.js';
 
 // Endpoint lookup then partner-info lookup (the two SELECTs in pullLocations).
 function primePartnerLookups(): void {
@@ -194,5 +194,63 @@ describe('pullLocations', () => {
     expect(res.objectsCount).toBe(1);
     expect(getPaginatedEachMock).toHaveBeenCalledOnce();
     expect(freeRedis.eval).toHaveBeenCalled(); // lock released
+  });
+});
+
+describe('pullCdrs', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    inserts = [];
+    getPaginatedEachMock.mockReset();
+  });
+
+  function cdr(id: string, totalCost: unknown): Record<string, unknown> {
+    return { id, total_energy: 10, currency: 'EUR', total_cost: totalCost };
+  }
+
+  function primeCdrLookups(version: string | null): void {
+    selectResults = [
+      [{ url: 'http://127.0.0.1/cdrs' }],
+      [{ countryCode: 'DE', partyId: 'ABC', version }],
+      [], // no CDR of the page stored yet
+    ];
+    selectIndex = 0;
+  }
+
+  const insertedCdrs = (): Array<Record<string, unknown>> =>
+    inserts
+      .filter((i) => !i.upserted && Array.isArray(i.value))
+      .flatMap((i) => i.value as Array<Record<string, unknown>>);
+
+  it('stores excl_vat from a 2.2.1 partner and skips CDRs without that Price', async () => {
+    primeCdrLookups('2.2.1');
+    getPaginatedEachMock.mockImplementation(
+      async (_url: string, onPage: (p: unknown[]) => Promise<void>) => {
+        await onPage([
+          cdr('a', { excl_vat: 4, incl_vat: 4.76 }),
+          cdr('b', { before_taxes: 4 }),
+          cdr('c', { excl_vat: '4.00' }),
+        ]);
+      },
+    );
+
+    const res = await pullCdrs('opr_1');
+
+    expect(res).toEqual({ module: 'cdrs', objectsCount: 1, status: 'completed' });
+    expect(insertedCdrs()).toEqual([expect.objectContaining({ ocpiCdrId: 'a', totalCost: '4' })]);
+  });
+
+  it('stores before_taxes from a 2.3.0 partner', async () => {
+    primeCdrLookups('2.3.0');
+    getPaginatedEachMock.mockImplementation(
+      async (_url: string, onPage: (p: unknown[]) => Promise<void>) => {
+        await onPage([cdr('a', { before_taxes: 4, taxes: [{ name: 'VAT', amount: 0.76 }] })]);
+      },
+    );
+
+    const res = await pullCdrs('opr_1');
+
+    expect(res.objectsCount).toBe(1);
+    expect(insertedCdrs()).toEqual([expect.objectContaining({ ocpiCdrId: 'a', totalCost: '4' })]);
   });
 });

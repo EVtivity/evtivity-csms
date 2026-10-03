@@ -29,6 +29,14 @@ RUN node scripts/build.mjs api
 
 FROM node:24-slim
 
+# Noto Sans CJK (Regular and Bold collections) for Korean and Chinese invoice
+# PDFs (packages/api/src/services/invoice-pdf-fonts.ts). The dpkg exclude
+# skips the package's serif collections, which the PDF does not use.
+RUN echo 'path-exclude=/usr/share/fonts/opentype/noto/NotoSerifCJK-*' > /etc/dpkg/dpkg.cfg.d/exclude-noto-serif-cjk \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY package.json package-lock.json ./

@@ -15,16 +15,26 @@ import {
   meterValues,
   stationMessagePushes,
   getStationMessagePricingFormat,
+  getStationMessageLanguage,
   isStationMessageEnabled,
   getCompanyCurrency,
+  getCompanyPriceDisplay,
+  getCompanyTaxBasis,
 } from '@evtivity/database';
 import {
-  formatPricingDisplay,
+  buildStationPriceContext,
+  formatStationIdleFeeRate,
+  formatStationQuantity,
+  formatStationTime,
   renderStationMessage,
+  stationTaxNoteContext,
+  taxRateFraction,
+  type StationMessageLanguage,
   type StationMessageState,
   type StationMessageContext,
   type Subscription,
   formatCurrencyAmount,
+  resolveTaxBasis,
 } from '@evtivity/lib';
 import type { FastifyBaseLogger } from 'fastify';
 import { resolveTariff } from './tariff.service.js';
@@ -189,7 +199,10 @@ interface IdleResolution {
   reservationExpiresAt?: string;
 }
 
-async function resolveIdleState(internalStationId: string): Promise<IdleResolution> {
+async function resolveIdleState(
+  internalStationId: string,
+  language: StationMessageLanguage,
+): Promise<IdleResolution> {
   const connectorRows = await db
     .select({ status: connectors.status })
     .from(connectors)
@@ -225,7 +238,7 @@ async function resolveIdleState(internalStationId: string): Promise<IdleResoluti
       result.driverFirstName = reservation.driverFirstName;
     }
     if (reservation?.expiresAt != null) {
-      result.reservationExpiresAt = formatExpiresAt(reservation.expiresAt);
+      result.reservationExpiresAt = formatStationTime(reservation.expiresAt, language);
     }
     return result;
   }
@@ -248,14 +261,6 @@ async function resolveIdleState(internalStationId: string): Promise<IdleResoluti
   }
 
   return { state: 'available' };
-}
-
-function formatExpiresAt(date: Date): string {
-  return date.toLocaleString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
 }
 
 export async function pushAllStationMessages(
@@ -281,24 +286,39 @@ export async function pushAllStationMessages(
 
   if (station == null) return;
 
-  const [{ companyName, supportPhone }, format, idle, currency] = await Promise.all([
+  const language = await getStationMessageLanguage();
+  const [
+    { companyName, supportPhone },
+    pricingFormat,
+    idle,
+    currency,
+    priceDisplay,
+    taxBasis,
+    tariff,
+  ] = await Promise.all([
     getCompanySettings(),
     getStationMessagePricingFormat(),
-    resolveIdleState(internalStationId),
+    resolveIdleState(internalStationId, language),
     getCompanyCurrency(),
+    getCompanyPriceDisplay(),
+    getCompanyTaxBasis(),
+    resolveTariff(internalStationId, null),
   ]);
 
-  const tariff = await resolveTariff(internalStationId, null);
-  const pricingDisplay =
-    tariff != null
-      ? formatPricingDisplay(tariff, format === 'compact' ? 'compact' : 'standard', currency)
-      : '';
-
+  // Prices at the point of sale follow company.priceDisplay: gross adds the
+  // tariff tax (EU Price Indication Directive 98/6/EC, PAngV).
   const baseCtx: StationMessageContext = {
     companyName,
     stationOcppId,
     supportPhone,
-    pricingDisplay,
+    ...buildStationPriceContext({
+      tariff,
+      priceDisplay,
+      taxBasis,
+      pricingFormat,
+      currency,
+      language,
+    }),
   };
 
   const idleCtx: StationMessageContext = { ...baseCtx };
@@ -310,7 +330,7 @@ export async function pushAllStationMessages(
   }
 
   try {
-    const idleContent = await renderStationMessage(idle.state, idleCtx);
+    const idleContent = await renderStationMessage(idle.state, idleCtx, language);
     await dispatchAndUpsert(
       internalStationId,
       stationOcppId,
@@ -322,7 +342,7 @@ export async function pushAllStationMessages(
       log,
     );
 
-    const faultedContent = await renderStationMessage('faulted', baseCtx);
+    const faultedContent = await renderStationMessage('faulted', baseCtx, language);
     await dispatchAndUpsert(
       internalStationId,
       stationOcppId,
@@ -334,7 +354,7 @@ export async function pushAllStationMessages(
       log,
     );
 
-    const unavailableContent = await renderStationMessage('unavailable', baseCtx);
+    const unavailableContent = await renderStationMessage('unavailable', baseCtx, language);
     await dispatchAndUpsert(
       internalStationId,
       stationOcppId,
@@ -394,6 +414,8 @@ export interface TransactionSessionRow {
   currency: string;
   chargingState: string | null;
   tariffIdleFeePricePerMinute: string | number | null;
+  taxBasis: string | null;
+  tariffTaxRate: string | number | null;
 }
 
 interface TransactionMapping {
@@ -439,21 +461,7 @@ function formatElapsed(startedAt: Date | string | null): string {
   return `${hours.toString()}h ${mins.toString()}m`;
 }
 
-function formatRatePerMinute(ratePerMinute: string | number | null, currency: string): string {
-  if (ratePerMinute == null) return '';
-  const rate = typeof ratePerMinute === 'string' ? Number(ratePerMinute) : ratePerMinute;
-  if (!Number.isFinite(rate) || rate <= 0) return '';
-  try {
-    return `${new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency,
-    }).format(rate)}/min`;
-  } catch {
-    return `${rate.toFixed(2)} ${currency}/min`;
-  }
-}
-
-async function getLatestPowerKw(sessionId: string): Promise<string> {
+async function getLatestPowerKw(sessionId: string): Promise<number | null> {
   const rows = await db
     .select({ value: meterValues.value, unit: meterValues.unit })
     .from(meterValues)
@@ -464,13 +472,13 @@ async function getLatestPowerKw(sessionId: string): Promise<string> {
     .limit(1);
 
   const row = rows[0];
-  if (row == null) return '';
+  if (row == null) return null;
   let kw = Number(row.value);
-  if (!Number.isFinite(kw)) return '';
+  if (!Number.isFinite(kw)) return null;
   if (row.unit == null || row.unit === 'W') {
     kw = kw / 1000;
   }
-  return kw.toFixed(1);
+  return kw;
 }
 
 async function getDriverFirstName(driverId: string | null): Promise<string | undefined> {
@@ -550,29 +558,43 @@ export async function pushTransactionMessage(
   }
 
   const energyWh = sessionRow.energyDeliveredWh != null ? Number(sessionRow.energyDeliveredWh) : 0;
-  const energyKwh = (energyWh / 1000).toFixed(1);
 
-  const [{ companyName, supportPhone }, powerKw, driverFirstName] = await Promise.all([
-    getCompanySettings(),
-    getLatestPowerKw(sessionRow.id),
-    getDriverFirstName(sessionRow.driverId),
-  ]);
+  const [{ companyName, supportPhone }, powerKw, driverFirstName, language, priceDisplay] =
+    await Promise.all([
+      getCompanySettings(),
+      getLatestPowerKw(sessionRow.id),
+      getDriverFirstName(sessionRow.driverId),
+      getStationMessageLanguage(),
+      getCompanyPriceDisplay(),
+    ]);
 
-  const costFormatted = formatCurrencyAmount(sessionRow.currentCostCents ?? 0, sessionRow.currency);
-  const elapsedFormatted = formatElapsed(sessionRow.startedAt);
-  const idleFeeRate = formatRatePerMinute(
-    sessionRow.tariffIdleFeePricePerMinute,
+  // The session cost always includes tax. The idle fee rate is a unit price,
+  // shown net or gross per company.priceDisplay at the session's tax rate.
+  const costFormatted = formatCurrencyAmount(
+    sessionRow.currentCostCents ?? 0,
     sessionRow.currency,
+    language,
   );
+  const elapsedFormatted = formatElapsed(sessionRow.startedAt);
+  const idleFeeRate = formatStationIdleFeeRate({
+    pricePerMinute: sessionRow.tariffIdleFeePricePerMinute,
+    taxRate: sessionRow.tariffTaxRate,
+    priceDisplay,
+    // The session's prices are in the basis it was priced in.
+    taxBasis: resolveTaxBasis(sessionRow.taxBasis),
+    currency: sessionRow.currency,
+    language,
+  });
 
   const ctx: StationMessageContext = {
     companyName,
     stationOcppId,
     supportPhone,
-    energyKwh,
-    powerKw,
+    energyKwh: formatStationQuantity(energyWh / 1000, language),
+    powerKw: powerKw == null ? '' : formatStationQuantity(powerKw, language),
     costFormatted,
     elapsedFormatted,
+    ...stationTaxNoteContext(taxRateFraction(sessionRow.tariffTaxRate), priceDisplay, language),
   };
   if (idleFeeRate.length > 0) {
     ctx.idleFeeRate = idleFeeRate;
@@ -583,7 +605,7 @@ export async function pushTransactionMessage(
 
   let content: string;
   try {
-    content = await renderStationMessage(mapping.templateState, ctx);
+    content = await renderStationMessage(mapping.templateState, ctx, language);
   } catch (err: unknown) {
     log.warn(
       { stationId: stationOcppId, templateState: mapping.templateState, error: err },
@@ -723,6 +745,8 @@ async function loadTransactionSessionById(
       currentCostCents: chargingSessions.currentCostCents,
       currency: sessionCurrencySql(),
       tariffIdleFeePricePerMinute: chargingSessions.tariffIdleFeePricePerMinute,
+      taxBasis: chargingSessions.taxBasis,
+      tariffTaxRate: chargingSessions.tariffTaxRate,
     })
     .from(chargingSessions)
     .where(eq(chargingSessions.id, sessionId))
@@ -742,6 +766,8 @@ async function loadTransactionSessionById(
     currency: row.currency,
     chargingState: null,
     tariffIdleFeePricePerMinute: row.tariffIdleFeePricePerMinute,
+    taxBasis: row.taxBasis,
+    tariffTaxRate: row.tariffTaxRate,
   };
 }
 

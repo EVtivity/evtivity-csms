@@ -15,7 +15,9 @@ import { sessionCurrencySql } from '../../lib/company-currency.js';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
-import { formatCurrencyAmount } from '@evtivity/lib';
+import { splitGrossByTaxRate, vatPercentFromFraction } from '@evtivity/lib';
+import { storedCostBreakdown } from '../../lib/session-tax.js';
+import { csvMoneyRows, moneyCell, pdfMoneyRows } from './report-money.js';
 import type { ReportGeneratorResult } from '../report.service.js';
 
 interface Filters {
@@ -79,7 +81,16 @@ interface SessionRow {
   endedAt: string | null;
   durationMinutes: number;
   energyKwh: number;
+  /** Final cost, or the running cost while the session is active; tax included. */
   costCents: number;
+  /** True when costCents is the final cost. */
+  costIsFinal: boolean;
+  /** Net amount and tax in costCents, split at the session's tariff tax rate. */
+  netCents: number;
+  taxCents: number;
+  /** Tax rate as a percentage (19), 0 without one. */
+  taxRatePercent: number;
+  refundedCents: number;
   currency: string;
   stoppedReason: string;
   paymentSource: string;
@@ -122,7 +133,20 @@ async function querySessionLog(filters: Filters, tz: string): Promise<SessionLog
       endedAt: sql<string>`${chargingSessions.endedAt} AT TIME ZONE ${tz}`,
       durationMinutes: sql<number>`coalesce(extract(epoch from (${chargingSessions.endedAt} - ${chargingSessions.startedAt})) / 60, 0)`,
       energyKwh: sql<number>`coalesce(${chargingSessions.energyDeliveredWh}::numeric / 1000, 0)`,
-      costCents: sql<number>`coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}, 0)`,
+      costCents:
+        sql<number>`coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}, 0)`.mapWith(
+          Number,
+        ),
+      costIsFinal: sql<boolean>`${chargingSessions.finalCostCents} IS NOT NULL`,
+      tariffTaxRate: chargingSessions.tariffTaxRate,
+      costBreakdown: chargingSessions.costBreakdown,
+      refundedCents: sql<number>`coalesce((
+        SELECT pr.refunded_amount_cents
+        FROM ${paymentRecords} pr
+        WHERE pr.session_id = ${chargingSessions.id}
+        ORDER BY pr.created_at DESC
+        LIMIT 1
+      ), 0)`.mapWith(Number),
       currency: sessionCurrencySql(),
       stoppedReason: sql<string>`coalesce(${chargingSessions.stoppedReason}, '')`,
       paymentSource: sql<string>`coalesce((
@@ -146,23 +170,37 @@ async function querySessionLog(filters: Filters, tz: string): Promise<SessionLog
   const truncated = rows.length > SESSION_LIMIT;
   const trimmed = truncated ? rows.slice(0, SESSION_LIMIT) : rows;
 
-  const mapped = trimmed.map((r) => ({
-    sessionId: r.sessionId,
-    transactionId: r.transactionId,
-    stationName: r.stationName,
-    siteName: r.siteName,
-    driverName: [r.driverFirstName, r.driverLastName].filter(Boolean).join(' '),
-    driverEmail: r.driverEmail,
-    status: r.status,
-    startedAt: r.startedAt,
-    endedAt: r.endedAt,
-    durationMinutes: Math.round(r.durationMinutes * 10) / 10,
-    energyKwh: Math.round(r.energyKwh * 100) / 100,
-    costCents: r.costCents,
-    currency: r.currency,
-    stoppedReason: r.stoppedReason,
-    paymentSource: r.paymentSource,
-  }));
+  const mapped = trimmed.map((r) => {
+    // The net amount and tax stored with the cost by the cost assembly (exact
+    // per tariff segment). A cost without a stored split (written outside the
+    // assembly) is split at the session's tariff rate.
+    const taxRate = Number(r.tariffTaxRate ?? 0);
+    const split =
+      storedCostBreakdown({ costCents: r.costCents, costBreakdown: r.costBreakdown }) ??
+      splitGrossByTaxRate(r.costCents, taxRate);
+    return {
+      sessionId: r.sessionId,
+      transactionId: r.transactionId,
+      stationName: r.stationName,
+      siteName: r.siteName,
+      driverName: [r.driverFirstName, r.driverLastName].filter(Boolean).join(' '),
+      driverEmail: r.driverEmail,
+      status: r.status,
+      startedAt: r.startedAt,
+      endedAt: r.endedAt,
+      durationMinutes: Math.round(r.durationMinutes * 10) / 10,
+      energyKwh: Math.round(r.energyKwh * 100) / 100,
+      costCents: r.costCents,
+      costIsFinal: r.costIsFinal,
+      netCents: split.netCents,
+      taxCents: split.taxCents,
+      taxRatePercent: vatPercentFromFraction(taxRate),
+      refundedCents: r.refundedCents,
+      currency: r.currency,
+      stoppedReason: r.stoppedReason,
+      paymentSource: r.paymentSource,
+    };
+  });
 
   return { rows: mapped, truncated };
 }
@@ -219,37 +257,53 @@ export async function generateSessionsReport(
 
   const dateLabel = [filters.dateFrom, filters.dateTo].filter(Boolean).join(' to ') || 'All time';
 
+  // Money columns are numbers in each session's currency (Currency column).
+  const sessionHeaders = [
+    'Transaction ID',
+    'Station',
+    'Site',
+    'Driver',
+    'Email',
+    'Status',
+    'Started',
+    'Ended',
+    'Duration (min)',
+    'Energy (kWh)',
+    'Cost (incl. tax)',
+    'Cost Final',
+    'Net',
+    'Tax',
+    'Tax Rate (%)',
+    'Refunded',
+    'Currency',
+    'Stopped Reason',
+    'Payment Source',
+  ];
+  const sessionRows: unknown[][] = sessions.map((s) => [
+    s.transactionId,
+    s.stationName,
+    s.siteName,
+    s.driverName,
+    s.driverEmail,
+    s.status,
+    s.startedAt,
+    s.endedAt,
+    s.durationMinutes,
+    s.energyKwh,
+    moneyCell(s.costCents, s.currency),
+    s.costIsFinal ? 'yes' : 'no',
+    moneyCell(s.netCents, s.currency),
+    moneyCell(s.taxCents, s.currency),
+    s.taxRatePercent,
+    moneyCell(s.refundedCents, s.currency),
+    s.currency,
+    s.stoppedReason,
+    s.paymentSource,
+  ]);
+
   if (format === 'csv') {
-    const headers = [
-      'Transaction ID',
-      'Station',
-      'Site',
-      'Driver',
-      'Email',
-      'Status',
-      'Started',
-      'Ended',
-      'Duration (min)',
-      'Energy (kWh)',
-      'Cost',
-      'Stopped Reason',
-      'Payment Source',
-    ];
-    const rows: unknown[][] = sessions.map((s) => [
-      s.transactionId,
-      s.stationName,
-      s.siteName,
-      s.driverName,
-      s.driverEmail,
-      s.status,
-      s.startedAt,
-      s.endedAt,
-      s.durationMinutes,
-      s.energyKwh,
-      formatCurrencyAmount(s.costCents, s.currency),
-      s.stoppedReason,
-      s.paymentSource,
-    ]);
+    const headers = sessionHeaders;
+    const rows: unknown[][] = csvMoneyRows(sessionRows);
 
     if (failedSummary.length > 0) {
       rows.push([]);
@@ -273,36 +327,8 @@ export async function generateSessionsReport(
     const tables: Array<{ name: string; headers: string[]; rows: unknown[][] }> = [
       {
         name: 'Sessions',
-        headers: [
-          'Transaction ID',
-          'Station',
-          'Site',
-          'Driver',
-          'Email',
-          'Status',
-          'Started',
-          'Ended',
-          'Duration (min)',
-          'Energy (kWh)',
-          'Cost',
-          'Stopped Reason',
-          'Payment Source',
-        ],
-        rows: sessions.map((s) => [
-          s.transactionId,
-          s.stationName,
-          s.siteName,
-          s.driverName,
-          s.driverEmail,
-          s.status,
-          s.startedAt,
-          s.endedAt,
-          s.durationMinutes,
-          s.energyKwh,
-          formatCurrencyAmount(s.costCents, s.currency),
-          s.stoppedReason,
-          s.paymentSource,
-        ]),
+        headers: sessionHeaders,
+        rows: sessionRows,
       },
     ];
 
@@ -335,19 +361,21 @@ export async function generateSessionsReport(
   }
 
   pdf.addTable(
-    ['Txn ID', 'Station', 'Site', 'Driver', 'Status', 'Duration', 'kWh', 'Cost'],
-    sessions
-      .slice(0, 500)
-      .map((s) => [
-        s.transactionId.slice(0, 8),
-        s.stationName,
-        s.siteName,
-        s.driverName,
-        s.status,
-        `${String(s.durationMinutes)}m`,
-        parseFloat(String(s.energyKwh)).toFixed(1),
-        formatCurrencyAmount(s.costCents, s.currency),
-      ]),
+    ['Txn ID', 'Station', 'Site', 'Driver', 'Status', 'Duration', 'kWh', 'Cost (incl. tax)'],
+    pdfMoneyRows(
+      sessions
+        .slice(0, 500)
+        .map((s) => [
+          s.transactionId.slice(0, 8),
+          s.stationName,
+          s.siteName,
+          s.driverName,
+          s.status,
+          `${String(s.durationMinutes)}m`,
+          parseFloat(String(s.energyKwh)).toFixed(1),
+          moneyCell(s.costCents, s.currency),
+        ]),
+    ),
   );
 
   if (failedSummary.length > 0) {

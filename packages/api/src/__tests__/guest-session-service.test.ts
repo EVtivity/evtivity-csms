@@ -122,15 +122,33 @@ vi.mock('postgres', () => ({
   }),
 }));
 
-vi.mock('@evtivity/lib', () => ({
-  dispatchSystemNotification: mockDispatchSystemNotification,
-}));
+vi.mock('@evtivity/lib', async () => {
+  const actual = await vi.importActual<typeof import('@evtivity/lib')>('@evtivity/lib');
+  return {
+    costIncludesTax: actual.costIncludesTax,
+    notificationMoney: actual.notificationMoney,
+    sessionChargeTax: actual.sessionChargeTax,
+    formatLocalizedVariables: actual.formatLocalizedVariables,
+    dispatchSystemNotification: mockDispatchSystemNotification,
+  };
+});
 
 vi.mock('../lib/template-dirs.js', () => ({
   ALL_TEMPLATES_DIRS: ['/mock/templates'],
   API_TEMPLATES_DIR: '/mock/templates',
   OCPP_TEMPLATES_DIR: '/mock/templates',
 }));
+
+/** Matches a notification value that the dispatcher formats as `text` for an en-US recipient. */
+function formatsTo(text: string): unknown {
+  return {
+    asymmetricMatch: (value: unknown) =>
+      value != null &&
+      typeof (value as { format?: unknown }).format === 'function' &&
+      (value as { format: (locale: string) => string }).format('en-US') === text,
+    toString: () => `formatsTo(${text})`,
+  };
+}
 
 // -- Import under test (after mocks) --
 
@@ -332,7 +350,7 @@ describe('guest-session.service', () => {
       setupDbResults(
         [{ id: 'guest-1', guestEmail: 'guest@test.com', stationOcppId: 'CS-001' }],
         [{ id: 'pr-1', stripePaymentIntentId: 'pi_abc' }],
-        [{ finalCostCents: 3500, stationId: 'station-1' }],
+        [{ finalCostCents: 3500, tariffTaxRate: '0.19', stationId: 'station-1' }],
         [{ siteId: 'site-1' }],
         [],
         [],
@@ -341,11 +359,14 @@ describe('guest-session.service', () => {
       await fireEvent({ type: 'TransactionEnded', sessionId: 'session-1' });
       await tick();
 
+      // The session's tax rate goes along: the platform fee is a percent of
+      // the net amount captured.
       expect(mockCapturePayment).toHaveBeenCalledWith(
         expect.anything(),
         'pi_abc',
         3500,
         'capture_pr-1',
+        0.19,
       );
       expect(mockLogger.info).toHaveBeenCalledWith(
         { guestSessionId: 'guest-1', amountCents: 3500 },
@@ -413,6 +434,7 @@ describe('guest-session.service', () => {
           {
             energyDeliveredWh: '5000',
             finalCostCents: 0,
+            tariffTaxRate: null,
             currency: 'USD',
             startedAt: '2026-01-01T00:00:00Z',
             endedAt: '2026-01-01T01:00:00Z',
@@ -430,7 +452,38 @@ describe('guest-session.service', () => {
         expect.objectContaining({
           stationId: 'CS-001',
           currency: 'USD',
+          costFormatted: formatsTo('$0.00'),
+          costIncludesTax: false,
         }),
+        expect.any(Array),
+      );
+    });
+
+    it('formats a taxed guest receipt cost and marks it as including tax', async () => {
+      setupDbResults(
+        [{ id: 'guest-1', guestEmail: 'receipt@test.com', stationOcppId: 'CS-001' }],
+        [],
+        [],
+        [
+          {
+            energyDeliveredWh: '5000',
+            finalCostCents: 1190,
+            tariffTaxRate: '0.19',
+            currency: 'EUR',
+            startedAt: '2026-01-01T00:00:00Z',
+            endedAt: '2026-01-01T01:00:00Z',
+          },
+        ],
+      );
+
+      await fireEvent({ type: 'TransactionEnded', sessionId: 'session-1' });
+      await tick();
+
+      expect(mockDispatchSystemNotification).toHaveBeenCalledWith(
+        expect.anything(),
+        'session.Receipt',
+        { email: 'receipt@test.com' },
+        expect.objectContaining({ costFormatted: formatsTo('€11.90'), costIncludesTax: true }),
         expect.any(Array),
       );
     });

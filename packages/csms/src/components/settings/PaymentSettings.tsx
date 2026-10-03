@@ -17,6 +17,8 @@ import { Label } from '@/components/ui/label';
 import { Toggle } from '@/components/ui/toggle';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
+import { useCompanyCurrency } from '@/hooks/use-company-currency';
+import { centsToMajorInput, parseMajorInputToCents } from '@evtivity/lib/currency';
 
 interface PaymentSettingsProps {
   settings: Record<string, unknown> | undefined;
@@ -43,11 +45,11 @@ interface SitePaymentConfig {
   isEnabled: boolean;
 }
 
-function preAuthCentsError(value: string, t: TFunction): string | undefined {
+/** Pre-auth amounts are typed in the currency (major units) and stored in cents. */
+function preAuthAmountError(value: string, t: TFunction): string | undefined {
   if (value.trim() === '') return t('validation.required');
-  const n = Number(value);
-  if (!Number.isInteger(n)) return t('validation.invalidNumber');
-  if (n < 0) return t('validation.min', { min: 0 });
+  if (Number(value) < 0) return t('validation.min', { min: 0 });
+  if (parseMajorInputToCents(value) == null) return t('validation.invalidNumber');
   return undefined;
 }
 
@@ -68,14 +70,15 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
 
   const [stripeSecretKey, setStripeSecretKey] = useState('');
   const [stripePublishableKey, setStripePublishableKey] = useState('');
-  const [stripePreAuthCents, setStripePreAuthCents] = useState('5000');
+  const { currency } = useCompanyCurrency();
+  const [stripePreAuthAmount, setStripePreAuthAmount] = useState(centsToMajorInput(5000));
   const [stripePlatformFee, setStripePlatformFee] = useState('0');
   const [stripeHasSubmitted, setStripeHasSubmitted] = useState(false);
   const [stripeHasUnsavedChanges, setStripeHasUnsavedChanges] = useState(false);
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
 
   const [siteConnectedAccountId, setSiteConnectedAccountId] = useState('');
-  const [sitePreAuthCents, setSitePreAuthCents] = useState('5000');
+  const [sitePreAuthAmount, setSitePreAuthAmount] = useState(centsToMajorInput(5000));
   const [sitePlatformFee, setSitePlatformFee] = useState('');
   const [siteHasSubmitted, setSiteHasSubmitted] = useState(false);
   const [siteHasUnsavedChanges, setSiteHasUnsavedChanges] = useState(false);
@@ -132,13 +135,13 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
   useEffect(() => {
     if (selectedSiteConfig != null) {
       setSiteConnectedAccountId(selectedSiteConfig.stripeConnectedAccountId ?? '');
-      setSitePreAuthCents(String(selectedSiteConfig.preAuthAmountCents));
+      setSitePreAuthAmount(centsToMajorInput(selectedSiteConfig.preAuthAmountCents));
       setSitePlatformFee(
         selectedSiteConfig.platformFeePercent != null ? selectedSiteConfig.platformFeePercent : '',
       );
     } else if (selectedSiteId != null) {
       setSiteConnectedAccountId('');
-      setSitePreAuthCents('5000');
+      setSitePreAuthAmount(centsToMajorInput(5000));
       setSitePlatformFee('');
     }
     setSiteHasSubmitted(false);
@@ -153,7 +156,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
     setStripeSecretKey(
       typeof stripeSettings.secretKey === 'string' ? stripeSettings.secretKey : '',
     );
-    setStripePreAuthCents(String(stripeSettings.preAuthAmountCents));
+    setStripePreAuthAmount(centsToMajorInput(stripeSettings.preAuthAmountCents));
     setStripePlatformFee(String(stripeSettings.platformFeePercent));
     setStripeHasSubmitted(false);
     setStripeHasUnsavedChanges(false);
@@ -209,7 +212,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
 
   function getStripeValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
-    const preAuth = preAuthCentsError(stripePreAuthCents, t);
+    const preAuth = preAuthAmountError(stripePreAuthAmount, t);
     if (preAuth != null) errors.preAuthAmountCents = preAuth;
     const fee = percentError(stripePlatformFee, t, true);
     if (fee != null) errors.platformFeePercent = fee;
@@ -218,7 +221,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
 
   function getSiteValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
-    const preAuth = preAuthCentsError(sitePreAuthCents, t);
+    const preAuth = preAuthAmountError(sitePreAuthAmount, t);
     if (preAuth != null) errors.preAuthAmountCents = preAuth;
     const fee = percentError(sitePlatformFee, t, false);
     if (fee != null) errors.platformFeePercent = fee;
@@ -238,7 +241,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
       preAuthAmountCents: number;
       platformFeePercent: number;
     } = {
-      preAuthAmountCents: Number(stripePreAuthCents),
+      preAuthAmountCents: parseMajorInputToCents(stripePreAuthAmount) ?? 0,
       platformFeePercent: Number(stripePlatformFee),
     };
     if (stripeSecretKey !== '') vals.secretKey = stripeSecretKey;
@@ -254,7 +257,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
     sitePaymentSaveMutation.mutate({
       siteId: selectedSiteId,
       stripeConnectedAccountId: siteConnectedAccountId !== '' ? siteConnectedAccountId : undefined,
-      preAuthAmountCents: Number(sitePreAuthCents),
+      preAuthAmountCents: parseMajorInputToCents(sitePreAuthAmount) ?? 0,
       platformFeePercent: sitePlatformFee !== '' ? Number(sitePlatformFee) : null,
       isEnabled: paymentConfigMap.get(selectedSiteId)?.isEnabled ?? true,
     });
@@ -322,13 +325,17 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="stripe-pre-auth">{t('settings.stripePreAuthAmount')}</Label>
+                  <Label htmlFor="stripe-pre-auth">
+                    {t('settings.stripePreAuthAmount', { currency: currency ?? '...' })}
+                  </Label>
                   <Input
                     id="stripe-pre-auth"
                     type="number"
-                    value={stripePreAuthCents}
+                    min={0}
+                    step="0.01"
+                    value={stripePreAuthAmount}
                     onChange={(e) => {
-                      setStripePreAuthCents(e.target.value);
+                      setStripePreAuthAmount(e.target.value);
                       markStripeChanged();
                     }}
                     className={
@@ -499,13 +506,17 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="site-pre-auth">{t('payments.preAuthAmount')}</Label>
+                        <Label htmlFor="site-pre-auth">
+                          {t('settings.stripePreAuthAmount', { currency: currency ?? '...' })}
+                        </Label>
                         <Input
                           id="site-pre-auth"
                           type="number"
-                          value={sitePreAuthCents}
+                          min={0}
+                          step="0.01"
+                          value={sitePreAuthAmount}
                           onChange={(e) => {
-                            setSitePreAuthCents(e.target.value);
+                            setSitePreAuthAmount(e.target.value);
                             markSiteChanged();
                           }}
                           className={
@@ -520,7 +531,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
                           </p>
                         )}
                         <p className="text-xs text-muted-foreground">
-                          {t('payments.amountInCents')}
+                          {t('settings.stripePreAuthHint')}
                         </p>
                       </div>
 

@@ -345,6 +345,11 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'transactionId', description: 'Transaction ID' },
     { name: 'energyDeliveredWh', description: 'Energy in Wh' },
     { name: 'currentCostCents', description: 'Current cost in cents' },
+    { name: 'costFormatted', description: 'Cost with currency, including tax' },
+    {
+      name: 'costIncludesTax',
+      description: 'Whether the cost contains tax (a tariff tax rate applied); use with #if',
+    },
     { name: 'currency', description: 'Currency code' },
     { name: 'durationMinutes', description: 'Duration in minutes' },
   ],
@@ -357,6 +362,11 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'transactionId', description: 'Transaction ID' },
     { name: 'energyDeliveredWh', description: 'Energy in Wh' },
     { name: 'finalCostCents', description: 'Final cost in cents' },
+    { name: 'costFormatted', description: 'Cost with currency, including tax' },
+    {
+      name: 'costIncludesTax',
+      description: 'Whether the cost contains tax (a tariff tax rate applied); use with #if',
+    },
     { name: 'currency', description: 'Currency code' },
     { name: 'durationMinutes', description: 'Duration in minutes' },
     { name: 'startedAt', description: 'Start timestamp' },
@@ -376,6 +386,10 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'siteName', description: 'Site name' },
     { name: 'stationId', description: 'Station identifier' },
     { name: 'transactionId', description: 'Transaction ID' },
+    {
+      name: 'amountFormatted',
+      description: 'Amount with currency, in the driver language (e.g. $12.50)',
+    },
     { name: 'amountCents', description: 'Payment amount in cents' },
     { name: 'currency', description: 'Currency code' },
   ],
@@ -388,7 +402,14 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'transactionId', description: 'Transaction ID' },
     { name: 'idleStartedAt', description: 'When idling started' },
     { name: 'gracePeriodMinutes', description: 'Grace period in minutes' },
-    { name: 'idleFeePricePerMinute', description: 'Idle fee rate per minute' },
+    { name: 'idleFeePricePerMinute', description: 'Idle fee rate per minute, excluding tax' },
+    {
+      name: 'idleFeeFormatted',
+      description:
+        'Idle fee per minute with currency, including or excluding tax as the driver chose; empty without an idle fee',
+    },
+    { name: 'idleFeeIncludesTax', description: 'Whether idleFeeFormatted includes tax' },
+    { name: 'taxRatePercent', description: 'Tariff tax rate in percent; empty without tax' },
     { name: 'currency', description: 'Currency code' },
   ],
   'driver.Welcome': [
@@ -427,6 +448,10 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'firstName', description: 'Driver first name' },
     { name: 'lastName', description: 'Driver last name' },
     { name: 'email', description: 'Driver email address' },
+    {
+      name: 'amountFormatted',
+      description: 'Amount with currency, in the driver language (e.g. $12.50)',
+    },
     { name: 'amountCents', description: 'Payment amount in cents' },
     { name: 'currency', description: 'Currency code' },
     { name: 'transactionId', description: 'Transaction ID' },
@@ -435,6 +460,10 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'firstName', description: 'Driver first name' },
     { name: 'lastName', description: 'Driver last name' },
     { name: 'email', description: 'Driver email address' },
+    {
+      name: 'amountFormatted',
+      description: 'Refund amount with currency, in the driver language (e.g. $12.50)',
+    },
     { name: 'amountCents', description: 'Refund amount in cents' },
     { name: 'currency', description: 'Currency code' },
     { name: 'transactionId', description: 'Session ID' },
@@ -451,7 +480,10 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'lastName', description: 'Driver last name' },
     { name: 'stationId', description: 'Station OCPP identifier' },
     { name: 'transactionId', description: 'Transaction ID' },
-    { name: 'amountFormatted', description: 'Formatted amount (e.g. $12.50)' },
+    {
+      name: 'amountFormatted',
+      description: 'Amount with currency, in the driver language (e.g. $12.50)',
+    },
     { name: 'reason', description: 'Failure reason' },
   ],
   'payment.MissingPaymentMethod': [
@@ -474,7 +506,16 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'email', description: 'Driver email address' },
     { name: 'reservationId', description: 'Reservation ID' },
     { name: 'stationId', description: 'Station OCPP identifier' },
-    { name: 'cancellationFeeFormatted', description: 'Formatted cancellation fee (e.g. $5.00)' },
+    {
+      name: 'cancellationFeeFormatted',
+      description:
+        'Cancellation fee charged, tax included, with currency in the driver language (e.g. $5.95); empty without a fee',
+    },
+    {
+      name: 'cancellationFeeCents',
+      description: 'Cancellation fee charged in cents, tax included',
+    },
+    { name: 'currency', description: 'Currency code' },
   ],
   'reservation.CancelledForMaintenance': [
     { name: 'firstName', description: 'Driver first name' },
@@ -520,6 +561,11 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'transactionId', description: 'Transaction ID' },
     { name: 'energyDeliveredWh', description: 'Energy in Wh' },
     { name: 'finalCostCents', description: 'Final cost in cents' },
+    { name: 'costFormatted', description: 'Cost with currency, including tax' },
+    {
+      name: 'costIncludesTax',
+      description: 'Whether the cost contains tax (a tariff tax rate applied); use with #if',
+    },
     { name: 'currency', description: 'Currency code' },
     { name: 'durationMinutes', description: 'Duration in minutes' },
     { name: 'startedAt', description: 'Start timestamp' },
@@ -532,7 +578,12 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'status', description: 'Invoice status' },
     { name: 'issuedAt', description: 'Issued timestamp' },
     { name: 'dueAt', description: 'Due timestamp' },
-    { name: 'total', description: 'Invoice total amount' },
+    {
+      name: 'total',
+      description: 'Invoice total with currency, in the driver language (e.g. $12.50)',
+    },
+    { name: 'totalCents', description: 'Invoice total in cents' },
+    { name: 'currency', description: 'Currency code' },
     { name: 'companyName', description: 'Company name' },
   ],
   'watch.StationAvailable': [

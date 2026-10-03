@@ -1,13 +1,19 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql, and, gte, lte, eq, count } from 'drizzle-orm';
+import { sql, and, gte, lte, eq, count, type SQL } from 'drizzle-orm';
 import { db, chargingSessions, drivers, getCompanyCurrency } from '@evtivity/database';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
-import { formatCurrencyAmount } from '@evtivity/lib';
-import { inCompanyCurrency } from '../../lib/company-currency.js';
+import { queryRevenue, revenueItem } from '../../lib/session-revenue.js';
+import {
+  csvMoneyRows,
+  moneyCell,
+  moneyHeader,
+  pdfMoneyRows,
+  type MoneyCell,
+} from './report-money.js';
 import type { ReportGeneratorResult } from '../report.service.js';
 
 interface Filters {
@@ -22,16 +28,21 @@ function parseFilters(raw: Record<string, unknown>): Filters {
   };
 }
 
-function buildDateConditions(filters: Filters) {
-  const conditions = [];
-  if (filters.dateFrom) {
-    conditions.push(gte(chargingSessions.startedAt, new Date(filters.dateFrom)));
-  }
+function dateBounds(filters: Filters): { from: Date | null; to: Date | null } {
+  const from = filters.dateFrom ? new Date(filters.dateFrom) : null;
+  let to: Date | null = null;
   if (filters.dateTo) {
-    const to = new Date(filters.dateTo);
+    to = new Date(filters.dateTo);
     to.setHours(23, 59, 59, 999);
-    conditions.push(lte(chargingSessions.startedAt, to));
   }
+  return { from, to };
+}
+
+function buildDateConditions(filters: Filters) {
+  const { from, to } = dateBounds(filters);
+  const conditions = [];
+  if (from != null) conditions.push(gte(chargingSessions.startedAt, from));
+  if (to != null) conditions.push(lte(chargingSessions.startedAt, to));
   return conditions;
 }
 
@@ -54,12 +65,12 @@ async function queryDriverActivity(filters: Filters, currency: string): Promise<
 
   const rows = await db
     .select({
+      driverId: drivers.id,
       driverFirstName: sql<string>`coalesce(${drivers.firstName}, '')`,
       driverLastName: sql<string>`coalesce(${drivers.lastName}, '')`,
       driverEmail: sql<string>`coalesce(${drivers.email}, '')`,
       sessionCount: count(),
       totalKwh: sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric / 1000), 0)`,
-      totalSpendCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where ${inCompanyCurrency(chargingSessions.currency, currency)}), 0)`,
       avgDurationMinutes: sql<number>`coalesce(avg(extract(epoch from (coalesce(${chargingSessions.endedAt}, now()) - ${chargingSessions.startedAt})) / 60), 0)`,
       firstSession: sql<string>`min(${chargingSessions.startedAt})::text`,
       lastSession: sql<string>`max(${chargingSessions.startedAt})::text`,
@@ -68,15 +79,29 @@ async function queryDriverActivity(filters: Filters, currency: string): Promise<
     .innerJoin(drivers, eq(chargingSessions.driverId, drivers.id))
     .where(and(...conditions))
     .groupBy(drivers.id, drivers.firstName, drivers.lastName, drivers.email)
-    .orderBy(sql`4 desc`)
+    .orderBy(sql`5 desc`)
     .limit(500);
+
+  // Spend is the drivers' revenue (session-revenue.ts): ended sessions and
+  // reservation fees billed in the company currency, minus refunds.
+  const { from, to } = dateBounds(filters);
+  const where: SQL[] = [
+    sql`${revenueItem.driverId} IN (${sql.join(
+      rows.length > 0 ? rows.map((r) => sql`${r.driverId}`) : [sql`NULL`],
+      sql`, `,
+    )})`,
+  ];
+  if (from != null)
+    where.push(sql`${revenueItem.occurredAt} >= ${from.toISOString()}::timestamptz`);
+  if (to != null) where.push(sql`${revenueItem.occurredAt} <= ${to.toISOString()}::timestamptz`);
+  const spend = await queryRevenue({ companyCurrency: currency, key: revenueItem.driverId, where });
 
   return rows.map((r) => ({
     driverName: [r.driverFirstName, r.driverLastName].filter(Boolean).join(' '),
     driverEmail: r.driverEmail,
     sessionCount: r.sessionCount,
     totalKwh: Math.round(r.totalKwh * 100) / 100,
-    totalSpendCents: r.totalSpendCents,
+    totalSpendCents: spend.get(r.driverId)?.grossCents ?? 0,
     avgDurationMinutes: Math.round(r.avgDurationMinutes * 10) / 10,
     firstSession: r.firstSession,
     lastSession: r.lastSession,
@@ -96,59 +121,36 @@ export async function generateDriverActivityReport(
   const totalSessions = driverActivity.reduce((s, r) => s + r.sessionCount, 0);
   const totalKwh = driverActivity.reduce((s, r) => s + r.totalKwh, 0);
 
-  if (format === 'csv') {
-    const headers = [
-      'Driver',
-      'Email',
-      'Sessions',
-      'Total kWh',
-      'Total Spend',
-      'Avg Duration (min)',
-      'First Session',
-      'Last Session',
-    ];
-    const rows: unknown[][] = driverActivity.map((d) => [
-      d.driverName,
-      d.driverEmail,
-      d.sessionCount,
-      parseFloat(String(d.totalKwh)).toFixed(2),
-      formatCurrencyAmount(d.totalSpendCents, currency),
-      d.avgDurationMinutes,
-      d.firstSession,
-      d.lastSession,
-    ]);
+  const spendHeader = moneyHeader('Total Spend', currency, 'incl. tax');
+  const headers = [
+    'Driver',
+    'Email',
+    'Sessions',
+    'Total kWh',
+    spendHeader,
+    'Avg Duration (min)',
+    'First Session',
+    'Last Session',
+  ];
+  const rows: unknown[][] = driverActivity.map((d) => [
+    d.driverName,
+    d.driverEmail,
+    d.sessionCount,
+    Math.round(d.totalKwh * 100) / 100,
+    moneyCell(d.totalSpendCents, currency),
+    d.avgDurationMinutes,
+    d.firstSession,
+    d.lastSession,
+  ]);
 
-    const csv = buildCsv(headers, rows);
+  if (format === 'csv') {
+    const csv = buildCsv(headers, csvMoneyRows(rows));
     return {
       data: Buffer.from(csv, 'utf-8'),
       fileName: `driver-activity-${String(Date.now())}.csv`,
     };
   } else if (format === 'xlsx') {
-    const data = await buildXlsx([
-      {
-        name: 'Driver Activity',
-        headers: [
-          'Driver',
-          'Email',
-          'Sessions',
-          'Total kWh',
-          'Total Spend',
-          'Avg Duration (min)',
-          'First Session',
-          'Last Session',
-        ],
-        rows: driverActivity.map((d) => [
-          d.driverName,
-          d.driverEmail,
-          d.sessionCount,
-          parseFloat(String(d.totalKwh)).toFixed(2),
-          formatCurrencyAmount(d.totalSpendCents, currency),
-          d.avgDurationMinutes,
-          d.firstSession,
-          d.lastSession,
-        ]),
-      },
-    ]);
+    const data = await buildXlsx([{ name: 'Driver Activity', headers, rows }]);
     return { data, fileName: `driver-activity-${String(Date.now())}.xlsx` };
   }
 
@@ -159,18 +161,21 @@ export async function generateDriverActivityReport(
   pdf.addSummaryRow('Total Sessions:', String(totalSessions));
   pdf.addSummaryRow('Total Energy:', `${totalKwh.toFixed(2)} kWh`);
 
+  const spend = (d: DriverActivity): MoneyCell => moneyCell(d.totalSpendCents, currency);
   pdf.addTable(
-    ['Driver', 'Email', 'Sessions', 'kWh', 'Spend', 'Avg Duration'],
-    driverActivity
-      .slice(0, 200)
-      .map((d) => [
-        d.driverName,
-        d.driverEmail,
-        d.sessionCount,
-        parseFloat(String(d.totalKwh)).toFixed(1),
-        formatCurrencyAmount(d.totalSpendCents, currency),
-        `${String(d.avgDurationMinutes)}m`,
-      ]),
+    ['Driver', 'Email', 'Sessions', 'kWh', 'Spend (incl. tax)', 'Avg Duration'],
+    pdfMoneyRows(
+      driverActivity
+        .slice(0, 200)
+        .map((d) => [
+          d.driverName,
+          d.driverEmail,
+          d.sessionCount,
+          parseFloat(String(d.totalKwh)).toFixed(1),
+          spend(d),
+          `${String(d.avgDurationMinutes)}m`,
+        ]),
+    ),
   );
 
   const data = await pdf.build();

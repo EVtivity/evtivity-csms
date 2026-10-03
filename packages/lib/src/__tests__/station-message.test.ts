@@ -5,6 +5,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   renderStationMessage,
   clearStationMessageCache,
+  buildStationPriceContext,
+  stationTaxNoteContext,
+  formatStationIdleFeeRate,
+  formatStationQuantity,
+  formatStationTime,
   type StationMessageContext,
   type StationMessageState,
 } from '../station-message.js';
@@ -13,20 +18,35 @@ vi.mock('@evtivity/database', () => {
   const whereFn = vi.fn();
   const fromFn = vi.fn().mockReturnValue({ where: whereFn });
   const selectFn = vi.fn().mockReturnValue({ from: fromFn });
+  const getStationMessageLanguage = vi.fn().mockResolvedValue('en');
   return {
     db: { select: selectFn },
     stationMessageTemplates: {
       body: 'body_col',
       updatedAt: 'updated_at_col',
       state: 'state_col',
+      language: 'language_col',
     },
-    __mocks: { selectFn, fromFn, whereFn },
+    getStationMessageLanguage,
+    __mocks: { selectFn, fromFn, whereFn, getStationMessageLanguage },
   };
 });
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((a: unknown, b: unknown) => ({ type: 'eq', a, b })),
+  and: vi.fn((...conditions: unknown[]) => ({ type: 'and', conditions })),
 }));
+
+interface DbMocks {
+  selectFn: ReturnType<typeof vi.fn>;
+  whereFn: ReturnType<typeof vi.fn>;
+  getStationMessageLanguage: ReturnType<typeof vi.fn>;
+}
+
+async function dbMocks(): Promise<DbMocks> {
+  const mod = (await import('@evtivity/database')) as unknown as { __mocks: DbMocks };
+  return mod.__mocks;
+}
 
 async function setBody(body: string, updatedAt: Date = new Date(2026, 0, 1)): Promise<void> {
   const mod = (await import('@evtivity/database')) as unknown as {
@@ -67,9 +87,102 @@ const STATE_BODIES: Record<StationMessageState, string> = {
 };
 
 describe('renderStationMessage', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     clearStationMessageCache();
     vi.clearAllMocks();
+    (await dbMocks()).getStationMessageLanguage.mockResolvedValue('en');
+  });
+
+  describe('display language', () => {
+    it('loads the template row for the state and the given language', async () => {
+      const mocks = await dbMocks();
+      await setBody('{{companyName}} DE');
+      const result = await renderStationMessage('available', baseContext, 'de');
+      expect(result).toBe('EVtivity DE');
+      expect(mocks.whereFn).toHaveBeenCalledWith({
+        type: 'and',
+        conditions: [
+          { type: 'eq', a: 'state_col', b: 'available' },
+          { type: 'eq', a: 'language_col', b: 'de' },
+        ],
+      });
+      expect(mocks.getStationMessageLanguage).not.toHaveBeenCalled();
+    });
+
+    it('uses the stationMessage.language setting without a language', async () => {
+      const mocks = await dbMocks();
+      mocks.getStationMessageLanguage.mockResolvedValue('ko');
+      await setBody('KO');
+      await renderStationMessage('unauthorized', baseContext);
+      expect(mocks.whereFn).toHaveBeenCalledWith({
+        type: 'and',
+        conditions: [
+          { type: 'eq', a: 'state_col', b: 'unauthorized' },
+          { type: 'eq', a: 'language_col', b: 'ko' },
+        ],
+      });
+    });
+
+    it('falls back to English when the setting holds an unsupported language', async () => {
+      const mocks = await dbMocks();
+      mocks.getStationMessageLanguage.mockResolvedValue('fr');
+      await setBody('EN');
+      await renderStationMessage('unauthorized', baseContext);
+      expect(mocks.whereFn).toHaveBeenCalledWith({
+        type: 'and',
+        conditions: [
+          { type: 'eq', a: 'state_col', b: 'unauthorized' },
+          { type: 'eq', a: 'language_col', b: 'en' },
+        ],
+      });
+    });
+
+    it('caches compiled templates per language', async () => {
+      const mocks = await dbMocks();
+      await setBody('English');
+      expect(await renderStationMessage('faulted', baseContext, 'en')).toBe('English');
+      await setBody('Deutsch');
+      expect(await renderStationMessage('faulted', baseContext, 'de')).toBe('Deutsch');
+      expect(await renderStationMessage('faulted', baseContext, 'en')).toBe('English');
+      expect(mocks.selectFn).toHaveBeenCalledTimes(2);
+    });
+
+    it('renders the tax note booleans and rates', async () => {
+      await setBody(
+        '{{#if taxRatePercent}}{{#if pricesIncludeTax}}incl.{{else}}excl.{{/if}} {{taxRatePercent}}% tax{{/if}}',
+      );
+      expect(
+        await renderStationMessage(
+          'available',
+          { ...baseContext, taxRatePercent: '19', pricesIncludeTax: true },
+          'en',
+        ),
+      ).toBe('incl. 19% tax');
+      expect(
+        await renderStationMessage(
+          'available',
+          { ...baseContext, taxRatePercent: '19', pricesIncludeTax: false },
+          'en',
+        ),
+      ).toBe('excl. 19% tax');
+      expect(await renderStationMessage('available', baseContext, 'en')).toBe('');
+    });
+
+    it('exposes the single price variables', async () => {
+      await setBody('{{energyPrice}}|{{timePrice}}|{{sessionFee}}|{{idleFee}}');
+      const result = await renderStationMessage(
+        'available',
+        {
+          ...baseContext,
+          energyPrice: '€0.357',
+          timePrice: '€0.024',
+          sessionFee: '€1.19',
+          idleFee: '€0.119',
+        },
+        'en',
+      );
+      expect(result).toBe('€0.357|€0.024|€1.19|€0.119');
+    });
   });
 
   describe('default templates render with all variables set', () => {
@@ -216,5 +329,174 @@ describe('renderStationMessage', () => {
         vi.useRealTimers();
       }
     });
+  });
+});
+
+const TARIFF = {
+  pricePerKwh: '0.30',
+  pricePerMinute: '0.02',
+  pricePerSession: '1.00',
+  idleFeePricePerMinute: '0.10',
+  taxRate: '0.19',
+};
+
+describe('buildStationPriceContext', () => {
+  it('shows net prices with an excl. tax note for net display', () => {
+    const ctx = buildStationPriceContext({
+      tariff: TARIFF,
+      priceDisplay: 'net',
+      taxBasis: 'net',
+      pricingFormat: 'compact',
+      currency: 'USD',
+      language: 'en',
+    });
+    expect(ctx).toEqual({
+      pricingDisplay: '$0.30/kWh + $0.02/min + $1.00 session + $0.10/min idle',
+      energyPrice: '$0.30',
+      timePrice: '$0.02',
+      sessionFee: '$1.00',
+      idleFee: '$0.10',
+      taxRatePercent: '19',
+      pricesIncludeTax: false,
+    });
+  });
+
+  it('adds the tax to every price for gross display, in the display language', () => {
+    const ctx = buildStationPriceContext({
+      tariff: TARIFF,
+      priceDisplay: 'gross',
+      taxBasis: 'net',
+      pricingFormat: 'compact',
+      currency: 'EUR',
+      language: 'de',
+    });
+    expect(ctx.pricingDisplay).toBe(
+      '0,357 €/kWh + 0,0238 €/Min. + 1,19 € pro Ladevorgang + 0,119 €/Min. Standzeit',
+    );
+    expect(ctx.energyPrice).toBe('0,357 €');
+    expect(ctx.taxRatePercent).toBe('19');
+    expect(ctx.pricesIncludeTax).toBe(true);
+  });
+
+  it('keeps fractional tax rates and sub-cent prices (no toFixed rounding)', () => {
+    const ctx = buildStationPriceContext({
+      tariff: { ...TARIFF, pricePerKwh: '0.40', pricePerMinute: null, taxRate: '0.0825' },
+      priceDisplay: 'gross',
+      taxBasis: 'net',
+      pricingFormat: 'standard',
+      currency: 'USD',
+      language: 'en',
+    });
+    expect(ctx.pricingDisplay).toBe('Energy: $0.433/kWh | Session: $1.0825 | Idle: $0.1083/min');
+    expect(ctx.timePrice).toBe('');
+    expect(ctx.taxRatePercent).toBe('8.25');
+  });
+
+  it('formats the rate with the decimal separator of the language', () => {
+    const ctx = buildStationPriceContext({
+      tariff: { ...TARIFF, taxRate: '0.075' },
+      priceDisplay: 'net',
+      taxBasis: 'net',
+      pricingFormat: 'compact',
+      currency: 'EUR',
+      language: 'de',
+    });
+    expect(ctx.taxRatePercent).toBe('7,5');
+  });
+
+  it('shows the localized free label when no price is above 0', () => {
+    const ctx = buildStationPriceContext({
+      tariff: {
+        pricePerKwh: '0',
+        pricePerMinute: null,
+        pricePerSession: null,
+        idleFeePricePerMinute: null,
+        taxRate: null,
+      },
+      priceDisplay: 'gross',
+      taxBasis: 'net',
+      pricingFormat: 'compact',
+      currency: 'EUR',
+      language: 'de',
+    });
+    expect(ctx.pricingDisplay).toBe('Kostenlos');
+    expect(ctx.taxRatePercent).toBe('');
+    expect(ctx.pricesIncludeTax).toBe(false);
+  });
+
+  it('returns empty prices and no tax note without a tariff', () => {
+    expect(
+      buildStationPriceContext({
+        tariff: null,
+        priceDisplay: 'gross',
+        taxBasis: 'net',
+        pricingFormat: 'compact',
+        currency: 'EUR',
+        language: 'en',
+      }),
+    ).toEqual({
+      pricingDisplay: '',
+      energyPrice: '',
+      timePrice: '',
+      sessionFee: '',
+      idleFee: '',
+      taxRatePercent: '',
+      pricesIncludeTax: false,
+    });
+  });
+});
+
+describe('stationTaxNoteContext', () => {
+  it('has no note without tax, even for gross display', () => {
+    expect(stationTaxNoteContext(0, 'gross', 'en')).toEqual({
+      taxRatePercent: '',
+      pricesIncludeTax: false,
+    });
+  });
+
+  it('marks gross prices as including tax', () => {
+    expect(stationTaxNoteContext(0.2, 'gross', 'zh')).toEqual({
+      taxRatePercent: '20',
+      pricesIncludeTax: true,
+    });
+  });
+});
+
+describe('station formatters', () => {
+  const idleInput = {
+    taxBasis: 'net' as const,
+    pricePerMinute: '0.10',
+    taxRate: '0.19',
+    currency: 'EUR',
+    language: 'de' as const,
+  };
+
+  it('formats a gross-basis idle fee in either price display', () => {
+    // 0.119 entered gross at 19% is the same price as 0.10 entered net.
+    const gross = { ...idleInput, taxBasis: 'gross' as const, pricePerMinute: '0.119' };
+    for (const priceDisplay of ['gross', 'net'] as const) {
+      expect(formatStationIdleFeeRate({ ...gross, priceDisplay })).toBe(
+        formatStationIdleFeeRate({ ...idleInput, priceDisplay }),
+      );
+    }
+  });
+
+  it('formats the idle fee rate per company price display', () => {
+    expect(formatStationIdleFeeRate({ ...idleInput, priceDisplay: 'gross' })).toBe('0,119 €/Min.');
+    expect(formatStationIdleFeeRate({ ...idleInput, priceDisplay: 'net' })).toBe('0,10 €/Min.');
+    expect(
+      formatStationIdleFeeRate({ ...idleInput, pricePerMinute: null, priceDisplay: 'gross' }),
+    ).toBe('');
+    expect(
+      formatStationIdleFeeRate({ ...idleInput, pricePerMinute: '0', priceDisplay: 'net' }),
+    ).toBe('');
+  });
+
+  it('formats quantities and times in the display language', () => {
+    expect(formatStationQuantity(12.4, 'de')).toBe('12,4');
+    expect(formatStationQuantity(22, 'en')).toBe('22.0');
+    const time = new Date(2026, 0, 1, 15, 45);
+    expect(formatStationTime(time, 'en')).toMatch(/^3:45\sPM$/);
+    expect(formatStationTime(time, 'de')).toBe('15:45');
   });
 });

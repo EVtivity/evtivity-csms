@@ -122,9 +122,11 @@ vi.mock('drizzle-orm', () => ({
   sql: Object.assign(vi.fn(), { raw: vi.fn() }),
 }));
 
-vi.mock('@evtivity/lib', () => ({
+vi.mock('@evtivity/lib', async () => ({
   encryptString: vi.fn().mockReturnValue('encrypted_value'),
   dispatchDriverNotification: vi.fn(),
+  sessionChargeTax: (await vi.importActual<typeof import('@evtivity/lib')>('@evtivity/lib'))
+    .sessionChargeTax,
 }));
 
 vi.mock('postgres', () => ({

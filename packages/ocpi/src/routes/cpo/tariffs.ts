@@ -2,25 +2,23 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import { desc, gte, lte, sql } from 'drizzle-orm';
-import { db, ocpiTariffMappings, getCompanyCurrency } from '@evtivity/database';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
 import { parsePaginationParams, setPaginationHeaders } from '../../lib/ocpi-pagination.js';
 import { ocpiAuthenticate } from '../../middleware/ocpi-auth.js';
-import { tariffInCurrency } from '../../lib/tariff-currency.js';
+import { renderPartnerTariffs } from '../../services/published-tariffs.js';
 import type { OcpiVersion } from '../../types/ocpi.js';
 
 function registerCpoTariffRoutes(app: FastifyInstance, version: OcpiVersion): void {
-  // GET /ocpi/{version}/cpo/tariffs - paginated OCPI tariffs
+  // GET /ocpi/{version}/cpo/tariffs - the tariffs published to the partner,
+  // generated from the internal tariff or pricing group each mapping selects.
+  // The Tariffs Sender interface only has this paginated list (§11.2.1).
   app.get(
     `/ocpi/${version}/cpo/tariffs`,
     { onRequest: [ocpiAuthenticate] },
     async (request, reply) => {
-      // Per-partner isolation. ocpi_tariff_mappings.partner_id is nullable:
-      // null = global (visible to all partners), non-null = scoped to that
-      // partner. Without this filter every partner sees every other
-      // partner's negotiated tariffs, leaking commercial terms across
-      // networks. Mirrors the sessions/CDRs endpoints.
+      // Per-partner isolation: global mappings (partner_id null) plus the
+      // partner's own. Without this every partner would see every other
+      // partner's negotiated tariffs.
       const partner = request.ocpiPartner;
       if (partner?.partnerId == null) {
         return ocpiError(OcpiStatusCode.CLIENT_ERROR, 'Not authenticated');
@@ -28,38 +26,18 @@ function registerCpoTariffRoutes(app: FastifyInstance, version: OcpiVersion): vo
 
       const { offset, limit, dateFrom, dateTo } = parsePaginationParams(request);
 
-      const conditions = [
-        sql`(${ocpiTariffMappings.partnerId} IS NULL OR ${ocpiTariffMappings.partnerId} = ${partner.partnerId})`,
-      ];
-      if (dateFrom != null) {
-        conditions.push(gte(ocpiTariffMappings.updatedAt, dateFrom));
-      }
-      if (dateTo != null) {
-        conditions.push(lte(ocpiTariffMappings.updatedAt, dateTo));
-      }
+      // last_updated is derived from the mapping, its source tariffs, and the
+      // holidays, so the date filter applies to the rendered tariffs. A
+      // partner has a handful of mappings, so they are rendered in memory.
+      const all = (await renderPartnerTariffs(partner.partnerId, version)).filter((tariff) => {
+        const updated = new Date(tariff.last_updated);
+        if (dateFrom != null && updated < dateFrom) return false;
+        if (dateTo != null && updated >= dateTo) return false;
+        return true;
+      });
 
-      const where = sql.join(conditions, sql` AND `);
-
-      const [rows, countRows] = await Promise.all([
-        db
-          .select()
-          .from(ocpiTariffMappings)
-          .where(where)
-          .orderBy(desc(ocpiTariffMappings.updatedAt))
-          .limit(limit)
-          .offset(offset),
-        db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(ocpiTariffMappings)
-          .where(where),
-      ]);
-
-      const total = countRows[0]?.count ?? 0;
-      setPaginationHeaders(reply, request, total, limit, offset);
-
-      const currency = await getCompanyCurrency();
-      const tariffs = rows.map((row) => tariffInCurrency(row.ocpiTariffData, currency));
-      return ocpiSuccess(tariffs);
+      setPaginationHeaders(reply, request, all.length, limit, offset);
+      return ocpiSuccess(all.slice(offset, offset + limit));
     },
   );
 }

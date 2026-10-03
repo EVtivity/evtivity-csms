@@ -6,7 +6,12 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, or, asc, sql } from 'drizzle-orm';
 import type Stripe from 'stripe';
-import { db, getCompanyCurrency, isStationLevelUnavailable } from '@evtivity/database';
+import {
+  db,
+  getCompanyCurrency,
+  getCompanyTaxBasis,
+  isStationLevelUnavailable,
+} from '@evtivity/database';
 import {
   chargingStations,
   connectors,
@@ -18,6 +23,7 @@ import {
   reservations,
   sites,
 } from '@evtivity/database';
+import { TAX_BASES } from '@evtivity/lib';
 import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { sessionCurrencySql } from '../../lib/company-currency.js';
@@ -55,6 +61,11 @@ const guestPricingInfo = z
       .nullable()
       .describe('Idle fee per minute (after grace period) in major currency units'),
     taxRate: z.string().nullable().describe('Sales tax rate as a decimal (e.g. 0.0875 = 8.75%)'),
+    taxBasis: z
+      .enum(TAX_BASES)
+      .describe(
+        'How the prices above are entered (company setting company.taxBasis): net prices exclude the tax rate, gross prices include it. Convert with the tax rate to show a price the other way.',
+      ),
     isFreeVend: z
       .boolean()
       .optional()
@@ -126,6 +137,13 @@ const guestStatusResponse = z
       .nullable()
       .optional()
       .describe('Final captured cost in cents (set when the session completes)'),
+    tariffTaxRate: z
+      .string()
+      .nullable()
+      .optional()
+      .describe(
+        'Tax rate of the session tariff as a decimal (e.g. 0.19), null without tax. Costs include it',
+      ),
     currency: z
       .string()
       .length(3)
@@ -429,6 +447,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       // When no tariff is assigned at a free-vend site, synthesize a zeroed
       // pricing object so the badge still surfaces.
       const currency = await getCompanyCurrency();
+      const taxBasis = await getCompanyTaxBasis();
       const pricing =
         station.freeVendEnabled === true
           ? {
@@ -438,6 +457,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
               pricePerSession: null,
               idleFeePricePerMinute: null,
               taxRate: null,
+              taxBasis,
               isFreeVend: true,
             }
           : tariff != null
@@ -448,6 +468,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
                 pricePerSession: tariff.pricePerSession,
                 idleFeePricePerMinute: tariff.idleFeePricePerMinute,
                 taxRate: tariff.taxRate,
+                taxBasis,
               }
             : undefined;
 
@@ -724,14 +745,11 @@ export function portalGuestRoutes(app: FastifyInstance): void {
             receipt_email: body.guestEmail,
           };
 
+          // A destination charge. The platform fee is set at capture, on the
+          // net amount actually charged (finalizeGuestPayment).
           if (config.connectedAccountId != null) {
             piParams.on_behalf_of = config.connectedAccountId;
             piParams.transfer_data = { destination: config.connectedAccountId };
-            if (config.platformFeePercent > 0) {
-              piParams.application_fee_amount = Math.round(
-                (config.preAuthAmountCents * config.platformFeePercent) / 100,
-              );
-            }
           }
 
           paymentIntent = await config.stripe.paymentIntents.create(piParams, {
@@ -895,6 +913,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
             energyDeliveredWh: chargingSessions.energyDeliveredWh,
             currentCostCents: chargingSessions.currentCostCents,
             finalCostCents: chargingSessions.finalCostCents,
+            tariffTaxRate: chargingSessions.tariffTaxRate,
             currency: sessionCurrencySql(),
             startedAt: chargingSessions.startedAt,
             endedAt: chargingSessions.endedAt,
@@ -907,6 +926,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           result['energyDeliveredWh'] = session.energyDeliveredWh;
           result['currentCostCents'] = session.currentCostCents;
           result['finalCostCents'] = session.finalCostCents;
+          result['tariffTaxRate'] = session.tariffTaxRate;
           result['currency'] = session.currency;
           result['startedAt'] = session.startedAt;
           result['endedAt'] = session.endedAt;

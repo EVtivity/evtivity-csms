@@ -33,19 +33,33 @@ interface FreeTariffShape {
   pricePerMinute: string | null;
   pricePerSession: string | null;
   idleFeePricePerMinute: string | null;
+  reservationFeePerMinute?: string | null | undefined;
+}
+
+function isZero(price: string | null | undefined): boolean {
+  return price == null || Number(price) === 0;
 }
 
 /**
- * Returns true when every price component on the tariff is null or zero.
- * Treats `null` (no tariff resolved) as free so guest and authenticated flows
- * behave identically when pricing isn't configured.
+ * Returns true when charging costs nothing: every price component on the
+ * tariff is null or zero. Treats `null` (no tariff resolved) as free so guest
+ * and authenticated flows behave identically when pricing isn't configured.
+ *
+ * The reservation holding fee is billed only on a session started from a
+ * reservation, so it counts only when `reserved` is true: a tariff whose only
+ * price is the reservation fee is free for a walk-up session and paid for the
+ * reservation holder.
  */
-export function isTariffFree(tariff: FreeTariffShape | null): boolean {
+export function isTariffFree(
+  tariff: FreeTariffShape | null,
+  options: { reserved?: boolean } = {},
+): boolean {
   if (tariff == null) return true;
   return (
-    (tariff.pricePerKwh == null || Number(tariff.pricePerKwh) === 0) &&
-    (tariff.pricePerMinute == null || Number(tariff.pricePerMinute) === 0) &&
-    (tariff.pricePerSession == null || Number(tariff.pricePerSession) === 0) &&
-    (tariff.idleFeePricePerMinute == null || Number(tariff.idleFeePricePerMinute) === 0)
+    isZero(tariff.pricePerKwh) &&
+    isZero(tariff.pricePerMinute) &&
+    isZero(tariff.pricePerSession) &&
+    isZero(tariff.idleFeePricePerMinute) &&
+    (options.reserved !== true || isZero(tariff.reservationFeePerMinute))
   );
 }

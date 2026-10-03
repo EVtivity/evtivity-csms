@@ -601,3 +601,175 @@ describe('reservation holding fee', () => {
     expect(result.totalCents).toBe(1100);
   });
 });
+
+describe('tax lines', () => {
+  const base: TariffInput = {
+    pricePerKwh: '0.30',
+    pricePerMinute: null,
+    pricePerSession: null,
+    idleFeePricePerMinute: null,
+    reservationFeePerMinute: '0.10',
+    taxRate: '0.19',
+  };
+
+  function seg(
+    tariff: TariffInput,
+    energyDeliveredWh: number,
+    idleMinutes: number,
+    isFirstSegment: boolean,
+  ): TariffSegment {
+    return { tariff, durationMinutes: 30, energyDeliveredWh, idleMinutes, isFirstSegment };
+  }
+
+  it('a single-tariff session has one line at its rate', () => {
+    const result = calculateSessionCost(base, 10_000, 30);
+    expect(result.taxLines).toEqual([
+      {
+        taxRate: 0.19,
+        netCents: 300,
+        taxCents: 57,
+        energyCostCents: 300,
+        timeCostCents: 0,
+        sessionFeeCents: 0,
+        idleFeeCents: 0,
+        reservationHoldingFeeCents: 0,
+      },
+    ]);
+  });
+
+  it('a session with nothing billed has no lines', () => {
+    expect(calculateSessionCost(base, 0, 0).taxLines).toEqual([]);
+  });
+
+  it('a split session has one line per rate that sums to its subtotal and tax', () => {
+    const reduced: TariffInput = { ...base, taxRate: '0.07' };
+    const segments = [
+      seg(base, 10_000, 0, true),
+      seg(reduced, 5_000, 0, false),
+      seg(base, 3_333, 0, false),
+    ];
+    // Holding fee 10 min * $0.10 = 100 cents at the first rate (19%).
+    const result = calculateSplitSessionCost(segments, 0, 10);
+    // Segment 1: 300 net, tax 57. Segment 2: 150 net, tax round(10.5) = 11.
+    // Segment 3: 100 net (3.333 kWh * 0.30 = 0.9999), tax 19. Holding: 100 net, tax 19.
+    expect(result.taxLines).toEqual([
+      expect.objectContaining({ taxRate: 0.07, netCents: 150, taxCents: 11 }),
+      expect.objectContaining({
+        taxRate: 0.19,
+        netCents: 500,
+        taxCents: 95,
+        energyCostCents: 400,
+        reservationHoldingFeeCents: 100,
+      }),
+    ]);
+    expect(result.segments.map((s) => s.taxCents)).toEqual([57, 11, 19]);
+    expect(result.reservationHolding).toMatchObject({
+      netCents: 100,
+      taxRate: 0.19,
+      taxCents: 19,
+      reservationHoldingFeeCents: 100,
+    });
+    expect(result.subtotalCents).toBe(650);
+    expect(result.taxCents).toBe(106);
+    expect(result.totalCents).toBe(756);
+  });
+
+  it('split segments carry the grace-adjusted idle and the session fee only on the first', () => {
+    const idle: TariffInput = { ...base, pricePerSession: '1.00', idleFeePricePerMinute: '0.50' };
+    const result = calculateSplitSessionCost([seg(idle, 0, 8, true), seg(idle, 0, 12, false)], 15);
+    expect(result.segments.map((s) => s.idleFeeCents)).toEqual([250, 0]);
+    expect(result.segments.map((s) => s.sessionFeeCents)).toEqual([100, 0]);
+  });
+});
+
+describe('tax lines per cost dimension', () => {
+  const base: TariffInput = {
+    pricePerKwh: '0.30',
+    pricePerMinute: null,
+    pricePerSession: '1.00',
+    idleFeePricePerMinute: null,
+    reservationFeePerMinute: null,
+    taxRate: '0.19',
+  };
+
+  it('gives a single-tariff session one line equal to the breakdown', () => {
+    const result = calculateSessionCost(base, 10_000, 30);
+    expect(result.taxLines).toEqual([
+      {
+        taxRate: 0.19,
+        energyCostCents: 300,
+        timeCostCents: 0,
+        sessionFeeCents: 100,
+        idleFeeCents: 0,
+        reservationHoldingFeeCents: 0,
+        netCents: 400,
+        taxCents: 76,
+      },
+    ]);
+  });
+
+  it('splits a session across tariffs with different rates into one line per rate', () => {
+    const reduced: TariffInput = { ...base, pricePerKwh: '0.20', taxRate: '0.07' };
+    const segment = (tariff: TariffInput, wh: number, first: boolean): TariffSegment => ({
+      tariff,
+      durationMinutes: 30,
+      energyDeliveredWh: wh,
+      idleMinutes: 0,
+      isFirstSegment: first,
+    });
+    const result = calculateSplitSessionCost(
+      [segment(base, 5_000, true), segment(reduced, 5_000, false), segment(base, 1_000, false)],
+      0,
+    );
+    // 19%: 150 + 100 fee (first segment) = 250, tax 48 (47.5), then 30, tax 6 (5.7)
+    // 7%: 100, tax 7
+    expect(result.taxLines).toEqual([
+      expect.objectContaining({
+        taxRate: 0.07,
+        netCents: 100,
+        sessionFeeCents: 0,
+        taxCents: 7,
+      }),
+      expect.objectContaining({
+        taxRate: 0.19,
+        netCents: 280,
+        sessionFeeCents: 100,
+        taxCents: 54,
+      }),
+    ]);
+    const lineSubtotal = result.taxLines.reduce((sum, l) => sum + l.netCents, 0);
+    const lineTax = result.taxLines.reduce((sum, l) => sum + l.taxCents, 0);
+    expect(lineSubtotal).toBe(result.subtotalCents);
+    expect(lineTax).toBe(result.taxCents);
+  });
+
+  it('puts the reservation holding fee on the first segment rate', () => {
+    const result = calculateSplitSessionCost(
+      [
+        {
+          tariff: { ...base, reservationFeePerMinute: '0.10' },
+          durationMinutes: 10,
+          energyDeliveredWh: 0,
+          idleMinutes: 0,
+          isFirstSegment: true,
+        },
+        {
+          tariff: { ...base, taxRate: '0.07' },
+          durationMinutes: 10,
+          energyDeliveredWh: 0,
+          idleMinutes: 0,
+          isFirstSegment: false,
+        },
+      ],
+      0,
+      10,
+    );
+    const first = result.taxLines.find((l) => l.taxRate === 0.19);
+    expect(first?.reservationHoldingFeeCents).toBe(100);
+    expect(result.taxLines.reduce((sum, l) => sum + l.taxCents, 0)).toBe(result.taxCents);
+  });
+
+  it('returns no lines for an empty split session', () => {
+    expect(calculateSplitSessionCost([], 0).taxLines).toEqual([]);
+  });
+});

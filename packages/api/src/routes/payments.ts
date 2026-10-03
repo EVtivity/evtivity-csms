@@ -17,7 +17,14 @@ import {
   sites,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
-import { encryptString, decryptString, dispatchDriverNotification } from '@evtivity/lib';
+import {
+  encryptString,
+  decryptString,
+  dispatchDriverNotification,
+  chargeShortfallTopUp,
+  sessionChargeTax,
+  notificationMoney,
+} from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -1192,15 +1199,17 @@ export function paymentRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Get session's final cost if no amount specified
-      let amountCents = body.amountCents;
-      if (amountCents == null) {
-        const [session] = await db
-          .select({ finalCostCents: chargingSessions.finalCostCents })
-          .from(chargingSessions)
-          .where(eq(chargingSessions.id, id));
-        amountCents = session?.finalCostCents ?? 0;
-      }
+      // The session's final cost when no amount is given, and its tax rate:
+      // the platform fee is a percent of the net amount captured.
+      const [session] = await db
+        .select({
+          finalCostCents: chargingSessions.finalCostCents,
+          tariffTaxRate: chargingSessions.tariffTaxRate,
+          costBreakdown: chargingSessions.costBreakdown,
+        })
+        .from(chargingSessions)
+        .where(eq(chargingSessions.id, id));
+      const amountCents = body.amountCents ?? session?.finalCostCents ?? 0;
 
       const [station] = await db
         .select({ siteId: chargingStations.siteId })
@@ -1237,6 +1246,11 @@ export function paymentRoutes(app: FastifyInstance): void {
         record.stripePaymentIntentId,
         amountCents,
         `capture_${String(record.id)}`,
+        sessionChargeTax({
+          finalCostCents: session?.finalCostCents ?? null,
+          tariffTaxRate: session?.tariffTaxRate ?? null,
+          costBreakdown: session?.costBreakdown ?? null,
+        }),
       );
       const [updated] = await db
         .update(paymentRecords)
@@ -1416,6 +1430,7 @@ export function paymentRoutes(app: FastifyInstance): void {
           updated.driverId,
           {
             amountCents: refundedNowCents,
+            amountFormatted: notificationMoney(refundedNowCents, updated.currency),
             currency: updated.currency,
             transactionId: updated.sessionId,
           },
@@ -1538,9 +1553,11 @@ export function paymentRoutes(app: FastifyInstance): void {
       }
       const [sessionRow] = await db.execute<{
         final_cost_cents: number | null;
+        tariff_tax_rate: string | null;
+        cost_breakdown: unknown;
         site_id: string | null;
       }>(sql`
-        SELECT cs.final_cost_cents, cs2.site_id
+        SELECT cs.final_cost_cents, cs.tariff_tax_rate, cs.cost_breakdown, cs2.site_id
         FROM charging_sessions cs
         JOIN charging_stations cs2 ON cs2.id = cs.station_id
         WHERE cs.id = ${sessionId}
@@ -1576,54 +1593,22 @@ export function paymentRoutes(app: FastifyInstance): void {
 
       let topUpId: string;
       try {
-        const origIntent = await config.stripe.paymentIntents.retrieve(
-          record.stripePaymentIntentId,
-        );
-        const customerId =
-          typeof origIntent.customer === 'string'
-            ? origIntent.customer
-            : (origIntent.customer?.id ?? null);
-        const pmId =
-          typeof origIntent.payment_method === 'string'
-            ? origIntent.payment_method
-            : (origIntent.payment_method?.id ?? null);
-        if (customerId == null || pmId == null) {
-          throw new Error('Original PaymentIntent missing customer or payment_method');
-        }
-        const params: Record<string, unknown> = {
-          amount: shortfall,
-          currency: record.currency.toLowerCase(),
-          customer: customerId,
-          payment_method: pmId,
-          confirm: true,
-          off_session: true,
-          capture_method: 'automatic',
+        // Same card, same connected account, and the platform fee of the
+        // increment on its net amount (chargeShortfallTopUp).
+        const topUp = await chargeShortfallTopUp(config.stripe, {
+          originalIntentId: record.stripePaymentIntentId,
+          capturedCents: captured,
+          finalCostCents,
+          taxRate: sessionChargeTax({
+            finalCostCents,
+            tariffTaxRate: sessionRow?.tariff_tax_rate ?? null,
+            costBreakdown: sessionRow?.cost_breakdown ?? null,
+          }),
+          platformFeePercent: config.platformFeePercent,
+          currency: record.currency,
           description: `Retry top-up for session ${sessionId}`,
-        };
-        if (origIntent.on_behalf_of != null) {
-          params['on_behalf_of'] = origIntent.on_behalf_of;
-          params['transfer_data'] = {
-            destination:
-              typeof origIntent.on_behalf_of === 'string'
-                ? origIntent.on_behalf_of
-                : origIntent.on_behalf_of.id,
-          };
-          // Carry the same platform-fee rate onto the top-up. Without this
-          // the entire delta flows to the connected account and the platform
-          // gets nothing on the overage portion of the session.
-          if (
-            origIntent.application_fee_amount != null &&
-            origIntent.application_fee_amount > 0 &&
-            origIntent.amount > 0
-          ) {
-            const feeRate = origIntent.application_fee_amount / origIntent.amount;
-            params['application_fee_amount'] = Math.round(shortfall * feeRate);
-          }
-        }
-        const topUp = await config.stripe.paymentIntents.create(
-          params as unknown as Parameters<typeof config.stripe.paymentIntents.create>[0],
-          { idempotencyKey: `topup_retry_${String(record.id)}_${String(captured)}` },
-        );
+          idempotencyKey: `topup_retry_${String(record.id)}_${String(captured)}`,
+        });
         topUpId = topUp.id;
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message.slice(0, 400) : 'Top-up failed';

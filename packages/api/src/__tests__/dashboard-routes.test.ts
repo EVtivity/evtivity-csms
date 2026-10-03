@@ -84,7 +84,10 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn(),
   or: vi.fn(),
   ilike: vi.fn(),
-  sql: Object.assign(vi.fn(), { raw: vi.fn() }),
+  sql: Object.assign(
+    vi.fn(() => ({ mapWith: vi.fn() })),
+    { raw: vi.fn() },
+  ),
   desc: vi.fn(),
   count: vi.fn(),
   asc: vi.fn(),
@@ -92,6 +95,7 @@ vi.mock('drizzle-orm', () => ({
   gte: vi.fn(),
   lte: vi.fn(),
   between: vi.fn(),
+  isNotNull: vi.fn(),
 }));
 
 const { mockDerivedStatus } = vi.hoisted(() => ({
@@ -100,6 +104,13 @@ const { mockDerivedStatus } = vi.hoisted(() => ({
 
 vi.mock('../lib/station-derived-status.js', () => ({
   buildDerivedStatusSubquery: mockDerivedStatus,
+}));
+
+const { mockQueryRevenue } = vi.hoisted(() => ({ mockQueryRevenue: vi.fn() }));
+
+vi.mock('../lib/session-revenue.js', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  queryRevenue: (input: unknown) => mockQueryRevenue(input),
 }));
 
 vi.mock('../lib/site-access.js', () => ({
@@ -324,16 +335,19 @@ describe('Dashboard routes', () => {
   });
 
   it('GET /v1/dashboard/financial-stats returns revenue, electricity cost, and profit in the company currency', async () => {
-    setupDbResults([
-      {
-        totalRevenueCents: 500000,
-        todayRevenueCents: 10000,
-        avgRevenueCentsPerSession: 500,
-        totalTransactions: 1000,
-        totalElectricityCostCents: 120000,
-        dayElectricityCostCents: 3000,
-      },
-    ]);
+    setupDbResults([{ totalElectricityCostCents: 120000, dayElectricityCostCents: 3000 }]);
+    // The shared revenue definition (session-revenue.ts), split by today.
+    const { aggregateRevenueRows } = await import('../lib/session-revenue.js');
+    mockQueryRevenue.mockResolvedValueOnce(
+      aggregateRevenueRows([
+        { key: 'false', taxRate: '0.19', grossCents: 1190, source: 'session', count: 392 },
+        { key: 'true', taxRate: '0.19', grossCents: 1190, source: 'session', count: 8 },
+        { key: 'false', taxRate: '0', grossCents: 23520, source: 'session', count: 1 },
+        { key: 'true', taxRate: '0.07', grossCents: 480, source: 'session', count: 1 },
+        // A reservation fee: revenue, but not a session.
+        { key: 'true', taxRate: '0.19', grossCents: 595, source: 'fee', count: 1 },
+      ]),
+    );
     const response = await app.inject({
       method: 'GET',
       url: '/dashboard/financial-stats',
@@ -341,16 +355,26 @@ describe('Dashboard routes', () => {
     });
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
-    expect(body).toHaveProperty('totalRevenueCents', 500000);
-    expect(body).toHaveProperty('todayRevenueCents', 10000);
-    expect(body).toHaveProperty('avgRevenueCentsPerSession', 500);
-    expect(body).toHaveProperty('totalTransactions', 1000);
+    const sessionsGross = 400 * 1190 + 23520 + 480;
+    expect(body).toHaveProperty('totalRevenueCents', sessionsGross + 595);
+    expect(body).toHaveProperty('todayRevenueCents', 8 * 1190 + 480 + 595);
+    expect(body).toHaveProperty('avgRevenueCentsPerSession', Math.round(sessionsGross / 402));
+    expect(body).toHaveProperty('totalTransactions', 403);
     expect(body).toHaveProperty('totalElectricityCostCents', 120000);
     expect(body).toHaveProperty('dayElectricityCostCents', 3000);
-    // Profit = revenue - electricity cost
-    expect(body).toHaveProperty('totalProfitCents', 380000);
-    expect(body).toHaveProperty('dayProfitCents', 7000);
+    // Each amount is split at its rate: 1190 at 19% is 1000 net + 190 tax,
+    // 480 at 7% is 449 net + 31 tax, 595 at 19% is 500 net + 95 tax.
+    expect(body).toHaveProperty('totalNetRevenueCents', 400 * 1000 + 23520 + 449 + 500);
+    expect(body).toHaveProperty('totalTaxCents', 400 * 190 + 31 + 95);
+    expect(body).toHaveProperty('todayNetRevenueCents', 8 * 1000 + 449 + 500);
+    expect(body).toHaveProperty('todayTaxCents', 8 * 190 + 31 + 95);
+    // Profit = revenue excluding tax - electricity cost
+    expect(body).toHaveProperty('totalProfitCents', 424469 - 120000);
+    expect(body).toHaveProperty('dayProfitCents', 8949 - 3000);
     expect(body).toHaveProperty('currency', 'EUR');
+    expect(mockQueryRevenue).toHaveBeenCalledWith(
+      expect.objectContaining({ companyCurrency: 'EUR', where: [] }),
+    );
   });
 
   it('GET /v1/dashboard/financial-stats returns zeroed financials when the user has no site access', async () => {
@@ -363,16 +387,22 @@ describe('Dashboard routes', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.totalElectricityCostCents).toBe(0);
+    expect(body.totalNetRevenueCents).toBe(0);
+    expect(body.totalTaxCents).toBe(0);
     expect(body.totalProfitCents).toBe(0);
     expect(body.dayProfitCents).toBe(0);
     expect(body.currency).toBe('EUR');
   });
 
   it('GET /v1/dashboard/revenue-history returns daily revenue data', async () => {
-    setupDbResults([
-      { date: '2025-01-01', revenueCents: 5000, sessionCount: 10 },
-      { date: '2025-01-02', revenueCents: 7000, sessionCount: 14 },
-    ]);
+    const { aggregateRevenueRows } = await import('../lib/session-revenue.js');
+    mockQueryRevenue.mockResolvedValueOnce(
+      aggregateRevenueRows([
+        { key: '2025-01-02', taxRate: '0', grossCents: 500, source: 'session', count: 14 },
+        { key: '2025-01-01', taxRate: '0', grossCents: 500, source: 'session', count: 10 },
+        { key: '2025-01-01', taxRate: '0', grossCents: 300, source: 'fee', count: 1 },
+      ]),
+    );
     const response = await app.inject({
       method: 'GET',
       url: '/dashboard/revenue-history',
@@ -380,10 +410,11 @@ describe('Dashboard routes', () => {
     });
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
-    expect(Array.isArray(body)).toBe(true);
-    expect(body[0]).toHaveProperty('date');
-    expect(body[0]).toHaveProperty('revenueCents');
-    expect(body[0]).toHaveProperty('sessionCount');
+    // Ordered by day; revenue includes fees, the count only sessions.
+    expect(body).toEqual([
+      { date: '2025-01-01', revenueCents: 5300, sessionCount: 10 },
+      { date: '2025-01-02', revenueCents: 7000, sessionCount: 14 },
+    ]);
   });
 
   it('GET /v1/dashboard/payment-breakdown returns payment status data', async () => {

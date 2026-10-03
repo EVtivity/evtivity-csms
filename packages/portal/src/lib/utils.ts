@@ -3,8 +3,12 @@
 
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { formatCurrencyAmount } from '@evtivity/lib/currency';
+import {
+  formatCurrencyAmount,
+  formatUnitPrice as formatLocaleUnitPrice,
+} from '@evtivity/lib/currency';
 import { formatNumber as formatLocaleNumber } from '@evtivity/lib/number';
+import { formatTaxRatePercent } from '@evtivity/lib/price-display';
 import i18next from 'i18next';
 
 export function cn(...inputs: ClassValue[]): string {
@@ -30,9 +34,17 @@ export function formatCents(cents: number | null | undefined, currency: string):
   return formatCurrencyAmount(cents, currency, uiLocale());
 }
 
-/** Format a price in major units (e.g. a tariff rate of 0.49) as currency, rounded to cents. */
-export function formatPrice(amount: number, currency: string): string {
-  return formatCents(Math.round(amount * 100), currency);
+/**
+ * Format a unit price in major units (e.g. a tariff rate of 0.2561 per kWh) as
+ * currency with 2 to 4 fraction digits, so rates finer than a cent stay exact.
+ */
+export function formatUnitPrice(amount: number, currency: string): string {
+  return formatLocaleUnitPrice(amount, currency, uiLocale());
+}
+
+/** Format a tax rate (0.19) as a percentage number in the UI language without trailing zeros (19). */
+export function formatTaxPercent(taxRate: number): string {
+  return formatTaxRatePercent(taxRate, uiLocale());
 }
 
 export function formatEnergy(wh: string | number | null | undefined): string {

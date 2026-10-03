@@ -60,6 +60,12 @@ const portalDriverItem = z
     timezone: z.string().max(50).nullable(),
     themePreference: z.enum(['light', 'dark']),
     distanceUnit: z.enum(['miles', 'km']),
+    priceDisplay: z
+      .enum(['gross', 'net'])
+      .nullable()
+      .describe(
+        'Whether prices are shown including (gross) or excluding (net) tax. Null follows the company setting.',
+      ),
     isActive: z.boolean(),
     emailVerified: z.boolean(),
     createdAt: z.coerce.date(),
@@ -130,6 +136,7 @@ const driverSelect = {
   timezone: drivers.timezone,
   themePreference: drivers.themePreference,
   distanceUnit: drivers.distanceUnit,
+  priceDisplay: drivers.priceDisplay,
   isActive: drivers.isActive,
   emailVerified: drivers.emailVerified,
   createdAt: drivers.createdAt,
@@ -462,6 +469,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         timezone: driver.timezone,
         themePreference: driver.themePreference,
         distanceUnit: driver.distanceUnit,
+        priceDisplay: driver.priceDisplay,
         isActive: driver.isActive,
         emailVerified: driver.emailVerified,
         createdAt: driver.createdAt,
@@ -725,6 +733,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         timezone: driver.timezone,
         themePreference: driver.themePreference,
         distanceUnit: driver.distanceUnit,
+        priceDisplay: driver.priceDisplay,
         isActive: driver.isActive,
         emailVerified: driver.emailVerified,
         createdAt: driver.createdAt,

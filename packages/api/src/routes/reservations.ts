@@ -22,7 +22,7 @@ import {
   writeReservationAudit,
   reservationDiffChanged,
 } from '@evtivity/database';
-import { dispatchDriverNotification, formatCurrencyAmount } from '@evtivity/lib';
+import { dispatchDriverNotification, notificationMoney } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -146,7 +146,9 @@ const reservationDetailItem = z
       .number()
       .int()
       .min(0)
-      .describe('Cancellation fee charged in cents (0 when waived or no payment method)'),
+      .describe(
+        'Cancellation fee charged in cents, tax included (0 when waived or no payment method)',
+      ),
     sessionId: z
       .string()
       .nullable()
@@ -188,7 +190,7 @@ const cancelReservationResponse = z
       .number()
       .int()
       .min(0)
-      .describe('Actual fee charged in cents (0 when waived or no payment method)'),
+      .describe('Actual fee charged in cents, tax included (0 when waived or no payment method)'),
     feeChargeFailed: z
       .boolean()
       .optional()
@@ -1698,10 +1700,11 @@ export function reservationRoutes(app: FastifyInstance): void {
       // own notification; firing another would deliver a misleading
       // "feeFormatted: ''" message and double-notify.
       if (cancelled && reservation.driverId != null) {
-        const cancellationFeeFormatted =
-          feeChargedCents > 0 && feeCurrency != null
-            ? formatCurrencyAmount(feeChargedCents, feeCurrency)
-            : '';
+        // The fee charged (tax included), formatted in the driver's language.
+        const feeCharged = feeChargedCents > 0 && feeCurrency != null;
+        const cancellationFeeFormatted = feeCharged
+          ? notificationMoney(feeChargedCents, feeCurrency)
+          : '';
         void dispatchDriverNotification(
           client,
           'reservation.Cancelled',
@@ -1710,6 +1713,8 @@ export function reservationRoutes(app: FastifyInstance): void {
             reservationId: reservation.reservationId,
             stationId: reservation.stationOcppId,
             cancellationFeeFormatted,
+            cancellationFeeCents: feeChargedCents,
+            currency: feeCurrency ?? '',
           },
           ALL_TEMPLATES_DIRS,
           getPubSub(),

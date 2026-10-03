@@ -19,7 +19,8 @@ import {
 // On OCPP 2.1 the command is SetDisplayMessage with priority AlwaysFront and
 // an endDateTime so the station auto-clears the message after the TTL. On
 // OCPP 1.6 (no native SetDisplayMessage) the helper falls back to a
-// DataTransfer with the same vendor channel that pricing-display uses.
+// DataTransfer on the com.evtivity vendor channel. The template renders in
+// the stationMessage.language display language.
 // Either path can opt into a defensive in-process clear by passing
 // `autoClearMs` - the helper schedules a follow-up ClearDisplayMessage /
 // DataTransfer-clear after the delay, so 1.6 stations and any 2.1 firmware

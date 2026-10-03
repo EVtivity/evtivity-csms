@@ -22,6 +22,7 @@ export {
 } from './lib/reservation-setting.js';
 export type { ReservationSettings } from './lib/reservation-setting.js';
 export { isSupportEnabled } from './lib/support-setting.js';
+export { getPlatformFeePercent, clearPlatformFeeCache } from './lib/payment-settings.js';
 export { writeReservationAudit, reservationDiffChanged } from './lib/reservation-audit.js';
 export type {
   ReservationAuditAction,
@@ -30,6 +31,23 @@ export type {
 } from './lib/reservation-audit.js';
 export { writeAudit, redactAuditPayload } from './lib/audit.js';
 export { settlePrepaidSession } from './lib/prepaid-balance.js';
+export { createCreditCdr, creditCdrData, negateOcpiPrice } from './lib/ocpi-credit-cdr.js';
+export type { CreditCdrResult } from './lib/ocpi-credit-cdr.js';
+export {
+  loadSessionPricing,
+  sessionIdleMinutesAt,
+  reservationHoldingMinutes,
+  priceSession,
+  priceSessionAt,
+  zeroCostBreakdown,
+  storeRunningCost,
+  storeFinalCost,
+  snapshotSessionTariff,
+  closeOpenSegment,
+  openSegmentTariffId,
+  switchTariffSegment,
+} from './lib/session-pricing.js';
+export type { SessionPricingRow, TariffPriceSnapshot } from './lib/session-pricing.js';
 export type { PrepaidSettlement } from './lib/prepaid-balance.js';
 export {
   recomputeStationAvailability,
@@ -62,6 +80,8 @@ export { getStaleSessionTimeoutHours } from './lib/session-settings.js';
 export {
   getSystemTimezone,
   getCompanyCurrency,
+  getCompanyPriceDisplay,
+  getCompanyTaxBasis,
   clearSystemSettingsCache,
 } from './lib/system-settings.js';
 export {
@@ -77,6 +97,7 @@ export {
   getStationMessageRefreshSeconds,
   getStationMessageEventTtlSeconds,
   getStationMessageBrandLine,
+  getStationMessageLanguage,
   clearStationMessageSettingsCache,
 } from './lib/station-message-settings.js';
 export {

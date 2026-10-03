@@ -1,36 +1,41 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type {
-  OcpiSession,
-  OcpiSessionStatus,
-  OcpiChargingPeriod,
-  OcpiCdrToken,
-  OcpiVersion,
-} from '../types/ocpi.js';
+import type { TaxLine } from '@evtivity/lib/price-display';
+import { toOcpiPrice } from '../lib/ocpi-price.js';
+import { chargingPeriods, cdrToken, whToKwh } from '../lib/charging-periods.js';
+import type { CdrTokenSource } from '../lib/charging-periods.js';
+import type { OcpiSession, OcpiSessionStatus, OcpiVersion } from '../types/ocpi.js';
 
 interface SessionRow {
   id: string;
   transactionId: string;
-  status: 'active' | 'completed' | 'invalid' | 'faulted';
+  status: 'active' | 'completed' | 'invalid' | 'faulted' | 'failed';
   startedAt: Date | null;
   endedAt: Date | null;
+  updatedAt: Date;
   energyDeliveredWh: string | null;
-  currentCostCents: number | null;
-  finalCostCents: number | null;
   currency: string;
 }
 
 interface SessionTransformInput {
   session: SessionRow;
+  /**
+   * The session cost split into net and tax (`ocpiSessionCost`): the final
+   * cost once completed, the running cost before. Null when not known yet,
+   * which omits total_cost.
+   */
+  cost: TaxLine[] | null;
+  /** Idle minutes (EV connected, not charging) up to the session end or `now`. */
+  idleMinutes: number;
+  /** The time the volumes of a running session are read at. */
+  now: Date;
   countryCode: string;
   partyId: string;
   locationId: string;
   evseUid: string;
   connectorId: string;
-  tokenUid: string;
-  tokenCountryCode: string;
-  tokenPartyId: string;
+  token: CdrTokenSource;
 }
 
 const SESSION_STATUS_MAP: Record<string, OcpiSessionStatus> = {
@@ -38,19 +43,8 @@ const SESSION_STATUS_MAP: Record<string, OcpiSessionStatus> = {
   completed: 'COMPLETED',
   invalid: 'INVALID',
   faulted: 'INVALID',
+  failed: 'INVALID',
 };
-
-function whToKwh(wh: string | null): number {
-  if (wh == null) return 0;
-  const parsed = parseFloat(wh);
-  if (isNaN(parsed)) return 0;
-  return Math.round((parsed / 1000) * 10000) / 10000;
-}
-
-function centsToCost(cents: number | null): number {
-  if (cents == null) return 0;
-  return cents / 100;
-}
 
 export function transformSession(input: SessionTransformInput, version: OcpiVersion): OcpiSession {
   const { session, countryCode, partyId, locationId, evseUid, connectorId } = input;
@@ -58,64 +52,40 @@ export function transformSession(input: SessionTransformInput, version: OcpiVers
   const kwh = whToKwh(session.energyDeliveredWh);
   const status = SESSION_STATUS_MAP[session.status] ?? 'ACTIVE';
 
-  const costCents =
-    session.status === 'completed' ? session.finalCostCents : session.currentCostCents;
-  const costValue = centsToCost(costCents);
-  const currency = session.currency;
-
-  const cdrToken: OcpiCdrToken = {
-    country_code: input.tokenCountryCode,
-    party_id: input.tokenPartyId,
-    uid: input.tokenUid,
-    type: 'RFID',
-    contract_id: input.tokenUid,
-  };
-
-  const chargingPeriods: OcpiChargingPeriod[] = [];
-  if (session.startedAt != null) {
-    chargingPeriods.push({
-      start_date_time: session.startedAt.toISOString(),
-      dimensions: [
-        { type: 'ENERGY', volume: kwh },
-        {
-          type: 'TIME',
-          volume: getSessionDurationHours(session.startedAt, session.endedAt),
-        },
-      ],
-    });
-  }
-
   const result: OcpiSession = {
     country_code: countryCode,
     party_id: partyId,
     id: session.transactionId,
-    start_date_time: session.startedAt?.toISOString() ?? new Date().toISOString(),
+    start_date_time: (session.startedAt ?? session.updatedAt).toISOString(),
     kwh,
-    cdr_token: cdrToken,
+    cdr_token: cdrToken(input.token),
     auth_method: 'AUTH_REQUEST',
     location_id: locationId,
     evse_uid: evseUid,
     connector_id: connectorId,
-    currency,
-    charging_periods: chargingPeriods,
-    total_cost: { excl_vat: costValue },
+    currency: session.currency,
+    charging_periods:
+      session.startedAt != null
+        ? chargingPeriods({
+            startedAt: session.startedAt,
+            endedAt: session.endedAt ?? input.now,
+            kwh,
+            idleMinutes: input.idleMinutes,
+          })
+        : [],
     status,
-    last_updated: (session.endedAt ?? session.startedAt ?? new Date()).toISOString(),
+    last_updated: session.updatedAt.toISOString(),
   };
 
   if (session.endedAt != null) {
     result.end_date_time = session.endedAt.toISOString();
   }
 
-  if (version === '2.3.0') {
-    // 2.3.0-specific session fields will be added here
+  // total_cost is the Price class of the version: excl_vat (net) and incl_vat
+  // (the amount charged) in 2.2.1, before_taxes and taxes in 2.3.0.
+  if (input.cost != null) {
+    result.total_cost = toOcpiPrice(input.cost, version);
   }
 
   return result;
-}
-
-function getSessionDurationHours(startedAt: Date, endedAt: Date | null): number {
-  const end = endedAt ?? new Date();
-  const durationMs = end.getTime() - startedAt.getTime();
-  return Math.round((durationMs / 3600000) * 10000) / 10000;
 }

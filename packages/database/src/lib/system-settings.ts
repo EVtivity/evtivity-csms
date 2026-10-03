@@ -2,7 +2,16 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { eq } from 'drizzle-orm';
-import { DEFAULT_CURRENCY, isSupportedCurrency } from '@evtivity/lib';
+import {
+  DEFAULT_CURRENCY,
+  DEFAULT_PRICE_DISPLAY,
+  DEFAULT_TAX_BASIS,
+  isPriceDisplay,
+  isSupportedCurrency,
+  isTaxBasis,
+  type PriceDisplay,
+  type TaxBasis,
+} from '@evtivity/lib';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
 
@@ -14,6 +23,12 @@ let cachedAt = 0;
 
 let cachedCurrency: string | undefined;
 let cachedCurrencyAt = 0;
+
+let cachedPriceDisplay: PriceDisplay | undefined;
+let cachedPriceDisplayAt = 0;
+
+let cachedTaxBasis: TaxBasis | undefined;
+let cachedTaxBasisAt = 0;
 
 /**
  * Cached reader for the `system.timezone` setting. Used by dashboard
@@ -66,9 +81,65 @@ export async function getCompanyCurrency(): Promise<string> {
   }
 }
 
+/**
+ * Cached reader for the `company.priceDisplay` setting: whether drivers see
+ * prices including ('gross') or excluding ('net') tax unless they choose
+ * otherwise. Falls back to DEFAULT_PRICE_DISPLAY when unset or invalid, and on
+ * error.
+ */
+export async function getCompanyPriceDisplay(): Promise<PriceDisplay> {
+  const now = Date.now();
+  if (cachedPriceDisplay !== undefined && now - cachedPriceDisplayAt < TTL_MS) {
+    return cachedPriceDisplay;
+  }
+
+  try {
+    const [row] = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, 'company.priceDisplay'));
+
+    cachedPriceDisplay = isPriceDisplay(row?.value) ? row.value : DEFAULT_PRICE_DISPLAY;
+    cachedPriceDisplayAt = now;
+    return cachedPriceDisplay;
+  } catch {
+    return cachedPriceDisplay ?? DEFAULT_PRICE_DISPLAY;
+  }
+}
+
+/**
+ * Cached reader for the `company.taxBasis` setting: whether tariff prices are
+ * entered excluding ('net') or including ('gross') tax. A session stamps it
+ * with its tariff snapshot and is priced in it. Falls back to
+ * DEFAULT_TAX_BASIS when unset or invalid, and on error.
+ */
+export async function getCompanyTaxBasis(): Promise<TaxBasis> {
+  const now = Date.now();
+  if (cachedTaxBasis !== undefined && now - cachedTaxBasisAt < TTL_MS) {
+    return cachedTaxBasis;
+  }
+
+  try {
+    const [row] = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, 'company.taxBasis'));
+
+    cachedTaxBasis = isTaxBasis(row?.value) ? row.value : DEFAULT_TAX_BASIS;
+    cachedTaxBasisAt = now;
+    return cachedTaxBasis;
+  } catch {
+    return cachedTaxBasis ?? DEFAULT_TAX_BASIS;
+  }
+}
+
 export function clearSystemSettingsCache(): void {
   cachedTimezone = undefined;
   cachedAt = 0;
   cachedCurrency = undefined;
   cachedCurrencyAt = 0;
+  cachedPriceDisplay = undefined;
+  cachedPriceDisplayAt = 0;
+  cachedTaxBasis = undefined;
+  cachedTaxBasisAt = 0;
 }

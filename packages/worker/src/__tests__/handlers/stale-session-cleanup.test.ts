@@ -5,9 +5,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
 
 // `db.select(...).from().innerJoin().where()` resolves to the stale session
-// list. `db.execute(sql)` resolves to queued results in call order
-// (closedIdleAgg, segment-close UPDATE, optional split-segment SELECT).
-// `db.update().set().where()` resolves to undefined and captures the SET arg.
+// list. `db.update().set().where()` resolves to undefined and captures the
+// SET arg. The cost assembly (closeOpenSegment, priceSessionAt) is mocked; it
+// is tested in @evtivity/database.
 
 let staleSessionRows: unknown[] = [];
 function setStaleSessions(rows: unknown[]): void {
@@ -23,18 +23,6 @@ const mockSelect = vi.fn(() => ({
   })),
 }));
 
-let executeQueue: unknown[][] = [];
-let executeIndex = 0;
-function setExecuteResults(...results: unknown[][]): void {
-  executeQueue = results;
-  executeIndex = 0;
-}
-const mockExecute = vi.fn(() => {
-  const r = executeQueue[executeIndex] ?? [];
-  executeIndex++;
-  return Promise.resolve(r);
-});
-
 const updateSetArgs: unknown[] = [];
 const updateWhere = vi.fn(() => Promise.resolve());
 const mockUpdate = vi.fn(() => ({
@@ -46,28 +34,26 @@ const mockUpdate = vi.fn(() => ({
 
 const {
   mockGetStaleSessionTimeoutHours,
-  mockGetIdlingGracePeriodMinutes,
-  mockIsSplitBillingEnabled,
   mockWriteReservationAudit,
-  mockCalculateSessionCost,
-  mockCalculateSplitSessionCost,
+  mockCloseOpenSegment,
+  mockPriceSessionAt,
   mockPublish,
+  mockClient,
 } = vi.hoisted(() => ({
   mockGetStaleSessionTimeoutHours: vi.fn(),
-  mockGetIdlingGracePeriodMinutes: vi.fn(),
-  mockIsSplitBillingEnabled: vi.fn(),
   mockWriteReservationAudit: vi.fn().mockResolvedValue(undefined),
-  mockCalculateSessionCost: vi.fn(),
-  mockCalculateSplitSessionCost: vi.fn(),
+  mockCloseOpenSegment: vi.fn().mockResolvedValue(undefined),
+  mockPriceSessionAt: vi.fn(),
   mockPublish: vi.fn().mockResolvedValue(undefined),
+  mockClient: { __client: true },
 }));
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
   db: {
     select: mockSelect,
     update: mockUpdate,
-    execute: mockExecute,
   },
+  client: mockClient,
   chargingSessions: {
     id: 'cs.id',
     stationId: 'cs.stationId',
@@ -76,14 +62,21 @@ vi.mock('@evtivity/database', () => ({
   },
   chargingStations: { id: 'st.id', isOnline: 'st.isOnline', stationId: 'st.stationId' },
   getStaleSessionTimeoutHours: mockGetStaleSessionTimeoutHours,
-  getIdlingGracePeriodMinutes: mockGetIdlingGracePeriodMinutes,
-  isSplitBillingEnabled: mockIsSplitBillingEnabled,
   writeReservationAudit: mockWriteReservationAudit,
+  closeOpenSegment: mockCloseOpenSegment,
+  priceSessionAt: mockPriceSessionAt,
+  sessionIdleMinutesAt: (
+    await vi.importActual<typeof import('../../../../database/src/lib/session-pricing.js')>(
+      '../../../../database/src/lib/session-pricing.js',
+    )
+  ).sessionIdleMinutesAt,
 }));
 
-vi.mock('@evtivity/lib', () => ({
-  calculateSessionCost: mockCalculateSessionCost,
-  calculateSplitSessionCost: mockCalculateSplitSessionCost,
+vi.mock('../../../../database/src/lib/idling-setting.js', () => ({
+  getIdlingGracePeriodMinutes: vi.fn(),
+}));
+vi.mock('../../../../database/src/lib/pricing-settings.js', () => ({
+  isSplitBillingEnabled: vi.fn(),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -116,13 +109,7 @@ function baseSession(overrides: Record<string, unknown> = {}): Record<string, un
     updatedAt: new Date('2026-06-01T01:00:00.000Z'),
     energyDeliveredWh: '1000',
     currentCostCents: 500,
-    currency: null,
     tariffId: null,
-    tariffPricePerKwh: null,
-    tariffPricePerMinute: null,
-    tariffPricePerSession: null,
-    tariffIdleFeePricePerMinute: null,
-    tariffTaxRate: null,
     idleStartedAt: null,
     idleMinutes: '0',
     reservationId: null,
@@ -137,14 +124,10 @@ describe('staleSessionCleanupHandler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setStaleSessions([]);
-    setExecuteResults();
     updateSetArgs.length = 0;
     mockGetStaleSessionTimeoutHours.mockResolvedValue(4);
-    mockGetIdlingGracePeriodMinutes.mockResolvedValue(5);
-    mockIsSplitBillingEnabled.mockResolvedValue(false);
     mockWriteReservationAudit.mockResolvedValue(undefined);
-    mockCalculateSessionCost.mockReturnValue({ totalCents: 0 });
-    mockCalculateSplitSessionCost.mockReturnValue({ totalCents: 0 });
+    mockPriceSessionAt.mockResolvedValue(null);
     mockPublish.mockResolvedValue(undefined);
   });
 
@@ -252,32 +235,73 @@ describe('staleSessionCleanupHandler', () => {
     expect(log.info).toHaveBeenCalledWith({ count: 2 }, 'Stale session cleanup complete');
   });
 
-  it('computes single-tariff final cost when a tariff snapshot exists', async () => {
-    mockCalculateSessionCost.mockReturnValue({ totalCents: 1234 });
+  it('closes the open segment and stores the final cost from the cost assembly', async () => {
+    const breakdown = {
+      basis: 'net',
+      netCents: 1143,
+      taxCents: 91,
+      grossCents: 1234,
+      taxLines: [{ taxRate: 0.08, netCents: 1143, taxCents: 91 }],
+      components: null,
+    };
+    mockPriceSessionAt.mockResolvedValue(breakdown);
     setStaleSessions([
       baseSession({
-        currency: 'USD',
         tariffId: 'tar_1',
-        tariffPricePerKwh: '0.25',
-        tariffTaxRate: '0.08',
         idleMinutes: '10',
         idleStartedAt: new Date('2026-06-01T00:50:00.000Z'),
         stationIsOnline: false,
       }),
     ]);
-    // closedIdleAgg, segment-close UPDATE
-    setExecuteResults([{ total: '0' }], []);
     const log = makeLog();
 
     const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
     await staleSessionCleanupHandler(log);
 
-    expect(mockCalculateSessionCost).toHaveBeenCalledTimes(1);
+    const endedAt = new Date('2026-06-01T01:00:00.000Z');
+    // 10 accumulated idle minutes plus the open period 00:50 to 01:00.
+    expect(mockCloseOpenSegment).toHaveBeenCalledWith(mockClient, 'ses_1', endedAt, 1000, 20);
+    expect(mockPriceSessionAt).toHaveBeenCalledWith(mockClient, 'ses_1', endedAt, 1000);
+    expect(updateSetArgs[0]).toMatchObject({
+      status: 'faulted',
+      finalCostCents: 1234,
+      currentCostCents: 1234,
+      netCents: 1143,
+      taxCents: 91,
+      costBreakdown: breakdown,
+    });
+  });
+
+  it('prices a session without stored energy at 0 Wh', async () => {
+    setStaleSessions([
+      baseSession({ tariffId: 'tar_1', energyDeliveredWh: null, stationIsOnline: false }),
+    ]);
+    const log = makeLog();
+
+    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    await staleSessionCleanupHandler(log);
+
+    expect(mockPriceSessionAt).toHaveBeenCalledWith(
+      mockClient,
+      'ses_1',
+      new Date('2026-06-01T01:00:00.000Z'),
+      0,
+    );
+  });
+
+  it('keeps the last running cost when the cost assembly cannot price the session', async () => {
+    setStaleSessions([baseSession({ tariffId: 'tar_1', stationIsOnline: false })]);
+    const log = makeLog();
+
+    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    await staleSessionCleanupHandler(log);
+
     const set = updateSetArgs[0] as Record<string, unknown>;
-    expect(set.finalCostCents).toBe(1234);
-    expect(set.currentCostCents).toBe(1234);
-    // Split path not used.
-    expect(mockCalculateSplitSessionCost).not.toHaveBeenCalled();
+    expect(set.finalCostCents).toBe(500);
+    expect(set.currentCostCents).toBe(500);
+    // The split stored with the running cost stays.
+    expect(set).not.toHaveProperty('netCents');
+    expect(set).not.toHaveProperty('costBreakdown');
   });
 
   it('falls back to currentCostCents (null) for final/current cost when no tariff snapshot exists', async () => {
@@ -293,168 +317,8 @@ describe('staleSessionCleanupHandler', () => {
     // finalCostCents stays null (== currentCostCents) when no tariff path runs.
     expect(set.finalCostCents).toBeNull();
     expect(set.currentCostCents).toBeNull();
-    expect(mockCalculateSessionCost).not.toHaveBeenCalled();
-  });
-
-  it('uses energy_wh_start and zero idle fallbacks for segments missing energy_wh_end/idle', async () => {
-    mockIsSplitBillingEnabled.mockResolvedValue(true);
-    mockCalculateSplitSessionCost.mockReturnValue({ totalCents: 999 });
-    // energyDeliveredWh null -> energyWh defaults to 0 (line 71). closedIdleAgg
-    // returns no row -> closedIdleSum defaults to 0 (line 97).
-    setStaleSessions([
-      baseSession({
-        currency: 'USD',
-        tariffId: 'tar_1',
-        energyDeliveredWh: null,
-        stationIsOnline: false,
-      }),
-    ]);
-    setExecuteResults(
-      [], // closedIdleAgg returns no row
-      [], // segment-close UPDATE
-      [
-        // First segment closed normally.
-        {
-          started_at: '2026-06-01T00:00:00.000Z',
-          ended_at: '2026-06-01T00:30:00.000Z',
-          energy_wh_start: '0',
-          energy_wh_end: '400',
-          seg_idle_minutes: '0',
-          currency: 'USD',
-          price_per_kwh: '0.25',
-          price_per_minute: '0',
-          price_per_session: '0',
-          idle_fee_price_per_minute: '0',
-          tax_rate: '0',
-        },
-        // Second segment never closed: energy_wh_end and seg_idle_minutes null.
-        {
-          started_at: '2026-06-01T00:30:00.000Z',
-          ended_at: null,
-          energy_wh_start: '400',
-          energy_wh_end: null,
-          seg_idle_minutes: null,
-          currency: 'USD',
-          price_per_kwh: '0.30',
-          price_per_minute: '0',
-          price_per_session: '0',
-          idle_fee_price_per_minute: '0',
-          tax_rate: '0',
-        },
-        // Third segment with BOTH energy boundaries null -> the ultimate `?? 0`
-        // fallbacks apply, yielding a 0 delta.
-        {
-          started_at: '2026-06-01T01:00:00.000Z',
-          ended_at: null,
-          energy_wh_start: null,
-          energy_wh_end: null,
-          seg_idle_minutes: null,
-          currency: 'USD',
-          price_per_kwh: '0.30',
-          price_per_minute: '0',
-          price_per_session: '0',
-          idle_fee_price_per_minute: '0',
-          tax_rate: '0',
-        },
-      ],
-    );
-    const log = makeLog();
-
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
-    await staleSessionCleanupHandler(log);
-
-    const segments = mockCalculateSplitSessionCost.mock.calls[0]![0] as Array<
-      Record<string, unknown>
-    >;
-    expect(segments).toHaveLength(3);
-    // Open segment: energy_wh_end null -> falls back to energy_wh_start (400),
-    // so the delta is 400 - 400 = 0 instead of a large negative refund.
-    expect(segments[1]!.energyDeliveredWh).toBe(0);
-    expect(segments[1]!.idleMinutes).toBe(0);
-    // Both boundaries null -> ultimate `?? 0` fallbacks yield a 0 delta.
-    expect(segments[2]!.energyDeliveredWh).toBe(0);
-    expect((updateSetArgs[0] as Record<string, unknown>).finalCostCents).toBe(999);
-  });
-
-  it('computes split-billing cost when enabled and more than one segment exists', async () => {
-    mockIsSplitBillingEnabled.mockResolvedValue(true);
-    mockCalculateSplitSessionCost.mockReturnValue({ totalCents: 4321 });
-    setStaleSessions([
-      baseSession({
-        currency: 'USD',
-        tariffId: 'tar_1',
-        idleMinutes: '0',
-        stationIsOnline: false,
-      }),
-    ]);
-    setExecuteResults(
-      [{ total: '0' }], // closedIdleAgg
-      [], // segment-close UPDATE
-      // split segments SELECT: two segments
-      [
-        {
-          started_at: '2026-06-01T00:00:00.000Z',
-          ended_at: '2026-06-01T00:30:00.000Z',
-          energy_wh_start: '0',
-          energy_wh_end: '500',
-          seg_idle_minutes: '0',
-          currency: 'USD',
-          price_per_kwh: '0.25',
-          price_per_minute: '0',
-          price_per_session: '0',
-          idle_fee_price_per_minute: '0',
-          tax_rate: '0.08',
-        },
-        {
-          started_at: '2026-06-01T00:30:00.000Z',
-          ended_at: '2026-06-01T01:00:00.000Z',
-          energy_wh_start: '500',
-          energy_wh_end: '1000',
-          seg_idle_minutes: '0',
-          currency: 'USD',
-          price_per_kwh: '0.30',
-          price_per_minute: '0',
-          price_per_session: '0',
-          idle_fee_price_per_minute: '0',
-          tax_rate: '0.08',
-        },
-      ],
-    );
-    const log = makeLog();
-
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
-    await staleSessionCleanupHandler(log);
-
-    expect(mockCalculateSplitSessionCost).toHaveBeenCalledTimes(1);
-    const segments = mockCalculateSplitSessionCost.mock.calls[0]![0] as Array<
-      Record<string, unknown>
-    >;
-    expect(segments).toHaveLength(2);
-    expect(segments[0]!.isFirstSegment).toBe(true);
-    expect(segments[1]!.isFirstSegment).toBe(false);
-    expect(segments[0]!.energyDeliveredWh).toBe(500); // 500 - 0
-    expect(segments[1]!.energyDeliveredWh).toBe(500); // 1000 - 500
-    const set = updateSetArgs[0] as Record<string, unknown>;
-    expect(set.finalCostCents).toBe(4321);
-  });
-
-  it('falls back to single-tariff calc when split is enabled but only one segment exists', async () => {
-    mockIsSplitBillingEnabled.mockResolvedValue(true);
-    mockCalculateSessionCost.mockReturnValue({ totalCents: 777 });
-    setStaleSessions([baseSession({ currency: 'USD', tariffId: 'tar_1', stationIsOnline: false })]);
-    setExecuteResults(
-      [{ total: '0' }], // closedIdleAgg
-      [], // segment-close UPDATE
-      [{ started_at: '2026-06-01T00:00:00.000Z', ended_at: null }], // one segment
-    );
-    const log = makeLog();
-
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
-    await staleSessionCleanupHandler(log);
-
-    expect(mockCalculateSplitSessionCost).not.toHaveBeenCalled();
-    expect(mockCalculateSessionCost).toHaveBeenCalledTimes(1);
-    expect((updateSetArgs[0] as Record<string, unknown>).finalCostCents).toBe(777);
+    expect(mockPriceSessionAt).not.toHaveBeenCalled();
+    expect(mockCloseOpenSegment).not.toHaveBeenCalled();
   });
 
   it('writes a reservation audit when the session is linked to a reservation', async () => {

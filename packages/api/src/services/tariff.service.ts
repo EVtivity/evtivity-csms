@@ -119,8 +119,11 @@ export function clearHolidayCache(): void {
   holidayCache = null;
 }
 
-export function isTariffFree(tariff: ResolvedTariff | null): boolean {
-  return isTariffFreeShared(tariff);
+export function isTariffFree(
+  tariff: ResolvedTariff | null,
+  options: { reserved?: boolean } = {},
+): boolean {
+  return isTariffFreeShared(tariff, options);
 }
 
 export async function resolveTariff(

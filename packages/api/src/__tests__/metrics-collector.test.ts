@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockExecute = vi.fn();
 const mockGetCompanyCurrency = vi.fn();
+const mockQueryRevenueTotal = vi.fn();
 
 vi.mock('@evtivity/database', () => ({
   db: { execute: mockExecute },
@@ -19,54 +20,51 @@ vi.mock('@evtivity/lib', () => ({
   createLogger: () => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }),
 }));
 
+vi.mock('../lib/session-revenue.js', () => ({
+  queryRevenueTotal: (input: unknown) => mockQueryRevenueTotal(input),
+}));
+
 const { collectBusinessMetrics } = await import('../services/metrics-collector.service.js');
 const { revenueCentsTotal } = await import('../plugins/metrics.js');
 
-function queryText(arg: unknown): string {
-  return (arg as { strings: readonly string[] }).strings.join('?');
-}
-
-function mockRevenue(total: string | number): void {
-  mockExecute.mockImplementation((arg: unknown) =>
-    Promise.resolve(queryText(arg).includes('SUM(final_cost_cents)') ? [{ total }] : []),
-  );
+function revenue(grossCents: number): Record<string, number> {
+  return {
+    grossCents,
+    netCents: grossCents,
+    taxCents: 0,
+    sessionCount: 1,
+    sessionGrossCents: grossCents,
+    itemCount: 1,
+  };
 }
 
 describe('collectBusinessMetrics revenue', () => {
   beforeEach(() => {
     mockExecute.mockReset();
+    mockExecute.mockResolvedValue([]);
     mockGetCompanyCurrency.mockReset();
+    mockQueryRevenueTotal.mockReset();
   });
 
-  it('reports one revenue series of company-currency sessions, labelled with that currency', async () => {
+  it('reports the shared revenue (incl. tax) in the company currency', async () => {
     mockGetCompanyCurrency.mockResolvedValue('EUR');
-    let revenueQuery: string | undefined;
-    let revenueValues: unknown[] = [];
-    mockExecute.mockImplementation((arg: unknown) => {
-      if (queryText(arg).includes('SUM(final_cost_cents)')) {
-        revenueQuery = queryText(arg);
-        revenueValues = (arg as { values: unknown[] }).values;
-        return Promise.resolve([{ total: '125000' }]);
-      }
-      return Promise.resolve([]);
-    });
+    mockQueryRevenueTotal.mockResolvedValue(revenue(125000));
 
     await collectBusinessMetrics();
 
-    expect(revenueQuery).not.toContain('GROUP BY');
-    expect(revenueQuery).toContain('UPPER(currency) = ?');
-    expect(revenueValues).toEqual(['EUR']);
+    // The one revenue definition: ended sessions and fees minus refunds.
+    expect(mockQueryRevenueTotal).toHaveBeenCalledWith({ companyCurrency: 'EUR' });
     const { values } = await revenueCentsTotal.get();
     expect(values.map((v) => [v.labels.currency, v.value])).toEqual([['EUR', 125000]]);
   });
 
   it('drops the previous series when the company currency changes', async () => {
     mockGetCompanyCurrency.mockResolvedValue('USD');
-    mockRevenue(10);
+    mockQueryRevenueTotal.mockResolvedValue(revenue(10));
     await collectBusinessMetrics();
 
     mockGetCompanyCurrency.mockResolvedValue('GBP');
-    mockRevenue(20);
+    mockQueryRevenueTotal.mockResolvedValue(revenue(20));
     await collectBusinessMetrics();
 
     const { values } = await revenueCentsTotal.get();

@@ -73,6 +73,7 @@ import {
   errorWith,
 } from '../lib/response-schemas.js';
 import { inCompanyCurrency, sessionCurrencySql } from '../lib/company-currency.js';
+import { queryRevenue, queryRevenueTotal, revenueItem } from '../lib/session-revenue.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds, checkStationSiteAccess, userCanAccessSite } from '../lib/site-access.js';
 import { dateRangeQuery, parseDateRange } from '../lib/date-range.js';
@@ -632,9 +633,13 @@ const revenueHistoryItem = z
       .int()
       .min(0)
       .describe(
-        'Total revenue collected on that date in cents, from sessions billed in the company currency',
+        'Revenue on this date in cents, tax included: final costs of sessions started that day plus reservation fees charged that day, minus refunds, in the company currency. Active sessions are not counted',
       ),
-    sessionCount: z.number().describe('Number of revenue-generating sessions on that date'),
+    sessionCount: z
+      .number()
+      .describe(
+        'Number of ended sessions billed in the company currency that started on this date',
+      ),
   })
   .passthrough();
 
@@ -670,22 +675,38 @@ const stationMetricsResponse = z
       .number()
       .int()
       .min(0)
-      .describe('Total revenue in the period in the smallest currency unit (cents)'),
+      .describe(
+        'Total revenue in the period in cents, tax included. Revenue is the final cost of ended sessions plus reservation fees charged, minus refunds, in the company currency; active sessions are not counted',
+      ),
     avgRevenueCentsPerSession: z
       .number()
-      .describe('Average revenue per session in the smallest currency unit (cents)'),
+      .describe('Average revenue per ended session billed in the company currency, in cents'),
     totalTransactions: z
       .number()
-      .describe('Number of revenue-generating transactions in the period'),
+      .describe('Number of revenue items: ended billed sessions plus reservation fee charges'),
     totalElectricityCostCents: z
       .number()
       .int()
       .min(0)
       .describe('Total wholesale electricity cost in the period in cents'),
+    totalNetRevenueCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Total revenue excluding tax in cents. Each amount is split at its own tax rate (a session at its tariff tax rate, a reservation fee at the rate it was taxed at).',
+      ),
+    totalTaxCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Tax collected in cents (total revenue minus total net revenue)'),
     totalProfitCents: z
       .number()
       .int()
-      .describe('Total profit in cents (revenue minus electricity cost); may be negative'),
+      .describe(
+        'Total profit in cents (revenue excluding tax minus electricity cost); may be negative',
+      ),
     periodMonths: z.number().describe('Number of months covered by these metrics'),
     currency: z
       .string()
@@ -2617,33 +2638,28 @@ export function stationRoutes(app: FastifyInstance): void {
         .where(eq(chargingStations.id, id));
       const tz = stationRow?.siteTimezone ?? 'America/New_York';
 
-      const billed = inCompanyCurrency(chargingSessions.currency, await getCompanyCurrency());
-
-      const rows = await db
-        .select({
-          date: sql<string>`date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz})::date::text`,
-          revenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where ${billed}), 0)`,
-          sessionCount: count(),
-        })
-        .from(chargingSessions)
-        .where(
-          and(
-            eq(chargingSessions.stationId, id),
-            gte(chargingSessions.startedAt, since),
-            until ? lte(chargingSessions.startedAt, until) : undefined,
-            sql`coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null`,
-          ),
-        )
-        .groupBy(sql`1`)
-        .orderBy(sql`1`);
+      // Revenue per day (session-revenue.ts): ended sessions and reservation
+      // fees billed in the company currency, minus refunds, tax included.
+      const where = [
+        sql`${revenueItem.stationId} = ${id}`,
+        sql`${revenueItem.occurredAt} >= ${since.toISOString()}::timestamptz`,
+      ];
+      if (until) where.push(sql`${revenueItem.occurredAt} <= ${until.toISOString()}::timestamptz`);
+      const byDay = await queryRevenue({
+        companyCurrency: await getCompanyCurrency(),
+        key: sql`date_trunc('day', ${revenueItem.occurredAt} AT TIME ZONE ${tz})::date`,
+        where,
+      });
 
       return zeroFillDays(
         enumerateLocalDays(since, until, tz),
-        rows.map((r) => ({
-          date: r.date,
-          revenueCents: r.revenueCents,
-          sessionCount: r.sessionCount,
-        })),
+        [...byDay]
+          .filter((entry): entry is [string, (typeof entry)[1]] => entry[0] != null)
+          .map(([date, revenue]) => ({
+            date,
+            revenueCents: revenue.grossCents,
+            sessionCount: revenue.sessionCount,
+          })),
         (date) => ({ date, revenueCents: 0, sessionCount: 0 }),
       );
     },
@@ -2972,14 +2988,24 @@ export function stationRoutes(app: FastifyInstance): void {
           .where(and(eq(chargingSessions.stationId, id), gte(chargingSessions.startedAt, since))),
         db
           .select({
-            totalRevenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where ${billed}), 0)`,
-            avgRevenueCentsPerSession: sql<number>`coalesce(avg(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where ${billed}), 0)`,
-            totalTransactions: sql<number>`count(*) filter (where coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null)`,
-            totalElectricityCostCents: sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}) filter (where ${billed}), 0)`,
+            totalElectricityCostCents:
+              sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}) filter (where ${billed}), 0)`.mapWith(
+                Number,
+              ),
           })
           .from(chargingSessions)
           .where(and(eq(chargingSessions.stationId, id), gte(chargingSessions.startedAt, since))),
       ]);
+
+      // Revenue (session-revenue.ts): ended sessions and reservation fees,
+      // minus refunds.
+      const revenue = await queryRevenueTotal({
+        companyCurrency: currency,
+        where: [
+          sql`${revenueItem.stationId} = ${id}`,
+          sql`${revenueItem.occurredAt} >= ${since.toISOString()}::timestamptz`,
+        ],
+      });
 
       const totalPortHours = (utilizationStats?.portCount ?? 1) * (periodMinutes / 60);
       const utilization =
@@ -3027,13 +3053,16 @@ export function stationRoutes(app: FastifyInstance): void {
         disconnectCount: Number(disconnectRow?.disconnect_count ?? 0),
         avgDowntimeMinutes: Math.round(Number(disconnectRow?.avg_downtime_minutes ?? 0)),
         maxDowntimeMinutes: Math.round(Number(disconnectRow?.max_downtime_minutes ?? 0)),
-        totalRevenueCents: financialStats?.totalRevenueCents ?? 0,
-        avgRevenueCentsPerSession: Math.round(financialStats?.avgRevenueCentsPerSession ?? 0),
-        totalTransactions: financialStats?.totalTransactions ?? 0,
+        totalRevenueCents: revenue.grossCents,
+        avgRevenueCentsPerSession:
+          revenue.sessionCount > 0
+            ? Math.round(revenue.sessionGrossCents / revenue.sessionCount)
+            : 0,
+        totalTransactions: revenue.itemCount,
         totalElectricityCostCents: financialStats?.totalElectricityCostCents ?? 0,
-        totalProfitCents:
-          (financialStats?.totalRevenueCents ?? 0) -
-          (financialStats?.totalElectricityCostCents ?? 0),
+        totalNetRevenueCents: revenue.netCents,
+        totalTaxCents: revenue.taxCents,
+        totalProfitCents: revenue.netCents - (financialStats?.totalElectricityCostCents ?? 0),
         periodMonths: months,
         currency,
       };

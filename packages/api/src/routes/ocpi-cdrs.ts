@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, sql, and } from 'drizzle-orm';
-import { db, ocpiCdrs, ocpiPartners } from '@evtivity/database';
+import { db, createCreditCdr, ocpiCdrs, ocpiPartners } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -26,7 +26,12 @@ const cdrListItem = z
       .string()
       .nullable()
       .describe('Total energy delivered in kWh, as a decimal string'),
-    totalCost: z.string().nullable().describe('Total cost as a decimal string'),
+    totalCost: z
+      .string()
+      .nullable()
+      .describe(
+        'Total cost excluding tax as a decimal string (OCPI excl_vat in 2.2.1, before_taxes in 2.3.0). Negative on a credit CDR',
+      ),
     currency: z.string().length(3).nullable().describe('ISO 4217 currency code'),
     isCredit: z.boolean().describe('True when this CDR is a credit (refund) for an earlier CDR'),
     pushStatus: z
@@ -38,7 +43,13 @@ const cdrListItem = z
   .passthrough();
 
 const creditCdrResponse = z
-  .object({ cdrId: z.string().describe('Identifier of the newly created credit CDR') })
+  .object({
+    cdrId: z
+      .string()
+      .describe(
+        'OCPI id of the credit CDR. Crediting a CDR that already has a credit CDR returns that one',
+      ),
+  })
   .passthrough();
 
 const cdrQuery = paginationQuery.extend({
@@ -129,7 +140,10 @@ export function ocpiCdrRoutes(app: FastifyInstance): void {
         body: zodSchema(creditCdrBody),
         response: {
           201: itemResponse(creditCdrResponse),
-          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          400: errorWith('Credit CDR not possible', [
+            ERROR_CODES.INVALID_OPERATION,
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
           404: errorWith('Cdr not found', [ERROR_CODES.CDR_NOT_FOUND]),
         },
       },
@@ -137,52 +151,28 @@ export function ocpiCdrRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const body = request.body as z.infer<typeof creditCdrBody>;
 
-      const [original] = await db
-        .select()
-        .from(ocpiCdrs)
-        .where(eq(ocpiCdrs.ocpiCdrId, body.originalCdrId))
-        .limit(1);
-
-      if (original == null) {
-        await reply.status(404).send({ error: 'CDR not found', code: 'CDR_NOT_FOUND' });
-        return;
+      // One credit CDR builder for the API and the OCPI server (OCPI 10.1.1:
+      // only total_cost is negated, in the Price shape of the CDR's version).
+      const result = await createCreditCdr(body.originalCdrId, body.reason);
+      switch (result.status) {
+        case 'not_found':
+          await reply.status(404).send({ error: 'CDR not found', code: 'CDR_NOT_FOUND' });
+          return;
+        case 'is_credit':
+          await reply
+            .status(400)
+            .send({ error: 'Cannot credit a credit CDR', code: 'INVALID_OPERATION' });
+          return;
+        case 'invalid_cdr':
+          await reply
+            .status(400)
+            .send({ error: 'The CDR has no total cost to credit', code: 'VALIDATION_ERROR' });
+          return;
+        case 'created':
+        case 'existing':
+          await reply.status(201).send({ cdrId: result.cdrId });
+          return;
       }
-
-      if (original.isCredit) {
-        await reply
-          .status(400)
-          .send({ error: 'Cannot credit a credit CDR', code: 'INVALID_OPERATION' });
-        return;
-      }
-
-      // Create a credit CDR inline (avoid importing from OCPI package)
-      const originalData = original.cdrData as Record<string, unknown>;
-      const creditCdrId = crypto.randomUUID();
-      const totalCost = originalData['total_cost'] as { excl_vat: number };
-
-      const creditCdr = {
-        ...originalData,
-        id: creditCdrId,
-        credit: true,
-        credit_reference_id: body.originalCdrId,
-        remark: body.reason,
-        total_cost: { excl_vat: -totalCost.excl_vat },
-        last_updated: new Date().toISOString(),
-      };
-
-      await db.insert(ocpiCdrs).values({
-        partnerId: original.partnerId,
-        ocpiCdrId: creditCdrId,
-        chargingSessionId: original.chargingSessionId,
-        totalEnergy: original.totalEnergy,
-        totalCost: String(-parseFloat(original.totalCost)),
-        currency: original.currency,
-        cdrData: creditCdr,
-        isCredit: true,
-        pushStatus: 'pending',
-      });
-
-      await reply.status(201).send({ cdrId: creditCdrId });
     },
   );
 }

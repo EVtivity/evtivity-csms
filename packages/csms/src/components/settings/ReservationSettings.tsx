@@ -9,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
+import { useCompanyCurrency } from '@/hooks/use-company-currency';
+import { centsToMajorInput, parseMajorInputToCents } from '@evtivity/lib/currency';
 
 interface Props {
   settings: Record<string, unknown> | undefined;
@@ -20,7 +22,10 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
 
   const [bufferMinutes, setBufferMinutes] = useState('15');
   const [cancellationWindowMinutes, setCancellationWindowMinutes] = useState('5');
-  const [cancellationFeeCents, setCancellationFeeCents] = useState('0');
+  const { currency } = useCompanyCurrency();
+  // Typed in the currency (major units), stored in cents. The fee is net: the
+  // station tariff's tax rate is added when it is charged.
+  const [cancellationFee, setCancellationFee] = useState(centsToMajorInput(0));
   const [maxHours, setMaxHours] = useState('3');
 
   useEffect(() => {
@@ -30,7 +35,7 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
     const win = settings['reservation.cancellationWindowMinutes'];
     if (win != null) setCancellationWindowMinutes(Number(win).toString());
     const fee = settings['reservation.cancellationFeeCents'];
-    if (fee != null) setCancellationFeeCents(Number(fee).toString());
+    if (fee != null) setCancellationFee(centsToMajorInput(Number(fee)));
     const max = settings['reservation.maxHours'];
     if (max != null) setMaxHours(Number(max).toString());
   }, [settings]);
@@ -84,13 +89,13 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
   function handleSave(): void {
     const buf = parseInt(bufferMinutes, 10);
     const win = parseInt(cancellationWindowMinutes, 10);
-    const fee = parseInt(cancellationFeeCents, 10);
+    const fee = parseMajorInputToCents(cancellationFee);
     const max = parseInt(maxHours, 10);
 
     void Promise.all([
       bufferMutation.mutateAsync(Number.isNaN(buf) ? 15 : Math.max(0, buf)),
       windowMutation.mutateAsync(Number.isNaN(win) ? 5 : Math.max(0, win)),
-      feeMutation.mutateAsync(Number.isNaN(fee) ? 0 : Math.max(0, fee)),
+      feeMutation.mutateAsync(fee ?? 0),
       maxHoursMutation.mutateAsync(Number.isNaN(max) ? 3 : Math.max(0, max)),
     ]);
   }
@@ -148,19 +153,20 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
 
             <div className="space-y-2">
               <Label htmlFor="reservation-cancellation-fee">
-                {t('settings.reservationCancellationFeeCents')}
+                {t('settings.reservationCancellationFee', { currency: currency ?? '...' })}
               </Label>
               <Input
                 id="reservation-cancellation-fee"
                 type="number"
                 min={0}
-                value={cancellationFeeCents}
+                step="0.01"
+                value={cancellationFee}
                 onChange={(e) => {
-                  setCancellationFeeCents(e.target.value);
+                  setCancellationFee(e.target.value);
                 }}
               />
               <p className="text-xs text-muted-foreground">
-                {t('settings.reservationCancellationFeeCentsHelp')}
+                {t('settings.reservationCancellationFeeHelp')}
               </p>
             </div>
 

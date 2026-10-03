@@ -56,6 +56,7 @@ vi.mock('@evtivity/database', async () => ({
     )
   ).isStationLevelUnavailable,
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
+  getCompanyTaxBasis: vi.fn(() => Promise.resolve('net')),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -393,6 +394,7 @@ describe('Portal charger routes - handler logic', () => {
       expect(body.pricePerSession).toBe('2.00');
       expect(body.idleFeePricePerMinute).toBe('0.05');
       expect(body.taxRate).toBe('0.08');
+      expect(body.taxBasis).toBe('net');
     });
 
     it('calls resolveTariff with station UUID and driver ID', async () => {
@@ -633,6 +635,8 @@ describe('Portal charger routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(400);
       expect(response.json().code).toBe('PAYMENT_METHOD_REQUIRED');
+      // No reservation held by this driver: the reservation fee does not count.
+      expect(vi.mocked(isTariffFree)).toHaveBeenCalledWith(null, { reserved: false });
     });
 
     it('starts charging session without payment when stripe not configured', async () => {

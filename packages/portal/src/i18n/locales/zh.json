@@ -18,7 +18,9 @@
     "offline": "您已离线。部分功能可能无法使用。",
     "add": "添加",
     "deactivate": "停用",
-    "remove": "移除"
+    "remove": "移除",
+    "inclTax": "含税",
+    "amountInclTax": "{{amount}}（含税）"
   },
   "nav": {
     "home": "首页",
@@ -125,7 +127,14 @@
     "energy": "电量",
     "energyAdded": "已输送电量",
     "cost": "预估费用",
+    "costInclTax": "预估费用（含税）",
     "totalCost": "总费用",
+    "totalCostInclTax": "总费用（含税）",
+    "netCost": "净额（税前）",
+    "taxAdded": "税费（{{rate}}%）",
+    "taxAddedNoRate": "税费",
+    "taxContained": "其中税费（{{rate}}%）",
+    "taxContainedNoRate": "其中税费",
     "stopReason": "停止原因",
     "rfid": "RFID",
     "payment": "支付",
@@ -226,7 +235,12 @@
     "themeDark": "深色",
     "distanceUnit": "距离单位",
     "distanceMiles": "英里",
-    "distanceKm": "公里"
+    "distanceKm": "公里",
+    "priceDisplay": "价格显示",
+    "priceDisplayDefault": "运营商默认（{{value}}）",
+    "priceDisplayGross": "含税（总价）",
+    "priceDisplayNet": "不含税（净价）",
+    "priceDisplayHelper": "含税显示加上税费后的价格。不含税显示税前价格。两种方式下实际扣款金额相同，未选择时使用运营商的默认设置。"
   },
   "charger": {
     "loadingInfo": "加载充电桩信息...",
@@ -261,6 +275,8 @@
     "sessionFee": "会话费",
     "idleFee": "/分钟闲置费",
     "tax": "税",
+    "taxIncluded": "价格含 {{rate}}% 税",
+    "taxExcluded": "价格不含 {{rate}}% 税，税费计入实际扣款金额",
     "startCharging": "开始充电",
     "freeCharging": "免费充电",
     "siteContact": "站点联系方式",
@@ -327,7 +343,9 @@
     "duration": "时长",
     "energyDelivered": "已输送电量",
     "totalCost": "总费用",
+    "totalCostInclTax": "总费用（含税）",
     "estimatedCost": "预估费用",
+    "estimatedCostInclTax": "预估费用（含税）",
     "started": "开始时间",
     "ended": "结束时间",
     "stopCharging": "停止充电",
@@ -411,7 +429,7 @@
     "noShowFeeNote": "即使您未到场，仍可能收取预约保留费。",
     "maxHoursHint": "最长预约时长为 {{hours}} 小时。",
     "paymentMethodRequired": "创建预约需要支付方式。",
-    "cancellationFeeWarning": "将向您的默认支付方式收取 {{fee}} 取消费用。",
+    "cancellationFeeWarning": "将向您的默认支付方式收取 {{fee}} 取消费用及相应税费。",
     "cancellationPolicy": "取消政策",
     "cancellationPolicyText": "如果在开始时间前 {{minutes}} 分钟内取消，将收取 {{fee}} 取消费用。",
     "upcoming": "即将开始",
@@ -739,7 +757,9 @@
     "total": "合计",
     "co2Avoided": "减少的CO₂",
     "totalCo2Avoided": "减少的CO₂总量",
-    "noSessions": "此期间没有充电记录。"
+    "noSessions": "此期间没有充电记录。",
+    "cost": "费用",
+    "costInclTax": "费用（含税）"
   },
   "account": {
     "title": "账户",

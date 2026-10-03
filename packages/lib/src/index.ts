@@ -59,8 +59,66 @@ export {
   SUPPORTED_CURRENCIES,
   isSupportedCurrency,
   formatCurrencyAmount,
+  formatUnitPrice,
+  formatUnitPriceWithLabel,
+  formatTariffSummary,
+  centsToMajorInput,
+  parseMajorInputToCents,
 } from './currency.js';
-export type { SupportedCurrency } from './currency.js';
+export type { SupportedCurrency, TariffSummaryLabels, TariffSummaryPrices } from './currency.js';
+export {
+  PRICE_DISPLAYS,
+  DEFAULT_PRICE_DISPLAY,
+  isPriceDisplay,
+  resolvePriceDisplay,
+  TAX_BASES,
+  DEFAULT_TAX_BASIS,
+  isTaxBasis,
+  resolveTaxBasis,
+  netUnitPrice,
+  grossUnitPrice,
+  priceForDisplay,
+  unitPriceForDisplay,
+  taxRateFraction,
+  tariffPriceView,
+  formatTaxRatePercent,
+  costIncludesTax,
+  sessionCostTax,
+  taxOnNet,
+  taxLineFromNet,
+  netFromGross,
+  splitGrossByTaxRate,
+  taxBreakdownByRate,
+  taxBreakdownWithGross,
+  taxTotals,
+  allocateCents,
+  reconcileTaxLines,
+  revenueFromGrossGroups,
+  dimensionTaxCents,
+  COST_DIMENSIONS,
+  vatPercentFromFraction,
+  splitDimensionByTaxLines,
+  dimensionAmounts,
+  taxLineForAmount,
+  chargedCostBreakdown,
+  reconcileCostBreakdown,
+  componentTaxLines,
+  parseSessionCostBreakdown,
+} from './price-display.js';
+export type {
+  PriceDisplay,
+  TariffPriceView,
+  TaxBasis,
+  SessionCostTax,
+  SessionCostBreakdown,
+  CostComponentGroup,
+  TaxLine,
+  TaxBreakdownLine,
+  CostTaxLine,
+  CostDimension,
+  TaxTotals,
+  GrossAmountGroup,
+} from './price-display.js';
 export {
   STATION_PASSWORD_CHARSET,
   stationPasswordRules,
@@ -79,14 +137,52 @@ export {
 export type { FirmwareSignatureError } from './firmware-signature.js';
 export { TOTP_VERSION_V1, totpV1, totpV1ForInterval, verifyTotpV1 } from './web-payment-totp.js';
 export type { TotpParameters } from './web-payment-totp.js';
-export { calculateSessionCost, calculateSplitSessionCost } from './cost-calculator.js';
-export type { TariffInput, CostBreakdown, TariffSegment } from './cost-calculator.js';
+export {
+  calculateSessionCost,
+  calculateSplitSessionCost,
+  calculateSessionCostAt,
+  toSessionCostBreakdown,
+} from './cost-calculator.js';
+export type {
+  TariffInput,
+  CostBreakdown,
+  SplitCostBreakdown,
+  TariffSegment,
+  SessionSegmentInput,
+  SessionPricingInput,
+} from './cost-calculator.js';
 
 export {
   isSimulatedCustomer,
   shouldSimulatePaymentFailure,
   isTariffFree,
 } from './payment-helpers.js';
+
+export {
+  platformFeeCents,
+  incrementalPlatformFeeCents,
+  netOfCharge,
+  sessionChargeTax,
+} from './platform-fee.js';
+export type { ChargeTax } from './platform-fee.js';
+export { captureHoldWithFee, chargeShortfallTopUp } from './stripe-charges.js';
+export type {
+  StripeChargeClient,
+  SessionChargeFee,
+  TopUpIntentParams,
+  CaptureParams,
+} from './stripe-charges.js';
+
+export {
+  LocalizedValue,
+  MoneyValue,
+  UnitPriceValue,
+  TaxRateValue,
+  notificationMoney,
+  notificationUnitPrice,
+  notificationTaxRate,
+  formatLocalizedVariables,
+} from './notification-values.js';
 
 export {
   tariffRestrictionsSchema,
@@ -99,13 +195,6 @@ export { validateNoOverlap } from './tariff-overlap.js';
 
 export { resolveActiveTariff } from './tariff-resolver.js';
 export type { TariffWithRestrictions } from './tariff-resolver.js';
-
-export {
-  formatPricingDisplay,
-  currencySymbol,
-  getCurrencySymbols,
-  setCurrencySymbols,
-} from './pricing-display.js';
 
 export {
   DEFAULT_EMAIL_WRAPPER,
@@ -153,10 +242,30 @@ export { calculateCo2AvoidedKg, GASOLINE_CO2_KG_PER_KWH } from './carbon.js';
 export { FREE_VEND_OCPP_21_VARIABLES, FREE_VEND_OCPP_16_KEYS } from './free-vend-defaults.js';
 export type { ConfigTemplateVariable } from './free-vend-defaults.js';
 
-export { renderStationMessage, clearStationMessageCache } from './station-message.js';
-export type { StationMessageState, StationMessageContext } from './station-message.js';
+export {
+  renderStationMessage,
+  clearStationMessageCache,
+  buildStationPriceContext,
+  stationTaxNoteContext,
+  formatStationIdleFeeRate,
+  formatStationTime,
+  formatStationQuantity,
+} from './station-message.js';
+export type {
+  StationMessageState,
+  StationMessageContext,
+  StationPriceContext,
+} from './station-message.js';
 
-export { STATION_MESSAGE_DEFAULTS } from './station-message-defaults.js';
+export {
+  STATION_MESSAGE_DEFAULTS,
+  STATION_MESSAGE_LANGUAGES,
+  DEFAULT_STATION_MESSAGE_LANGUAGE,
+  isStationMessageLanguage,
+  STATION_PRICE_SUMMARY_LABELS,
+  STATION_PER_MINUTE_LABELS,
+} from './station-message-defaults.js';
+export type { StationMessageLanguage } from './station-message-defaults.js';
 export { dispatchOneShotStationMessage, clearStationMessage } from './station-message-dispatch.js';
 export type {
   OneShotStationMessageOptions,

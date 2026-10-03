@@ -30,9 +30,9 @@ vi.mock('@evtivity/api/src/services/tariff.service.js', () => ({
   resolveTariff: (...args: unknown[]) => mockResolveTariff(...args),
 }));
 
-const mockChargeNoShow = vi.fn().mockResolvedValue(undefined);
+const mockChargeNoShow = vi.fn().mockResolvedValue({ status: 'skipped', reason: 'no_amount' });
 vi.mock('@evtivity/api/src/lib/reservation-fees.js', () => ({
-  chargeReservationNoShowFee: (...args: unknown[]) => mockChargeNoShow(...args),
+  chargeReservationFee: (...args: unknown[]) => mockChargeNoShow(...args),
 }));
 
 const mockDispatchDriver = vi.fn();
@@ -53,7 +53,7 @@ describe('reservationExpiryCheckHandler', () => {
     mockClient.mockReset();
     mockResolveTariff.mockReset();
     mockChargeNoShow.mockReset();
-    mockChargeNoShow.mockResolvedValue(undefined);
+    mockChargeNoShow.mockResolvedValue({ status: 'skipped', reason: 'no_amount' });
   });
 
   it('charges no-show fee for active reservation that expired without a session', async () => {
@@ -91,7 +91,14 @@ describe('reservationExpiryCheckHandler', () => {
     await reservationExpiryCheckHandler(log);
 
     // 60 min * $0.05 = $3.00 = 300 cents.
-    expect(mockChargeNoShow).toHaveBeenCalledWith('drv_1', 'site_1', 300, 'rsv_1');
+    expect(mockChargeNoShow).toHaveBeenCalledWith({
+      type: 'reservation_no_show',
+      reservationId: 'rsv_1',
+      driverId: 'drv_1',
+      stationId: 'sta_1',
+      siteId: 'site_1',
+      netCents: 300,
+    });
     expect(mockPublish).toHaveBeenCalledWith(
       'ocpp_commands',
       expect.stringContaining('"action":"CancelReservation"'),
@@ -310,7 +317,14 @@ describe('reservationExpiryCheckHandler', () => {
     await reservationExpiryCheckHandler(log);
 
     // 30 min from created_at to expires_at * $0.05 = $1.50 = 150 cents.
-    expect(mockChargeNoShow).toHaveBeenCalledWith('drv_1', 'site_inst', 150, 'rsv_instant');
+    expect(mockChargeNoShow).toHaveBeenCalledWith({
+      type: 'reservation_no_show',
+      reservationId: 'rsv_instant',
+      driverId: 'drv_1',
+      stationId: 'sta_inst',
+      siteId: 'site_inst',
+      netCents: 150,
+    });
   });
 
   it('does not charge when computed hold duration rounds to zero minutes', async () => {
@@ -416,7 +430,14 @@ describe('reservationExpiryCheckHandler', () => {
       await import('../../handlers/reservation-expiry-check.js');
     await reservationExpiryCheckHandler(log);
 
-    expect(mockChargeNoShow).toHaveBeenCalledWith('drv_1', 'site_ff', 300, 'rsv_feefail');
+    expect(mockChargeNoShow).toHaveBeenCalledWith({
+      type: 'reservation_no_show',
+      reservationId: 'rsv_feefail',
+      driverId: 'drv_1',
+      stationId: 'sta_ff',
+      siteId: 'site_ff',
+      netCents: 300,
+    });
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         reservationId: 'rsv_feefail',

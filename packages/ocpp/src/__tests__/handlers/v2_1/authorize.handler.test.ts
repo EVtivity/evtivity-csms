@@ -31,6 +31,7 @@ const fromFn = vi.fn(() => ({ where: whereFn }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
 
 const isRoamingEnabledMock = vi.fn().mockResolvedValue(false);
+const getCompanyTaxBasisMock = vi.fn().mockResolvedValue('net');
 const isSiteFreeVendEnabledByStationMock = vi.fn().mockResolvedValue(false);
 
 vi.mock('@evtivity/database', () => ({
@@ -63,6 +64,7 @@ vi.mock('@evtivity/database', () => ({
   isRoamingEnabled: isRoamingEnabledMock,
   isSiteFreeVendEnabledByStation: isSiteFreeVendEnabledByStationMock,
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
+  getCompanyTaxBasis: (...args: unknown[]) => getCompanyTaxBasisMock(...args) as unknown,
 }));
 
 const validateContractCertificateMock = vi.fn();
@@ -464,10 +466,41 @@ describe('v2_1 Authorize handler', () => {
     expect(response['tariff']).toEqual({
       tariffId: 'trf_1',
       currency: 'USD',
-      energy: { prices: [{ priceKwh: 0.25 }], taxRates: [{ type: 'VAT', tax: 0.08 }] },
-      chargingTime: { prices: [{ priceMinute: 0.15 }], taxRates: [{ type: 'VAT', tax: 0.08 }] },
-      idleTime: { prices: [{ priceMinute: 0.05 }], taxRates: [{ type: 'VAT', tax: 0.08 }] },
-      fixedFee: { prices: [{ priceFixed: 2 }], taxRates: [{ type: 'VAT', tax: 0.08 }] },
+      energy: { prices: [{ priceKwh: 0.25 }], taxRates: [{ type: 'VAT', tax: 8 }] },
+      chargingTime: { prices: [{ priceMinute: 0.15 }], taxRates: [{ type: 'VAT', tax: 8 }] },
+      idleTime: { prices: [{ priceMinute: 0.05 }], taxRates: [{ type: 'VAT', tax: 8 }] },
+      fixedFee: { prices: [{ priceFixed: 2 }], taxRates: [{ type: 'VAT', tax: 8 }] },
+    });
+  });
+
+  it('sends net prices for a tariff entered on the gross tax basis', async () => {
+    getCompanyTaxBasisMock.mockResolvedValueOnce('gross');
+    whereQueue = [
+      [{ id: 'dtk_g', driverId: 'drv_g', isActive: true, expiresAt: null, revokedAt: null }],
+      [],
+    ];
+    executeFn.mockResolvedValue([
+      {
+        id: 'trf_g',
+        price_per_kwh: '0.357',
+        price_per_minute: null,
+        price_per_session: '1.19',
+        idle_fee_price_per_minute: '0.50',
+        tax_rate: '0.19',
+        pricing_group_id: 'pgr_1',
+      },
+    ]);
+    const { handleAuthorize } = await import('../../../handlers/v2_1/authorize.handler.js');
+    const { ctx } = makeCtx({ idToken: { idToken: 'gross-rfid', type: 'ISO14443' } });
+    const response = await handleAuthorize(ctx);
+
+    expect(response['tariff']).toEqual({
+      tariffId: 'trf_g',
+      currency: 'USD',
+      energy: { prices: [{ priceKwh: 0.3 }], taxRates: [{ type: 'VAT', tax: 19 }] },
+      // 0.50 / 1.19 = 0.42016...
+      idleTime: { prices: [{ priceMinute: 0.4202 }], taxRates: [{ type: 'VAT', tax: 19 }] },
+      fixedFee: { prices: [{ priceFixed: 1 }], taxRates: [{ type: 'VAT', tax: 19 }] },
     });
   });
 

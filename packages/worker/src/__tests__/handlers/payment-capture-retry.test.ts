@@ -22,8 +22,10 @@ const mockExecute = vi.fn((arg: unknown) => {
   return Promise.resolve(r);
 });
 
+const mockFeePercent = vi.fn((_siteId: string | null) => Promise.resolve(0));
 vi.mock('@evtivity/database', () => ({
   db: { execute: mockExecute },
+  getPlatformFeePercent: (siteId: string | null) => mockFeePercent(siteId),
 }));
 
 // `sql` tagged template returns a marker object so the handler's calls don't
@@ -37,7 +39,8 @@ vi.mock('drizzle-orm', () => ({
 
 const mockDecrypt = vi.fn((..._args: unknown[]) => 'sk_test_decrypted');
 const mockIsSimulated = vi.fn((..._args: unknown[]) => false);
-vi.mock('@evtivity/lib', () => ({
+vi.mock('@evtivity/lib', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   decryptString: (...args: unknown[]) => mockDecrypt(...args),
   isSimulatedCustomer: (...args: unknown[]) => mockIsSimulated(...args),
 }));
@@ -70,6 +73,7 @@ function shortfallRow(over: Record<string, unknown> = {}): Record<string, unknow
     captured_amount_cents: 500,
     currency: 'USD',
     final_cost_cents: 800,
+    tariff_tax_rate: null,
     site_id: 'sit_1',
     session_id: 'ses_1',
     ...over,
@@ -90,6 +94,7 @@ describe('paymentCaptureRetryHandler', () => {
       on_behalf_of: null,
     });
     mockCreate.mockResolvedValue({ id: 'pi_topup_1' });
+    mockFeePercent.mockResolvedValue(0);
   });
 
   afterEach(() => {
@@ -207,6 +212,37 @@ describe('paymentCaptureRetryHandler', () => {
     });
   });
 
+  it('charges the platform fee of the increment on its net amount for connected accounts', async () => {
+    mockRetrieve.mockResolvedValue({
+      customer: 'cus_real',
+      payment_method: 'pm_1',
+      on_behalf_of: 'acct_connected',
+      transfer_data: { destination: 'acct_connected' },
+    });
+    mockFeePercent.mockResolvedValue(10);
+    // 5950 captured of 11900 at 19%: net 5000 of 10000, so the increment's fee
+    // is 10% of 10000 minus 10% of 5000 = 500.
+    queueExecute(
+      [
+        shortfallRow({
+          captured_amount_cents: 5950,
+          final_cost_cents: 11900,
+          tariff_tax_rate: '0.19',
+        }),
+      ],
+      SETTINGS_ROWS,
+      [],
+    );
+    const { paymentCaptureRetryHandler } = await import('../../handlers/payment-capture-retry.js');
+
+    await paymentCaptureRetryHandler(makeLog());
+
+    expect(mockFeePercent).toHaveBeenCalledWith('sit_1');
+    const [params, options] = mockCreate.mock.calls[0]!;
+    expect(params).toMatchObject({ amount: 5950, application_fee_amount: 500 });
+    expect(options).toEqual({ idempotencyKey: 'topup_retry_1_5950' });
+  });
+
   it('resolves on_behalf_of and customer/payment_method when Stripe returns expanded objects', async () => {
     mockRetrieve.mockResolvedValue({
       customer: { id: 'cus_obj' },
@@ -322,17 +358,17 @@ describe('paymentCaptureRetryHandler', () => {
     expect(mockRetrieve).not.toHaveBeenCalled();
   });
 
-  it('skips when the original PaymentIntent has no customer or payment_method', async () => {
+  it('records a failure when the original PaymentIntent has no customer or payment_method', async () => {
     mockRetrieve.mockResolvedValue({ customer: null, payment_method: null, on_behalf_of: null });
-    queueExecute([shortfallRow({ pr_id: 5 })], SETTINGS_ROWS);
+    queueExecute([shortfallRow({ pr_id: 5 })], SETTINGS_ROWS, []);
     const log = makeLog();
     const { paymentCaptureRetryHandler } = await import('../../handlers/payment-capture-retry.js');
 
     await paymentCaptureRetryHandler(log);
 
     expect(log.warn).toHaveBeenCalledWith(
-      { paymentRecordId: 5 },
-      'Original PaymentIntent missing customer or payment_method; skipping',
+      expect.objectContaining({ paymentRecordId: 5 }),
+      'Capture retry failed; will try again next run',
     );
     expect(mockCreate).not.toHaveBeenCalled();
   });

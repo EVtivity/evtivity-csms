@@ -2,66 +2,45 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import { desc, eq, gte, lte, sql } from 'drizzle-orm';
-import { db, ocpiRoamingSessions, ocpiCdrs } from '@evtivity/database';
+import { desc, eq, gte, isNotNull, lt, sql } from 'drizzle-orm';
+import { db, ocpiCdrs } from '@evtivity/database';
+import { listPartnerCpoSessions } from '../../services/cpo-sessions.js';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
 import { parsePaginationParams, setPaginationHeaders } from '../../lib/ocpi-pagination.js';
 import { ocpiAuthenticate } from '../../middleware/ocpi-auth.js';
-import type { OcpiVersion, OcpiSession } from '../../types/ocpi.js';
+import type { OcpiVersion } from '../../types/ocpi.js';
 
 function registerCpoSessionRoutes(app: FastifyInstance, version: OcpiVersion): void {
-  // GET /ocpi/{version}/cpo/sessions - paginated roaming sessions
+  // GET /ocpi/{version}/cpo/sessions - our sessions as CPO for this partner:
+  // charging sessions at our stations started with the partner's tokens,
+  // rendered from the charging session (9.2.1.1). Sessions the partner sent
+  // us as CPO (eMSP role, no charging session) are not ours to serve.
   app.get(
     `/ocpi/${version}/cpo/sessions`,
     { onRequest: [ocpiAuthenticate] },
     async (request, reply) => {
-      // Per-partner isolation: each OCPI partner must only see THEIR own
-      // roaming sessions. Without this filter any authenticated partner can
-      // enumerate every other partner's sessions, leaking competitor data
-      // and driver tokens across networks.
+      // Per-partner isolation: a partner only sees sessions of its own tokens.
       const partner = request.ocpiPartner;
       if (partner?.partnerId == null) {
         return ocpiError(OcpiStatusCode.CLIENT_ERROR, 'Not authenticated');
       }
 
       const { offset, limit, dateFrom, dateTo } = parsePaginationParams(request);
+      const page: Parameters<typeof listPartnerCpoSessions>[2] = { offset, limit };
+      if (dateFrom != null) page.dateFrom = dateFrom;
+      if (dateTo != null) page.dateTo = dateTo;
 
-      const conditions = [eq(ocpiRoamingSessions.partnerId, partner.partnerId)];
-      if (dateFrom != null) {
-        conditions.push(gte(ocpiRoamingSessions.updatedAt, dateFrom));
-      }
-      if (dateTo != null) {
-        conditions.push(lte(ocpiRoamingSessions.updatedAt, dateTo));
-      }
-
-      const where = sql.join(conditions, sql` AND `);
-
-      const [rows, countRows] = await Promise.all([
-        db
-          .select()
-          .from(ocpiRoamingSessions)
-          .where(where)
-          .orderBy(desc(ocpiRoamingSessions.updatedAt))
-          .limit(limit)
-          .offset(offset),
-        db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(ocpiRoamingSessions)
-          .where(where),
-      ]);
-
-      const total = countRows[0]?.count ?? 0;
+      const { total, sessions } = await listPartnerCpoSessions(partner.partnerId, version, page);
       setPaginationHeaders(reply, request, total, limit, offset);
-
-      // Return the session data stored in the sessionData JSONB column
-      const sessions = rows.map((row) => row.sessionData as OcpiSession);
       return ocpiSuccess(sessions);
     },
   );
 }
 
 function registerCpoCdrRoutes(app: FastifyInstance, version: OcpiVersion): void {
-  // GET /ocpi/{version}/cpo/cdrs - paginated CDRs
+  // GET /ocpi/{version}/cpo/cdrs - the CDRs we issued as CPO to this partner
+  // (and their credit CDRs). CDRs received from the partner as eMSP have no
+  // charging session and are not ours to serve.
   app.get(
     `/ocpi/${version}/cpo/cdrs`,
     { onRequest: [ocpiAuthenticate] },
@@ -74,12 +53,16 @@ function registerCpoCdrRoutes(app: FastifyInstance, version: OcpiVersion): void 
 
       const { offset, limit, dateFrom, dateTo } = parsePaginationParams(request);
 
-      const conditions = [eq(ocpiCdrs.partnerId, partner.partnerId)];
+      const conditions = [
+        eq(ocpiCdrs.partnerId, partner.partnerId),
+        isNotNull(ocpiCdrs.chargingSessionId),
+      ];
+      // last_updated between date_from (inclusive) and date_to (exclusive).
       if (dateFrom != null) {
         conditions.push(gte(ocpiCdrs.updatedAt, dateFrom));
       }
       if (dateTo != null) {
-        conditions.push(lte(ocpiCdrs.updatedAt, dateTo));
+        conditions.push(lt(ocpiCdrs.updatedAt, dateTo));
       }
 
       const where = sql.join(conditions, sql` AND `);

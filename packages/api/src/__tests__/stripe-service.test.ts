@@ -102,15 +102,21 @@ vi.mock('../lib/config.js', () => ({
 
 // -- Mocks --
 
-const { mockGetCompanyCurrency } = vi.hoisted(() => ({
-  mockGetCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
-}));
+const { mockGetCompanyCurrency, mockGetPlatformFeePercent, mockClearPlatformFeeCache } = vi.hoisted(
+  () => ({
+    mockGetCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
+    mockGetPlatformFeePercent: vi.fn((_siteId: string | null) => Promise.resolve(0)),
+    mockClearPlatformFeeCache: vi.fn(),
+  }),
+);
 
 vi.mock('@evtivity/database', () => ({
   db: {
     select: vi.fn(() => makeChain()),
   },
   getCompanyCurrency: mockGetCompanyCurrency,
+  getPlatformFeePercent: mockGetPlatformFeePercent,
+  clearPlatformFeeCache: mockClearPlatformFeeCache,
   settings: {},
   sitePaymentConfigs: {},
 }));
@@ -120,7 +126,8 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(),
 }));
 
-vi.mock('@evtivity/lib', () => ({
+vi.mock('@evtivity/lib', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   decryptString: mockDecryptString,
 }));
 
@@ -138,6 +145,7 @@ import {
   isPaymentEnabled,
   createPreAuthorization,
   capturePayment,
+  chargeSavedCard,
   cancelPaymentIntent,
   createRefund,
   createSetupIntent,
@@ -167,6 +175,19 @@ function sitePaymentConfigRow(overrides: Record<string, unknown> = {}) {
     isEnabled: true,
     stripeConnectedAccountId: 'acct_connected',
     preAuthAmountCents: 8000,
+    ...overrides,
+  };
+}
+
+function feeConfig(overrides: Partial<StripeConfig> = {}): StripeConfig {
+  return {
+    stripe: mockStripeInstance as unknown as StripeConfig['stripe'],
+    publishableKey: 'pk_test',
+    currency: 'USD',
+    preAuthAmountCents: 5000,
+    configId: null,
+    connectedAccountId: null,
+    platformFeePercent: 0,
     ...overrides,
   };
 }
@@ -296,7 +317,7 @@ describe('stripe.service', () => {
       );
     });
 
-    it('includes connected account and platform fee when configured', async () => {
+    it('makes a destination charge without a platform fee on the hold', async () => {
       const config = makeConfig({
         connectedAccountId: 'acct_connected',
         platformFeePercent: 10,
@@ -304,15 +325,15 @@ describe('stripe.service', () => {
       });
       await createPreAuthorization(config, 'cus_123', 'pm_456');
 
-      expect(mockStripeInstance.paymentIntents.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          amount: 10000,
-          on_behalf_of: 'acct_connected',
-          transfer_data: { destination: 'acct_connected' },
-          application_fee_amount: 1000,
-        }),
-        undefined,
-      );
+      const call = mockStripeInstance.paymentIntents.create.mock.calls[0]![0] as Record<
+        string,
+        unknown
+      >;
+      expect(call['amount']).toBe(10000);
+      expect(call['on_behalf_of']).toBe('acct_connected');
+      expect(call['transfer_data']).toEqual({ destination: 'acct_connected' });
+      // The fee is a percent of the net amount actually charged, set at capture.
+      expect(call['application_fee_amount']).toBeUndefined();
     });
 
     it('passes idempotencyKey when provided', async () => {
@@ -341,12 +362,42 @@ describe('stripe.service', () => {
         connectedAccountId: null,
         platformFeePercent: 0,
       };
-      await capturePayment(config, 'pi_test', 3500);
+      await capturePayment(config, 'pi_test', 3500, undefined, 0);
 
       expect(mockStripeInstance.paymentIntents.capture).toHaveBeenCalledWith(
         'pi_test',
         { amount_to_capture: 3500 },
         undefined,
+      );
+    });
+
+    it('sets the platform fee of the net amount captured on a destination charge', async () => {
+      mockStripeInstance.paymentIntents.retrieve.mockResolvedValueOnce({
+        id: 'pi_test',
+        amount: 5000,
+        application_fee_amount: null,
+        transfer_data: { destination: 'acct_connected' },
+      });
+      const config = feeConfig({ connectedAccountId: 'acct_connected', platformFeePercent: 10 });
+      const result = await capturePayment(config, 'pi_test', 3570, 'capture_1', 0.19);
+
+      // 3570 gross at 19% is 3000 net; 10% of net is 300.
+      expect(result.applicationFeeCents).toBe(300);
+      expect(mockStripeInstance.paymentIntents.capture).toHaveBeenCalledWith(
+        'pi_test',
+        { amount_to_capture: 3570, application_fee_amount: 300 },
+        { idempotencyKey: 'capture_1' },
+      );
+    });
+
+    it('sets no fee when the hold is not a destination charge', async () => {
+      const config = feeConfig({ connectedAccountId: 'acct_connected', platformFeePercent: 10 });
+      await capturePayment(config, 'pi_test', 3570, 'capture_2', 0.19);
+
+      expect(mockStripeInstance.paymentIntents.capture).toHaveBeenCalledWith(
+        'pi_test',
+        { amount_to_capture: 3570 },
+        { idempotencyKey: 'capture_2' },
       );
     });
 
@@ -360,7 +411,7 @@ describe('stripe.service', () => {
         connectedAccountId: null,
         platformFeePercent: 0,
       };
-      await capturePayment(config, 'pi_test', 3500, 'capture_xyz789');
+      await capturePayment(config, 'pi_test', 3500, 'capture_xyz789', 0);
 
       expect(mockStripeInstance.paymentIntents.capture).toHaveBeenCalledWith(
         'pi_test',
@@ -748,12 +799,68 @@ describe('stripe.service', () => {
       expect(config!.currency).toBe('EUR');
     });
 
-    it('applies the per-site platformFeePercent override', async () => {
-      setupDbResults(platformSettingsRows(), [sitePaymentConfigRow({ platformFeePercent: '7.5' })]);
-      const config = await getStripeConfig('site-1');
-      expect(config).not.toBeNull();
-      // Site override (7.5) wins over the platform default (0).
-      expect(config!.platformFeePercent).toBe(7.5);
+    it('reads the fee percent of the site from getPlatformFeePercent, also when cached', async () => {
+      mockGetPlatformFeePercent.mockResolvedValue(7.5);
+      try {
+        setupDbResults(platformSettingsRows(), [sitePaymentConfigRow()]);
+        const config = await getStripeConfig('site-1');
+        expect(config!.platformFeePercent).toBe(7.5);
+        expect(mockGetPlatformFeePercent).toHaveBeenCalledWith('site-1');
+        mockGetPlatformFeePercent.mockResolvedValue(3);
+        const cached = await getStripeConfig('site-1');
+        expect(cached!.platformFeePercent).toBe(3);
+      } finally {
+        mockGetPlatformFeePercent.mockResolvedValue(0);
+      }
+    });
+
+    it('clears the fee percent cache with the config cache', () => {
+      clearConfigCache('site-1');
+      expect(mockClearPlatformFeeCache).toHaveBeenCalled();
+    });
+  });
+
+  describe('chargeSavedCard', () => {
+    const input = {
+      customerId: 'cus_1',
+      paymentMethodId: 'pm_1',
+      grossCents: 1190,
+      taxRate: 0.19,
+      description: 'Reservation cancellation fee',
+      metadata: { reservationId: 'res_1', type: 'reservation_cancellation_fee' },
+      idempotencyKey: 'cancellation-fee-res_1',
+    };
+
+    it('charges the gross amount off-session on the platform account', async () => {
+      await chargeSavedCard(feeConfig(), input);
+      expect(mockStripeInstance.paymentIntents.create).toHaveBeenCalledWith(
+        {
+          amount: 1190,
+          currency: 'usd',
+          customer: 'cus_1',
+          payment_method: 'pm_1',
+          confirm: true,
+          off_session: true,
+          description: 'Reservation cancellation fee',
+          metadata: { reservationId: 'res_1', type: 'reservation_cancellation_fee' },
+        },
+        { idempotencyKey: 'cancellation-fee-res_1' },
+      );
+    });
+
+    it('routes through the connected account with the fee of the net amount', async () => {
+      await chargeSavedCard(
+        feeConfig({ connectedAccountId: 'acct_1', platformFeePercent: 10 }),
+        input,
+      );
+      const call = mockStripeInstance.paymentIntents.create.mock.calls[0]![0] as Record<
+        string,
+        unknown
+      >;
+      expect(call['on_behalf_of']).toBe('acct_1');
+      expect(call['transfer_data']).toEqual({ destination: 'acct_1' });
+      // 1190 gross at 19% is 1000 net; 10% is 100.
+      expect(call['application_fee_amount']).toBe(100);
     });
   });
 

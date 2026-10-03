@@ -164,4 +164,32 @@ describe('isTariffFree', () => {
       }),
     ).toBe(false);
   });
+
+  describe('reservation fee', () => {
+    const reservationFeeOnly = {
+      pricePerKwh: '0',
+      pricePerMinute: '0',
+      pricePerSession: '0',
+      idleFeePricePerMinute: '0',
+      reservationFeePerMinute: '0.10',
+    };
+
+    it('is free for a walk-up session when only the reservation fee is set', () => {
+      expect(isTariffFree(reservationFeeOnly)).toBe(true);
+      expect(isTariffFree(reservationFeeOnly, { reserved: false })).toBe(true);
+    });
+
+    it('is paid for the reservation holder when the reservation fee is set', () => {
+      expect(isTariffFree(reservationFeeOnly, { reserved: true })).toBe(false);
+    });
+
+    it('is free for the reservation holder when the reservation fee is 0 or null', () => {
+      expect(
+        isTariffFree({ ...reservationFeeOnly, reservationFeePerMinute: '0' }, { reserved: true }),
+      ).toBe(true);
+      expect(
+        isTariffFree({ ...reservationFeeOnly, reservationFeePerMinute: null }, { reserved: true }),
+      ).toBe(true);
+    });
+  });
 });

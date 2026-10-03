@@ -13,21 +13,32 @@ import { CopyableId } from '@/components/copyable-id';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { CancelButton } from '@/components/cancel-button';
 import { SaveButton } from '@/components/save-button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { api } from '@/lib/api';
+import {
+  TariffMappingFields,
+  tariffMappingBody,
+  tariffMappingErrors,
+  tariffMappingValues,
+  EMPTY_TARIFF_MAPPING,
+} from '@/components/roaming/TariffMappingFields';
+import type {
+  TariffMappingBody,
+  TariffMappingValues,
+} from '@/components/roaming/TariffMappingFields';
+import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { LoadingLogo } from '@/components/loading-logo';
 
 interface TariffMapping {
   id: number;
-  tariffId: string;
+  tariffId: string | null;
+  pricingGroupId: string | null;
   partnerId: string | null;
   ocpiTariffId: string;
   createdAt: string;
   updatedAt: string;
   tariffName: string | null;
+  pricingGroupName: string | null;
   partnerName: string | null;
 }
 
@@ -38,7 +49,7 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
   const { t } = useTranslation();
 
   const [editing, setEditing] = useState(false);
-  const [ocpiTariffId, setOcpiTariffId] = useState('');
+  const [values, setValues] = useState<TariffMappingValues>(EMPTY_TARIFF_MAPPING);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
@@ -49,10 +60,9 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (body: { ocpiTariffId?: string }) =>
+    mutationFn: (body: TariffMappingBody) =>
       api.patch<TariffMapping>(`/v1/ocpi/tariff-mappings/${id ?? ''}`, body),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['ocpi-tariff-mappings'] });
       void queryClient.invalidateQueries({ queryKey: ['ocpi-tariff-mappings'] });
       setEditing(false);
       setHasSubmitted(false);
@@ -69,24 +79,21 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
 
   function startEdit(): void {
     if (mapping == null) return;
-    setOcpiTariffId(mapping.ocpiTariffId);
+    updateMutation.reset();
+    setValues(tariffMappingValues(mapping));
     setHasSubmitted(false);
     setEditing(true);
   }
 
-  function getValidationErrors(): Record<string, string> {
-    const errors: Record<string, string> = {};
-    if (!ocpiTariffId.trim()) errors.ocpiTariffId = t('validation.required');
-    return errors;
-  }
-
-  const validationErrors = getValidationErrors();
+  const validationErrors = tariffMappingErrors(values, updateMutation.error, t);
+  // Field errors from the API show next to their field.
+  const fieldError = Object.keys(getApiErrorFieldDetails(updateMutation.error)).length > 0;
 
   function handleSave(e: React.SyntheticEvent): void {
     e.preventDefault();
     setHasSubmitted(true);
-    if (Object.keys(validationErrors).length > 0) return;
-    updateMutation.mutate({ ocpiTariffId });
+    if (Object.keys(tariffMappingErrors(values, null, t)).length > 0) return;
+    updateMutation.mutate(tariffMappingBody(values));
   }
 
   if (isLoading) {
@@ -97,7 +104,8 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
     return <p className="text-sm text-destructive">{t('roaming.tariffs.mappingDetails')}</p>;
   }
 
-  const displayName = mapping.tariffName ?? mapping.ocpiTariffId;
+  const displayName = mapping.ocpiTariffId;
+  const sourceName = mapping.pricingGroupName ?? mapping.tariffName ?? '-';
 
   return (
     <div className="space-y-6">
@@ -125,23 +133,16 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
         <CardContent>
           {editing ? (
             <form onSubmit={handleSave} noValidate className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-ocpi-tariff-id">{t('roaming.tariffs.ocpiTariffId')}</Label>
-                <Input
-                  id="edit-ocpi-tariff-id"
-                  value={ocpiTariffId}
-                  onChange={(e) => {
-                    setOcpiTariffId(e.target.value);
-                  }}
-                  className={
-                    hasSubmitted && validationErrors.ocpiTariffId ? 'border-destructive' : ''
-                  }
-                />
-                {hasSubmitted && validationErrors.ocpiTariffId && (
-                  <p className="text-sm text-destructive">{validationErrors.ocpiTariffId}</p>
-                )}
-              </div>
-              {updateMutation.isError && (
+              <TariffMappingFields
+                idPrefix="edit-mapping"
+                values={values}
+                onChange={(next) => {
+                  updateMutation.reset();
+                  setValues(next);
+                }}
+                errors={hasSubmitted ? validationErrors : {}}
+              />
+              {updateMutation.isError && !fieldError && (
                 <p className="text-sm text-destructive">
                   {getErrorMessage(updateMutation.error, t)}
                 </p>
@@ -157,22 +158,37 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
               </div>
             </form>
           ) : (
-            <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <dt className="text-muted-foreground">{t('roaming.tariffs.internalTariff')}</dt>
-                <dd className="font-medium">{mapping.tariffName ?? 'n/a'}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('roaming.tariffs.ocpiTariffId')}</dt>
-                <dd className="font-medium">{mapping.ocpiTariffId}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('roaming.tariffs.partner')}</dt>
-                <dd className="font-medium">
-                  {mapping.partnerName ?? t('roaming.tariffs.allPartners')}
-                </dd>
-              </div>
-            </dl>
+            <div className="space-y-4">
+              <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <dt className="text-muted-foreground">{t('roaming.tariffs.publishedFrom')}</dt>
+                  <dd className="font-medium">
+                    {mapping.pricingGroupId != null
+                      ? t('roaming.tariffs.sourcePricingGroup')
+                      : t('roaming.tariffs.sourceTariff')}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">
+                    {mapping.pricingGroupId != null
+                      ? t('roaming.tariffs.pricingGroup')
+                      : t('roaming.tariffs.internalTariff')}
+                  </dt>
+                  <dd className="font-medium">{sourceName}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">{t('roaming.tariffs.ocpiTariffId')}</dt>
+                  <dd className="font-medium">{mapping.ocpiTariffId}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">{t('roaming.tariffs.partner')}</dt>
+                  <dd className="font-medium">
+                    {mapping.partnerName ?? t('roaming.tariffs.allPartners')}
+                  </dd>
+                </div>
+              </dl>
+              <p className="text-xs text-muted-foreground">{t('roaming.tariffs.generatedHint')}</p>
+            </div>
           )}
         </CardContent>
       </Card>

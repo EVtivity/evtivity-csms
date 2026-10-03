@@ -5,8 +5,14 @@ import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, or, ilike, desc, asc, sql, gte, gt, isNull, count, inArray } from 'drizzle-orm';
-import { db, client, getCompanyCurrency, isStationLevelUnavailable } from '@evtivity/database';
-import { decryptString, formatCurrencyAmount } from '@evtivity/lib';
+import {
+  db,
+  client,
+  getCompanyCurrency,
+  getCompanyTaxBasis,
+  isStationLevelUnavailable,
+} from '@evtivity/database';
+import { decryptString, notificationMoney, TAX_BASES } from '@evtivity/lib';
 import { config as apiConfig } from '../../lib/config.js';
 import {
   chargingStations,
@@ -330,7 +336,7 @@ const cancelReservationResponse = z
       .number()
       .int()
       .min(0)
-      .describe('Actual fee charged in cents (0 when waived or no payment method)'),
+      .describe('Actual fee charged in cents, tax included (0 when waived or no payment method)'),
     feeChargeFailed: z
       .boolean()
       .optional()
@@ -382,6 +388,11 @@ const portalPricingInfo = z
       .nullable()
       .describe('Idle fee per minute (after grace period) in major currency units'),
     taxRate: z.string().nullable().describe('Sales tax rate as a decimal (e.g. 0.0875 = 8.75%)'),
+    taxBasis: z
+      .enum(TAX_BASES)
+      .describe(
+        'How the prices above are entered (company setting company.taxBasis): net prices exclude the tax rate, gross prices include it. Convert with the tax rate to show a price the other way.',
+      ),
     isFreeVend: z
       .boolean()
       .describe(
@@ -635,6 +646,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           pricePerSession: null,
           idleFeePricePerMinute: null,
           taxRate: null,
+          taxBasis: await getCompanyTaxBasis(),
           isFreeVend: true,
           restrictions: null,
         };
@@ -653,6 +665,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         pricePerSession: tariff.pricePerSession,
         idleFeePricePerMinute: tariff.idleFeePricePerMinute,
         taxRate: tariff.taxRate,
+        taxBasis: await getCompanyTaxBasis(),
         isFreeVend: false,
         restrictions: tariff.restrictions ?? null,
       };
@@ -1765,7 +1778,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         // drivers from starting at a free-vend site that happens to have a
         // paid tariff assigned.
         const tariff = await resolveTariff(station.id, driverId);
-        const chargingIsFree = station.freeVendEnabled === true || isTariffFree(tariff);
+        // The holder of the active reservation pays its holding fee, so a
+        // reservation fee makes their charging paid.
+        const chargingIsFree =
+          station.freeVendEnabled === true ||
+          isTariffFree(tariff, { reserved: activeReservation?.driverId === driverId });
 
         if (!chargingIsFree) {
           // Payment is required -- validate the driver has a payment method
@@ -2807,10 +2824,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       // firing another would deliver a misleading "feeFormatted: ''" and
       // double-notify the driver.
       if (cancelled) {
-        const cancellationFeeFormatted =
-          feeChargedCents > 0 && feeCurrency != null
-            ? formatCurrencyAmount(feeChargedCents, feeCurrency)
-            : '';
+        // The fee charged (tax included), formatted in the driver's language.
+        const feeCharged = feeChargedCents > 0 && feeCurrency != null;
+        const cancellationFeeFormatted = feeCharged
+          ? notificationMoney(feeChargedCents, feeCurrency)
+          : '';
         void dispatchDriverNotification(
           client,
           'reservation.Cancelled',
@@ -2819,6 +2837,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
             reservationId: reservation.reservationId,
             stationId: reservation.stationOcppId,
             cancellationFeeFormatted,
+            cancellationFeeCents: feeChargedCents,
+            currency: feeCurrency ?? '',
           },
           ALL_TEMPLATES_DIRS,
           getPubSub(),

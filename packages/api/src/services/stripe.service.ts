@@ -4,9 +4,15 @@
 import crypto from 'node:crypto';
 import Stripe from 'stripe';
 import { eq, inArray } from 'drizzle-orm';
-import { db, getCompanyCurrency } from '@evtivity/database';
+import {
+  db,
+  getCompanyCurrency,
+  getPlatformFeePercent,
+  clearPlatformFeeCache,
+} from '@evtivity/database';
 import { sitePaymentConfigs, settings } from '@evtivity/database';
-import { decryptString } from '@evtivity/lib';
+import { captureHoldWithFee, decryptString, platformFeeCents } from '@evtivity/lib';
+import type { ChargeTax } from '@evtivity/lib';
 import { config as apiConfig } from '../lib/config.js';
 
 export interface StripeConfig {
@@ -16,6 +22,7 @@ export interface StripeConfig {
   preAuthAmountCents: number;
   configId: number | null;
   connectedAccountId: string | null;
+  /** Stripe Connect platform fee percent of the net amount charged (getPlatformFeePercent). */
   platformFeePercent: number;
 }
 
@@ -48,14 +55,8 @@ async function getPlatformStripeSettings(): Promise<{
   secretKeyEnc: string;
   publishableKey: string;
   preAuthAmountCents: number;
-  platformFeePercent: number;
 } | null> {
-  const keys = [
-    'stripe.secretKeyEnc',
-    'stripe.publishableKey',
-    'stripe.preAuthAmountCents',
-    'stripe.platformFeePercent',
-  ];
+  const keys = ['stripe.secretKeyEnc', 'stripe.publishableKey', 'stripe.preAuthAmountCents'];
 
   // Push the key filter to Postgres instead of selecting every settings
   // row and discarding most of them in JS.
@@ -84,7 +85,6 @@ async function getPlatformStripeSettings(): Promise<{
     publishableKey,
     preAuthAmountCents:
       (settingsMap.get('stripe.preAuthAmountCents') as number | undefined) ?? 5000,
-    platformFeePercent: Number(settingsMap.get('stripe.platformFeePercent') ?? 0),
   };
 }
 
@@ -92,8 +92,13 @@ export async function getStripeConfig(siteId: string | null): Promise<StripeConf
   const cacheKey = siteId ?? 'platform';
   const cached = instanceCache.get(cacheKey);
   if (cached != null && cached.expiresAt > Date.now()) {
-    // The currency is read live so a company currency change applies at once.
-    return { ...cached.config, currency: await getCompanyCurrency() };
+    // The currency is read live so a company currency change applies at once,
+    // the fee percent from its own 60 s cache, shared with OCPP and the worker.
+    const [currency, platformFeePercent] = await Promise.all([
+      getCompanyCurrency(),
+      getPlatformFeePercent(siteId),
+    ]);
+    return { ...cached.config, currency, platformFeePercent };
   }
 
   const platformSettings = await getPlatformStripeSettings();
@@ -107,7 +112,6 @@ export async function getStripeConfig(siteId: string | null): Promise<StripeConf
   const currency = await getCompanyCurrency();
   let preAuthAmountCents = platformSettings.preAuthAmountCents;
   let configId: number | null = null;
-  let sitePlatformFeePercent: number | null = null;
 
   if (siteId != null) {
     const [siteConfig] = await db
@@ -119,9 +123,6 @@ export async function getStripeConfig(siteId: string | null): Promise<StripeConf
       connectedAccountId = siteConfig.stripeConnectedAccountId ?? null;
       preAuthAmountCents = siteConfig.preAuthAmountCents;
       configId = siteConfig.id;
-      if (siteConfig.platformFeePercent != null) {
-        sitePlatformFeePercent = Number(siteConfig.platformFeePercent);
-      }
     }
   }
 
@@ -132,7 +133,7 @@ export async function getStripeConfig(siteId: string | null): Promise<StripeConf
     preAuthAmountCents,
     configId,
     connectedAccountId,
-    platformFeePercent: sitePlatformFeePercent ?? platformSettings.platformFeePercent,
+    platformFeePercent: await getPlatformFeePercent(siteId),
   };
   instanceCache.set(cacheKey, { config, expiresAt: Date.now() + CACHE_TTL_MS });
   return config;
@@ -143,6 +144,12 @@ export async function isPaymentEnabled(): Promise<boolean> {
   return platformSettings != null;
 }
 
+/**
+ * Manual-capture hold for a charging session. A destination charge (site with
+ * a connected account) carries `on_behalf_of` and `transfer_data`, but no
+ * application fee: the fee is a percent of the net amount actually charged,
+ * so it is set when the hold is captured (capturePayment).
+ */
 export async function createPreAuthorization(
   config: StripeConfig,
   customerId: string,
@@ -164,9 +171,6 @@ export async function createPreAuthorization(
   if (config.connectedAccountId != null) {
     params.on_behalf_of = config.connectedAccountId;
     params.transfer_data = { destination: config.connectedAccountId };
-    if (config.platformFeePercent > 0) {
-      params.application_fee_amount = Math.round((amount * config.platformFeePercent) / 100);
-    }
   }
 
   return config.stripe.paymentIntents.create(
@@ -175,17 +179,61 @@ export async function createPreAuthorization(
   );
 }
 
+/**
+ * Captures `amountCents` of a session hold. A destination charge gets the
+ * platform fee of the captured amount at the session's tax rate
+ * (captureHoldWithFee in @evtivity/lib). Returns the fee charged.
+ */
 export async function capturePayment(
   config: StripeConfig,
   paymentIntentId: string,
   amountCents: number,
-  idempotencyKey?: string,
+  idempotencyKey: string | undefined,
+  taxRate: ChargeTax,
+): Promise<{ applicationFeeCents: number }> {
+  return captureHoldWithFee(config.stripe, {
+    intentId: paymentIntentId,
+    amountCents,
+    taxRate,
+    platformFeePercent: config.platformFeePercent,
+    idempotencyKey,
+  });
+}
+
+/**
+ * An immediate off-session charge on a saved card, such as a reservation
+ * cancellation or no-show fee. `grossCents` includes tax at `taxRate`. A
+ * destination charge carries the platform fee on its net amount.
+ */
+export async function chargeSavedCard(
+  config: StripeConfig,
+  input: {
+    customerId: string;
+    paymentMethodId: string;
+    grossCents: number;
+    taxRate: number;
+    description: string;
+    metadata: Record<string, string>;
+    idempotencyKey: string;
+  },
 ): Promise<Stripe.PaymentIntent> {
-  return config.stripe.paymentIntents.capture(
-    paymentIntentId,
-    { amount_to_capture: amountCents },
-    idempotencyKey != null ? { idempotencyKey } : undefined,
-  );
+  const params: Stripe.PaymentIntentCreateParams = {
+    amount: input.grossCents,
+    currency: config.currency.toLowerCase(),
+    customer: input.customerId,
+    payment_method: input.paymentMethodId,
+    confirm: true,
+    off_session: true,
+    description: input.description,
+    metadata: input.metadata,
+  };
+  if (config.connectedAccountId != null) {
+    params.on_behalf_of = config.connectedAccountId;
+    params.transfer_data = { destination: config.connectedAccountId };
+    const fee = platformFeeCents(input.grossCents, input.taxRate, config.platformFeePercent);
+    if (fee > 0) params.application_fee_amount = fee;
+  }
+  return config.stripe.paymentIntents.create(params, { idempotencyKey: input.idempotencyKey });
 }
 
 export async function cancelPaymentIntent(
@@ -286,6 +334,9 @@ export async function retrievePaymentMethod(
 // global key). Pass nothing to clear every entry — needed for global settings
 // edits where every per-site config inherits the platform Stripe secret.
 export function clearConfigCache(siteId?: string | null): void {
+  // The fee percent of one site can fall back to the platform setting, so a
+  // change to either drops every cached percent.
+  clearPlatformFeeCache();
   if (siteId === undefined) {
     instanceCache.clear();
     return;

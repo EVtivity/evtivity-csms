@@ -79,16 +79,11 @@ export interface Ocpi230Connector extends Omit<
   power_type: string; // Open enum
 }
 
-// Extended tariff with NA tax support
+/** OCPI 2.3.0 TaxIncluded enum (§11.4.9). */
+export type Ocpi230TaxIncluded = 'YES' | 'NO' | 'N/A';
+
+// Extended tariff with NA tax support (§11.3.1): tax_included is required.
 export interface Ocpi230Tariff extends Omit<OcpiTariff, 'type'> {
   type?: string; // Open enum
-  tax_included?: boolean;
-  country_tax?: Ocpi230CountryTax[];
-}
-
-export interface Ocpi230CountryTax {
-  country: string;
-  state?: string;
-  tax_rate: number;
-  tax_name?: string;
+  tax_included: Ocpi230TaxIncluded;
 }

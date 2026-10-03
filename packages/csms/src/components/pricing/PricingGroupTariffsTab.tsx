@@ -15,6 +15,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { formatDecimal } from '@/lib/formatting';
+import { DEFAULT_TAX_BASIS } from '@evtivity/lib/price-display';
+import { useCompanyTaxBasis } from '@/hooks/use-company-tax-basis';
 import { api } from '@/lib/api';
 import { LoadingLogo } from '@/components/loading-logo';
 
@@ -52,6 +54,8 @@ export function PricingGroupTariffsTab({
 }: PricingGroupTariffsTabProps): React.JSX.Element {
   const navigate = useNavigate();
   const { t } = useTranslation();
+  // Price labels say whether prices are entered excluding or including tax.
+  const taxBasis = useCompanyTaxBasis() ?? DEFAULT_TAX_BASIS;
 
   const dayLabels = [
     t('pricing.sunday'),
@@ -116,11 +120,13 @@ export function PricingGroupTariffsTab({
                   <TableHead>{t('pricing.tariffId')}</TableHead>
                   <TableHead>{t('pricing.tariffName')}</TableHead>
                   <TableHead>{t('pricing.tariffType')}</TableHead>
-                  <TableHead>{t('pricing.perKwh')}</TableHead>
-                  <TableHead>{t('pricing.perMin')}</TableHead>
-                  <TableHead>{t('pricing.perSession')}</TableHead>
-                  <TableHead>{t('pricing.idleFeePricePerMinute')}</TableHead>
-                  <TableHead>{t('pricing.reservationFeePerMinute')}</TableHead>
+                  <TableHead>{t('pricing.perKwh', { context: taxBasis })}</TableHead>
+                  <TableHead>{t('pricing.perMin', { context: taxBasis })}</TableHead>
+                  <TableHead>{t('pricing.perSession', { context: taxBasis })}</TableHead>
+                  <TableHead>{t('pricing.idleFeePricePerMinute', { context: taxBasis })}</TableHead>
+                  <TableHead>
+                    {t('pricing.reservationFeePerMinute', { context: taxBasis })}
+                  </TableHead>
                   <TableHead>{t('pricing.taxRate')}</TableHead>
                 </TableRow>
               </TableHeader>

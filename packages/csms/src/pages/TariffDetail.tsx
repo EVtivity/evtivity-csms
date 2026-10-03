@@ -16,6 +16,9 @@ import { SaveButton } from '@/components/save-button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DecimalInput } from '@/components/ui/decimal-input';
+import { TaxPriceHint } from '@/components/pricing/TaxPriceHint';
+import { DEFAULT_TAX_BASIS } from '@evtivity/lib/price-display';
+import { useCompanyTaxBasis } from '@/hooks/use-company-tax-basis';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -67,6 +70,8 @@ export function TariffDetail(): React.JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  // Price labels say whether prices are entered excluding or including tax.
+  const taxBasis = useCompanyTaxBasis() ?? DEFAULT_TAX_BASIS;
   const timezone = useUserTimezone();
 
   const [editing, setEditing] = useState(false);
@@ -358,7 +363,7 @@ export function TariffDetail(): React.JSX.Element {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-kwh">{t('pricing.pricePerKwh')}</Label>
+                <Label htmlFor="edit-kwh">{t('pricing.pricePerKwh', { context: taxBasis })}</Label>
                 <DecimalInput
                   id="edit-kwh"
                   value={pricePerKwh}
@@ -371,9 +376,12 @@ export function TariffDetail(): React.JSX.Element {
                 {hasSubmitted && validationErrors.pricePerKwh && (
                   <p className="text-sm text-destructive">{validationErrors.pricePerKwh}</p>
                 )}
+                <TaxPriceHint price={pricePerKwh} taxRate={taxRate} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-min">{t('pricing.pricePerMinute')}</Label>
+                <Label htmlFor="edit-min">
+                  {t('pricing.pricePerMinute', { context: taxBasis })}
+                </Label>
                 <DecimalInput
                   id="edit-min"
                   value={pricePerMinute}
@@ -386,9 +394,12 @@ export function TariffDetail(): React.JSX.Element {
                 {hasSubmitted && validationErrors.pricePerMinute && (
                   <p className="text-sm text-destructive">{validationErrors.pricePerMinute}</p>
                 )}
+                <TaxPriceHint price={pricePerMinute} taxRate={taxRate} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-session">{t('pricing.pricePerSession')}</Label>
+                <Label htmlFor="edit-session">
+                  {t('pricing.pricePerSession', { context: taxBasis })}
+                </Label>
                 <DecimalInput
                   id="edit-session"
                   value={pricePerSession}
@@ -401,9 +412,12 @@ export function TariffDetail(): React.JSX.Element {
                 {hasSubmitted && validationErrors.pricePerSession && (
                   <p className="text-sm text-destructive">{validationErrors.pricePerSession}</p>
                 )}
+                <TaxPriceHint price={pricePerSession} taxRate={taxRate} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-idle-fee">{t('pricing.idleFeePricePerMinute')}</Label>
+                <Label htmlFor="edit-idle-fee">
+                  {t('pricing.idleFeePricePerMinute', { context: taxBasis })}
+                </Label>
                 <DecimalInput
                   id="edit-idle-fee"
                   value={idleFeePricePerMinute}
@@ -420,9 +434,12 @@ export function TariffDetail(): React.JSX.Element {
                     {validationErrors.idleFeePricePerMinute}
                   </p>
                 )}
+                <TaxPriceHint price={idleFeePricePerMinute} taxRate={taxRate} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-reservation-fee">{t('pricing.reservationFeePerMinute')}</Label>
+                <Label htmlFor="edit-reservation-fee">
+                  {t('pricing.reservationFeePerMinute', { context: taxBasis })}
+                </Label>
                 <DecimalInput
                   id="edit-reservation-fee"
                   value={reservationFeePerMinute}
@@ -440,6 +457,7 @@ export function TariffDetail(): React.JSX.Element {
                   </p>
                 )}
                 <p className="text-xs text-muted-foreground">{t('pricing.reservationFeeHelper')}</p>
+                <TaxPriceHint price={reservationFeePerMinute} taxRate={taxRate} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-tax-rate">{t('pricing.taxRate')}</Label>
@@ -615,23 +633,33 @@ export function TariffDetail(): React.JSX.Element {
                 <dd className="font-medium">{tariff.priority}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">{t('pricing.pricePerKwh')}</dt>
+                <dt className="text-muted-foreground">
+                  {t('pricing.pricePerKwh', { context: taxBasis })}
+                </dt>
                 <dd className="font-medium">{formatDecimal(tariff.pricePerKwh)}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">{t('pricing.pricePerMinute')}</dt>
+                <dt className="text-muted-foreground">
+                  {t('pricing.pricePerMinute', { context: taxBasis })}
+                </dt>
                 <dd className="font-medium">{formatDecimal(tariff.pricePerMinute)}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">{t('pricing.pricePerSession')}</dt>
+                <dt className="text-muted-foreground">
+                  {t('pricing.pricePerSession', { context: taxBasis })}
+                </dt>
                 <dd className="font-medium">{formatDecimal(tariff.pricePerSession)}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">{t('pricing.idleFeePricePerMinute')}</dt>
+                <dt className="text-muted-foreground">
+                  {t('pricing.idleFeePricePerMinute', { context: taxBasis })}
+                </dt>
                 <dd className="font-medium">{formatDecimal(tariff.idleFeePricePerMinute)}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">{t('pricing.reservationFeePerMinute')}</dt>
+                <dt className="text-muted-foreground">
+                  {t('pricing.reservationFeePerMinute', { context: taxBasis })}
+                </dt>
                 <dd className="font-medium">{formatDecimal(tariff.reservationFeePerMinute)}</dd>
               </div>
               <div>

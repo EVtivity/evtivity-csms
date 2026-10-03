@@ -23,7 +23,7 @@ import {
   paymentRecords,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
-import { dispatchDriverNotification } from '@evtivity/lib';
+import { dispatchDriverNotification, formatCurrencyAmount, notificationMoney } from '@evtivity/lib';
 import { handleSupportAiAssist } from '../services/ai/support-assist.service.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -1673,7 +1673,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
 
       if (refundAmount > remaining) {
         await reply.status(400).send({
-          error: `Refund amount exceeds remaining ${(remaining / 100).toFixed(2)}`,
+          error: `Refund amount exceeds remaining ${formatCurrencyAmount(remaining, record.currency)}`,
           code: 'REFUND_EXCEEDS_REMAINING',
         });
         return;
@@ -1697,15 +1697,14 @@ export function supportCaseRoutes(app: FastifyInstance): void {
       // Create system message documenting the refund. Best-effort: don't
       // 500 the request after the refund already cleared Stripe and the
       // payment record was updated.
-      const currencyDisplay = record.currency.toUpperCase();
-      const amountDisplay = (refundAmount / 100).toFixed(2);
+      const amountDisplay = formatCurrencyAmount(refundAmount, record.currency);
       const txLabel = sessionStation?.transactionId ?? body.sessionId;
       try {
         await db.insert(supportCaseMessages).values({
           caseId: id,
           senderType: 'system',
           senderId: userId,
-          body: `Refund of ${amountDisplay} ${currencyDisplay} issued for session ${txLabel}`,
+          body: `Refund of ${amountDisplay} issued for session ${txLabel}`,
           isInternal: false,
         });
       } catch (err) {
@@ -1720,6 +1719,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
           record.driverId,
           {
             amountCents: refundAmount,
+            amountFormatted: notificationMoney(refundAmount, record.currency),
             currency: record.currency,
             transactionId: record.sessionId,
           },

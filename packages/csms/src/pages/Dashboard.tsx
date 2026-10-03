@@ -84,6 +84,10 @@ interface UptimeStats {
 interface FinancialStats {
   totalRevenueCents: number;
   todayRevenueCents: number;
+  totalNetRevenueCents: number;
+  todayNetRevenueCents: number;
+  totalTaxCents: number;
+  todayTaxCents: number;
   avgRevenueCentsPerSession: number;
   totalTransactions: number;
   totalElectricityCostCents: number;
@@ -642,6 +646,31 @@ function AdminDashboard({
       </div>
     );
 
+    const taxGrid = (
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          title={t('dashboard.netRevenue')}
+          value={formatMoney(financialStats.data?.totalNetRevenueCents ?? 0, liveCurrency)}
+          info={t('dashboard.info.netRevenue')}
+        />
+        <StatCard
+          title={t('dashboard.todayNetRevenue')}
+          value={formatMoney(financialStats.data?.todayNetRevenueCents ?? 0, liveCurrency)}
+          info={t('dashboard.info.todayNetRevenue')}
+        />
+        <StatCard
+          title={t('dashboard.taxCollected')}
+          value={formatMoney(financialStats.data?.totalTaxCents ?? 0, liveCurrency)}
+          info={t('dashboard.info.taxCollected')}
+        />
+        <StatCard
+          title={t('dashboard.todayTaxCollected')}
+          value={formatMoney(financialStats.data?.todayTaxCents ?? 0, liveCurrency)}
+          info={t('dashboard.info.todayTaxCollected')}
+        />
+      </div>
+    );
+
     const costGrid = (
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -770,6 +799,7 @@ function AdminDashboard({
         <ScrollSnapRow
           pages={[
             { id: 'revenue', content: revenueGrid },
+            { id: 'tax', content: taxGrid },
             { id: 'cost', content: costGrid },
           ]}
         />

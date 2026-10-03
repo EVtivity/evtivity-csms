@@ -14,12 +14,14 @@ const LANGUAGES = [
 ] as const;
 
 interface LanguageSelectProps {
+  id?: string | undefined;
   value: string;
   onChange: (value: string) => void;
   className?: string | undefined;
 }
 
 export function LanguageSelect({
+  id,
   value,
   onChange,
   className,
@@ -27,7 +29,8 @@ export function LanguageSelect({
   const { t } = useTranslation();
   return (
     <Select
-      aria-label={t('nav.language')}
+      id={id}
+      aria-label={id == null ? t('nav.language') : undefined}
       value={value}
       onChange={(e) => {
         onChange(e.target.value);

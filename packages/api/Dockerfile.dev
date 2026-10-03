@@ -1,5 +1,12 @@
 FROM node:24-slim
 
+# Noto Sans CJK for Korean and Chinese invoice PDFs, as in the production
+# image (packages/api/Dockerfile).
+RUN echo 'path-exclude=/usr/share/fonts/opentype/noto/NotoSerifCJK-*' > /etc/dpkg/dpkg.cfg.d/exclude-noto-serif-cjk \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY package.json package-lock.json ./

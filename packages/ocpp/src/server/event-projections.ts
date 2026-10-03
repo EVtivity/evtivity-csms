@@ -29,6 +29,7 @@ import {
   isSiteFreeVendEnabledByStation,
   getElectricityRatePeriodsForSite,
   getCompanyCurrency,
+  getCompanyPriceDisplay,
   applyConnectorStatus,
   applyEvseChargingState,
   clearStationFirmwareInstalling,
@@ -36,12 +37,21 @@ import {
   setStationFirmwareState,
   setStationReportedStatus,
   settlePrepaidSession,
+  getPlatformFeePercent,
+  getCompanyTaxBasis,
+  snapshotSessionTariff,
+  priceSessionAt,
+  storeRunningCost,
+  storeFinalCost,
+  closeOpenSegment,
+  openSegmentTariffId,
+  switchTariffSegment,
+  sessionIdleMinutesAt,
+  zeroCostBreakdown,
 } from '@evtivity/database';
 import { getSecuritySeverity } from '../lib/security-severity.js';
 import { upsertStationConfiguration } from './station-configurations.js';
 import {
-  calculateSessionCost,
-  calculateSplitSessionCost,
   resolveActiveTariff,
   generateId,
   createLogger,
@@ -54,13 +64,22 @@ import {
   FREE_VEND_OCPP_16_KEYS,
   resolveElectricityRate,
   calculateElectricityCostCents,
-  formatCurrencyAmount,
+  notificationMoney,
+  notificationUnitPrice,
+  notificationTaxRate,
+  costIncludesTax,
+  priceForDisplay,
+  resolvePriceDisplay,
+  captureHoldWithFee,
+  chargeShortfallTopUp,
+  sessionChargeTax,
+  reconcileCostBreakdown,
+  resolveTaxBasis,
 } from '@evtivity/lib';
 import type {
   TariffInput,
   TariffRestrictions,
   TariffWithRestrictions,
-  TariffSegment,
   StationMessageState,
 } from '@evtivity/lib';
 import crypto from 'node:crypto';
@@ -72,8 +91,6 @@ import {
 } from './notification-dispatcher.js';
 import { TransactionBuffer } from './transaction-buffer.js';
 import { projectionQueueFor, sessionPricedKey } from './projection-queue.js';
-import { calculateSessionCostCentsAt, sessionIdleMinutesAt } from './session-cost.js';
-import type { SessionCostRow } from './session-cost.js';
 import {
   DEFAULT_LOCATION,
   DEFAULT_MEASURAND,
@@ -369,18 +386,40 @@ export function registerProjections(
     stationId: string,
     transactionId: string,
   ): Promise<void> {
+    // The idle fee and tax rate that apply now: the open tariff segment's
+    // snapshot (split billing), else the session's.
     const idleSession = await sql`
-      SELECT driver_id, idle_started_at, tariff_idle_fee_price_per_minute,
-             UPPER(currency) AS currency
-      FROM charging_sessions WHERE id = ${sessionId} AND idle_started_at IS NOT NULL
+      SELECT cs.driver_id, cs.idle_started_at,
+             CASE WHEN seg.price_snapshot THEN seg.idle_fee_price_per_minute
+                  ELSE cs.tariff_idle_fee_price_per_minute END AS idle_fee_price_per_minute,
+             CASE WHEN seg.price_snapshot THEN seg.tax_rate
+                  ELSE cs.tariff_tax_rate END AS tax_rate,
+             cs.tax_basis, d.price_display, UPPER(cs.currency) AS currency
+      FROM charging_sessions cs
+      LEFT JOIN drivers d ON d.id = cs.driver_id
+      LEFT JOIN LATERAL (
+        SELECT price_snapshot, idle_fee_price_per_minute, tax_rate
+        FROM session_tariff_segments
+        WHERE session_id = cs.id AND ended_at IS NULL
+        ORDER BY started_at DESC
+        LIMIT 1
+      ) seg ON true
+      WHERE cs.id = ${sessionId} AND cs.idle_started_at IS NOT NULL
     `;
     const idleRow = idleSession[0];
     if (idleRow == null) return;
 
     const stationUuid = await resolveStationUuid(stationId);
     const gracePeriodMinutes = await getIdlingGracePeriodMinutes();
-    const idleFeeRate = idleRow.tariff_idle_fee_price_per_minute as string | null;
+    const idleFeeRate = idleRow.idle_fee_price_per_minute as string | null;
     const idleSiteName = stationUuid != null ? await resolveSiteName(stationUuid) : null;
+
+    // The idle fee is shown as the driver chose in the portal, else as the
+    // company setting says. Guests have no choice and follow the setting.
+    const priceDisplay = resolvePriceDisplay(idleRow.price_display, await getCompanyPriceDisplay());
+    const idleFee = idleFeeRate != null ? Number(idleFeeRate) : 0;
+    const taxRate = idleRow.tax_rate != null ? Number(idleRow.tax_rate) : 0;
+    const taxBasis = resolveTaxBasis(idleRow.tax_basis);
 
     const templateVars = {
       siteName: idleSiteName ?? '',
@@ -388,7 +427,20 @@ export function registerProjections(
       transactionId,
       idleStartedAt: idleRow.idle_started_at as string,
       gracePeriodMinutes,
-      idleFeePricePerMinute: idleFeeRate ?? '0',
+      // The rate as stored, in the session's tax basis. Empty when there is no idle fee (null or 0), so
+      // templates that test {{#if idleFeePricePerMinute}} skip the fee text:
+      // the string '0' or '0.00' is truthy in Handlebars.
+      idleFeePricePerMinute: idleFee > 0 && idleFeeRate != null ? idleFeeRate : '',
+      // Empty when there is no idle fee, so templates can test it with #if.
+      idleFeeFormatted:
+        idleFee > 0
+          ? notificationUnitPrice(
+              priceForDisplay(idleFee, taxRate, priceDisplay, taxBasis),
+              idleRow.currency as string,
+            )
+          : '',
+      idleFeeIncludesTax: priceDisplay === 'gross',
+      taxRatePercent: taxRate > 0 ? notificationTaxRate(taxRate) : '',
       currency: idleRow.currency as string,
     };
 
@@ -452,6 +504,35 @@ export function registerProjections(
       await pubsub.publish('ocpi_push', payload);
     } catch (err) {
       logger.debug({ err, type }, 'OCPI push publish failed; continuing');
+    }
+  }
+
+  // A session started with a partner's (eMSP's) token is our CPO session for
+  // that partner. The link row in ocpi_roaming_sessions is what the OCPI
+  // server serves on GET /cpo/sessions, pushes to the partner, and resolves
+  // STOP_SESSION and CDRs with. The OCPI Session id is the transaction id.
+  // Written here, before the push is published, so a lost push still leaves
+  // the session visible to the partner's next pull. ON CONFLICT keeps it to
+  // one link per session when Started is processed twice.
+  async function linkCpoRoamingSession(
+    sessionId: string,
+    transactionId: string,
+    idToken: string,
+  ): Promise<void> {
+    try {
+      await sql`
+        INSERT INTO ocpi_roaming_sessions
+          (partner_id, ocpi_session_id, charging_session_id, token_uid, status, currency)
+        SELECT t.partner_id, ${transactionId}, ${sessionId}, t.uid, 'ACTIVE', cs.currency
+        FROM ocpi_external_tokens t
+        JOIN charging_sessions cs ON cs.id = ${sessionId}
+        WHERE t.uid = ${idToken} AND t.is_valid = true
+        ORDER BY t.updated_at DESC
+        LIMIT 1
+        ON CONFLICT (charging_session_id) WHERE charging_session_id IS NOT NULL DO NOTHING
+      `;
+    } catch (err) {
+      logger.warn({ err, sessionId }, 'OCPI roaming session link failed; continuing');
     }
   }
 
@@ -575,6 +656,7 @@ export function registerProjections(
   async function isTariffFreeForStation(
     stationId: string,
     driverId: string | null,
+    reserved: boolean,
   ): Promise<boolean> {
     // Resolve the same pricing group the API would (driver > fleet > station >
     // site > default), then load ALL active tariffs in that group plus the
@@ -672,7 +754,9 @@ export function registerProjections(
     `;
     const timezone = tzRows[0]?.timezone ?? undefined;
     const active = resolveActiveTariff(tariffsForResolver, new Date(), holidays, 0, timezone);
-    return isTariffFree(active);
+    // The reservation holding fee is billed only on a session started from a
+    // reservation, so it makes the session paid only then.
+    return isTariffFree(active, { reserved });
   }
 
   async function resolvePricingGroupId(
@@ -1882,30 +1966,23 @@ export function registerProjections(
             }
           }
 
-          // Resolve tariff for this station and snapshot rates
+          // Resolve the tariff for this station and snapshot its prices and the
+          // company tax basis on the session, with the first tariff segment.
+          // The session is priced from these snapshots only (issue #33).
           const tariff = await resolveTariffForStation(stationUuid, driverUuid);
           if (tariff != null) {
-            await sql`
-              UPDATE charging_sessions
-              SET tariff_id = ${tariff.id},
-                  tariff_price_per_kwh = ${tariff.pricePerKwh},
-                  tariff_price_per_minute = ${tariff.pricePerMinute},
-                  tariff_price_per_session = ${tariff.pricePerSession},
-                  tariff_idle_fee_price_per_minute = ${tariff.idleFeePricePerMinute},
-                  tariff_tax_rate = ${tariff.taxRate},
-                  updated_at = now()
-              WHERE id = ${sessionId}
-            `;
-
-            // Insert initial tariff segment for split-billing tracking
-            await sql`
-              INSERT INTO session_tariff_segments (session_id, tariff_id, started_at, energy_wh_start)
-              VALUES (${sessionId}, ${tariff.id}, ${timestamp}, 0)
-            `;
+            await snapshotSessionTariff(
+              sql,
+              sessionId,
+              tariff,
+              await getCompanyTaxBasis(),
+              timestamp,
+            );
           }
         }
 
         // Link reservation to session if reservationId present
+        let linkedReservationId: string | null = null;
         const ocppReservationId = payload.reservationId as number | undefined;
         if (ocppReservationId != null) {
           try {
@@ -1923,6 +2000,7 @@ export function registerProjections(
                 UPDATE charging_sessions SET reservation_id = ${reservationUuid}, updated_at = now()
                 WHERE id = ${sessionId}
               `;
+              linkedReservationId = reservationUuid;
               // Conditional UPDATE -- only one writer flips active→in_use. Audit
               // the transition iff we won the race (RETURNING is empty when
               // the row was already in_use/cancelled/expired).
@@ -1994,6 +2072,10 @@ export function registerProjections(
 
         const siteId = await resolveSiteId(stationUuid);
         await notifyChange('session.started', stationUuid, siteId, sessionId);
+        const roamingIdToken = payload.idToken as string | null | undefined;
+        if (isRoamingSession && roamingIdToken != null) {
+          await linkCpoRoamingSession(sessionId, transactionId, roamingIdToken);
+        }
         await notifyOcpiPush('session', { sessionId });
 
         // Notify guest session service for linking. Runs for both free-vend
@@ -2056,6 +2138,7 @@ export function registerProjections(
             guestStatus,
             guestEmail,
             prepaidBalanceCents: tokenLookup?.prepaidBalanceCents ?? null,
+            reserved: linkedReservationId != null,
           });
         }
 
@@ -2167,7 +2250,7 @@ export function registerProjections(
             AND (last_update_notified_at IS NULL
               OR last_update_notified_at < now() - make_interval(secs => ${SESSION_UPDATE_THROTTLE_MS / 1000}))
           RETURNING driver_id, energy_delivered_wh, current_cost_cents, started_at,
-                    UPPER(currency) AS currency
+                    tariff_tax_rate, UPPER(currency) AS currency
         `;
         if (throttleResult.length > 0 && throttleResult[0] != null) {
           const updatedSession = throttleResult[0];
@@ -2184,9 +2267,14 @@ export function registerProjections(
               transactionId,
               energyDeliveredWh: updatedSession.energy_delivered_wh as number,
               currentCostCents: updatedSession.current_cost_cents as number,
-              costFormatted: formatCurrencyAmount(
+              costFormatted: notificationMoney(
                 (updatedSession.current_cost_cents as number | null) ?? 0,
                 updatedSession.currency as string,
+              ),
+              // Templates label the cost "incl. tax" only when it contains tax.
+              costIncludesTax: costIncludesTax(
+                updatedSession.current_cost_cents as number | null,
+                updatedSession.tariff_tax_rate as string | null,
               ),
               currency: updatedSession.currency as string,
               durationMinutes,
@@ -2247,10 +2335,9 @@ export function registerProjections(
       `;
 
       const sessionRows = await sql`
-        SELECT id, evse_id, status, tariff_id, current_cost_cents, started_at, ended_at, energy_delivered_wh,
-               currency, tariff_price_per_kwh, tariff_price_per_minute, tariff_price_per_session,
-               tariff_idle_fee_price_per_minute, tariff_tax_rate,
-               idle_started_at, idle_minutes, reservation_id
+        SELECT id, evse_id, status, tariff_id, current_cost_cents, started_at, ended_at,
+               energy_delivered_wh, currency, tariff_tax_rate, idle_started_at, idle_minutes,
+               reservation_id
         FROM charging_sessions WHERE transaction_id = ${transactionId}
       `;
       const sessionRow = sessionRows[0];
@@ -2328,52 +2415,55 @@ export function registerProjections(
         const skipCostCalc = sessionStatus === 'faulted' || sessionStatus === 'failed';
         const hasTariffSnapshot = sessionRow.tariff_id != null;
         if (hasTariffSnapshot && !skipCostCalc) {
-          const costRow = sessionRow as unknown as SessionCostRow;
           const endedAt = new Date(sessionRow.ended_at as string);
           const energyWh = Number(sessionRow.energy_delivered_wh ?? 0);
-          const idleMinutes = sessionIdleMinutesAt(costRow, endedAt);
+          const idleMinutes = sessionIdleMinutesAt(
+            {
+              idleStartedAt:
+                sessionRow.idle_started_at != null
+                  ? new Date(sessionRow.idle_started_at as string)
+                  : null,
+              idleMinutes: Number(sessionRow.idle_minutes ?? 0),
+            },
+            endedAt,
+          );
 
-          // Close the open tariff segment. idle_minutes is the WHOLE-session
-          // accumulator (plus any open idle period at session end). For
-          // multi-segment sessions, earlier segments were already closed by
-          // the boundary cron with per-segment deltas; assigning the full
-          // accumulated idle to the last segment here would double-count
-          // the portions already attributed earlier. Subtract what's already
-          // on closed segments so this last segment carries only the idle
-          // that occurred inside its own window.
-          const closedIdleAggRows = await sql<Array<{ total: string }>>`
-            SELECT COALESCE(SUM(idle_minutes), 0)::text AS total
-            FROM session_tariff_segments
-            WHERE session_id = ${sessionId} AND ended_at IS NOT NULL
-          `;
-          const closedIdleSum = Number(closedIdleAggRows[0]?.total ?? 0);
-          const segmentIdleMinutes = Math.max(0, idleMinutes - closedIdleSum);
-          const endedAtIso = endedAt.toISOString();
-          await sql`
-            UPDATE session_tariff_segments
-            SET ended_at = ${endedAtIso},
-                energy_wh_end = ${energyWh},
-                duration_minutes = EXTRACT(EPOCH FROM (${endedAtIso}::timestamptz - started_at)) / 60,
-                idle_minutes = ${segmentIdleMinutes}
-            WHERE session_id = ${sessionId} AND ended_at IS NULL
-          `;
+          // Close the open tariff segment with the idle not yet attributed to
+          // closed segments.
+          await closeOpenSegment(sql, sessionId, endedAt, energyWh, idleMinutes);
 
-          // The OCPP 2.1 handler computed the final cost with the same
-          // calculation and returned it to the station as totalCost (I03.FR.02).
-          // Store that value so the session and the station display agree.
-          const respondedCostCents = payload.finalCostCents;
-          const totalCents =
-            typeof respondedCostCents === 'number' &&
-            Number.isInteger(respondedCostCents) &&
-            respondedCostCents >= 0
-              ? respondedCostCents
-              : await calculateSessionCostCentsAt(sql, costRow, endedAt, energyWh);
-
-          await sql`
-            UPDATE charging_sessions
-            SET final_cost_cents = ${totalCents}, current_cost_cents = ${totalCents}, updated_at = now()
-            WHERE id = ${sessionId}
-          `;
+          // The one cost assembly prices the session from its snapshots. The
+          // OCPP 2.1 handler priced it the same way and returned the result to
+          // the station as totalCost (I03.FR.02); that amount is what is
+          // charged, so the session and the station display agree. Should the
+          // two ever differ, the breakdown is reconciled to the responded amount.
+          const breakdown = await priceSessionAt(sql, sessionId, endedAt, energyWh);
+          if (breakdown != null) {
+            const respondedCostCents = payload.finalCostCents;
+            const responded =
+              typeof respondedCostCents === 'number' &&
+              Number.isInteger(respondedCostCents) &&
+              respondedCostCents >= 0
+                ? respondedCostCents
+                : null;
+            if (responded != null && responded !== breakdown.grossCents) {
+              logger.warn(
+                { sessionId, respondedCostCents: responded, pricedCents: breakdown.grossCents },
+                'Final cost differs from the totalCost sent to the station; charging the sent amount',
+              );
+            }
+            await storeFinalCost(
+              sql,
+              sessionId,
+              responded != null
+                ? reconcileCostBreakdown(
+                    breakdown,
+                    responded,
+                    Number(sessionRow.tariff_tax_rate ?? 0),
+                  )
+                : breakdown,
+            );
+          }
         }
 
         // Carbon footprint calculation. LEFT JOIN so we can distinguish
@@ -2497,7 +2587,7 @@ export function registerProjections(
         // alongside the correct payment-required notification.
         const endedDriverRows = await sql`
           SELECT driver_id, energy_delivered_wh, final_cost_cents, started_at, ended_at, status,
-                 UPPER(currency) AS currency
+                 tariff_tax_rate, UPPER(currency) AS currency
           FROM charging_sessions WHERE id = ${sessionId}`;
         const endedSession = endedDriverRows[0];
         const endedSessionStatus = endedSession?.status as string | undefined;
@@ -2525,9 +2615,13 @@ export function registerProjections(
               transactionId,
               energyDeliveredWh: endedSession.energy_delivered_wh as number,
               finalCostCents: endedSession.final_cost_cents as number,
-              costFormatted: formatCurrencyAmount(
+              costFormatted: notificationMoney(
                 (endedSession.final_cost_cents as number | null) ?? 0,
                 endedSession.currency as string,
+              ),
+              costIncludesTax: costIncludesTax(
+                endedSession.final_cost_cents as number | null,
+                endedSession.tariff_tax_rate as string | null,
               ),
               currency: endedSession.currency as string,
               durationMinutes,
@@ -2549,9 +2643,13 @@ export function registerProjections(
               transactionId,
               energyDeliveredWh: endedSession.energy_delivered_wh as number,
               finalCostCents: endedSession.final_cost_cents as number,
-              costFormatted: formatCurrencyAmount(
+              costFormatted: notificationMoney(
                 (endedSession.final_cost_cents as number | null) ?? 0,
                 endedSession.currency as string,
+              ),
+              costIncludesTax: costIncludesTax(
+                endedSession.final_cost_cents as number | null,
+                endedSession.tariff_tax_rate as string | null,
               ),
               currency: endedSession.currency as string,
               durationMinutes,
@@ -2800,16 +2898,14 @@ export function registerProjections(
     // Notify for all MeterValues (both standalone and transaction-scoped).
     // Cost recalculation and session updates follow below when active sessions exist.
 
-    // Update real-time cost on active sessions for this station using snapshotted rates.
-    // JOIN to charging_stations so the CostUpdated dispatch path below has the
-    // transactionId and ocpp_protocol without a second SQL round-trip per
-    // cost-change event (previously ran on every throttled dispatch).
+    // Update the running cost of active sessions for this station from their
+    // price snapshots. JOIN to charging_stations so the CostUpdated dispatch
+    // path below has the transactionId and ocpp_protocol without a second SQL
+    // round-trip per cost-change event.
     const activeSessions = appliesToSession
       ? await sql`
-          SELECT cs.id, cs.transaction_id, cs.tariff_id, cs.driver_id, cs.started_at,
+          SELECT cs.id, cs.transaction_id, cs.tariff_id, cs.driver_id,
                  cs.energy_delivered_wh, cs.current_cost_cents,
-                 cs.currency, cs.tariff_price_per_kwh, cs.tariff_price_per_minute,
-                 cs.tariff_price_per_session, cs.tariff_idle_fee_price_per_minute, cs.tariff_tax_rate,
                  cs.idle_started_at, cs.idle_minutes, st.ocpp_protocol,
                  dt.prepaid_balance_cents
           FROM charging_sessions cs
@@ -2820,156 +2916,50 @@ export function registerProjections(
         `
       : [];
 
-    const meterGracePeriod = await getIdlingGracePeriodMinutes();
     const splitBillingEnabled = await isSplitBillingEnabled();
     for (const session of activeSessions) {
       const sessionId = session.id as string;
-
-      const startedAt = new Date(session.started_at as string);
-      const durationMinutes = (Date.now() - startedAt.getTime()) / 60000;
+      const now = new Date();
       const energyWh = Number(session.energy_delivered_wh ?? 0);
 
-      // Calculate idle minutes: accumulated + current open idle period
-      const accumulatedIdle = Number(session.idle_minutes ?? 0);
-      const idleStart = session.idle_started_at as string | null;
-      const idleMinutes =
-        idleStart != null
-          ? accumulatedIdle + (Date.now() - new Date(idleStart).getTime()) / 60000
-          : accumulatedIdle;
-
-      // Split-billing: check if tariff has changed since session started
+      // Split billing: when the tariff that applies now differs from the one
+      // of the open segment, close that segment and open one priced from the
+      // new tariff. The session keeps the tariff snapshot it started with.
       if (splitBillingEnabled) {
         const currentTariff = await resolveTariffForStation(
           stationUuid,
           session.driver_id as string | null,
         );
-        if (currentTariff != null && currentTariff.id !== (session.tariff_id as string)) {
-          const now = new Date().toISOString();
-          // Compute idle minutes for the closing segment:
-          // session total idle - sum of all previously closed segments' idle
-          const priorIdleRows = await sql`
-            SELECT COALESCE(SUM(idle_minutes), 0) AS total
-            FROM session_tariff_segments
-            WHERE session_id = ${sessionId} AND ended_at IS NOT NULL
-          `;
-          const priorIdleSum = Number(priorIdleRows[0]?.total ?? 0);
-          const segmentIdleMinutes = Math.max(0, idleMinutes - priorIdleSum);
-          // Close the current open segment
-          await sql`
-            UPDATE session_tariff_segments
-            SET ended_at = ${now},
-                energy_wh_end = ${energyWh},
-                duration_minutes = EXTRACT(EPOCH FROM (${now}::timestamptz - started_at)) / 60,
-                idle_minutes = ${segmentIdleMinutes}
-            WHERE session_id = ${sessionId} AND ended_at IS NULL
-          `;
-          // Open a new segment for the new tariff
-          await sql`
-            INSERT INTO session_tariff_segments (session_id, tariff_id, started_at, energy_wh_start)
-            VALUES (${sessionId}, ${currentTariff.id}, ${now}, ${energyWh})
-          `;
-          // Update session tariff snapshot to the new tariff
-          await sql`
-            UPDATE charging_sessions
-            SET tariff_id = ${currentTariff.id},
-                tariff_price_per_kwh = ${currentTariff.pricePerKwh},
-                tariff_price_per_minute = ${currentTariff.pricePerMinute},
-                tariff_price_per_session = ${currentTariff.pricePerSession},
-                tariff_idle_fee_price_per_minute = ${currentTariff.idleFeePricePerMinute},
-                tariff_tax_rate = ${currentTariff.taxRate},
-                updated_at = now()
-            WHERE id = ${sessionId}
-          `;
-        }
-      }
-
-      // Calculate cost (split-billing or single tariff)
-      let totalCents: number;
-      if (splitBillingEnabled) {
-        const segments = await sql`
-          SELECT sts.started_at, sts.ended_at, sts.energy_wh_start, sts.energy_wh_end,
-                 sts.idle_minutes,
-                 t.price_per_kwh, t.price_per_minute, t.price_per_session,
-                 t.idle_fee_price_per_minute, t.tax_rate
-          FROM session_tariff_segments sts
-          JOIN tariffs t ON t.id = sts.tariff_id
-          WHERE sts.session_id = ${sessionId}
-          ORDER BY sts.started_at
-        `;
-        if (segments.length > 1) {
-          const nowMs = Date.now();
-          // Closed segments' idle was already attributed at close time and is
-          // billed at the tariff rate active during their window. The still-
-          // open last segment gets the remainder (session idle minus the
-          // closed segments' stored idle).
-          const closedIdleSum = segments.reduce(
-            (sum, s) => (s.ended_at != null ? sum + Number(s.idle_minutes ?? 0) : sum),
-            0,
-          );
-          const openIdleMinutes = Math.max(0, idleMinutes - closedIdleSum);
-          const tariffSegments: TariffSegment[] = segments.map((seg, index) => {
-            const segStartMs = new Date(seg.started_at as string).getTime();
-            const segEndMs =
-              seg.ended_at != null ? new Date(seg.ended_at as string).getTime() : nowMs;
-            const segEnergyStart = Number(seg.energy_wh_start ?? 0);
-            const segEnergyEnd = seg.ended_at != null ? Number(seg.energy_wh_end ?? 0) : energyWh;
-            const isOpen = seg.ended_at == null;
-            return {
-              tariff: {
-                pricePerKwh: seg.price_per_kwh as string | null,
-                pricePerMinute: seg.price_per_minute as string | null,
-                pricePerSession: seg.price_per_session as string | null,
-                idleFeePricePerMinute: seg.idle_fee_price_per_minute as string | null,
-                reservationFeePerMinute: null, // holding fee applied at session end only
-                taxRate: seg.tax_rate as string | null,
-              },
-              durationMinutes: (segEndMs - segStartMs) / 60000,
-              energyDeliveredWh: segEnergyEnd - segEnergyStart,
-              idleMinutes: isOpen ? openIdleMinutes : Number(seg.idle_minutes ?? 0),
-              isFirstSegment: index === 0,
-            };
-          });
-          totalCents = calculateSplitSessionCost(tariffSegments, meterGracePeriod).totalCents;
-        } else {
-          totalCents = calculateSessionCost(
-            {
-              pricePerKwh: session.tariff_price_per_kwh as string | null,
-              pricePerMinute: session.tariff_price_per_minute as string | null,
-              pricePerSession: session.tariff_price_per_session as string | null,
-              idleFeePricePerMinute: session.tariff_idle_fee_price_per_minute as string | null,
-              reservationFeePerMinute: null, // holding fee applied at session end only
-              taxRate: session.tariff_tax_rate as string | null,
-            },
+        const openTariffId =
+          (await openSegmentTariffId(sql, sessionId)) ?? (session.tariff_id as string);
+        if (currentTariff != null && currentTariff.id !== openTariffId) {
+          await switchTariffSegment(sql, {
+            sessionId,
+            tariff: currentTariff,
+            at: now,
             energyWh,
-            durationMinutes,
-            idleMinutes,
-            meterGracePeriod,
-          ).totalCents;
+            sessionIdleMinutes: sessionIdleMinutesAt(
+              {
+                idleStartedAt:
+                  session.idle_started_at != null
+                    ? new Date(session.idle_started_at as string)
+                    : null,
+                idleMinutes: Number(session.idle_minutes ?? 0),
+              },
+              now,
+            ),
+          });
         }
-      } else {
-        totalCents = calculateSessionCost(
-          {
-            pricePerKwh: session.tariff_price_per_kwh as string | null,
-            pricePerMinute: session.tariff_price_per_minute as string | null,
-            pricePerSession: session.tariff_price_per_session as string | null,
-            idleFeePricePerMinute: session.tariff_idle_fee_price_per_minute as string | null,
-            reservationFeePerMinute: null, // holding fee applied at session end only
-            taxRate: session.tariff_tax_rate as string | null,
-          },
-          energyWh,
-          durationMinutes,
-          idleMinutes,
-          meterGracePeriod,
-        ).totalCents;
       }
 
+      // The running cost, from the one cost assembly the final cost uses
+      // (segments, idle grace, and the reservation holding fee).
+      const breakdown = await priceSessionAt(sql, sessionId, now, energyWh);
+      if (breakdown == null) continue;
+      const totalCents = breakdown.grossCents;
       const previousCostCents = session.current_cost_cents as number | null;
 
-      await sql`
-        UPDATE charging_sessions
-        SET current_cost_cents = ${totalCents}, updated_at = now()
-        WHERE id = ${sessionId}
-      `;
+      if (!(await storeRunningCost(sql, sessionId, breakdown))) continue;
 
       // Prepaid token on OCPP 1.6: the station gets no transactionLimit, so the
       // CSMS stops the transaction once the running cost reaches the credit.
@@ -3001,9 +2991,9 @@ export function registerProjections(
       // Throttled per session via lastCostUpdatedAt to keep dispatch volume
       // bounded under high MeterValues cadence.
       if (previousCostCents !== totalCents) {
-        const now = Date.now();
+        const nowMs = now.getTime();
         const lastSentAt = lastCostUpdatedAt.get(sessionId) ?? 0;
-        if (now - lastSentAt >= COST_UPDATED_THROTTLE_MS) {
+        if (nowMs - lastSentAt >= COST_UPDATED_THROTTLE_MS) {
           const txId = session.transaction_id as string | null;
           const protocol = session.ocpp_protocol as string | null;
           if (txId != null && protocol === 'ocpp2.1') {
@@ -3019,7 +3009,7 @@ export function registerProjections(
             });
             try {
               await pubsub.publish('ocpp_commands', costUpdatePayload);
-              lastCostUpdatedAt.set(sessionId, now);
+              lastCostUpdatedAt.set(sessionId, nowMs);
             } catch (err) {
               logger.debug(
                 { err, sessionId },
@@ -3435,6 +3425,7 @@ export function registerProjections(
           stationId: event.aggregateId,
           transactionId,
           amountCents: capturedAmountCents,
+          amountFormatted: notificationMoney(capturedAmountCents, session.currency as string),
           currency: session.currency as string,
         },
         ALL_TEMPLATES_DIRS,
@@ -3450,6 +3441,7 @@ export function registerProjections(
           stationId: event.aggregateId,
           transactionId,
           amountCents: capturedAmountCents,
+          amountFormatted: notificationMoney(capturedAmountCents, session.currency as string),
           currency: session.currency as string,
         },
         ALL_TEMPLATES_DIRS,
@@ -3473,6 +3465,8 @@ export function registerProjections(
     guestEmail: string | null;
     /** Balance of the session's prepaid token; null when the token is not prepaid. */
     prepaidBalanceCents: number | null;
+    /** True when the session started from a reservation (its holding fee is billed). */
+    reserved: boolean;
   }
 
   interface StopTarget {
@@ -3615,6 +3609,13 @@ export function registerProjections(
             ended_at = now(),
             final_cost_cents = 0,
             current_cost_cents = 0,
+            net_cents = 0,
+            tax_cents = 0,
+            cost_breakdown = jsonb_set(
+              ${sql.json(zeroCostBreakdown('net') as unknown as postgres.JSONValue)}::jsonb,
+              '{basis}',
+              to_jsonb(COALESCE(tax_basis, 'net'))
+            ),
             updated_at = now()
         WHERE id = ${sessionId} AND status = 'active'
         RETURNING id
@@ -3646,6 +3647,7 @@ export function registerProjections(
       guestStatus,
       guestEmail,
       prepaidBalanceCents,
+      reserved,
     } = params;
 
     // Case 1: OCPI roaming session -- billing handled by eMSP via CDR
@@ -3712,7 +3714,7 @@ export function registerProjections(
 
       if (pmRows.length === 0) {
         // No payment method -- allow only if tariff is free
-        const isFree = await isTariffFreeForStation(stationDbId, driverId);
+        const isFree = await isTariffFreeForStation(stationDbId, driverId, reserved);
         if (isFree) return;
         logger.warn(
           `Driver ${driverId} has no payment method for non-free session ${transactionId}, stopping`,
@@ -3752,7 +3754,7 @@ export function registerProjections(
       if (pm == null) return;
 
       // Skip payment gate entirely if the station tariff is free
-      const isFree = await isTariffFreeForStation(stationDbId, driverId);
+      const isFree = await isTariffFreeForStation(stationDbId, driverId, reserved);
       if (isFree) return;
 
       const stripeCustomerId = pm.stripe_customer_id as string;
@@ -3903,21 +3905,12 @@ export function registerProjections(
       let paymentIntentId: string | null = null;
 
       try {
-        // Get Stripe secret key and platform fee (currency/amount already resolved above)
+        // Get the Stripe secret key (currency/amount already resolved above)
         const stripeSettingsRows = await sql`
-            SELECT key, value FROM settings WHERE key IN (
-              'stripe.secretKeyEnc',
-              'stripe.platformFeePercent'
-            )
+            SELECT value FROM settings WHERE key = 'stripe.secretKeyEnc'
           `;
-        const stripeMap = new Map<string, unknown>();
-        for (const row of stripeSettingsRows) {
-          stripeMap.set(row.key as string, row.value);
-        }
-        const secretKeyEnc = stripeMap.get('stripe.secretKeyEnc') as string | null;
+        const secretKeyEnc = (stripeSettingsRows[0]?.value as string | null | undefined) ?? null;
         if (secretKeyEnc == null) return;
-
-        const platformFeePercent = Number(stripeMap.get('stripe.platformFeePercent') ?? 0);
 
         const { decryptString } = await import('@evtivity/lib');
         const secretKey = decryptString(secretKeyEnc, encryptionKey);
@@ -3935,14 +3928,11 @@ export function registerProjections(
           off_session: true,
         };
 
+        // A destination charge. The platform fee is set at capture, on the
+        // net amount actually charged (captureHoldWithFee).
         if (connectedAccountId != null) {
           piParams.on_behalf_of = connectedAccountId;
           piParams.transfer_data = { destination: connectedAccountId };
-          if (platformFeePercent > 0) {
-            piParams.application_fee_amount = Math.round(
-              (platformPreAuthCents * platformFeePercent) / 100,
-            );
-          }
         }
 
         const paymentIntent = await stripeClient.paymentIntents.create(piParams, {
@@ -4077,7 +4067,7 @@ export function registerProjections(
       // Auto-capture on session end
       const sessionRows = await sql`
         SELECT cs.id, cs.final_cost_cents, cs.station_id AS station_uuid,
-               UPPER(cs.currency) AS currency,
+               UPPER(cs.currency) AS currency, cs.tariff_tax_rate, cs.cost_breakdown,
                cs2.station_id AS station_ocpp_id, cs2.site_id
         FROM charging_sessions cs
         JOIN charging_stations cs2 ON cs2.id = cs.station_id
@@ -4153,7 +4143,7 @@ export function registerProjections(
             logger.error({ err: dbErr }, 'Failed to mark simulated capture as failed');
           }
           try {
-            const amountFormatted = formatCurrencyAmount(finalCostCents ?? 0, sessionCurrency);
+            const amountFormatted = notificationMoney(finalCostCents ?? 0, sessionCurrency);
             void dispatchDriverNotification(
               sql,
               'payment.CaptureFailed',
@@ -4195,6 +4185,7 @@ export function registerProjections(
                 stationId: event.aggregateId,
                 transactionId,
                 amountCents: finalCostCents,
+                amountFormatted: notificationMoney(finalCostCents, sessionCurrency),
                 currency: sessionCurrency,
               },
               ALL_TEMPLATES_DIRS,
@@ -4246,72 +4237,47 @@ export function registerProjections(
         if (finalCostCents != null && finalCostCents > 0) {
           const preAuthAmount = (pr.pre_auth_amount_cents as number | null) ?? finalCostCents;
           captureAmount = Math.min(finalCostCents, preAuthAmount);
+          // The platform fee is a percent of the net amount charged, at the
+          // session's tax rate, set on the capture and on the top-up so the
+          // two add up to the fee of the final cost.
+          const fee = {
+            taxRate: sessionChargeTax({
+              finalCostCents,
+              tariffTaxRate: session.tariff_tax_rate as string | null,
+              costBreakdown: session.cost_breakdown,
+            }),
+            platformFeePercent: await getPlatformFeePercent(
+              (session.site_id as string | null) ?? null,
+            ),
+          };
 
           // Always capture the pre-auth fully (or finalCost if smaller). When
           // finalCost > preauth we then create a second PaymentIntent for the
           // delta and confirm+capture it off-session. Stripe rejects
           // amount_to_capture > original_amount, so we cannot just expand the
           // first intent.
-          await stripe.paymentIntents.capture(
-            paymentIntentId,
-            { amount_to_capture: captureAmount },
-            { idempotencyKey: `capture_${pr.id as string}` },
-          );
+          await captureHoldWithFee(stripe, {
+            ...fee,
+            intentId: paymentIntentId,
+            amountCents: captureAmount,
+            idempotencyKey: `capture_${pr.id as string}`,
+          });
 
           totalCaptured = captureAmount;
 
           if (finalCostCents > preAuthAmount) {
             const deltaCents = finalCostCents - preAuthAmount;
             try {
-              // Retrieve the original intent to learn the customer + payment
-              // method so we can charge the delta against the same card.
-              const origIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-              const customerId =
-                typeof origIntent.customer === 'string'
-                  ? origIntent.customer
-                  : origIntent.customer?.id;
-              const pmId =
-                typeof origIntent.payment_method === 'string'
-                  ? origIntent.payment_method
-                  : origIntent.payment_method?.id;
-              if (customerId == null || pmId == null) {
-                throw new Error('Original PaymentIntent missing customer or payment_method');
-              }
-
-              const topUpParams: Record<string, unknown> = {
-                amount: deltaCents,
-                currency: sessionCurrency.toLowerCase(),
-                customer: customerId,
-                payment_method: pmId,
-                confirm: true,
-                off_session: true,
-                capture_method: 'automatic',
+              // Charges the delta on the same card (and connected account).
+              const topUp = await chargeShortfallTopUp(stripe, {
+                ...fee,
+                originalIntentId: paymentIntentId,
+                capturedCents: captureAmount,
+                finalCostCents,
+                currency: sessionCurrency,
                 description: `Top-up for session ${session.id as string}`,
-              };
-              if (origIntent.on_behalf_of != null) {
-                topUpParams['on_behalf_of'] = origIntent.on_behalf_of;
-                topUpParams['transfer_data'] = {
-                  destination:
-                    typeof origIntent.on_behalf_of === 'string'
-                      ? origIntent.on_behalf_of
-                      : origIntent.on_behalf_of.id,
-                };
-                // Carry the same platform-fee rate onto the top-up. Without
-                // this the entire delta flows to the connected account and
-                // the platform earns nothing on the overage portion.
-                if (
-                  origIntent.application_fee_amount != null &&
-                  origIntent.application_fee_amount > 0 &&
-                  origIntent.amount > 0
-                ) {
-                  const feeRate = origIntent.application_fee_amount / origIntent.amount;
-                  topUpParams['application_fee_amount'] = Math.round(deltaCents * feeRate);
-                }
-              }
-              const topUp = await stripe.paymentIntents.create(
-                topUpParams as unknown as import('stripe').default.PaymentIntentCreateParams,
-                { idempotencyKey: `topup_${pr.id as string}` },
-              );
+                idempotencyKey: `topup_${pr.id as string}`,
+              });
               topUpIntentId = topUp.id;
               totalCaptured = preAuthAmount + deltaCents;
             } catch (topUpErr) {
@@ -4346,7 +4312,7 @@ export function registerProjections(
         }
 
         try {
-          const amountFormatted = formatCurrencyAmount(finalCostCents ?? 0, sessionCurrency);
+          const amountFormatted = notificationMoney(finalCostCents ?? 0, sessionCurrency);
           void dispatchDriverNotification(
             sql,
             'payment.CaptureFailed',
@@ -4404,6 +4370,7 @@ export function registerProjections(
             stationId: session.station_ocpp_id as string,
             transactionId,
             amountCents: totalCaptured,
+            amountFormatted: notificationMoney(totalCaptured, sessionCurrency),
             currency: sessionCurrency,
           },
           ALL_TEMPLATES_DIRS,

@@ -4,10 +4,24 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import Handlebars from 'handlebars';
-import { db, stationMessageTemplates } from '@evtivity/database';
+import {
+  db,
+  stationMessageTemplates,
+  getCompanyCurrency,
+  getCompanyPriceDisplay,
+  getCompanyTaxBasis,
+  getStationMessagePricingFormat,
+} from '@evtivity/database';
 import {
   STATION_MESSAGE_DEFAULTS,
+  STATION_MESSAGE_LANGUAGES,
+  buildStationPriceContext,
   clearStationMessageCache,
+  formatCurrencyAmount,
+  formatStationIdleFeeRate,
+  formatStationQuantity,
+  formatStationTime,
+  type StationMessageLanguage,
   type StationMessageState,
 } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -37,12 +51,21 @@ const stateParams = z.object({
   state: stateEnum.describe('Station message state'),
 });
 
+const languageEnum = z.enum(STATION_MESSAGE_LANGUAGES);
+
+const languageQuery = z.object({
+  language: languageEnum.describe('Display language of the template'),
+});
+
 const updateBody = z.object({
   body: z.string().min(1).max(5000).describe('Handlebars template body'),
 });
 
 const previewBody = z.object({
   state: stateEnum.describe('Station message state'),
+  language: languageEnum.describe(
+    'Display language: sample prices, numbers, and the tax rate are formatted in it',
+  ),
   body: z.string().min(1).max(5000).describe('Handlebars template body to render'),
   sampleContext: z.record(z.string().max(1000)).optional().describe('Variable overrides'),
 });
@@ -50,6 +73,7 @@ const previewBody = z.object({
 const templateItem = z
   .object({
     state: stateEnum.describe('Station operating state the template renders for'),
+    language: languageEnum.describe('Display language of the template'),
     body: z.string().max(5000).describe('Handlebars template body sent to the station display'),
     updatedAt: z.coerce.date().nullable().describe('Timestamp of the most recent edit'),
     updatedBy: z.string().nullable().describe('Operator user ID who last edited the template'),
@@ -62,19 +86,52 @@ const previewItem = z
   })
   .passthrough();
 
-const DEFAULT_SAMPLE_CONTEXT: Record<string, string> = {
-  companyName: 'EVtivity',
-  stationOcppId: 'CS-1234',
-  pricingDisplay: '$0.30/kWh + $0.02/min',
-  energyKwh: '12.4',
-  powerKw: '22.0',
-  costFormatted: '$3.42',
-  elapsedFormatted: '12m',
-  idleFeeRate: '$0.10/min',
-  supportPhone: '+1-555-0100',
-  driverFirstName: 'Alex',
-  reservationExpiresAt: '3:45 PM',
+// Sample tariff and session for the preview: prices are stored net, so the
+// preview shows them the way stations do (company.priceDisplay, company
+// currency, stationMessage.pricingFormat) in the chosen language.
+const SAMPLE_TARIFF = {
+  pricePerKwh: '0.30',
+  pricePerMinute: '0.02',
+  pricePerSession: null,
+  idleFeePricePerMinute: '0.10',
+  taxRate: '0.19',
 };
+
+async function sampleContext(language: StationMessageLanguage): Promise<Record<string, unknown>> {
+  const [currency, priceDisplay, taxBasis, pricingFormat] = await Promise.all([
+    getCompanyCurrency(),
+    getCompanyPriceDisplay(),
+    getCompanyTaxBasis(),
+    getStationMessagePricingFormat(),
+  ]);
+  return {
+    companyName: 'EVtivity',
+    stationOcppId: 'CS-1234',
+    ...buildStationPriceContext({
+      tariff: SAMPLE_TARIFF,
+      priceDisplay,
+      taxBasis,
+      pricingFormat,
+      currency,
+      language,
+    }),
+    energyKwh: formatStationQuantity(12.4, language),
+    powerKw: formatStationQuantity(22, language),
+    costFormatted: formatCurrencyAmount(342, currency, language),
+    elapsedFormatted: '12m',
+    idleFeeRate: formatStationIdleFeeRate({
+      pricePerMinute: SAMPLE_TARIFF.idleFeePricePerMinute,
+      taxRate: SAMPLE_TARIFF.taxRate,
+      priceDisplay,
+      taxBasis,
+      currency,
+      language,
+    }),
+    supportPhone: '+1-555-0100',
+    driverFirstName: 'Alex',
+    reservationExpiresAt: formatStationTime(new Date(2026, 0, 1, 15, 45), language),
+  };
+}
 
 export function stationMessageTemplateRoutes(app: FastifyInstance): void {
   app.get(
@@ -93,11 +150,13 @@ export function stationMessageTemplateRoutes(app: FastifyInstance): void {
       const rows = await db
         .select({
           state: stationMessageTemplates.state,
+          language: stationMessageTemplates.language,
           body: stationMessageTemplates.body,
           updatedAt: stationMessageTemplates.updatedAt,
           updatedBy: stationMessageTemplates.updatedBy,
         })
-        .from(stationMessageTemplates);
+        .from(stationMessageTemplates)
+        .orderBy(stationMessageTemplates.language, stationMessageTemplates.state);
 
       return { data: rows };
     },
@@ -113,6 +172,7 @@ export function stationMessageTemplateRoutes(app: FastifyInstance): void {
         operationId: 'updateStationMessageTemplate',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stateParams),
+        querystring: zodSchema(languageQuery),
         body: zodSchema(updateBody),
         response: {
           200: itemResponse(templateItem),
@@ -122,6 +182,7 @@ export function stationMessageTemplateRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { state } = request.params as z.infer<typeof stateParams>;
+      const { language } = request.query as z.infer<typeof languageQuery>;
       const { body } = request.body as z.infer<typeof updateBody>;
       const jwtUser = request.user as unknown as JwtPayload;
       const userId = typeof jwtUser.userId === 'string' ? jwtUser.userId : null;
@@ -129,13 +190,14 @@ export function stationMessageTemplateRoutes(app: FastifyInstance): void {
       const updatedAt = new Date();
       const [row] = await db
         .insert(stationMessageTemplates)
-        .values({ state, body, updatedAt, updatedBy: userId })
+        .values({ state, language, body, updatedAt, updatedBy: userId })
         .onConflictDoUpdate({
-          target: stationMessageTemplates.state,
+          target: [stationMessageTemplates.state, stationMessageTemplates.language],
           set: { body, updatedAt, updatedBy: userId },
         })
         .returning({
           state: stationMessageTemplates.state,
+          language: stationMessageTemplates.language,
           body: stationMessageTemplates.body,
           updatedAt: stationMessageTemplates.updatedAt,
           updatedBy: stationMessageTemplates.updatedBy,
@@ -161,12 +223,14 @@ export function stationMessageTemplateRoutes(app: FastifyInstance): void {
         operationId: 'resetStationMessageTemplate',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stateParams),
+        querystring: zodSchema(languageQuery),
         response: { 200: itemResponse(templateItem) },
       },
     },
     async (request) => {
       const { state } = request.params as z.infer<typeof stateParams>;
-      const defaultBody = STATION_MESSAGE_DEFAULTS[state];
+      const { language } = request.query as z.infer<typeof languageQuery>;
+      const defaultBody = STATION_MESSAGE_DEFAULTS[language][state];
 
       const jwtUser = request.user as unknown as JwtPayload;
       const userId = typeof jwtUser.userId === 'string' ? jwtUser.userId : null;
@@ -174,13 +238,14 @@ export function stationMessageTemplateRoutes(app: FastifyInstance): void {
 
       const [row] = await db
         .insert(stationMessageTemplates)
-        .values({ state, body: defaultBody, updatedAt, updatedBy: userId })
+        .values({ state, language, body: defaultBody, updatedAt, updatedBy: userId })
         .onConflictDoUpdate({
-          target: stationMessageTemplates.state,
+          target: [stationMessageTemplates.state, stationMessageTemplates.language],
           set: { body: defaultBody, updatedAt, updatedBy: userId },
         })
         .returning({
           state: stationMessageTemplates.state,
+          language: stationMessageTemplates.language,
           body: stationMessageTemplates.body,
           updatedAt: stationMessageTemplates.updatedAt,
           updatedBy: stationMessageTemplates.updatedBy,
@@ -204,12 +269,16 @@ export function stationMessageTemplateRoutes(app: FastifyInstance): void {
         response: { 200: itemResponse(previewItem) },
       },
     },
-    (request) => {
-      const { body, sampleContext } = request.body as z.infer<typeof previewBody>;
+    async (request) => {
+      const {
+        body,
+        language,
+        sampleContext: overrides,
+      } = request.body as z.infer<typeof previewBody>;
 
-      const ctx: Record<string, string> = { ...DEFAULT_SAMPLE_CONTEXT };
-      if (sampleContext != null) {
-        for (const [key, value] of Object.entries(sampleContext)) {
+      const ctx = await sampleContext(language);
+      if (overrides != null) {
+        for (const [key, value] of Object.entries(overrides)) {
           if (typeof value === 'string') ctx[key] = value;
         }
       }
@@ -222,7 +291,7 @@ export function stationMessageTemplateRoutes(app: FastifyInstance): void {
         rendered = '';
       }
 
-      return Promise.resolve({ rendered });
+      return { rendered };
     },
   );
 }

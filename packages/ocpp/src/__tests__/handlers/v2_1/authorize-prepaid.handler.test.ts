@@ -65,6 +65,7 @@ vi.mock('@evtivity/database', () => ({
   isRoamingEnabled: isRoamingEnabledMock,
   isSiteFreeVendEnabledByStation: isSiteFreeVendEnabledByStationMock,
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
+  getCompanyTaxBasis: vi.fn().mockResolvedValue('net'),
 }));
 
 vi.mock('drizzle-orm', () => ({

@@ -75,12 +75,17 @@ vi.mock('@evtivity/database', () => ({
   },
   ocpiTariffMappings: {},
   tariffs: {},
+  pricingGroups: {},
   ocpiPartners: {},
 }));
+
+const { publishOcpiTariffPush } = vi.hoisted(() => ({ publishOcpiTariffPush: vi.fn() }));
+vi.mock('../lib/ocpi-tariff-push.js', () => ({ publishOcpiTariffPush }));
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
   and: vi.fn(),
+  isNull: vi.fn(),
   or: vi.fn(),
   ilike: vi.fn(),
   sql: vi.fn(),
@@ -105,11 +110,13 @@ function makeMapping(overrides: Record<string, unknown> = {}) {
   return {
     id: 1,
     tariffId: 'trf_000000000001',
+    pricingGroupId: null,
     partnerId: 'opr_000000000001',
     ocpiTariffId: 'TARIFF-001',
     createdAt: now,
     updatedAt: now,
     tariffName: 'Standard Rate',
+    pricingGroupName: null,
     partnerName: 'Test Partner',
     ...overrides,
   };
@@ -138,6 +145,7 @@ describe('OCPI tariff mapping routes', () => {
 
   beforeEach(() => {
     setupDbResults();
+    publishOcpiTariffPush.mockClear();
   });
 
   // -------------------------------------------------------
@@ -204,6 +212,168 @@ describe('OCPI tariff mapping routes', () => {
       });
 
       expect(res.statusCode).toBe(400);
+    });
+  });
+
+  // -------------------------------------------------------
+  // POST /v1/ocpi/tariff-mappings
+  // -------------------------------------------------------
+
+  describe('POST /v1/ocpi/tariff-mappings', () => {
+    function post(payload: Record<string, unknown>) {
+      return app.inject({
+        method: 'POST',
+        url: '/ocpi/tariff-mappings',
+        headers: { authorization: `Bearer ${token}` },
+        payload,
+      });
+    }
+
+    it('publishes a pricing group to every partner and pushes it', async () => {
+      const mapping = makeMapping({
+        id: 5,
+        tariffId: null,
+        pricingGroupId: 'pgr_000000000001',
+        partnerId: null,
+        tariffName: null,
+        pricingGroupName: 'Default',
+        partnerName: null,
+      });
+      // pricing group exists, id free, insert, reload
+      setupDbResults([{ id: 'pgr_000000000001' }], [], [{ id: 5 }], [mapping]);
+
+      const res = await post({ ocpiTariffId: 'TARIFF-001', pricingGroupId: 'pgr_000000000001' });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json()).toMatchObject({ pricingGroupId: 'pgr_000000000001', tariffId: null });
+      expect(publishOcpiTariffPush).toHaveBeenCalledWith({
+        targets: [{ partnerId: null, ocpiTariffId: 'TARIFF-001' }],
+      });
+    });
+
+    it('rejects a mapping without a source or with both', async () => {
+      for (const payload of [
+        { ocpiTariffId: 'T-1' },
+        {
+          ocpiTariffId: 'T-1',
+          tariffId: 'trf_000000000001',
+          pricingGroupId: 'pgr_000000000001',
+        },
+      ]) {
+        const res = await post(payload);
+        expect(res.statusCode).toBe(400);
+        expect(res.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+        expect(res.json().details).toHaveProperty('source');
+      }
+      expect(publishOcpiTariffPush).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 for an unknown tariff', async () => {
+      setupDbResults([]);
+      const res = await post({ ocpiTariffId: 'T-1', tariffId: 'trf_000000000099' });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('TARIFF_NOT_FOUND');
+    });
+
+    it('rejects an OCPI tariff id already published to the same partner', async () => {
+      setupDbResults([{ id: 'trf_000000000001' }], [{ id: 2 }]);
+      const res = await post({ ocpiTariffId: 'T-1', tariffId: 'trf_000000000001' });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().details).toHaveProperty('ocpiTariffId');
+    });
+
+    it('ignores the removed free-form ocpiTariffData field', async () => {
+      setupDbResults([{ id: 'trf_000000000001' }], [], [{ id: 6 }], [makeMapping({ id: 6 })]);
+      const res = await post({
+        ocpiTariffId: 'T-1',
+        tariffId: 'trf_000000000001',
+        ocpiTariffData: { elements: [] },
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.json()).not.toHaveProperty('ocpiTariffData');
+    });
+  });
+
+  // -------------------------------------------------------
+  // PATCH /v1/ocpi/tariff-mappings/:id
+  // -------------------------------------------------------
+
+  describe('PATCH /v1/ocpi/tariff-mappings/:id', () => {
+    it('switches to a pricing group and resyncs the old and new ids', async () => {
+      const existing = {
+        id: 1,
+        tariffId: 'trf_000000000001',
+        pricingGroupId: null,
+        partnerId: null,
+        ocpiTariffId: 'OLD-1',
+      };
+      // existing, group exists, id free, update, reload
+      setupDbResults(
+        [existing],
+        [{ id: 'pgr_000000000001' }],
+        [],
+        [],
+        [
+          makeMapping({
+            tariffId: null,
+            pricingGroupId: 'pgr_000000000001',
+            ocpiTariffId: 'NEW-1',
+          }),
+        ],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/ocpi/tariff-mappings/1',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { pricingGroupId: 'pgr_000000000001', ocpiTariffId: 'NEW-1' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(publishOcpiTariffPush).toHaveBeenCalledWith({
+        targets: [
+          { partnerId: null, ocpiTariffId: 'NEW-1' },
+          { partnerId: null, ocpiTariffId: 'OLD-1' },
+        ],
+      });
+    });
+
+    it('returns 404 for an unknown mapping', async () => {
+      setupDbResults([]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/ocpi/tariff-mappings/9',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { ocpiTariffId: 'X' },
+      });
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  // -------------------------------------------------------
+  // DELETE /v1/ocpi/tariff-mappings/:id
+  // -------------------------------------------------------
+
+  describe('DELETE /v1/ocpi/tariff-mappings/:id', () => {
+    it('deletes the mapping and asks the OCPI server to resync its id', async () => {
+      setupDbResults([{ partnerId: 'opr_000000000001', ocpiTariffId: 'T-1' }]);
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/ocpi/tariff-mappings/1',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(publishOcpiTariffPush).toHaveBeenCalledWith({
+        targets: [{ partnerId: 'opr_000000000001', ocpiTariffId: 'T-1' }],
+      });
+    });
+
+    it('returns 404 for an unknown mapping', async () => {
+      setupDbResults([]);
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/ocpi/tariff-mappings/9',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(404);
     });
   });
 });

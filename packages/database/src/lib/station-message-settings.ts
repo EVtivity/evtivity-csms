@@ -4,6 +4,11 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+import {
+  DEFAULT_STATION_MESSAGE_LANGUAGE,
+  isStationMessageLanguage,
+  type StationMessageLanguage,
+} from '@evtivity/lib';
 
 const TTL_MS = 60_000;
 
@@ -21,6 +26,9 @@ let cachedEventMessageTtlAt = 0;
 
 let cachedBrandLine: string | undefined;
 let cachedBrandLineAt = 0;
+
+let cachedLanguage: StationMessageLanguage | undefined;
+let cachedLanguageAt = 0;
 
 export async function isStationMessageEnabled(): Promise<boolean> {
   const now = Date.now();
@@ -130,7 +138,34 @@ export async function getStationMessageBrandLine(): Promise<string> {
   }
 }
 
+// Display language of every station message (stationMessage.language). The
+// renderer picks the template row for this language and formats prices,
+// numbers, and the tax rate in it.
+export async function getStationMessageLanguage(): Promise<StationMessageLanguage> {
+  const now = Date.now();
+  if (cachedLanguage !== undefined && now - cachedLanguageAt < TTL_MS) {
+    return cachedLanguage;
+  }
+
+  try {
+    const [row] = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, 'stationMessage.language'));
+
+    cachedLanguage = isStationMessageLanguage(row?.value)
+      ? row.value
+      : DEFAULT_STATION_MESSAGE_LANGUAGE;
+    cachedLanguageAt = now;
+    return cachedLanguage;
+  } catch {
+    return cachedLanguage ?? DEFAULT_STATION_MESSAGE_LANGUAGE;
+  }
+}
+
 export function clearStationMessageSettingsCache(): void {
+  cachedLanguage = undefined;
+  cachedLanguageAt = 0;
   cachedEnabled = undefined;
   cachedEnabledAt = 0;
   cachedPricingFormat = undefined;

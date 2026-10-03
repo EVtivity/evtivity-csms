@@ -124,6 +124,11 @@ vi.mock('@evtivity/lib', async () => {
     // The template rules are the behavior under test, so they stay real.
     assertTemplateAllowed: actual.assertTemplateAllowed,
     compileAllowedTemplate: actual.compileAllowedTemplate,
+    // Sample money values are formatted like the dispatcher formats them.
+    formatLocalizedVariables: actual.formatLocalizedVariables,
+    notificationMoney: actual.notificationMoney,
+    notificationUnitPrice: actual.notificationUnitPrice,
+    notificationTaxRate: actual.notificationTaxRate,
     decryptString: vi.fn().mockReturnValue('decrypted'),
     wrapEmailHtml: vi.fn(
       (html: string, _company: string, _wrapper: string | null, _vars: unknown) =>
@@ -524,6 +529,30 @@ describe('Notification routes', () => {
     expect(body).toHaveProperty('bodyHtml');
     // Subject should be rendered with Handlebars
     expect(body.subject).toContain('TestCo');
+  });
+
+  it('POST /v1/notification-templates/preview formats sample money in the template language', async () => {
+    setupDbResults(
+      [{ value: 'TestCo' }],
+      [{ value: null }],
+      [{ value: 'EUR' }],
+      [{ key: 'company.name', value: 'TestCo' }],
+    );
+    const response = await app.inject({
+      method: 'POST',
+      url: '/notification-templates/preview',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        eventType: 'payment.Complete',
+        channel: 'sms',
+        language: 'de',
+        bodyHtml:
+          'Bezahlt: {{amountFormatted}} ({{amountCents}} {{currency}}), {{taxRatePercent}} %',
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as { bodyHtml: string };
+    expect(body.bodyHtml).toMatch(/^Bezahlt: 12,50\s€ \(1250 [A-Z]{3}\), 19 %$/);
   });
 
   it('POST /v1/notification-templates/preview renders if/else blocks used by shipped templates', async () => {

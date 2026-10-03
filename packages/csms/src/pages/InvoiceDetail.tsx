@@ -27,7 +27,8 @@ import { api } from '@/lib/api';
 import { ApiError } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
-import { formatCents } from '@/lib/formatting';
+import { formatCents, formatTaxPercent } from '@/lib/formatting';
+import { describeInvoiceLine } from '@/lib/invoice-lines';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
 
@@ -43,10 +44,20 @@ interface InvoiceLineItem {
   description: string;
   quantity: string;
   unitPriceCents: number;
+  /** Net amount (tax excluded). */
   totalCents: number;
   taxCents: number;
+  /** Tax rate as a decimal fraction string ("0.19" is 19%). */
+  taxRate: string;
   metadata: Record<string, unknown> | null;
   createdAt: string;
+}
+
+interface InvoiceTaxBreakdownLine {
+  taxRate: number;
+  netCents: number;
+  taxCents: number;
+  grossCents: number;
 }
 
 interface InvoiceDriver {
@@ -60,6 +71,7 @@ interface InvoiceDetailData {
   invoice: InvoiceRecord;
   lineItems: InvoiceLineItem[];
   driver: InvoiceDriver | null;
+  taxBreakdown: InvoiceTaxBreakdownLine[];
 }
 
 async function downloadInvoicePdf(invoice: { id: string; invoiceNumber: string }): Promise<void> {
@@ -77,7 +89,7 @@ async function downloadInvoicePdf(invoice: { id: string; invoiceNumber: string }
 
 export function InvoiceDetail(): React.JSX.Element {
   const { id } = useParams<{ id: string }>();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const timezone = useUserTimezone();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -158,7 +170,7 @@ export function InvoiceDetail(): React.JSX.Element {
     );
   }
 
-  const { invoice, lineItems } = data;
+  const { invoice, lineItems, taxBreakdown } = data;
 
   function handleDownload(): void {
     void downloadInvoicePdf(invoice).catch((err: unknown) => {
@@ -315,13 +327,14 @@ export function InvoiceDetail(): React.JSX.Element {
                     <TableHead>{t('invoices.session')}</TableHead>
                     <TableHead className="text-right">{t('invoices.quantity')}</TableHead>
                     <TableHead className="text-right">{t('invoices.unitPrice')}</TableHead>
-                    <TableHead className="text-right">{t('invoices.total')}</TableHead>
+                    <TableHead className="text-right">{t('invoices.taxRate')}</TableHead>
+                    <TableHead className="text-right">{t('invoices.amount')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {lineItems.map((item) => (
                     <TableRow key={item.id}>
-                      <TableCell>{item.description}</TableCell>
+                      <TableCell>{describeInvoiceLine(item, t, i18n.language)}</TableCell>
                       <TableCell>
                         {item.sessionId != null ? (
                           <Link
@@ -341,34 +354,76 @@ export function InvoiceDetail(): React.JSX.Element {
                         {formatCents(item.unitPriceCents, invoice.currency)}
                       </TableCell>
                       <TableCell className="text-right">
+                        {t('invoices.taxRateValue', { rate: formatTaxPercent(item.taxRate) })}
+                      </TableCell>
+                      <TableCell className="text-right">
                         {formatCents(item.totalCents, invoice.currency)}
                       </TableCell>
                     </TableRow>
                   ))}
                   <TableRow>
-                    <TableCell colSpan={4} className="text-right text-muted-foreground">
-                      {t('invoices.subtotal')}
+                    <TableCell colSpan={5} className="text-right text-muted-foreground">
+                      {t('invoices.subtotalNet')}
                     </TableCell>
                     <TableCell className="text-right">
                       {formatCents(invoice.subtotalCents, invoice.currency)}
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell colSpan={4} className="text-right text-muted-foreground">
-                      {t('invoices.tax')}
+                    <TableCell colSpan={5} className="text-right text-muted-foreground">
+                      {t('invoices.totalTax')}
                     </TableCell>
                     <TableCell className="text-right">
                       {formatCents(invoice.taxCents, invoice.currency)}
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell colSpan={4} className="text-right font-bold">
+                    <TableCell colSpan={5} className="text-right font-bold">
                       {t('invoices.total')}
                     </TableCell>
                     <TableCell className="text-right font-bold">
                       {formatCents(invoice.totalCents, invoice.currency)}
                     </TableCell>
                   </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">{t('invoices.amountsExcludeTax')}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('invoices.taxSummary')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('invoices.taxRate')}</TableHead>
+                    <TableHead className="text-right">{t('invoices.netAmount')}</TableHead>
+                    <TableHead className="text-right">{t('invoices.tax')}</TableHead>
+                    <TableHead className="text-right">{t('invoices.grossAmount')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {taxBreakdown.map((line) => (
+                    <TableRow key={line.taxRate}>
+                      <TableCell>
+                        {t('invoices.taxRateValue', { rate: formatTaxPercent(line.taxRate) })}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatCents(line.netCents, invoice.currency)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatCents(line.taxCents, invoice.currency)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatCents(line.grossCents, invoice.currency)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </div>

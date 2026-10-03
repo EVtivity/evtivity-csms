@@ -38,12 +38,14 @@ interface SiteData {
     day_electricity_cost_cents: string;
     active_sessions: string;
   };
-  revenue?: {
-    total_revenue_cents: string;
-    day_revenue_cents: string;
-    total_transactions: string;
-    day_transactions: string;
-  };
+  /** Revenue rows (session-revenue.ts) keyed 'true' for the snapshot day. */
+  revenue?: Array<{
+    key: string;
+    taxRate: string;
+    grossCents: number;
+    source: string;
+    count: number;
+  }>;
 }
 
 const DEFAULT_SITE_DATA: Required<Omit<SiteData, 'uptime'>> & Pick<SiteData, 'uptime'> = {
@@ -59,12 +61,14 @@ const DEFAULT_SITE_DATA: Required<Omit<SiteData, 'uptime'>> & Pick<SiteData, 'up
     day_electricity_cost_cents: '150',
     active_sessions: '3',
   },
-  revenue: {
-    total_revenue_cents: '250000',
-    day_revenue_cents: '30000',
-    total_transactions: '90',
-    day_transactions: '11',
-  },
+  // Day: 10 sessions of 25.00 and one 50.00 fee (30000, 11 items). Earlier:
+  // 78 sessions of 28.00 and one 16.00 fee (220000, 79 items).
+  revenue: [
+    { key: 'true', taxRate: '0', grossCents: 2500, source: 'session', count: 10 },
+    { key: 'true', taxRate: '0', grossCents: 5000, source: 'fee', count: 1 },
+    { key: 'false', taxRate: '0', grossCents: 2800, source: 'session', count: 78 },
+    { key: 'false', taxRate: '0', grossCents: 1600, source: 'fee', count: 1 },
+  ],
 };
 
 let pingRow: Record<string, string> | undefined;
@@ -88,7 +92,6 @@ function classify(strings: readonly string[]): string {
   if (joined.includes('AS yesterday')) return 'yesterday';
   if (joined.includes('AS day_start')) return 'dayBoundaries';
   if (joined.includes('AS total_sessions')) return 'sessions';
-  if (joined.includes('AS total_revenue_cents')) return 'revenue';
   if (joined.includes('all_ports')) return 'uptime';
   if (joined.includes('FROM charging_stations')) return 'stations';
   return 'unknown';
@@ -135,8 +138,6 @@ const mockExecute = vi.fn((arg: unknown) => {
       return Promise.resolve('uptime' in d ? [d.uptime] : [DEFAULT_SITE_DATA.uptime]);
     case 'sessions':
       return Promise.resolve([d.sessions ?? DEFAULT_SITE_DATA.sessions]);
-    case 'revenue':
-      return Promise.resolve([d.revenue ?? DEFAULT_SITE_DATA.revenue]);
     case 'upsert':
       upsertCalls.push({ siteId, values });
       return Promise.resolve([]);
@@ -152,6 +153,26 @@ vi.mock('@evtivity/database', () => ({
   },
   sites: { id: 'sites.id', timezone: 'sites.timezone' },
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
+}));
+
+// Revenue comes from the shared definition (session-revenue.ts); its SQL is
+// covered by the API integration tests.
+const mockQueryRevenue = vi.fn(
+  async (input: { companyCurrency: string; where?: Array<{ values: unknown[] }> }) => {
+    const found = input.where?.[0]?.values.find((v): v is string => typeof v === 'string');
+    const siteId = found ?? '';
+    if (siteRejects[siteId]?.kind === 'revenue') throw new Error(`forced failure: ${siteId}`);
+    const { aggregateRevenueRows } = await vi.importActual<
+      typeof import('@evtivity/api/src/lib/session-revenue.js')
+    >('@evtivity/api/src/lib/session-revenue.js');
+    return aggregateRevenueRows(dataFor(siteId).revenue ?? DEFAULT_SITE_DATA.revenue);
+  },
+);
+
+vi.mock('@evtivity/api/src/lib/session-revenue.js', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  queryRevenue: (input: { companyCurrency: string; where?: Array<{ values: unknown[] }> }) =>
+    mockQueryRevenue(input),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -197,9 +218,13 @@ describe('dashboardSnapshotHandler', () => {
       });
 
     const [sessions] = callsOf('sessions');
-    const [revenue] = callsOf('revenue');
     expect(sessions && filterIn(sessions, 'UPPER(cs2.currency)')).toBe(true);
-    expect(revenue && filterIn(revenue, 'UPPER(pr.currency)')).toBe(true);
+    // Revenue: the shared definition in the company currency, for this site.
+    expect(mockQueryRevenue).toHaveBeenCalledWith(
+      expect.objectContaining({ companyCurrency: 'EUR' }),
+    );
+    const where = mockQueryRevenue.mock.calls[0]?.[0].where ?? [];
+    expect(where[0]?.values).toContain('sit_1');
   });
 
   it('returns early and logs when there are no sites', async () => {
@@ -223,9 +248,10 @@ describe('dashboardSnapshotHandler', () => {
     const { dashboardSnapshotHandler } = await import('../../handlers/dashboard-snapshot.js');
     await dashboardSnapshotHandler(log);
 
-    // ping + 7 per-site queries (yesterday, dayBoundaries, 4-way Promise.all,
-    // upsert) = 8 execute calls.
-    expect(mockExecute).toHaveBeenCalledTimes(8);
+    // ping + 6 per-site queries (yesterday, dayBoundaries, 3 reads, upsert) =
+    // 7 execute calls; revenue goes through queryRevenue.
+    expect(mockExecute).toHaveBeenCalledTimes(7);
+    expect(mockQueryRevenue).toHaveBeenCalledTimes(1);
 
     // INSERT VALUES(...) bound params in source column order.
     expect(upsertFor('sit_1')).toEqual([
@@ -241,12 +267,12 @@ describe('dashboardSnapshotHandler', () => {
       100, // totalSessions
       12, // daySessions
       8, // connected = onlineStations
-      250000, // totalRevCents
+      250000, // totalRevCents (sessions and fees)
       30000, // dayRevenueCents
-      2500, // avgRevPerSession = round(250000/100)
+      2766, // avgRevPerSession = round(243400 session revenue / 88 billed sessions)
       1200, // totalElectricityCostCents
       150, // dayElectricityCostCents
-      90, // totalTransactions
+      90, // totalTransactions (billed sessions and fee charges)
       11, // dayTransactions
       20, // totalPorts
       1, // stationsBelowThreshold
@@ -291,12 +317,7 @@ describe('dashboardSnapshotHandler', () => {
           day_electricity_cost_cents: '0',
           active_sessions: '0',
         },
-        revenue: {
-          total_revenue_cents: '0',
-          day_revenue_cents: '0',
-          total_transactions: '0',
-          day_transactions: '0',
-        },
+        revenue: [],
       },
     };
     const log = makeLog();
@@ -326,8 +347,9 @@ describe('dashboardSnapshotHandler', () => {
     const { dashboardSnapshotHandler } = await import('../../handlers/dashboard-snapshot.js');
     await dashboardSnapshotHandler(log);
 
-    // 1 ping + 6 sites * 7 queries = 43 execute calls
-    expect(mockExecute).toHaveBeenCalledTimes(1 + 6 * 7);
+    // 1 ping + 6 sites * 6 queries = 37 execute calls, plus one revenue query per site
+    expect(mockExecute).toHaveBeenCalledTimes(1 + 6 * 6);
+    expect(mockQueryRevenue).toHaveBeenCalledTimes(6);
     // One upsert per site.
     expect(upsertCalls).toHaveLength(6);
     const savedCalls = (log.info as ReturnType<typeof vi.fn>).mock.calls.filter(

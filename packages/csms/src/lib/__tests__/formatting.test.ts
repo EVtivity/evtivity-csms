@@ -9,6 +9,8 @@ import {
   formatDecimal,
   formatEnergy,
   formatFileSize,
+  formatConvertedPrice,
+  formatMajorAmount,
   formatNumber,
   formatNumberUpTo,
   formatRatePerKwh,
@@ -100,6 +102,39 @@ describe('formatting in the UI language', () => {
       expect(parseValue(`${formatNumberUpTo(99.87, 2)}%`, lang)).toMatchObject({ num: 99.87 });
     }
   });
+
+  it('shows the gross price of a net tariff price', async () => {
+    await i18next.changeLanguage('de');
+    expect(formatConvertedPrice('0.2152', '0.19', 'net', 'EUR')).toBe('0,2561\u00a0€');
+    expect(formatConvertedPrice('1.00', '0.19', 'net', 'EUR')).toBe('1,19\u00a0€');
+    expect(formatConvertedPrice('2', '0.07', 'net', 'EUR')).toBe('2,14\u00a0€');
+    await i18next.changeLanguage('en');
+    expect(formatConvertedPrice('0.2152', '0.19', 'net', 'USD')).toBe('$0.2561');
+  });
+
+  it('keeps a gross price finer than a cent, like the driver portal', async () => {
+    await i18next.changeLanguage('en');
+    // 0.10 net + 19% = 0.119, not rounded to 0.12 from the net input's digits.
+    expect(formatConvertedPrice('0.10', '0.19', 'net', 'EUR')).toBe('€0.119');
+    expect(formatConvertedPrice('0.1', '0.19', 'net', 'EUR')).toBe('€0.119');
+    // At most 4 fraction digits: 0.12345 * 1.19 = 0.1469055.
+    expect(formatConvertedPrice('0.12345', '0.19', 'net', 'EUR')).toBe('€0.1469');
+  });
+
+  it('shows the net price of a gross tariff price', async () => {
+    await i18next.changeLanguage('en');
+    expect(formatConvertedPrice('0.357', '0.19', 'gross', 'EUR')).toBe('€0.30');
+    // 0.50 / 1.19 = 0.420168...: at most 4 fraction digits.
+    expect(formatConvertedPrice('0.50', '0.19', 'gross', 'EUR')).toBe('€0.4202');
+  });
+
+  it('shows no converted price without a usable price or tax rate', () => {
+    expect(formatConvertedPrice('', '0.19', 'net', 'USD')).toBeNull();
+    expect(formatConvertedPrice('0.25', '', 'net', 'USD')).toBeNull();
+    expect(formatConvertedPrice('0.25', '0', 'gross', 'USD')).toBeNull();
+    expect(formatConvertedPrice('abc', '0.19', 'net', 'USD')).toBeNull();
+    expect(formatConvertedPrice('-0.25', '0.19', 'gross', 'USD')).toBeNull();
+  });
 });
 
 describe('getDecimalSeparator', () => {
@@ -114,5 +149,23 @@ describe('getDecimalSeparator', () => {
 
   it('falls back to "." for an invalid locale', () => {
     expect(getDecimalSeparator('not a locale!')).toBe('.');
+  });
+});
+
+describe('formatMajorAmount', () => {
+  it('formats a roaming cost in its currency with 2 to 4 digits', async () => {
+    await i18next.changeLanguage('en');
+    expect(formatMajorAmount('4.76', 'EUR')).toBe('€4.76');
+    expect(formatMajorAmount('0.1234', 'USD')).toBe('$0.1234');
+    expect(formatMajorAmount('-4', 'USD')).toBe('-$4.00');
+    await i18next.changeLanguage('de');
+    expect(formatMajorAmount('4.76', 'EUR')).toBe('4,76\u00a0€');
+    await i18next.changeLanguage('en');
+  });
+
+  it('shows the number without a currency and n/a without an amount', () => {
+    expect(formatMajorAmount('4.5', null)).toBe('4.50');
+    expect(formatMajorAmount(null, 'EUR')).toBe('n/a');
+    expect(formatMajorAmount('abc', 'EUR')).toBe('n/a');
   });
 });

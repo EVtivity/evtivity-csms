@@ -16,6 +16,7 @@ import {
 import { createId } from '../lib/id.js';
 import { drivers } from './drivers.js';
 import { chargingSessions } from './charging.js';
+import { paymentRecords } from './payments.js';
 
 export const invoiceStatusEnum = pgEnum('invoice_status', ['draft', 'issued', 'paid', 'void']);
 
@@ -53,16 +54,23 @@ export const invoiceLineItems = pgTable(
       .notNull()
       .references(() => invoices.id, { onDelete: 'cascade' }),
     sessionId: text('session_id').references(() => chargingSessions.id, { onDelete: 'cascade' }),
+    // A reservation fee charge (cancellation or no-show) invoiced on this line.
+    paymentRecordId: integer('payment_record_id').references(() => paymentRecords.id, {
+      onDelete: 'cascade',
+    }),
     description: varchar('description', { length: 500 }).notNull(),
     quantity: numeric('quantity').notNull().default('1'),
     unitPriceCents: integer('unit_price_cents').notNull(),
     totalCents: integer('total_cents').notNull(),
     taxCents: integer('tax_cents').notNull().default(0),
+    /** Tax rate of this line as a fraction (0.19 is 19%). totalCents is net of it. */
+    taxRate: numeric('tax_rate').notNull(),
     metadata: jsonb('metadata'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('idx_invoice_line_items_invoice_id').on(table.invoiceId),
     index('idx_invoice_line_items_session_id').on(table.sessionId),
+    index('idx_invoice_line_items_payment_record_id').on(table.paymentRecordId),
   ],
 );

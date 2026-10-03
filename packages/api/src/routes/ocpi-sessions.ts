@@ -12,10 +12,10 @@ import type { PaginatedResponse } from '../lib/pagination.js';
 import { paginatedResponse } from '../lib/response-schemas.js';
 import { authorize } from '../middleware/rbac.js';
 
-// OCPI roaming session status as stored in `ocpi_roaming_sessions.status`
-// (lowercase). The session.transformer.ts maps these to OCPI 2.2.1 wire
-// values (ACTIVE, COMPLETED, INVALID) when serializing for partners.
-const OCPI_SESSION_STATUS = ['active', 'completed', 'invalid', 'faulted'] as const;
+// OCPI SessionStatus as stored in `ocpi_roaming_sessions.status`: the status a
+// partner sent us (eMSP role), or the status of our session rendered for the
+// partner (CPO role, session.transformer.ts).
+const OCPI_SESSION_STATUS = ['ACTIVE', 'COMPLETED', 'INVALID', 'PENDING', 'RESERVATION'] as const;
 
 const roamingSessionItem = z
   .object({
@@ -25,11 +25,18 @@ const roamingSessionItem = z
     chargingSessionId: z
       .string()
       .nullable()
-      .describe('Linked CSMS charging session ID, when this session maps to a local session'),
+      .describe(
+        'Linked CSMS charging session ID: set for our sessions as CPO (a partner token charging at our station), null for sessions a partner sent us as eMSP',
+      ),
     tokenUid: z.string().describe('Driver token identifier used to start the session'),
     status: z.enum(OCPI_SESSION_STATUS).describe('Roaming session status'),
     kwh: z.string().nullable().describe('Total energy delivered in kWh, as a decimal string'),
-    totalCost: z.string().nullable().describe('Total cost as a decimal string'),
+    totalCost: z
+      .string()
+      .nullable()
+      .describe(
+        'Total cost excluding tax as a decimal string (OCPI excl_vat in 2.2.1, before_taxes in 2.3.0)',
+      ),
     currency: z.string().nullable().describe('ISO 4217 currency code'),
     createdAt: z.coerce.date().describe('Timestamp when created'),
     updatedAt: z.coerce.date().describe('Timestamp when last modified'),

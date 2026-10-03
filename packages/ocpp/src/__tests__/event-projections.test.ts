@@ -47,11 +47,42 @@ vi.mock('postgres', () => {
   return { default: factory };
 });
 
+// The one cost assembly (@evtivity/database session-pricing), mocked per test.
+// By default every priced session costs 15.00 (net 15.00, no tax).
+function costBreakdown(grossCents: number, taxRate = 0, taxCents = 0) {
+  const netCents = grossCents - taxCents;
+  return {
+    basis: 'net' as const,
+    netCents,
+    taxCents,
+    grossCents,
+    taxLines: grossCents === 0 ? [] : [{ taxRate, netCents, taxCents }],
+    components: null,
+  };
+}
+const mockPriceSessionAt = vi.fn().mockResolvedValue(costBreakdown(1500));
+const mockStoreRunningCost = vi.fn().mockResolvedValue(true);
+// session-pricing's own settings readers, so the real module loads without a database.
+vi.mock('../../../database/src/lib/idling-setting.js', () => ({
+  getIdlingGracePeriodMinutes: vi.fn().mockResolvedValue(0),
+}));
+vi.mock('../../../database/src/lib/pricing-settings.js', () => ({
+  isSplitBillingEnabled: vi.fn().mockResolvedValue(false),
+}));
+
 vi.mock('@evtivity/database', async () => ({
   // The real status entry point, running on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/station-status.js',
   )),
+  // The real session pricing writes (tariff snapshot, segments, final cost),
+  // running on the mocked client. The cost itself comes from mockPriceSessionAt.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/session-pricing.js',
+  )),
+  getCompanyTaxBasis: vi.fn().mockResolvedValue('net'),
+  priceSessionAt: (...args: unknown[]) => mockPriceSessionAt(...args) as unknown,
+  storeRunningCost: (...args: unknown[]) => mockStoreRunningCost(...args) as unknown,
   client: createSqlMock(),
   isRoamingEnabled: vi.fn().mockResolvedValue(false),
   getIdlingGracePeriodMinutes: vi.fn().mockResolvedValue(0),
@@ -59,6 +90,7 @@ vi.mock('@evtivity/database', async () => ({
   getOfflineCommandTtlHours: vi.fn().mockResolvedValue(24),
   isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
+  getCompanyPriceDisplay: vi.fn().mockResolvedValue('net'),
 }));
 
 const mockDispatchOcpp = vi.fn().mockResolvedValue(undefined);
@@ -71,16 +103,6 @@ vi.mock('../server/notification-dispatcher.js', () => ({
   dispatchSystemNotification: mockDispatchSystem,
   ALL_TEMPLATES_DIRS: ['/mock/templates'],
 }));
-
-const mockCalculateSessionCost = vi.fn().mockReturnValue({ totalCents: 1500 });
-
-vi.mock('@evtivity/lib', async () => {
-  const actual = await vi.importActual<typeof import('@evtivity/lib')>('@evtivity/lib');
-  return {
-    ...actual,
-    calculateSessionCost: mockCalculateSessionCost,
-  };
-});
 
 vi.mock('stripe', () => ({
   default: class MockStripe {
@@ -111,6 +133,21 @@ function createMockEventBus() {
   } as unknown as EventBus & {
     emit: (eventType: string, event: DomainEvent) => Promise<void>;
     subscribers: Map<string, Array<(event: DomainEvent) => Promise<void>>>;
+  };
+}
+
+/**
+ * Matches a notification value (notificationMoney, notificationUnitPrice,
+ * notificationTaxRate) that the dispatcher formats as `text` for an en-US
+ * recipient.
+ */
+function formatsTo(text: string): unknown {
+  return {
+    asymmetricMatch: (value: unknown) =>
+      value != null &&
+      typeof (value as { format?: unknown }).format === 'function' &&
+      (value as { format: (locale: string) => string }).format('en-US') === text,
+    toString: () => `formatsTo(${text})`,
   };
 }
 
@@ -611,7 +648,9 @@ describe('Event projections', () => {
           {
             driver_id: 'drv-1',
             idle_started_at: '2024-01-01T01:00:00Z',
-            tariff_idle_fee_price_per_minute: '0.10',
+            idle_fee_price_per_minute: '0.10',
+            tax_rate: '0.19',
+            price_display: 'gross',
             currency: 'USD',
           },
         ], // dispatchIdlingNotification: SELECT from charging_sessions
@@ -636,7 +675,120 @@ describe('Event projections', () => {
           stationId: 'CS-001',
           transactionId: 'tx-1',
           idleFeePricePerMinute: '0.10',
+          idleFeeFormatted: formatsTo('$0.119'),
+          idleFeeIncludesTax: true,
+          taxRatePercent: formatsTo('19'),
           currency: 'USD',
+        }),
+        ['/mock/templates'],
+        expect.anything(),
+      );
+    });
+
+    it('shows the idle fee excluding tax when the driver follows a net company setting', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [{ id: 'evse_000000000001' }], // SELECT evses (found)
+        [{ status: 'charging' }], // SELECT status FROM connectors (prevRows)
+        [], // INSERT port_status_log
+        [], // UPDATE connectors
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
+        [], // UPDATE charging_stations (connector fault reconciliation)
+        [{ site_id: null }], // resolveSiteId
+        [], // UPDATE charging_sessions SET idle_started_at
+        [{ id: 'session-1', transaction_id: 'tx-1' }], // SELECT active session
+        [
+          {
+            driver_id: 'drv-1',
+            idle_started_at: '2024-01-01T01:00:00Z',
+            idle_fee_price_per_minute: '0.10',
+            tax_rate: '0.19',
+            price_display: null,
+            currency: 'USD',
+          },
+        ], // dispatchIdlingNotification: SELECT from charging_sessions
+        [{ name: 'Test Site' }], // dispatchIdlingNotification: resolveSiteName
+      );
+
+      await eventBus.emit(
+        'ocpp.StatusNotification',
+        makeDomainEvent('ocpp.StatusNotification', 'CS-001', {
+          evseId: 1,
+          connectorId: 1,
+          connectorStatus: 'SuspendedEV',
+          timestamp: '2024-01-01T01:00:00Z',
+        }),
+      );
+
+      expect(mockDispatchDriver).toHaveBeenCalledWith(
+        expect.anything(),
+        'session.IdlingStarted',
+        'drv-1',
+        expect.objectContaining({
+          stationId: 'CS-001',
+          transactionId: 'tx-1',
+          idleFeePricePerMinute: '0.10',
+          idleFeeFormatted: formatsTo('$0.10'),
+          idleFeeIncludesTax: false,
+          taxRatePercent: formatsTo('19'),
+          currency: 'USD',
+        }),
+        ['/mock/templates'],
+        expect.anything(),
+      );
+    });
+
+    it.each([
+      ['no idle fee', null],
+      ['an idle fee of 0', '0.00'],
+    ])('sends no idle fee for a tariff with %s', async (_label, idleFee) => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [{ id: 'evse_000000000001' }], // SELECT evses (found)
+        [{ status: 'charging' }], // SELECT status FROM connectors (prevRows)
+        [], // INSERT port_status_log
+        [], // UPDATE connectors
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
+        [], // UPDATE charging_stations (connector fault reconciliation)
+        [{ site_id: null }], // resolveSiteId
+        [], // UPDATE charging_sessions SET idle_started_at
+        [{ id: 'session-1', transaction_id: 'tx-1' }], // SELECT active session
+        [
+          {
+            driver_id: 'drv-1',
+            idle_started_at: '2024-01-01T01:00:00Z',
+            idle_fee_price_per_minute: idleFee,
+            tax_rate: '0.19',
+            price_display: 'gross',
+            currency: 'USD',
+          },
+        ], // dispatchIdlingNotification: SELECT from charging_sessions
+        [{ name: 'Test Site' }], // dispatchIdlingNotification: resolveSiteName
+      );
+
+      await eventBus.emit(
+        'ocpp.StatusNotification',
+        makeDomainEvent('ocpp.StatusNotification', 'CS-001', {
+          evseId: 1,
+          connectorId: 1,
+          connectorStatus: 'SuspendedEV',
+          timestamp: '2024-01-01T01:00:00Z',
+        }),
+      );
+
+      // Both variables are empty (falsy in Handlebars), so a saved template
+      // that tests {{#if idleFeePricePerMinute}} announces no idle fee.
+      expect(mockDispatchDriver).toHaveBeenCalledWith(
+        expect.anything(),
+        'session.IdlingStarted',
+        'drv-1',
+        expect.objectContaining({
+          idleFeePricePerMinute: '',
+          idleFeeFormatted: '',
         }),
         ['/mock/templates'],
         expect.anything(),
@@ -1053,6 +1205,7 @@ describe('Event projections', () => {
             driver_id: 'driver-1',
             energy_delivered_wh: 5000,
             current_cost_cents: 150,
+            tariff_tax_rate: null,
             currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
           },
@@ -1075,7 +1228,8 @@ describe('Event projections', () => {
         expect.anything(),
         'session.Updated',
         'driver-1',
-        expect.objectContaining({ transactionId: 'tx-1' }),
+        // No tariff tax rate: the templates do not label the cost "incl. tax".
+        expect.objectContaining({ transactionId: 'tx-1', costIncludesTax: false }),
         ['/mock/templates'],
         expect.anything(),
       );
@@ -1201,7 +1355,58 @@ describe('Event projections', () => {
         }),
       );
 
-      expect(mockCalculateSessionCost).toHaveBeenCalled();
+      // Priced once by the one cost assembly at the end, then stored with its split.
+      expect(mockPriceSessionAt).toHaveBeenCalledWith(
+        expect.anything(),
+        'session-1',
+        new Date('2024-01-01T01:00:00Z'),
+        10000,
+      );
+      const finalUpdate = sqlCalls.find((c) => c.strings.join('').includes('final_cost_cents = '));
+      expect(finalUpdate?.values.slice(0, 4)).toEqual([1500, 1500, 1500, 0]);
+      expect(finalUpdate?.strings.join('')).toContain('cost_breakdown = ');
+    });
+
+    it('stores the cost the 2.1 handler sent the station when it differs from the priced cost', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [], // SELECT payment_records (no failed payment)
+        [], // UPDATE charging_sessions SET status=completed
+        [
+          {
+            id: 'session-1',
+            status: 'completed',
+            tariff_id: 'tariff-1',
+            started_at: '2024-01-01T00:00:00Z',
+            ended_at: '2024-01-01T01:00:00Z',
+            energy_delivered_wh: 10000,
+            currency: 'EUR',
+            tariff_tax_rate: '0.19',
+          },
+        ],
+      );
+      mockPriceSessionAt.mockResolvedValueOnce(costBreakdown(1190, 0.19, 190));
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Ended',
+          stationId: 'CS-001',
+          transactionId: 'tx-1',
+          seqNo: 2,
+          triggerReason: 'EVDeparted',
+          timestamp: '2024-01-01T01:00:00Z',
+          stoppedReason: 'Local',
+          finalCostCents: 1309,
+        }),
+      );
+
+      const finalUpdate = sqlCalls.find((c) => c.strings.join('').includes('final_cost_cents = '));
+      // 1309 charged at 19%: net 1100, tax 209. Components dropped.
+      expect(finalUpdate?.values.slice(0, 4)).toEqual([1309, 1309, 1100, 209]);
+      expect(finalUpdate?.values[4]).toMatchObject({ grossCents: 1309, components: null });
     });
 
     it('derives the final energy from meterStop on an OCPP 1.6 Ended event', async () => {
@@ -1254,10 +1459,13 @@ describe('Event projections', () => {
       expect(endSql).toContain('GREATEST(COALESCE(energy_delivered_wh, 0)');
       expect(endUpdate?.values.filter((v) => v === 2909465).length).toBeGreaterThanOrEqual(3);
 
-      // Cost is computed from the session row read after the UPDATE.
-      expect(mockCalculateSessionCost).toHaveBeenCalled();
-      const costArgs = mockCalculateSessionCost.mock.calls.at(-1) as unknown[];
-      expect(costArgs).toContain(1218);
+      // Cost is priced with the energy of the session row read after the UPDATE.
+      expect(mockPriceSessionAt).toHaveBeenCalledWith(
+        expect.anything(),
+        'session-1',
+        new Date('2024-01-01T01:00:00Z'),
+        1218,
+      );
     });
 
     it('keeps the meter-derived energy when an Ended event has no meterStop', async () => {
@@ -1293,8 +1501,6 @@ describe('Event projections', () => {
     });
 
     it('skips cost computation when no tariff on Ended', async () => {
-      await import('@evtivity/lib');
-      mockCalculateSessionCost.mockClear();
       await setup();
 
       setupSqlResults(
@@ -1339,7 +1545,7 @@ describe('Event projections', () => {
         }),
       );
 
-      expect(mockCalculateSessionCost).not.toHaveBeenCalled();
+      expect(mockPriceSessionAt).not.toHaveBeenCalled();
     });
 
     it('skips if station not found', async () => {
@@ -1400,6 +1606,9 @@ describe('Event projections', () => {
 
     it('dispatches guest idling notification when guest email is present', async () => {
       await setup();
+      // Guests follow the company setting.
+      const { getCompanyPriceDisplay } = await import('@evtivity/database');
+      vi.mocked(getCompanyPriceDisplay).mockResolvedValueOnce('gross');
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationId
@@ -1410,7 +1619,9 @@ describe('Event projections', () => {
           {
             driver_id: null,
             idle_started_at: '2024-01-01T01:00:00Z',
-            tariff_idle_fee_price_per_minute: '0.10',
+            idle_fee_price_per_minute: '0.10',
+            tax_rate: '0.19',
+            price_display: null,
             currency: 'USD',
           },
         ], // dispatchIdlingNotification: SELECT from charging_sessions (no driver)
@@ -1441,6 +1652,63 @@ describe('Event projections', () => {
           stationId: 'CS-001',
           transactionId: 'tx-1',
           idleFeePricePerMinute: '0.10',
+          idleFeeFormatted: formatsTo('$0.119'),
+          idleFeeIncludesTax: true,
+          taxRatePercent: formatsTo('19'),
+          currency: 'USD',
+        }),
+        ['/mock/templates'],
+      );
+    });
+
+    it('shows guests the idle fee excluding tax when the company setting is net', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [{ id: 'session-1' }], // SELECT id FROM charging_sessions
+        [], // INSERT transaction_events
+        [], // UPDATE idle_started_at (chargingState = EVConnected)
+        [
+          {
+            driver_id: null,
+            idle_started_at: '2024-01-01T01:00:00Z',
+            idle_fee_price_per_minute: '0.10',
+            tax_rate: '0.19',
+            price_display: null,
+            currency: 'USD',
+          },
+        ], // dispatchIdlingNotification: SELECT from charging_sessions (no driver)
+        [{ name: 'Test Site' }], // dispatchIdlingNotification: resolveSiteName
+        [{ guest_email: 'guest@example.com' }], // dispatchIdlingNotification: SELECT guest_email
+        [{ site_id: null }], // resolveSiteId
+        [{ driver_id: null }], // SELECT driver_id (no driver)
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Updated',
+          stationId: 'CS-001',
+          transactionId: 'tx-1',
+          seqNo: 1,
+          triggerReason: 'ChargingStateChanged',
+          timestamp: '2024-01-01T01:00:00Z',
+          chargingState: 'EVConnected',
+        }),
+      );
+
+      expect(mockDispatchSystem).toHaveBeenCalledWith(
+        expect.anything(),
+        'session.IdlingStarted',
+        { email: 'guest@example.com' },
+        expect.objectContaining({
+          stationId: 'CS-001',
+          transactionId: 'tx-1',
+          idleFeePricePerMinute: '0.10',
+          idleFeeFormatted: formatsTo('$0.10'),
+          idleFeeIncludesTax: false,
+          taxRatePercent: formatsTo('19'),
           currency: 'USD',
         }),
         ['/mock/templates'],
@@ -1516,8 +1784,6 @@ describe('Event projections', () => {
     });
 
     it('includes idle_minutes in final cost calculation on Ended', async () => {
-      await import('@evtivity/lib');
-      mockCalculateSessionCost.mockClear();
       await setup();
 
       setupSqlResults(
@@ -1573,10 +1839,18 @@ describe('Event projections', () => {
         }),
       );
 
-      expect(mockCalculateSessionCost).toHaveBeenCalled();
-      // idle_minutes = 15 (accumulated) + 60 (open period: 02:00 - 01:00) = 75
-      const callArgs = mockCalculateSessionCost.mock.calls[0]!;
-      expect(callArgs[3]).toBeCloseTo(75, 0);
+      // The closing segment carries idle_minutes = 15 (accumulated) + 60 (open
+      // period: 02:00 - 01:00) = 75, which the cost assembly prices.
+      const segmentClose = sqlCalls.find((c) =>
+        c.strings.join('').includes('UPDATE session_tariff_segments'),
+      );
+      expect(segmentClose?.values[3]).toBeCloseTo(75, 0);
+      expect(mockPriceSessionAt).toHaveBeenCalledWith(
+        expect.anything(),
+        'session-1',
+        new Date('2024-01-01T02:00:00Z'),
+        10000,
+      );
     });
 
     it('transitions reservation to in_use when Started event includes reservationId', async () => {
@@ -2030,8 +2304,6 @@ describe('Event projections', () => {
     });
 
     it('recalculates cost for active sessions with tariff', async () => {
-      await import('@evtivity/lib');
-      mockCalculateSessionCost.mockClear();
       await setup();
 
       setupSqlResults(
@@ -2058,10 +2330,7 @@ describe('Event projections', () => {
             idle_started_at: null,
             idle_minutes: '0',
           },
-        ], // active sessions with snapshot columns
-        [], // UPDATE charging_sessions cost
-        [{ transaction_id: 'tx-1' }], // SELECT transaction_id (cost changed)
-        [], // pg_notify CostUpdated
+        ], // active sessions
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
       );
@@ -2087,7 +2356,18 @@ describe('Event projections', () => {
         }),
       );
 
-      expect(mockCalculateSessionCost).toHaveBeenCalled();
+      // The running cost comes from the one cost assembly and is stored with its split.
+      expect(mockPriceSessionAt).toHaveBeenCalledWith(
+        expect.anything(),
+        'session-1',
+        expect.any(Date),
+        5000,
+      );
+      expect(mockStoreRunningCost).toHaveBeenCalledWith(
+        expect.anything(),
+        'session-1',
+        expect.objectContaining({ grossCents: 1500 }),
+      );
     });
 
     it('skips if station not found', async () => {
@@ -2347,9 +2627,7 @@ describe('Event projections', () => {
       expect(idleCalls.length).toBe(0);
     });
 
-    it('passes non-zero idleMinutes to calculateSessionCost for active sessions', async () => {
-      await import('@evtivity/lib');
-      mockCalculateSessionCost.mockClear();
+    it('prices an idle active session through the cost assembly', async () => {
       await setup();
 
       setupSqlResults(
@@ -2377,9 +2655,6 @@ describe('Event projections', () => {
             idle_minutes: '20',
           },
         ], // active sessions with idle columns
-        [], // UPDATE charging_sessions cost
-        [{ transaction_id: 'tx-1' }], // SELECT transaction_id
-        [], // pg_notify CostUpdated
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
       );
@@ -2405,10 +2680,14 @@ describe('Event projections', () => {
         }),
       );
 
-      expect(mockCalculateSessionCost).toHaveBeenCalled();
-      // idle_minutes = 20 (accumulated), no open idle period (idle_started_at is null)
-      const callArgs = mockCalculateSessionCost.mock.calls[0]!;
-      expect(callArgs[3]).toBe(20);
+      // The assembly reads the idle minutes from the session (see the
+      // session-pricing tests in @evtivity/database).
+      expect(mockPriceSessionAt).toHaveBeenCalledWith(
+        expect.anything(),
+        'session-1',
+        expect.any(Date),
+        10000,
+      );
     });
 
     it('populates session_id, evse_id, phase, location, context, unit, and source for 2.1 format', async () => {
@@ -3351,7 +3630,7 @@ describe('Event projections', () => {
       expect(insertCalls.length).toBe(0);
 
       // No cost calculation should have happened
-      expect(mockCalculateSessionCost).not.toHaveBeenCalled();
+      expect(mockPriceSessionAt).not.toHaveBeenCalled();
     });
   });
 });

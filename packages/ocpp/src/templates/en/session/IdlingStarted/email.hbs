@@ -48,18 +48,17 @@
     >{{idleStartedAt}}</td>
   </tr>
 </table>
-{{#if idleFeePricePerMinute}}
+{{#if idleFeeFormatted}}
   {{#if gracePeriodMinutes}}
     <p
       style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
     >Idle fees of
-      {{idleFeePricePerMinute}}
-      {{currency}}/min will begin after
+      {{idleFeeFormatted}}/min {{#if taxRatePercent}}({{#if idleFeeIncludesTax}}incl.{{else}}excl.{{/if}} {{taxRatePercent}}% tax){{/if}} will begin after
       {{gracePeriodMinutes}}
       minutes.</p>
   {{else}}
     <p
       style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
-    >Idle fees of {{idleFeePricePerMinute}} {{currency}}/min are now accruing.</p>
+    >Idle fees of {{idleFeeFormatted}}/min {{#if taxRatePercent}}({{#if idleFeeIncludesTax}}incl.{{else}}excl.{{/if}} {{taxRatePercent}}% tax){{/if}} are now accruing.</p>
   {{/if}}
 {{/if}}

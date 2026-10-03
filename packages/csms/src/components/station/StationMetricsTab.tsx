@@ -31,6 +31,8 @@ interface StationMetrics {
   avgRevenueCentsPerSession: number;
   totalTransactions: number;
   totalElectricityCostCents: number;
+  totalNetRevenueCents: number;
+  totalTaxCents: number;
   totalProfitCents: number;
   currency: string;
   periodMonths: number;
@@ -178,6 +180,18 @@ export function StationMetricsTab({ stationId }: StationMetricsTabProps): React.
                 <p className="text-sm text-muted-foreground">{t('metrics.totalRevenue')}</p>
                 <p className="text-2xl font-bold">
                   {formatCents(metrics.totalRevenueCents, metrics.currency)}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">{t('metrics.netRevenue')}</p>
+                <p className="text-2xl font-bold">
+                  {formatCents(metrics.totalNetRevenueCents, metrics.currency)}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">{t('metrics.taxCollected')}</p>
+                <p className="text-2xl font-bold">
+                  {formatCents(metrics.totalTaxCents, metrics.currency)}
                 </p>
               </div>
               <div className="space-y-1">

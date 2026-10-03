@@ -193,7 +193,7 @@ vi.mock('@evtivity/database', () => {
 });
 
 vi.mock('drizzle-orm', () => {
-  const sqlFn = () => ({ as: vi.fn() });
+  const sqlFn = () => ({ as: vi.fn(), mapWith: vi.fn() });
   return {
     eq: vi.fn(),
     and: vi.fn(),
@@ -210,6 +210,7 @@ vi.mock('drizzle-orm', () => {
     desc: vi.fn(),
     count: vi.fn(),
     inArray: vi.fn(),
+    isNotNull: vi.fn(),
   };
 });
 
@@ -229,6 +230,21 @@ vi.mock('../services/station-security.service.js', () => ({
 vi.mock('argon2', () => ({
   hash: vi.fn().mockResolvedValue('hashed_password'),
 }));
+
+const { mockQueryRevenue } = vi.hoisted(() => ({ mockQueryRevenue: vi.fn() }));
+
+// Revenue comes from the shared definition (session-revenue.ts); its SQL is
+// covered by the integration tests.
+vi.mock('../lib/session-revenue.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/session-revenue.js')>();
+  return {
+    ...actual,
+    queryRevenue: (input: unknown) => mockQueryRevenue(input),
+    queryRevenueTotal: async (input: unknown) =>
+      ((await mockQueryRevenue(input)) as Map<string | null, unknown>).get(null) ??
+      actual.EMPTY_REVENUE,
+  };
+});
 
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn().mockResolvedValue(null),
@@ -1346,9 +1362,12 @@ describe('Station routes - handler logic', () => {
 
   describe('GET /v1/stations/:id/revenue-history', () => {
     it('returns daily revenue data zero-filled across the range', async () => {
-      setupDbResults(
-        [{ siteTimezone: 'UTC' }],
-        [{ date: '2025-01-02', revenueCents: 1500, sessionCount: 3 }],
+      setupDbResults([{ siteTimezone: 'UTC' }]);
+      const { aggregateRevenueRows } = await import('../lib/session-revenue.js');
+      mockQueryRevenue.mockResolvedValueOnce(
+        aggregateRevenueRows([
+          { key: '2025-01-02', taxRate: '0', grossCents: 500, source: 'session', count: 3 },
+        ]),
       );
 
       const response = await app.inject({
@@ -1531,11 +1550,15 @@ describe('Station routes - handler logic', () => {
         avgDurationMinutes: 30,
       };
       const utilizationStats = { sessionHours: 5, portCount: 2 };
-      const financialStats = {
-        totalRevenueCents: 10000,
-        avgRevenueCentsPerSession: 1000,
-        totalTransactions: 8,
-      };
+      const financialStats = { totalElectricityCostCents: 3000 };
+      // Revenue: 8 sessions of 1190 at 19% and one of 480 at 0%.
+      const { aggregateRevenueRows } = await import('../lib/session-revenue.js');
+      mockQueryRevenue.mockResolvedValueOnce(
+        aggregateRevenueRows([
+          { key: null, taxRate: '0.19', grossCents: 1190, source: 'session', count: 8 },
+          { key: null, taxRate: '0', grossCents: 480, source: 'session', count: 1 },
+        ]),
+      );
 
       setupDbResults([sessionStats], [utilizationStats], [financialStats]);
 
@@ -1550,7 +1573,12 @@ describe('Station routes - handler logic', () => {
       expect(body).toHaveProperty('uptimePercent');
       expect(body).toHaveProperty('totalSessions');
       expect(body).toHaveProperty('utilizationPercent');
-      expect(body).toHaveProperty('totalRevenueCents');
+      expect(body).toHaveProperty('totalRevenueCents', 8 * 1190 + 480);
+      expect(body).toHaveProperty('totalTransactions', 9);
+      expect(body).toHaveProperty('totalNetRevenueCents', 8 * 1000 + 480);
+      expect(body).toHaveProperty('totalTaxCents', 8 * 190);
+      // Profit is revenue excluding tax minus electricity cost.
+      expect(body).toHaveProperty('totalProfitCents', 8480 - 3000);
       expect(body).toHaveProperty('periodMonths');
       expect(body).toHaveProperty('currency', 'EUR');
     });

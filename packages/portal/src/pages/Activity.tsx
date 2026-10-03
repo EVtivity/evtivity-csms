@@ -8,6 +8,7 @@ import { useInfiniteQuery, useQuery, useQueries } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, FileText, Leaf } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { api } from '@/lib/api';
+import { costIncludesTax } from '@evtivity/lib/price-display';
 import {
   formatCents,
   formatEnergy,
@@ -25,6 +26,7 @@ interface Session {
   endedAt: string | null;
   energyDeliveredWh: string | null;
   finalCostCents: number | null;
+  tariffTaxRate: string | null;
   currency: string;
   stationName: string | null;
   siteName: string | null;
@@ -235,6 +237,9 @@ export function Activity(): React.JSX.Element {
         <CardContent className="space-y-4 py-6">
           <div className="text-center">
             <p className="text-xl font-bold">{centerText}</p>
+            {selectedMetric === 'cost' && (
+              <p className="text-xs text-muted-foreground">{t('common.inclTax')}</p>
+            )}
             <p className="text-xs text-muted-foreground">
               {summary?.sessionCount ?? 0} {t('activity.sessions')}
             </p>
@@ -345,6 +350,9 @@ export function Activity(): React.JSX.Element {
                 <p className="text-sm font-medium">
                   {formatCents(session.finalCostCents, session.currency)}
                 </p>
+                {costIncludesTax(session.finalCostCents, session.tariffTaxRate) && (
+                  <p className="text-xs text-muted-foreground">{t('common.inclTax')}</p>
+                )}
                 <p className="text-xs text-muted-foreground">
                   {formatDuration(session.startedAt, session.endedAt)}
                 </p>

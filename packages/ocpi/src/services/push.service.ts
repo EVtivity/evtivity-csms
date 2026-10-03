@@ -12,11 +12,9 @@ import {
   ocpiPartnerEndpoints,
   ocpiLocationPublish,
   ocpiLocationPublishPartners,
-  ocpiRoamingSessions,
-  ocpiTariffMappings,
   ocpiSyncLog,
+  chargingSessions,
   maintenanceEvents,
-  getCompanyCurrency,
   isStationLevelUnavailable,
 } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
@@ -26,18 +24,36 @@ import { getOutboundToken } from '../lib/outbound-token.js';
 import { config } from '../lib/config.js';
 import { transformLocation } from '../transformers/location.transformer.js';
 import { resolvePartnerVersion } from '../lib/ocpi-version.js';
-import { tariffInCurrency } from '../lib/tariff-currency.js';
-import type { OcpiSession } from '../types/ocpi.js';
+import { cpoSessionLink, renderCpoSession, syncCpoSessionRow } from './cpo-sessions.js';
+import {
+  mappingsForPricingChange,
+  partnerTariffMappings,
+  renderTariffMapping,
+} from './published-tariffs.js';
 
 const logger = createLogger('ocpi-push');
 const CHANNEL = 'ocpi_push';
 
-interface PushNotification {
+/** A published tariff to resync: an OCPI tariff id for one partner, or every partner (null). */
+export interface TariffPushTarget {
+  partnerId: string | null;
+  ocpiTariffId: string;
+}
+
+export interface PushNotification {
   type: 'location' | 'session' | 'cdr' | 'tariff';
   siteId?: string;
   sessionId?: string;
   cdrId?: string;
-  tariffId?: string;
+  /**
+   * tariff: an internal tariff or pricing group changed. Every mapping
+   * generated from it is pushed again. Neither set (a holiday change) pushes
+   * every mapping.
+   */
+  tariffId?: string | null;
+  pricingGroupId?: string | null;
+  /** tariff: a mapping changed. Each OCPI tariff id is pushed again or deleted. */
+  targets?: TariffPushTarget[];
 }
 
 function getCountryCode(): string {
@@ -304,24 +320,75 @@ async function pushLocationUpdate(siteId: string): Promise<void> {
 async function pushSessionUpdate(sessionId: string): Promise<void> {
   logger.info({ sessionId }, 'Pushing session update');
 
-  // sessionId is the internal charging session ID from event-projections
-  const [roamingSession] = await db
-    .select()
-    .from(ocpiRoamingSessions)
-    .where(eq(ocpiRoamingSessions.chargingSessionId, sessionId))
-    .limit(1);
+  // sessionId is the internal charging session ID from event-projections. A
+  // session started with a partner's token has a CPO session link.
+  const link = await cpoSessionLink(sessionId);
+  if (link == null) return;
 
-  if (roamingSession == null) return;
-
-  const sessionData = roamingSession.sessionData as OcpiSession;
-  const partnerId = roamingSession.partnerId;
-
+  const partnerId = link.partnerId;
   try {
-    const [url, token, partnerRows] = await Promise.all([
+    const [session] = await db
+      .select()
+      .from(chargingSessions)
+      .where(eq(chargingSessions.id, sessionId))
+      .limit(1);
+    if (session == null) return;
+
+    const [partner] = await db
+      .select({
+        countryCode: ocpiPartners.countryCode,
+        partyId: ocpiPartners.partyId,
+        version: ocpiPartners.version,
+      })
+      .from(ocpiPartners)
+      .where(eq(ocpiPartners.id, partnerId))
+      .limit(1);
+    if (partner == null) return;
+
+    // The Session is rendered from the charging session, in the partner's
+    // version, and the link row keeps its summary for the CSMS.
+    const version = resolvePartnerVersion(partner.version);
+    const ocpiSession = await renderCpoSession(link, session, version);
+    if (ocpiSession == null) return;
+    await syncCpoSessionRow(link, ocpiSession, version);
+
+    const [url, token] = await Promise.all([
       getPartnerEndpoint(partnerId, 'sessions', 'RECEIVER'),
       getPartnerToken(partnerId),
+    ]);
+    if (url == null) return;
+    if (token == null) return;
+
+    const countryCode = getCountryCode();
+    const partyId = getPartyId();
+    const client = createOcpiClient(token, partner.countryCode, partner.partyId);
+    // PUT replaces the Session in the eMSP system (9.2.2.2), charging
+    // periods included.
+    await client.put(`${url}/${countryCode}/${partyId}/${ocpiSession.id}`, ocpiSession);
+    await logSync(partnerId, 'sessions', 'push_update', 'completed', 1);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Push failed';
+    logger.error({ partnerId, err }, 'Failed to push session update');
+    await logSync(partnerId, 'sessions', 'push_update', 'failed', 0, message);
+  }
+}
+
+/**
+ * Pushes one OCPI tariff id to one partner: the tariff generated from the
+ * mapping in effect for the partner (PUT), or a DELETE when no mapping
+ * publishes that id to the partner any more (11.2.2.3).
+ */
+async function syncPartnerTariff(partnerId: string, ocpiTariffId: string): Promise<void> {
+  try {
+    const [url, token, partnerRows] = await Promise.all([
+      getPartnerEndpoint(partnerId, 'tariffs', 'RECEIVER'),
+      getPartnerToken(partnerId),
       db
-        .select({ countryCode: ocpiPartners.countryCode, partyId: ocpiPartners.partyId })
+        .select({
+          countryCode: ocpiPartners.countryCode,
+          partyId: ocpiPartners.partyId,
+          version: ocpiPartners.version,
+        })
         .from(ocpiPartners)
         .where(eq(ocpiPartners.id, partnerId))
         .limit(1),
@@ -331,74 +398,61 @@ async function pushSessionUpdate(sessionId: string): Promise<void> {
     const partner = partnerRows[0];
     if (partner == null) return;
 
-    const countryCode = getCountryCode();
-    const partyId = getPartyId();
-    const client = createOcpiClient(token, partner.countryCode, partner.partyId);
-    await client.put(
-      `${url}/${countryCode}/${partyId}/${roamingSession.ocpiSessionId}`,
-      sessionData,
+    const mapping = (await partnerTariffMappings(partnerId)).find(
+      (m) => m.ocpiTariffId === ocpiTariffId,
     );
-    await logSync(partnerId, 'sessions', 'push_update', 'completed', 1);
+    const tariff =
+      mapping != null
+        ? await renderTariffMapping(mapping, resolvePartnerVersion(partner.version))
+        : null;
+
+    const client = createOcpiClient(token, partner.countryCode, partner.partyId);
+    const target = `${url}/${getCountryCode()}/${getPartyId()}/${ocpiTariffId}`;
+    if (tariff != null) {
+      await client.put(target, tariff);
+      await logSync(partnerId, 'tariffs', 'push_update', 'completed', 1);
+    } else {
+      await client.delete(target);
+      await logSync(partnerId, 'tariffs', 'push_delete', 'completed', 1);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Push failed';
-    logger.error({ partnerId, err }, 'Failed to push session update');
-    await logSync(partnerId, 'sessions', 'push_update', 'failed', 0, message);
+    logger.error({ partnerId, ocpiTariffId, err }, 'Failed to push tariff update');
+    await logSync(partnerId, 'tariffs', 'push_update', 'failed', 0, message);
   }
 }
 
-async function pushTariffUpdate(tariffId: string): Promise<void> {
-  logger.info({ tariffId }, 'Pushing tariff update');
+async function pushTariffUpdate(notification: PushNotification): Promise<void> {
+  const targets: TariffPushTarget[] =
+    notification.targets ??
+    (
+      await mappingsForPricingChange({
+        tariffId: notification.tariffId ?? null,
+        pricingGroupId: notification.pricingGroupId ?? null,
+      })
+    ).map((m) => ({ partnerId: m.partnerId, ocpiTariffId: m.ocpiTariffId }));
+  if (targets.length === 0) return;
+  logger.info({ targets: targets.length }, 'Pushing tariff update');
 
-  const mappings = await db
-    .select()
-    .from(ocpiTariffMappings)
-    .where(eq(ocpiTariffMappings.tariffId, tariffId));
-
-  if (mappings.length === 0) return;
-
-  const countryCode = getCountryCode();
-  const partyId = getPartyId();
-  const currency = await getCompanyCurrency();
-
-  for (const mapping of mappings) {
-    const tariffData = tariffInCurrency(mapping.ocpiTariffData, currency);
-    const targetPartnerId = mapping.partnerId;
-
-    // If partnerId is null, push to all connected partners
-    const partners =
-      targetPartnerId != null ? [{ id: targetPartnerId }] : await getConnectedPartners();
-
-    // Per-partner pushes are independent; parallelize the same way
-    // pushLocationUpdate does. One slow / down partner no longer blocks
-    // the others.
-    await Promise.allSettled(
-      partners.map(async (partner) => {
-        try {
-          const [url, token, partnerInfoRows] = await Promise.all([
-            getPartnerEndpoint(partner.id, 'tariffs', 'RECEIVER'),
-            getPartnerToken(partner.id),
-            db
-              .select({ countryCode: ocpiPartners.countryCode, partyId: ocpiPartners.partyId })
-              .from(ocpiPartners)
-              .where(eq(ocpiPartners.id, partner.id))
-              .limit(1),
-          ]);
-          if (url == null) return;
-          if (token == null) return;
-          const partnerInfo = partnerInfoRows[0];
-          if (partnerInfo == null) return;
-
-          const client = createOcpiClient(token, partnerInfo.countryCode, partnerInfo.partyId);
-          await client.put(`${url}/${countryCode}/${partyId}/${mapping.ocpiTariffId}`, tariffData);
-          await logSync(partner.id, 'tariffs', 'push_update', 'completed', 1);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : 'Push failed';
-          logger.error({ partnerId: partner.id, err }, 'Failed to push tariff update');
-          await logSync(partner.id, 'tariffs', 'push_update', 'failed', 0, message);
-        }
-      }),
-    );
+  // A global target goes to every connected partner. Each (partner, tariff id)
+  // pair is pushed once; per-partner pushes are independent, so one slow or
+  // down partner does not block the others.
+  const connected = targets.some((t) => t.partnerId == null)
+    ? (await getConnectedPartners()).map((p) => p.id)
+    : [];
+  const pairs = new Map<string, { partnerId: string; ocpiTariffId: string }>();
+  for (const target of targets) {
+    const partnerIds = target.partnerId != null ? [target.partnerId] : connected;
+    for (const partnerId of partnerIds) {
+      pairs.set(JSON.stringify([partnerId, target.ocpiTariffId]), {
+        partnerId,
+        ocpiTariffId: target.ocpiTariffId,
+      });
+    }
   }
+  await Promise.allSettled(
+    [...pairs.values()].map((pair) => syncPartnerTariff(pair.partnerId, pair.ocpiTariffId)),
+  );
 }
 
 async function handlePushNotification(raw: string): Promise<void> {
@@ -422,9 +476,7 @@ async function handlePushNotification(raw: string): Promise<void> {
       }
       break;
     case 'tariff':
-      if (notification.tariffId != null) {
-        await pushTariffUpdate(notification.tariffId);
-      }
+      await pushTariffUpdate(notification);
       break;
     case 'cdr':
       // CDRs are pushed by the CDR service directly after generation

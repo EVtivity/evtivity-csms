@@ -135,7 +135,7 @@ vi.mock('@evtivity/database', () => ({
 }));
 
 vi.mock('drizzle-orm', () => {
-  const sqlFn = () => ({ as: vi.fn() });
+  const sqlFn = () => ({ as: vi.fn(), mapWith: vi.fn() });
   return {
     eq: vi.fn(),
     and: vi.fn(),
@@ -151,6 +151,7 @@ vi.mock('drizzle-orm', () => {
     desc: vi.fn(),
     count: vi.fn(),
     inArray: vi.fn(),
+    isNotNull: vi.fn(),
   };
 });
 
@@ -162,6 +163,8 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
     isValidTimezone: actual.isValidTimezone,
     electricityRateRestrictionsSchema: z.object({}).passthrough(),
     deriveElectricityRatePriority: vi.fn(() => 0),
+    revenueFromGrossGroups: actual.revenueFromGrossGroups,
+    createLogger: actual.createLogger,
   };
 });
 
@@ -180,6 +183,21 @@ vi.mock('../services/site-import.service.js', () => ({
     errors: [],
   }),
 }));
+
+const { mockQueryRevenue } = vi.hoisted(() => ({ mockQueryRevenue: vi.fn() }));
+
+// Revenue comes from the shared definition (session-revenue.ts); its SQL is
+// covered by the integration tests.
+vi.mock('../lib/session-revenue.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/session-revenue.js')>();
+  return {
+    ...actual,
+    queryRevenue: (input: unknown) => mockQueryRevenue(input),
+    queryRevenueTotal: async (input: unknown) =>
+      ((await mockQueryRevenue(input)) as Map<string | null, unknown>).get(null) ??
+      actual.EMPTY_REVENUE,
+  };
+});
 
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn().mockResolvedValue(null),
@@ -602,9 +620,12 @@ describe('Site routes - handler logic', () => {
 
   describe('GET /v1/sites/:id/revenue-history', () => {
     it('returns daily revenue history zero-filled across the range', async () => {
-      setupDbResults(
-        [{ timezone: 'UTC' }],
-        [{ date: '2025-01-02', revenueCents: 5000, sessionCount: 10 }],
+      setupDbResults([{ timezone: 'UTC' }]);
+      const { aggregateRevenueRows } = await import('../lib/session-revenue.js');
+      mockQueryRevenue.mockResolvedValueOnce(
+        aggregateRevenueRows([
+          { key: '2025-01-02', taxRate: '0', grossCents: 500, source: 'session', count: 10 },
+        ]),
       );
 
       const response = await app.inject({
@@ -708,11 +729,16 @@ describe('Site routes - handler logic', () => {
         avgDurationMinutes: 45,
       };
       const utilizationStats = { sessionHours: 15, portCount: 4 };
-      const financialStats = {
-        totalRevenueCents: 25000,
-        avgRevenueCentsPerSession: 1250,
-        totalTransactions: 16,
-      };
+      const financialStats = { totalElectricityCostCents: 5000 };
+      // Revenue: 20 sessions of 1070 at 7%, 3600 at 20%, and a 595 fee at 19%.
+      const { aggregateRevenueRows } = await import('../lib/session-revenue.js');
+      mockQueryRevenue.mockResolvedValueOnce(
+        aggregateRevenueRows([
+          { key: null, taxRate: '0.07', grossCents: 1070, source: 'session', count: 20 },
+          { key: null, taxRate: '0.2', grossCents: 3600, source: 'session', count: 1 },
+          { key: null, taxRate: '0.19', grossCents: 595, source: 'fee', count: 1 },
+        ]),
+      );
 
       setupDbResults([sessionStats], [utilizationStats], [financialStats]);
 
@@ -727,7 +753,13 @@ describe('Site routes - handler logic', () => {
       expect(body).toHaveProperty('uptimePercent');
       expect(body).toHaveProperty('totalSessions');
       expect(body).toHaveProperty('utilizationPercent');
-      expect(body).toHaveProperty('totalRevenueCents');
+      expect(body).toHaveProperty('totalRevenueCents', 20 * 1070 + 3600 + 595);
+      expect(body).toHaveProperty('totalNetRevenueCents', 20 * 1000 + 3000 + 500);
+      expect(body).toHaveProperty('totalTaxCents', 20 * 70 + 600 + 95);
+      expect(body).toHaveProperty('totalTransactions', 22);
+      expect(body).toHaveProperty('avgRevenueCentsPerSession', Math.round((20 * 1070 + 3600) / 21));
+      // Profit is revenue excluding tax minus electricity cost.
+      expect(body).toHaveProperty('totalProfitCents', 23500 - 5000);
       expect(body).toHaveProperty('periodMonths');
       expect(body).toHaveProperty('currency', 'EUR');
     });

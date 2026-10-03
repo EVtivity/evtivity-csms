@@ -18,7 +18,9 @@
     "offline": "您已離線。部分功能可能無法使用。",
     "add": "新增",
     "deactivate": "停用",
-    "remove": "移除"
+    "remove": "移除",
+    "inclTax": "含稅",
+    "amountInclTax": "{{amount}}（含稅）"
   },
   "nav": {
     "home": "首頁",
@@ -125,7 +127,14 @@
     "energy": "電量",
     "energyAdded": "已輸送電量",
     "cost": "預估費用",
+    "costInclTax": "預估費用（含稅）",
     "totalCost": "總費用",
+    "totalCostInclTax": "總費用（含稅）",
+    "netCost": "淨額（稅前）",
+    "taxAdded": "稅額（{{rate}}%）",
+    "taxAddedNoRate": "稅額",
+    "taxContained": "其中稅額（{{rate}}%）",
+    "taxContainedNoRate": "其中稅額",
     "stopReason": "停止原因",
     "rfid": "RFID",
     "payment": "支付",
@@ -226,7 +235,12 @@
     "themeDark": "深色",
     "distanceUnit": "距離單位",
     "distanceMiles": "英里",
-    "distanceKm": "公里"
+    "distanceKm": "公里",
+    "priceDisplay": "價格顯示",
+    "priceDisplayDefault": "營運商預設（{{value}}）",
+    "priceDisplayGross": "含稅（總價）",
+    "priceDisplayNet": "未稅（淨價）",
+    "priceDisplayHelper": "含稅顯示加上稅額後的價格。未稅顯示稅前價格。兩種方式下實際扣款金額相同，未選擇時使用營運商的預設設定。"
   },
   "charger": {
     "loadingInfo": "載入充電樁資訊...",
@@ -261,6 +275,8 @@
     "sessionFee": "會話費",
     "idleFee": "/分鐘閒置費",
     "tax": "稅",
+    "taxIncluded": "價格含 {{rate}}% 稅",
+    "taxExcluded": "價格未含 {{rate}}% 稅，稅額計入實際扣款金額",
     "startCharging": "開始充電",
     "freeCharging": "免費充電",
     "siteContact": "站點聯繫方式",
@@ -327,7 +343,9 @@
     "duration": "時長",
     "energyDelivered": "已輸送電量",
     "totalCost": "總費用",
+    "totalCostInclTax": "總費用（含稅）",
     "estimatedCost": "預估費用",
+    "estimatedCostInclTax": "預估費用（含稅）",
     "started": "開始時間",
     "ended": "結束時間",
     "stopCharging": "停止充電",
@@ -411,7 +429,7 @@
     "noShowFeeNote": "即使您未到場，仍可能收取預約保留費。",
     "maxHoursHint": "最長預約時長為 {{hours}} 小時。",
     "paymentMethodRequired": "建立預約需要支付方式。",
-    "cancellationFeeWarning": "將向您的預設支付方式收取 {{fee}} 取消費用。",
+    "cancellationFeeWarning": "將向您的預設支付方式收取 {{fee}} 取消費用及相應稅費。",
     "cancellationPolicy": "取消政策",
     "cancellationPolicyText": "如果在開始時間前 {{minutes}} 分鐘內取消，將收取 {{fee}} 取消費用。",
     "upcoming": "即將到來",
@@ -739,7 +757,9 @@
     "total": "合計",
     "co2Avoided": "減少的CO₂",
     "totalCo2Avoided": "減少的CO₂總量",
-    "noSessions": "此期間沒有充電紀錄。"
+    "noSessions": "此期間沒有充電紀錄。",
+    "cost": "費用",
+    "costInclTax": "費用（含稅）"
   },
   "account": {
     "title": "帳戶",

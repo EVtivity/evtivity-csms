@@ -6,7 +6,12 @@ import { db, client, getCompanyCurrency } from '@evtivity/database';
 import { guestSessions, chargingSessions, paymentRecords } from '@evtivity/database';
 import { getStripeConfig, capturePayment, cancelPaymentIntent } from './stripe.service.js';
 import { chargingStations } from '@evtivity/database';
-import { dispatchSystemNotification } from '@evtivity/lib';
+import {
+  costIncludesTax,
+  dispatchSystemNotification,
+  notificationMoney,
+  sessionChargeTax,
+} from '@evtivity/lib';
 import type { FastifyBaseLogger } from 'fastify';
 import { ALL_TEMPLATES_DIRS } from '../lib/template-dirs.js';
 import { sessionCurrencySql } from '../lib/company-currency.js';
@@ -154,6 +159,8 @@ async function finalizeGuestPayment(sessionId: string, logger: FastifyBaseLogger
   const [session] = await db
     .select({
       finalCostCents: chargingSessions.finalCostCents,
+      tariffTaxRate: chargingSessions.tariffTaxRate,
+      costBreakdown: chargingSessions.costBreakdown,
       stationId: chargingSessions.stationId,
     })
     .from(chargingSessions)
@@ -181,7 +188,13 @@ async function finalizeGuestPayment(sessionId: string, logger: FastifyBaseLogger
     const finalCost = session.finalCostCents ?? 0;
 
     if (finalCost > 0) {
-      await capturePayment(config, pr.stripePaymentIntentId, finalCost, `capture_${String(pr.id)}`);
+      await capturePayment(
+        config,
+        pr.stripePaymentIntentId,
+        finalCost,
+        `capture_${String(pr.id)}`,
+        sessionChargeTax(session),
+      );
       logger.info({ guestSessionId: guest.id, amountCents: finalCost }, 'Captured guest payment');
 
       await db
@@ -236,6 +249,7 @@ async function sendGuestReceipt(
       .select({
         energyDeliveredWh: chargingSessions.energyDeliveredWh,
         finalCostCents: chargingSessions.finalCostCents,
+        tariffTaxRate: chargingSessions.tariffTaxRate,
         currency: sessionCurrencySql(),
         startedAt: chargingSessions.startedAt,
         endedAt: chargingSessions.endedAt,
@@ -258,6 +272,9 @@ async function sendGuestReceipt(
         energyDeliveredWh:
           session.energyDeliveredWh != null ? Number(session.energyDeliveredWh) : 0,
         finalCostCents: session.finalCostCents ?? 0,
+        // The receipt templates show costFormatted, like the driver receipt.
+        costFormatted: notificationMoney(session.finalCostCents ?? 0, session.currency),
+        costIncludesTax: costIncludesTax(session.finalCostCents, session.tariffTaxRate),
         currency: session.currency,
         durationMinutes,
         startedAt: startedAt.toISOString(),

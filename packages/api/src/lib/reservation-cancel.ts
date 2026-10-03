@@ -5,7 +5,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
 import { db, reservations } from '@evtivity/database';
 import { getReservationSettings, writeReservationAudit } from '@evtivity/database';
-import { chargeReservationCancellationFee } from './reservation-fees.js';
+import { chargeReservationFee } from './reservation-fees.js';
 import { getPubSub } from './pubsub.js';
 
 /** Who triggered the cancellation. */
@@ -50,7 +50,7 @@ export interface ReservationCancelInput {
    * Whether the caller wants to charge the cancellation fee. The actual
    * decision is gated by:
    *   - actor: 'system' is hard-no regardless of this flag
-   *   - settings.cancellationFeeCents > 0 and cancellationWindowMinutes > 0
+   *   - settings.cancellationFeeCents (net, before tax) > 0 and cancellationWindowMinutes > 0
    *   - the reservation is being cancelled inside the cancellation window
    *   - the driver has a default payment method (silently skipped otherwise)
    */
@@ -59,7 +59,10 @@ export interface ReservationCancelInput {
 }
 
 export interface ReservationCancelResult {
-  /** Number of cents actually charged (0 when waived, no PM, error, etc.). */
+  /**
+   * Cents actually charged, tax included (0 when waived, no PM, error, etc.).
+   * The fee setting is net; the station tariff's tax rate is added.
+   */
   feeChargedCents: number;
   /** True if the row was updated (false if it was already terminal). */
   cancelled: boolean;
@@ -122,7 +125,7 @@ export async function applyReservationCancellation(
   // ('active' or 'scheduled') instead of null. The CTE approach keeps this
   // as one round-trip and avoids a TOCTOU between a separate SELECT and
   // the UPDATE.
-  const updated = await db.execute<{ id: string; status_before: string }>(
+  const updated = await db.execute<{ id: string; status_before: string; station_id: string }>(
     sql`
       WITH old AS (
         SELECT id, status AS status_before
@@ -139,11 +142,13 @@ export async function applyReservationCancellation(
           updated_at = now()
       FROM old
       WHERE ${reservations}.id = old.id
-      RETURNING ${reservations}.id, old.status_before
+      RETURNING ${reservations}.id, old.status_before, ${reservations}.station_id
     `,
   );
 
-  const winningRow = (updated as unknown as Array<{ id: string; status_before: string }>)[0];
+  const winningRow = (
+    updated as unknown as Array<{ id: string; status_before: string; station_id: string }>
+  )[0];
   if (winningRow == null) {
     // Lost the race or the row was already terminal.
     return { feeChargedCents: 0, cancelled: false, feeChargeFailed: false, feeCurrency: null };
@@ -186,26 +191,35 @@ export async function applyReservationCancellation(
     return { feeChargedCents: 0, cancelled: true, feeChargeFailed: false, feeCurrency: null };
   }
 
+  // The fee is a payment record taxed at the station tariff's rate and
+  // charged through the site's Stripe Connect account (chargeReservationFee).
   let feeChargedCents = 0;
   let feeChargeFailed = false;
   let feeCurrency: string | null = null;
   try {
-    feeCurrency = await chargeReservationCancellationFee(
-      input.driverId as string,
-      input.siteId,
-      plannedFeeCents,
-      input.reservationDbId,
-    );
-    // No payment method or no Stripe config: nothing was charged.
-    if (feeCurrency == null) {
-      return { feeChargedCents: 0, cancelled: true, feeChargeFailed: false, feeCurrency: null };
+    const result = await chargeReservationFee({
+      type: 'reservation_cancellation',
+      reservationId: input.reservationDbId,
+      driverId: input.driverId as string,
+      stationId: winningRow.station_id,
+      siteId: input.siteId,
+      netCents: plannedFeeCents,
+    });
+    if (result.status === 'charged') {
+      feeChargedCents = result.grossCents;
+      feeCurrency = result.currency;
+      // Fee captured; persist the amount charged (tax included) on the row.
+      await db
+        .update(reservations)
+        .set({ cancellationFeeCents: feeChargedCents, updatedAt: new Date() })
+        .where(eq(reservations.id, input.reservationDbId));
+    } else if (result.status === 'failed') {
+      feeChargeFailed = true;
+      input.logger?.warn(
+        { reservationId: input.reservationDbId, paymentRecordId: result.paymentRecordId },
+        `cancellation fee charge failed: ${result.reason}`,
+      );
     }
-    feeChargedCents = plannedFeeCents;
-    // Fee captured; persist the actual amount on the audit row.
-    await db
-      .update(reservations)
-      .set({ cancellationFeeCents: feeChargedCents, updatedAt: new Date() })
-      .where(eq(reservations.id, input.reservationDbId));
   } catch (err) {
     feeChargeFailed = true;
     input.logger?.error(

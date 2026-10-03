@@ -12,8 +12,18 @@ import {
   isSupportedCurrency,
   type SupportedCurrency,
 } from '@evtivity/lib/currency';
+import {
+  DEFAULT_PRICE_DISPLAY,
+  DEFAULT_TAX_BASIS,
+  isPriceDisplay,
+  isTaxBasis,
+  resolveTaxBasis,
+  type PriceDisplay,
+  type TaxBasis,
+} from '@evtivity/lib/price-display';
 import { SaveButton } from '@/components/save-button';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -90,6 +100,11 @@ export function CompanySettings({
 
   const [companyName, setCompanyName] = useState('EVtivity');
   const [companyCurrency, setCompanyCurrency] = useState(DEFAULT_CURRENCY);
+  const [companyPriceDisplay, setCompanyPriceDisplay] =
+    useState<PriceDisplay>(DEFAULT_PRICE_DISPLAY);
+  const [companyTaxBasis, setCompanyTaxBasis] = useState<TaxBasis>(DEFAULT_TAX_BASIS);
+  const [taxBasisConfirmOpen, setTaxBasisConfirmOpen] = useState(false);
+  const savedTaxBasis = resolveTaxBasis(settings?.['company.taxBasis']);
   const [companyContactEmail, setCompanyContactEmail] = useState('');
   const [companySupportEmail, setCompanySupportEmail] = useState('');
   const [companySupportPhone, setCompanySupportPhone] = useState('');
@@ -111,6 +126,9 @@ export function CompanySettings({
     };
     setCompanyName(s('company.name') || 'EVtivity');
     setCompanyCurrency(s('company.currency').trim().toUpperCase() || DEFAULT_CURRENCY);
+    const priceDisplay = s('company.priceDisplay');
+    setCompanyPriceDisplay(isPriceDisplay(priceDisplay) ? priceDisplay : DEFAULT_PRICE_DISPLAY);
+    setCompanyTaxBasis(resolveTaxBasis(settings['company.taxBasis']));
     setCompanyContactEmail(s('company.contactEmail'));
     setCompanySupportEmail(s('company.supportEmail'));
     setCompanySupportPhone(s('company.supportPhone'));
@@ -129,6 +147,8 @@ export function CompanySettings({
     mutationFn: (vals: {
       name: string;
       currency: string;
+      priceDisplay: PriceDisplay;
+      taxBasis: TaxBasis;
       contactEmail: string;
       supportEmail: string;
       supportPhone: string;
@@ -145,6 +165,8 @@ export function CompanySettings({
       Promise.all([
         api.put('/v1/settings/company.name', { value: vals.name }),
         api.put('/v1/settings/company.currency', { value: vals.currency }),
+        api.put('/v1/settings/company.priceDisplay', { value: vals.priceDisplay }),
+        api.put('/v1/settings/company.taxBasis', { value: vals.taxBasis }),
         api.put('/v1/settings/company.contactEmail', { value: vals.contactEmail }),
         api.put('/v1/settings/company.supportEmail', { value: vals.supportEmail }),
         api.put('/v1/settings/company.supportPhone', { value: vals.supportPhone }),
@@ -162,6 +184,27 @@ export function CompanySettings({
       void invalidateSettings();
     },
   });
+
+  const saveCompany = (): void => {
+    companyMutation.mutate({
+      name: companyName,
+      currency: companyCurrency,
+      priceDisplay: companyPriceDisplay,
+      taxBasis: companyTaxBasis,
+      contactEmail: companyContactEmail,
+      supportEmail: companySupportEmail,
+      supportPhone: companySupportPhone,
+      street: companyStreet,
+      city: companyCity,
+      state: companyState,
+      zip: companyZip,
+      country: companyCountry,
+      portalUrl: companyPortalUrl,
+      themeColor: companyThemeColor,
+      metaDescription,
+      metaKeywords,
+    });
+  };
 
   const logoUploadMutation = useMutation({
     mutationFn: (dataUri: string) => api.put('/v1/settings/company.logo', { value: dataUri }),
@@ -567,25 +610,35 @@ export function CompanySettings({
           <p className="text-xs text-muted-foreground">{t('settings.themeColorDescription')}</p>
         </div>
 
+        <ConfirmDialog
+          open={taxBasisConfirmOpen}
+          onOpenChange={setTaxBasisConfirmOpen}
+          title={t('settings.companyTaxBasisConfirmTitle')}
+          description={t('settings.companyTaxBasisConfirmDescription', {
+            basis:
+              companyTaxBasis === 'gross'
+                ? t('settings.companyTaxBasisGross')
+                : t('settings.companyTaxBasisNet'),
+          })}
+          confirmLabel={t('settings.companyTaxBasisConfirm')}
+          variant="default"
+          isPending={companyMutation.isPending}
+          onConfirm={() => {
+            setTaxBasisConfirmOpen(false);
+            saveCompany();
+          }}
+        />
+
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            companyMutation.mutate({
-              name: companyName,
-              currency: companyCurrency,
-              contactEmail: companyContactEmail,
-              supportEmail: companySupportEmail,
-              supportPhone: companySupportPhone,
-              street: companyStreet,
-              city: companyCity,
-              state: companyState,
-              zip: companyZip,
-              country: companyCountry,
-              portalUrl: companyPortalUrl,
-              themeColor: companyThemeColor,
-              metaDescription,
-              metaKeywords,
-            });
+            // A different tax basis reinterprets every stored tariff price:
+            // confirm before saving it.
+            if (companyTaxBasis !== savedTaxBasis) {
+              setTaxBasisConfirmOpen(true);
+              return;
+            }
+            saveCompany();
           }}
           noValidate
           className="space-y-4"
@@ -628,6 +681,40 @@ export function CompanySettings({
                   {t('settings.companyCurrencyUnsupported', { currency: savedCurrency })}
                 </p>
               )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="company-price-display">{t('settings.companyPriceDisplay')}</Label>
+              <Select
+                id="company-price-display"
+                value={companyPriceDisplay}
+                onChange={(e) => {
+                  if (isPriceDisplay(e.target.value)) setCompanyPriceDisplay(e.target.value);
+                }}
+                className="h-9"
+              >
+                <option value="gross">{t('settings.companyPriceDisplayGross')}</option>
+                <option value="net">{t('settings.companyPriceDisplayNet')}</option>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t('settings.companyPriceDisplayHelper')}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="company-tax-basis">{t('settings.companyTaxBasis')}</Label>
+              <Select
+                id="company-tax-basis"
+                value={companyTaxBasis}
+                onChange={(e) => {
+                  if (isTaxBasis(e.target.value)) setCompanyTaxBasis(e.target.value);
+                }}
+                className="h-9"
+              >
+                <option value="net">{t('settings.companyTaxBasisNet')}</option>
+                <option value="gross">{t('settings.companyTaxBasisGross')}</option>
+              </Select>
+              <p className="text-xs text-muted-foreground">{t('settings.companyTaxBasisHelper')}</p>
             </div>
 
             <div className="space-y-2">

@@ -70,6 +70,18 @@ export const chargingSessions = pgTable(
     tariffPricePerSession: numeric('tariff_price_per_session'),
     tariffIdleFeePricePerMinute: numeric('tariff_idle_fee_price_per_minute'),
     tariffTaxRate: numeric('tariff_tax_rate'),
+    // Reservation holding fee per minute of the tariff snapshot (issue #33).
+    tariffReservationFeePerMinute: numeric('tariff_reservation_fee_per_minute'),
+    // Tax basis ('net' or 'gross') the snapshot prices were entered in,
+    // written with the tariff snapshot. Null when the session has no tariff.
+    taxBasis: varchar('tax_basis', { length: 5 }),
+    // The cost split: net_cents + tax_cents = coalesce(final_cost_cents,
+    // current_cost_cents), written in the same statement as the cost by
+    // @evtivity/database session-pricing. cost_breakdown holds the
+    // SessionCostBreakdown (tax lines per rate and billed components).
+    netCents: integer('net_cents'),
+    taxCents: integer('tax_cents'),
+    costBreakdown: jsonb('cost_breakdown'),
     idleStartedAt: timestamp('idle_started_at', { withTimezone: true }),
     idleMinutes: numeric('idle_minutes').notNull().default('0'),
     lastUpdateNotifiedAt: timestamp('last_update_notified_at', { withTimezone: true }),

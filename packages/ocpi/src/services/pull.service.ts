@@ -17,6 +17,8 @@ import type { PubSubClient, Subscription } from '@evtivity/lib';
 import { OcpiClient } from '../lib/ocpi-client.js';
 import { getOutboundToken } from '../lib/outbound-token.js';
 import { config } from '../lib/config.js';
+import { resolvePartnerVersion } from '../lib/ocpi-version.js';
+import { priceExclTax } from '../lib/ocpi-price.js';
 import type { OcpiLocation, OcpiTariff, OcpiCdr } from '../types/ocpi.js';
 
 const logger = createLogger('ocpi-pull');
@@ -56,9 +58,13 @@ function chunk<T>(arr: T[], size: number): T[][] {
 
 async function getPartnerInfo(
   partnerId: string,
-): Promise<{ countryCode: string; partyId: string } | null> {
+): Promise<{ countryCode: string; partyId: string; version: string | null } | null> {
   const [partner] = await db
-    .select({ countryCode: ocpiPartners.countryCode, partyId: ocpiPartners.partyId })
+    .select({
+      countryCode: ocpiPartners.countryCode,
+      partyId: ocpiPartners.partyId,
+      version: ocpiPartners.version,
+    })
     .from(ocpiPartners)
     .where(eq(ocpiPartners.id, partnerId))
     .limit(1);
@@ -423,6 +429,9 @@ async function pullCdrsInner(partnerId: string): Promise<SyncResult> {
     }
 
     const client = createOcpiClient(token, partner.countryCode, partner.partyId);
+    // total_cost is a Price of the partner's version: excl_vat in 2.2.1,
+    // before_taxes in 2.3.0. ocpi_cdrs.total_cost holds that amount.
+    const version = resolvePartnerVersion(partner.version);
 
     let count = 0;
     let skipped = 0;
@@ -435,10 +444,12 @@ async function pullCdrsInner(partnerId: string): Promise<SyncResult> {
           continue;
         }
         const candidate = item as Record<string, unknown>;
+        const exclTax = priceExclTax(candidate['total_cost'], version);
         if (
           typeof candidate['id'] !== 'string' ||
           typeof candidate['total_energy'] !== 'number' ||
-          typeof candidate['currency'] !== 'string'
+          typeof candidate['currency'] !== 'string' ||
+          exclTax == null
         ) {
           logger.warn(
             { partnerId, cdrId: candidate['id'] },
@@ -448,8 +459,7 @@ async function pullCdrsInner(partnerId: string): Promise<SyncResult> {
           continue;
         }
         const cdr = candidate as unknown as OcpiCdr;
-        const totalCost =
-          typeof cdr.total_cost === 'object' ? String(cdr.total_cost.excl_vat) : '0';
+        const totalCost = String(exclTax);
         pageIds.push(cdr.id);
         valid.push({
           partnerId,

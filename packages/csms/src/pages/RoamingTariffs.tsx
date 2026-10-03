@@ -22,12 +22,14 @@ import { LoadingLogo } from '@/components/loading-logo';
 
 interface TariffMapping {
   id: number;
-  tariffId: string;
+  tariffId: string | null;
+  pricingGroupId: string | null;
   partnerId: string | null;
   ocpiTariffId: string;
   createdAt: string;
   updatedAt: string;
   tariffName: string | null;
+  pricingGroupName: string | null;
   partnerName: string | null;
 }
 
@@ -65,22 +67,22 @@ export function RoamingTariffs(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('roaming.tariffs.internalTariff')}</TableHead>
                 <TableHead>{t('roaming.tariffs.ocpiTariffId')}</TableHead>
+                <TableHead>{t('roaming.tariffs.publishedFrom')}</TableHead>
                 <TableHead>{t('roaming.tariffs.partner')}</TableHead>
-                <TableHead>{t('common.created')}</TableHead>
+                <TableHead>{t('common.lastUpdated')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center">
+                  <TableCell colSpan={5} className="text-center">
                     <LoadingLogo size="inline" />
                   </TableCell>
                 </TableRow>
               ) : mappings == null || mappings.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground">
+                  <TableCell colSpan={5} className="text-center text-muted-foreground">
                     {t('roaming.tariffs.noMappings')}
                   </TableCell>
                 </TableRow>
@@ -94,10 +96,17 @@ export function RoamingTariffs(): React.JSX.Element {
                       void navigate(`/roaming/tariffs/${String(mapping.id)}`);
                     }}
                   >
-                    <TableCell className="font-medium" data-testid="row-click-target">
-                      {mapping.tariffName ?? '-'}
+                    <TableCell
+                      className="whitespace-nowrap font-medium"
+                      data-testid="row-click-target"
+                    >
+                      {mapping.ocpiTariffId}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap">{mapping.ocpiTariffId}</TableCell>
+                    <TableCell>
+                      {mapping.pricingGroupId != null
+                        ? `${t('roaming.tariffs.sourcePricingGroup')}: ${mapping.pricingGroupName ?? '-'}`
+                        : `${t('roaming.tariffs.sourceTariff')}: ${mapping.tariffName ?? '-'}`}
+                    </TableCell>
                     <TableCell>{mapping.partnerName ?? t('roaming.tariffs.allPartners')}</TableCell>
                     <TableCell>{formatDateTime(mapping.updatedAt, timezone)}</TableCell>
                   </TableRow>

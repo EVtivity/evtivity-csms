@@ -18,6 +18,7 @@ import {
 } from '@evtivity/database';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { inCompanyCurrency, sessionCurrencySql } from '../../lib/company-currency.js';
+import { storedSessionCostTax } from '../../lib/session-tax.js';
 import { ID_PARAMS } from '../../lib/id-validation.js';
 import { paginatedResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
@@ -41,7 +42,18 @@ const portalSessionListItem = z
       .nullable()
       .describe('Energy delivered in Watt-hours'),
     co2AvoidedKg: z.coerce.number().nullable().describe('CO2 avoided vs gasoline in kg'),
-    finalCostCents: z.number().int().min(0).nullable().describe('Final session cost in cents'),
+    finalCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Final session cost in cents, including tax'),
+    tariffTaxRate: z
+      .string()
+      .nullable()
+      .describe(
+        'Tax rate of the session tariff as a decimal (e.g. 0.19), null without tax. Costs include it',
+      ),
     currency: z.string().length(3).describe('ISO 4217 currency code the session was billed in'),
     stationName: z.string().max(255).nullable().describe('OCPP station identity (display name)'),
     siteName: z.string().max(255).nullable().describe('Site name'),
@@ -90,6 +102,28 @@ const paymentRecordItem = z
 const portalSessionDetail = portalSessionListItem
   .extend({
     currentCostCents: z.number().int().min(0).nullable().describe('Running cost in cents'),
+    netCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe(
+        'Cost (finalCostCents, else currentCostCents) without the tax it contains, in cents. Null when taxCents is null',
+      ),
+    taxCents: z
+      .number()
+      .int()
+      .min(1)
+      .nullable()
+      .describe(
+        'Tax contained in the cost (finalCostCents, else currentCostCents) in cents, split per tariff segment as billed. Null when the cost contains no tax, or when tariffs with different tax rates applied and the split is not known yet',
+      ),
+    taxRate: z
+      .string()
+      .nullable()
+      .describe(
+        'Tax rate of taxCents as a decimal (e.g. 0.19). Null without taxCents or when tariffs with different tax rates applied',
+      ),
     meterStart: z.string().nullable().describe('Meter reading at session start in Wh'),
     meterStop: z.string().nullable().describe('Meter reading at session end in Wh'),
     stoppedReason: z
@@ -192,7 +226,18 @@ const monthlyStatementSessionItem = z
     endedAt: z.coerce.date().nullable().describe('Session end timestamp'),
     energyDeliveredWh: z.coerce.number().min(0).nullable().describe('Energy delivered in Wh'),
     co2AvoidedKg: z.coerce.number().nullable().describe('Estimated CO2 avoided in kg'),
-    finalCostCents: z.number().int().min(0).nullable().describe('Final session cost in cents'),
+    finalCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe('Final session cost in cents, including tax'),
+    tariffTaxRate: z
+      .string()
+      .nullable()
+      .describe(
+        'Tax rate of the session tariff as a decimal (e.g. 0.19), null without tax. Costs include it',
+      ),
     currency: z.string().length(3).describe('Currency code (ISO 4217) the session was billed in'),
     siteName: z.string().max(255).nullable().describe('Site name for the station'),
     siteCity: z.string().max(100).nullable().describe('Site city'),
@@ -270,6 +315,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
             energyDeliveredWh: chargingSessions.energyDeliveredWh,
             co2AvoidedKg: chargingSessions.co2AvoidedKg,
             finalCostCents: chargingSessions.finalCostCents,
+            tariffTaxRate: chargingSessions.tariffTaxRate,
             currency: sessionCurrencySql(),
             stationName: chargingStations.stationId,
             siteName: sites.name,
@@ -370,6 +416,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           energyDeliveredWh: chargingSessions.energyDeliveredWh,
           co2AvoidedKg: chargingSessions.co2AvoidedKg,
           finalCostCents: chargingSessions.finalCostCents,
+          tariffTaxRate: chargingSessions.tariffTaxRate,
           currency: sessionCurrencySql(),
           siteName: sites.name,
           siteCity: sites.city,
@@ -438,6 +485,8 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           co2AvoidedKg: chargingSessions.co2AvoidedKg,
           currentCostCents: chargingSessions.currentCostCents,
           finalCostCents: chargingSessions.finalCostCents,
+          tariffTaxRate: chargingSessions.tariffTaxRate,
+          costBreakdown: chargingSessions.costBreakdown,
           currency: sessionCurrencySql(),
           meterStart: chargingSessions.meterStart,
           meterStop: chargingSessions.meterStop,
@@ -536,13 +585,21 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         vehicleMake,
         vehicleModel,
         vehicleYear,
+        costBreakdown,
         ...sessionRest
       } = session;
+      const costTax = storedSessionCostTax({
+        costCents: session.finalCostCents ?? session.currentCostCents,
+        costBreakdown,
+      });
       return {
         ...sessionRest,
         currentPowerW: latestPower != null ? parseFloat(latestPower.value) : null,
         batteryPercent: latestSoc != null ? parseFloat(latestSoc.value) : null,
         payment: payment ?? null,
+        netCents: costTax?.netCents ?? null,
+        taxCents: costTax?.taxCents ?? null,
+        taxRate: costTax?.taxRate ?? null,
         token: tokenIdToken != null ? { idToken: tokenIdToken, tokenType: tokenType ?? '' } : null,
         vehicle:
           vehicleId != null

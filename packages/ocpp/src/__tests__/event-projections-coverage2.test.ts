@@ -65,12 +65,44 @@ const mockGetTxEndedMeasurands = vi.fn().mockResolvedValue('');
 const mockIsSiteFreeVend = vi.fn().mockResolvedValue(false);
 const mockIsSplitBilling = vi.fn().mockResolvedValue(false);
 
+// The one cost assembly (@evtivity/database session-pricing), mocked per test.
+// By default every priced session costs 15.00 (net 15.00, no tax).
+function costBreakdown(grossCents: number, taxRate = 0, taxCents = 0) {
+  const netCents = grossCents - taxCents;
+  return {
+    basis: 'net' as const,
+    netCents,
+    taxCents,
+    grossCents,
+    taxLines: grossCents === 0 ? [] : [{ taxRate, netCents, taxCents }],
+    components: null,
+  };
+}
+const mockPriceSessionAt = vi.fn().mockResolvedValue(costBreakdown(1500));
+const mockStoreRunningCost = vi.fn().mockResolvedValue(true);
+// session-pricing's own settings readers, so the real module loads without a database.
+vi.mock('../../../database/src/lib/idling-setting.js', () => ({
+  getIdlingGracePeriodMinutes: vi.fn().mockResolvedValue(0),
+}));
+vi.mock('../../../database/src/lib/pricing-settings.js', () => ({
+  isSplitBillingEnabled: vi.fn().mockResolvedValue(false),
+}));
+
 vi.mock('@evtivity/database', async () => ({
   // The real status entry point, running on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/station-status.js',
   )),
+  // The real session pricing writes (tariff snapshot, segments, final cost),
+  // running on the mocked client. The cost itself comes from mockPriceSessionAt.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/session-pricing.js',
+  )),
+  getCompanyTaxBasis: vi.fn().mockResolvedValue('net'),
+  priceSessionAt: (...args: unknown[]) => mockPriceSessionAt(...args) as unknown,
+  storeRunningCost: (...args: unknown[]) => mockStoreRunningCost(...args) as unknown,
   client: createSqlMock(),
+  getPlatformFeePercent: vi.fn().mockResolvedValue(0),
   isRoamingEnabled: mockIsRoamingEnabled,
   getIdlingGracePeriodMinutes: vi.fn().mockResolvedValue(0),
   isSplitBillingEnabled: mockIsSplitBilling,
@@ -88,6 +120,7 @@ vi.mock('@evtivity/database', async () => ({
   isAutoDisableOnCriticalEnabled: mockIsAutoDisableOnCritical,
   isSiteFreeVendEnabledByStation: mockIsSiteFreeVend,
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
+  getCompanyPriceDisplay: vi.fn().mockResolvedValue('net'),
 }));
 
 const mockDispatchOcpp = vi.fn().mockResolvedValue(undefined);
@@ -1330,9 +1363,9 @@ describe('Event projections - coverage round 2', () => {
             ocpp_protocol: 'ocpp2.1',
           },
         ], // 7 active sessions
-        [], // 8 UPDATE current_cost_cents
-        [{ site_id: null }], // 9 resolveSiteId
+        [{ site_id: null }], // 8 resolveSiteId
       );
+      mockPriceSessionAt.mockResolvedValueOnce(costBreakdown(24));
       await emit('ocpp.MeterValues', 'CS-1', {
         stationId: 'CS-1',
         evseId: 0,
@@ -1346,7 +1379,11 @@ describe('Event projections - coverage round 2', () => {
         ],
       });
       expect(findSql(/INSERT INTO meter_values/)).toBeDefined();
-      expect(findSql(/SET current_cost_cents/)).toBeDefined();
+      expect(mockStoreRunningCost).toHaveBeenCalledWith(
+        expect.anything(),
+        'ses_1',
+        expect.objectContaining({ grossCents: 24 }),
+      );
       const cost = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
         (c) => c[0] === 'ocpp_commands' && (c[1] as string).includes('CostUpdated'),
       );
@@ -1373,7 +1410,13 @@ describe('Event projections - coverage round 2', () => {
         ocpp_protocol: ocppProtocol,
         prepaid_balance_cents: prepaidBalanceCents,
       });
-      // 950 Wh at 0.25/kWh costs 24 cents.
+      // 950 Wh at 0.25/kWh costs 24 cents (the cost assembly is mocked to that).
+      beforeEach(() => {
+        mockPriceSessionAt.mockResolvedValue(costBreakdown(24));
+      });
+      afterEach(() => {
+        mockPriceSessionAt.mockResolvedValue(costBreakdown(1500));
+      });
       const results = (session: Record<string, unknown>, claim: unknown[]) => [
         STA, // resolveStationUuid
         [{ id: 'ses_1' }], // resolveMeterValueSession
@@ -1383,7 +1426,6 @@ describe('Event projections - coverage round 2', () => {
         [], // UPDATE energy_delivered_wh
         [], // UPDATE idle accrue
         [session], // active sessions
-        [], // UPDATE current_cost_cents
         claim, // claim the prepaid stop (only when the credit is used up)
         [{ site_id: null }], // resolveSiteId
       ];

@@ -13,11 +13,15 @@ import {
   timestamp,
   jsonb,
   index,
+  uniqueIndex,
+  check,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { sites, chargingStations } from './assets.js';
 import { drivers } from './drivers.js';
 import { chargingSessions } from './charging.js';
 import { users } from './identity.js';
+import { reservations } from './reservations.js';
 
 export const paymentStatusEnum = pgEnum('payment_status', [
   'pending',
@@ -64,6 +68,18 @@ export const driverPaymentMethods = pgTable(
   ],
 );
 
+/**
+ * What a payment record charges: a charging session (one record per session,
+ * session_id set) or a reservation fee (reservation_id set, one record per
+ * reservation and fee type).
+ */
+export const PAYMENT_CHARGE_TYPES = [
+  'session',
+  'reservation_cancellation',
+  'reservation_no_show',
+] as const;
+export type PaymentChargeType = (typeof PAYMENT_CHARGE_TYPES)[number];
+
 export const paymentRecords = pgTable(
   'payment_records',
   {
@@ -88,11 +104,29 @@ export const paymentRecords = pgTable(
     }),
     lastActionReason: varchar('last_action_reason', { length: 500 }),
     metadata: jsonb('metadata'),
+    chargeType: varchar('charge_type', { length: 30 })
+      .$type<PaymentChargeType>()
+      .notNull()
+      .default('session'),
+    reservationId: text('reservation_id').references(() => reservations.id, {
+      onDelete: 'set null',
+    }),
+    // Tax rate (fraction) a reservation fee was taxed at: the station tariff's
+    // rate. The amount charged includes it. Null on session records, which
+    // carry their rate on the session (tariff_tax_rate).
+    taxRate: numeric('tax_rate'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('idx_payment_records_session_id').on(table.sessionId),
+    uniqueIndex('uq_payment_records_reservation_charge')
+      .on(table.reservationId, table.chargeType)
+      .where(sql`${table.reservationId} IS NOT NULL`),
+    check(
+      'payment_records_charge_type_check',
+      sql`${table.chargeType} IN ('session', 'reservation_cancellation', 'reservation_no_show')`,
+    ),
     index('idx_payment_records_driver_id').on(table.driverId),
     index('idx_payment_records_status').on(table.status),
     index('idx_payment_records_stripe_payment_intent_id').on(table.stripePaymentIntentId),

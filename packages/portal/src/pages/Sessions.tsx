@@ -9,6 +9,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api';
+import { costIncludesTax } from '@evtivity/lib/price-display';
 import { formatCents, formatEnergy, formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -21,6 +22,7 @@ interface Session {
   endedAt: string | null;
   energyDeliveredWh: string | null;
   finalCostCents: number | null;
+  tariffTaxRate: string | null;
   currency: string;
   stationName: string | null;
   siteName: string | null;
@@ -93,7 +95,11 @@ export function Sessions(): React.JSX.Element {
                   <Badge variant={statusVariant(session.status)}>{session.status}</Badge>
                   <p className="text-sm font-medium">{formatEnergy(session.energyDeliveredWh)}</p>
                   <p className="text-xs text-muted-foreground">
-                    {formatCents(session.finalCostCents, session.currency)}
+                    {costIncludesTax(session.finalCostCents, session.tariffTaxRate)
+                      ? t('common.amountInclTax', {
+                          amount: formatCents(session.finalCostCents, session.currency),
+                        })
+                      : formatCents(session.finalCostCents, session.currency)}
                   </p>
                 </div>
               </div>

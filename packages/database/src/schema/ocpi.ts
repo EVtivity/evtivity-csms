@@ -14,11 +14,14 @@ import {
   numeric,
   index,
   unique,
+  uniqueIndex,
+  check,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { createId } from '../lib/id.js';
 import { sites } from './assets.js';
 import { chargingSessions } from './charging.js';
-import { tariffs } from './pricing.js';
+import { pricingGroups, tariffs } from './pricing.js';
 
 export const ocpiPartnerStatusEnum = pgEnum('ocpi_partner_status', [
   'pending',
@@ -132,22 +135,36 @@ export const ocpiLocationPublishPartners = pgTable(
   ],
 );
 
+// A published OCPI tariff: the OCPI tariff id a partner sees and the internal
+// tariff or pricing group it is generated from (exactly one of the two). The
+// OCPI server renders the tariff from that source on every request and push,
+// so prices, tax, and currency always match what is billed. partner_id null
+// publishes to every partner; a partner-specific mapping with the same
+// ocpi_tariff_id replaces the global one for that partner.
 export const ocpiTariffMappings = pgTable(
   'ocpi_tariff_mappings',
   {
     id: serial('id').primaryKey(),
-    tariffId: text('tariff_id')
-      .notNull()
-      .references(() => tariffs.id, { onDelete: 'cascade' }),
+    tariffId: text('tariff_id').references(() => tariffs.id, { onDelete: 'cascade' }),
+    pricingGroupId: text('pricing_group_id').references(() => pricingGroups.id, {
+      onDelete: 'cascade',
+    }),
     partnerId: text('partner_id').references(() => ocpiPartners.id, { onDelete: 'cascade' }),
     ocpiTariffId: varchar('ocpi_tariff_id', { length: 36 }).notNull(),
-    ocpiTariffData: jsonb('ocpi_tariff_data').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('idx_ocpi_tariff_mappings_tariff').on(table.tariffId),
+    index('idx_ocpi_tariff_mappings_pricing_group').on(table.pricingGroupId),
     index('idx_ocpi_tariff_mappings_partner').on(table.partnerId),
+    unique('uq_ocpi_tariff_mappings_partner_tariff_id')
+      .on(table.partnerId, table.ocpiTariffId)
+      .nullsNotDistinct(),
+    check(
+      'ocpi_tariff_mappings_one_source',
+      sql`(${table.tariffId} IS NULL) <> (${table.pricingGroupId} IS NULL)`,
+    ),
   ],
 );
 
@@ -198,7 +215,11 @@ export const ocpiRoamingSessions = pgTable(
   (table) => [
     index('idx_ocpi_roaming_sessions_partner').on(table.partnerId),
     index('idx_ocpi_roaming_sessions_ocpi_id').on(table.ocpiSessionId),
-    index('idx_ocpi_roaming_sessions_charging').on(table.chargingSessionId),
+    // One CPO roaming session per charging session (rows received from
+    // partners as eMSP have no charging session).
+    uniqueIndex('uq_ocpi_roaming_sessions_charging_session')
+      .on(table.chargingSessionId)
+      .where(sql`charging_session_id IS NOT NULL`),
   ],
 );
 

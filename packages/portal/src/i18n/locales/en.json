@@ -18,7 +18,9 @@
     "offline": "You are offline. Some features may not work.",
     "add": "Add",
     "deactivate": "Deactivate",
-    "remove": "Remove"
+    "remove": "Remove",
+    "inclTax": "incl. tax",
+    "amountInclTax": "{{amount}} incl. tax"
   },
   "nav": {
     "home": "Home",
@@ -125,7 +127,14 @@
     "energy": "Energy",
     "energyAdded": "Energy delivered",
     "cost": "Estimated cost",
+    "costInclTax": "Estimated cost (incl. tax)",
     "totalCost": "Total cost",
+    "totalCostInclTax": "Total cost (incl. tax)",
+    "netCost": "Net amount (before tax)",
+    "taxAdded": "Tax ({{rate}}%)",
+    "taxAddedNoRate": "Tax",
+    "taxContained": "Tax included ({{rate}}%)",
+    "taxContainedNoRate": "Tax included",
     "stopReason": "Stop reason",
     "rfid": "RFID",
     "payment": "Payment",
@@ -226,7 +235,12 @@
     "themeDark": "Dark",
     "distanceUnit": "Distance Unit",
     "distanceMiles": "Miles",
-    "distanceKm": "Kilometers"
+    "distanceKm": "Kilometers",
+    "priceDisplay": "Show prices",
+    "priceDisplayDefault": "Operator default ({{value}})",
+    "priceDisplayGross": "Including tax (gross)",
+    "priceDisplayNet": "Excluding tax (net)",
+    "priceDisplayHelper": "Including tax shows prices with tax added. Excluding tax shows prices before tax. You are charged the same amount either way, and until you choose, the operator default applies."
   },
   "charger": {
     "loadingInfo": "Loading charger info...",
@@ -261,6 +275,8 @@
     "sessionFee": "session fee",
     "idleFee": "/min idle fee",
     "tax": "tax",
+    "taxIncluded": "Prices include {{rate}}% tax",
+    "taxExcluded": "Prices exclude {{rate}}% tax, which is added to the amount charged",
     "startCharging": "Start Charging",
     "freeCharging": "Free charging",
     "siteContact": "Site Contact",
@@ -327,7 +343,9 @@
     "duration": "Duration",
     "energyDelivered": "Energy delivered",
     "totalCost": "Total cost",
+    "totalCostInclTax": "Total cost (incl. tax)",
     "estimatedCost": "Estimated cost",
+    "estimatedCostInclTax": "Estimated cost (incl. tax)",
     "started": "Started",
     "ended": "Ended",
     "stopCharging": "Stop Charging",
@@ -411,7 +429,7 @@
     "noShowFeeNote": "A holding fee may apply even if you don't show up.",
     "maxHoursHint": "Maximum reservation duration is {{hours}} hours.",
     "paymentMethodRequired": "A payment method is required to create a reservation.",
-    "cancellationFeeWarning": "A cancellation fee of {{fee}} will be charged to your default payment method.",
+    "cancellationFeeWarning": "A cancellation fee of {{fee}} plus applicable tax will be charged to your default payment method.",
     "cancellationPolicy": "Cancellation policy",
     "cancellationPolicyText": "If you cancel within {{minutes}} minutes of the start time, a {{fee}} cancellation fee will be charged.",
     "upcoming": "Upcoming",
@@ -739,7 +757,9 @@
     "total": "Total",
     "co2Avoided": "CO₂ Avoided",
     "totalCo2Avoided": "Total CO₂ Avoided",
-    "noSessions": "No charging sessions this period."
+    "noSessions": "No charging sessions this period.",
+    "cost": "Cost",
+    "costInclTax": "Cost (incl. tax)"
   },
   "account": {
     "title": "Account",

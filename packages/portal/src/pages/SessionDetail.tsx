@@ -28,7 +28,15 @@ import { useToast } from '@/components/ui/toast';
 import { SessionCharts } from '@/components/SessionCharts';
 import { ReportIssue } from '@/components/ReportIssue';
 import { api } from '@/lib/api';
-import { formatCents, formatEnergy, formatDate, formatDistance, formatNumber } from '@/lib/utils';
+import {
+  formatCents,
+  formatEnergy,
+  formatDate,
+  formatDistance,
+  formatNumber,
+  formatTaxPercent,
+} from '@/lib/utils';
+import { usePriceDisplay } from '@/hooks/use-price-display';
 import { useAuth } from '@/lib/auth';
 import { useDriverTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -41,6 +49,12 @@ interface SessionDetailData {
   endedAt: string | null;
   energyDeliveredWh: string | null;
   currentCostCents: number | null;
+  // Net amount and tax contained in the cost, split per tariff as billed.
+  // Null when the cost contains no tax or the split is not known.
+  netCents: number | null;
+  taxCents: number | null;
+  // Null when tariffs with different tax rates applied.
+  taxRate: string | null;
   finalCostCents: number | null;
   currency: string;
   meterStart: number | null;
@@ -125,6 +139,7 @@ export function SessionDetail(): React.JSX.Element {
   const fromCharge = (location.state as { fromCharge?: boolean } | null)?.fromCharge === true;
   const timezone = useDriverTimezone();
   const distanceUnit = useAuth((s) => s.driver?.distanceUnit ?? 'miles');
+  const priceDisplay = usePriceDisplay();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [showStopConfirm, setShowStopConfirm] = useState(false);
@@ -237,6 +252,15 @@ export function SessionDetail(): React.JSX.Element {
     costCents != null && costCents === 0
       ? t('sessionDetail.free')
       : formatCents(costCents, session.currency);
+  // Costs include tax. The API splits out the tax they contain per tariff, as
+  // billed: shown below the total (gross display), or as the net amount plus
+  // the tax above it (net display).
+  const { netCents, taxCents } = session;
+  const hasTaxSplit = netCents != null && taxCents != null;
+  const taxPercent = session.taxRate != null ? formatTaxPercent(Number(session.taxRate)) : null;
+  const costLabel = hasTaxSplit
+    ? t(isActive ? 'sessionDetail.costInclTax' : 'sessionDetail.totalCostInclTax')
+    : t(isActive ? 'sessionDetail.cost' : 'sessionDetail.totalCost');
   const energy = formatEnergy(session.energyDeliveredWh);
   const efficiency = session.vehicle?.efficiencyMiPerKwh ?? 3.5;
   const miles = formatDistance(session.energyDeliveredWh, efficiency, distanceUnit);
@@ -344,7 +368,7 @@ export function SessionDetail(): React.JSX.Element {
           <CardContent className="p-3 text-center">
             <DollarSign className="mx-auto h-5 w-5 text-muted-foreground mb-1" />
             <p className="text-xs text-muted-foreground h-8 flex items-center justify-center">
-              {t(isActive ? 'sessionDetail.cost' : 'sessionDetail.totalCost')}
+              {costLabel}
             </p>
             <p className="text-base font-bold">{cost}</p>
           </CardContent>
@@ -461,10 +485,33 @@ export function SessionDetail(): React.JSX.Element {
               value={`${formatNumber(session.batteryPercent, 0)}%`}
             />
           )}
-          <Row
-            label={t(isActive ? 'sessionDetail.cost' : 'sessionDetail.totalCost')}
-            value={cost}
-          />
+          {hasTaxSplit && priceDisplay === 'net' && (
+            <>
+              <Row
+                label={t('sessionDetail.netCost')}
+                value={formatCents(netCents, session.currency)}
+              />
+              <Row
+                label={
+                  taxPercent != null
+                    ? t('sessionDetail.taxAdded', { rate: taxPercent })
+                    : t('sessionDetail.taxAddedNoRate')
+                }
+                value={formatCents(taxCents, session.currency)}
+              />
+            </>
+          )}
+          <Row label={costLabel} value={cost} />
+          {hasTaxSplit && priceDisplay === 'gross' && (
+            <Row
+              label={
+                taxPercent != null
+                  ? t('sessionDetail.taxContained', { rate: taxPercent })
+                  : t('sessionDetail.taxContainedNoRate')
+              }
+              value={formatCents(taxCents, session.currency)}
+            />
+          )}
           {session.stoppedReason != null && (
             <Row label={t('sessionDetail.stopReason')} value={session.stoppedReason} />
           )}

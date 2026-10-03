@@ -370,7 +370,7 @@ export interface OcpiSession {
   meter_id?: string;
   currency: string;
   charging_periods?: OcpiChargingPeriod[];
-  total_cost?: OcpiPrice;
+  total_cost?: OcpiVersionedPrice;
   status: OcpiSessionStatus;
   last_updated: string;
 }
@@ -411,10 +411,32 @@ export type OcpiCdrDimensionType =
   | 'STATE_OF_CHARGE'
   | 'TIME';
 
+/** OCPI 2.2.1 Price class. */
 export interface OcpiPrice {
+  /** Price/Cost excluding VAT. */
   excl_vat: number;
+  /** Price/Cost including VAT. */
   incl_vat?: number;
 }
+
+/** OCPI 2.3.0 TaxAmount class (§17.9). */
+export interface Ocpi230TaxAmount {
+  name: string;
+  account_number?: string;
+  /** Tax percentage (19.0 for 19%). */
+  percentage?: number;
+  amount: number;
+}
+
+/** OCPI 2.3.0 Price class (§17.8): replaces excl_vat/incl_vat. */
+export interface Ocpi230Price {
+  /** Price/Cost excluding taxes. */
+  before_taxes: number;
+  taxes?: Ocpi230TaxAmount[];
+}
+
+/** A Price on a Session or CDR, shaped by the negotiated version. */
+export type OcpiVersionedPrice = OcpiPrice | Ocpi230Price;
 
 // CDR types
 
@@ -434,15 +456,15 @@ export interface OcpiCdr {
   tariffs?: OcpiTariff[];
   charging_periods: OcpiChargingPeriod[];
   signed_data?: OcpiSignedData;
-  total_cost: OcpiPrice;
-  total_fixed_cost?: OcpiPrice;
+  total_cost: OcpiVersionedPrice;
+  total_fixed_cost?: OcpiVersionedPrice;
   total_energy: number;
-  total_energy_cost?: OcpiPrice;
+  total_energy_cost?: OcpiVersionedPrice;
   total_time: number;
-  total_time_cost?: OcpiPrice;
+  total_time_cost?: OcpiVersionedPrice;
   total_parking_time?: number;
-  total_parking_cost?: OcpiPrice;
-  total_reservation_cost?: OcpiPrice;
+  total_parking_cost?: OcpiVersionedPrice;
+  total_reservation_cost?: OcpiVersionedPrice;
   remark?: string;
   invoice_reference_id?: string;
   credit?: boolean;
@@ -515,6 +537,7 @@ export interface OcpiTariffElement {
 export interface OcpiPriceComponent {
   type: OcpiTariffDimensionType;
   price: number;
+  /** Applicable VAT percentage (19.0 for 19%). Omitted: no VAT applicable. */
   vat?: number;
   step_size: number;
 }
@@ -534,9 +557,18 @@ export interface OcpiTariffRestrictions {
   max_power?: number;
   min_duration?: number;
   max_duration?: number;
-  day_of_week?: number[];
+  day_of_week?: OcpiDayOfWeek[];
   reservation?: 'RESERVATION' | 'RESERVATION_EXPIRES';
 }
+
+export type OcpiDayOfWeek =
+  | 'MONDAY'
+  | 'TUESDAY'
+  | 'WEDNESDAY'
+  | 'THURSDAY'
+  | 'FRIDAY'
+  | 'SATURDAY'
+  | 'SUNDAY';
 
 // Command types
 

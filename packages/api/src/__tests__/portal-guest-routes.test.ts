@@ -56,6 +56,7 @@ vi.mock('@evtivity/database', async () => ({
     )
   ).isStationLevelUnavailable,
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
+  getCompanyTaxBasis: vi.fn(() => Promise.resolve('net')),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),

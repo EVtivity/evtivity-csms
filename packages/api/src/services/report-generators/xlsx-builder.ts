@@ -3,6 +3,7 @@
 
 import ExcelJS from 'exceljs';
 import { neutraliseSpreadsheetFormula } from '@evtivity/lib';
+import { MoneyCell } from './report-money.js';
 
 // ExcelJS's published `Column` interface omits `eachCell`, but the runtime
 // objects in `sheet.columns` do expose it (see exceljs/lib/doc/column.js).
@@ -17,9 +18,13 @@ type ColumnWithEachCell = Partial<ExcelJS.Column> & {
 };
 
 function neutraliseCell(value: unknown): unknown {
+  // Money is a number in major units; the cell gets a two-decimal format below.
+  if (value instanceof MoneyCell) return value.cents / 100;
   if (typeof value !== 'string') return value;
   return neutraliseSpreadsheetFormula(value);
 }
+
+const MONEY_NUM_FMT = '#,##0.00';
 
 /**
  * Build an XLSX workbook from multiple tables (sheets).
@@ -52,7 +57,10 @@ export async function buildXlsx(
         sheet.addRow([]);
         continue;
       }
-      sheet.addRow(row.map(neutraliseCell));
+      const added = sheet.addRow(row.map(neutraliseCell));
+      row.forEach((value, i) => {
+        if (value instanceof MoneyCell) added.getCell(i + 1).numFmt = MONEY_NUM_FMT;
+      });
     }
 
     // Auto-fit column widths.

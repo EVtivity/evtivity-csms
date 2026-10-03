@@ -17,6 +17,7 @@ import {
 } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
 import { useAuth } from '@/lib/auth';
+import { costIncludesTax } from '@evtivity/lib/price-display';
 
 interface StatementSession {
   id: string;
@@ -24,6 +25,7 @@ interface StatementSession {
   endedAt: string | null;
   energyDeliveredWh: string | null;
   finalCostCents: number | null;
+  tariffTaxRate: string | null;
   currency: string;
   siteName: string | null;
   siteCity: string | null;
@@ -74,6 +76,10 @@ export function MonthlyStatement(): React.JSX.Element {
   });
   const efficiency = efficiencyData?.efficiencyMiPerKwh ?? 3.5;
   const hasCo2Data = data?.sessions.some((s) => s.co2AvoidedKg != null) === true;
+  // The cost column (and its total) reads "incl. tax" only when a session's
+  // cost actually contains tax, the rule the session lists label each row by.
+  const costsIncludeTax =
+    data?.sessions.some((s) => costIncludesTax(s.finalCostCents, s.tariffTaxRate)) === true;
 
   return (
     <div className="space-y-4">
@@ -115,7 +121,9 @@ export function MonthlyStatement(): React.JSX.Element {
                     <th className="hidden md:table-cell px-2 py-2 text-right">
                       {t('statement.miles')}
                     </th>
-                    <th className="px-2 py-2 text-right">{t('activity.cost')}</th>
+                    <th className="px-2 py-2 text-right">
+                      {costsIncludeTax ? t('statement.costInclTax') : t('statement.cost')}
+                    </th>
                     {hasCo2Data && (
                       <th className="hidden md:table-cell px-2 py-2 text-right">
                         {t('statement.co2Avoided')}

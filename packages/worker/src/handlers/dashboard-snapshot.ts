@@ -3,6 +3,12 @@
 
 import { sql } from 'drizzle-orm';
 import { db, sites, getCompanyCurrency } from '@evtivity/database';
+import {
+  queryRevenue,
+  revenueItem,
+  sumRevenue,
+  EMPTY_REVENUE,
+} from '@evtivity/api/src/lib/session-revenue.js';
 import type { Logger } from 'pino';
 
 export async function dashboardSnapshotHandler(log: Logger): Promise<void> {
@@ -92,7 +98,6 @@ async function snapshotSite(
 
   // Money sums count only amounts in the company currency.
   const sessionBilled = sql`UPPER(cs2.currency) = ${companyCurrency}`;
-  const paymentBilled = sql`UPPER(pr.currency) = ${companyCurrency}`;
 
   // The four read blocks (station counts, uptime, sessions+energy, revenue)
   // are all independent of each other. The only cross-block dependency is
@@ -191,19 +196,14 @@ async function snapshotSite(
       WHERE cs.site_id = ${siteId}
     `),
 
-    // 4. Revenue
-    db.execute(sql`
-      SELECT
-        COALESCE(SUM(pr.captured_amount_cents) FILTER (WHERE ${paymentBilled}), 0) AS total_revenue_cents,
-        COALESCE(SUM(pr.captured_amount_cents) FILTER (WHERE ${paymentBilled} AND pr.created_at >= ${dayStartIso}::timestamptz AND pr.created_at < ${dayEndIso}::timestamptz), 0) AS day_revenue_cents,
-        COUNT(*) AS total_transactions,
-        COUNT(*) FILTER (WHERE pr.created_at >= ${dayStartIso}::timestamptz AND pr.created_at < ${dayEndIso}::timestamptz) AS day_transactions
-      FROM payment_records pr
-      INNER JOIN charging_sessions cs2 ON cs2.id = pr.session_id
-      INNER JOIN charging_stations cs ON cs.id = cs2.station_id
-      WHERE cs.site_id = ${siteId}
-        AND pr.status IN ('captured', 'partially_refunded')
-    `),
+    // 4. Revenue (session-revenue.ts, the definition every revenue view
+    // shares): ended sessions and reservation fees billed in the company
+    // currency minus refunds, split by the snapshot day and the rest.
+    queryRevenue({
+      companyCurrency,
+      key: sql`${revenueItem.occurredAt} >= ${dayStartIso}::timestamptz AND ${revenueItem.occurredAt} < ${dayEndIso}::timestamptz`,
+      where: [sql`${revenueItem.siteId} = ${siteId}`],
+    }),
   ]);
 
   const stationData = stationRows[0] as { total: string; online: string };
@@ -231,15 +231,15 @@ async function snapshotSite(
     day_electricity_cost_cents: string;
     active_sessions: string;
   };
-  const revData = revenueRows[0] as {
-    total_revenue_cents: string;
-    day_revenue_cents: string;
-    total_transactions: string;
-    day_transactions: string;
-  };
+  const dayRevenue = revenueRows.get('true') ?? EMPTY_REVENUE;
+  const totalRevenue = sumRevenue(revenueRows.values());
   const totalSessionsNum = Number(sessData.total_sessions);
-  const totalRevCents = Number(revData.total_revenue_cents);
-  const avgRevPerSession = totalSessionsNum > 0 ? Math.round(totalRevCents / totalSessionsNum) : 0;
+  const totalRevCents = totalRevenue.grossCents;
+  // Average over billed sessions, as the live dashboard computes it.
+  const avgRevPerSession =
+    totalRevenue.sessionCount > 0
+      ? Math.round(totalRevenue.sessionGrossCents / totalRevenue.sessionCount)
+      : 0;
 
   // 6. Upsert
   await db.execute(sql`
@@ -256,9 +256,9 @@ async function snapshotSite(
       ${siteId}, ${snapshotDate}::date, ${totalStations}, ${onlineStations}, ${onlinePercent},
       ${uptimePercent}, ${Number(sessData.active_sessions)}, ${Number(sessData.total_energy_wh)}, ${Number(sessData.day_energy_wh)},
       ${totalSessionsNum}, ${Number(sessData.day_sessions)}, ${onlineStations},
-      ${totalRevCents}, ${Number(revData.day_revenue_cents)}, ${avgRevPerSession},
+      ${totalRevCents}, ${dayRevenue.grossCents}, ${avgRevPerSession},
       ${Number(sessData.total_electricity_cost_cents)}, ${Number(sessData.day_electricity_cost_cents)},
-      ${Number(revData.total_transactions)}, ${Number(revData.day_transactions)}, ${totalPorts}, ${stationsBelowThreshold},
+      ${totalRevenue.itemCount}, ${dayRevenue.itemCount}, ${totalPorts}, ${stationsBelowThreshold},
       ${avgPingLatencyMs}, ${pingSuccessRate}, ${companyCurrency},
       now()
     )

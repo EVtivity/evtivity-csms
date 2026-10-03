@@ -8,9 +8,12 @@ import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.
 import { ocpiAuthenticate } from '../../middleware/ocpi-auth.js';
 import { namespaceMismatch } from '../../lib/namespace-check.js';
 import { notifyRoamingSessionChanged } from '../../lib/pubsub.js';
+import { priceExclTax } from '../../lib/ocpi-price.js';
 import type { OcpiVersion, OcpiSession } from '../../types/ocpi.js';
 
-function isValidSession(body: unknown): body is OcpiSession {
+// total_cost is optional; when present it must be a Price of the route's
+// version: excl_vat in 2.2.1, before_taxes in 2.3.0.
+function isValidSession(body: unknown, version: OcpiVersion): body is OcpiSession {
   if (body == null || typeof body !== 'object') return false;
   const obj = body as Record<string, unknown>;
   // cdr_token is required at the wire level (we read body.cdr_token.uid on
@@ -25,7 +28,8 @@ function isValidSession(body: unknown): body is OcpiSession {
     typeof obj['status'] === 'string' &&
     typeof obj['currency'] === 'string' &&
     cdrToken != null &&
-    typeof cdrToken.uid === 'string'
+    typeof cdrToken.uid === 'string' &&
+    (obj['total_cost'] == null || priceExclTax(obj['total_cost'], version) != null)
   );
 }
 
@@ -94,7 +98,7 @@ function registerEmspSessionRoutes(app: FastifyInstance, version: OcpiVersion): 
       }
 
       const body = request.body;
-      if (!isValidSession(body)) {
+      if (!isValidSession(body, version)) {
         await reply
           .status(400)
           .send(ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'Invalid session object'));
@@ -103,7 +107,9 @@ function registerEmspSessionRoutes(app: FastifyInstance, version: OcpiVersion): 
 
       const tokenUid = body.cdr_token.uid;
       const kwh = String(body.kwh);
-      const totalCost = body.total_cost != null ? String(body.total_cost.excl_vat) : null;
+      // ocpi_roaming_sessions.total_cost holds the amount excluding tax.
+      const exclTax = priceExclTax(body.total_cost, version);
+      const totalCost = exclTax != null ? String(exclTax) : null;
       const currency = body.currency;
 
       const [existing] = await db
@@ -222,8 +228,14 @@ function registerEmspSessionRoutes(app: FastifyInstance, version: OcpiVersion): 
         updateFields.kwh = String(patch['kwh']);
       }
       if (patch['total_cost'] != null) {
-        const cost = patch['total_cost'] as { excl_vat: number };
-        updateFields.totalCost = String(cost.excl_vat);
+        const exclTax = priceExclTax(patch['total_cost'], version);
+        if (exclTax == null) {
+          await reply
+            .status(400)
+            .send(ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'Invalid total_cost'));
+          return;
+        }
+        updateFields.totalCost = String(exclTax);
       }
       if (typeof patch['currency'] === 'string') {
         updateFields.currency = patch['currency'];

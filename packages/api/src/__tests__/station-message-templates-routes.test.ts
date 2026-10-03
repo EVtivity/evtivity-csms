@@ -5,6 +5,10 @@ import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vites
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
+const { mockGetCompanyPriceDisplay } = vi.hoisted(() => ({
+  mockGetCompanyPriceDisplay: vi.fn(),
+}));
+
 let dbResults: unknown[][] = [];
 let dbCallIndex = 0;
 
@@ -73,10 +77,15 @@ vi.mock('@evtivity/database', () => ({
   },
   stationMessageTemplates: {
     state: 'state',
+    language: 'language',
     body: 'body',
     updatedAt: 'updatedAt',
     updatedBy: 'updatedBy',
   },
+  getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
+  getCompanyPriceDisplay: mockGetCompanyPriceDisplay,
+  getCompanyTaxBasis: vi.fn().mockResolvedValue('net'),
+  getStationMessagePricingFormat: vi.fn(() => Promise.resolve('compact')),
 }));
 
 vi.mock('@evtivity/lib', async () => {
@@ -96,7 +105,10 @@ vi.mock('drizzle-orm', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { stationMessageTemplateRoutes } from '../routes/station-message-templates.js';
-import { clearStationMessageCache as clearStationMessageCacheImport } from '@evtivity/lib';
+import {
+  STATION_MESSAGE_DEFAULTS,
+  clearStationMessageCache as clearStationMessageCacheImport,
+} from '@evtivity/lib';
 
 const clearStationMessageCache = clearStationMessageCacheImport as unknown as ReturnType<
   typeof vi.fn
@@ -126,6 +138,7 @@ describe('Station message template routes', () => {
   beforeEach(() => {
     setupDbResults();
     clearStationMessageCache.mockClear();
+    mockGetCompanyPriceDisplay.mockResolvedValue('gross');
   });
 
   describe('GET /v1/station-message-templates', () => {
@@ -138,12 +151,14 @@ describe('Station message template routes', () => {
       const rows = [
         {
           state: 'available',
+          language: 'en',
           body: 'Available body',
           updatedAt: '2026-01-01T00:00:00Z',
           updatedBy: 'usr_test',
         },
         {
           state: 'occupied',
+          language: 'de',
           body: 'Occupied body',
           updatedAt: '2026-01-02T00:00:00Z',
           updatedBy: null,
@@ -160,6 +175,7 @@ describe('Station message template routes', () => {
       expect(Array.isArray(body.data)).toBe(true);
       expect(body.data).toHaveLength(2);
       expect(body.data[0].state).toBe('available');
+      expect(body.data[1].language).toBe('de');
     });
   });
 
@@ -176,16 +192,32 @@ describe('Station message template routes', () => {
     it('returns 400 for an unknown state', async () => {
       const res = await app.inject({
         method: 'PUT',
-        url: '/station-message-templates/bogus-state',
+        url: '/station-message-templates/bogus-state?language=en',
         headers: { authorization: `Bearer ${token}` },
         payload: { body: 'New' },
       });
       expect(res.statusCode).toBe(400);
     });
 
+    it('returns 400 without a language or with an unsupported one', async () => {
+      for (const url of [
+        '/station-message-templates/available',
+        '/station-message-templates/available?language=fr',
+      ]) {
+        const res = await app.inject({
+          method: 'PUT',
+          url,
+          headers: { authorization: `Bearer ${token}` },
+          payload: { body: 'New' },
+        });
+        expect(res.statusCode).toBe(400);
+      }
+    });
+
     it('upserts and clears the renderer cache', async () => {
       const upserted = {
         state: 'available',
+        language: 'de',
         body: 'New body',
         updatedAt: '2026-01-01T00:00:00Z',
         updatedBy: 'usr_test',
@@ -193,7 +225,7 @@ describe('Station message template routes', () => {
       setupDbResults([upserted]);
       const res = await app.inject({
         method: 'PUT',
-        url: '/station-message-templates/available',
+        url: '/station-message-templates/available?language=de',
         headers: { authorization: `Bearer ${token}` },
         payload: { body: 'New body' },
       });
@@ -201,6 +233,7 @@ describe('Station message template routes', () => {
       const body = res.json();
       expect(body.body).toBe('New body');
       expect(body.state).toBe('available');
+      expect(body.language).toBe('de');
       expect(clearStationMessageCache).toHaveBeenCalledTimes(1);
     });
   });
@@ -215,22 +248,44 @@ describe('Station message template routes', () => {
     });
 
     it('resets to seed default and clears the renderer cache', async () => {
+      const { db } = await import('@evtivity/database');
+      const insertMock = db.insert as unknown as ReturnType<typeof vi.fn>;
+      insertMock.mockClear();
       const reset = {
         state: 'unavailable',
-        body: 'Temporarily unavailable\n{{companyName}}',
+        language: 'de',
+        body: STATION_MESSAGE_DEFAULTS.de.unavailable,
         updatedAt: '2026-01-01T00:00:00Z',
         updatedBy: 'usr_test',
       };
       setupDbResults([reset]);
       const res = await app.inject({
         method: 'DELETE',
-        url: '/station-message-templates/unavailable',
+        url: '/station-message-templates/unavailable?language=de',
         headers: { authorization: `Bearer ${token}` },
       });
       expect(res.statusCode).toBe(200);
       const body = res.json();
-      expect(body.body).toBe('Temporarily unavailable\n{{companyName}}');
+      expect(body.body).toBe(STATION_MESSAGE_DEFAULTS.de.unavailable);
+      expect(body.language).toBe('de');
+      const chain = insertMock.mock.results[0]?.value as { values: ReturnType<typeof vi.fn> };
+      expect(chain.values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          state: 'unavailable',
+          language: 'de',
+          body: STATION_MESSAGE_DEFAULTS.de.unavailable,
+        }),
+      );
       expect(clearStationMessageCache).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns 400 without a language', async () => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/station-message-templates/unavailable',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
     });
   });
 
@@ -251,12 +306,58 @@ describe('Station message template routes', () => {
         headers: { authorization: `Bearer ${token}` },
         payload: {
           state: 'available',
+          language: 'en',
           body: '{{companyName}}\n{{stationOcppId}}',
         },
       });
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body.rendered).toBe('EVtivity\nCS-1234');
+    });
+
+    it('renders sample prices as stations show them, in the chosen language', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/station-message-templates/preview',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          state: 'available',
+          language: 'de',
+          body: STATION_MESSAGE_DEFAULTS.de.available,
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().rendered).toBe(
+        'EVtivity\nCS-1234\n0,357\u00a0€/kWh + 0,0238\u00a0€/Min. + 0,119\u00a0€/Min. Standzeit\ninkl. 19 % MwSt.\nZum Starten einstecken',
+      );
+    });
+
+    it('shows net sample prices with an excl. note for net display', async () => {
+      mockGetCompanyPriceDisplay.mockResolvedValue('net');
+      const res = await app.inject({
+        method: 'POST',
+        url: '/station-message-templates/preview',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          state: 'available',
+          language: 'en',
+          body: STATION_MESSAGE_DEFAULTS.en.available,
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().rendered).toBe(
+        'EVtivity\nCS-1234\n€0.30/kWh + €0.02/min + €0.10/min idle\nexcl. 19% tax\nPlug in to start',
+      );
+    });
+
+    it('returns 400 without a language', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/station-message-templates/preview',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { state: 'available', body: 'hi' },
+      });
+      expect(res.statusCode).toBe(400);
     });
 
     it('honors sampleContext overrides', async () => {
@@ -266,6 +367,7 @@ describe('Station message template routes', () => {
         headers: { authorization: `Bearer ${token}` },
         payload: {
           state: 'charging',
+          language: 'en',
           body: 'Charging {{energyKwh}} kWh',
           sampleContext: { energyKwh: '99.9' },
         },

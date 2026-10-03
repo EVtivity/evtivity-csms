@@ -94,9 +94,30 @@ import {
   ADMIN_DEFAULT_PERMISSIONS,
   OPERATOR_DEFAULT_PERMISSIONS,
   STATION_MESSAGE_DEFAULTS,
+  STATION_MESSAGE_LANGUAGES,
+  DEFAULT_STATION_MESSAGE_LANGUAGE,
   mapConnectorTypeToCss,
   DEFAULT_CURRENCY,
+  DEFAULT_PRICE_DISPLAY,
+  DEFAULT_TAX_BASIS,
+  splitGrossByTaxRate,
+  taxTotals,
+  chargedCostBreakdown,
 } from '@evtivity/lib';
+import type { SessionCostBreakdown } from '@evtivity/lib';
+
+/**
+ * The stored split of a demo session cost (net_cents, tax_cents,
+ * cost_breakdown), as the cost assembly writes it with every cost: the
+ * charged amount split at the session's tax rate.
+ */
+function demoCostSplit(
+  costCents: number,
+  taxRate: number,
+): { netCents: number; taxCents: number; costBreakdown: SessionCostBreakdown } {
+  const costBreakdown = chargedCostBreakdown(costCents, taxRate, DEFAULT_TAX_BASIS);
+  return { netCents: costBreakdown.netCents, taxCents: costBreakdown.taxCents, costBreakdown };
+}
 
 // Helper data
 const US_CITIES = [
@@ -448,6 +469,7 @@ async function seed(): Promise<void> {
     'stationMessage.charging.refreshSeconds': 30,
     'stationMessage.eventMessageTtlSeconds': 30,
     'stationMessage.brandLine': '',
+    'stationMessage.language': DEFAULT_STATION_MESSAGE_LANGUAGE,
     'maintenance.defaultMessageTemplate':
       'This site is temporarily unavailable for maintenance. {{reason}}',
     'notifications.emailEnabled': true,
@@ -484,6 +506,8 @@ async function seed(): Promise<void> {
     'pnc.ocsp.allowedPrivateHosts': [],
     'company.name': 'EVtivity',
     'company.currency': DEFAULT_CURRENCY,
+    'company.priceDisplay': DEFAULT_PRICE_DISPLAY,
+    'company.taxBasis': DEFAULT_TAX_BASIS,
     'company.contactEmail': 'contact@evtivity.local',
     'company.supportEmail': 'support@evtivity.local',
     'company.supportPhone': '+1 (555) 123-4567',
@@ -701,18 +725,22 @@ async function seed(): Promise<void> {
   );
 
   // ------ Station Message Templates (always seeded) ------
-  // One row per OCPP MessageState slot. ON CONFLICT DO NOTHING so re-runs
+  // One row per state and display language. ON CONFLICT DO NOTHING so re-runs
   // don't overwrite operator edits. Defaults sourced from @evtivity/lib so
   // the API "Reset to default" handler can re-insert the same content.
-  const stationMessageTemplateRows = (
-    Object.entries(STATION_MESSAGE_DEFAULTS) as Array<
-      [keyof typeof STATION_MESSAGE_DEFAULTS, string]
-    >
-  ).map(([state, body]) => ({ state, body }));
+  const stationMessageTemplateRows = STATION_MESSAGE_LANGUAGES.flatMap((language) =>
+    Object.entries(STATION_MESSAGE_DEFAULTS[language]).map(([state, body]) => ({
+      state,
+      language,
+      body,
+    })),
+  );
   await db
     .insert(stationMessageTemplates)
     .values(stationMessageTemplateRows)
-    .onConflictDoNothing({ target: stationMessageTemplates.state });
+    .onConflictDoNothing({
+      target: [stationMessageTemplates.state, stationMessageTemplates.language],
+    });
   console.log(`  ${String(stationMessageTemplateRows.length)} station message templates seeded.`);
 
   if (!seedDemo) {
@@ -1685,6 +1713,9 @@ async function seed(): Promise<void> {
     stoppedReason: string | null;
     currentCostCents: number | null;
     finalCostCents: number | null;
+    netCents: number;
+    taxCents: number;
+    costBreakdown: SessionCostBreakdown;
     electricityCostCents: number | null;
   }> = [];
 
@@ -1724,6 +1755,8 @@ async function seed(): Promise<void> {
       stoppedReason: status === 'completed' ? pick(stopReasons) : null,
       currentCostCents: status === 'active' ? costCents : null,
       finalCostCents: status !== 'active' ? costCents : null,
+      // Demo sessions have no tariff snapshot, so no tax rate.
+      ...demoCostSplit(costCents, 0),
       electricityCostCents,
     });
   }
@@ -2384,6 +2417,10 @@ async function seed(): Promise<void> {
     meterStop: number;
     energyDeliveredWh: string;
     finalCostCents: number;
+    tariffTaxRate: string;
+    netCents: number;
+    taxCents: number;
+    costBreakdown: SessionCostBreakdown;
     currency: string;
     stoppedReason: string;
   }> = [];
@@ -2429,6 +2466,9 @@ async function seed(): Promise<void> {
       meterStop: i * 10000 + energyWh,
       energyDeliveredWh: String(energyWh),
       finalCostCents: costCents,
+      // The demo invoices below bill these sessions at 8%.
+      tariffTaxRate: '0.08',
+      ...demoCostSplit(costCents, 0.08),
       currency: companyCurrency,
       stoppedReason: 'EVDisconnected',
     });
@@ -2558,7 +2598,12 @@ async function seed(): Promise<void> {
     return `${String(d.getUTCFullYear())}${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
   };
   const invoiceSessions = portalCreatedSessions.slice(0, 3);
-  const subtotal = portalSessionRows.slice(0, 3).reduce((sum, row) => sum + row.finalCostCents, 0);
+  // Session costs include tax: each line holds the net amount and the tax
+  // contained in the charged amount, at the demo rate of 8%.
+  const invoiceTaxLines = portalSessionRows
+    .slice(0, invoiceSessions.length)
+    .map((row) => splitGrossByTaxRate(row.finalCostCents, 0.08));
+  const invoiceTotals = taxTotals(invoiceTaxLines);
   const [issuedInvoice] = await db
     .insert(invoices)
     .values([
@@ -2569,9 +2614,9 @@ async function seed(): Promise<void> {
         issuedAt: new Date(Date.UTC(curYear, curMonth, 1)),
         dueAt: new Date(Date.UTC(curYear, curMonth, 1) + 30 * 86400000),
         currency: companyCurrency,
-        subtotalCents: subtotal,
-        taxCents: Math.round(subtotal * 0.08),
-        totalCents: subtotal + Math.round(subtotal * 0.08),
+        subtotalCents: invoiceTotals.netCents,
+        taxCents: invoiceTotals.taxCents,
+        totalCents: invoiceTotals.grossCents,
       },
       {
         invoiceNumber: `INV-${invoiceMonth(2)}-9001`,
@@ -2590,14 +2635,16 @@ async function seed(): Promise<void> {
     await db.insert(invoiceLineItems).values(
       invoiceSessions.map((session, i) => {
         const row = at(portalSessionRows, i);
+        const line = at(invoiceTaxLines, i);
         return {
           invoiceId: issuedInvoice.id,
           sessionId: session.id,
           description: `Charging session ${row.transactionId}`,
           quantity: '1',
-          unitPriceCents: row.finalCostCents,
-          totalCents: row.finalCostCents,
-          taxCents: Math.round(row.finalCostCents * 0.08),
+          unitPriceCents: line.netCents,
+          totalCents: line.netCents,
+          taxCents: line.taxCents,
+          taxRate: '0.08',
         };
       }),
     );
@@ -2760,21 +2807,24 @@ async function seed(): Promise<void> {
   });
   await db.insert(ocpiCdrs).values(cdrRows);
 
-  const mappableTariffs = await db.select({ id: tariffs.id }).from(tariffs).limit(2);
-  if (mappableTariffs.length > 0) {
-    await db.insert(ocpiTariffMappings).values(
-      mappableTariffs.map((tariff, i) => ({
-        tariffId: tariff.id,
-        partnerId: i === 0 ? simPartner.id : cpoSimPartner.id,
-        ocpiTariffId: `EVT-TARIFF-${padNum(i + 1, 3)}`,
-        ocpiTariffData: {
-          country_code: 'US',
-          party_id: 'EVT',
-          id: `EVT-TARIFF-${padNum(i + 1, 3)}`,
-          currency: companyCurrency,
+  // Published OCPI tariffs are generated from internal pricing: one partner
+  // gets a single tariff, the other a pricing group with its restrictions.
+  const [mappableTariff] = await db
+    .select({ id: tariffs.id, pricingGroupId: tariffs.pricingGroupId })
+    .from(tariffs)
+    .limit(1);
+  if (mappableTariff != null) {
+    await db
+      .insert(ocpiTariffMappings)
+      .values([
+        { tariffId: mappableTariff.id, partnerId: simPartner.id, ocpiTariffId: 'EVT-TARIFF-001' },
+        {
+          pricingGroupId: mappableTariff.pricingGroupId,
+          partnerId: cpoSimPartner.id,
+          ocpiTariffId: 'EVT-TARIFF-002',
         },
-      })),
-    );
+      ])
+      .onConflictDoNothing();
   }
   console.log('  Roaming demo data created (sessions, CDRs, tariff mappings).');
 

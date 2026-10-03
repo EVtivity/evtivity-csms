@@ -158,7 +158,7 @@ const driverReservationItem = z
       .number()
       .int()
       .min(0)
-      .describe('Fee actually charged (cents, 0 when waived)'),
+      .describe('Fee actually charged (cents, tax included, 0 when waived)'),
   })
   .passthrough();
 

@@ -31,6 +31,7 @@ import {
   ocppPingSuccessRate,
   ocppHeartbeatsTotal,
 } from '../plugins/metrics.js';
+import { queryRevenueTotal } from '../lib/session-revenue.js';
 
 const logger = createLogger('metrics-collector');
 
@@ -118,13 +119,9 @@ export async function collectBusinessMetrics(): Promise<void> {
         WHERE status = 'completed'
       `),
 
-      // Revenue of completed sessions billed in the company currency
-      db.execute(sql`
-        SELECT COALESCE(SUM(final_cost_cents), 0)::bigint AS total
-        FROM charging_sessions
-        WHERE status = 'completed'
-          AND UPPER(currency) = ${companyCurrency}
-      `),
+      // Revenue (session-revenue.ts): ended sessions and reservation fees
+      // billed in the company currency, minus refunds, tax included.
+      queryRevenueTotal({ companyCurrency }),
 
       // Reservations by status
       db.execute(sql`
@@ -246,7 +243,7 @@ export async function collectBusinessMetrics(): Promise<void> {
     energyDeliveredWhTotal.set(asBigInt(energyRows, 'total'));
     // Reset drops the series of a previous company currency.
     revenueCentsTotal.reset();
-    revenueCentsTotal.set({ currency: companyCurrency }, asInt(revenueRows, 'total'));
+    revenueCentsTotal.set({ currency: companyCurrency }, revenueRows.grossCents);
 
     reservationsByStatus.reset();
     for (const row of asRows(reservationRows)) {

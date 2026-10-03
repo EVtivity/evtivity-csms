@@ -18,7 +18,9 @@
     "offline": "Estas sin conexion. Algunas funciones pueden no funcionar.",
     "add": "Añadir",
     "deactivate": "Desactivar",
-    "remove": "Quitar"
+    "remove": "Quitar",
+    "inclTax": "impuestos incluidos",
+    "amountInclTax": "{{amount}} impuestos incluidos"
   },
   "nav": {
     "home": "Inicio",
@@ -125,7 +127,14 @@
     "energy": "Energia",
     "energyAdded": "Energia entregada",
     "cost": "Costo estimado",
+    "costInclTax": "Costo estimado (impuestos incluidos)",
     "totalCost": "Costo total",
+    "totalCostInclTax": "Costo total (impuestos incluidos)",
+    "netCost": "Importe neto (antes de impuestos)",
+    "taxAdded": "Impuestos ({{rate}} %)",
+    "taxAddedNoRate": "Impuestos",
+    "taxContained": "Impuestos incluidos ({{rate}} %)",
+    "taxContainedNoRate": "Impuestos incluidos",
     "stopReason": "Razon de parada",
     "rfid": "RFID",
     "payment": "Pago",
@@ -226,7 +235,12 @@
     "themeDark": "Oscuro",
     "distanceUnit": "Unidad de distancia",
     "distanceMiles": "Millas",
-    "distanceKm": "Kilometros"
+    "distanceKm": "Kilometros",
+    "priceDisplay": "Mostrar precios",
+    "priceDisplayDefault": "Predeterminado del operador ({{value}})",
+    "priceDisplayGross": "Impuestos incluidos (bruto)",
+    "priceDisplayNet": "Sin impuestos (neto)",
+    "priceDisplayHelper": "Con impuestos muestra los precios con los impuestos sumados. Sin impuestos muestra los precios antes de impuestos. El importe cobrado es el mismo en ambos casos, y mientras no elija, se aplica la opción del operador."
   },
   "charger": {
     "loadingInfo": "Cargando informacion del cargador...",
@@ -261,6 +275,8 @@
     "sessionFee": "tarifa de sesion",
     "idleFee": "/min tarifa inactiva",
     "tax": "impuesto",
+    "taxIncluded": "Precios con impuestos del {{rate}} % incluidos",
+    "taxExcluded": "Precios sin el {{rate}} % de impuestos, que se suma al importe cobrado",
     "startCharging": "Iniciar carga",
     "freeCharging": "Carga gratuita",
     "siteContact": "Contacto del sitio",
@@ -327,7 +343,9 @@
     "duration": "Duracion",
     "energyDelivered": "Energia entregada",
     "totalCost": "Costo total",
+    "totalCostInclTax": "Costo total (impuestos incluidos)",
     "estimatedCost": "Costo estimado",
+    "estimatedCostInclTax": "Costo estimado (impuestos incluidos)",
     "started": "Inicio",
     "ended": "Fin",
     "stopCharging": "Detener carga",
@@ -411,7 +429,7 @@
     "noShowFeeNote": "Se puede aplicar una tarifa de retencion incluso si no te presentas.",
     "maxHoursHint": "La duracion maxima de la reserva es de {{hours}} horas.",
     "paymentMethodRequired": "Se requiere un metodo de pago para crear una reserva.",
-    "cancellationFeeWarning": "Se cobrara una tarifa de cancelacion de {{fee}} en tu metodo de pago predeterminado.",
+    "cancellationFeeWarning": "Se cobrara una tarifa de cancelacion de {{fee}} mas los impuestos aplicables en tu metodo de pago predeterminado.",
     "cancellationPolicy": "Politica de cancelacion",
     "cancellationPolicyText": "Si cancelas dentro de los {{minutes}} minutos de la hora de inicio, se cobrara una tarifa de cancelacion de {{fee}}.",
     "upcoming": "Próximas",
@@ -739,7 +757,9 @@
     "total": "Total",
     "co2Avoided": "CO₂ evitado",
     "totalCo2Avoided": "CO₂ total evitado",
-    "noSessions": "No hay sesiones de carga en este periodo."
+    "noSessions": "No hay sesiones de carga en este periodo.",
+    "cost": "Costo",
+    "costInclTax": "Costo (impuestos incluidos)"
   },
   "account": {
     "title": "Cuenta",

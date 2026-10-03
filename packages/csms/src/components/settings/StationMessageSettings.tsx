@@ -15,6 +15,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
+import { LANGUAGES, LanguageSelect } from '@/components/ui/language-select';
 import { api } from '@/lib/api';
 
 type StationMessageState =
@@ -31,8 +32,15 @@ type StationMessageState =
   | 'guest_unauthorized'
   | 'unauthorized';
 
+type StationMessageLanguage = (typeof LANGUAGES)[number]['code'];
+
+function isStationMessageLanguage(value: unknown): value is StationMessageLanguage {
+  return LANGUAGES.some((lang) => lang.code === value);
+}
+
 interface TemplateRow {
   state: StationMessageState;
+  language: StationMessageLanguage;
   body: string;
   updatedAt: string | null;
   updatedBy: string | null;
@@ -75,6 +83,24 @@ const VARIABLES: VariableDef[] = [
     name: 'pricingDisplay',
     descriptionKey: 'messages.varPricingDisplay',
     states: new Set(['available']),
+  },
+  {
+    name: 'energyPrice',
+    descriptionKey: 'messages.varEnergyPrice',
+    states: new Set(['available']),
+  },
+  { name: 'timePrice', descriptionKey: 'messages.varTimePrice', states: new Set(['available']) },
+  { name: 'sessionFee', descriptionKey: 'messages.varSessionFee', states: new Set(['available']) },
+  { name: 'idleFee', descriptionKey: 'messages.varIdleFee', states: new Set(['available']) },
+  {
+    name: 'taxRatePercent',
+    descriptionKey: 'messages.varTaxRatePercent',
+    states: new Set(['available', 'suspended']),
+  },
+  {
+    name: 'pricesIncludeTax',
+    descriptionKey: 'messages.varPricesIncludeTax',
+    states: new Set(['available', 'suspended']),
   },
   {
     name: 'energyKwh',
@@ -162,6 +188,10 @@ export function StationMessageSettings({
   const [refreshSeconds, setRefreshSeconds] = useState('30');
   const [eventMessageTtlSeconds, setEventMessageTtlSeconds] = useState('30');
   const [brandLine, setBrandLine] = useState('');
+  const [displayLanguage, setDisplayLanguage] = useState<StationMessageLanguage>('en');
+  // Language of the template being edited. Follows the display language until
+  // the operator picks another one.
+  const [editLanguage, setEditLanguage] = useState<StationMessageLanguage | null>(null);
 
   useEffect(() => {
     if (settings == null) return;
@@ -186,7 +216,11 @@ export function StationMessageSettings({
     }
     const brand = settings['stationMessage.brandLine'];
     setBrandLine(typeof brand === 'string' ? brand : '');
+    const language = settings['stationMessage.language'];
+    setDisplayLanguage(isStationMessageLanguage(language) ? language : 'en');
   }, [settings]);
+
+  const templateLanguage = editLanguage ?? displayLanguage;
 
   // Templates list
   const { data: templates } = useQuery({
@@ -204,11 +238,11 @@ export function StationMessageSettings({
     const map = new Map<StationMessageState, TemplateRow>();
     if (templates != null) {
       for (const row of templates.data) {
-        map.set(row.state, row);
+        if (row.language === templateLanguage) map.set(row.state, row);
       }
     }
     return map;
-  }, [templates]);
+  }, [templates, templateLanguage]);
 
   useEffect(() => {
     const row = templatesByState.get(selectedState);
@@ -225,6 +259,7 @@ export function StationMessageSettings({
       refreshSeconds: number;
       eventMessageTtlSeconds: number;
       brandLine: string;
+      language: StationMessageLanguage;
     }) =>
       Promise.all([
         api.put('/v1/settings/stationMessage.enabled', { value: vals.enabled }),
@@ -236,6 +271,7 @@ export function StationMessageSettings({
           value: vals.eventMessageTtlSeconds,
         }),
         api.put('/v1/settings/stationMessage.brandLine', { value: vals.brandLine }),
+        api.put('/v1/settings/stationMessage.language', { value: vals.language }),
       ]),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['settings'] });
@@ -248,8 +284,15 @@ export function StationMessageSettings({
 
   // Template save
   const saveMutation = useMutation({
-    mutationFn: (vals: { state: StationMessageState; body: string }) =>
-      api.put<TemplateRow>(`/v1/station-message-templates/${vals.state}`, { body: vals.body }),
+    mutationFn: (vals: {
+      state: StationMessageState;
+      language: StationMessageLanguage;
+      body: string;
+    }) =>
+      api.put<TemplateRow>(
+        `/v1/station-message-templates/${vals.state}?language=${encodeURIComponent(vals.language)}`,
+        { body: vals.body },
+      ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['station-message-templates'] });
       toast({ title: t('messages.saved'), variant: 'success' });
@@ -261,8 +304,10 @@ export function StationMessageSettings({
 
   // Reset to default
   const resetMutation = useMutation({
-    mutationFn: (state: StationMessageState) =>
-      api.delete<TemplateRow>(`/v1/station-message-templates/${state}`),
+    mutationFn: (vals: { state: StationMessageState; language: StationMessageLanguage }) =>
+      api.delete<TemplateRow>(
+        `/v1/station-message-templates/${vals.state}?language=${encodeURIComponent(vals.language)}`,
+      ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['station-message-templates'] });
       toast({ title: t('messages.resetSuccess'), variant: 'success' });
@@ -280,6 +325,7 @@ export function StationMessageSettings({
         try {
           const result = await api.post<PreviewResponse>('/v1/station-message-templates/preview', {
             state: selectedState,
+            language: templateLanguage,
             body: bodyDraft,
           });
           setPreview(result.rendered);
@@ -291,7 +337,7 @@ export function StationMessageSettings({
     return () => {
       clearTimeout(timer);
     };
-  }, [selectedState, bodyDraft]);
+  }, [selectedState, bodyDraft, templateLanguage]);
 
   const visibleVariables = useMemo(
     () => VARIABLES.filter((v) => v.states.has(selectedState)),
@@ -341,6 +387,7 @@ export function StationMessageSettings({
                 refreshSeconds: refreshSecondsNumber,
                 eventMessageTtlSeconds: eventMessageTtlNumber,
                 brandLine,
+                language: displayLanguage,
               });
             }}
             noValidate
@@ -414,6 +461,20 @@ export function StationMessageSettings({
             </div>
 
             <div className="space-y-2">
+              <Label htmlFor="station-message-display-language">
+                {t('messages.displayLanguage')}
+              </Label>
+              <LanguageSelect
+                id="station-message-display-language"
+                value={displayLanguage}
+                onChange={(value) => {
+                  if (isStationMessageLanguage(value)) setDisplayLanguage(value);
+                }}
+              />
+              <p className="text-xs text-muted-foreground">{t('messages.displayLanguageDesc')}</p>
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="station-message-brand-line">{t('messages.brandLine')}</Label>
               <Input
                 id="station-message-brand-line"
@@ -457,6 +518,23 @@ export function StationMessageSettings({
               })}
             </div>
             <div className="space-y-4 p-6">
+              <div className="space-y-2">
+                <Label htmlFor="station-message-template-language">
+                  {t('messages.templateLanguage')}
+                </Label>
+                <LanguageSelect
+                  id="station-message-template-language"
+                  value={templateLanguage}
+                  onChange={(value) => {
+                    if (isStationMessageLanguage(value)) setEditLanguage(value);
+                  }}
+                  className="sm:w-60"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('messages.templateLanguageDesc')}
+                </p>
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="station-message-body">{t('messages.bodyLabel')}</Label>
                 <textarea
@@ -511,7 +589,11 @@ export function StationMessageSettings({
                   type="button"
                   disabled={bodyDraft === originalBody}
                   onClick={() => {
-                    saveMutation.mutate({ state: selectedState, body: bodyDraft });
+                    saveMutation.mutate({
+                      state: selectedState,
+                      language: templateLanguage,
+                      body: bodyDraft,
+                    });
                   }}
                 />
                 <Button
@@ -540,7 +622,7 @@ export function StationMessageSettings({
         variant="destructive"
         isPending={resetMutation.isPending}
         onConfirm={() => {
-          resetMutation.mutate(selectedState);
+          resetMutation.mutate({ state: selectedState, language: templateLanguage });
         }}
       />
     </div>

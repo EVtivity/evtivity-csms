@@ -22,6 +22,7 @@ import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 import { formatCents } from '@/lib/formatting';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
+import { centsToMajorInput } from '@evtivity/lib/currency';
 
 const TOKEN_TYPES = [
   'DirectPayment',
@@ -99,7 +100,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
     setIsActive(token.isActive);
     setIsPrepaid(token.prepaidBalanceCents != null);
     setPrepaidBalance(
-      token.prepaidBalanceCents != null ? (token.prepaidBalanceCents / 100).toFixed(2) : '',
+      token.prepaidBalanceCents != null ? centsToMajorInput(token.prepaidBalanceCents) : '',
     );
     setSelectedDriver(
       token.driverId && token.driverFirstName
@@ -294,7 +295,8 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
                   ) : currency != null ? (
                     formatCents(token.prepaidBalanceCents, currency)
                   ) : (
-                    (token.prepaidBalanceCents / 100).toFixed(2)
+                    // Never an amount without its currency.
+                    <span className="text-muted-foreground">{t('common.loading')}</span>
                   )}
                 </dd>
               </div>

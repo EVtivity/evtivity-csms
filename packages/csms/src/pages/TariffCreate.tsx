@@ -10,6 +10,9 @@ import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DecimalInput } from '@/components/ui/decimal-input';
+import { TaxPriceHint } from '@/components/pricing/TaxPriceHint';
+import { DEFAULT_TAX_BASIS } from '@evtivity/lib/price-display';
+import { useCompanyTaxBasis } from '@/hooks/use-company-tax-basis';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -38,6 +41,8 @@ export function TariffCreate(): React.JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  // Price labels say whether prices are entered excluding or including tax.
+  const taxBasis = useCompanyTaxBasis() ?? DEFAULT_TAX_BASIS;
 
   const [name, setName] = useState('');
   const [pricePerKwh, setPricePerKwh] = useState('');
@@ -208,7 +213,7 @@ export function TariffCreate(): React.JSX.Element {
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="tariff-kwh">{t('pricing.pricePerKwh')}</Label>
+              <Label htmlFor="tariff-kwh">{t('pricing.pricePerKwh', { context: taxBasis })}</Label>
               <DecimalInput
                 id="tariff-kwh"
                 value={pricePerKwh}
@@ -219,9 +224,12 @@ export function TariffCreate(): React.JSX.Element {
               {hasSubmitted && errors.pricePerKwh && (
                 <p className="text-sm text-destructive">{errors.pricePerKwh}</p>
               )}
+              <TaxPriceHint price={pricePerKwh} taxRate={taxRate} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="tariff-min">{t('pricing.pricePerMinute')}</Label>
+              <Label htmlFor="tariff-min">
+                {t('pricing.pricePerMinute', { context: taxBasis })}
+              </Label>
               <DecimalInput
                 id="tariff-min"
                 value={pricePerMinute}
@@ -232,9 +240,12 @@ export function TariffCreate(): React.JSX.Element {
               {hasSubmitted && errors.pricePerMinute && (
                 <p className="text-sm text-destructive">{errors.pricePerMinute}</p>
               )}
+              <TaxPriceHint price={pricePerMinute} taxRate={taxRate} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="tariff-session">{t('pricing.pricePerSession')}</Label>
+              <Label htmlFor="tariff-session">
+                {t('pricing.pricePerSession', { context: taxBasis })}
+              </Label>
               <DecimalInput
                 id="tariff-session"
                 value={pricePerSession}
@@ -245,9 +256,12 @@ export function TariffCreate(): React.JSX.Element {
               {hasSubmitted && errors.pricePerSession && (
                 <p className="text-sm text-destructive">{errors.pricePerSession}</p>
               )}
+              <TaxPriceHint price={pricePerSession} taxRate={taxRate} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="tariff-idle-fee">{t('pricing.idleFeePricePerMinute')}</Label>
+              <Label htmlFor="tariff-idle-fee">
+                {t('pricing.idleFeePricePerMinute', { context: taxBasis })}
+              </Label>
               <DecimalInput
                 id="tariff-idle-fee"
                 value={idleFeePricePerMinute}
@@ -258,9 +272,12 @@ export function TariffCreate(): React.JSX.Element {
               {hasSubmitted && errors.idleFeePricePerMinute && (
                 <p className="text-sm text-destructive">{errors.idleFeePricePerMinute}</p>
               )}
+              <TaxPriceHint price={idleFeePricePerMinute} taxRate={taxRate} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="tariff-reservation-fee">{t('pricing.reservationFeePerMinute')}</Label>
+              <Label htmlFor="tariff-reservation-fee">
+                {t('pricing.reservationFeePerMinute', { context: taxBasis })}
+              </Label>
               <DecimalInput
                 id="tariff-reservation-fee"
                 value={reservationFeePerMinute}
@@ -274,6 +291,7 @@ export function TariffCreate(): React.JSX.Element {
                 <p className="text-sm text-destructive">{errors.reservationFeePerMinute}</p>
               )}
               <p className="text-xs text-muted-foreground">{t('pricing.reservationFeeHelper')}</p>
+              <TaxPriceHint price={reservationFeePerMinute} taxRate={taxRate} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="tariff-tax-rate">{t('pricing.taxRate')}</Label>

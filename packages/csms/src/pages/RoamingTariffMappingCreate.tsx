@@ -3,27 +3,27 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
 import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  EMPTY_TARIFF_MAPPING,
+  TariffMappingFields,
+  tariffMappingBody,
+  tariffMappingErrors,
+} from '@/components/roaming/TariffMappingFields';
+import type {
+  TariffMappingBody,
+  TariffMappingValues,
+} from '@/components/roaming/TariffMappingFields';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 
-interface Tariff {
-  id: string;
-  name: string;
-}
-
 interface TariffMapping {
   id: number;
-  tariffId: string;
-  ocpiTariffId: string;
 }
 
 export function RoamingTariffMappingCreate(): React.JSX.Element {
@@ -31,48 +31,28 @@ export function RoamingTariffMappingCreate(): React.JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const [selectedTariffId, setSelectedTariffId] = useState('');
-  const [ocpiTariffId, setOcpiTariffId] = useState('');
+  const [values, setValues] = useState<TariffMappingValues>(EMPTY_TARIFF_MAPPING);
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
-  const { data: tariffList } = useQuery({
-    queryKey: ['tariffs-list'],
-    queryFn: () => api.get<{ data: Tariff[]; total: number }>('/v1/pricing/tariffs'),
-  });
-
   const createMutation = useMutation({
-    mutationFn: (data: {
-      tariffId: string;
-      ocpiTariffId: string;
-      ocpiTariffData: Record<string, unknown>;
-    }) => api.post<TariffMapping>('/v1/ocpi/tariff-mappings', data),
+    mutationFn: (body: TariffMappingBody) =>
+      api.post<TariffMapping>('/v1/ocpi/tariff-mappings', body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['ocpi-tariff-mappings'] });
       void navigate(`/roaming/tariffs/${String(created.id)}`);
     },
   });
 
-  function getValidationErrors(): Record<string, string> {
-    const errors: Record<string, string> = {};
-    if (!selectedTariffId) errors.selectedTariffId = t('validation.required');
-    if (!ocpiTariffId.trim()) errors.ocpiTariffId = t('validation.required');
-    return errors;
-  }
-
-  const errors = { ...getValidationErrors(), ...getApiErrorFieldDetails(createMutation.error) };
+  const errors = tariffMappingErrors(values, createMutation.error, t);
+  // Field errors from the API show next to their field.
+  const fieldError = Object.keys(getApiErrorFieldDetails(createMutation.error)).length > 0;
 
   function handleSubmit(e: React.SyntheticEvent): void {
     e.preventDefault();
     setHasSubmitted(true);
-    if (Object.keys(errors).length > 0) return;
-    createMutation.mutate({
-      tariffId: selectedTariffId,
-      ocpiTariffId,
-      ocpiTariffData: {},
-    });
+    if (Object.keys(tariffMappingErrors(values, null, t)).length > 0) return;
+    createMutation.mutate(tariffMappingBody(values));
   }
-
-  const availableTariffs = tariffList?.data ?? [];
 
   return (
     <div className="space-y-6">
@@ -84,43 +64,16 @@ export function RoamingTariffMappingCreate(): React.JSX.Element {
       <Card>
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="mapping-tariff">{t('roaming.tariffs.internalTariff')}</Label>
-              <Select
-                id="mapping-tariff"
-                value={selectedTariffId}
-                onChange={(e) => {
-                  setSelectedTariffId(e.target.value);
-                }}
-                className={hasSubmitted && errors.selectedTariffId ? 'border-destructive' : ''}
-              >
-                <option value="">{t('roaming.tariffs.selectTariff')}</option>
-                {availableTariffs.map((tariff) => (
-                  <option key={tariff.id} value={tariff.id}>
-                    {tariff.name}
-                  </option>
-                ))}
-              </Select>
-              {hasSubmitted && errors.selectedTariffId && (
-                <p className="text-xs text-destructive">{errors.selectedTariffId}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="mapping-ocpi-id">{t('roaming.tariffs.ocpiTariffId')}</Label>
-              <Input
-                id="mapping-ocpi-id"
-                value={ocpiTariffId}
-                onChange={(e) => {
-                  setOcpiTariffId(e.target.value);
-                }}
-                placeholder="TARIFF-001"
-                className={hasSubmitted && errors.ocpiTariffId ? 'border-destructive' : ''}
-              />
-              {hasSubmitted && errors.ocpiTariffId && (
-                <p className="text-xs text-destructive">{errors.ocpiTariffId}</p>
-              )}
-            </div>
-            {createMutation.isError && (
+            <TariffMappingFields
+              idPrefix="mapping"
+              values={values}
+              onChange={(next) => {
+                createMutation.reset();
+                setValues(next);
+              }}
+              errors={hasSubmitted ? errors : {}}
+            />
+            {createMutation.isError && !fieldError && (
               <p className="text-sm text-destructive">{getErrorMessage(createMutation.error, t)}</p>
             )}
             <div className="flex justify-end gap-2">

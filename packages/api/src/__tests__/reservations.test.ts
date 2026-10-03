@@ -141,10 +141,11 @@ vi.mock('../lib/site-access.js', () => ({
   invalidateSiteAccessCache: vi.fn(),
 }));
 
-const mockChargeReservationCancellationFee = vi.fn().mockResolvedValue(undefined);
+const mockChargeReservationCancellationFee = vi
+  .fn()
+  .mockResolvedValue({ status: 'skipped', reason: 'no_payment_method' });
 vi.mock('../lib/reservation-fees.js', () => ({
-  chargeReservationCancellationFee: (...args: unknown[]) =>
-    mockChargeReservationCancellationFee(...args),
+  chargeReservationFee: (...args: unknown[]) => mockChargeReservationCancellationFee(...args),
 }));
 
 vi.mock('@evtivity/lib', async (importOriginal) => {
@@ -232,7 +233,10 @@ describe('Reservation routes', () => {
     mockSubscribe.mockClear();
     mockUnsubscribe.mockClear();
     mockChargeReservationCancellationFee.mockClear();
-    mockChargeReservationCancellationFee.mockResolvedValue(undefined);
+    mockChargeReservationCancellationFee.mockResolvedValue({
+      status: 'skipped',
+      reason: 'no_payment_method',
+    });
     vi.mocked(getReservationSettings).mockResolvedValue({
       enabled: true,
       bufferMinutes: 0,
@@ -1135,11 +1139,16 @@ describe('Reservation routes', () => {
           payload: { chargeCancellationFee: true },
         });
         expect(res.statusCode).toBe(200);
+        // The fee setting is net; chargeReservationFee adds the tariff tax.
+        // (stationId comes from the conditional UPDATE, covered in reservation-cancel.test.ts.)
         expect(mockChargeReservationCancellationFee).toHaveBeenCalledWith(
-          VALID_DRIVER_ID,
-          null,
-          500,
-          VALID_RESERVATION_ID,
+          expect.objectContaining({
+            type: 'reservation_cancellation',
+            reservationId: VALID_RESERVATION_ID,
+            driverId: VALID_DRIVER_ID,
+            siteId: null,
+            netCents: 500,
+          }),
         );
       });
 

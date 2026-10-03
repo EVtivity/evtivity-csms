@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, and, count } from 'drizzle-orm';
 import { db, client, invoices, invoiceStatusEnum } from '@evtivity/database';
-import { dispatchDriverNotification, AppError } from '@evtivity/lib';
+import { dispatchDriverNotification, AppError, notificationMoney } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -65,12 +65,27 @@ const invoiceLineItem = z
     id: z.number().int().min(1).describe('Line item ID'),
     invoiceId: z.string().describe('Invoice ID this line item belongs to'),
     sessionId: z.string().nullable().describe('Charging session ID linked to this line item'),
+    paymentRecordId: z
+      .number()
+      .int()
+      .nullable()
+      .describe(
+        'Payment record of the reservation cancellation or no-show fee this line invoices, null on session lines',
+      ),
     description: z.string().max(500).describe('Line item description'),
     quantity: z.string().describe('Quantity (numeric string)'),
     unitPriceCents: z.number().int().min(0).describe('Unit price in cents'),
-    totalCents: z.number().int().min(0).describe('Line item total in cents'),
+    totalCents: z.number().int().min(0).describe('Line item net amount in cents (tax excluded)'),
     taxCents: z.number().int().min(0).describe('Tax amount in cents for this line item'),
-    metadata: z.record(z.unknown()).nullable().describe('Free-form line item metadata'),
+    taxRate: z
+      .string()
+      .describe('Tax rate of this line item as a decimal fraction string (0.19 is 19%)'),
+    metadata: z
+      .record(z.unknown())
+      .nullable()
+      .describe(
+        'Line item metadata. kind (energy, time, sessionFee, idleFee, reservationFee, session, cancellationFee, noShowFee) says what the line bills; segment is the 1-based tariff segment of a split session; sessionDate and energyWh describe session lines; chargeDate is the charge date of a reservation fee line.',
+      ),
     createdAt: z.string().describe('Timestamp when the line item was created'),
   })
   .passthrough();
@@ -81,6 +96,16 @@ const invoiceDriver = z
     firstName: z.string().describe('Driver first name'),
     lastName: z.string().describe('Driver last name'),
     email: z.string().nullable().describe('Driver email address'),
+    language: z.string().describe('Driver preferred language; the invoice PDF renders in it'),
+  })
+  .passthrough();
+
+const invoiceTaxBreakdownLine = z
+  .object({
+    taxRate: z.number().min(0).describe('Tax rate as a fraction (0.19 is 19%)'),
+    netCents: z.number().int().describe('Net amount taxed at this rate, in cents'),
+    taxCents: z.number().int().describe('Tax amount at this rate, in cents'),
+    grossCents: z.number().int().describe('Net amount plus tax at this rate, in cents'),
   })
   .passthrough();
 
@@ -93,6 +118,12 @@ const invoiceDetailItem = z
       .optional()
       .describe(
         'Driver this invoice is billed to (null when unassigned). Present on the detail response; omitted on create responses.',
+      ),
+    taxBreakdown: z
+      .array(invoiceTaxBreakdownLine)
+      .optional()
+      .describe(
+        'Net amount, tax rate, tax amount, and gross per tax rate, ordered by rate. Present on the detail response; omitted on create responses.',
       ),
   })
   .passthrough();
@@ -254,7 +285,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
         tags: ['Invoices'],
         summary: 'Generate an aggregated invoice for a driver over a date range',
         description:
-          'Aggregates every uninvoiced completed session for the driver between startDate and endDate into a single invoice with one line item per session. Allocates an invoice number from invoice_number_seq. Returns 400 if no eligible sessions are found in the window.',
+          'Aggregates every uninvoiced completed session for the driver between startDate and endDate into a single invoice with one line item per session and tax rate, plus one line per reservation cancellation or no-show fee charged in the window and not yet invoiced. Allocates an invoice number from invoice_number_seq. Returns 400 if no eligible sessions or fees are found in the window.',
         operationId: 'createAggregatedInvoice',
         security: [{ bearerAuth: [] }],
         body: zodSchema(aggregatedInvoiceBody),
@@ -364,7 +395,10 @@ export function invoiceRoutes(app: FastifyInstance): void {
           status: invoice.status,
           issuedAt: invoice.issuedAt?.toISOString() ?? '',
           dueAt: invoice.dueAt?.toISOString() ?? '',
-          total: `${(invoice.totalCents / 100).toFixed(2)} ${invoice.currency}`,
+          // Formatted in the driver's language by the dispatcher.
+          total: notificationMoney(invoice.totalCents, invoice.currency),
+          totalCents: invoice.totalCents,
+          currency: invoice.currency,
         },
         ALL_TEMPLATES_DIRS,
         getPubSub(),
@@ -383,7 +417,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
         tags: ['Invoices'],
         summary: 'Download an invoice as a PDF',
         description:
-          'Renders a portrait A4 PDF of the invoice with the company logo, billed-to driver, line items, and totals. Streams application/pdf as an attachment.',
+          "Renders a portrait A4 PDF of the invoice in the driver's language (English for an invoice without a driver, and for Korean and Chinese until the PDF embeds a CJK font) with the company logo, billed-to driver, line items with their tax rate, the net amount, tax rate, and tax amount per rate, and the totals. Streams application/pdf as an attachment.",
         operationId: 'downloadInvoicePdf',
         security: [{ bearerAuth: [] }],
         params: zodSchema(invoiceIdParams),

@@ -65,12 +65,44 @@ vi.mock('postgres', () => {
 const mockIsRoamingEnabled = vi.fn().mockResolvedValue(false);
 const mockSettlePrepaidSession = vi.fn().mockResolvedValue(null);
 
+// The one cost assembly (@evtivity/database session-pricing), mocked per test.
+// By default every priced session costs 15.00 (net 15.00, no tax).
+function costBreakdown(grossCents: number, taxRate = 0, taxCents = 0) {
+  const netCents = grossCents - taxCents;
+  return {
+    basis: 'net' as const,
+    netCents,
+    taxCents,
+    grossCents,
+    taxLines: grossCents === 0 ? [] : [{ taxRate, netCents, taxCents }],
+    components: null,
+  };
+}
+const mockPriceSessionAt = vi.fn().mockResolvedValue(costBreakdown(1500));
+const mockStoreRunningCost = vi.fn().mockResolvedValue(true);
+// session-pricing's own settings readers, so the real module loads without a database.
+vi.mock('../../../database/src/lib/idling-setting.js', () => ({
+  getIdlingGracePeriodMinutes: vi.fn().mockResolvedValue(0),
+}));
+vi.mock('../../../database/src/lib/pricing-settings.js', () => ({
+  isSplitBillingEnabled: vi.fn().mockResolvedValue(false),
+}));
+
 vi.mock('@evtivity/database', async () => ({
   // The real status entry point, running on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/station-status.js',
   )),
+  // The real session pricing writes (tariff snapshot, segments, final cost),
+  // running on the mocked client. The cost itself comes from mockPriceSessionAt.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/session-pricing.js',
+  )),
+  getCompanyTaxBasis: vi.fn().mockResolvedValue('net'),
+  priceSessionAt: (...args: unknown[]) => mockPriceSessionAt(...args) as unknown,
+  storeRunningCost: (...args: unknown[]) => mockStoreRunningCost(...args) as unknown,
   client: createSqlMock(),
+  getPlatformFeePercent: vi.fn().mockResolvedValue(0),
   isRoamingEnabled: mockIsRoamingEnabled,
   getIdlingGracePeriodMinutes: vi.fn().mockResolvedValue(0),
   isSplitBillingEnabled: vi.fn().mockResolvedValue(false),
@@ -83,6 +115,7 @@ vi.mock('@evtivity/database', async () => ({
   isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
   settlePrepaidSession: (...args: unknown[]) => mockSettlePrepaidSession(...args),
+  getCompanyPriceDisplay: vi.fn().mockResolvedValue('net'),
 }));
 
 const mockDispatchOcpp = vi.fn().mockResolvedValue(undefined);
@@ -95,7 +128,6 @@ vi.mock('../server/notification-dispatcher.js', () => ({
   ALL_TEMPLATES_DIRS: ['/mock/templates'],
 }));
 
-const mockCalculateSessionCost = vi.fn().mockReturnValue({ totalCents: 1500 });
 const mockDecryptString = vi.fn().mockReturnValue('sk_test_decrypted');
 const mockLoggerError = vi.fn();
 
@@ -103,7 +135,6 @@ vi.mock('@evtivity/lib', async () => {
   const actual = await vi.importActual<typeof import('@evtivity/lib')>('@evtivity/lib');
   return {
     ...actual,
-    calculateSessionCost: mockCalculateSessionCost,
     decryptString: mockDecryptString,
     createLogger: () => ({
       info: vi.fn(),
@@ -988,15 +1019,15 @@ describe('Event projections - coverage expansion', () => {
     });
   });
 
-  describe('ocpp.TransactionEvent Ended - tariff snapshot missing currency', () => {
-    it('skips cost computation if session has tariff_id but no currency snapshot', async () => {
-      mockCalculateSessionCost.mockClear();
+  describe('ocpp.TransactionEvent Ended - tariff row deleted', () => {
+    it('prices the session from its snapshot when its tariff row is gone', async () => {
       await setup();
 
       setupSqlResults(
         // First subscriber
         [{ id: 'sta_000000000001' }], // 0: resolveStationId
-        [], // 1: UPDATE charging_sessions
+        [], // 1: SELECT payment_records (no failed payment)
+        [], // 2: UPDATE charging_sessions
         [
           {
             id: 'session-1',
@@ -1044,7 +1075,12 @@ describe('Event projections - coverage expansion', () => {
         }),
       );
 
-      expect(mockCalculateSessionCost).not.toHaveBeenCalled();
+      expect(mockPriceSessionAt).toHaveBeenCalledWith(
+        expect.anything(),
+        'session-1',
+        new Date('2024-01-01T01:00:00Z'),
+        5000,
+      );
     });
   });
 
@@ -1143,6 +1179,7 @@ describe('Event projections - coverage expansion', () => {
             driver_id: 'driver-ended',
             energy_delivered_wh: 10000,
             final_cost_cents: 2500,
+            tariff_tax_rate: '0.19',
             currency: 'EUR',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
@@ -1173,6 +1210,7 @@ describe('Event projections - coverage expansion', () => {
         expect.objectContaining({
           transactionId: 'tx-end-notify',
           currency: 'EUR',
+          costIncludesTax: true,
         }),
         ['/mock/templates'],
         expect.anything(),
@@ -1186,6 +1224,7 @@ describe('Event projections - coverage expansion', () => {
           transactionId: 'tx-end-notify',
           finalCostCents: 2500,
           currency: 'EUR',
+          costIncludesTax: true,
         }),
         ['/mock/templates'],
         expect.anything(),
@@ -1492,7 +1531,7 @@ describe('Event projections - coverage expansion', () => {
         [{ site_id: null }], // resolveSiteId
       );
 
-      mockCalculateSessionCost.mockReturnValueOnce({ totalCents: 100 }); // Same cost
+      mockPriceSessionAt.mockResolvedValueOnce(costBreakdown(100)); // Same cost
 
       await eventBus.emit(
         'ocpp.MeterValues',
@@ -1523,7 +1562,7 @@ describe('Event projections - coverage expansion', () => {
         if (typeof c[1] !== 'string') return false;
         return c[1].includes('CostUpdated');
       });
-      expect(mockCalculateSessionCost).toHaveBeenCalled();
+      expect(mockPriceSessionAt).toHaveBeenCalled();
       expect(costUpdateCalls.length).toBe(0);
     });
   });
@@ -1598,8 +1637,10 @@ describe('Event projections - coverage expansion', () => {
         (c: unknown[]) => typeof c[1] === 'string' && c[1].includes('CostUpdated'),
       );
       expect(costUpdateCalls.length).toBe(1);
-      expect(sqlCalls.some((c) => c.strings.join(' ').includes('SET current_cost_cents'))).toBe(
-        true,
+      expect(mockStoreRunningCost).toHaveBeenCalledWith(
+        expect.anything(),
+        'session-1',
+        expect.objectContaining({ grossCents: 1500 }),
       );
     });
   });
@@ -2822,10 +2863,7 @@ describe('Event projections - coverage expansion', () => {
         ], // 23: site payment config (override + connected account)
         [{ currency: 'EUR' }], // 24: session currency for the pre-auth
         [], // 25: existing payment_records guard
-        [
-          { key: 'stripe.secretKeyEnc', value: 'encrypted' },
-          { key: 'stripe.platformFeePercent', value: 10 },
-        ], // 26: stripe settings
+        [{ value: 'encrypted' }], // 26: stripe secret key
         [], // 27: INSERT payment_records
       );
 
@@ -2849,10 +2887,16 @@ describe('Event projections - coverage expansion', () => {
           currency: 'eur',
           on_behalf_of: 'acct_connected',
           transfer_data: { destination: 'acct_connected' },
-          application_fee_amount: 1000,
         }),
         expect.objectContaining({ idempotencyKey: expect.stringMatching(/^preauth_/) }),
       );
+      // The platform fee is a percent of the net amount charged, set at
+      // capture; the hold carries none.
+      const holdParams = mockStripePaymentIntentsCreate.mock.calls[0]?.[0] as Record<
+        string,
+        unknown
+      >;
+      expect(holdParams).not.toHaveProperty('application_fee_amount');
     });
 
     it('skips payment gate for roaming sessions', async () => {

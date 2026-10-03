@@ -9,9 +9,12 @@ import { config } from '../../lib/config.js';
 import { ocpiAuthenticate } from '../../middleware/ocpi-auth.js';
 import { namespaceMismatch } from '../../lib/namespace-check.js';
 import { notifyRoamingCdrChanged } from '../../lib/pubsub.js';
+import { priceExclTax } from '../../lib/ocpi-price.js';
 import type { OcpiVersion, OcpiCdr } from '../../types/ocpi.js';
 
-function isValidCdr(body: unknown): body is OcpiCdr {
+// total_cost must be a Price of the route's version: excl_vat in 2.2.1,
+// before_taxes in 2.3.0 (the amount stored in ocpi_cdrs.total_cost).
+function isValidCdr(body: unknown, version: OcpiVersion): body is OcpiCdr {
   if (body == null || typeof body !== 'object') return false;
   const obj = body as Record<string, unknown>;
   return (
@@ -22,7 +25,7 @@ function isValidCdr(body: unknown): body is OcpiCdr {
     typeof obj['end_date_time'] === 'string' &&
     typeof obj['currency'] === 'string' &&
     typeof obj['total_energy'] === 'number' &&
-    obj['total_cost'] != null
+    priceExclTax(obj['total_cost'], version) != null
   );
 }
 
@@ -62,7 +65,7 @@ function registerEmspCdrRoutes(app: FastifyInstance, version: OcpiVersion): void
     }
 
     const body = request.body;
-    if (!isValidCdr(body)) {
+    if (!isValidCdr(body, version)) {
       await reply
         .status(400)
         .send(ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'Invalid CDR object'));
@@ -95,7 +98,7 @@ function registerEmspCdrRoutes(app: FastifyInstance, version: OcpiVersion): void
       return;
     }
 
-    const totalCost = typeof body.total_cost === 'object' ? String(body.total_cost.excl_vat) : '0';
+    const totalCost = String(priceExclTax(body.total_cost, version));
 
     const [inserted] = await db
       .insert(ocpiCdrs)

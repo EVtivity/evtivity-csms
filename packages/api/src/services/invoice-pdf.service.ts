@@ -1,11 +1,15 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { readFileSync } from 'node:fs';
 import PDFDocument from 'pdfkit';
 import { Resvg } from '@resvg/resvg-js';
 import { client } from '@evtivity/database';
-import { createLogger } from '@evtivity/lib';
+import { createLogger, formatCurrencyAmount, formatTaxRatePercent } from '@evtivity/lib';
 import type { InvoiceDetail } from './invoice.service.js';
+import { INVOICE_LABELS, describeLineItem, isInvoiceLanguage } from './invoice-labels.js';
+import type { InvoiceLabels, InvoiceLanguage } from './invoice-labels.js';
+import { CJK_FONT_FACES, CJK_FONT_FILES } from './invoice-pdf-fonts.js';
 
 const logger = createLogger('invoice-pdf');
 
@@ -14,10 +18,78 @@ const PAGE_WIDTH = 595.28; // A4 portrait width in points
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 const LOGO_MAX_WIDTH = 160;
 const LOGO_MAX_HEIGHT = 60;
+const PAGE_BOTTOM = 760;
 
 const COLOR_TEXT = '#0f172a';
 const COLOR_MUTED = '#64748b';
 const COLOR_LINE = '#cbd5e1';
+
+interface PdfFonts {
+  regular: string;
+  bold: string;
+}
+
+/** Latin languages use the standard Helvetica fonts built into pdfkit. */
+const LATIN_FONTS: PdfFonts = { regular: 'Helvetica', bold: 'Helvetica-Bold' };
+
+type CjkLanguage = keyof typeof CJK_FONT_FACES;
+
+function isCjkLanguage(language: InvoiceLanguage): language is CjkLanguage {
+  return Object.hasOwn(CJK_FONT_FACES, language);
+}
+
+interface CjkFontData {
+  regular: Buffer;
+  bold: Buffer;
+}
+
+/** undefined: not read yet. null: a file is missing (warned once). */
+let cjkFontData: CjkFontData | null | undefined;
+
+/**
+ * The CJK font collections, read once per process. Returns null and logs one
+ * warn when a file is missing (local dev outside the API image).
+ */
+function loadCjkFonts(): CjkFontData | null {
+  if (cjkFontData !== undefined) return cjkFontData;
+  try {
+    cjkFontData = {
+      regular: readFileSync(CJK_FONT_FILES.regular),
+      bold: readFileSync(CJK_FONT_FILES.bold),
+    };
+  } catch (err) {
+    logger.warn(
+      { err, files: CJK_FONT_FILES },
+      'CJK fonts not found, Korean and Chinese invoice PDFs render in English',
+    );
+    cjkFontData = null;
+  }
+  return cjkFontData;
+}
+
+/**
+ * The PDF language: the driver's language when the PDF can render it, else
+ * English. Korean and Chinese need the Noto Sans CJK fonts of the API image
+ * and fall back to English without them.
+ */
+export function resolveInvoicePdfLanguage(
+  driverLanguage: string | null | undefined,
+): InvoiceLanguage {
+  if (!isInvoiceLanguage(driverLanguage)) return 'en';
+  if (isCjkLanguage(driverLanguage) && loadCjkFonts() == null) return 'en';
+  return driverLanguage;
+}
+
+/** Registers the fonts of the language on the document and returns their names. */
+function registerFonts(doc: PDFKit.PDFDocument, language: InvoiceLanguage): PdfFonts {
+  if (!isCjkLanguage(language)) return LATIN_FONTS;
+  const data = loadCjkFonts();
+  if (data == null) return LATIN_FONTS;
+  const faces = CJK_FONT_FACES[language];
+  doc.registerFont('InvoiceCjk', data.regular, faces.regular);
+  doc.registerFont('InvoiceCjk-Bold', data.bold, faces.bold);
+  return { regular: 'InvoiceCjk', bold: 'InvoiceCjk-Bold' };
+}
 
 interface CompanyBranding {
   name: string;
@@ -75,31 +147,63 @@ function decodeLogo(logo: string | null): Buffer | null {
   return null;
 }
 
-function formatAmount(cents: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
-  } catch {
-    return `${(cents / 100).toFixed(2)} ${currency}`;
-  }
-}
-
-function formatDate(value: Date | string | null): string {
+function formatDate(value: Date | string | null, locale: string): string {
   if (value == null) return '—';
   const date = typeof value === 'string' ? new Date(value) : value;
   if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('en-US', {
+  return new Intl.DateTimeFormat(locale, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
   }).format(date);
 }
 
+/** A table column: x offset from the margin, width, and alignment. */
+interface Column {
+  x: number;
+  width: number;
+  align: 'left' | 'right';
+}
+
+function drawRow(doc: PDFKit.PDFDocument, columns: Column[], values: string[], y: number): number {
+  let height = 0;
+  columns.forEach((col, i) => {
+    const text = values[i] ?? '';
+    doc.text(text, MARGIN + col.x, y, { width: col.width, align: col.align });
+    height = Math.max(height, doc.heightOfString(text, { width: col.width }));
+  });
+  return Math.max(16, height + 4);
+}
+
+function drawRule(doc: PDFKit.PDFDocument, y: number, fromX = MARGIN): void {
+  doc
+    .moveTo(fromX, y)
+    .lineTo(MARGIN + CONTENT_WIDTH, y)
+    .stroke(COLOR_LINE);
+}
+
+function ensureSpace(doc: PDFKit.PDFDocument, y: number, needed: number): number {
+  if (y + needed > PAGE_BOTTOM) {
+    doc.addPage();
+    return MARGIN;
+  }
+  return y;
+}
+
 export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer> {
-  const { invoice, lineItems, driver } = detail;
+  const { invoice, lineItems, driver, taxBreakdown } = detail;
+  const language = resolveInvoicePdfLanguage(driver?.language);
+  const labels: InvoiceLabels = INVOICE_LABELS[language];
+  const money = (cents: number): string =>
+    formatCurrencyAmount(cents, invoice.currency, labels.locale);
+  const rate = (taxRate: number | string): string =>
+    labels.taxRateValue.replace('{rate}', formatTaxRatePercent(Number(taxRate), labels.locale));
+
   const branding = await getCompanyBranding();
   const logoBuffer = decodeLogo(branding.logo);
 
   const doc = new PDFDocument({ margin: MARGIN, size: 'A4', layout: 'portrait' });
+  const fonts = registerFonts(doc, language);
   const chunks: Buffer[] = [];
 
   const built = new Promise<Buffer>((resolve, reject) => {
@@ -122,50 +226,38 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
       headerBottom = MARGIN + LOGO_MAX_HEIGHT;
     } catch (err) {
       logger.warn({ err }, 'pdfkit rejected invoice logo, falling back to wordmark');
-      doc
-        .fontSize(22)
-        .font('Helvetica-Bold')
-        .fillColor(COLOR_TEXT)
-        .text(branding.name, MARGIN, MARGIN);
+      doc.fontSize(22).font(fonts.bold).fillColor(COLOR_TEXT).text(branding.name, MARGIN, MARGIN);
       headerBottom = MARGIN + 30;
     }
   } else {
-    doc
-      .fontSize(22)
-      .font('Helvetica-Bold')
-      .fillColor(COLOR_TEXT)
-      .text(branding.name, MARGIN, MARGIN);
+    doc.fontSize(22).font(fonts.bold).fillColor(COLOR_TEXT).text(branding.name, MARGIN, MARGIN);
     headerBottom = MARGIN + 30;
   }
 
   doc
     .fontSize(20)
-    .font('Helvetica-Bold')
+    .font(fonts.bold)
     .fillColor(COLOR_TEXT)
-    .text('INVOICE', MARGIN, MARGIN, { width: CONTENT_WIDTH, align: 'right' });
+    .text(labels.title, MARGIN, MARGIN, { width: CONTENT_WIDTH, align: 'right' });
   doc
     .fontSize(11)
-    .font('Helvetica')
+    .font(fonts.regular)
     .fillColor(COLOR_MUTED)
     .text(invoice.invoiceNumber, MARGIN, MARGIN + 26, { width: CONTENT_WIDTH, align: 'right' });
 
   let y = Math.max(headerBottom, MARGIN + 50) + 20;
-
-  doc
-    .moveTo(MARGIN, y)
-    .lineTo(MARGIN + CONTENT_WIDTH, y)
-    .stroke(COLOR_LINE);
+  drawRule(doc, y);
   y += 20;
 
-  // Meta block: company name + invoice details.
+  // Meta block: billed-to driver and the issuing company.
   const rightX = MARGIN + CONTENT_WIDTH / 2;
   const billedToName = driver != null ? `${driver.firstName} ${driver.lastName}`.trim() : '—';
   const billedToEmail = driver?.email ?? '';
 
-  doc.fontSize(9).font('Helvetica-Bold').fillColor(COLOR_MUTED).text('BILLED TO', MARGIN, y);
+  doc.fontSize(9).font(fonts.bold).fillColor(COLOR_MUTED).text(labels.billedTo, MARGIN, y);
   doc
     .fontSize(11)
-    .font('Helvetica')
+    .font(fonts.regular)
     .fillColor(COLOR_TEXT)
     .text(billedToName, MARGIN, y + 12);
   if (billedToEmail !== '') {
@@ -175,27 +267,27 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
       .text(billedToEmail, MARGIN, y + 27);
   }
 
-  doc.fontSize(9).font('Helvetica-Bold').fillColor(COLOR_MUTED).text('FROM', rightX, y);
+  doc.fontSize(9).font(fonts.bold).fillColor(COLOR_MUTED).text(labels.from, rightX, y);
   doc
     .fontSize(11)
-    .font('Helvetica')
+    .font(fonts.regular)
     .fillColor(COLOR_TEXT)
     .text(branding.name, rightX, y + 12);
 
   y += 50;
 
   const metaRows: Array<[string, string]> = [
-    ['Status', invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)],
-    ['Issued', formatDate(invoice.issuedAt)],
-    ['Due', formatDate(invoice.dueAt)],
+    [labels.status, labels.statuses[invoice.status]],
+    [labels.issued, formatDate(invoice.issuedAt, labels.locale)],
+    [labels.due, formatDate(invoice.dueAt, labels.locale)],
   ];
   for (const [label, value] of metaRows) {
-    doc.fontSize(10).font('Helvetica').fillColor(COLOR_MUTED).text(label, MARGIN, y, {
+    doc.fontSize(10).font(fonts.regular).fillColor(COLOR_MUTED).text(label, MARGIN, y, {
       width: 120,
     });
     doc
       .fontSize(10)
-      .font('Helvetica-Bold')
+      .font(fonts.bold)
       .fillColor(COLOR_TEXT)
       .text(value, MARGIN + 120, y);
     y += 16;
@@ -203,90 +295,105 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
 
   y += 14;
 
-  // Line items table.
-  const cols = {
-    description: MARGIN,
-    qty: MARGIN + 300,
-    unit: MARGIN + 350,
-    total: MARGIN + 430,
-  };
-  const colWidths = {
-    description: 290,
-    qty: 40,
-    unit: 75,
-    total: CONTENT_WIDTH - 430,
-  };
+  // Line items: description, quantity, net unit price, tax rate, net amount.
+  const itemColumns: Column[] = [
+    { x: 0, width: 205, align: 'left' },
+    { x: 210, width: 35, align: 'right' },
+    { x: 250, width: 80, align: 'right' },
+    { x: 335, width: 60, align: 'right' },
+    { x: 400, width: CONTENT_WIDTH - 400, align: 'right' },
+  ];
+  doc.fontSize(9).font(fonts.bold).fillColor(COLOR_MUTED);
+  y += drawRow(
+    doc,
+    itemColumns,
+    [labels.description, labels.quantity, labels.unitPrice, labels.taxRate, labels.amount],
+    y,
+  );
+  drawRule(doc, y - 4);
 
-  doc.fontSize(9).font('Helvetica-Bold').fillColor(COLOR_MUTED);
-  doc.text('DESCRIPTION', cols.description, y, { width: colWidths.description });
-  doc.text('QTY', cols.qty, y, { width: colWidths.qty, align: 'right' });
-  doc.text('UNIT', cols.unit, y, { width: colWidths.unit, align: 'right' });
-  doc.text('TOTAL', cols.total, y, { width: colWidths.total, align: 'right' });
-  y += 16;
-  doc
-    .moveTo(MARGIN, y - 4)
-    .lineTo(MARGIN + CONTENT_WIDTH, y - 4)
-    .stroke(COLOR_LINE);
-
-  doc.font('Helvetica').fontSize(10).fillColor(COLOR_TEXT);
+  doc.font(fonts.regular).fontSize(10).fillColor(COLOR_TEXT);
   for (const item of lineItems) {
-    if (y > 720) {
-      doc.addPage();
-      y = MARGIN;
-    }
+    y = ensureSpace(doc, y, 30);
     const qty = Number(item.quantity);
-    doc.text(item.description, cols.description, y, { width: colWidths.description });
-    doc.text(Number.isNaN(qty) ? item.quantity : qty.toString(), cols.qty, y, {
-      width: colWidths.qty,
-      align: 'right',
-    });
-    doc.text(formatAmount(item.unitPriceCents, invoice.currency), cols.unit, y, {
-      width: colWidths.unit,
-      align: 'right',
-    });
-    doc.text(formatAmount(item.totalCents, invoice.currency), cols.total, y, {
-      width: colWidths.total,
-      align: 'right',
-    });
-    const descHeight = doc.heightOfString(item.description, { width: colWidths.description });
-    y += Math.max(16, descHeight + 4);
+    y += drawRow(
+      doc,
+      itemColumns,
+      [
+        describeLineItem(labels, item.description, item.metadata),
+        Number.isNaN(qty) ? item.quantity : qty.toString(),
+        money(item.unitPriceCents),
+        rate(item.taxRate),
+        money(item.totalCents),
+      ],
+      y,
+    );
   }
 
-  y += 6;
+  y += 10;
 
-  // Totals block (divider + subtotal + tax + total) must not split across pages.
-  const TOTALS_BLOCK_HEIGHT = 10 + 16 + 16 + 20;
-  if (y + TOTALS_BLOCK_HEIGHT > 760) {
-    doc.addPage();
-    y = MARGIN;
+  // Tax summary: net amount, tax rate, and tax amount per rate. Must not
+  // split across pages.
+  const summaryColumns: Column[] = [
+    { x: 0, width: 120, align: 'left' },
+    { x: 125, width: 120, align: 'right' },
+    { x: 250, width: 120, align: 'right' },
+    { x: 375, width: CONTENT_WIDTH - 375, align: 'right' },
+  ];
+  y = ensureSpace(doc, y, 30 + taxBreakdown.length * 16);
+  doc.fontSize(9).font(fonts.bold).fillColor(COLOR_MUTED).text(labels.taxSummary, MARGIN, y);
+  y += 16;
+  y += drawRow(
+    doc,
+    summaryColumns,
+    [labels.taxRate, labels.netAmount, labels.tax, labels.grossAmount],
+    y,
+  );
+  drawRule(doc, y - 4);
+  doc.font(fonts.regular).fontSize(10).fillColor(COLOR_TEXT);
+  for (const line of taxBreakdown) {
+    y += drawRow(
+      doc,
+      summaryColumns,
+      [rate(line.taxRate), money(line.netCents), money(line.taxCents), money(line.grossCents)],
+      y,
+    );
   }
 
-  doc
-    .moveTo(MARGIN + CONTENT_WIDTH / 2, y)
-    .lineTo(MARGIN + CONTENT_WIDTH, y)
-    .stroke(COLOR_LINE);
+  y += 10;
+
+  // Totals block (divider + net subtotal + tax + total) must not split across pages.
+  y = ensureSpace(doc, y, 10 + 16 + 16 + 20 + 20);
+  drawRule(doc, y, MARGIN + CONTENT_WIDTH / 2);
   y += 10;
 
   const totalsX = MARGIN + CONTENT_WIDTH / 2;
-  const totalsLabelWidth = CONTENT_WIDTH / 2 - colWidths.total;
+  const amountCol = itemColumns[4] ?? { x: 400, width: CONTENT_WIDTH - 400, align: 'right' };
+  const totalsLabelWidth = CONTENT_WIDTH / 2 - amountCol.width;
   const totalRows: Array<[string, string, boolean]> = [
-    ['Subtotal', formatAmount(invoice.subtotalCents, invoice.currency), false],
-    ['Tax', formatAmount(invoice.taxCents, invoice.currency), false],
-    ['Total', formatAmount(invoice.totalCents, invoice.currency), true],
+    [labels.subtotal, money(invoice.subtotalCents), false],
+    [labels.totalTax, money(invoice.taxCents), false],
+    [labels.total, money(invoice.totalCents), true],
   ];
   for (const [label, value, bold] of totalRows) {
     doc
       .fontSize(bold ? 12 : 10)
-      .font(bold ? 'Helvetica-Bold' : 'Helvetica')
+      .font(bold ? fonts.bold : fonts.regular)
       .fillColor(bold ? COLOR_TEXT : COLOR_MUTED)
       .text(label, totalsX, y, { width: totalsLabelWidth });
     doc
       .fontSize(bold ? 12 : 10)
-      .font(bold ? 'Helvetica-Bold' : 'Helvetica')
+      .font(bold ? fonts.bold : fonts.regular)
       .fillColor(COLOR_TEXT)
-      .text(value, cols.total, y, { width: colWidths.total, align: 'right' });
+      .text(value, MARGIN + amountCol.x, y, { width: amountCol.width, align: 'right' });
     y += bold ? 20 : 16;
   }
+
+  doc
+    .fontSize(8)
+    .font(fonts.regular)
+    .fillColor(COLOR_MUTED)
+    .text(labels.amountsNote, MARGIN, y + 4, { width: CONTENT_WIDTH });
 
   doc.end();
   return built;

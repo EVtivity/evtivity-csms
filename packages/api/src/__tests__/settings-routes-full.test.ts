@@ -53,7 +53,10 @@ function makeChain() {
 
 vi.mock('@evtivity/database', () => ({
   getCompanyCurrency: vi.fn(() => Promise.resolve('USD')),
+  getCompanyTaxBasis: vi.fn(() => Promise.resolve('net')),
+  getCompanyPriceDisplay: vi.fn(() => Promise.resolve('net')),
   clearSystemSettingsCache: vi.fn(),
+  clearStationMessageSettingsCache: vi.fn(),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -111,6 +114,12 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
     clearNotificationSettingsCache: vi.fn(),
     isSupportedCurrency: actual.isSupportedCurrency,
     SUPPORTED_CURRENCIES: actual.SUPPORTED_CURRENCIES,
+    isPriceDisplay: actual.isPriceDisplay,
+    PRICE_DISPLAYS: actual.PRICE_DISPLAYS,
+    isStationMessageLanguage: actual.isStationMessageLanguage,
+    STATION_MESSAGE_LANGUAGES: actual.STATION_MESSAGE_LANGUAGES,
+    isTaxBasis: actual.isTaxBasis,
+    TAX_BASES: actual.TAX_BASES,
   };
 });
 
@@ -200,11 +209,11 @@ describe('Settings routes - full coverage', () => {
       expect(body.logo).toBe('https://example.com/logo.png');
     });
 
-    it('returns only the default company currency when no company settings exist', async () => {
+    it('returns only the default currency, price display, and tax basis when no company settings exist', async () => {
       setupDbResults([]);
       const res = await app.inject({ method: 'GET', url: '/portal/branding' });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ currency: 'USD' });
+      expect(res.json()).toEqual({ currency: 'USD', priceDisplay: 'net', taxBasis: 'net' });
     });
 
     it('converts non-string values to empty string', async () => {

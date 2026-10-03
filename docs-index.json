@@ -127,7 +127,7 @@
   {
     "path": "/docs/csms/reports",
     "title": "Reports",
-    "description": "Generate sustainability reports with carbon footprint tracking, CO₂ avoided calculations, and CSV export."
+    "description": "Generate financial, energy, and sustainability reports, with carbon footprint tracking and revenue split by tax."
   },
   {
     "path": "/docs/csms/reservations",

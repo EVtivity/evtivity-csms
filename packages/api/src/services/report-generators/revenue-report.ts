@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql, and, eq, count } from 'drizzle-orm';
+import { sql, and, eq, count, inArray, type SQL } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
@@ -16,6 +16,8 @@ import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
 import { formatCurrencyAmount } from '@evtivity/lib';
 import { inCompanyCurrency } from '../../lib/company-currency.js';
+import { queryRevenue, revenueItem, EMPTY_REVENUE } from '../../lib/session-revenue.js';
+import { MoneyCell, moneyCell, moneyHeader, csvMoneyRows, pdfMoneyRows } from './report-money.js';
 import type { ReportGeneratorResult } from '../report.service.js';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -56,6 +58,8 @@ function buildDateConditions(filters: Filters, tz: string) {
 interface RevenueByDay {
   date: string;
   revenueCents: number;
+  netRevenueCents: number;
+  taxCents: number;
   electricityCostCents: number;
   sessionCount: number;
 }
@@ -63,6 +67,8 @@ interface RevenueByDay {
 interface RevenueBySite {
   siteName: string;
   revenueCents: number;
+  netRevenueCents: number;
+  taxCents: number;
   electricityCostCents: number;
   sessionCount: number;
   energyKwh: number;
@@ -74,39 +80,67 @@ interface PaymentBreakdown {
   totalCents: number;
 }
 
+/** Revenue items (session-revenue.ts) in the report's date range and site. */
+function revenueConditions(filters: Filters, tz: string): SQL[] {
+  const where: SQL[] = [];
+  if (filters.dateFrom != null) {
+    where.push(
+      sql`(${revenueItem.occurredAt} AT TIME ZONE ${tz})::date >= ${filters.dateFrom}::date`,
+    );
+  }
+  if (filters.dateTo != null) {
+    where.push(
+      sql`(${revenueItem.occurredAt} AT TIME ZONE ${tz})::date <= ${filters.dateTo}::date`,
+    );
+  }
+  if (filters.siteId != null) where.push(sql`${revenueItem.siteId} = ${filters.siteId}`);
+  return where;
+}
+
 async function queryRevenueByDay(
   filters: Filters,
   tz: string,
   currency: string,
 ): Promise<RevenueByDay[]> {
   const billed = inCompanyCurrency(chargingSessions.currency, currency);
-  const conditions = [
-    ...buildDateConditions(filters, tz),
-    sql`coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null`,
-  ];
+  const day = sql<string>`date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz})::date::text`;
+  const conditions = [...buildDateConditions(filters, tz), billed];
 
-  const baseQuery = db
+  const costsQuery = db
     .select({
-      date: sql<string>`date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz})::date::text`,
-      revenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where ${billed}), 0)::float8`,
-      electricityCostCents: sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}) filter (where ${billed}), 0)::float8`,
-      sessionCount: count(),
+      date: day,
+      electricityCostCents: sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}), 0)::float8`,
     })
     .from(chargingSessions);
-
   if (filters.siteId != null) {
     conditions.push(eq(chargingStations.siteId, filters.siteId));
-    return baseQuery
-      .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .groupBy(sql`1`)
-      .orderBy(sql`1`);
+    costsQuery.innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id));
   }
 
-  return baseQuery
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .groupBy(sql`1`)
-    .orderBy(sql`1`);
+  const [costs, revenue] = await Promise.all([
+    costsQuery.where(and(...conditions)).groupBy(sql`1`),
+    queryRevenue({
+      companyCurrency: currency,
+      key: sql`date_trunc('day', ${revenueItem.occurredAt} AT TIME ZONE ${tz})::date`,
+      where: revenueConditions(filters, tz),
+    }),
+  ]);
+  const costByDay = new Map(costs.map((c) => [c.date, c.electricityCostCents]));
+  const days = new Set<string>([
+    ...costByDay.keys(),
+    ...[...revenue.keys()].filter((k): k is string => k != null),
+  ]);
+  return [...days].sort().map((date) => {
+    const r = revenue.get(date) ?? EMPTY_REVENUE;
+    return {
+      date,
+      revenueCents: r.grossCents,
+      netRevenueCents: r.netCents,
+      taxCents: r.taxCents,
+      electricityCostCents: costByDay.get(date) ?? 0,
+      sessionCount: r.sessionCount,
+    };
+  });
 }
 
 async function queryRevenueBySite(
@@ -115,34 +149,82 @@ async function queryRevenueBySite(
   currency: string,
 ): Promise<RevenueBySite[]> {
   const billed = inCompanyCurrency(chargingSessions.currency, currency);
-  const conditions = [
-    ...buildDateConditions(filters, tz),
-    sql`coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null`,
-  ];
-
+  const conditions = [...buildDateConditions(filters, tz), billed];
   if (filters.siteId != null) {
     conditions.push(eq(sites.id, filters.siteId));
   }
 
-  const rows = await db
-    .select({
-      siteName: sql<string>`coalesce(${sites.name}, 'No Site')`,
-      revenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where ${billed}), 0)::float8`,
-      electricityCostCents: sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}) filter (where ${billed}), 0)::float8`,
-      sessionCount: count(),
-      energyKwh: sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric / 1000), 0)::float8`,
-    })
-    .from(chargingSessions)
-    .leftJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-    .leftJoin(sites, eq(chargingStations.siteId, sites.id))
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .groupBy(sites.id, sites.name)
-    // Order by revenue (position 2 in the SELECT list) desc so the biggest
-    // sites surface first; positional reference avoids re-stating the
-    // SUM aggregate.
-    .orderBy(sql`2 desc`);
+  const [rows, revenue] = await Promise.all([
+    db
+      .select({
+        siteId: sites.id,
+        siteName: sql<string>`coalesce(${sites.name}, 'No Site')`,
+        electricityCostCents: sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}), 0)::float8`,
+        energyKwh: sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric / 1000), 0)::float8`,
+      })
+      .from(chargingSessions)
+      .leftJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+      .leftJoin(sites, eq(chargingStations.siteId, sites.id))
+      .where(and(...conditions))
+      .groupBy(sites.id, sites.name),
+    queryRevenue({
+      companyCurrency: currency,
+      key: revenueItem.siteId,
+      where: revenueConditions(filters, tz),
+    }),
+  ]);
 
-  return rows;
+  const bySite = new Map<string | null, RevenueBySite>();
+  for (const row of rows) {
+    bySite.set(row.siteId, {
+      siteName: row.siteName,
+      revenueCents: 0,
+      netRevenueCents: 0,
+      taxCents: 0,
+      electricityCostCents: row.electricityCostCents,
+      sessionCount: 0,
+      energyKwh: row.energyKwh,
+    });
+  }
+  // Sites with revenue but no billed session in the range (reservation fees only).
+  const missing = [...revenue.keys()].filter((id): id is string => id != null && !bySite.has(id));
+  if (missing.length > 0) {
+    const names = await db
+      .select({ id: sites.id, name: sites.name })
+      .from(sites)
+      .where(inArray(sites.id, missing));
+    for (const site of names) {
+      bySite.set(site.id, {
+        siteName: site.name,
+        revenueCents: 0,
+        netRevenueCents: 0,
+        taxCents: 0,
+        electricityCostCents: 0,
+        sessionCount: 0,
+        energyKwh: 0,
+      });
+    }
+  }
+  for (const [siteId, r] of revenue) {
+    const site =
+      bySite.get(siteId) ??
+      ({
+        siteName: 'No Site',
+        revenueCents: 0,
+        netRevenueCents: 0,
+        taxCents: 0,
+        electricityCostCents: 0,
+        sessionCount: 0,
+        energyKwh: 0,
+      } satisfies RevenueBySite);
+    site.revenueCents = r.grossCents;
+    site.netRevenueCents = r.netCents;
+    site.taxCents = r.taxCents;
+    site.sessionCount = r.sessionCount;
+    bySite.set(siteId, site);
+  }
+  // Biggest sites first.
+  return [...bySite.values()].sort((a, b) => b.revenueCents - a.revenueCents);
 }
 
 async function queryPaymentBreakdown(
@@ -177,7 +259,7 @@ export async function generateRevenueReport(
 ): Promise<ReportGeneratorResult> {
   const filters = parseFilters(rawFilters);
   const [tz, currency] = await Promise.all([getSystemTimezone(), getCompanyCurrency()]);
-  const money = (cents: number): string => formatCurrencyAmount(cents, currency);
+  const money = (cents: number): MoneyCell => moneyCell(cents, currency);
 
   const [byDay, bySite, payments] = await Promise.all([
     queryRevenueByDay(filters, tz, currency),
@@ -187,35 +269,51 @@ export async function generateRevenueReport(
 
   const totalSessions = bySite.reduce((sum, r) => sum + r.sessionCount, 0);
   const totalRevenueCents = bySite.reduce((sum, r) => sum + r.revenueCents, 0);
+  const totalNetRevenueCents = bySite.reduce((sum, r) => sum + r.netRevenueCents, 0);
+  const totalTaxCents = bySite.reduce((sum, r) => sum + r.taxCents, 0);
   const totalElectricityCents = bySite.reduce((sum, r) => sum + r.electricityCostCents, 0);
 
   const dateLabel = [filters.dateFrom, filters.dateTo].filter(Boolean).join(' to ') || 'All time';
 
-  const dayHeaders = ['Date', 'Revenue', 'Electricity Cost', 'Profit', 'Sessions'];
-  const dayRows = byDay.map((r) => [
-    r.date,
+  // Revenue is billed sessions and reservation fees minus refunds
+  // (session-revenue.ts). Profit is revenue excluding tax minus electricity
+  // cost: the tax collected is owed to the tax authority, not earned.
+  const moneyColumns = [
+    moneyHeader('Revenue', currency, 'incl. tax'),
+    moneyHeader('Tax', currency),
+    moneyHeader('Revenue', currency, 'excl. tax'),
+    moneyHeader('Electricity Cost', currency),
+    moneyHeader('Profit', currency),
+  ];
+  const moneyCells = (r: {
+    revenueCents: number;
+    taxCents: number;
+    netRevenueCents: number;
+    electricityCostCents: number;
+  }): MoneyCell[] => [
     money(r.revenueCents),
+    money(r.taxCents),
+    money(r.netRevenueCents),
     money(r.electricityCostCents),
-    money(r.revenueCents - r.electricityCostCents),
-    r.sessionCount,
-  ]);
-  const siteHeaders = ['Site', 'Revenue', 'Electricity Cost', 'Profit', 'Sessions', 'Energy (kWh)'];
+    money(r.netRevenueCents - r.electricityCostCents),
+  ];
+  const dayHeaders = ['Date', ...moneyColumns, 'Sessions'];
+  const dayRows = byDay.map((r) => [r.date, ...moneyCells(r), r.sessionCount]);
+  const siteHeaders = ['Site', ...moneyColumns, 'Sessions', 'Energy (kWh)'];
   const siteRows = bySite.map((r) => [
     r.siteName,
-    money(r.revenueCents),
-    money(r.electricityCostCents),
-    money(r.revenueCents - r.electricityCostCents),
+    ...moneyCells(r),
     r.sessionCount,
-    r.energyKwh.toFixed(1),
+    Math.round(r.energyKwh * 10) / 10,
   ]);
-  const paymentHeaders = ['Payment Status', 'Count', 'Total'];
+  const paymentHeaders = ['Payment Status', 'Count', moneyHeader('Total', currency)];
   const paymentRows = payments.map((r) => [r.status, r.count, money(r.totalCents)]);
 
   if (format === 'csv') {
     const rows: unknown[][] = [...dayRows, [], siteHeaders, ...siteRows, [], paymentHeaders];
     rows.push(...paymentRows);
 
-    const csv = buildCsv(dayHeaders, rows);
+    const csv = buildCsv(dayHeaders, csvMoneyRows(rows));
     return {
       data: Buffer.from(csv, 'utf-8'),
       fileName: `revenue-report-${String(Date.now())}.csv`,
@@ -230,17 +328,20 @@ export async function generateRevenueReport(
   }
 
   // PDF
+  const fmt = (cents: number): string => formatCurrencyAmount(cents, currency);
   const pdf = new PdfReportBuilder();
   pdf.addTitle('Revenue Report');
   pdf.addSubtitle(`Period: ${dateLabel}`);
-  pdf.addSummaryRow('Total Revenue:', money(totalRevenueCents));
-  pdf.addSummaryRow('Total Electricity Cost:', money(totalElectricityCents));
-  pdf.addSummaryRow('Total Profit:', money(totalRevenueCents - totalElectricityCents));
+  pdf.addSummaryRow('Total Revenue (incl. tax):', fmt(totalRevenueCents));
+  pdf.addSummaryRow('Total Tax:', fmt(totalTaxCents));
+  pdf.addSummaryRow('Total Revenue (excl. tax):', fmt(totalNetRevenueCents));
+  pdf.addSummaryRow('Total Electricity Cost:', fmt(totalElectricityCents));
+  pdf.addSummaryRow('Total Profit:', fmt(totalNetRevenueCents - totalElectricityCents));
   pdf.addSummaryRow('Total Sessions:', String(totalSessions));
 
-  pdf.addTable(dayHeaders, dayRows);
-  pdf.addTable(siteHeaders, siteRows);
-  pdf.addTable(paymentHeaders, paymentRows);
+  pdf.addTable(dayHeaders, pdfMoneyRows(dayRows));
+  pdf.addTable(siteHeaders, pdfMoneyRows(siteRows));
+  pdf.addTable(paymentHeaders, pdfMoneyRows(paymentRows));
 
   const data = await pdf.build();
   return { data, fileName: `revenue-report-${String(Date.now())}.pdf` };

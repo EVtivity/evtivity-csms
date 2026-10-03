@@ -2,8 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql } from 'drizzle-orm';
-import { db } from '@evtivity/database';
-import { decryptString, isSimulatedCustomer } from '@evtivity/lib';
+import { db, getPlatformFeePercent } from '@evtivity/database';
+import {
+  chargeShortfallTopUp,
+  decryptString,
+  isSimulatedCustomer,
+  sessionChargeTax,
+} from '@evtivity/lib';
 import type { Logger } from 'pino';
 
 interface PaymentCaptureShortfallRow extends Record<string, unknown> {
@@ -13,6 +18,8 @@ interface PaymentCaptureShortfallRow extends Record<string, unknown> {
   captured_amount_cents: number | null;
   currency: string;
   final_cost_cents: number | null;
+  tariff_tax_rate: string | null;
+  cost_breakdown: unknown;
   site_id: string | null;
   session_id: string;
 }
@@ -41,6 +48,7 @@ export async function paymentCaptureRetryHandler(log: Logger): Promise<void> {
            pr.captured_amount_cents,
            pr.currency,
            cs.final_cost_cents,
+           cs.tariff_tax_rate, cs.cost_breakdown,
            st.site_id,
            cs.id AS session_id
     FROM payment_records pr
@@ -69,7 +77,7 @@ export async function paymentCaptureRetryHandler(log: Logger): Promise<void> {
   // we read the keys directly from settings.
   const settingsRows = await db.execute<{ key: string; value: string | null }>(sql`
     SELECT key, value FROM settings
-    WHERE key IN ('stripe.secretKeyEnc', 'stripe.platformFeePercent')
+    WHERE key = 'stripe.secretKeyEnc'
   `);
   const settingsMap = new Map(settingsRows.map((r) => [r.key, r.value]));
   const secretKeyEnc = settingsMap.get('stripe.secretKeyEnc');
@@ -96,45 +104,22 @@ export async function paymentCaptureRetryHandler(log: Logger): Promise<void> {
     if (row.stripe_customer_id != null && isSimulatedCustomer(row.stripe_customer_id)) continue;
 
     try {
-      const orig = await stripe.paymentIntents.retrieve(row.stripe_payment_intent_id);
-      const customerId =
-        typeof orig.customer === 'string' ? orig.customer : (orig.customer?.id ?? null);
-      const pmId =
-        typeof orig.payment_method === 'string'
-          ? orig.payment_method
-          : (orig.payment_method?.id ?? null);
-      if (customerId == null || pmId == null) {
-        log.warn(
-          { paymentRecordId: row.pr_id },
-          'Original PaymentIntent missing customer or payment_method; skipping',
-        );
-        continue;
-      }
-
-      const params: Record<string, unknown> = {
-        amount: shortfall,
-        currency: row.currency.toLowerCase(),
-        customer: customerId,
-        payment_method: pmId,
-        confirm: true,
-        off_session: true,
-        capture_method: 'automatic',
+      // Same card, same connected account, and the platform fee of the
+      // increment on its net amount, as the capture on session end charges.
+      const topUp = await chargeShortfallTopUp(stripe, {
+        originalIntentId: row.stripe_payment_intent_id,
+        capturedCents: row.captured_amount_cents ?? 0,
+        finalCostCents: row.final_cost_cents ?? 0,
+        taxRate: sessionChargeTax({
+          finalCostCents: row.final_cost_cents,
+          tariffTaxRate: row.tariff_tax_rate,
+          costBreakdown: row.cost_breakdown,
+        }),
+        platformFeePercent: await getPlatformFeePercent(row.site_id),
+        currency: row.currency,
         description: `Capture retry for session ${row.session_id}`,
-      };
-      if (orig.on_behalf_of != null) {
-        params['on_behalf_of'] = orig.on_behalf_of;
-        params['transfer_data'] = {
-          destination:
-            typeof orig.on_behalf_of === 'string' ? orig.on_behalf_of : orig.on_behalf_of.id,
-        };
-      }
-
-      const topUp = await stripe.paymentIntents.create(
-        params as unknown as Parameters<typeof stripe.paymentIntents.create>[0],
-        {
-          idempotencyKey: `topup_retry_${String(row.pr_id)}_${String(row.captured_amount_cents)}`,
-        },
-      );
+        idempotencyKey: `topup_retry_${String(row.pr_id)}_${String(row.captured_amount_cents)}`,
+      });
 
       await db.execute(sql`
         UPDATE payment_records

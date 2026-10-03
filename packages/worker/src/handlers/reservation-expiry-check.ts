@@ -9,7 +9,7 @@ import { dispatchDriverNotification } from '@evtivity/lib';
 import type { Logger } from 'pino';
 import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
 import { resolveTariff } from '@evtivity/api/src/services/tariff.service.js';
-import { chargeReservationNoShowFee } from '@evtivity/api/src/lib/reservation-fees.js';
+import { chargeReservationFee } from '@evtivity/api/src/lib/reservation-fees.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const API_TEMPLATES_DIR =
@@ -162,11 +162,34 @@ export async function reservationExpiryCheckHandler(log: Logger): Promise<void> 
           const holdingMinutes = Math.max(0, Math.ceil(holdingMs / 60_000));
           const amountCents = Math.round(holdingMinutes * ratePerMinute * 100);
           if (amountCents > 0) {
-            await chargeReservationNoShowFee(row.driver_id, row.site_id, amountCents, row.id);
-            log.info(
-              { reservationId: row.id, driverId: row.driver_id, amountCents, holdingMinutes },
-              'Charged no-show reservation fee',
-            );
+            // amountCents is net (tariff prices are net); the fee is taxed at
+            // the tariff rate, recorded as a payment record, and charged
+            // through the site's Stripe Connect account.
+            const result = await chargeReservationFee({
+              type: 'reservation_no_show',
+              reservationId: row.id,
+              driverId: row.driver_id,
+              stationId: row.station_uuid,
+              siteId: row.site_id,
+              netCents: amountCents,
+            });
+            if (result.status === 'charged') {
+              log.info(
+                {
+                  reservationId: row.id,
+                  driverId: row.driver_id,
+                  netCents: result.netCents,
+                  grossCents: result.grossCents,
+                  holdingMinutes,
+                },
+                'Charged no-show reservation fee',
+              );
+            } else if (result.status === 'failed') {
+              log.warn(
+                { reservationId: row.id, paymentRecordId: result.paymentRecordId },
+                `No-show reservation fee declined: ${result.reason}`,
+              );
+            }
           }
         }
       } catch (err) {

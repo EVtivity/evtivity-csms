@@ -6,7 +6,13 @@
  * All display formatting functions used across multiple pages and components.
  */
 
-import { formatCurrencyAmount } from '@evtivity/lib/currency';
+import { formatCurrencyAmount, formatUnitPrice } from '@evtivity/lib/currency';
+import {
+  formatTaxRatePercent,
+  grossUnitPrice,
+  netUnitPrice,
+  type TaxBasis,
+} from '@evtivity/lib/price-display';
 import {
   formatDecimalString,
   formatNumber as formatLocaleNumber,
@@ -51,12 +57,60 @@ export function formatDecimal(value: string | null | undefined): string {
 }
 
 /**
+ * A tariff price, entered in the company tax basis, shown on the other side
+ * of tax: the gross price for a net basis (the tax rate added), the net price
+ * for a gross basis (the tax rate taken out). Price and tax rate are canonical
+ * decimal strings ("0.2152", "0.19"); the result is currency in the UI
+ * language, formatted with formatUnitPrice (2 to 4 fraction digits), like the
+ * driver portal and the notifications, so a price finer than a cent is not
+ * rounded away. Returns null when either value is not a plain non-negative
+ * decimal or the tax rate is 0.
+ */
+export function formatConvertedPrice(
+  price: string,
+  taxRate: string,
+  basis: TaxBasis,
+  currency: string,
+): string | null {
+  const decimal = /^\d+(\.\d+)?$/;
+  if (!decimal.test(price) || !decimal.test(taxRate)) return null;
+  const rate = Number(taxRate);
+  if (rate === 0) return null;
+  const converted =
+    basis === 'gross'
+      ? netUnitPrice(Number(price), rate, basis)
+      : grossUnitPrice(Number(price), rate, basis);
+  return formatUnitPrice(converted, currency, uiLocale());
+}
+
+/**
  * Format cents in the ISO 4217 currency the amount is denominated in.
  * Returns 'n/a' for null/undefined values and "CODE 12.34" for an invalid code.
  */
 export function formatCents(cents: number | null | undefined, currency: string): string {
   if (cents == null) return 'n/a';
   return formatCurrencyAmount(cents, currency, uiLocale());
+}
+
+/**
+ * Format an amount stored in major units as a decimal string (an OCPI roaming
+ * cost, "4.76") in its currency, with 2 to 4 fraction digits. Returns 'n/a'
+ * for a missing or non-numeric amount and the plain number without a currency.
+ */
+export function formatMajorAmount(amount: string | null, currency: string | null): string {
+  const value = amount != null ? Number(amount) : NaN;
+  if (!Number.isFinite(value)) return 'n/a';
+  if (currency == null || currency === '') return formatNumber(value, 2);
+  return formatUnitPrice(value, currency, uiLocale());
+}
+
+/**
+ * Format a tax rate fraction (0.19) as a percentage number in the UI language
+ * ("19", "7,5"). The percent sign comes from the translation around it
+ * (`invoices.taxRateValue`).
+ */
+export function formatTaxPercent(taxRate: number | string): string {
+  return formatTaxRatePercent(Number(taxRate), uiLocale());
 }
 
 /** Format an electricity rate, in major currency units per kWh, with four decimals. */

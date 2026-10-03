@@ -18,6 +18,13 @@ import {
 import { ValidationError } from '@evtivity/lib';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
 import { inCompanyCurrency } from '../lib/company-currency.js';
+import {
+  queryRevenue,
+  revenueAtSites,
+  revenueItem,
+  sumRevenue,
+  EMPTY_REVENUE,
+} from '../lib/session-revenue.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { getUserSiteIds } from '../lib/site-access.js';
@@ -119,18 +126,42 @@ const financialStatsResponse = z
       .int()
       .min(0)
       .describe(
-        'Total revenue in cents. Money fields sum only sessions billed in the company currency.',
+        'Total revenue in cents, tax included (gross). Revenue is the final cost of ended sessions plus reservation fees charged, minus refunds, in the company currency; active sessions are not counted.',
       ),
     todayRevenueCents: z
       .number()
       .int()
       .min(0)
-      .describe('Revenue from sessions started today, in cents'),
+      .describe(
+        'Revenue of sessions started today and reservation fees charged today, in cents, tax included (gross)',
+      ),
+    totalNetRevenueCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Total revenue excluding tax, in cents. Each amount is split at its own tax rate (a session at its tariff tax rate, a reservation fee at the rate it was taxed at).',
+      ),
+    todayNetRevenueCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Revenue excluding tax of sessions started today and fees charged today, in cents'),
+    totalTaxCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Tax collected in cents (total revenue minus total net revenue)'),
+    todayTaxCents: z.number().int().min(0).describe('Tax in the revenue of today, in cents'),
     avgRevenueCentsPerSession: z
       .number()
       .min(0)
-      .describe('Average revenue per paid session in cents'),
-    totalTransactions: z.number().int().min(0).describe('Number of paid transactions'),
+      .describe('Average revenue per ended session billed in the company currency, in cents'),
+    totalTransactions: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Number of revenue items: ended billed sessions plus reservation fee charges'),
     totalElectricityCostCents: z
       .number()
       .int()
@@ -144,11 +175,15 @@ const financialStatsResponse = z
     totalProfitCents: z
       .number()
       .int()
-      .describe('Total revenue minus total electricity cost, in cents (may be negative)'),
+      .describe(
+        'Total revenue excluding tax minus total electricity cost, in cents (may be negative)',
+      ),
     dayProfitCents: z
       .number()
       .int()
-      .describe("Today's revenue minus today's electricity cost, in cents (may be negative)"),
+      .describe(
+        "Today's revenue excluding tax minus today's electricity cost, in cents (may be negative)",
+      ),
     currency: z.string().length(3).describe('Company currency (ISO 4217) of every amount'),
   })
   .passthrough();
@@ -160,8 +195,16 @@ const revenueHistoryItem = z
       .number()
       .int()
       .min(0)
-      .describe('Revenue on this date in cents, from sessions billed in the company currency'),
-    sessionCount: z.number().int().min(0).describe('Number of paid sessions started on this date'),
+      .describe(
+        'Revenue on this date in cents, tax included: final costs of sessions started that day plus reservation fees charged that day, minus refunds, in the company currency. Active sessions are not counted',
+      ),
+    sessionCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Number of ended sessions billed in the company currency that started on this date',
+      ),
   })
   .passthrough();
 
@@ -843,6 +886,10 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const emptyFinancials = {
         totalRevenueCents: 0,
         todayRevenueCents: 0,
+        totalNetRevenueCents: 0,
+        todayNetRevenueCents: 0,
+        totalTaxCents: 0,
+        todayTaxCents: 0,
         avgRevenueCentsPerSession: 0,
         totalTransactions: 0,
         totalElectricityCostCents: 0,
@@ -858,39 +905,57 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const billed = inCompanyCurrency(chargingSessions.currency, currency);
       const today = sql`date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz}) = date_trunc('day', now() AT TIME ZONE ${tz})`;
 
-      const query = db
+      // Electricity cost of the sessions billed in the company currency.
+      const costQuery = db
         .select({
-          totalRevenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where ${billed}), 0)`,
-          todayRevenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where ${billed} and ${today}), 0)`,
-          avgRevenueCentsPerSession: sql<number>`coalesce(avg(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where ${billed}), 0)`,
-          totalTransactions: sql<number>`count(*) filter (where coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null)`,
-          totalElectricityCostCents: sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}) filter (where ${billed}), 0)`,
-          dayElectricityCostCents: sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}) filter (where ${billed} and ${today}), 0)`,
+          totalElectricityCostCents:
+            sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}) filter (where ${billed}), 0)`.mapWith(
+              Number,
+            ),
+          dayElectricityCostCents:
+            sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}) filter (where ${billed} and ${today}), 0)`.mapWith(
+              Number,
+            ),
         })
         .from(chargingSessions);
-
       if (siteIds != null) {
-        query
+        costQuery
           .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
           .where(inArray(chargingStations.siteId, siteIds));
       }
 
-      const [stats] = await query;
+      // Revenue (session-revenue.ts): ended sessions and reservation fees,
+      // minus refunds, split by today and earlier.
+      const [[costs], revenueByDay] = await Promise.all([
+        costQuery,
+        queryRevenue({
+          companyCurrency: currency,
+          key: sql`date_trunc('day', ${revenueItem.occurredAt} AT TIME ZONE ${tz}) = date_trunc('day', now() AT TIME ZONE ${tz})`,
+          where: siteIds != null ? [revenueAtSites(siteIds)] : [],
+        }),
+      ]);
+      const todayRevenue = revenueByDay.get('true') ?? EMPTY_REVENUE;
+      const totalRevenue = sumRevenue(revenueByDay.values());
 
-      const totalRevenueCents = stats?.totalRevenueCents ?? 0;
-      const todayRevenueCents = stats?.todayRevenueCents ?? 0;
-      const totalElectricityCostCents = stats?.totalElectricityCostCents ?? 0;
-      const dayElectricityCostCents = stats?.dayElectricityCostCents ?? 0;
+      const totalElectricityCostCents = costs?.totalElectricityCostCents ?? 0;
+      const dayElectricityCostCents = costs?.dayElectricityCostCents ?? 0;
 
       return {
-        totalRevenueCents,
-        todayRevenueCents,
-        avgRevenueCentsPerSession: Math.round(stats?.avgRevenueCentsPerSession ?? 0),
-        totalTransactions: stats?.totalTransactions ?? 0,
+        totalRevenueCents: totalRevenue.grossCents,
+        todayRevenueCents: todayRevenue.grossCents,
+        totalNetRevenueCents: totalRevenue.netCents,
+        todayNetRevenueCents: todayRevenue.netCents,
+        totalTaxCents: totalRevenue.taxCents,
+        todayTaxCents: todayRevenue.taxCents,
+        avgRevenueCentsPerSession:
+          totalRevenue.sessionCount > 0
+            ? Math.round(totalRevenue.sessionGrossCents / totalRevenue.sessionCount)
+            : 0,
+        totalTransactions: totalRevenue.itemCount,
         totalElectricityCostCents,
         dayElectricityCostCents,
-        totalProfitCents: totalRevenueCents - totalElectricityCostCents,
-        dayProfitCents: todayRevenueCents - dayElectricityCostCents,
+        totalProfitCents: totalRevenue.netCents - totalElectricityCostCents,
+        dayProfitCents: todayRevenue.netCents - dayElectricityCostCents,
         currency,
       };
     },
@@ -924,37 +989,26 @@ export function dashboardRoutes(app: FastifyInstance): void {
 
       const [tz, currency] = await Promise.all([getSystemTimezone(), getCompanyCurrency()]);
 
-      const conditions = [
-        gte(chargingSessions.startedAt, since),
-        sql`coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents}) is not null`,
-      ];
-      if (until) conditions.push(lte(chargingSessions.startedAt, until));
-      if (siteIds != null) {
-        conditions.push(inArray(chargingStations.siteId, siteIds));
-      }
+      const where = [sql`${revenueItem.occurredAt} >= ${since.toISOString()}::timestamptz`];
+      if (until) where.push(sql`${revenueItem.occurredAt} <= ${until.toISOString()}::timestamptz`);
+      if (siteIds != null) where.push(revenueAtSites(siteIds));
 
-      const query = db
-        .select({
-          date: sql<string>`date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz})::date::text`,
-          revenueCents: sql<number>`coalesce(sum(coalesce(${chargingSessions.finalCostCents}, ${chargingSessions.currentCostCents})) filter (where ${inCompanyCurrency(chargingSessions.currency, currency)}), 0)`,
-          sessionCount: count(),
-        })
-        .from(chargingSessions);
+      // Revenue per day (session-revenue.ts): ended sessions and reservation
+      // fees, minus refunds, tax included.
+      const byDay = await queryRevenue({
+        companyCurrency: currency,
+        key: sql`date_trunc('day', ${revenueItem.occurredAt} AT TIME ZONE ${tz})::date`,
+        where,
+      });
 
-      if (siteIds != null) {
-        query.innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id));
-      }
-
-      const rows = await query
-        .where(and(...conditions))
-        .groupBy(sql`1`)
-        .orderBy(sql`1`);
-
-      return rows.map((r) => ({
-        date: r.date,
-        revenueCents: r.revenueCents,
-        sessionCount: r.sessionCount,
-      }));
+      return [...byDay]
+        .filter((entry): entry is [string, (typeof entry)[1]] => entry[0] != null)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, revenue]) => ({
+          date,
+          revenueCents: revenue.grossCents,
+          sessionCount: revenue.sessionCount,
+        }));
     },
   );
 

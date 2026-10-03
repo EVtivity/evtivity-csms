@@ -10,11 +10,12 @@ import {
   isRoamingEnabled,
   isSiteFreeVendEnabledByStation,
   getCompanyCurrency,
+  getCompanyTaxBasis,
 } from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { AuthorizeRequest } from '../../generated/v2_1/types/messages/AuthorizeRequest.js';
 import type { AuthorizeResponse } from '../../generated/v2_1/types/messages/AuthorizeResponse.js';
-import type { Logger } from '@evtivity/lib';
+import { netUnitPrice, vatPercentFromFraction, type Logger } from '@evtivity/lib';
 import { logAuthorizeAttempt, parseOcpiValidThru } from '../authorize-log.js';
 import {
   applyContractCertificateVerdict,
@@ -407,18 +408,30 @@ async function resolveDriverTariff(
   }
 
   const toNum = (v: unknown): number | null => (v != null ? Number(v) : null);
-  const pricePerKwh = toNum(rawRow['price_per_kwh']);
-  const pricePerMinute = toNum(rawRow['price_per_minute']);
-  const pricePerSession = toNum(rawRow['price_per_session']);
-  const idleFeePerMinute = toNum(rawRow['idle_fee_price_per_minute']);
   const taxRate = toNum(rawRow['tax_rate']);
+  // TariffType prices are excluding tax: prices entered on the gross tax
+  // basis are sent with the tax rate taken out, in 4 decimals.
+  const taxBasis = await getCompanyTaxBasis();
+  const netPrice = (v: unknown): number | null => {
+    const price = toNum(v);
+    if (price == null || taxBasis === 'net') return price;
+    return Math.round(netUnitPrice(price, taxRate ?? 0, taxBasis) * 10_000) / 10_000;
+  };
+  const pricePerKwh = netPrice(rawRow['price_per_kwh']);
+  const pricePerMinute = netPrice(rawRow['price_per_minute']);
+  const pricePerSession = netPrice(rawRow['price_per_session']);
+  const idleFeePerMinute = netPrice(rawRow['idle_fee_price_per_minute']);
 
   const tariff: Record<string, unknown> = {
     tariffId: rawRow['id'],
     currency: await getCompanyCurrency(),
   };
 
-  const taxRates = taxRate != null && taxRate > 0 ? [{ type: 'VAT', tax: taxRate }] : undefined;
+  // TaxRateType.tax is a percentage (19 for a stored rate of 0.19).
+  const taxRates =
+    taxRate != null && taxRate > 0
+      ? [{ type: 'VAT', tax: vatPercentFromFraction(taxRate) }]
+      : undefined;
 
   if (pricePerKwh != null && pricePerKwh > 0) {
     tariff['energy'] = {
