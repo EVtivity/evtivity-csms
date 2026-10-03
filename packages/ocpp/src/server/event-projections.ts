@@ -830,6 +830,32 @@ export function registerProjections(
     // Drain offline command queue for this station
     const stationOcppId = event.aggregateId;
     try {
+      // Only the newest queued screen message per display message id and cost
+      // update per transaction still matters; older ones would show stale content.
+      await sql`
+        WITH keyed AS (
+          SELECT id, action, created_at,
+            CASE action
+              WHEN 'SetDisplayMessage' THEN payload -> 'message' ->> 'id'
+              WHEN 'ClearDisplayMessage' THEN payload ->> 'id'
+              WHEN 'CostUpdated' THEN payload ->> 'transactionId'
+            END AS target
+          FROM offline_command_queue
+          WHERE station_id = ${stationOcppId} AND status = 'pending'
+            AND action IN ('SetDisplayMessage', 'ClearDisplayMessage', 'CostUpdated')
+        ),
+        ranked AS (
+          SELECT id, row_number() OVER (
+            PARTITION BY action, target ORDER BY created_at DESC, id DESC
+          ) AS rn
+          FROM keyed
+          WHERE target IS NOT NULL
+        )
+        UPDATE offline_command_queue q
+        SET status = 'expired', failed_reason = 'Superseded by a newer queued command'
+        FROM ranked
+        WHERE q.id = ranked.id AND ranked.rn > 1
+      `;
       const pendingCommands = await sql`
         SELECT id, command_id, action, payload, version
         FROM offline_command_queue
@@ -930,6 +956,26 @@ export function registerProjections(
   safeSubscribe('station.Disconnected', async (event: DomainEvent) => {
     const stationUuid = await resolveStationUuid(event.aggregateId);
     if (stationUuid == null) return;
+
+    // A station that already reconnected to another OCPP instance (rolling
+    // deploy, load balancer) is still online: only the old connection closed.
+    if (registry != null && instanceId != null) {
+      try {
+        const owner = await registry.getInstanceId(event.aggregateId);
+        if (owner != null && owner !== instanceId) {
+          logger.info(
+            { stationId: event.aggregateId, instanceId, owner },
+            'Station is connected to another OCPP instance; not marking it offline',
+          );
+          return;
+        }
+      } catch (err) {
+        logger.warn(
+          { err, stationId: event.aggregateId },
+          'Connection registry lookup failed on disconnect; marking the station offline',
+        );
+      }
+    }
 
     await sql`
       UPDATE charging_stations
@@ -4341,18 +4387,28 @@ export function registerProjections(
       return;
     }
 
-    // Any inbound message proves liveness (OCPP 2.1 G02.FR.04, OCPP 1.6 §4.6).
-    // Bump last_heartbeat so the UI's freshness signal tracks reality rather
-    // than only counting actual Heartbeat OCPP messages.
+    // Any inbound message proves liveness (OCPP 2.1 G02.FR.04, OCPP 1.6 §4.6), so it
+    // bumps last_heartbeat and marks online a station a late disconnect marked offline.
+    let cameOnline = false;
     if (direction === 'inbound') {
-      await sql`
+      const [row] = await sql`
+        WITH prev AS (SELECT is_online FROM charging_stations WHERE id = ${stationUuid})
         UPDATE charging_stations
-        SET last_heartbeat = now()
+        SET last_heartbeat = now(), is_online = true
         WHERE id = ${stationUuid}
+        RETURNING (SELECT is_online FROM prev) AS was_online
       `;
+      cameOnline = row?.was_online === false;
     }
 
     const siteId = await resolveSiteId(stationUuid);
+    if (cameOnline) {
+      logger.info({ stationId }, 'Station marked online again by an inbound message');
+      await notifyChange('station.status', stationUuid, siteId);
+      if (siteId != null) {
+        await notifyOcpiPush('location', { siteId });
+      }
+    }
     await notifyChange('ocpp.message', stationUuid, siteId);
   });
 
@@ -5196,10 +5252,14 @@ export function registerProjections(
     const controlType = (payload.controlType as string | undefined) ?? null;
     const ts = (payload.timestamp as string | undefined) ?? null;
     const gridEventFault = payload.gridEventFault ?? null;
+    // gridEventFault is a string enum, and the jsonb serializer sends a string as
+    // JSON text unchanged, so it is encoded first.
+    const gridEventFaultJson =
+      gridEventFault != null ? sql.json(asJson(JSON.stringify(gridEventFault))) : null;
 
     await sql`
       INSERT INTO der_alarm_events (station_id, control_type, timestamp, grid_event_fault)
-      VALUES (${stationUuid}, ${controlType}, ${ts}, ${gridEventFault != null ? sql.json(asJson(gridEventFault)) : null})
+      VALUES (${stationUuid}, ${controlType}, ${ts}, ${gridEventFaultJson})
     `;
   });
 

@@ -228,6 +228,77 @@ describe('StationSimulator action guards', () => {
     });
   });
 
+  describe('clock-aligned meter values before boot is accepted', () => {
+    function connected(sim: StationSimulator): void {
+      Object.defineProperty(sim.client, 'isConnected', { get: () => true });
+      sim.setConfigValue('AlignedDataCtrlr.Measurands', 'Energy.Active.Import.Register');
+    }
+    function setBootStatus(sim: StationSimulator, status: string | null): void {
+      (sim as unknown as { bootStatus: string | null }).bootStatus = status;
+    }
+
+    it('sends nothing while the boot is Pending or not sent yet', async () => {
+      const sim = makeSimulator();
+      connected(sim);
+      for (const status of ['Pending', 'Rejected', null]) {
+        setBootStatus(sim, status);
+        await sim.sendClockAlignedMeterValues();
+      }
+      expect(getSendCallSpy(sim)).not.toHaveBeenCalled();
+    });
+
+    it('sends MeterValues once the boot is Accepted', async () => {
+      const sim = makeSimulator();
+      connected(sim);
+      setBootStatus(sim, 'Accepted');
+      await sim.sendClockAlignedMeterValues();
+      expect(getSendCallSpy(sim)).toHaveBeenCalledWith('MeterValues', expect.anything());
+    });
+  });
+
+  describe('BootNotification retry while Pending', () => {
+    it('keeps one retry timer across repeated boots and clears it on stop', async () => {
+      vi.useFakeTimers();
+      try {
+        const sim = makeSimulator();
+        const sendCall = getSendCallSpy(sim);
+        sendCall.mockResolvedValue({ status: 'Pending', interval: 60 });
+
+        // A reconnect while Pending boots again before the first retry fires.
+        await sim.sendBootNotification('PowerUp');
+        await sim.sendBootNotification('PowerUp');
+        expect(sendCall).toHaveBeenCalledTimes(2);
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(sendCall).toHaveBeenCalledTimes(3);
+
+        await sim.stop();
+        sendCall.mockClear();
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(sendCall).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('triggered BootNotification while Pending', () => {
+    it('reports the connectors once the triggered boot is Accepted', async () => {
+      const sim = makeSimulator();
+      const sendCall = getSendCallSpy(sim);
+      sendCall.mockResolvedValueOnce({ status: 'Pending', interval: 60 });
+      await sim.sendBootNotification('PowerUp');
+
+      sendCall.mockResolvedValue({ status: 'Accepted', interval: 300 });
+      await (
+        sim as unknown as { handleTriggerMessage(m: string, p: object): Promise<void> }
+      ).handleTriggerMessage('BootNotification', {});
+
+      expect(sendCall).toHaveBeenCalledWith('StatusNotification', expect.anything());
+      await sim.stop();
+    });
+  });
+
   describe('plugIn (existing guard)', () => {
     it('no-ops when cable is plugged and a transaction is active', async () => {
       const sim = makeSimulator();

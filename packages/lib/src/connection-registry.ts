@@ -10,9 +10,14 @@ const KEY_PREFIX = 'ocpp:conn:';
 // Connection-manager.add and ocpp.Heartbeat handler both refresh this TTL.
 const TTL_SECONDS = 600;
 
+// A station that reconnected to another instance is registered to that
+// instance; the instance that lost the connection must not delete its entry.
+const DELETE_IF_OWNER = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`;
+
 export interface ConnectionRegistry {
   register(stationId: string, instanceId: string): Promise<void>;
-  unregister(stationId: string): Promise<void>;
+  /** Removes the entry only while it still names this instance. */
+  unregister(stationId: string, instanceId: string): Promise<void>;
   getInstanceId(stationId: string): Promise<string | null>;
 }
 
@@ -27,8 +32,8 @@ export class RedisConnectionRegistry implements ConnectionRegistry {
     await this.redis.set(KEY_PREFIX + stationId, instanceId, 'EX', TTL_SECONDS);
   }
 
-  async unregister(stationId: string): Promise<void> {
-    await this.redis.del(KEY_PREFIX + stationId);
+  async unregister(stationId: string, instanceId: string): Promise<void> {
+    await this.redis.eval(DELETE_IF_OWNER, 1, KEY_PREFIX + stationId, instanceId);
   }
 
   async getInstanceId(stationId: string): Promise<string | null> {

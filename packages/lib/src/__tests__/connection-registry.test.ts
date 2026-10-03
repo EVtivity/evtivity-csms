@@ -10,6 +10,7 @@ function createMockRedis() {
     set: vi.fn().mockResolvedValue('OK'),
     get: vi.fn().mockResolvedValue(null),
     del: vi.fn().mockResolvedValue(1),
+    eval: vi.fn().mockResolvedValue(1),
   } as unknown as Redis;
 }
 
@@ -30,9 +31,15 @@ describe('RedisConnectionRegistry', () => {
   });
 
   describe('unregister', () => {
-    it('calls redis.del with correct key prefix', async () => {
-      await registry.unregister('STATION-001');
-      expect(redis.del).toHaveBeenCalledWith('ocpp:conn:STATION-001');
+    it('deletes the key only when it still names this instance', async () => {
+      await registry.unregister('STATION-001', 'instance-abc');
+      expect(redis.eval).toHaveBeenCalledWith(
+        expect.stringContaining("redis.call('GET', KEYS[1]) == ARGV[1]"),
+        1,
+        'ocpp:conn:STATION-001',
+        'instance-abc',
+      );
+      expect(redis.del).not.toHaveBeenCalled();
     });
   });
 

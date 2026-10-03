@@ -799,6 +799,13 @@
       "when": 1791000010005,
       "tag": "0113_station_message_charging_power",
       "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1791000010006,
+      "tag": "0114_collapse_queued_screen_and_cost_commands",
+      "breakpoints": true
     }
   ]
 }

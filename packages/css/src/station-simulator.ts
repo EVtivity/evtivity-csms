@@ -239,6 +239,8 @@ export class StationSimulator {
   // Station-level state
   private availabilityState = 'Operative';
   private bootStatus: 'Accepted' | 'Pending' | 'Rejected' | null = null;
+  // One BootNotification retry at a time; a new boot replaces a scheduled retry.
+  private bootRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingReset: string | null = null;
   private destroyed = false;
   private rebootCandidates: ConnectionCandidate[] | null = null;
@@ -1074,6 +1076,7 @@ export class StationSimulator {
 
     this.stopHeartbeat();
     this.stopClockAlignedTimer();
+    this.clearBootRetry();
 
     for (const certificateType of [...this.certSigningTimers.keys()]) {
       this.clearCertSigningTimer(certificateType);
@@ -2114,7 +2117,30 @@ export class StationSimulator {
   // Group 4: Station-initiated OCPP messages
   // ---------------------------------------------------------------------------
 
+  // Accepted after Pending or Rejected: report the connectors, which the station
+  // could not do while it was not accepted.
+  private async reportConnectorsAfterAccept(): Promise<void> {
+    await this.sendChargePointStatus16();
+    for (const evse of this.config.evses) {
+      const ctx = this.evseContexts.get(evse.evseId) as EvseContext;
+      ctx.state = 'Available';
+      ctx.cablePlugged = false;
+      this.evseConnectorStatus.set(evse.evseId, 'Available');
+      await this.sendStatusNotification(evse.evseId, evse.connectorId, 'Available');
+      await this.updateEvseStatus(evse.evseId, 'Available');
+    }
+    await this.updateStationStatus('available');
+  }
+
+  private clearBootRetry(): void {
+    if (this.bootRetryTimer != null) {
+      clearTimeout(this.bootRetryTimer);
+      this.bootRetryTimer = null;
+    }
+  }
+
   async sendBootNotification(reason: string = 'PowerUp'): Promise<Record<string, unknown>> {
+    this.clearBootRetry();
     const payload = this.is16
       ? {
           chargePointVendor: this.config.vendorName,
@@ -2153,24 +2179,13 @@ export class StationSimulator {
       const interval = response['interval'] as number | undefined;
       const retryIntervalMs = (interval != null ? interval : 60) * 1000;
       if (!this.destroyed) {
-        setTimeout(() => {
+        this.bootRetryTimer = setTimeout(() => {
+          this.bootRetryTimer = null;
           if (!this.destroyed) {
             void (async () => {
               try {
                 await this.sendBootNotification(reason);
-                // If boot was accepted after retry, send StatusNotification for all connectors
-                if (this.bootStatus === 'Accepted') {
-                  await this.sendChargePointStatus16();
-                  for (const evse of this.config.evses) {
-                    const ctx = this.evseContexts.get(evse.evseId) as EvseContext;
-                    ctx.state = 'Available';
-                    ctx.cablePlugged = false;
-                    this.evseConnectorStatus.set(evse.evseId, 'Available');
-                    await this.sendStatusNotification(evse.evseId, evse.connectorId, 'Available');
-                    await this.updateEvseStatus(evse.evseId, 'Available');
-                  }
-                  await this.updateStationStatus('available');
-                }
+                if (this.bootStatus === 'Accepted') await this.reportConnectorsAfterAccept();
               } catch {
                 // Retry failed
               }
@@ -3546,6 +3561,10 @@ export class StationSimulator {
     }
     if (!this.client.isConnected) {
       console.log(`[${this.config.stationId}] Clock-aligned: not connected, skipping`);
+      return Promise.resolve();
+    }
+    // Until its BootNotification is Accepted a station sends nothing but BootNotification.
+    if (this.bootStatus !== 'Accepted') {
       return Promise.resolve();
     }
 
@@ -6803,9 +6822,15 @@ export class StationSimulator {
 
     try {
       switch (requestedMessage) {
-        case 'BootNotification':
+        case 'BootNotification': {
+          // A triggered boot replaces the scheduled retry, so it reports the connectors too.
+          const wasAccepted = this.bootStatus === 'Accepted';
           await this.sendBootNotification('Triggered');
+          if (!wasAccepted && this.bootStatus === 'Accepted') {
+            await this.reportConnectorsAfterAccept();
+          }
           break;
+        }
         case 'Heartbeat':
           await this.sendHeartbeat();
           break;

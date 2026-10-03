@@ -99,7 +99,7 @@ describe('ConnectionManager', () => {
     });
   });
 
-  it('calls registry.unregister on remove when registry is set', async () => {
+  it('calls registry.unregister with its own instance on remove', async () => {
     const registry = {
       register: vi.fn().mockResolvedValue(undefined),
       unregister: vi.fn().mockResolvedValue(undefined),
@@ -114,7 +114,7 @@ describe('ConnectionManager', () => {
     cmWithRegistry.remove('CS-001');
 
     await vi.waitFor(() => {
-      expect(registry.unregister).toHaveBeenCalledWith('CS-001');
+      expect(registry.unregister).toHaveBeenCalledWith('CS-001', 'instance-1');
     });
   });
 
@@ -153,7 +153,7 @@ describe('ConnectionManager', () => {
     cmWithRegistry.remove('CS-001');
 
     await vi.waitFor(() => {
-      expect(registry.unregister).toHaveBeenCalledWith('CS-001');
+      expect(registry.unregister).toHaveBeenCalledWith('CS-001', 'instance-1');
     });
 
     // The connection is removed from the in-memory map regardless of the

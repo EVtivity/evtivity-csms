@@ -60,8 +60,8 @@ export class ConnectionManager {
     this.connections.delete(stationId);
     this.logger.info({ stationId, total: this.connections.size }, 'Station disconnected');
 
-    if (this.registry != null) {
-      void this.registry.unregister(stationId).catch((err: unknown) => {
+    if (this.registry != null && this.instanceId != null) {
+      void this.registry.unregister(stationId, this.instanceId).catch((err: unknown) => {
         this.logger.debug(
           { err, stationId },
           'Registry unregister failed on disconnect; continuing',

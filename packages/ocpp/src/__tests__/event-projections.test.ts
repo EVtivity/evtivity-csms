@@ -267,6 +267,7 @@ describe('Event projections', () => {
       await setup();
 
       setupSqlResults(
+        [], // expire superseded screen and cost commands
         [
           {
             id: 7,
@@ -293,6 +294,13 @@ describe('Event projections', () => {
       );
       expect(channels).toContain('ocpp_commands');
       expect(channels).toContain('station_message_refresh');
+      // Superseded screen and cost commands are expired before the queue is read.
+      const collapse = sqlCalls.findIndex((c) => c.strings.join('?').includes('rn > 1'));
+      const drain = sqlCalls.findIndex((c) =>
+        c.strings.join('?').includes("status = 'pending' AND expires_at"),
+      );
+      expect(collapse).toBeGreaterThanOrEqual(0);
+      expect(collapse).toBeLessThan(drain);
     });
 
     it('does not send queued commands when the WebSocket opens', async () => {
@@ -325,6 +333,7 @@ describe('Event projections', () => {
       await setup();
 
       setupSqlResults(
+        [], // expire superseded screen and cost commands
         [], // offline command queue drain
         [{ id: 'mne_maint1' }], // active maintenance event covering this station
       );
@@ -352,6 +361,7 @@ describe('Event projections', () => {
       await setup();
 
       setupSqlResults(
+        [], // expire superseded screen and cost commands
         [], // offline command queue drain
         [], // no active maintenance event
       );

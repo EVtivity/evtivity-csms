@@ -13,6 +13,7 @@ let sqlCountOverrides: Map<number, number> = new Map();
 
 /** Marker for results that should have count=0 (simulates INSERT WHERE EXISTS with no match) */
 const EMPTY_INSERT = Object.assign([] as unknown[], { __emptyInsert: true });
+const findSql = (pattern: RegExp) => sqlCalls.find((c) => pattern.test(c.strings.join('?')));
 
 function createSqlMock() {
   sqlCalls.length = 0;
@@ -397,6 +398,67 @@ describe('Event projections - coverage expansion', () => {
       );
 
       expect(sqlCalls.length).toBe(3);
+    });
+  });
+
+  describe('station.Disconnected - station reconnected to another instance', () => {
+    function registryOwnedBy(owner: string | null) {
+      return {
+        register: vi.fn().mockResolvedValue(undefined),
+        unregister: vi.fn().mockResolvedValue(undefined),
+        getInstanceId: vi.fn().mockResolvedValue(owner),
+      };
+    }
+
+    async function setupWithRegistry(registry: ReturnType<typeof registryOwnedBy>) {
+      const { registerProjections } = await import('../server/event-projections.js');
+      registerProjections(eventBus, mockPubSub, { registry, instanceId: 'pod-old' });
+    }
+
+    it('keeps the station online when another instance owns its connection', async () => {
+      const registry = registryOwnedBy('pod-new');
+      await setupWithRegistry(registry);
+      setupSqlResults([{ id: 'sta_000000000001' }]);
+
+      await eventBus.emit(
+        'station.Disconnected',
+        makeDomainEvent('station.Disconnected', 'CS-MOVED', {}),
+      );
+
+      expect(registry.getInstanceId).toHaveBeenCalledWith('CS-MOVED');
+      expect(findSql(/SET is_online = false/)).toBeUndefined();
+      expect(findSql(/INSERT INTO connection_logs/)).toBeUndefined();
+    });
+
+    it('marks the station offline when this instance still owns it or nobody does', async () => {
+      for (const owner of ['pod-old', null]) {
+        sqlCalls.length = 0;
+        sqlCallIndex = 0;
+        const registry = registryOwnedBy(owner);
+        await setupWithRegistry(registry);
+        setupSqlResults([{ id: 'sta_000000000001' }], [], EMPTY_INSERT);
+
+        await eventBus.emit(
+          'station.Disconnected',
+          makeDomainEvent('station.Disconnected', 'CS-GONE', {}),
+        );
+
+        expect(findSql(/SET is_online = false/)).toBeDefined();
+      }
+    });
+
+    it('marks the station offline when the registry lookup fails', async () => {
+      const registry = registryOwnedBy(null);
+      registry.getInstanceId.mockRejectedValue(new Error('Redis down'));
+      await setupWithRegistry(registry);
+      setupSqlResults([{ id: 'sta_000000000001' }], [], EMPTY_INSERT);
+
+      await eventBus.emit(
+        'station.Disconnected',
+        makeDomainEvent('station.Disconnected', 'CS-ERR', {}),
+      );
+
+      expect(findSql(/SET is_online = false/)).toBeDefined();
     });
   });
 
@@ -1845,6 +1907,58 @@ describe('Event projections - coverage expansion', () => {
       );
 
       expect(sqlCalls.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('ocpp.MessageLog - inbound message marks the station online', () => {
+    const inbound = () =>
+      makeDomainEvent('ocpp.MessageLog', 'CS-001', {
+        stationId: 'CS-001',
+        direction: 'inbound',
+        messageType: 2,
+        messageId: 'msg-hb',
+        action: 'Heartbeat',
+        payload: {},
+      });
+
+    it('sets is_online and pushes a status change when the station was offline', async () => {
+      await setup();
+      mockIsRoamingEnabled.mockResolvedValueOnce(true);
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [], // INSERT ocpp_message_logs
+        [{ was_online: false }], // UPDATE charging_stations
+        [{ site_id: 'site-1' }], // resolveSiteId
+      );
+
+      await eventBus.emit('ocpp.MessageLog', inbound());
+
+      expect(findSql(/SET last_heartbeat = now\(\), is_online = true/)).toBeDefined();
+      expect(mockPubSub.publish).toHaveBeenCalledWith(
+        'csms_events',
+        expect.stringContaining('station.status'),
+      );
+      expect(mockPubSub.publish).toHaveBeenCalledWith(
+        'ocpi_push',
+        expect.stringContaining('site-1'),
+      );
+    });
+
+    it('pushes no status change when the station was already online', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }],
+        [],
+        [{ was_online: true }],
+        [{ site_id: 'site-1' }],
+      );
+
+      await eventBus.emit('ocpp.MessageLog', inbound());
+
+      expect(mockPubSub.publish).not.toHaveBeenCalledWith(
+        'csms_events',
+        expect.stringContaining('station.status'),
+      );
     });
   });
 
@@ -4203,12 +4317,30 @@ describe('Event projections - coverage expansion', () => {
         makeDomainEvent('ocpp.NotifyDERAlarm', 'CS-TEST', {
           controlType: 'FreqDroop',
           timestamp: '2026-03-01T10:00:00Z',
-          gridEventFault: { type: 'UnderVoltage' },
+          gridEventFault: 'UnderVoltage',
         }),
       );
 
       expect(sqlCalls.length).toBe(2);
       expect(sqlCalls[1]?.strings.join('')).toContain('der_alarm_events');
+      // GridEventFaultEnumType is a string: it is stored as the JSON string, not raw text.
+      expect(sqlCalls[1]?.values[3]).toBe('"UnderVoltage"');
+    });
+
+    it('stores no fault when the alarm has none', async () => {
+      await setup();
+
+      setupSqlResults([{ id: 'sta_000000000001' }], []);
+
+      await eventBus.emit(
+        'ocpp.NotifyDERAlarm',
+        makeDomainEvent('ocpp.NotifyDERAlarm', 'CS-TEST', {
+          controlType: 'FreqDroop',
+          timestamp: '2026-03-01T10:00:00Z',
+        }),
+      );
+
+      expect(sqlCalls[1]?.values[3]).toBeNull();
     });
   });
 
