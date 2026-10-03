@@ -116,11 +116,6 @@ vi.mock('../lib/pubsub.js', () => ({
   setPubSub: vi.fn(),
 }));
 
-vi.mock('../services/tariff.service.js', () => ({
-  resolveTariff: vi.fn().mockResolvedValue(null),
-  isTariffFree: vi.fn().mockReturnValue(true),
-}));
-
 const mockTriggerAndWaitForStatus = vi.fn().mockResolvedValue({ status: 'available' });
 
 vi.mock('../lib/ocpp-command.js', async (importOriginal) => ({

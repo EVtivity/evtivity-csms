@@ -20,6 +20,7 @@ import {
   getCompanyTaxBasis,
   clearSystemSettingsCache,
   clearStationMessageSettingsCache,
+  clearStripeWebhookSecretCache,
 } from '@evtivity/database';
 import {
   encryptString,
@@ -133,6 +134,7 @@ function invalidSettingError(key: string): { error: string; code: string } {
 function clearCachesForKey(key: string): void {
   if (isCachedSystemSetting(key)) clearSystemSettingsCache();
   if (key.startsWith('stationMessage.')) clearStationMessageSettingsCache();
+  if (key === 'stripe.webhookSecretEnc') clearStripeWebhookSecretCache();
 }
 
 const settingItem = z

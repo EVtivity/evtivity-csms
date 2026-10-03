@@ -72,6 +72,7 @@ vi.mock('@evtivity/database', () => ({
   getCompanyTaxBasis: vi.fn(() => Promise.resolve('gross')),
   clearSystemSettingsCache: vi.fn(),
   clearStationMessageSettingsCache: vi.fn(),
+  clearStripeWebhookSecretCache: vi.fn(),
   writeAudit: vi.fn().mockResolvedValue(undefined),
   siteAuditLog: {},
   stationAuditLog: {},
@@ -125,7 +126,12 @@ vi.mock('../middleware/rbac.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { settingsRoutes } from '../routes/settings.js';
-import { db, clearSystemSettingsCache, clearStationMessageSettingsCache } from '@evtivity/database';
+import {
+  db,
+  clearSystemSettingsCache,
+  clearStationMessageSettingsCache,
+  clearStripeWebhookSecretCache,
+} from '@evtivity/database';
 
 const VALID_USER_ID = 'usr_000000000001';
 const VALID_ROLE_ID = 'rol_000000000001';
@@ -430,6 +436,26 @@ describe('Settings routes', () => {
     });
     expect(clearStationMessageSettingsCache).toHaveBeenCalled();
     expect(clearSystemSettingsCache).not.toHaveBeenCalled();
+  });
+
+  it('PUT /v1/settings/stripe.webhookSecretEnc encrypts the secret and clears its cache', async () => {
+    vi.mocked(db.insert).mockClear();
+    vi.mocked(clearStripeWebhookSecretCache).mockClear();
+    // The returned row passes through decryptForRead; '' passes through unchanged.
+    setupDbResults([], [{ key: 'stripe.webhookSecretEnc', value: '' }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/stripe.webhookSecretEnc',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 'whsec_generic' },
+    });
+    expect(response.statusCode).toBe(200);
+    const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    const stored = (insertChain.values.mock.calls[0]?.[0] as { value: unknown }).value;
+    expect(stored).not.toBe('whsec_generic');
+    expect(clearStripeWebhookSecretCache).toHaveBeenCalled();
   });
 
   it('GET /v1/portal/branding includes the company price display', async () => {

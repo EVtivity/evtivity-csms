@@ -4,11 +4,10 @@
 import crypto from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { client, writeReservationAudit } from '@evtivity/database';
+import { client, resolveStationTariff, writeReservationAudit } from '@evtivity/database';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import type { Logger } from 'pino';
 import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
-import { resolveTariff } from '@evtivity/api/src/services/tariff.service.js';
 import { chargeReservationFee } from '@evtivity/api/src/lib/reservation-fees.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -147,7 +146,10 @@ export async function reservationExpiryCheckHandler(log: Logger): Promise<void> 
     //   - The driver has no default payment method (charge helper no-ops)
     if (row.driver_id != null && row.prior_status === 'active' && !row.has_session) {
       try {
-        const tariff = await resolveTariff(row.station_uuid, row.driver_id);
+        const tariff = await resolveStationTariff(
+          { stationUuid: row.station_uuid, driverUuid: row.driver_id },
+          client,
+        );
         const ratePerMinute =
           tariff?.reservationFeePerMinute != null ? Number(tariff.reservationFeePerMinute) : 0;
         if (ratePerMinute > 0 && tariff != null) {

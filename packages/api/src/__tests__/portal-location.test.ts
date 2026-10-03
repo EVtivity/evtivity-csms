@@ -127,11 +127,6 @@ vi.mock('../services/stripe.service.js', () => ({
   getStripeConfig: vi.fn(() => Promise.resolve(null)),
 }));
 
-vi.mock('../services/tariff.service.js', () => ({
-  resolveTariff: vi.fn(() => Promise.resolve(null)),
-  isTariffFree: vi.fn(() => false),
-}));
-
 vi.mock('@evtivity/lib', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@evtivity/lib')>();
   return {

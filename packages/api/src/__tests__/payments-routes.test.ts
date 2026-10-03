@@ -45,6 +45,7 @@ function makeChain() {
     'returning',
     'set',
     'onConflictDoUpdate',
+    'onConflictDoNothing',
     'delete',
     'insert',
     'update',
@@ -124,6 +125,7 @@ vi.mock('drizzle-orm', () => ({
 
 vi.mock('@evtivity/lib', async () => ({
   encryptString: vi.fn().mockReturnValue('encrypted_value'),
+  decryptString: vi.fn((value: string) => `decrypted:${value}`),
   dispatchDriverNotification: vi.fn(),
   sessionChargeTax: (await vi.importActual<typeof import('@evtivity/lib')>('@evtivity/lib'))
     .sessionChargeTax,
@@ -165,6 +167,7 @@ vi.mock('../lib/site-access.js', () => ({
 import { registerAuth } from '../plugins/auth.js';
 import { paymentRoutes } from '../routes/payments.js';
 import { db } from '@evtivity/database';
+import { createPreAuthorization } from '../services/stripe.service.js';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -365,6 +368,24 @@ describe('Payment routes - handler logic', () => {
       expect(body).not.toHaveProperty('currency');
       expect(body).toHaveProperty('preAuthAmountCents');
       expect(body).toHaveProperty('platformFeePercent');
+      expect(body.webhookSecret).toBeNull();
+    });
+
+    it('returns the decrypted webhook signing secret when set', async () => {
+      setupDbResults([
+        { key: 'stripe.secretKeyEnc', value: 'enc_sk' },
+        { key: 'stripe.webhookSecretEnc', value: 'enc_whsec' },
+      ]);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/settings/stripe',
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().secretKey).toBe('decrypted:enc_sk');
+      expect(response.json().webhookSecret).toBe('decrypted:enc_whsec');
     });
   });
 
@@ -399,6 +420,29 @@ describe('Payment routes - handler logic', () => {
         .map(([row]) => (row as { key?: string }).key);
       expect(written).toContain('stripe.publishableKey');
       expect(written).not.toContain('stripe.currency');
+    });
+
+    it('stores the webhook signing secret encrypted under stripe.webhookSecretEnc', async () => {
+      setupDbResults([], [], []);
+      vi.mocked(db.insert).mockClear();
+
+      const response = await app.inject({
+        method: 'PUT',
+        url: '/settings/stripe',
+        headers: { authorization: 'Bearer ' + token },
+        payload: { webhookSecret: 'whsec_test_1' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const rows = vi
+        .mocked(db.insert)
+        .mock.results.flatMap(
+          (res) =>
+            (res.value as { values: ReturnType<typeof vi.fn> }).values.mock.calls as unknown[][],
+        )
+        .map(([row]) => row as { key?: string; value?: unknown });
+      expect(rows).toContainEqual({ key: 'stripe.webhookSecretEnc', value: 'encrypted_value' });
+      expect(rows.some((r) => r.value === 'whsec_test_1')).toBe(false);
     });
   });
 
@@ -703,6 +747,52 @@ describe('Payment routes - handler logic', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json().status).toBe('pre_authorized');
+      // The session-derived key the portal start and the OCPP gate also use (P7).
+      expect(vi.mocked(createPreAuthorization)).toHaveBeenCalledWith(
+        expect.anything(),
+        'cus_test',
+        'pm_test',
+        undefined,
+        `preauth_${VALID_SESSION_ID}`,
+      );
+    });
+
+    it('returns the existing record when a retried request replays the same hold', async () => {
+      const existing = {
+        id: 'pay-1',
+        sessionId: VALID_SESSION_ID,
+        driverId: null,
+        sitePaymentConfigId: null,
+        stripePaymentIntentId: 'pi_test_123',
+        stripeCustomerId: null,
+        paymentSource: null,
+        currency: 'USD',
+        preAuthAmountCents: 5000,
+        capturedAmountCents: null,
+        refundedAmountCents: 0,
+        status: 'pre_authorized',
+        failureReason: null,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      };
+      setupDbResults(
+        [{ id: VALID_SESSION_ID, stationId: 'sta_000000000001', driverId: VALID_DRIVER_ID }],
+        [{ id: VALID_PM_ID, stripeCustomerId: 'cus_test', stripePaymentMethodId: 'pm_test' }],
+        [{ siteId: 'site-1' }],
+        [], // insert: the session already has a record (ON CONFLICT DO NOTHING)
+        [existing], // the record of this hold
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/sessions/${VALID_SESSION_ID}/pre-authorize`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { paymentMethodId: VALID_PM_ID },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().id).toBe('pay-1');
+      expect(response.json().stripePaymentIntentId).toBe('pi_test_123');
     });
 
     it('returns 404 when session not found', async () => {

@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label';
 import { Toggle } from '@/components/ui/toggle';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
+import { API_BASE_URL } from '@/lib/config';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
 import { centsToMajorInput, parseMajorInputToCents } from '@evtivity/lib/currency';
 
@@ -27,6 +28,7 @@ interface PaymentSettingsProps {
 interface StripeSettings {
   publishableKey: string | null;
   secretKey: string | null;
+  webhookSecret: string | null;
   preAuthAmountCents: number;
   platformFeePercent: number;
 }
@@ -67,9 +69,12 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
   const queryClient = useQueryClient();
 
   const [paymentSubTab, setPaymentSubTab] = useTab('stripe', 'sub');
+  // The endpoint operators register in the Stripe dashboard.
+  const stripeWebhookUrl = `${API_BASE_URL || window.location.origin}/v1/webhooks/stripe`;
 
   const [stripeSecretKey, setStripeSecretKey] = useState('');
   const [stripePublishableKey, setStripePublishableKey] = useState('');
+  const [stripeWebhookSecret, setStripeWebhookSecret] = useState('');
   const { currency } = useCompanyCurrency();
   const [stripePreAuthAmount, setStripePreAuthAmount] = useState(centsToMajorInput(5000));
   const [stripePlatformFee, setStripePlatformFee] = useState('0');
@@ -156,6 +161,9 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
     setStripeSecretKey(
       typeof stripeSettings.secretKey === 'string' ? stripeSettings.secretKey : '',
     );
+    setStripeWebhookSecret(
+      typeof stripeSettings.webhookSecret === 'string' ? stripeSettings.webhookSecret : '',
+    );
     setStripePreAuthAmount(centsToMajorInput(stripeSettings.preAuthAmountCents));
     setStripePlatformFee(String(stripeSettings.platformFeePercent));
     setStripeHasSubmitted(false);
@@ -166,6 +174,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
     mutationFn: (vals: {
       secretKey?: string;
       publishableKey?: string;
+      webhookSecret?: string;
       preAuthAmountCents?: number;
       platformFeePercent?: number;
     }) => api.put('/v1/settings/stripe', vals),
@@ -238,6 +247,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
     const vals: {
       secretKey?: string;
       publishableKey?: string;
+      webhookSecret?: string;
       preAuthAmountCents: number;
       platformFeePercent: number;
     } = {
@@ -246,6 +256,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
     };
     if (stripeSecretKey !== '') vals.secretKey = stripeSecretKey;
     if (stripePublishableKey !== '') vals.publishableKey = stripePublishableKey;
+    if (stripeWebhookSecret !== '') vals.webhookSecret = stripeWebhookSecret;
     stripeSaveMutation.mutate(vals);
   }
 
@@ -324,6 +335,33 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
                       markStripeChanged();
                     }}
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="stripe-webhook-secret" className="leading-6">
+                    {t('settings.stripeWebhookSecret')}
+                  </Label>
+                  <PasswordInput
+                    id="stripe-webhook-secret"
+                    value={stripeWebhookSecret}
+                    onChange={(e) => {
+                      setStripeWebhookSecret(e.target.value);
+                      markStripeChanged();
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings.stripeWebhookSecretHint')}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="stripe-webhook-url" className="leading-6">
+                    {t('settings.stripeWebhookUrl')}
+                  </Label>
+                  <Input id="stripe-webhook-url" value={stripeWebhookUrl} readOnly />
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings.stripeWebhookUrlHint')}
+                  </p>
                 </div>
 
                 <div className="space-y-2">

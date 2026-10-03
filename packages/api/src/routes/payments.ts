@@ -75,6 +75,12 @@ const stripeSettingsResponse = z
       .string()
       .nullable()
       .describe('Stripe secret API key (decrypted from storage; null when unset)'),
+    webhookSecret: z
+      .string()
+      .nullable()
+      .describe(
+        'Stripe webhook signing secret for POST /v1/webhooks/stripe (decrypted from storage; null when unset)',
+      ),
     preAuthAmountCents: z.unknown().describe('Default pre-authorization amount in cents'),
     platformFeePercent: z
       .number()
@@ -335,6 +341,13 @@ const refundBody = z.object({
 const updateStripeSettingsBody = z.object({
   secretKey: z.string().min(1).optional().describe('Stripe secret API key (stored encrypted)'),
   publishableKey: z.string().min(1).optional().describe('Stripe publishable API key'),
+  webhookSecret: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      'Stripe webhook signing secret (whsec_...) of the endpoint /v1/webhooks/stripe (stored encrypted)',
+    ),
   preAuthAmountCents: z
     .number()
     .int()
@@ -615,15 +628,15 @@ export function paymentRoutes(app: FastifyInstance): void {
       for (const row of rows) {
         map.set(row.key, row.value);
       }
-      const rawSecret = map.get('stripe.secretKeyEnc');
       const encryptionKey = getEncryptionKey();
-      let secretKey: string | null = null;
-      if (typeof rawSecret === 'string' && rawSecret !== '' && encryptionKey !== '') {
-        secretKey = decryptString(rawSecret, encryptionKey);
-      }
+      const decryptSetting = (key: string): string | null => {
+        const raw = map.get(key);
+        return typeof raw === 'string' && raw !== '' ? decryptString(raw, encryptionKey) : null;
+      };
       return {
         publishableKey: map.get('stripe.publishableKey') ?? null,
-        secretKey,
+        secretKey: decryptSetting('stripe.secretKeyEnc'),
+        webhookSecret: decryptSetting('stripe.webhookSecretEnc'),
         preAuthAmountCents: map.get('stripe.preAuthAmountCents') ?? 5000,
         platformFeePercent: Number(map.get('stripe.platformFeePercent') ?? 0),
       };
@@ -657,6 +670,12 @@ export function paymentRoutes(app: FastifyInstance): void {
       }
       if (body.publishableKey != null) {
         pairs.push({ key: 'stripe.publishableKey', value: body.publishableKey });
+      }
+      if (body.webhookSecret != null) {
+        pairs.push({
+          key: 'stripe.webhookSecretEnc',
+          value: encryptString(body.webhookSecret, encryptionKey),
+        });
       }
       if (body.preAuthAmountCents != null) {
         pairs.push({ key: 'stripe.preAuthAmountCents', value: body.preAuthAmountCents });
@@ -1102,11 +1121,15 @@ export function paymentRoutes(app: FastifyInstance): void {
       }
 
       try {
+        // Same key as the portal start and the OCPP gate (P7): a retried
+        // request, or a pre-auth after the gate already placed one, gets the
+        // existing hold back instead of a second hold on the card.
         const paymentIntent = await createPreAuthorization(
           config,
           pm.stripeCustomerId,
           pm.stripePaymentMethodId,
           body.amountCents,
+          `preauth_${session.id}`,
         );
 
         const [record] = await db
@@ -1122,9 +1145,17 @@ export function paymentRoutes(app: FastifyInstance): void {
             preAuthAmountCents: body.amountCents ?? config.preAuthAmountCents,
             status: 'pre_authorized',
           })
+          .onConflictDoNothing({ target: paymentRecords.sessionId })
           .returning();
+        if (record != null) return record;
 
-        return record;
+        // A replay: the record of this hold already exists.
+        const [existing] = await db
+          .select()
+          .from(paymentRecords)
+          .where(eq(paymentRecords.sessionId, session.id));
+        if (existing?.stripePaymentIntentId === paymentIntent.id) return existing;
+        throw new Error('The session already has a payment record');
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Pre-authorization failed';
         const [record] = await db

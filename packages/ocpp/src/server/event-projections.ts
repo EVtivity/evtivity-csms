@@ -38,8 +38,10 @@ import {
   setStationReportedStatus,
   settlePrepaidSession,
   getPlatformFeePercent,
+  getStripeClient,
   getCompanyTaxBasis,
   snapshotSessionTariff,
+  resolveStationTariff,
   priceSessionAt,
   storeRunningCost,
   storeFinalCost,
@@ -49,15 +51,16 @@ import {
   sessionIdleMinutesAt,
   zeroCostBreakdown,
 } from '@evtivity/database';
+import type { TariffPriceSnapshot } from '@evtivity/database';
 import { getSecuritySeverity } from '../lib/security-severity.js';
 import { upsertStationConfiguration } from './station-configurations.js';
-import { resolveStationTariff } from './station-tariff.js';
 import {
-  resolveActiveTariff,
   generateId,
   createLogger,
   calculateCo2AvoidedKg,
   isSimulatedCustomer,
+  isSimulatedIntent,
+  createSimulatedIntentId,
   shouldSimulatePaymentFailure,
   isTariffFree,
   dispatchOneShotStationMessage,
@@ -77,12 +80,7 @@ import {
   reconcileCostBreakdown,
   resolveTaxBasis,
 } from '@evtivity/lib';
-import type {
-  TariffInput,
-  TariffRestrictions,
-  TariffWithRestrictions,
-  StationMessageState,
-} from '@evtivity/lib';
+import type { StationMessageState } from '@evtivity/lib';
 import crypto from 'node:crypto';
 import {
   dispatchOcppNotification,
@@ -653,133 +651,6 @@ export function registerProjections(
 
   // Cached holiday loader (60s TTL)
   // ---- Payment simulation helpers (used in Started/Ended handlers) ----
-
-  function isSimulatedIntent(stripePaymentIntentId: string): boolean {
-    return stripePaymentIntentId.startsWith('pi_sim_');
-  }
-
-  /**
-   * Checks if the active tariff for a station resolves to free (all price components zero/null).
-   * Uses the same group resolution priority as resolveTariffGroup() in tariff.service.ts:
-   * driver-specific > fleet > station > site > default.
-   * Returns true if free, false if not free or if no tariff is found (safe default = charge).
-   *
-   * See also: resolveTariff() in packages/api/src/services/tariff.service.ts which provides
-   * full tariff resolution with time-of-day support. This inline CTE is intentionally simpler
-   * to avoid an API package dependency from the OCPP package.
-   */
-  async function isTariffFreeForStation(
-    stationId: string,
-    driverId: string | null,
-    reserved: boolean,
-  ): Promise<boolean> {
-    // Resolve the same pricing group the API would (driver > fleet > station >
-    // site > default), then load ALL active tariffs in that group plus the
-    // configured holidays, and let resolveActiveTariff pick the time-of-day +
-    // holiday-appropriate tariff. This matches the API's resolveTariff() so
-    // free off-peak windows on a paid default tariff don't get billed.
-    const groupRows = await sql`
-      WITH driver_group AS (
-        SELECT pgd.pricing_group_id AS id, 1 AS priority
-        FROM pricing_group_drivers pgd
-        WHERE pgd.driver_id = ${driverId ?? ''}
-        LIMIT 1
-      ),
-      fleet_group AS (
-        -- A driver can belong to multiple fleets (no unique constraint on
-        -- fleet_drivers.driver_id). Order by membership createdAt so the
-        -- oldest fleet wins deterministically; without ORDER BY Postgres
-        -- returns rows in undefined order and the same driver/station could
-        -- resolve to different tariffs across requests. Mirrors the API-side
-        -- tariff.service.ts resolveTariffGroup().
-        SELECT pgf.pricing_group_id AS id, 2 AS priority
-        FROM pricing_group_fleets pgf
-        JOIN fleet_drivers fd ON fd.fleet_id = pgf.fleet_id
-        WHERE fd.driver_id = ${driverId ?? ''}
-        ORDER BY fd.created_at ASC
-        LIMIT 1
-      ),
-      station_group AS (
-        SELECT pgs.pricing_group_id AS id, 3 AS priority
-        FROM pricing_group_stations pgs
-        WHERE pgs.station_id = ${stationId}
-        LIMIT 1
-      ),
-      site_group AS (
-        SELECT pgsit.pricing_group_id AS id, 4 AS priority
-        FROM pricing_group_sites pgsit
-        JOIN charging_stations cs ON cs.site_id = pgsit.site_id
-        WHERE cs.id = ${stationId}
-        LIMIT 1
-      ),
-      default_group AS (
-        SELECT pg.id, 5 AS priority
-        FROM pricing_groups pg
-        WHERE pg.is_default = true
-        LIMIT 1
-      )
-      SELECT id FROM (
-        SELECT id, priority FROM driver_group
-        UNION ALL SELECT id, priority FROM fleet_group
-        UNION ALL SELECT id, priority FROM station_group
-        UNION ALL SELECT id, priority FROM site_group
-        UNION ALL SELECT id, priority FROM default_group
-      ) groups
-      ORDER BY priority
-      LIMIT 1
-    `;
-    const groupId = groupRows[0]?.id as string | undefined;
-    if (groupId == null) return true;
-
-    const tariffRows = await sql`
-      SELECT id, price_per_kwh, price_per_minute, price_per_session,
-             idle_fee_price_per_minute, reservation_fee_per_minute, tax_rate,
-             restrictions, priority, is_default
-      FROM tariffs
-      WHERE pricing_group_id = ${groupId} AND is_active = true
-    `;
-    if (tariffRows.length === 0) return true;
-
-    const holidayRows = await sql`SELECT date FROM pricing_holidays`;
-    const holidays = holidayRows.map((r: Record<string, unknown>) => new Date(r.date as string));
-
-    const tariffsForResolver: TariffWithRestrictions[] = tariffRows.map(
-      (t: Record<string, unknown>) => ({
-        id: t.id as string,
-        restrictions: (t.restrictions as TariffRestrictions | null) ?? null,
-        priority: Number(t.priority ?? 0),
-        isDefault: t.is_default === true,
-        pricePerKwh: t.price_per_kwh as string | null,
-        pricePerMinute: t.price_per_minute as string | null,
-        pricePerSession: t.price_per_session as string | null,
-        idleFeePricePerMinute: t.idle_fee_price_per_minute as string | null,
-        reservationFeePerMinute: t.reservation_fee_per_minute as string | null,
-        taxRate: t.tax_rate as string | null,
-      }),
-    );
-
-    // Resolve in the station's site timezone so off-peak windows fire at the
-    // operator's local clock, not UTC.
-    const tzRows = await sql<Array<{ timezone: string | null }>>`
-      SELECT s.timezone
-      FROM charging_stations cs
-      LEFT JOIN sites s ON s.id = cs.site_id
-      WHERE cs.id = ${stationId}
-      LIMIT 1
-    `;
-    const timezone = tzRows[0]?.timezone ?? undefined;
-    const active = resolveActiveTariff(tariffsForResolver, new Date(), holidays, 0, timezone);
-    // The reservation holding fee is billed only on a session started from a
-    // reservation, so it makes the session paid only then.
-    return isTariffFree(active, { reserved });
-  }
-
-  async function resolveTariffForStation(
-    stationUuid: string,
-    driverUuid: string | null,
-  ): Promise<(TariffInput & { id: string }) | null> {
-    return resolveStationTariff(sql, stationUuid, driverUuid);
-  }
 
   safeSubscribe('station.Connected', async (event: DomainEvent) => {
     const stationUuid = await getStationUuid(event);
@@ -1820,6 +1691,8 @@ export function registerProjections(
           driverId: string | null;
           prepaidBalanceCents: number | null;
         } | null = null;
+        // The tariff snapshotted on the session (null: no tariff applies).
+        let sessionTariff: TariffPriceSnapshot | null = null;
 
         if (isFreeVend) {
           // Mark session as free-vend and skip driver resolution + payment
@@ -1921,13 +1794,14 @@ export function registerProjections(
 
           // Resolve the tariff for this station and snapshot its prices and the
           // company tax basis on the session, with the first tariff segment.
-          // The session is priced from these snapshots only (issue #33).
-          const tariff = await resolveTariffForStation(stationUuid, driverUuid);
-          if (tariff != null) {
+          // The session is priced from these snapshots only (issue #33). The
+          // payment gate decides free or paid from this same tariff.
+          sessionTariff = await resolveStationTariff({ stationUuid, driverUuid }, sql);
+          if (sessionTariff != null) {
             await snapshotSessionTariff(
               sql,
               sessionId,
-              tariff,
+              sessionTariff,
               await getCompanyTaxBasis(),
               timestamp,
             );
@@ -2092,6 +1966,7 @@ export function registerProjections(
             guestEmail,
             prepaidBalanceCents: tokenLookup?.prepaidBalanceCents ?? null,
             reserved: linkedReservationId != null,
+            sessionTariff,
           });
         }
 
@@ -2878,10 +2753,17 @@ export function registerProjections(
       // Split billing: when the tariff that applies now differs from the one
       // of the open segment, close that segment and open one priced from the
       // new tariff. The session keeps the tariff snapshot it started with.
+      // The session's energy so far selects an energy-threshold tariff once
+      // the threshold is crossed.
       if (splitBillingEnabled) {
-        const currentTariff = await resolveTariffForStation(
-          stationUuid,
-          session.driver_id as string | null,
+        const currentTariff = await resolveStationTariff(
+          {
+            stationUuid,
+            driverUuid: session.driver_id as string | null,
+            at: now,
+            sessionEnergyKwh: energyWh / 1000,
+          },
+          sql,
         );
         const openTariffId =
           (await openSegmentTariffId(sql, sessionId)) ?? (session.tariff_id as string);
@@ -3431,6 +3313,8 @@ export function registerProjections(
     prepaidBalanceCents: number | null;
     /** True when the session started from a reservation (its holding fee is billed). */
     reserved: boolean;
+    /** The tariff snapshotted on the session at Started (null: no tariff applies). */
+    sessionTariff: TariffPriceSnapshot | null;
   }
 
   interface StopTarget {
@@ -3612,7 +3496,13 @@ export function registerProjections(
       guestEmail,
       prepaidBalanceCents,
       reserved,
+      sessionTariff,
     } = params;
+
+    // The session is billed at the tariff snapshotted on Started, so the gate
+    // decides from that same tariff (no tariff: free). The reservation holding
+    // fee makes the session paid only when it started from a reservation.
+    const tariffIsFree = isTariffFree(sessionTariff, { reserved });
 
     // Case 1: OCPI roaming session -- billing handled by eMSP via CDR
     if (isRoaming) return;
@@ -3678,8 +3568,7 @@ export function registerProjections(
 
       if (pmRows.length === 0) {
         // No payment method -- allow only if tariff is free
-        const isFree = await isTariffFreeForStation(stationDbId, driverId, reserved);
-        if (isFree) return;
+        if (tariffIsFree) return;
         logger.warn(
           `Driver ${driverId} has no payment method for non-free session ${transactionId}, stopping`,
         );
@@ -3717,9 +3606,8 @@ export function registerProjections(
       const pm = pmRows[0];
       if (pm == null) return;
 
-      // Skip payment gate entirely if the station tariff is free
-      const isFree = await isTariffFreeForStation(stationDbId, driverId, reserved);
-      if (isFree) return;
+      // Skip payment gate entirely if the session's tariff is free
+      if (tariffIsFree) return;
 
       const stripeCustomerId = pm.stripe_customer_id as string;
 
@@ -3765,7 +3653,7 @@ export function registerProjections(
 
       // Case 2: Simulated payment method -- bypass Stripe
       if (isSimulatedCustomer(stripeCustomerId)) {
-        const intentId = `pi_sim_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+        const intentId = createSimulatedIntentId();
         const failed = shouldSimulatePaymentFailure();
 
         try {
@@ -3864,23 +3752,19 @@ export function registerProjections(
       // try/catch: a Stripe decline must fault the session, while a DB hiccup
       // after a successful pre-auth must REVERSE the Stripe hold (otherwise
       // the driver's card stays held but no internal record exists).
-      const encryptionKey = config.SETTINGS_ENCRYPTION_KEY;
       let stripeClient: import('stripe').default | null = null;
       let paymentIntentId: string | null = null;
 
       try {
-        // Get the Stripe secret key (currency/amount already resolved above)
-        const stripeSettingsRows = await sql`
-            SELECT value FROM settings WHERE key = 'stripe.secretKeyEnc'
-          `;
-        const secretKeyEnc = (stripeSettingsRows[0]?.value as string | null | undefined) ?? null;
-        if (secretKeyEnc == null) return;
-
-        const { decryptString } = await import('@evtivity/lib');
-        const secretKey = decryptString(secretKeyEnc, encryptionKey);
-
-        const Stripe = (await import('stripe')).default;
-        stripeClient = new Stripe(secretKey);
+        // The shared platform client (60 s cache, 3 network retries). Without
+        // a secret key payments are not configured: no pre-auth, as the portal
+        // start does (currency/amount already resolved above). A key that
+        // cannot be decrypted throws and fails the pre-auth.
+        stripeClient = await getStripeClient(config.SETTINGS_ENCRYPTION_KEY);
+        if (stripeClient == null) {
+          logger.warn({ sessionId }, 'Stripe is not configured; session not pre-authorized');
+          return;
+        }
 
         const piParams: import('stripe').default.PaymentIntentCreateParams = {
           amount: platformPreAuthCents,
@@ -4176,8 +4060,6 @@ export function registerProjections(
       // hiccup after a successful Stripe call does NOT cause us to mark the
       // record 'failed' and dispatch CaptureFailed to the driver -- Stripe
       // already took the money.
-      const encryptionKey = config.SETTINGS_ENCRYPTION_KEY;
-
       let captureAmount = 0;
       let totalCaptured = 0;
       let topUpFailureReason: string | null = null;
@@ -4186,17 +4068,10 @@ export function registerProjections(
       let cancelSucceeded = false;
 
       try {
-        const settingsRows = await sql`
-          SELECT value FROM settings WHERE key = 'stripe.secretKeyEnc'
-        `;
-        const settingsRow = settingsRows[0];
-        const secretKeyEnc = (settingsRow?.value as string | null) ?? null;
-        if (secretKeyEnc == null) return;
-
-        const { decryptString } = await import('@evtivity/lib');
-        const secretKey = decryptString(secretKeyEnc, encryptionKey);
-        const Stripe = (await import('stripe')).default;
-        const stripe = new Stripe(secretKey);
+        // The shared platform client (60 s cache, 3 network retries). A hold
+        // cannot be captured without the secret key: record the failure.
+        const stripe = await getStripeClient(config.SETTINGS_ENCRYPTION_KEY);
+        if (stripe == null) throw new Error('Stripe is not configured');
 
         if (finalCostCents != null && finalCostCents > 0) {
           const preAuthAmount = (pr.pre_auth_amount_cents as number | null) ?? finalCostCents;

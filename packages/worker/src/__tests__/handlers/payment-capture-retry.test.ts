@@ -1,12 +1,12 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
 
 // db.execute is the only db method this handler uses. It is called for the
-// SELECT (rows needing retry), the settings SELECT, and per-row UPDATEs. We
-// queue results FIFO and record every call so tests can assert on the SQL.
+// SELECT (rows needing retry) and per-row UPDATEs. We queue results FIFO and
+// record every call so tests can assert on the SQL.
 const executeResults: unknown[][] = [];
 let executeIndex = 0;
 const executeCalls: unknown[] = [];
@@ -23,9 +23,21 @@ const mockExecute = vi.fn((arg: unknown) => {
 });
 
 const mockFeePercent = vi.fn((_siteId: string | null) => Promise.resolve(0));
+// The shared cached Stripe client (@evtivity/database stripe-client).
+const mockRetrieve = vi.fn();
+const mockCreate = vi.fn();
+const stripeClient = { paymentIntents: { retrieve: mockRetrieve, create: mockCreate } };
+const mockGetStripeClient = vi.fn(
+  (_key: string): Promise<unknown> => Promise.resolve(stripeClient),
+);
 vi.mock('@evtivity/database', () => ({
   db: { execute: mockExecute },
   getPlatformFeePercent: (siteId: string | null) => mockFeePercent(siteId),
+  getStripeClient: (key: string) => mockGetStripeClient(key),
+}));
+
+vi.mock('../../lib/config.js', () => ({
+  config: { SETTINGS_ENCRYPTION_KEY: 'enc-key' },
 }));
 
 // `sql` tagged template returns a marker object so the handler's calls don't
@@ -37,22 +49,11 @@ vi.mock('drizzle-orm', () => ({
   }),
 }));
 
-const mockDecrypt = vi.fn((..._args: unknown[]) => 'sk_test_decrypted');
 const mockIsSimulated = vi.fn((..._args: unknown[]) => false);
 vi.mock('@evtivity/lib', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  decryptString: (...args: unknown[]) => mockDecrypt(...args),
   isSimulatedCustomer: (...args: unknown[]) => mockIsSimulated(...args),
 }));
-
-// Lazy-imported Stripe SDK. The handler does `(await import('stripe')).default`
-// then `new Stripe(secretKey)`. We expose retrieve/create spies.
-const mockRetrieve = vi.fn();
-const mockCreate = vi.fn();
-const StripeCtor = vi.fn(function (this: Record<string, unknown>) {
-  this['paymentIntents'] = { retrieve: mockRetrieve, create: mockCreate };
-});
-vi.mock('stripe', () => ({ default: StripeCtor }));
 
 function makeLog(): Logger {
   return {
@@ -62,8 +63,6 @@ function makeLog(): Logger {
     error: vi.fn(),
   } as unknown as Logger;
 }
-
-const SETTINGS_ROWS = [{ key: 'stripe.secretKeyEnc', value: 'enc_secret' }];
 
 function shortfallRow(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -85,9 +84,8 @@ describe('paymentCaptureRetryHandler', () => {
     vi.clearAllMocks();
     queueExecute();
     executeCalls.length = 0;
-    mockDecrypt.mockReturnValue('sk_test_decrypted');
     mockIsSimulated.mockReturnValue(false);
-    process.env['SETTINGS_ENCRYPTION_KEY'] = 'enc-key';
+    mockGetStripeClient.mockResolvedValue(stripeClient);
     mockRetrieve.mockResolvedValue({
       customer: 'cus_real',
       payment_method: 'pm_1',
@@ -95,10 +93,6 @@ describe('paymentCaptureRetryHandler', () => {
     });
     mockCreate.mockResolvedValue({ id: 'pi_topup_1' });
     mockFeePercent.mockResolvedValue(0);
-  });
-
-  afterEach(() => {
-    delete process.env['SETTINGS_ENCRYPTION_KEY'];
   });
 
   it('returns early when no shortfall rows are found', async () => {
@@ -109,53 +103,38 @@ describe('paymentCaptureRetryHandler', () => {
     await paymentCaptureRetryHandler(log);
 
     expect(log.debug).toHaveBeenCalledWith('No payment records with capture shortfall to retry');
-    // Only the shortfall SELECT ran; no settings query, no Stripe.
+    // Only the shortfall SELECT ran; no Stripe client.
     expect(mockExecute).toHaveBeenCalledTimes(1);
-    expect(StripeCtor).not.toHaveBeenCalled();
+    expect(mockGetStripeClient).not.toHaveBeenCalled();
   });
 
   it('warns and aborts when Stripe secret key is not configured', async () => {
-    queueExecute(
-      [shortfallRow()], // shortfall rows
-      [{ key: 'stripe.secretKeyEnc', value: '' }], // settings with empty secret
+    mockGetStripeClient.mockResolvedValue(null);
+    queueExecute([shortfallRow()]);
+    const log = makeLog();
+    const { paymentCaptureRetryHandler } = await import('../../handlers/payment-capture-retry.js');
+
+    await paymentCaptureRetryHandler(log);
+
+    expect(log.warn).toHaveBeenCalledWith('Stripe is not configured; cannot retry capture');
+    expect(mockRetrieve).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('fails loud when the secret key cannot be decrypted', async () => {
+    mockGetStripeClient.mockRejectedValue(
+      new Error('Unsupported state or unable to authenticate data'),
     );
-    const log = makeLog();
+    queueExecute([shortfallRow()]);
     const { paymentCaptureRetryHandler } = await import('../../handlers/payment-capture-retry.js');
 
-    await paymentCaptureRetryHandler(log);
-
-    expect(log.warn).toHaveBeenCalledWith('Stripe is not configured; cannot retry capture');
-    expect(StripeCtor).not.toHaveBeenCalled();
-  });
-
-  it('warns and aborts when the secret key setting row is missing entirely', async () => {
-    queueExecute([shortfallRow()], []); // settings query returns no rows
-    const log = makeLog();
-    const { paymentCaptureRetryHandler } = await import('../../handlers/payment-capture-retry.js');
-
-    await paymentCaptureRetryHandler(log);
-
-    expect(log.warn).toHaveBeenCalledWith('Stripe is not configured; cannot retry capture');
-    expect(StripeCtor).not.toHaveBeenCalled();
-  });
-
-  it('warns and aborts when SETTINGS_ENCRYPTION_KEY is missing', async () => {
-    delete process.env['SETTINGS_ENCRYPTION_KEY'];
-    queueExecute([shortfallRow()], SETTINGS_ROWS);
-    const log = makeLog();
-    const { paymentCaptureRetryHandler } = await import('../../handlers/payment-capture-retry.js');
-
-    await paymentCaptureRetryHandler(log);
-
-    expect(log.warn).toHaveBeenCalledWith('SETTINGS_ENCRYPTION_KEY missing; cannot retry capture');
-    expect(mockDecrypt).not.toHaveBeenCalled();
-    expect(StripeCtor).not.toHaveBeenCalled();
+    await expect(paymentCaptureRetryHandler(makeLog())).rejects.toThrow('unable to authenticate');
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it('recovers a shortfall: creates the top-up with a deterministic idempotency key and updates the row to final cost', async () => {
     queueExecute(
       [shortfallRow({ pr_id: 7, captured_amount_cents: 500, final_cost_cents: 800 })],
-      SETTINGS_ROWS,
       [], // UPDATE result (success)
     );
     const log = makeLog();
@@ -163,8 +142,8 @@ describe('paymentCaptureRetryHandler', () => {
 
     await paymentCaptureRetryHandler(log);
 
-    expect(mockDecrypt).toHaveBeenCalledWith('enc_secret', 'enc-key');
-    expect(StripeCtor).toHaveBeenCalledWith('sk_test_decrypted');
+    // The worker's configured encryption key, not process.env.
+    expect(mockGetStripeClient).toHaveBeenCalledWith('enc-key');
     expect(mockRetrieve).toHaveBeenCalledWith('pi_123');
 
     // Top-up is for exactly the shortfall delta (800 - 500 = 300), off_session.
@@ -182,8 +161,8 @@ describe('paymentCaptureRetryHandler', () => {
     // Idempotency key derived from pr_id + captured amount so retries are safe.
     expect(options).toEqual({ idempotencyKey: 'topup_retry_7_500' });
 
-    // The success UPDATE was issued (3rd execute call) and recovered logged.
-    expect(mockExecute).toHaveBeenCalledTimes(3);
+    // The success UPDATE was issued (2nd execute call) and recovered logged.
+    expect(mockExecute).toHaveBeenCalledTimes(2);
     expect(log.info).toHaveBeenCalledWith(
       expect.objectContaining({ paymentRecordId: 7, topUpIntentId: 'pi_topup_1' }),
       'Recovered capture shortfall via cron retry',
@@ -200,7 +179,7 @@ describe('paymentCaptureRetryHandler', () => {
       payment_method: 'pm_1',
       on_behalf_of: 'acct_connected',
     });
-    queueExecute([shortfallRow()], SETTINGS_ROWS, []);
+    queueExecute([shortfallRow()], []);
     const { paymentCaptureRetryHandler } = await import('../../handlers/payment-capture-retry.js');
 
     await paymentCaptureRetryHandler(makeLog());
@@ -230,7 +209,6 @@ describe('paymentCaptureRetryHandler', () => {
           tariff_tax_rate: '0.19',
         }),
       ],
-      SETTINGS_ROWS,
       [],
     );
     const { paymentCaptureRetryHandler } = await import('../../handlers/payment-capture-retry.js');
@@ -249,7 +227,7 @@ describe('paymentCaptureRetryHandler', () => {
       payment_method: { id: 'pm_obj' },
       on_behalf_of: { id: 'acct_obj' },
     });
-    queueExecute([shortfallRow()], SETTINGS_ROWS, []);
+    queueExecute([shortfallRow()], []);
     const { paymentCaptureRetryHandler } = await import('../../handlers/payment-capture-retry.js');
 
     await paymentCaptureRetryHandler(makeLog());
@@ -266,7 +244,6 @@ describe('paymentCaptureRetryHandler', () => {
     mockCreate.mockRejectedValue(new Error('Your card was declined.'));
     queueExecute(
       [shortfallRow({ pr_id: 9 })],
-      SETTINGS_ROWS,
       [], // best-effort failure UPDATE
     );
     const log = makeLog();
@@ -278,25 +255,28 @@ describe('paymentCaptureRetryHandler', () => {
       expect.objectContaining({ paymentRecordId: 9 }),
       'Capture retry failed; will try again next run',
     );
-    // failure UPDATE issued (3rd execute call)
-    expect(mockExecute).toHaveBeenCalledTimes(3);
+    // failure UPDATE issued (2nd execute call)
+    expect(mockExecute).toHaveBeenCalledTimes(2);
     expect(log.info).toHaveBeenCalledWith(
       { recovered: 0, stillFailed: 1, total: 1 },
       'Capture retry pass complete',
     );
   });
 
-  it('swallows a failing failure_reason UPDATE so the batch is not aborted', async () => {
+  it('logs and continues when the failure_reason UPDATE fails, so the batch is not aborted', async () => {
     mockCreate.mockRejectedValue('not-an-error-object');
-    // The failure UPDATE itself rejects; the handler .catch()es it.
+    // The failure UPDATE itself rejects; the handler logs it at warn.
     mockExecute
       .mockImplementationOnce(() => Promise.resolve([shortfallRow()])) // SELECT
-      .mockImplementationOnce(() => Promise.resolve(SETTINGS_ROWS)) // settings
       .mockImplementationOnce(() => Promise.reject(new Error('db down'))); // failure UPDATE
     const log = makeLog();
     const { paymentCaptureRetryHandler } = await import('../../handlers/payment-capture-retry.js');
 
     await expect(paymentCaptureRetryHandler(log)).resolves.toBeUndefined();
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentRecordId: 1 }),
+      'Failed to record the capture retry failure reason',
+    );
     expect(log.info).toHaveBeenCalledWith(
       { recovered: 0, stillFailed: 1, total: 1 },
       'Capture retry pass complete',
@@ -309,7 +289,6 @@ describe('paymentCaptureRetryHandler', () => {
       .mockResolvedValueOnce({ id: 'pi_topup_2' }); // row 2 succeeds
     queueExecute(
       [shortfallRow({ pr_id: 1 }), shortfallRow({ pr_id: 2, captured_amount_cents: 100 })],
-      SETTINGS_ROWS,
       [], // failure UPDATE for row 1
       [], // success UPDATE for row 2
     );
@@ -326,10 +305,7 @@ describe('paymentCaptureRetryHandler', () => {
   });
 
   it('skips a row whose shortfall is non-positive', async () => {
-    queueExecute(
-      [shortfallRow({ captured_amount_cents: 800, final_cost_cents: 800 })],
-      SETTINGS_ROWS,
-    );
+    queueExecute([shortfallRow({ captured_amount_cents: 800, final_cost_cents: 800 })]);
     const { paymentCaptureRetryHandler } = await import('../../handlers/payment-capture-retry.js');
 
     await paymentCaptureRetryHandler(makeLog());
@@ -339,7 +315,7 @@ describe('paymentCaptureRetryHandler', () => {
   });
 
   it('skips a row with a null payment intent id', async () => {
-    queueExecute([shortfallRow({ stripe_payment_intent_id: null })], SETTINGS_ROWS);
+    queueExecute([shortfallRow({ stripe_payment_intent_id: null })]);
     const { paymentCaptureRetryHandler } = await import('../../handlers/payment-capture-retry.js');
 
     await paymentCaptureRetryHandler(makeLog());
@@ -349,7 +325,7 @@ describe('paymentCaptureRetryHandler', () => {
 
   it('skips simulated customers (cus_sim_*) so the cron never hits Stripe for them', async () => {
     mockIsSimulated.mockReturnValue(true);
-    queueExecute([shortfallRow({ stripe_customer_id: 'cus_sim_1' })], SETTINGS_ROWS);
+    queueExecute([shortfallRow({ stripe_customer_id: 'cus_sim_1' })]);
     const { paymentCaptureRetryHandler } = await import('../../handlers/payment-capture-retry.js');
 
     await paymentCaptureRetryHandler(makeLog());
@@ -360,7 +336,7 @@ describe('paymentCaptureRetryHandler', () => {
 
   it('records a failure when the original PaymentIntent has no customer or payment_method', async () => {
     mockRetrieve.mockResolvedValue({ customer: null, payment_method: null, on_behalf_of: null });
-    queueExecute([shortfallRow({ pr_id: 5 })], SETTINGS_ROWS, []);
+    queueExecute([shortfallRow({ pr_id: 5 })], []);
     const log = makeLog();
     const { paymentCaptureRetryHandler } = await import('../../handlers/payment-capture-retry.js');
 
@@ -374,10 +350,7 @@ describe('paymentCaptureRetryHandler', () => {
   });
 
   it('treats null final/captured amounts as zero in the shortfall math and skips', async () => {
-    queueExecute(
-      [shortfallRow({ final_cost_cents: null, captured_amount_cents: null })],
-      SETTINGS_ROWS,
-    );
+    queueExecute([shortfallRow({ final_cost_cents: null, captured_amount_cents: null })]);
     const { paymentCaptureRetryHandler } = await import('../../handlers/payment-capture-retry.js');
 
     await paymentCaptureRetryHandler(makeLog());

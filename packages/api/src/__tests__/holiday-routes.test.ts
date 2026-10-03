@@ -83,6 +83,7 @@ vi.mock('@evtivity/database', () => ({
   pricingHolidays: { id: 'id', date: 'date' },
   holidayAuditLog: {},
   writeAudit: vi.fn().mockResolvedValue(undefined),
+  clearTariffResolutionCache: vi.fn(),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -93,6 +94,7 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 import { registerAuth } from '../plugins/auth.js';
+import { clearTariffResolutionCache } from '@evtivity/database';
 import { holidayRoutes } from '../routes/holidays.js';
 
 async function buildApp(): Promise<FastifyInstance> {
@@ -187,6 +189,8 @@ describe('Holiday routes', () => {
       const body = res.json();
       expect(body.name).toBe("New Year's Day");
       expect(body.date).toBe('2026-01-01');
+      // The new holiday applies to this pod's next tariff resolution at once.
+      expect(vi.mocked(clearTariffResolutionCache)).toHaveBeenCalled();
     });
 
     it('returns 400 when name is missing', async () => {

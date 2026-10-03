@@ -11,6 +11,8 @@ import {
   getCompanyCurrency,
   getCompanyTaxBasis,
   isStationLevelUnavailable,
+  isStationChargingFree,
+  resolveStationTariff,
 } from '@evtivity/database';
 import { decryptString, notificationMoney, TAX_BASES } from '@evtivity/lib';
 import { config as apiConfig } from '../../lib/config.js';
@@ -62,7 +64,6 @@ import {
 import type { DriverJwtPayload } from '../../plugins/auth.js';
 import { getStripeConfig, createPreAuthorization } from '../../services/stripe.service.js';
 import { isSimulatedCustomer } from '@evtivity/lib';
-import { resolveTariff, isTariffFree } from '../../services/tariff.service.js';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import { ALL_TEMPLATES_DIRS } from '../../lib/template-dirs.js';
 import { isEvseInReservationBuffer } from '../../lib/reservation-buffer.js';
@@ -652,7 +653,10 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         };
       }
 
-      const tariff = await resolveTariff(station.id, driverId);
+      const tariff = await resolveStationTariff(
+        { stationUuid: station.id, driverUuid: driverId },
+        client,
+      );
       if (tariff == null) {
         await reply.status(404).send({ error: 'No pricing found', code: 'PRICING_NOT_FOUND' });
         return;
@@ -1777,12 +1781,17 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         // free-vend sites, so demanding a payment method here would block
         // drivers from starting at a free-vend site that happens to have a
         // paid tariff assigned.
-        const tariff = await resolveTariff(station.id, driverId);
         // The holder of the active reservation pays its holding fee, so a
         // reservation fee makes their charging paid.
-        const chargingIsFree =
-          station.freeVendEnabled === true ||
-          isTariffFree(tariff, { reserved: activeReservation?.driverId === driverId });
+        const chargingIsFree = await isStationChargingFree(
+          {
+            stationUuid: station.id,
+            driverUuid: driverId,
+            reserved: activeReservation?.driverId === driverId,
+            freeVend: station.freeVendEnabled === true,
+          },
+          client,
+        );
 
         if (!chargingIsFree) {
           // Payment is required -- validate the driver has a payment method

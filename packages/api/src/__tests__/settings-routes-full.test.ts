@@ -57,6 +57,7 @@ vi.mock('@evtivity/database', () => ({
   getCompanyPriceDisplay: vi.fn(() => Promise.resolve('net')),
   clearSystemSettingsCache: vi.fn(),
   clearStationMessageSettingsCache: vi.fn(),
+  clearStripeWebhookSecretCache: vi.fn(),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),

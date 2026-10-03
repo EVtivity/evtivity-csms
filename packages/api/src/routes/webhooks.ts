@@ -4,8 +4,8 @@
 import type { FastifyInstance } from 'fastify';
 import type Stripe from 'stripe';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
-import { db, paymentRecords, webhookEvents } from '@evtivity/database';
+import { and, eq, inArray, lte } from 'drizzle-orm';
+import { db, paymentRecords, webhookEvents, getStripeWebhookSecret } from '@evtivity/database';
 import { verifyWebhookSignature } from '../services/stripe.service.js';
 import { itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
@@ -14,6 +14,14 @@ import { config as apiConfig } from '../lib/config.js';
 const webhookResponse = z
   .object({ received: z.literal(true).describe('Acknowledgement that the webhook was processed') })
   .passthrough();
+
+// Statuses a webhook may move to failed or refunded. Every other status is
+// terminal for that event (design principle P5).
+const FAILABLE_STATUSES: Array<'pending' | 'pre_authorized'> = ['pending', 'pre_authorized'];
+const REFUNDABLE_STATUSES: Array<'captured' | 'partially_refunded'> = [
+  'captured',
+  'partially_refunded',
+];
 
 export function webhookRoutes(app: FastifyInstance): void {
   // Use string parsing for raw body access (needed for Stripe signature verification).
@@ -32,15 +40,24 @@ export function webhookRoutes(app: FastifyInstance): void {
         security: [],
         response: {
           200: itemResponse(webhookResponse),
-          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
-          500: errorWith('Internal server error', [ERROR_CODES.INTERNAL_ERROR]),
+          400: errorWith('Validation error', [
+            ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.WEBHOOK_SIGNATURE_MISSING,
+            ERROR_CODES.WEBHOOK_SIGNATURE_INVALID,
+          ]),
+          500: errorWith('Internal server error', [
+            ERROR_CODES.INTERNAL_ERROR,
+            ERROR_CODES.WEBHOOK_NOT_CONFIGURED,
+          ]),
         },
       },
     },
     async (request, reply) => {
-      const webhookSecret = process.env['STRIPE_WEBHOOK_SECRET'] ?? apiConfig.STRIPE_WEBHOOK_SECRET;
-      if (webhookSecret == null || webhookSecret === '') {
-        app.log.error('STRIPE_WEBHOOK_SECRET not configured');
+      // The signing secret is the `stripe.webhookSecretEnc` setting
+      // (Settings > Payment > Stripe), read through a 60 s cache.
+      const webhookSecret = await getStripeWebhookSecret(apiConfig.SETTINGS_ENCRYPTION_KEY);
+      if (webhookSecret == null) {
+        app.log.error('Stripe webhook signing secret is not configured (stripe.webhookSecretEnc)');
         await reply
           .status(500)
           .send({ error: 'Webhook not configured', code: 'WEBHOOK_NOT_CONFIGURED' });
@@ -103,18 +120,33 @@ export function webhookRoutes(app: FastifyInstance): void {
               stripeFailureMessage != null
                 ? `Stripe webhook: ${stripeFailureMessage.slice(0, 480)}`
                 : 'Stripe webhook: payment_intent.payment_failed';
-            await db
+            // Terminal states are sticky (P5): a failure event never
+            // overwrites a captured, refunded, cancelled or failed record.
+            const updated = await db
               .update(paymentRecords)
               .set({
                 status: 'failed',
                 failureReason,
                 updatedAt: new Date(),
               })
-              .where(eq(paymentRecords.id, record.id));
-            app.log.info(
-              { paymentIntentId: pi.id, reason: stripeFailureMessage },
-              'Payment marked as failed via webhook',
-            );
+              .where(
+                and(
+                  eq(paymentRecords.id, record.id),
+                  inArray(paymentRecords.status, FAILABLE_STATUSES),
+                ),
+              )
+              .returning({ id: paymentRecords.id });
+            if (updated.length > 0) {
+              app.log.info(
+                { paymentIntentId: pi.id, reason: stripeFailureMessage },
+                'Payment marked as failed via webhook',
+              );
+            } else {
+              app.log.info(
+                { paymentIntentId: pi.id, status: record.status },
+                'Payment failure webhook ignored: record is in a terminal state',
+              );
+            }
           }
           break;
         }
@@ -131,19 +163,44 @@ export function webhookRoutes(app: FastifyInstance): void {
               .where(eq(paymentRecords.stripePaymentIntentId, piId));
             if (record != null) {
               const refundedAmount = charge.amount_refunded;
-              const newStatus = refundedAmount >= charge.amount ? 'refunded' : 'partially_refunded';
-              await db
+              // A partially captured hold has amount > amount_captured; the
+              // refundable total is what was captured.
+              const newStatus =
+                refundedAmount >= charge.amount_captured ? 'refunded' : 'partially_refunded';
+              // Only a captured or partially refunded record takes a refund,
+              // and a delayed event with a smaller refunded total never
+              // lowers the stored one (P5).
+              const updated = await db
                 .update(paymentRecords)
                 .set({
                   status: newStatus,
                   refundedAmountCents: refundedAmount,
                   updatedAt: new Date(),
                 })
-                .where(eq(paymentRecords.id, record.id));
-              app.log.info(
-                { paymentIntentId: piId, status: newStatus, refundedAmount },
-                'Payment refund status updated via webhook',
-              );
+                .where(
+                  and(
+                    eq(paymentRecords.id, record.id),
+                    inArray(paymentRecords.status, REFUNDABLE_STATUSES),
+                    lte(paymentRecords.refundedAmountCents, refundedAmount),
+                  ),
+                )
+                .returning({ id: paymentRecords.id });
+              if (updated.length > 0) {
+                app.log.info(
+                  { paymentIntentId: piId, status: newStatus, refundedAmount },
+                  'Payment refund status updated via webhook',
+                );
+              } else {
+                app.log.info(
+                  {
+                    paymentIntentId: piId,
+                    status: record.status,
+                    refundedAmountCents: record.refundedAmountCents,
+                    refundedAmount,
+                  },
+                  'Refund webhook ignored: record not refundable or already refunded further',
+                );
+              }
             }
           }
           break;

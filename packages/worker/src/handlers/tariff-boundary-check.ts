@@ -11,6 +11,7 @@ import {
   isStationMessageEnabled,
   openSegmentTariffId,
   priceSessionAt,
+  resolveStationTariff,
   sessionIdleMinutesAt,
   storeRunningCost,
   switchTariffSegment,
@@ -18,7 +19,6 @@ import {
 import type { Logger } from 'pino';
 import crypto from 'node:crypto';
 import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
-import { resolveTariff } from '@evtivity/api/src/services/tariff.service.js';
 import { pushAllMessagesToAllStations } from '@evtivity/api/src/services/station-message.service.js';
 
 export async function tariffBoundaryCheckHandler(log: Logger): Promise<void> {
@@ -60,15 +60,23 @@ export async function tariffBoundaryCheckHandler(log: Logger): Promise<void> {
     // the worker's DB pool. Batch the sessions and run each batch with
     // Promise.allSettled so one session's failure doesn't stop the cron tick.
     const processSession = async (session: (typeof activeSessions)[number]): Promise<void> => {
-      const currentTariff = await resolveTariff(session.stationUuid, session.driverId);
+      const energyWh = session.energyDeliveredWh != null ? Number(session.energyDeliveredWh) : 0;
+      // The session's energy so far selects an energy-threshold tariff once
+      // the threshold is crossed.
+      const currentTariff = await resolveStationTariff(
+        {
+          stationUuid: session.stationUuid,
+          driverUuid: session.driverId,
+          sessionEnergyKwh: energyWh / 1000,
+        },
+        client,
+      );
       if (currentTariff == null) return;
       // Compare with the tariff of the open segment. The session's own tariff
       // snapshot (and its tax rate) stays the one it started with (issue #33).
       const openTariffId =
         (await openSegmentTariffId(client, session.sessionId)) ?? session.tariffId;
       if (currentTariff.id === openTariffId) return;
-
-      const energyWh = session.energyDeliveredWh != null ? Number(session.energyDeliveredWh) : 0;
 
       // Close the open segment (with the session idle not yet attributed to
       // closed segments, including an idle period still running) and open one

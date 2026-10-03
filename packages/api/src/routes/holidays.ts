@@ -4,22 +4,21 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, clearTariffResolutionCache } from '@evtivity/database';
 import { pricingHolidays, holidayAuditLog, writeAudit } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
-import { clearHolidayCache } from '../services/tariff.service.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 
 async function publishHolidayChanged(): Promise<void> {
-  // Clear the in-process holiday cache so the next resolveTariff() call on
-  // this pod reads fresh holiday data. Without this the 60s TTL would defer
-  // every operator-added or operator-deleted holiday for up to a minute
-  // before it takes effect.
-  clearHolidayCache();
+  // Clear the in-process holiday cache so the next tariff resolution on this
+  // pod reads fresh holiday data. Without this the 60s TTL would defer every
+  // operator-added or operator-deleted holiday for up to a minute before it
+  // takes effect. Other processes pick it up within the TTL.
+  clearTariffResolutionCache();
   await publishPricingChanged({ pricingGroupId: null, action: 'holiday.changed' });
 }
 

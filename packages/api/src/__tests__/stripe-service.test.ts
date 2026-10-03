@@ -102,13 +102,17 @@ vi.mock('../lib/config.js', () => ({
 
 // -- Mocks --
 
-const { mockGetCompanyCurrency, mockGetPlatformFeePercent, mockClearPlatformFeeCache } = vi.hoisted(
-  () => ({
-    mockGetCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
-    mockGetPlatformFeePercent: vi.fn((_siteId: string | null) => Promise.resolve(0)),
-    mockClearPlatformFeeCache: vi.fn(),
-  }),
-);
+const {
+  mockGetCompanyCurrency,
+  mockGetPlatformFeePercent,
+  mockClearPlatformFeeCache,
+  mockClearStripeWebhookSecretCache,
+} = vi.hoisted(() => ({
+  mockGetCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
+  mockGetPlatformFeePercent: vi.fn((_siteId: string | null) => Promise.resolve(0)),
+  mockClearPlatformFeeCache: vi.fn(),
+  mockClearStripeWebhookSecretCache: vi.fn(),
+}));
 
 vi.mock('@evtivity/database', () => ({
   db: {
@@ -117,6 +121,7 @@ vi.mock('@evtivity/database', () => ({
   getCompanyCurrency: mockGetCompanyCurrency,
   getPlatformFeePercent: mockGetPlatformFeePercent,
   clearPlatformFeeCache: mockClearPlatformFeeCache,
+  clearStripeWebhookSecretCache: mockClearStripeWebhookSecretCache,
   settings: {},
   sitePaymentConfigs: {},
 }));
@@ -885,6 +890,14 @@ describe('stripe.service', () => {
       setupDbResults(platformSettingsRows(), [sitePaymentConfigRow({ preAuthAmountCents: 9000 })]);
       const siteAgain = await getStripeConfig('site-1');
       expect(siteAgain!.preAuthAmountCents).toBe(9000);
+    });
+
+    it('drops the cached webhook signing secret on a full clear only', () => {
+      mockClearStripeWebhookSecretCache.mockClear();
+      clearConfigCache('site-1');
+      expect(mockClearStripeWebhookSecretCache).not.toHaveBeenCalled();
+      clearConfigCache();
+      expect(mockClearStripeWebhookSecretCache).toHaveBeenCalledTimes(1);
     });
 
     it('evicts the platform entry when called with null', async () => {

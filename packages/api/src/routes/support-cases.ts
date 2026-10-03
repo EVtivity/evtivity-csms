@@ -1679,7 +1679,11 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
-      await createRefund(config, record.stripePaymentIntentId, body.amountCents);
+      // Same request key as the operator refund route (P7): a retried request
+      // for the same refund state and amount reuses the Stripe refund instead
+      // of refunding twice, while a later partial refund gets a new key.
+      const refundRequestId = `${String(record.id)}_${String(record.refundedAmountCents)}_${String(refundAmount)}`;
+      await createRefund(config, record.stripePaymentIntentId, refundAmount, refundRequestId);
 
       const refundedTotal = record.refundedAmountCents + refundAmount;
       const isFullRefund = refundedTotal >= (record.capturedAmountCents ?? 0);

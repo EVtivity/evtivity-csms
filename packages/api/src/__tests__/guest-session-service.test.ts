@@ -374,6 +374,80 @@ describe('guest-session.service', () => {
       );
     });
 
+    it('captures at most the hold and records the uncollected shortfall', async () => {
+      setupDbResults(
+        [{ id: 'guest-1', guestEmail: '', stationOcppId: 'CS-001' }],
+        [{ id: 'pr-1', stripePaymentIntentId: 'pi_abc', preAuthAmountCents: 5000 }],
+        [{ finalCostCents: 6200, tariffTaxRate: '0', stationId: 'station-1' }],
+        [{ siteId: 'site-1' }],
+        [],
+        [],
+      );
+
+      await fireEvent({ type: 'TransactionEnded', sessionId: 'session-1' });
+      await tick();
+
+      // Stripe rejects amount_to_capture above the hold.
+      expect(mockCapturePayment).toHaveBeenCalledWith(
+        expect.anything(),
+        'pi_abc',
+        5000,
+        'capture_pr-1',
+        0,
+      );
+      const sets = vi
+        .mocked(db.update)
+        .mock.results.map(
+          (r) => (r.value as { set: { mock: { calls: unknown[][] } } }).set.mock.calls[0]?.[0],
+        );
+      expect(sets).toContainEqual(
+        expect.objectContaining({
+          status: 'captured',
+          capturedAmountCents: 5000,
+          failureReason:
+            'Guest shortfall: hold 5000c captured, 1200c uncollected (no saved card for a top-up)',
+        }),
+      );
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        { guestSessionId: 'guest-1', finalCost: 6200, holdCents: 5000, shortfallCents: 1200 },
+        'Guest session cost exceeds the hold; captured the hold, shortfall uncollected',
+      );
+    });
+
+    it('captures the full cost with no failure reason when it fits in the hold', async () => {
+      setupDbResults(
+        [{ id: 'guest-1', guestEmail: '', stationOcppId: 'CS-001' }],
+        [{ id: 'pr-1', stripePaymentIntentId: 'pi_abc', preAuthAmountCents: 5000 }],
+        [{ finalCostCents: 4200, tariffTaxRate: '0', stationId: 'station-1' }],
+        [{ siteId: 'site-1' }],
+        [],
+        [],
+      );
+
+      await fireEvent({ type: 'TransactionEnded', sessionId: 'session-1' });
+      await tick();
+
+      expect(mockCapturePayment).toHaveBeenCalledWith(
+        expect.anything(),
+        'pi_abc',
+        4200,
+        'capture_pr-1',
+        0,
+      );
+      const sets = vi
+        .mocked(db.update)
+        .mock.results.map(
+          (r) => (r.value as { set: { mock: { calls: unknown[][] } } }).set.mock.calls[0]?.[0],
+        );
+      expect(sets).toContainEqual(
+        expect.objectContaining({
+          status: 'captured',
+          capturedAmountCents: 4200,
+          failureReason: null,
+        }),
+      );
+    });
+
     it('cancels payment intent when cost is zero', async () => {
       setupDbResults(
         [{ id: 'guest-1', guestEmail: '', stationOcppId: 'CS-001' }],

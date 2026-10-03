@@ -806,6 +806,13 @@
       "when": 1791000010006,
       "tag": "0114_collapse_queued_screen_and_cost_commands",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1791000010007,
+      "tag": "0115_seed_stripe_webhook_secret",
+      "breakpoints": true
     }
   ]
 }

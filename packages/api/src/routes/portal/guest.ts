@@ -8,10 +8,14 @@ import { eq, and, or, asc, sql } from 'drizzle-orm';
 import type Stripe from 'stripe';
 import {
   db,
+  client,
   getCompanyCurrency,
   getCompanyTaxBasis,
   isStationLevelUnavailable,
+  isStationChargingFree,
+  resolveStationTariff,
 } from '@evtivity/database';
+import { isTariffFree, TAX_BASES } from '@evtivity/lib';
 import {
   chargingStations,
   connectors,
@@ -23,7 +27,6 @@ import {
   reservations,
   sites,
 } from '@evtivity/database';
-import { TAX_BASES } from '@evtivity/lib';
 import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { sessionCurrencySql } from '../../lib/company-currency.js';
@@ -42,7 +45,6 @@ import {
   setCachedConnectorStatus,
 } from '../../lib/rate-limiters.js';
 import { getStripeConfig } from '../../services/stripe.service.js';
-import { resolveTariff, isTariffFree } from '../../services/tariff.service.js';
 import { isEvseInReservationBuffer } from '../../lib/reservation-buffer.js';
 import { getActiveMaintenanceForStation } from '../../services/maintenance.service.js';
 import { validateQrCodeUrl } from '../../services/web-payment.service.js';
@@ -438,7 +440,10 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       // gate and bills $0 regardless of what tariff is configured. The guest
       // checkout must treat it as free so the UI doesn't ask for a card and
       // the start endpoint doesn't try to pre-auth.
-      const tariff = await resolveTariff(station.id, null);
+      const tariff = await resolveStationTariff(
+        { stationUuid: station.id, driverUuid: null },
+        client,
+      );
       const isFree = station.freeVendEnabled === true || isTariffFree(tariff);
 
       // Free-vend overrides whatever tariff is assigned. Return a pricing
@@ -675,8 +680,15 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         .from(chargingStations)
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
         .where(eq(chargingStations.id, station.id));
-      const tariff = await resolveTariff(station.id, null);
-      const chargingIsFree = siteFreeVend?.freeVendEnabled === true || isTariffFree(tariff);
+      const chargingIsFree = await isStationChargingFree(
+        {
+          stationUuid: station.id,
+          driverUuid: null,
+          reserved: false,
+          freeVend: siteFreeVend?.freeVendEnabled === true,
+        },
+        client,
+      );
 
       // Generate session token. Capped at 20 chars to fit OCPP 1.6 idTag
       // maxLength constraint. 10 bytes = 20 hex chars = 80 bits of entropy,

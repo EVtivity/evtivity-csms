@@ -1,18 +1,23 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import crypto from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import {
   db,
+  client,
   driverPaymentMethods,
   paymentRecords,
   getCompanyCurrency,
+  resolveStationTariff,
   type PaymentChargeType,
 } from '@evtivity/database';
-import { isSimulatedCustomer, shouldSimulatePaymentFailure, taxLineFromNet } from '@evtivity/lib';
+import {
+  createSimulatedIntentId,
+  isSimulatedCustomer,
+  shouldSimulatePaymentFailure,
+  taxLineFromNet,
+} from '@evtivity/lib';
 import { getStripeConfig, chargeSavedCard } from '../services/stripe.service.js';
-import { resolveTariff } from '../services/tariff.service.js';
 
 /**
  * Reservation cancellation and no-show fees. The fee is priced net, like
@@ -102,7 +107,10 @@ export async function chargeReservationFee(
   }
   const currency = stripeConfig?.currency ?? (await getCompanyCurrency());
 
-  const tariff = await resolveTariff(input.stationId, input.driverId);
+  const tariff = await resolveStationTariff(
+    { stationUuid: input.stationId, driverUuid: input.driverId },
+    client,
+  );
   const taxRate = Number(tariff?.taxRate ?? 0);
   const charge = taxLineFromNet(input.netCents, taxRate);
 
@@ -143,7 +151,7 @@ export async function chargeReservationFee(
   try {
     if (simulated) {
       if (shouldSimulatePaymentFailure()) throw new Error('Simulated payment failure');
-      intentId = `pi_sim_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+      intentId = createSimulatedIntentId();
     } else {
       const intent = await chargeSavedCard(stripeConfig as NonNullable<typeof stripeConfig>, {
         customerId: paymentMethod.stripeCustomerId,

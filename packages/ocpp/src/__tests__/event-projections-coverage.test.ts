@@ -64,6 +64,19 @@ vi.mock('postgres', () => {
 });
 
 const mockIsRoamingEnabled = vi.fn().mockResolvedValue(false);
+
+// The shared cached platform client (@evtivity/database stripe-client), built
+// on the mocked Stripe SDK below.
+async function makeStripeClient(..._args: unknown[]): Promise<unknown> {
+  const Stripe = (await import('stripe')).default as unknown as new () => unknown;
+  return new Stripe();
+}
+const mockGetStripeClient = vi.fn(makeStripeClient);
+// A test that overrides the client (mockResolvedValueOnce) must not leak it.
+beforeEach(() => {
+  mockGetStripeClient.mockReset();
+  mockGetStripeClient.mockImplementation(makeStripeClient);
+});
 const mockSettlePrepaidSession = vi.fn().mockResolvedValue(null);
 
 // The one cost assembly (@evtivity/database session-pricing), mocked per test.
@@ -99,11 +112,16 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/session-pricing.js',
   )),
+  // The real tariff resolver, running on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/tariff-resolution.js',
+  )),
   getCompanyTaxBasis: vi.fn().mockResolvedValue('net'),
   priceSessionAt: (...args: unknown[]) => mockPriceSessionAt(...args) as unknown,
   storeRunningCost: (...args: unknown[]) => mockStoreRunningCost(...args) as unknown,
   client: createSqlMock(),
   getPlatformFeePercent: vi.fn().mockResolvedValue(0),
+  getStripeClient: (...args: unknown[]) => mockGetStripeClient(...args) as unknown,
   isRoamingEnabled: mockIsRoamingEnabled,
   getIdlingGracePeriodMinutes: vi.fn().mockResolvedValue(0),
   isSplitBillingEnabled: vi.fn().mockResolvedValue(false),
@@ -280,8 +298,8 @@ describe('Event projections - coverage expansion', () => {
   async function setup() {
     const { registerProjections } = await import('../server/event-projections.js');
     // Pricing holidays are cached per process; each test expects its own lookup.
-    const { clearPricingHolidayCache } = await import('../server/station-tariff.js');
-    clearPricingHolidayCache();
+    const { clearTariffResolutionCache } = await import('@evtivity/database');
+    clearTariffResolutionCache();
     registerProjections(eventBus, mockPubSub);
   }
 
@@ -778,10 +796,7 @@ describe('Event projections - coverage expansion', () => {
           [], // SELECT driver_tokens (not found)
           [], // SELECT ocpi_external_tokens will throw
           [], // SELECT guest_sessions (no match)
-          // resolveTariff: no matches
-          [], // station group
-          [], // site group
-          [], // default group
+          [], // loadStationPricing: no pricing group applies
           [{ site_id: null }], // resolveSiteId
         ],
         [{ index: 9, error: new Error('relation "ocpi_external_tokens" does not exist') }],
@@ -819,10 +834,7 @@ describe('Event projections - coverage expansion', () => {
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id (no driver)
         // No token lookup since idToken is null
-        // resolveTariff: goes straight to station group then default
-        [], // station pricing group
-        [], // site pricing group
-        [], // default pricing group
+        [], // loadStationPricing: no pricing group applies
         [{ site_id: null }], // resolveSiteId
       );
 
@@ -856,12 +868,14 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT transaction_events
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id
-        // resolvePricingGroupId is now one CTE that resolves driver/fleet/
-        // station/site/default in a single round-trip. Default group returned.
-        [{ id: 'group-default' }], // resolvePricingGroupId CTE
-        // resolveTariffForStation: fetch all tariffs for the group
+        // loadStationPricing resolves driver/fleet/station/site/default, the
+        // group's tariffs and the site timezone in one round trip.
         [
           {
+            group_id: 'group-default',
+            group_name: 'Default',
+            group_priority: 5,
+            timezone: null,
             id: 'tariff-default',
             price_per_kwh: '0.20',
             price_per_minute: '0.05',
@@ -872,9 +886,8 @@ describe('Event projections - coverage expansion', () => {
             priority: 0,
             is_default: true,
           },
-        ], // tariffs for group
+        ], // loadStationPricing: the default group and its tariff
         [], // pricing_holidays (empty)
-        [], // timezone lookup
         [], // UPDATE charging_sessions SET tariff_id
         [], // INSERT session_tariff_segments
         [{ site_id: null }], // resolveSiteId
@@ -909,10 +922,7 @@ describe('Event projections - coverage expansion', () => {
 
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id
-        // resolveTariff: all empty
-        [], // station pricing group
-        [], // site pricing group
-        [], // default pricing group
+        [], // loadStationPricing: no pricing group applies
         [{ site_id: null }], // resolveSiteId
       );
 
@@ -967,10 +977,7 @@ describe('Event projections - coverage expansion', () => {
         [], // driver_tokens (empty)
         [], // external tokens (empty)
         [], // guest_sessions (empty)
-        // resolvePricingGroupId
-        [], // station pricing group
-        [], // site pricing group
-        [], // default pricing group
+        [], // loadStationPricing: no pricing group applies
         [{ site_id: null }], // resolveSiteId
       );
 
@@ -2345,10 +2352,12 @@ describe('Event projections - coverage expansion', () => {
         [{ driver_id: 'driver-pay' }], // 6: SELECT driver_id
         [], // 7: SELECT driver_tokens by idToken (no match for 'rfid-pay')
         [], // 8: SELECT vehicle_id (no previous vehicle, auto-link skipped)
-        // resolveTariffForStation: resolvePricingGroupId is now a single CTE
-        [{ id: 'pg-1' }], // 9: resolvePricingGroupId CTE
         [
           {
+            group_id: 'pg-1',
+            group_name: 'Group',
+            group_priority: 5,
+            timezone: null,
             id: 'tariff-1',
             price_per_kwh: '0.30',
             price_per_minute: null,
@@ -2360,9 +2369,8 @@ describe('Event projections - coverage expansion', () => {
             priority: 0,
             is_default: true,
           },
-        ], // 10: SELECT tariffs
+        ], // 10: loadStationPricing (group, tariffs, timezone)
         [], // 11: SELECT pricing_holidays (loadHolidays)
-        [], // 12: timezone lookup (cs join sites)
         [], // 13: UPDATE charging_sessions SET tariff_id
         [], // 14: INSERT session_tariff_segments
         [{ site_id: 'site-pay' }], // 15: resolveSiteId
@@ -2375,32 +2383,10 @@ describe('Event projections - coverage expansion', () => {
             stripe_payment_method_id: 'pm_test',
           },
         ], // 17: SELECT driver_payment_methods
-        // isTariffFreeForStation: single CTE + tariffs + holidays + timezone
-        [{ id: 'pg-1' }], // 18: groupRows (CTE)
-        [
-          {
-            id: 'tariff-paid',
-            price_per_kwh: '0.30',
-            price_per_minute: null,
-            price_per_session: null,
-            idle_fee_price_per_minute: null,
-            reservation_fee_per_minute: null,
-            tax_rate: null,
-            restrictions: null,
-            priority: 0,
-            is_default: true,
-          },
-        ], // 19: tariffRows (paid tariff)
-        [], // 20: holidayRows
-        [], // 21: timezone lookup
         [{ key: 'stripe.preAuthAmountCents', value: 5000 }], // 22: platform settings
         [], // 23: site payment config
         [{ currency: 'USD' }], // 24: session currency for the pre-auth
         [], // 25: existing payment_records guard
-        [
-          { key: 'stripe.secretKeyEnc', value: 'encrypted-key' },
-          { key: 'stripe.platformFeePercent', value: 0 },
-        ], // 26: stripe settings
         [], // 27: INSERT payment_records
       );
 
@@ -2419,7 +2405,89 @@ describe('Event projections - coverage expansion', () => {
       );
 
       expect(mockStripePaymentIntentsCreate).toHaveBeenCalled();
-      expect(mockDecryptString).toHaveBeenCalled();
+      // The shared client, with the OCPP process's configured encryption key.
+      expect(mockGetStripeClient).toHaveBeenCalledWith(expect.any(String));
+    });
+
+    it('skips the pre-auth when Stripe is not configured (no secret key)', async () => {
+      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
+      mockGetStripeClient.mockResolvedValueOnce(null);
+      await setup();
+
+      // The second subscriber fires after the first one.
+      // We need enough SQL results for BOTH subscribers.
+      setupSqlResults(
+        // --- First subscriber (main TransactionEvent handler) ---
+        [{ id: 'sta_000000000001' }], // 0: resolveStationId
+        [], // 1: INSERT charging_sessions
+        [{ id: 'session-preauth' }], // 2: SELECT id
+        [], // 3: UPDATE stale sessions (RETURNING id, empty)
+        [], // 4: INSERT transaction_events
+
+        [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
+        [{ driver_id: 'driver-pay' }], // 6: SELECT driver_id
+        [], // 7: SELECT driver_tokens by idToken (no match for 'rfid-pay')
+        [], // 8: SELECT vehicle_id (no previous vehicle, auto-link skipped)
+        [
+          {
+            group_id: 'pg-1',
+            group_name: 'Group',
+            group_priority: 5,
+            timezone: null,
+            id: 'tariff-1',
+            price_per_kwh: '0.30',
+            price_per_minute: null,
+            price_per_session: null,
+            idle_fee_price_per_minute: null,
+            reservation_fee_per_minute: null,
+            tax_rate: null,
+            restrictions: null,
+            priority: 0,
+            is_default: true,
+          },
+        ], // 10: loadStationPricing (group, tariffs, timezone)
+        [], // 11: SELECT pricing_holidays (loadHolidays)
+        [], // 13: UPDATE charging_sessions SET tariff_id
+        [], // 14: INSERT session_tariff_segments
+        [{ site_id: 'site-pay' }], // 15: resolveSiteId
+        [{ name: 'Site Pay' }], // 16: resolveSiteName
+        // --- runPaymentGate (called inline) ---
+        [
+          {
+            id: 'pm-1',
+            stripe_customer_id: 'cus_test',
+            stripe_payment_method_id: 'pm_test',
+          },
+        ], // 17: SELECT driver_payment_methods
+        [{ key: 'stripe.preAuthAmountCents', value: 5000 }], // 22: platform settings
+        [], // 23: site payment config
+        [{ currency: 'USD' }], // 24: session currency for the pre-auth
+        [], // 25: existing payment_records guard
+        [], // 27: INSERT payment_records (failed)
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Started',
+          stationId: 'CS-001',
+          transactionId: 'tx-preauth',
+          seqNo: 0,
+          triggerReason: 'Authorized',
+          timestamp: '2024-01-01T00:00:00Z',
+          idToken: 'rfid-pay',
+          tokenType: 'ISO14443',
+        }),
+      );
+
+      expect(mockGetStripeClient).toHaveBeenCalled();
+      expect(mockStripePaymentIntentsCreate).not.toHaveBeenCalled();
+      // Payments are not configured: the session is neither stopped nor faulted.
+      const publishCalls = (mockPubSub.publish as Mock<PubSubClient['publish']>).mock.calls;
+      expect(publishCalls.find((c) => c[0] === 'ocpp_commands')).toBeUndefined();
+      expect(
+        sqlCalls.some((c) => c.strings.some((s) => s.includes('INSERT INTO payment_records'))),
+      ).toBe(false);
     });
 
     it('skips pre-auth when no driver on session', async () => {
@@ -2435,8 +2503,7 @@ describe('Event projections - coverage expansion', () => {
 
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id
-        [], // station tariff
-        [], // default tariff
+        [], // loadStationPricing: no pricing group applies
         [{ site_id: null }], // resolveSiteId
         // runPaymentGate: driverId is null, no idToken -> stops as anonymous (no SQL needed)
       );
@@ -2485,7 +2552,6 @@ describe('Event projections - coverage expansion', () => {
         [{ name: null }], // resolveSiteName
         // runPaymentGate (no session query needed)
         [], // SELECT driver_payment_methods (empty)
-        [{ is_free: true }], // isTariffFreeForStation -> free, returns early
       );
 
       await eventBus.emit(
@@ -2556,56 +2622,6 @@ describe('Event projections - coverage expansion', () => {
       expect(mockStripePaymentIntentsCreate).not.toHaveBeenCalled();
     });
 
-    it('skips pre-auth when no stripe secretKeyEnc setting', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
-      await setup();
-
-      setupSqlResults(
-        // First subscriber
-        [{ id: 'sta_000000000001' }],
-        [],
-        [{ id: 'session-1' }],
-        [], // UPDATE stale sessions
-        [],
-
-        [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
-        [{ driver_id: 'driver-1' }],
-        [
-          {
-            id: 'tariff-1',
-            price_per_kwh: '0.30',
-            price_per_minute: null,
-            price_per_session: null,
-            idle_fee_price_per_minute: null,
-            tax_rate: null,
-          },
-        ],
-        [],
-        [{ site_id: null }],
-        [{ name: null }], // resolveSiteName
-        // runPaymentGate (no session query needed)
-        [{ id: 'pm-1', stripe_customer_id: 'cus_1', stripe_payment_method_id: 'pm_1' }],
-        [], // SELECT platform settings (empty - defaults used)
-        // No site override (site_id is null)
-        [], // SELECT payment_records guard (no existing record)
-        [], // SELECT stripe settings (empty - no secretKeyEnc)
-      );
-
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Started',
-          stationId: 'CS-001',
-          transactionId: 'tx-no-stripe',
-          seqNo: 0,
-          triggerReason: 'Authorized',
-          timestamp: '2024-01-01T00:00:00Z',
-        }),
-      );
-
-      expect(mockStripePaymentIntentsCreate).not.toHaveBeenCalled();
-    });
-
     it('handles pre-auth error by stopping session', async () => {
       process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
       mockStripePaymentIntentsCreate.mockRejectedValueOnce(new Error('card_declined'));
@@ -2625,10 +2641,12 @@ describe('Event projections - coverage expansion', () => {
         [{ driver_id: 'driver-1' }], // 6: SELECT driver_id
         // idToken is null on this payload, so no driver_tokens lookup
         [], // 7: SELECT vehicle_id (auto-link)
-        // resolveTariffForStation: resolvePricingGroupId is now a single CTE
-        [{ id: 'pg-1' }], // 8: resolvePricingGroupId CTE
         [
           {
+            group_id: 'pg-1',
+            group_name: 'Group',
+            group_priority: 5,
+            timezone: null,
             id: 'tariff-1',
             price_per_kwh: '0.30',
             price_per_minute: null,
@@ -2640,38 +2658,18 @@ describe('Event projections - coverage expansion', () => {
             priority: 0,
             is_default: true,
           },
-        ], // 9: SELECT tariffs
+        ], // 9: loadStationPricing (group, tariffs, timezone)
         [], // 10: SELECT pricing_holidays
-        [], // 11: timezone lookup
         [], // 12: UPDATE charging_sessions SET tariff_id
         [], // 13: INSERT session_tariff_segments
         [{ site_id: null }], // 14: resolveSiteId
         [{ name: null }], // 15: resolveSiteName
         // runPaymentGate
         [{ id: 'pm-1', stripe_customer_id: 'cus_1', stripe_payment_method_id: 'pm_1' }], // 16: pmRows
-        // isTariffFreeForStation: single CTE + tariffs + holidays + timezone
-        [{ id: 'pg-1' }], // 17: groupRows CTE
-        [
-          {
-            id: 'tariff-paid',
-            price_per_kwh: '0.30',
-            price_per_minute: null,
-            price_per_session: null,
-            idle_fee_price_per_minute: null,
-            reservation_fee_per_minute: null,
-            tax_rate: null,
-            restrictions: null,
-            priority: 0,
-            is_default: true,
-          },
-        ], // 18: tariffRows
-        [], // 19: holidayRows
-        [], // 20: timezone lookup
         [], // 21: platform settings
         // No site override (site_id is null, so query is skipped)
         [{ currency: 'USD' }], // 22: session currency for the pre-auth
         [], // 23: SELECT payment_records guard
-        [{ key: 'stripe.secretKeyEnc', value: 'encrypted' }], // 24: stripe settings
         [], // 25: INSERT payment_records (failed)
       );
 
@@ -2728,9 +2726,12 @@ describe('Event projections - coverage expansion', () => {
         [{ is_roaming: false }], // 5: SELECT is_roaming (eager-state seed)
         [{ driver_id: 'driver-sim' }], // 6: SELECT driver_id
         [], // 7: SELECT vehicle_id
-        [{ id: 'pg-1' }], // 8: resolvePricingGroupId CTE
         [
           {
+            group_id: 'pg-1',
+            group_name: 'Group',
+            group_priority: 5,
+            timezone: null,
             id: 'tariff-1',
             price_per_kwh: '0.30',
             price_per_minute: null,
@@ -2742,9 +2743,8 @@ describe('Event projections - coverage expansion', () => {
             priority: 0,
             is_default: true,
           },
-        ], // 9: SELECT tariffs
+        ], // 9: loadStationPricing (group, tariffs, timezone)
         [], // 10: SELECT pricing_holidays
-        [], // 11: timezone lookup
         [], // 12: UPDATE charging_sessions SET tariff_id
         [], // 13: INSERT session_tariff_segments
         [{ site_id: null }], // 14: resolveSiteId
@@ -2756,23 +2756,6 @@ describe('Event projections - coverage expansion', () => {
             stripe_payment_method_id: 'pm_sim_000001',
           },
         ], // 16: SELECT driver_payment_methods
-        [{ id: 'pg-1' }], // 17: isTariffFreeForStation groupRows CTE
-        [
-          {
-            id: 'tariff-paid',
-            price_per_kwh: '0.30',
-            price_per_minute: null,
-            price_per_session: null,
-            idle_fee_price_per_minute: null,
-            reservation_fee_per_minute: null,
-            tax_rate: null,
-            restrictions: null,
-            priority: 0,
-            is_default: true,
-          },
-        ], // 18: tariffRows
-        [], // 19: holidayRows
-        [], // 20: timezone lookup
         [], // 21: platform settings
         [{ currency: 'USD' }], // 22: session currency for the pre-auth
         [], // 23: payment_records guard
@@ -2823,9 +2806,12 @@ describe('Event projections - coverage expansion', () => {
         [{ is_roaming: false }], // 5: SELECT is_roaming (eager-state seed)
         [{ driver_id: 'driver-sim' }], // 6: SELECT driver_id
         [], // 7: SELECT vehicle_id
-        [{ id: 'pg-1' }], // 8: resolvePricingGroupId CTE
         [
           {
+            group_id: 'pg-1',
+            group_name: 'Group',
+            group_priority: 5,
+            timezone: null,
             id: 'tariff-1',
             price_per_kwh: '0.30',
             price_per_minute: null,
@@ -2837,9 +2823,8 @@ describe('Event projections - coverage expansion', () => {
             priority: 0,
             is_default: true,
           },
-        ], // 9: SELECT tariffs
+        ], // 9: loadStationPricing (group, tariffs, timezone)
         [], // 10: SELECT pricing_holidays
-        [], // 11: timezone lookup
         [], // 12: UPDATE charging_sessions SET tariff_id
         [], // 13: INSERT session_tariff_segments
         [{ site_id: null }], // 14: resolveSiteId
@@ -2851,23 +2836,6 @@ describe('Event projections - coverage expansion', () => {
             stripe_payment_method_id: 'pm_sim_000001',
           },
         ], // 16: SELECT driver_payment_methods
-        [{ id: 'pg-1' }], // 17: isTariffFreeForStation groupRows CTE
-        [
-          {
-            id: 'tariff-paid',
-            price_per_kwh: '0.30',
-            price_per_minute: null,
-            price_per_session: null,
-            idle_fee_price_per_minute: null,
-            reservation_fee_per_minute: null,
-            tax_rate: null,
-            restrictions: null,
-            priority: 0,
-            is_default: true,
-          },
-        ], // 18: tariffRows
-        [], // 19: holidayRows
-        [], // 20: timezone lookup
         [], // 21: platform settings
         [{ currency: null }], // 22: session currency for the pre-auth
         [], // 23: payment_records guard
@@ -2919,9 +2887,12 @@ describe('Event projections - coverage expansion', () => {
         [{ is_roaming: false }], // 5: SELECT is_roaming (eager-state seed)
         [{ driver_id: 'driver-sim' }], // 6: SELECT driver_id
         [], // 7: SELECT vehicle_id
-        [{ id: 'pg-1' }], // 8: resolvePricingGroupId CTE
         [
           {
+            group_id: 'pg-1',
+            group_name: 'Group',
+            group_priority: 5,
+            timezone: null,
             id: 'tariff-1',
             price_per_kwh: '0.30',
             price_per_minute: null,
@@ -2933,9 +2904,8 @@ describe('Event projections - coverage expansion', () => {
             priority: 0,
             is_default: true,
           },
-        ], // 9: SELECT tariffs
+        ], // 9: loadStationPricing (group, tariffs, timezone)
         [], // 10: SELECT pricing_holidays
-        [], // 11: timezone lookup
         [], // 12: UPDATE charging_sessions SET tariff_id
         [], // 13: INSERT session_tariff_segments
         [{ site_id: null }], // 14: resolveSiteId
@@ -2947,23 +2917,6 @@ describe('Event projections - coverage expansion', () => {
             stripe_payment_method_id: 'pm_sim_000001',
           },
         ], // 16: SELECT driver_payment_methods
-        [{ id: 'pg-1' }], // 17: isTariffFreeForStation groupRows CTE
-        [
-          {
-            id: 'tariff-paid',
-            price_per_kwh: '0.30',
-            price_per_minute: null,
-            price_per_session: null,
-            idle_fee_price_per_minute: null,
-            reservation_fee_per_minute: null,
-            tax_rate: null,
-            restrictions: null,
-            priority: 0,
-            is_default: true,
-          },
-        ], // 18: tariffRows
-        [], // 19: holidayRows
-        [], // 20: timezone lookup
         [], // 21: platform settings
         [], // 22: session currency for the pre-auth
         [], // 23: payment_records guard
@@ -3014,9 +2967,12 @@ describe('Event projections - coverage expansion', () => {
         [{ driver_id: 'driver-site' }], // 6: SELECT driver_id
         [], // 7: SELECT driver_tokens by idToken (no match)
         [], // 8: SELECT vehicle_id (auto-link)
-        [{ id: 'pg-1' }], // 9: resolvePricingGroupId CTE
         [
           {
+            group_id: 'pg-1',
+            group_name: 'Group',
+            group_priority: 5,
+            timezone: null,
             id: 'tariff-1',
             price_per_kwh: '0.30',
             price_per_minute: null,
@@ -3028,32 +2984,14 @@ describe('Event projections - coverage expansion', () => {
             priority: 0,
             is_default: true,
           },
-        ], // 10: SELECT tariffs
+        ], // 10: loadStationPricing (group, tariffs, timezone)
         [], // 11: SELECT pricing_holidays
-        [], // 12: timezone lookup
         [], // 13: UPDATE charging_sessions SET tariff_id
         [], // 14: INSERT session_tariff_segments
         [{ site_id: 'site-stripe' }], // 15: resolveSiteId
         [{ name: 'Site Stripe' }], // 16: resolveSiteName
         // runPaymentGate
         [{ id: 'pm-1', stripe_customer_id: 'cus_site', stripe_payment_method_id: 'pm_site' }], // 17: pmRows
-        [{ id: 'pg-1' }], // 18: isTariffFreeForStation groupRows CTE
-        [
-          {
-            id: 'tariff-paid',
-            price_per_kwh: '0.30',
-            price_per_minute: null,
-            price_per_session: null,
-            idle_fee_price_per_minute: null,
-            reservation_fee_per_minute: null,
-            tax_rate: null,
-            restrictions: null,
-            priority: 0,
-            is_default: true,
-          },
-        ], // 19: tariffRows
-        [], // 20: holidayRows
-        [], // 21: timezone lookup
         [], // 22: platform settings
         [
           {
@@ -3064,7 +3002,6 @@ describe('Event projections - coverage expansion', () => {
         ], // 23: site payment config (override + connected account)
         [{ currency: 'EUR' }], // 24: session currency for the pre-auth
         [], // 25: existing payment_records guard
-        [{ value: 'encrypted' }], // 26: stripe secret key
         [], // 27: INSERT payment_records
       );
 
@@ -3116,10 +3053,7 @@ describe('Event projections - coverage expansion', () => {
         [], // driver_tokens (empty)
         // (redundant downstream OCPI check was removed in Step 2; no further
         //  ocpi_external_tokens lookup or is_roaming UPDATE here)
-        // resolvePricingGroupId: station, site, default
-        [], // station group
-        [], // site group
-        [], // default group
+        [], // loadStationPricing: no pricing group applies
         // resolveSiteId
         [{ site_id: null }],
         // runPaymentGate: isRoaming=true -> returns immediately (no SQL)
@@ -3176,10 +3110,13 @@ describe('Event projections - coverage expansion', () => {
         [], // 8: SELECT driver_tokens (no match)
         [], // 9: SELECT vehicle_id (auto-link)
       );
-      // resolveTariffForStation: single CTE returns a group
-      sqlResults[9] = [{ id: 'pg-1' }]; // resolvePricingGroupId CTE
-      sqlResults[10] = [
+      // loadStationPricing: the group, its tariffs and the site timezone
+      sqlResults[9] = [
         {
+          group_id: 'pg-1',
+          group_name: 'Group',
+          group_priority: 5,
+          timezone: null,
           id: 'tariff-nofree',
           price_per_kwh: '0.30',
           price_per_minute: null,
@@ -3190,34 +3127,15 @@ describe('Event projections - coverage expansion', () => {
           priority: 0,
           is_default: true,
         },
-      ]; // SELECT tariffs
-      sqlResults[11] = []; // loadHolidays
-      sqlResults[12] = []; // timezone lookup
-      sqlResults[13] = []; // UPDATE session (tariff snapshot)
-      sqlResults[14] = []; // INSERT session_tariff_segments
-      sqlResults[15] = [{ site_id: null }]; // resolveSiteId
-      sqlResults[16] = [{ name: null }]; // resolveSiteName
+      ];
+      sqlResults[10] = []; // pricing holidays
+      sqlResults[11] = []; // UPDATE session (tariff snapshot)
+      sqlResults[12] = []; // INSERT session_tariff_segments
+      sqlResults[13] = [{ site_id: null }]; // resolveSiteId
+      sqlResults[14] = [{ name: null }]; // resolveSiteName
 
-      // runPaymentGate
-      sqlResults[17] = []; // SELECT driver_payment_methods (empty -> MissingPaymentMethod path)
-      // isTariffFreeForStation: single CTE + tariffs + holidays + timezone
-      sqlResults[18] = [{ id: 'pg-1' }]; // groupRows CTE
-      sqlResults[19] = [
-        {
-          id: 'tariff-paid',
-          price_per_kwh: '0.30',
-          price_per_minute: null,
-          price_per_session: null,
-          idle_fee_price_per_minute: null,
-          reservation_fee_per_minute: null,
-          tax_rate: null,
-          restrictions: null,
-          priority: 0,
-          is_default: true,
-        },
-      ]; // tariffRows
-      sqlResults[20] = []; // holidayRows
-      sqlResults[21] = []; // timezone lookup
+      // runPaymentGate: free or paid from the session's tariff snapshot
+      sqlResults[15] = []; // SELECT driver_payment_methods (empty)
 
       await eventBus.emit(
         'ocpp.TransactionEvent',
@@ -3261,11 +3179,13 @@ describe('Event projections - coverage expansion', () => {
         [], // 8: SELECT driver_tokens (no match)
         [], // 9: SELECT vehicle_id (auto-link)
       );
-      // resolvePricingGroupId CTE
-      sqlResults[9] = [{ id: 'pg-free' }];
-      // SELECT tariffs
-      sqlResults[10] = [
+      // loadStationPricing: the group, its tariffs and the site timezone
+      sqlResults[9] = [
         {
+          group_id: 'pg-free',
+          group_name: 'Group',
+          group_priority: 5,
+          timezone: null,
           id: 'tariff-free',
           price_per_kwh: '0',
           price_per_minute: null,
@@ -3277,40 +3197,14 @@ describe('Event projections - coverage expansion', () => {
           is_default: true,
         },
       ];
-      // loadHolidays
-      sqlResults[11] = [];
-      // timezone lookup
-      sqlResults[12] = [];
-      // UPDATE session tariff
-      sqlResults[13] = [];
-      // INSERT segment
-      sqlResults[14] = [];
-      // resolveSiteId
-      sqlResults[15] = [{ site_id: null }];
-      // resolveSiteName
-      sqlResults[16] = [{ name: null }];
+      sqlResults[10] = []; // pricing holidays
+      sqlResults[11] = []; // UPDATE session (tariff snapshot)
+      sqlResults[12] = []; // INSERT session_tariff_segments
+      sqlResults[13] = [{ site_id: null }]; // resolveSiteId
+      sqlResults[14] = [{ name: null }]; // resolveSiteName
 
-      // runPaymentGate
-      // SELECT driver_payment_methods (empty)
-      sqlResults[17] = [];
-      // isTariffFreeForStation: 3 sequential queries (group, tariffs, holidays)
-      sqlResults[18] = [{ id: 'pg-free' }]; // groupRows
-      sqlResults[19] = [
-        {
-          id: 'tariff-free',
-          price_per_kwh: '0',
-          price_per_minute: null,
-          price_per_session: null,
-          idle_fee_price_per_minute: null,
-          reservation_fee_per_minute: null,
-          tax_rate: null,
-          restrictions: null,
-          priority: 0,
-          is_default: true,
-        },
-      ]; // tariffRows (free)
-      sqlResults[20] = []; // holidayRows
-      sqlResults[21] = []; // timezone lookup
+      // runPaymentGate: free or paid from the session's tariff snapshot
+      sqlResults[15] = []; // SELECT driver_payment_methods (empty)
 
       await eventBus.emit(
         'ocpp.TransactionEvent',
@@ -3355,10 +3249,7 @@ describe('Event projections - coverage expansion', () => {
         [], // driver_tokens (empty)
         [], // external tokens (empty)
         [], // guest_sessions (empty) -> anonymous
-        // resolvePricingGroupId with null driver: station, site, default
-        [], // station group
-        [], // site group
-        [], // default group -> no tariff
+        [], // loadStationPricing: no pricing group applies
         // resolveSiteId
         [{ site_id: null }],
         // runPaymentGate: guestStatus=null -> stops as anonymous (no SQL)
@@ -3407,10 +3298,7 @@ describe('Event projections - coverage expansion', () => {
         // (downstream redundant OCPI check was removed in Step 2)
         [], // 8: driver_tokens (empty)
         [{ status: 'payment_authorized', guest_email: 'g@test.com' }], // 9: guest_sessions (authorized)
-        // resolvePricingGroupId: station, site, default
-        [], // 10: station group
-        [], // 11: site group
-        [], // 12: default group
+        [], // loadStationPricing: no pricing group applies
         // resolveSiteId
         [{ site_id: null }], // 13
         // runPaymentGate: guestStatus=payment_authorized -> allow (no SQL)
@@ -3499,7 +3387,6 @@ describe('Event projections - coverage expansion', () => {
             pre_auth_amount_cents: 2000,
           },
         ], // 8: SELECT payment_records (now includes driver_id)
-        [{ value: 'encrypted-key' }], // 9: SELECT settings (secretKeyEnc)
         // New: captureSession query is fetched BEFORE the capture call so the
         // top-up path knows which currency to use.
         [{ station_ocpp_id: 'CS-001', currency: 'USD', station_uuid: 'sta_000000000001' }], // 10: SELECT captureSession (station_ocpp_id, currency, station_uuid)
@@ -3577,7 +3464,6 @@ describe('Event projections - coverage expansion', () => {
         // Second subscriber (auto-cancel)
         [{ id: 'session-cancel', final_cost_cents: null, site_id: null }], // 7: SELECT session
         [{ id: 'pr-1', stripe_payment_intent_id: 'pi_cancel_test', driver_id: 'driver-cancel' }], // 7: payment records (includes driver_id)
-        [{ value: 'encrypted-key' }], // 8: settings
         [], // 9: UPDATE payment_records (cancelled)
       );
 
@@ -3816,7 +3702,6 @@ describe('Event projections - coverage expansion', () => {
         // Second subscriber
         [{ id: 'session-err', final_cost_cents: 2000, site_id: null }],
         [{ id: 'pr-1', stripe_payment_intent_id: 'pi_fail', driver_id: 'driver-fail' }],
-        [{ value: 'encrypted-key' }],
       );
 
       await eventBus.emit(
@@ -4548,10 +4433,7 @@ describe('Event projections - coverage expansion', () => {
 
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id
-        // resolveTariffForStation -> resolvePricingGroupId (no driver)
-        [], // station pricing group
-        [], // site pricing group
-        [], // default pricing group
+        [], // loadStationPricing: no pricing group applies
         [{ site_id: null }], // resolveSiteId
       );
 

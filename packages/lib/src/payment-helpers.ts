@@ -13,6 +13,20 @@ export function isSimulatedCustomer(stripeCustomerId: string): boolean {
 }
 
 /**
+ * Simulated PaymentIntent ids (`pi_sim_`). A simulated hold or charge for a
+ * simulated customer gets one of these instead of a Stripe call, so the
+ * capture path can recognize it later and skip Stripe too.
+ */
+export function isSimulatedIntent(paymentIntentId: string): boolean {
+  return paymentIntentId.startsWith('pi_sim_');
+}
+
+/** A new simulated PaymentIntent id: `pi_sim_` and 24 hex characters. */
+export function createSimulatedIntentId(): string {
+  return `pi_sim_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+}
+
+/**
  * Probabilistic failure simulator for the simulated payment path. Triggered
  * when the simulated customer code path needs to exercise the
  * pre-auth-failed / capture-failed branches without touching real Stripe.

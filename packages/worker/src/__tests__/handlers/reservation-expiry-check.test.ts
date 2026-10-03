@@ -18,6 +18,7 @@ vi.mock('@evtivity/database', () => ({
   driverPaymentMethods: {},
   writeReservationAudit: vi.fn().mockResolvedValue(undefined),
   reservationDiffChanged: vi.fn().mockReturnValue(false),
+  resolveStationTariff: (...args: unknown[]) => mockResolveTariff(...args),
 }));
 
 const mockPublish = vi.fn().mockResolvedValue(undefined);
@@ -26,9 +27,6 @@ vi.mock('@evtivity/api/src/lib/pubsub.js', () => ({
 }));
 
 const mockResolveTariff = vi.fn();
-vi.mock('@evtivity/api/src/services/tariff.service.js', () => ({
-  resolveTariff: (...args: unknown[]) => mockResolveTariff(...args),
-}));
 
 const mockChargeNoShow = vi.fn().mockResolvedValue({ status: 'skipped', reason: 'no_amount' });
 vi.mock('@evtivity/api/src/lib/reservation-fees.js', () => ({
@@ -286,7 +284,10 @@ describe('reservationExpiryCheckHandler', () => {
       await import('../../handlers/reservation-expiry-check.js');
     await reservationExpiryCheckHandler(log);
 
-    expect(mockResolveTariff).toHaveBeenCalledWith('sta_nr', 'drv_1');
+    expect(mockResolveTariff).toHaveBeenCalledWith(
+      { stationUuid: 'sta_nr', driverUuid: 'drv_1' },
+      expect.anything(),
+    );
     expect(mockChargeNoShow).not.toHaveBeenCalled();
   });
 

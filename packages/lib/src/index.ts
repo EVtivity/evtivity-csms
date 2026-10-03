@@ -157,6 +157,8 @@ export type {
 
 export {
   isSimulatedCustomer,
+  isSimulatedIntent,
+  createSimulatedIntentId,
   shouldSimulatePaymentFailure,
   isTariffFree,
 } from './payment-helpers.js';

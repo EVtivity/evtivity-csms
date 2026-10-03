@@ -80,6 +80,10 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/session-pricing.js',
   )),
+  // The real tariff resolver, running on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/tariff-resolution.js',
+  )),
   getCompanyTaxBasis: vi.fn().mockResolvedValue('net'),
   priceSessionAt: (...args: unknown[]) => mockPriceSessionAt(...args) as unknown,
   storeRunningCost: (...args: unknown[]) => mockStoreRunningCost(...args) as unknown,
@@ -1926,9 +1930,9 @@ describe('Event projections', () => {
         // free_vend check now goes through isSiteFreeVendEnabledByStation (mocked) -- no SQL call
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id FROM charging_sessions (no driver)
-        // resolveTariff: single CTE that resolves driver/fleet/station/site/default
-        // in one round-trip. Empty result here means no pricing group matched.
-        [], // resolvePricingGroupId CTE (returns no row)
+        // loadStationPricing resolves the group, its tariffs and the site
+        // timezone in one round trip. Empty: no pricing group matched.
+        [], // loadStationPricing (no row)
         [{ id: 'reservation_test_uuid' }], // SELECT id FROM reservations WHERE reservation_id = 42
         [], // UPDATE charging_sessions SET reservation_id
         [], // UPDATE reservations SET status = 'in_use'

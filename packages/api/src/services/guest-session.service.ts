@@ -122,6 +122,7 @@ async function finalizeGuestPayment(sessionId: string, logger: FastifyBaseLogger
       id: paymentRecords.id,
       stripePaymentIntentId: paymentRecords.stripePaymentIntentId,
       status: paymentRecords.status,
+      preAuthAmountCents: paymentRecords.preAuthAmountCents,
     })
     .from(paymentRecords)
     .where(eq(paymentRecords.sessionId, sessionId))
@@ -188,18 +189,45 @@ async function finalizeGuestPayment(sessionId: string, logger: FastifyBaseLogger
     const finalCost = session.finalCostCents ?? 0;
 
     if (finalCost > 0) {
+      // Stripe rejects amount_to_capture above the hold, so capture at most
+      // the hold. A guest has no saved card, so a cost above it cannot be
+      // topped up off-session: the uncollected rest is recorded in
+      // failure_reason. The prefix differs from 'Top-up declined:' so the
+      // daily retry cron, which charges a saved card, never picks it up.
+      const holdCents = pr.preAuthAmountCents ?? finalCost;
+      const captureCents = Math.min(finalCost, holdCents);
+      const shortfallCents = finalCost - captureCents;
       await capturePayment(
         config,
         pr.stripePaymentIntentId,
-        finalCost,
+        captureCents,
         `capture_${String(pr.id)}`,
         sessionChargeTax(session),
       );
-      logger.info({ guestSessionId: guest.id, amountCents: finalCost }, 'Captured guest payment');
+      const failureReason =
+        shortfallCents > 0
+          ? `Guest shortfall: hold ${String(holdCents)}c captured, ${String(shortfallCents)}c uncollected (no saved card for a top-up)`
+          : null;
+      if (shortfallCents > 0) {
+        logger.warn(
+          { guestSessionId: guest.id, finalCost, holdCents, shortfallCents },
+          'Guest session cost exceeds the hold; captured the hold, shortfall uncollected',
+        );
+      } else {
+        logger.info(
+          { guestSessionId: guest.id, amountCents: captureCents },
+          'Captured guest payment',
+        );
+      }
 
       await db
         .update(paymentRecords)
-        .set({ status: 'captured', capturedAmountCents: finalCost, updatedAt: new Date() })
+        .set({
+          status: 'captured',
+          capturedAmountCents: captureCents,
+          failureReason,
+          updatedAt: new Date(),
+        })
         .where(eq(paymentRecords.id, pr.id));
     } else {
       await cancelPaymentIntent(config, pr.stripePaymentIntentId);

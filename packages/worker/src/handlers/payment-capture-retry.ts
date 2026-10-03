@@ -2,14 +2,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql } from 'drizzle-orm';
-import { db, getPlatformFeePercent } from '@evtivity/database';
-import {
-  chargeShortfallTopUp,
-  decryptString,
-  isSimulatedCustomer,
-  sessionChargeTax,
-} from '@evtivity/lib';
+import { db, getPlatformFeePercent, getStripeClient } from '@evtivity/database';
+import { chargeShortfallTopUp, isSimulatedCustomer, sessionChargeTax } from '@evtivity/lib';
 import type { Logger } from 'pino';
+import { config } from '../lib/config.js';
 
 interface PaymentCaptureShortfallRow extends Record<string, unknown> {
   pr_id: number;
@@ -72,27 +68,12 @@ export async function paymentCaptureRetryHandler(log: Logger): Promise<void> {
 
   log.info({ count: rows.length }, 'Retrying capture top-up for payment records with shortfall');
 
-  // Reuse the same Stripe wiring the projection uses. We bypass the API's
-  // getStripeConfig to avoid pulling the API package into the worker; instead
-  // we read the keys directly from settings.
-  const settingsRows = await db.execute<{ key: string; value: string | null }>(sql`
-    SELECT key, value FROM settings
-    WHERE key = 'stripe.secretKeyEnc'
-  `);
-  const settingsMap = new Map(settingsRows.map((r) => [r.key, r.value]));
-  const secretKeyEnc = settingsMap.get('stripe.secretKeyEnc');
-  if (secretKeyEnc == null || secretKeyEnc === '') {
+  // The shared, cached platform client (the same one the OCPP capture uses).
+  const stripe = await getStripeClient(config.SETTINGS_ENCRYPTION_KEY);
+  if (stripe == null) {
     log.warn('Stripe is not configured; cannot retry capture');
     return;
   }
-  const encryptionKey = process.env['SETTINGS_ENCRYPTION_KEY'];
-  if (encryptionKey == null || encryptionKey === '') {
-    log.warn('SETTINGS_ENCRYPTION_KEY missing; cannot retry capture');
-    return;
-  }
-  const secretKey = decryptString(secretKeyEnc, encryptionKey);
-  const Stripe = (await import('stripe')).default;
-  const stripe = new Stripe(secretKey);
 
   let recovered = 0;
   let stillFailed = 0;
@@ -150,8 +131,13 @@ export async function paymentCaptureRetryHandler(log: Logger): Promise<void> {
           WHERE id = ${row.pr_id}
         `,
         )
-        .catch(() => {
-          // Non-critical: failure_reason update is best-effort
+        .catch((updateErr: unknown) => {
+          // Non-critical: the record keeps its previous failure_reason and
+          // is retried on the next run (P9, fail-open with a warning).
+          log.warn(
+            { err: updateErr, paymentRecordId: row.pr_id },
+            'Failed to record the capture retry failure reason',
+          );
         });
     }
   }

@@ -22,7 +22,13 @@ export {
 } from './lib/reservation-setting.js';
 export type { ReservationSettings } from './lib/reservation-setting.js';
 export { isSupportEnabled } from './lib/support-setting.js';
-export { getPlatformFeePercent, clearPlatformFeeCache } from './lib/payment-settings.js';
+export {
+  getPlatformFeePercent,
+  clearPlatformFeeCache,
+  getStripeWebhookSecret,
+  clearStripeWebhookSecretCache,
+} from './lib/payment-settings.js';
+export { getStripeClient, clearStripeClientCache } from './lib/stripe-client.js';
 export { writeReservationAudit, reservationDiffChanged } from './lib/reservation-audit.js';
 export type {
   ReservationAuditAction,
@@ -48,6 +54,23 @@ export {
   switchTariffSegment,
 } from './lib/session-pricing.js';
 export type { SessionPricingRow, TariffPriceSnapshot } from './lib/session-pricing.js';
+export {
+  loadStationPricing,
+  resolveStationTariff,
+  resolveGroupTariffs,
+  pickTariff,
+  isStationChargingFree,
+  getPricingHolidays,
+  clearTariffResolutionCache,
+} from './lib/tariff-resolution.js';
+export type {
+  PricingGroupSource,
+  ResolvedPricingGroup,
+  GroupTariff,
+  StationTariff,
+  StationPricing,
+  TariffQuery,
+} from './lib/tariff-resolution.js';
 export type { PrepaidSettlement } from './lib/prepaid-balance.js';
 export {
   recomputeStationAvailability,

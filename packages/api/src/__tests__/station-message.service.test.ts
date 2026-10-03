@@ -136,6 +136,7 @@ vi.mock('@evtivity/database', () => ({
   },
   isStationMessageEnabled: mockIsStationMessageEnabled,
   getStationMessagePricingFormat: mockGetStationMessagePricingFormat,
+  resolveStationTariff: mockResolveTariff,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -150,10 +151,6 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('@evtivity/lib', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/lib')>()),
   renderStationMessage: mockRenderStationMessage,
-}));
-
-vi.mock('../services/tariff.service.js', () => ({
-  resolveTariff: mockResolveTariff,
 }));
 
 vi.mock('../lib/pubsub.js', () => ({
@@ -322,6 +319,11 @@ describe('station-message.service', () => {
         'de',
       );
       expect(mockRenderStationMessage).toHaveBeenCalledWith('faulted', expect.any(Object), 'de');
+      // The station screen shows the walk-up price: no driver.
+      expect(mockResolveTariff).toHaveBeenCalledWith(
+        { stationUuid: INTERNAL_STATION_ID, driverUuid: null },
+        expect.anything(),
+      );
     });
 
     it('skips dispatch when contentHash matches existing push (no-op)', async () => {

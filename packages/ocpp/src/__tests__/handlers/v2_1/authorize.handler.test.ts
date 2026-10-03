@@ -12,10 +12,10 @@ import type { HandlerContext } from '../../../server/middleware/pipeline.js';
 // .limit() so both call shapes resolve to the same queued value.
 let whereQueue: Array<unknown[] | Error>;
 const insertValuesFn = vi.fn().mockResolvedValue(undefined);
-// Tariff rows the shared resolver (server/station-tariff.ts) returns, first row wins.
+// Tariff rows the shared resolver (@evtivity/database tariff-resolution) returns, first row wins.
 const executeFn = vi.fn();
 const resolveStationTariffMock = vi.fn(
-  async (_sql: unknown, _stationUuid: string, _driverId: string | null) => {
+  async (_q: { stationUuid: string; driverUuid: string | null }, _sql: unknown) => {
     const rows = (await executeFn()) as Array<Record<string, unknown>>;
     const row = rows[0];
     if (row == null) return null;
@@ -31,11 +31,6 @@ const resolveStationTariffMock = vi.fn(
   },
 );
 const clientMock = vi.fn(() => Promise.resolve([{ id: 'sta_cs001' }]));
-
-vi.mock('../../../server/station-tariff.js', () => ({
-  resolveStationTariff: (...args: [unknown, string, string | null]) =>
-    resolveStationTariffMock(...args),
-}));
 
 function nextResult(): PromiseLike<unknown[]> & { limit: () => Promise<unknown[]> } {
   const queued = whereQueue.shift();
@@ -88,6 +83,8 @@ vi.mock('@evtivity/database', () => ({
   isSiteFreeVendEnabledByStation: isSiteFreeVendEnabledByStationMock,
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
   getCompanyTaxBasis: (...args: unknown[]) => getCompanyTaxBasisMock(...args) as unknown,
+  resolveStationTariff: (...args: [{ stationUuid: string; driverUuid: string | null }, unknown]) =>
+    resolveStationTariffMock(...args),
 }));
 
 const validateContractCertificateMock = vi.fn();
@@ -496,7 +493,10 @@ describe('v2_1 Authorize handler', () => {
       fixedFee: { prices: [{ priceFixed: 2 }], taxRates: [{ type: 'VAT', tax: 8 }] },
     });
     // Resolved like session pricing: the station's internal id and the token's driver.
-    expect(resolveStationTariffMock).toHaveBeenCalledWith(clientMock, 'sta_cs001', 'drv_8');
+    expect(resolveStationTariffMock).toHaveBeenCalledWith(
+      { stationUuid: 'sta_cs001', driverUuid: 'drv_8' },
+      clientMock,
+    );
   });
 
   it('uses the station id from the connection without looking it up', async () => {
@@ -510,7 +510,10 @@ describe('v2_1 Authorize handler', () => {
     await handleAuthorize(ctx);
 
     expect(clientMock).not.toHaveBeenCalled();
-    expect(resolveStationTariffMock).toHaveBeenCalledWith(clientMock, 'sta_known', 'drv_s');
+    expect(resolveStationTariffMock).toHaveBeenCalledWith(
+      { stationUuid: 'sta_known', driverUuid: 'drv_s' },
+      clientMock,
+    );
   });
 
   it('sends net prices for a tariff entered on the gross tax basis', async () => {

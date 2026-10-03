@@ -20,6 +20,7 @@ import {
   getCompanyCurrency,
   getCompanyPriceDisplay,
   getCompanyTaxBasis,
+  resolveStationTariff,
 } from '@evtivity/database';
 import {
   buildStationPriceContext,
@@ -37,7 +38,6 @@ import {
   resolveTaxBasis,
 } from '@evtivity/lib';
 import type { FastifyBaseLogger } from 'fastify';
-import { resolveTariff } from './tariff.service.js';
 import { getPubSub } from '../lib/pubsub.js';
 import { sessionCurrencySql } from '../lib/company-currency.js';
 
@@ -302,7 +302,7 @@ export async function pushAllStationMessages(
     getCompanyCurrency(),
     getCompanyPriceDisplay(),
     getCompanyTaxBasis(),
-    resolveTariff(internalStationId, null),
+    resolveStationTariff({ stationUuid: internalStationId, driverUuid: null }, client),
   ]);
 
   // Prices at the point of sale follow company.priceDisplay: gross adds the

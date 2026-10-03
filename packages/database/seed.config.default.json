@@ -55,6 +55,7 @@
     "s3.secretAccessKey": "",
     "stripe.secretKey": "",
     "stripe.publishableKey": "",
+    "stripe.webhookSecret": "",
     "stripe.preAuthAmountCents": 5000,
     "stripe.platformFeePercent": 0,
     "ftp.host": "ftp",

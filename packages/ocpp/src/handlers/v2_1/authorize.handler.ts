@@ -12,6 +12,7 @@ import {
   isSiteFreeVendEnabledByStation,
   getCompanyCurrency,
   getCompanyTaxBasis,
+  resolveStationTariff,
 } from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { AuthorizeRequest } from '../../generated/v2_1/types/messages/AuthorizeRequest.js';
@@ -24,7 +25,6 @@ import {
   type ContractCertificateVerdict,
 } from '../../services/pki/contract-certificate-validation.js';
 import { prepaidCredit, rememberPrepaidAuthorization } from '../prepaid.js';
-import { resolveStationTariff } from '../../server/station-tariff.js';
 
 // Tokens of these types may be generated on the fly (portal remote start) and
 // are accepted when not present in driver_tokens. Inactive matches still block.
@@ -379,7 +379,7 @@ async function resolveDriverTariff(
   }
   if (stationUuid == null) return undefined;
 
-  const resolved = await resolveStationTariff(client, stationUuid, driverId);
+  const resolved = await resolveStationTariff({ stationUuid, driverUuid: driverId }, client);
   if (resolved == null) {
     logger.debug({ stationId, driverId }, 'No tariff found for driver');
     return undefined;

@@ -82,6 +82,9 @@ vi.mock('@evtivity/database', async () => ({
   paymentRecords: {},
   reservations: {},
   sites: { id: 'id', freeVendEnabled: 'freeVendEnabled' },
+  client: {},
+  resolveStationTariff: vi.fn().mockResolvedValue(null),
+  isStationChargingFree: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -108,11 +111,6 @@ vi.mock('postgres', () => ({
 const mockStripePaymentIntentsCreate = vi.fn().mockResolvedValue({ id: 'pi_guest_123' });
 vi.mock('../services/stripe.service.js', () => ({
   getStripeConfig: vi.fn().mockResolvedValue(null),
-}));
-
-vi.mock('../services/tariff.service.js', () => ({
-  resolveTariff: vi.fn().mockResolvedValue(null),
-  isTariffFree: vi.fn().mockReturnValue(true),
 }));
 
 vi.mock('../lib/pubsub.js', () => ({
@@ -143,7 +141,7 @@ vi.mock('../services/maintenance.service.js', () => ({
 import { registerAuth } from '../plugins/auth.js';
 import { portalGuestRoutes } from '../routes/portal/guest.js';
 import { getStripeConfig } from '../services/stripe.service.js';
-import { isTariffFree, resolveTariff } from '../services/tariff.service.js';
+import { isStationChargingFree, resolveStationTariff } from '@evtivity/database';
 import { isEvseInReservationBuffer } from '../lib/reservation-buffer.js';
 import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../lib/ocpp-command.js';
 import { db } from '@evtivity/database';
@@ -171,7 +169,7 @@ describe('Portal guest routes - handler logic', () => {
   beforeEach(() => {
     setupDbResults();
     vi.mocked(getStripeConfig).mockResolvedValue(null);
-    vi.mocked(isTariffFree).mockReturnValue(true);
+    vi.mocked(isStationChargingFree).mockResolvedValue(true);
     vi.mocked(isEvseInReservationBuffer).mockResolvedValue(false);
     vi.mocked(getActiveMaintenanceForStation).mockResolvedValue(null);
   });
@@ -245,8 +243,8 @@ describe('Portal guest routes - handler logic', () => {
         [{ id: 'sta_000000000001', siteId: null, freeVendEnabled: false }],
         [{ id: 'evs_000000000001' }],
       );
-      vi.mocked(isTariffFree).mockReturnValue(false);
-      vi.mocked(resolveTariff).mockResolvedValueOnce({
+      vi.mocked(isStationChargingFree).mockResolvedValue(false);
+      vi.mocked(resolveStationTariff).mockResolvedValueOnce({
         id: 'tar_001',
         name: 'Standard',
         pricePerKwh: '0.25',
@@ -258,6 +256,8 @@ describe('Portal guest routes - handler logic', () => {
         restrictions: null,
         priority: 0,
         isDefault: true,
+        pricingGroup: { id: 'pgr_1', name: 'Group', source: 'station' },
+        timezone: null,
       });
 
       const response = await app.inject({
@@ -351,7 +351,7 @@ describe('Portal guest routes - handler logic', () => {
       expect(response.json().code).toBe('CONNECTOR_NOT_AVAILABLE');
     });
 
-    it('starts free charging session when isTariffFree returns true', async () => {
+    it('starts free charging session when charging is free', async () => {
       setupDbResults(
         [
           {
@@ -369,7 +369,7 @@ describe('Portal guest routes - handler logic', () => {
         [], // evse active session check (none)
         [{ freeVendEnabled: false }], // siteFreeVend lookup before tariff resolve
       );
-      vi.mocked(isTariffFree).mockReturnValue(true);
+      vi.mocked(isStationChargingFree).mockResolvedValue(true);
 
       const response = await app.inject({
         method: 'POST',
@@ -378,10 +378,15 @@ describe('Portal guest routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(response.json().sessionToken).toBeDefined();
+      // A guest has no driver and no reservation; the site's free vend comes first.
+      expect(vi.mocked(isStationChargingFree)).toHaveBeenCalledWith(
+        { stationUuid: 'sta_000000000001', driverUuid: null, reserved: false, freeVend: false },
+        expect.anything(),
+      );
     });
 
     it('returns 400 when payment is not configured', async () => {
-      vi.mocked(isTariffFree).mockReturnValue(false);
+      vi.mocked(isStationChargingFree).mockResolvedValue(false);
       setupDbResults(
         [
           {
@@ -411,7 +416,7 @@ describe('Portal guest routes - handler logic', () => {
     });
 
     it('returns 400 when payment intent creation fails', async () => {
-      vi.mocked(isTariffFree).mockReturnValue(false);
+      vi.mocked(isStationChargingFree).mockResolvedValue(false);
       setupDbResults(
         [
           {
@@ -454,7 +459,7 @@ describe('Portal guest routes - handler logic', () => {
     });
 
     it('starts guest session when payment succeeds', async () => {
-      vi.mocked(isTariffFree).mockReturnValue(false);
+      vi.mocked(isStationChargingFree).mockResolvedValue(false);
       setupDbResults(
         [
           {
@@ -497,7 +502,7 @@ describe('Portal guest routes - handler logic', () => {
     });
 
     it('caps a paid session at the pre-authorized amount and starts it as DirectPayment', async () => {
-      vi.mocked(isTariffFree).mockReturnValue(false);
+      vi.mocked(isStationChargingFree).mockResolvedValue(false);
       setupDbResults(
         [
           {
@@ -570,7 +575,7 @@ describe('Portal guest routes - handler logic', () => {
         [], // evse active session check (none)
         [{ freeVendEnabled: false }], // siteFreeVend lookup before tariff resolve
       );
-      vi.mocked(isTariffFree).mockReturnValue(true);
+      vi.mocked(isStationChargingFree).mockResolvedValue(true);
 
       const response = await app.inject({
         method: 'POST',
@@ -604,7 +609,7 @@ describe('Portal guest routes - handler logic', () => {
     });
 
     it('returns 504 STATION_TIMEOUT when station does not ack (free path)', async () => {
-      vi.mocked(isTariffFree).mockReturnValue(true);
+      vi.mocked(isStationChargingFree).mockResolvedValue(true);
       vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
         commandId: 'mock-cmd',
         error: 'No response within 35s',
@@ -640,7 +645,7 @@ describe('Portal guest routes - handler logic', () => {
     });
 
     it('returns 502 STATION_REJECTED and cancels Stripe pre-auth (paid path)', async () => {
-      vi.mocked(isTariffFree).mockReturnValue(false);
+      vi.mocked(isStationChargingFree).mockResolvedValue(false);
       vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
         commandId: 'mock-cmd',
         response: { status: 'Rejected' },
@@ -873,7 +878,7 @@ describe('Portal guest routes - handler logic', () => {
         [{ freeVendEnabled: false }], // siteFreeVend lookup before tariff resolve
       );
       vi.mocked(isEvseInReservationBuffer).mockResolvedValue(false);
-      vi.mocked(isTariffFree).mockReturnValue(true);
+      vi.mocked(isStationChargingFree).mockResolvedValue(true);
 
       const response = await app.inject({
         method: 'POST',

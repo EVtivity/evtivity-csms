@@ -94,6 +94,8 @@ vi.mock('@evtivity/database', async () => ({
   }),
   writeReservationAudit: vi.fn().mockResolvedValue(undefined),
   reservationDiffChanged: vi.fn().mockReturnValue(false),
+  resolveStationTariff: vi.fn().mockResolvedValue(null),
+  isStationChargingFree: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -132,11 +134,6 @@ vi.mock('../lib/pubsub.js', () => ({
     close: vi.fn().mockResolvedValue(undefined),
   })),
   setPubSub: vi.fn(),
-}));
-
-vi.mock('../services/tariff.service.js', () => ({
-  resolveTariff: vi.fn().mockResolvedValue(null),
-  isTariffFree: vi.fn().mockReturnValue(true),
 }));
 
 vi.mock('../lib/ocpp-command.js', () => ({
@@ -178,7 +175,7 @@ vi.mock('../lib/maintenance-check.js', () => ({
 import { registerAuth } from '../plugins/auth.js';
 import { portalChargerRoutes } from '../routes/portal/charger.js';
 import { getStripeConfig } from '../services/stripe.service.js';
-import { resolveTariff, isTariffFree } from '../services/tariff.service.js';
+import { resolveStationTariff, isStationChargingFree } from '@evtivity/database';
 import { isEvseInReservationBuffer } from '../lib/reservation-buffer.js';
 import { getActiveMaintenanceForStation } from '../services/maintenance.service.js';
 import { assertNoMaintenanceConflict } from '../lib/maintenance-check.js';
@@ -214,8 +211,8 @@ describe('Portal charger routes - handler logic', () => {
   beforeEach(() => {
     setupDbResults();
     vi.mocked(getStripeConfig).mockResolvedValue(null);
-    vi.mocked(resolveTariff).mockResolvedValue(null);
-    vi.mocked(isTariffFree).mockReturnValue(true);
+    vi.mocked(resolveStationTariff).mockResolvedValue(null);
+    vi.mocked(isStationChargingFree).mockResolvedValue(true);
     vi.mocked(isEvseInReservationBuffer).mockResolvedValue(false);
     vi.mocked(getActiveMaintenanceForStation).mockResolvedValue(null);
     vi.mocked(assertNoMaintenanceConflict).mockResolvedValue(undefined);
@@ -356,7 +353,7 @@ describe('Portal charger routes - handler logic', () => {
 
     it('returns 404 when no tariff found', async () => {
       setupDbResults([{ id: VALID_STATION_ID }]);
-      vi.mocked(resolveTariff).mockResolvedValue(null);
+      vi.mocked(resolveStationTariff).mockResolvedValue(null);
       const response = await app.inject({
         method: 'GET',
         url: '/portal/chargers/CS-001/pricing',
@@ -368,7 +365,7 @@ describe('Portal charger routes - handler logic', () => {
 
     it('returns resolved pricing for driver in the company currency', async () => {
       setupDbResults([{ id: VALID_STATION_ID }]);
-      vi.mocked(resolveTariff).mockResolvedValue({
+      vi.mocked(resolveStationTariff).mockResolvedValue({
         id: 'tar_001',
         name: 'Standard',
         pricePerKwh: '0.25',
@@ -380,6 +377,8 @@ describe('Portal charger routes - handler logic', () => {
         restrictions: null,
         priority: 0,
         isDefault: true,
+        pricingGroup: { id: 'pgr_1', name: 'Group', source: 'station' },
+        timezone: null,
       });
       const response = await app.inject({
         method: 'GET',
@@ -397,9 +396,9 @@ describe('Portal charger routes - handler logic', () => {
       expect(body.taxBasis).toBe('net');
     });
 
-    it('calls resolveTariff with station UUID and driver ID', async () => {
+    it('resolves the tariff for the station UUID and driver ID', async () => {
       setupDbResults([{ id: VALID_STATION_ID }]);
-      vi.mocked(resolveTariff).mockResolvedValue({
+      vi.mocked(resolveStationTariff).mockResolvedValue({
         id: 'tar_001',
         name: 'Driver Rate',
         pricePerKwh: '0.30',
@@ -411,6 +410,8 @@ describe('Portal charger routes - handler logic', () => {
         restrictions: null,
         priority: 0,
         isDefault: false,
+        pricingGroup: { id: 'pgr_1', name: 'Group', source: 'station' },
+        timezone: null,
       });
       const response = await app.inject({
         method: 'GET',
@@ -418,7 +419,10 @@ describe('Portal charger routes - handler logic', () => {
         headers: { authorization: `Bearer ${driverToken}` },
       });
       expect(response.statusCode).toBe(200);
-      expect(resolveTariff).toHaveBeenCalledWith(VALID_STATION_ID, DRIVER_ID);
+      expect(resolveStationTariff).toHaveBeenCalledWith(
+        { stationUuid: VALID_STATION_ID, driverUuid: DRIVER_ID },
+        expect.anything(),
+      );
     });
   });
 
@@ -602,7 +606,7 @@ describe('Portal charger routes - handler logic', () => {
     });
 
     it('returns 400 when payment is required but no paymentMethodId provided', async () => {
-      vi.mocked(isTariffFree).mockReturnValue(false);
+      vi.mocked(isStationChargingFree).mockResolvedValue(false);
       setupDbResults(
         [
           {
@@ -636,7 +640,10 @@ describe('Portal charger routes - handler logic', () => {
       expect(response.statusCode).toBe(400);
       expect(response.json().code).toBe('PAYMENT_METHOD_REQUIRED');
       // No reservation held by this driver: the reservation fee does not count.
-      expect(vi.mocked(isTariffFree)).toHaveBeenCalledWith(null, { reserved: false });
+      expect(vi.mocked(isStationChargingFree)).toHaveBeenCalledWith(
+        { stationUuid: VALID_STATION_ID, driverUuid: DRIVER_ID, reserved: false, freeVend: false },
+        expect.anything(),
+      );
     });
 
     it('starts charging session without payment when stripe not configured', async () => {

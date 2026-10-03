@@ -54,6 +54,7 @@ vi.mock('@evtivity/database', () => ({
   switchTariffSegment: mockSwitchTariffSegment,
   priceSessionAt: mockPriceSessionAt,
   storeRunningCost: mockStoreRunningCost,
+  resolveStationTariff: mockResolveTariff,
   sessionIdleMinutesAt: (session: { idleStartedAt: Date | null; idleMinutes: number }, at: Date) =>
     session.idleStartedAt == null
       ? session.idleMinutes
@@ -66,10 +67,6 @@ vi.mock('drizzle-orm', () => ({
 
 vi.mock('@evtivity/api/src/lib/pubsub.js', () => ({
   getPubSub: () => ({ publish: mockPublish }),
-}));
-
-vi.mock('@evtivity/api/src/services/tariff.service.js', () => ({
-  resolveTariff: mockResolveTariff,
 }));
 
 vi.mock('@evtivity/api/src/services/station-message.service.js', () => ({
@@ -159,10 +156,25 @@ describe('tariffBoundaryCheckHandler', () => {
     const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
     await tariffBoundaryCheckHandler(log);
 
-    expect(mockResolveTariff).toHaveBeenCalledWith('sta_1', 'drv_1');
+    // The session's energy so far (1500 Wh) selects energy-threshold tariffs.
+    expect(mockResolveTariff).toHaveBeenCalledWith(
+      { stationUuid: 'sta_1', driverUuid: 'drv_1', sessionEnergyKwh: 1.5 },
+      mockClient,
+    );
     expect(mockOpenSegmentTariffId).toHaveBeenCalledWith(mockClient, 'ses_1');
     expect(mockSwitchTariffSegment).not.toHaveBeenCalled();
     expect(mockPublish).not.toHaveBeenCalled();
+  });
+
+  it('resolves a session without energy at 0 kWh', async () => {
+    activeSessions = [activeSession({ energyDeliveredWh: null })];
+    const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
+    await tariffBoundaryCheckHandler(makeLog());
+
+    expect(mockResolveTariff).toHaveBeenCalledWith(
+      { stationUuid: 'sta_1', driverUuid: 'drv_1', sessionEnergyKwh: 0 },
+      mockClient,
+    );
   });
 
   it('falls back to the session tariff when no segment is open', async () => {

@@ -46,6 +46,8 @@ vi.mock('@evtivity/database', () => {
     driverPaymentMethods: {},
     paymentRecords: { reservationId: 'reservation_id', chargeType: 'charge_type', id: 'id' },
     getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
+    client: {},
+    resolveStationTariff: (...args: unknown[]) => mockResolveTariff(...args),
   };
 });
 
@@ -57,9 +59,6 @@ vi.mock('../services/stripe.service.js', () => ({
 }));
 
 const mockResolveTariff = vi.fn();
-vi.mock('../services/tariff.service.js', () => ({
-  resolveTariff: (...args: unknown[]) => mockResolveTariff(...args),
-}));
 
 const mockSimulatedFailure = vi.fn(() => false);
 vi.mock('@evtivity/lib', async (importOriginal) => ({
@@ -125,7 +124,10 @@ describe('chargeReservationFee', () => {
   it('taxes the net fee at the station tariff rate and records it before charging', async () => {
     const result = await chargeReservationFee(baseInput);
 
-    expect(mockResolveTariff).toHaveBeenCalledWith('sta_1', 'drv_1');
+    expect(mockResolveTariff).toHaveBeenCalledWith(
+      { stationUuid: 'sta_1', driverUuid: 'drv_1' },
+      expect.anything(),
+    );
     expect(insertedValues[0]).toMatchObject({
       chargeType: 'reservation_cancellation',
       reservationId: 'rsv_1',

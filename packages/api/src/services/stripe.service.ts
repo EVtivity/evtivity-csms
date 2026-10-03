@@ -9,6 +9,7 @@ import {
   getCompanyCurrency,
   getPlatformFeePercent,
   clearPlatformFeeCache,
+  clearStripeWebhookSecretCache,
 } from '@evtivity/database';
 import { sitePaymentConfigs, settings } from '@evtivity/database';
 import { captureHoldWithFee, decryptString, platformFeeCents } from '@evtivity/lib';
@@ -338,6 +339,7 @@ export function clearConfigCache(siteId?: string | null): void {
   // change to either drops every cached percent.
   clearPlatformFeeCache();
   if (siteId === undefined) {
+    clearStripeWebhookSecretCache();
     instanceCache.clear();
     return;
   }

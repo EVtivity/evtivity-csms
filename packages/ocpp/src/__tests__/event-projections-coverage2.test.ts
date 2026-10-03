@@ -54,6 +54,19 @@ vi.mock('postgres', () => {
 });
 
 const mockIsRoamingEnabled = vi.fn().mockResolvedValue(false);
+
+// The shared cached platform client (@evtivity/database stripe-client), built
+// on the mocked Stripe SDK below.
+async function makeStripeClient(..._args: unknown[]): Promise<unknown> {
+  const Stripe = (await import('stripe')).default as unknown as new () => unknown;
+  return new Stripe();
+}
+const mockGetStripeClient = vi.fn(makeStripeClient);
+// A test that overrides the client (mockResolvedValueOnce) must not leak it.
+beforeEach(() => {
+  mockGetStripeClient.mockReset();
+  mockGetStripeClient.mockImplementation(makeStripeClient);
+});
 const mockIsAutoDisableOnCritical = vi.fn().mockResolvedValue(false);
 const mockWriteAudit = vi.fn().mockResolvedValue(undefined);
 const mockWriteReservationAudit = vi.fn().mockResolvedValue(undefined);
@@ -98,11 +111,16 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/session-pricing.js',
   )),
+  // The real tariff resolver, running on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/tariff-resolution.js',
+  )),
   getCompanyTaxBasis: vi.fn().mockResolvedValue('net'),
   priceSessionAt: (...args: unknown[]) => mockPriceSessionAt(...args) as unknown,
   storeRunningCost: (...args: unknown[]) => mockStoreRunningCost(...args) as unknown,
   client: createSqlMock(),
   getPlatformFeePercent: vi.fn().mockResolvedValue(0),
+  getStripeClient: (...args: unknown[]) => mockGetStripeClient(...args) as unknown,
   isRoamingEnabled: mockIsRoamingEnabled,
   getIdlingGracePeriodMinutes: vi.fn().mockResolvedValue(0),
   isSplitBillingEnabled: mockIsSplitBilling,
@@ -2069,7 +2087,6 @@ describe('Event projections - coverage round 2', () => {
             pre_auth_amount_cents: 2000,
           },
         ],
-        [{ value: 'enc-secret' }], // settings stripe.secretKeyEnc
         [], // UPDATE payment_records captured
         [{ name: 'Site A' }], // resolveSiteName
       );
@@ -2100,7 +2117,6 @@ describe('Event projections - coverage round 2', () => {
             pre_auth_amount_cents: 2000,
           },
         ],
-        [{ value: 'enc-secret' }], // stripe secret
         [], // UPDATE captured
         [{ name: 'Site A' }], // resolveSiteName
       );
@@ -2136,7 +2152,6 @@ describe('Event projections - coverage round 2', () => {
             pre_auth_amount_cents: 2000,
           },
         ],
-        [{ value: 'enc-secret' }],
         [], // UPDATE captured (with failure_reason)
         [{ name: 'Site A' }],
       );
@@ -2154,20 +2169,29 @@ describe('Event projections - coverage round 2', () => {
       await emitEndedSecondOnly(
         [{ id: 'ses_1', final_cost_cents: 0, currency: 'USD', station_uuid: 'sta_1' }],
         [{ id: 'pr_1', stripe_payment_intent_id: 'pi_real_1', driver_id: 'drv_1' }],
-        [{ value: 'enc-secret' }], // stripe secret
         [], // UPDATE cancelled
       );
       expect(mockStripeCancel).toHaveBeenCalledWith('pi_real_1');
       expect(findSql(/UPDATE payment_records\s+SET status = 'cancelled'/)).toBeDefined();
     });
 
-    it('returns when stripe secret missing', async () => {
+    it('records a capture failure when no Stripe secret key is set', async () => {
+      mockGetStripeClient.mockResolvedValueOnce(null);
       await emitEndedSecondOnly(
         [{ id: 'ses_1', final_cost_cents: 100, currency: 'USD', station_uuid: 'sta_1' }],
         [{ id: 'pr_1', stripe_payment_intent_id: 'pi_real_1', driver_id: 'drv_1' }],
-        [], // settings -> no secret
+        [], // UPDATE failed
       );
       expect(mockStripeCapture).not.toHaveBeenCalled();
+      expect(findSql(/SET status = 'failed'/)).toBeDefined();
+      expect(mockDispatchDriver).toHaveBeenCalledWith(
+        expect.anything(),
+        'payment.CaptureFailed',
+        'drv_1',
+        expect.objectContaining({ reason: 'Stripe is not configured' }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
 
     it('Stripe capture error marks failed and notifies CaptureFailed', async () => {
@@ -2182,7 +2206,6 @@ describe('Event projections - coverage round 2', () => {
             pre_auth_amount_cents: 1000,
           },
         ],
-        [{ value: 'enc-secret' }],
         [], // UPDATE failed
       );
       expect(findSql(/SET status = 'failed'/)).toBeDefined();

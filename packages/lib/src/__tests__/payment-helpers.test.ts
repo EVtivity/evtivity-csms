@@ -4,7 +4,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  createSimulatedIntentId,
   isSimulatedCustomer,
+  isSimulatedIntent,
   isTariffFree,
   shouldSimulatePaymentFailure,
 } from '../payment-helpers.js';
@@ -32,6 +34,24 @@ describe('isSimulatedCustomer', () => {
 
   it('returns false when the prefix appears mid-string', () => {
     expect(isSimulatedCustomer('xcus_sim_abc')).toBe(false);
+  });
+});
+
+describe('simulated intent ids', () => {
+  it('creates pi_sim_ ids of 24 hex characters that are recognized as simulated', () => {
+    const id = createSimulatedIntentId();
+    expect(id).toMatch(/^pi_sim_[0-9a-f]{24}$/);
+    expect(isSimulatedIntent(id)).toBe(true);
+  });
+
+  it('creates a different id each time', () => {
+    expect(createSimulatedIntentId()).not.toBe(createSimulatedIntentId());
+  });
+
+  it('does not treat a real or mid-string id as simulated', () => {
+    expect(isSimulatedIntent('pi_3NffrFeUfNV2Hib')).toBe(false);
+    expect(isSimulatedIntent('xpi_sim_abc')).toBe(false);
+    expect(isSimulatedIntent('')).toBe(false);
   });
 });
 

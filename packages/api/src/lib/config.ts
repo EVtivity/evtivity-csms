@@ -23,7 +23,6 @@ const schema = z.object({
   SETTINGS_ENCRYPTION_KEY: z.string().min(1),
   CSMS_URL: z.string().default('http://localhost:7100'),
   PORTAL_URL: z.string().default('http://localhost:7101'),
-  STRIPE_WEBHOOK_SECRET: z.string().optional(),
   COOKIE_DOMAIN: z.string().optional(),
   // Public wss:// address stations use for security profiles 2 and 3, without
   // the station identity. Needed to move a connected 2.1 station from plain

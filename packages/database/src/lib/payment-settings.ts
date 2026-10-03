@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { and, eq } from 'drizzle-orm';
+import { decryptString } from '@evtivity/lib';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
 import { sitePaymentConfigs } from '../schema/payments.js';
@@ -55,4 +56,34 @@ export async function getPlatformFeePercent(siteId: string | null): Promise<numb
 /** Drop the cached fee percents (after a Stripe settings or site payment config change). */
 export function clearPlatformFeeCache(): void {
   cache.clear();
+}
+
+const WEBHOOK_SECRET_KEY = 'stripe.webhookSecretEnc';
+let webhookSecretCache: { secret: string | null; cachedAt: number } | null = null;
+
+/**
+ * The Stripe webhook signing secret (`stripe.webhookSecretEnc`, decrypted with
+ * the caller's SETTINGS_ENCRYPTION_KEY), or null when it is not set. Cached
+ * for 60 seconds. A read or decrypt failure throws: the webhook must not be
+ * accepted without verifying its signature.
+ */
+export async function getStripeWebhookSecret(encryptionKey: string): Promise<string | null> {
+  const now = Date.now();
+  if (webhookSecretCache != null && now - webhookSecretCache.cachedAt < TTL_MS) {
+    return webhookSecretCache.secret;
+  }
+  const [row] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, WEBHOOK_SECRET_KEY));
+  const stored = row?.value;
+  const secret =
+    typeof stored === 'string' && stored !== '' ? decryptString(stored, encryptionKey) : null;
+  webhookSecretCache = { secret, cachedAt: now };
+  return secret;
+}
+
+/** Drop the cached webhook signing secret (after a Stripe settings change). */
+export function clearStripeWebhookSecretCache(): void {
+  webhookSecretCache = null;
 }
