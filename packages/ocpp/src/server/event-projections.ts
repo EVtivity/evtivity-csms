@@ -9,7 +9,6 @@ import type { EventBus, DomainEvent, PubSubClient, ConnectionRegistry } from '@e
 // the values are always JSON-serializable at runtime, so we widen via this helper.
 type JSONValue = Parameters<postgres.Sql['json']>[0];
 const asJson = (v: unknown): JSONValue => v as JSONValue;
-import { config } from '../lib/config.js';
 import {
   client,
   isRoamingEnabled,
@@ -36,9 +35,6 @@ import {
   setStationDisabled,
   setStationFirmwareState,
   setStationReportedStatus,
-  settlePrepaidSession,
-  getPlatformFeePercent,
-  getStripeClient,
   getCompanyTaxBasis,
   snapshotSessionTariff,
   resolveStationTariff,
@@ -52,16 +48,19 @@ import {
   zeroCostBreakdown,
 } from '@evtivity/database';
 import type { TariffPriceSnapshot } from '@evtivity/database';
+import {
+  authorizeSessionHold,
+  classifySessionPayment,
+  recordTerminalSettlement,
+  settleSessionPayment,
+} from '@evtivity/payments';
 import { getSecuritySeverity } from '../lib/security-severity.js';
+import { paymentContext } from '../lib/payments.js';
 import { upsertStationConfiguration } from './station-configurations.js';
 import {
   generateId,
   createLogger,
   calculateCo2AvoidedKg,
-  isSimulatedCustomer,
-  isSimulatedIntent,
-  createSimulatedIntentId,
-  shouldSimulatePaymentFailure,
   isTariffFree,
   dispatchOneShotStationMessage,
   FREE_VEND_OCPP_21_VARIABLES,
@@ -74,9 +73,6 @@ import {
   costIncludesTax,
   priceForDisplay,
   resolvePriceDisplay,
-  captureHoldWithFee,
-  chargeShortfallTopUp,
-  sessionChargeTax,
   reconcileCostBreakdown,
   resolveTaxBasis,
 } from '@evtivity/lib';
@@ -369,13 +365,6 @@ export function registerProjections(
     const name = (rows[0]?.name as string | null) ?? null;
     siteNameCache.set(stationUuid, name);
     return name;
-  }
-
-  // A session's billing currency, or the company currency when the row is gone.
-  async function loadSessionCurrency(sessionId: string): Promise<string> {
-    const rows =
-      await sql`SELECT UPPER(currency) AS currency FROM charging_sessions WHERE id = ${sessionId} LIMIT 1`;
-    return (rows[0]?.currency as string | undefined) ?? getCompanyCurrency();
   }
 
   // Dispatch IdlingStarted notification for both driver and guest sessions.
@@ -3233,22 +3222,14 @@ export function registerProjections(
     // Convert settlement amount to cents (OCPP sends in major currency units)
     const capturedAmountCents = Math.round(settlementAmount * 100);
 
-    const insertResult = await sql`
-      INSERT INTO payment_records (
-        session_id, driver_id, payment_source, currency, captured_amount_cents, status
-      )
-      VALUES (
-        ${session.id as string},
-        ${session.driver_id as string | null},
-        'ocpp_terminal',
-        ${session.currency as string},
-        ${capturedAmountCents},
-        'captured'
-      )
-      ON CONFLICT (session_id) DO NOTHING
-    `;
+    const recorded = await recordTerminalSettlement({
+      sessionId: session.id as string,
+      driverId: (session.driver_id as string | null) ?? null,
+      currency: session.currency as string,
+      capturedCents: capturedAmountCents,
+    });
 
-    if (insertResult.count === 0) {
+    if (!recorded) {
       logger.warn(
         { transactionId, sessionId: session.id },
         'Duplicate NotifySettlement ignored; payment already exists for session',
@@ -3504,19 +3485,28 @@ export function registerProjections(
     // fee makes the session paid only when it started from a reservation.
     const tariffIsFree = isTariffFree(sessionTariff, { reserved });
 
-    // Case 1: OCPI roaming session -- billing handled by eMSP via CDR
-    if (isRoaming) return;
+    // How the session is paid (one definition with the settlement on Ended).
+    // Free vend never reaches the gate (the Started handler skips it).
+    const mode = classifySessionPayment({
+      isRoaming,
+      freeVend: false,
+      prepaid: prepaidBalanceCents != null,
+      driverId,
+      guestSession: guestStatus != null,
+    });
+
+    // Roaming: billing handled by the eMSP via the CDR.
+    if (mode === 'roaming' || mode === 'free_vend') return;
 
     const stopSession = (reason: PaymentStopReason): Promise<void> =>
       stopSessionForPayment({ sessionId, transactionId, ocppStationId, stationDbId }, reason);
 
-    async function notifyPreAuthFailed(reason: string): Promise<void> {
-      if (driverId == null) return;
+    async function notifyPreAuthFailed(driver: string, reason: string): Promise<void> {
       try {
         void dispatchDriverNotification(
           sql,
           'payment.PreAuthFailed',
-          driverId,
+          driver,
           {
             stationId: ocppStationId,
             transactionId,
@@ -3527,7 +3517,7 @@ export function registerProjections(
         );
       } catch (err) {
         logger.debug(
-          { err, driverId, sessionId },
+          { err, driverId: driver, sessionId },
           'PreAuthFailed notification dispatch failed; continuing',
         );
       }
@@ -3546,363 +3536,133 @@ export function registerProjections(
       }
     }
 
+    async function notifyMissingPaymentMethod(driver: string): Promise<void> {
+      try {
+        void dispatchDriverNotification(
+          sql,
+          'payment.MissingPaymentMethod',
+          driver,
+          {
+            stationId: ocppStationId,
+            transactionId,
+          },
+          ALL_TEMPLATES_DIRS,
+          pubsub,
+        );
+      } catch (notifyErr) {
+        logger.error({ err: notifyErr }, 'Failed to notify driver of missing payment method');
+      }
+      try {
+        await pubsub.publish(
+          'csms_events',
+          JSON.stringify({
+            type: 'payment.missingPaymentMethod',
+            sessionId,
+            transactionId,
+          }),
+        );
+      } catch (err) {
+        logger.debug({ err, sessionId }, 'MissingPaymentMethod SSE publish failed; continuing');
+      }
+    }
+
     // Prepaid token (OCPP 2.1 C17): the station enforces the remaining credit
-    // (transactionLimit.maxCost) and settlePrepaidSession debits the final cost
-    // when the session ends, so no card pre-authorization. A prepaid token
-    // without credit is stopped (a station started it without asking first).
-    if (prepaidBalanceCents != null) {
-      if (prepaidBalanceCents > 0) return;
+    // (transactionLimit.maxCost) and the settlement debits the final cost when
+    // the session ends, so no card pre-authorization. A prepaid token without
+    // credit is stopped (a station started it without asking first).
+    if (mode === 'prepaid') {
+      if (prepaidBalanceCents != null && prepaidBalanceCents > 0) return;
       logger.warn(`Prepaid token without credit started session ${transactionId}, stopping`);
       await stopSession('PaymentFailed');
       return;
     }
 
-    if (driverId != null) {
+    if (mode === 'card' && driverId != null) {
       // ---- Driver session ----
-      const pmRows = await sql`
-          SELECT id, stripe_customer_id, stripe_payment_method_id
-          FROM driver_payment_methods
-          WHERE driver_id = ${driverId} AND is_default = true
-          LIMIT 1
-        `;
-
-      if (pmRows.length === 0) {
-        // No payment method -- allow only if tariff is free
-        if (tariffIsFree) return;
-        logger.warn(
-          `Driver ${driverId} has no payment method for non-free session ${transactionId}, stopping`,
-        );
-        await stopSession('MissingPaymentMethod');
-        try {
-          void dispatchDriverNotification(
-            sql,
-            'payment.MissingPaymentMethod',
-            driverId,
-            {
-              stationId: ocppStationId,
-              transactionId,
-            },
-            ALL_TEMPLATES_DIRS,
-            pubsub,
-          );
-        } catch (notifyErr) {
-          logger.error({ err: notifyErr }, 'Failed to notify driver of missing payment method');
-        }
-        try {
-          await pubsub.publish(
-            'csms_events',
-            JSON.stringify({
-              type: 'payment.missingPaymentMethod',
-              sessionId,
-              transactionId,
-            }),
-          );
-        } catch (err) {
-          logger.debug({ err, sessionId }, 'MissingPaymentMethod SSE publish failed; continuing');
-        }
-        return;
-      }
-
-      const pm = pmRows[0];
-      if (pm == null) return;
-
-      // Skip payment gate entirely if the session's tariff is free
+      // A free session needs no payment method and no hold.
       if (tariffIsFree) return;
 
-      const stripeCustomerId = pm.stripe_customer_id as string;
-
-      // Platform settings and site-level overrides are independent reads -
-      // fetch them in parallel so the pre-auth gate doesn't pay both round-trips
-      // serially on every charging start.
-      const [platformSettingsRows, siteConfigRows] = await Promise.all([
-        sql`
-          SELECT key, value FROM settings WHERE key IN ('stripe.preAuthAmountCents')
-        `,
-        siteId != null
-          ? sql`
-              SELECT id, pre_auth_amount_cents, stripe_connected_account_id
-              FROM site_payment_configs
-              WHERE site_id = ${siteId} AND is_enabled = true
-            `
-          : Promise.resolve([] as Array<Record<string, unknown>>),
-      ]);
-      const platformMap = new Map<string, unknown>();
-      for (const row of platformSettingsRows) {
-        platformMap.set(row.key as string, row.value);
-      }
-      let platformPreAuthCents =
-        (platformMap.get('stripe.preAuthAmountCents') as number | undefined) ?? 5000;
-
-      let connectedAccountId: string | null = null;
-      let siteConfigId: string | null = null;
-      const sc = siteConfigRows[0];
-      if (sc != null) {
-        platformPreAuthCents = sc.pre_auth_amount_cents as number;
-        connectedAccountId = (sc.stripe_connected_account_id as string | null) ?? null;
-        siteConfigId = sc.id as string;
-      }
-
-      // Pre-authorize in the currency the session is billed in.
-      const platformCurrency = await loadSessionCurrency(sessionId);
-
-      // Guard: skip if a payment record already exists (prevents duplicate pre-auth on race)
-      const existingPayment = await sql`
-          SELECT id FROM payment_records WHERE session_id = ${sessionId} LIMIT 1
-        `;
-      if (existingPayment.length > 0) return;
-
-      // Case 2: Simulated payment method -- bypass Stripe
-      if (isSimulatedCustomer(stripeCustomerId)) {
-        const intentId = createSimulatedIntentId();
-        const failed = shouldSimulatePaymentFailure();
-
-        try {
-          if (failed) {
-            await sql`
-                INSERT INTO payment_records (
-                  session_id, driver_id,
-                  stripe_payment_intent_id, stripe_customer_id, stripe_payment_method_id,
-                  payment_source, currency, pre_auth_amount_cents, status,
-                  failure_reason
-                )
-                VALUES (
-                  ${sessionId},
-                  ${driverId},
-                  ${intentId},
-                  ${stripeCustomerId},
-                  ${pm.stripe_payment_method_id as string},
-                  'web_portal',
-                  ${platformCurrency},
-                  ${platformPreAuthCents},
-                  'failed',
-                  'Simulated pre-auth failure'
-                )
-                ON CONFLICT (session_id) DO NOTHING
-              `;
-          } else {
-            await sql`
-                INSERT INTO payment_records (
-                  session_id, driver_id,
-                  stripe_payment_intent_id, stripe_customer_id, stripe_payment_method_id,
-                  payment_source, currency, pre_auth_amount_cents, status
-                )
-                VALUES (
-                  ${sessionId},
-                  ${driverId},
-                  ${intentId},
-                  ${stripeCustomerId},
-                  ${pm.stripe_payment_method_id as string},
-                  'web_portal',
-                  ${platformCurrency},
-                  ${platformPreAuthCents},
-                  'pre_authorized'
-                )
-                ON CONFLICT (session_id) DO NOTHING
-              `;
-          }
-        } catch (dbErr) {
-          logger.error({ err: dbErr }, 'Failed to insert simulated payment record');
+      // The hold on the driver's default card, through the provider the card
+      // is saved with (key preauth_<sessionId>, shared with the portal start:
+      // an existing record means the portal start already placed it).
+      const hold = await authorizeSessionHold(
+        { sessionId, driverId, methodRowId: null, siteId, trigger: 'projection_gate' },
+        paymentContext(logger),
+      );
+      switch (hold.outcome) {
+        case 'authorized':
+        case 'exists':
           return;
-        }
-
-        if (failed) {
-          logger.warn(`Simulated pre-auth failure for session ${transactionId}`);
-          await stopSession('PaymentFailed');
-          try {
-            void dispatchDriverNotification(
-              sql,
-              'payment.PreAuthFailed',
-              driverId,
-              {
-                stationId: ocppStationId,
-                transactionId,
-                reason: 'Simulated payment failure',
-              },
-              ALL_TEMPLATES_DIRS,
-              pubsub,
-            );
-          } catch (notifyErr) {
-            logger.error(
-              { err: notifyErr },
-              'Failed to notify driver of simulated pre-auth failure',
-            );
-          }
-          try {
-            await pubsub.publish(
-              'csms_events',
-              JSON.stringify({
-                type: 'payment.preAuthFailed',
-                sessionId,
-                transactionId,
-                reason: 'Simulated payment failure',
-              }),
-            );
-          } catch (err) {
-            logger.debug(
-              { err, sessionId },
-              'Simulated pre-auth failure SSE publish failed; continuing',
-            );
-          }
-        }
-        return;
-      }
-
-      // Case 3: Real Stripe pre-auth.
-      // Stripe call and payment_records INSERT are intentionally in separate
-      // try/catch: a Stripe decline must fault the session, while a DB hiccup
-      // after a successful pre-auth must REVERSE the Stripe hold (otherwise
-      // the driver's card stays held but no internal record exists).
-      let stripeClient: import('stripe').default | null = null;
-      let paymentIntentId: string | null = null;
-
-      try {
-        // The shared platform client (60 s cache, 3 network retries). Without
-        // a secret key payments are not configured: no pre-auth, as the portal
-        // start does (currency/amount already resolved above). A key that
-        // cannot be decrypted throws and fails the pre-auth.
-        stripeClient = await getStripeClient(config.SETTINGS_ENCRYPTION_KEY);
-        if (stripeClient == null) {
-          logger.warn({ sessionId }, 'Stripe is not configured; session not pre-authorized');
-          return;
-        }
-
-        const piParams: import('stripe').default.PaymentIntentCreateParams = {
-          amount: platformPreAuthCents,
-          currency: platformCurrency.toLowerCase(),
-          customer: pm.stripe_customer_id as string,
-          payment_method: pm.stripe_payment_method_id as string,
-          capture_method: 'manual',
-          confirm: true,
-          off_session: true,
-        };
-
-        // A destination charge. The platform fee is set at capture, on the
-        // net amount actually charged (captureHoldWithFee).
-        if (connectedAccountId != null) {
-          piParams.on_behalf_of = connectedAccountId;
-          piParams.transfer_data = { destination: connectedAccountId };
-        }
-
-        const paymentIntent = await stripeClient.paymentIntents.create(piParams, {
-          idempotencyKey: `preauth_${sessionId}`,
-        });
-        paymentIntentId = paymentIntent.id;
-      } catch (err) {
-        logger.error({ err }, 'Auto pre-auth failed, stopping session');
-        const reason = err instanceof Error ? err.message.slice(0, 500) : 'Unknown pre-auth error';
-        try {
-          await sql`
-              INSERT INTO payment_records (
-                session_id, driver_id,
-                stripe_customer_id, stripe_payment_method_id,
-                payment_source, currency, status, failure_reason
-              )
-              VALUES (
-                ${sessionId},
-                ${driverId},
-                ${pm.stripe_customer_id as string},
-                ${pm.stripe_payment_method_id as string},
-                'web_portal',
-                ${platformCurrency},
-                'failed',
-                ${reason}
-              )
-              ON CONFLICT (session_id) DO NOTHING
-            `;
-        } catch (dbErr) {
-          logger.error({ err: dbErr }, 'Failed to record pre-auth failure');
-        }
-
-        await stopSession('PaymentFailed');
-        await notifyPreAuthFailed(reason);
-        return;
-      }
-
-      // Stripe pre-auth succeeded -- record it. If the INSERT fails we must
-      // cancel the Stripe hold so the driver's card isn't held with no internal
-      // mirror; otherwise a retry would create a second hold under a new session.
-      // Reaching here means the try block completed without throwing, so both
-      // paymentIntentId and stripeClient are non-null (the catch block returned).
-      try {
-        await sql`
-          INSERT INTO payment_records (
-            session_id, driver_id, site_payment_config_id,
-            stripe_payment_intent_id, stripe_customer_id, stripe_payment_method_id,
-            payment_source, currency, pre_auth_amount_cents, status
-          )
-          VALUES (
-            ${sessionId},
-            ${driverId},
-            ${siteConfigId},
-            ${paymentIntentId},
-            ${pm.stripe_customer_id as string},
-            ${pm.stripe_payment_method_id as string},
-            'web_portal',
-            ${platformCurrency},
-            ${platformPreAuthCents},
-            'pre_authorized'
-          )
-          ON CONFLICT (session_id) DO NOTHING
-        `;
-      } catch (insertErr) {
-        logger.error(
-          { err: insertErr, sessionId, paymentIntentId },
-          'Failed to record successful pre-auth; reversing Stripe hold',
-        );
-        try {
-          await stripeClient.paymentIntents.cancel(paymentIntentId);
-        } catch (cancelErr) {
-          logger.error(
-            { err: cancelErr, paymentIntentId, sessionId },
-            'Failed to cancel Stripe pre-auth after DB INSERT failure; manual reconciliation required',
+        case 'no_method':
+          logger.warn(
+            `Driver ${driverId} has no payment method for non-free session ${transactionId}, stopping`,
           );
-        }
-        await stopSession('PaymentFailed');
-        await notifyPreAuthFailed('Payment recording failed. Please contact support.');
+          await stopSession('MissingPaymentMethod');
+          await notifyMissingPaymentMethod(driverId);
+          return;
+        case 'not_configured':
+          // As the portal start without a provider: the session is not held.
+          logger.warn(
+            { sessionId, providerId: hold.providerId },
+            'Payment provider not configured; session not pre-authorized',
+          );
+          return;
+        case 'declined':
+          logger.error(
+            { sessionId, reason: hold.reason },
+            'Auto pre-auth failed, stopping session',
+          );
+          await stopSession('PaymentFailed');
+          await notifyPreAuthFailed(driverId, hold.reason);
+          return;
+        case 'record_failed':
+          // The service cancelled the hold it could not record.
+          await stopSession('PaymentFailed');
+          await notifyPreAuthFailed(driverId, 'Payment recording failed. Please contact support.');
+          return;
       }
-    } else {
-      // ---- Guest or anonymous session ----
-      // Token resolution already happened in the first subscriber:
-      //   driver_tokens -> ocpi_external_tokens -> guest_sessions
-      // guestStatus/guestEmail are pre-resolved from that chain.
+    }
 
+    // ---- Guest or anonymous session ----
+    // Token resolution already happened in the first subscriber:
+    //   driver_tokens -> ocpi_external_tokens -> guest_sessions
+    // guestStatus/guestEmail are pre-resolved from that chain.
+    if (mode === 'guest') {
       if (guestStatus === 'payment_authorized') {
         // Valid guest session -- pre-auth done at checkout, allow
         return;
       }
 
-      if (guestStatus != null) {
-        // Guest session exists but not authorized
-        logger.warn(
-          `No valid guest session for idToken ${String(idToken).slice(0, 8)}..., stopping session ${transactionId}`,
-        );
-        await stopSession('GuestPaymentNotAuthorized');
-        if (guestEmail != null) {
-          try {
-            void dispatchSystemNotification(
-              sql,
-              'payment.PreAuthFailed',
-              { email: guestEmail },
-              {
-                stationId: ocppStationId,
-                transactionId,
-                reason: 'Payment authorization not found',
-              },
-              ALL_TEMPLATES_DIRS,
-            );
-          } catch (notifyErr) {
-            logger.error({ err: notifyErr }, 'Failed to notify guest of session stop');
-          }
-        }
-        return;
-      }
-
-      // No driver, no roaming, no guest session -- stop unconditionally
+      // Guest session exists but not authorized
       logger.warn(
-        `Anonymous session ${transactionId} has no driver, no roaming token, and no guest session, stopping`,
+        `No valid guest session for idToken ${String(idToken).slice(0, 8)}..., stopping session ${transactionId}`,
       );
-      await stopSession('AnonymousSession');
+      await stopSession('GuestPaymentNotAuthorized');
+      if (guestEmail != null) {
+        try {
+          void dispatchSystemNotification(
+            sql,
+            'payment.PreAuthFailed',
+            { email: guestEmail },
+            {
+              stationId: ocppStationId,
+              transactionId,
+              reason: 'Payment authorization not found',
+            },
+            ALL_TEMPLATES_DIRS,
+          );
+        } catch (notifyErr) {
+          logger.error({ err: notifyErr }, 'Failed to notify guest of session stop');
+        }
+      }
+      return;
     }
+
+    // No driver, no roaming, no guest session -- stop unconditionally
+    logger.warn(
+      `Anonymous session ${transactionId} has no driver, no roaming token, and no guest session, stopping`,
+    );
+    await stopSession('AnonymousSession');
   }
 
   // Payment auto-capture on session end (separate subscriber, no race with session creation)
@@ -3912,10 +3672,10 @@ export function registerProjections(
     const transactionId = payload.transactionId as string;
 
     if (eventType === 'Ended') {
-      // Auto-capture on session end
+      // Settlement on session end
       const sessionRows = await sql`
         SELECT cs.id, cs.final_cost_cents, cs.station_id AS station_uuid,
-               UPPER(cs.currency) AS currency, cs.tariff_tax_rate, cs.cost_breakdown,
+               UPPER(cs.currency) AS currency,
                cs2.station_id AS station_ocpp_id, cs2.site_id
         FROM charging_sessions cs
         JOIN charging_stations cs2 ON cs2.id = cs.station_id
@@ -3924,310 +3684,85 @@ export function registerProjections(
       const session = sessionRows[0];
       if (session == null) return;
 
-      // Prepaid token (C17): debit the final cost from the token's balance.
-      // Idempotent: the prepaid payment_records row is unique per session.
-      try {
-        const settled = await settlePrepaidSession(session.id as string, logger);
-        if (settled != null) {
-          logger.info(
-            { sessionId: session.id, tokenId: settled.tokenId, debitedCents: settled.debitedCents },
-            'Prepaid balance debited',
-          );
-          await notifyChange(
-            'payment.settled',
-            session.station_uuid as string,
-            (session.site_id as string | null) ?? null,
-            session.id as string,
-          );
-          try {
-            await pubsub.publish(
-              'csms_events',
-              JSON.stringify({ eventType: 'token.changed', tokenId: settled.tokenId }),
-            );
-          } catch (err) {
-            logger.debug({ err }, 'token.changed SSE publish failed; continuing');
-          }
-          return;
-        }
-      } catch (err) {
-        logger.error({ err, sessionId: session.id }, 'Prepaid balance debit failed');
-      }
-
-      const prRows = await sql`
-        SELECT id, stripe_payment_intent_id, driver_id, pre_auth_amount_cents
-        FROM payment_records
-        WHERE session_id = ${session.id as string} AND status = 'pre_authorized'
-        LIMIT 1
-      `;
-      if (prRows.length === 0) return;
-
-      const pr = prRows[0];
-      if (pr == null) return;
-      const paymentIntentId = pr.stripe_payment_intent_id as string | null;
-      if (paymentIntentId == null) return;
-
-      const prDriverId = pr.driver_id as string | null;
-      const finalCostCents = session.final_cost_cents as number | null;
+      // Prepaid debit, or capture/cancel of the driver's hold, through the
+      // provider the payment is pinned to. Guest holds are left to the
+      // guest-session worker. Idempotent: the record moves only from its
+      // open state, and the provider calls carry keys derived from it.
+      const outcome = await settleSessionPayment(session.id as string, paymentContext(logger));
       const sessionCurrency = session.currency as string;
+      const finalCostCents = session.final_cost_cents as number | null;
 
-      // Guest sessions: driver_id is null on the payment record.
-      // The guest-session-worker handles capture for guest sessions via finalizeGuestPayment().
-      // Skip here to avoid double-capture.
-      if (prDriverId == null) return;
-
-      // Simulated payment: bypass Stripe
-      if (isSimulatedIntent(paymentIntentId)) {
-        if (shouldSimulatePaymentFailure()) {
-          logger.warn(`Simulated capture failure for session ${transactionId}`);
-          try {
-            await sql`
-              UPDATE payment_records
-              SET status = 'failed',
-                  failure_reason = 'Simulated capture failure',
-                  updated_at = now()
-              WHERE id = ${pr.id as string}
-            `;
-          } catch (dbErr) {
-            logger.error({ err: dbErr }, 'Failed to mark simulated capture as failed');
-          }
-          try {
-            const amountFormatted = notificationMoney(finalCostCents ?? 0, sessionCurrency);
-            void dispatchDriverNotification(
-              sql,
-              'payment.CaptureFailed',
-              prDriverId,
-              {
-                stationId: event.aggregateId,
-                transactionId,
-                amountFormatted,
-                reason: 'Simulated capture failure',
-              },
-              ALL_TEMPLATES_DIRS,
-              pubsub,
-            );
-          } catch (notifyErr) {
-            logger.error(
-              { err: notifyErr },
-              'Failed to notify driver of simulated capture failure',
-            );
-          }
-          return;
-        }
-
-        // Simulated success
+      if (outcome.mode === 'prepaid') {
+        logger.info(
+          {
+            sessionId: session.id,
+            tokenId: outcome.tokenId,
+            debitedCents: outcome.debitedCents,
+          },
+          'Prepaid balance debited',
+        );
+        await notifyChange(
+          'payment.settled',
+          session.station_uuid as string,
+          (session.site_id as string | null) ?? null,
+          session.id as string,
+        );
         try {
-          if (finalCostCents != null && finalCostCents > 0) {
-            await sql`
-              UPDATE payment_records
-              SET status = 'captured',
-                  captured_amount_cents = ${finalCostCents},
-                  updated_at = now()
-              WHERE id = ${pr.id as string}
-            `;
-            // Notify driver of successful payment, in the session's currency.
-            void dispatchDriverNotification(
-              sql,
-              'session.PaymentReceived',
-              prDriverId,
-              {
-                stationId: event.aggregateId,
-                transactionId,
-                amountCents: finalCostCents,
-                amountFormatted: notificationMoney(finalCostCents, sessionCurrency),
-                currency: sessionCurrency,
-              },
-              ALL_TEMPLATES_DIRS,
-              pubsub,
-            );
-          } else {
-            await sql`
-              UPDATE payment_records
-              SET status = 'cancelled',
-                  captured_amount_cents = 0,
-                  updated_at = now()
-              WHERE id = ${pr.id as string}
-            `;
-          }
+          await pubsub.publish(
+            'csms_events',
+            JSON.stringify({ eventType: 'token.changed', tokenId: outcome.tokenId }),
+          );
         } catch (err) {
-          logger.error({ err }, 'Failed to update simulated payment record on session end');
+          logger.debug({ err }, 'token.changed SSE publish failed; continuing');
         }
         return;
       }
+      if (outcome.mode !== 'card') return;
 
-      // Real Stripe capture.
-      // Stripe operations (capture/cancel/top-up) are in their own try. The
-      // subsequent payment_records UPDATE runs in a separate try so that a DB
-      // hiccup after a successful Stripe call does NOT cause us to mark the
-      // record 'failed' and dispatch CaptureFailed to the driver -- Stripe
-      // already took the money.
-      let captureAmount = 0;
-      let totalCaptured = 0;
-      let topUpFailureReason: string | null = null;
-      let topUpIntentId: string | null = null;
-      let captureSucceeded = false;
-      let cancelSucceeded = false;
-
-      try {
-        // The shared platform client (60 s cache, 3 network retries). A hold
-        // cannot be captured without the secret key: record the failure.
-        const stripe = await getStripeClient(config.SETTINGS_ENCRYPTION_KEY);
-        if (stripe == null) throw new Error('Stripe is not configured');
-
-        if (finalCostCents != null && finalCostCents > 0) {
-          const preAuthAmount = (pr.pre_auth_amount_cents as number | null) ?? finalCostCents;
-          captureAmount = Math.min(finalCostCents, preAuthAmount);
-          // The platform fee is a percent of the net amount charged, at the
-          // session's tax rate, set on the capture and on the top-up so the
-          // two add up to the fee of the final cost.
-          const fee = {
-            taxRate: sessionChargeTax({
-              finalCostCents,
-              tariffTaxRate: session.tariff_tax_rate as string | null,
-              costBreakdown: session.cost_breakdown,
-            }),
-            platformFeePercent: await getPlatformFeePercent(
-              (session.site_id as string | null) ?? null,
-            ),
-          };
-
-          // Always capture the pre-auth fully (or finalCost if smaller). When
-          // finalCost > preauth we then create a second PaymentIntent for the
-          // delta and confirm+capture it off-session. Stripe rejects
-          // amount_to_capture > original_amount, so we cannot just expand the
-          // first intent.
-          await captureHoldWithFee(stripe, {
-            ...fee,
-            intentId: paymentIntentId,
-            amountCents: captureAmount,
-            idempotencyKey: `capture_${pr.id as string}`,
-          });
-
-          totalCaptured = captureAmount;
-
-          if (finalCostCents > preAuthAmount) {
-            const deltaCents = finalCostCents - preAuthAmount;
-            try {
-              // Charges the delta on the same card (and connected account).
-              const topUp = await chargeShortfallTopUp(stripe, {
-                ...fee,
-                originalIntentId: paymentIntentId,
-                capturedCents: captureAmount,
-                finalCostCents,
-                currency: sessionCurrency,
-                description: `Top-up for session ${session.id as string}`,
-                idempotencyKey: `topup_${pr.id as string}`,
-              });
-              topUpIntentId = topUp.id;
-              totalCaptured = preAuthAmount + deltaCents;
-            } catch (topUpErr) {
-              topUpFailureReason =
-                topUpErr instanceof Error
-                  ? `Top-up declined: ${topUpErr.message.slice(0, 350)}; shortfall ${String(deltaCents)}c`
-                  : `Top-up failed; shortfall ${String(deltaCents)}c`;
-              logger.warn(
-                { err: topUpErr, paymentRecordId: pr.id, deltaCents },
-                'Top-up PaymentIntent failed; pre-auth was captured but delta uncollected',
-              );
-            }
-          }
-
-          captureSucceeded = true;
-        } else {
-          await stripe.paymentIntents.cancel(paymentIntentId);
-          cancelSucceeded = true;
-        }
-      } catch (err) {
-        logger.error({ err }, 'Auto capture/cancel failed');
-        const captureReason =
-          err instanceof Error ? err.message.slice(0, 500) : 'Unknown capture error';
+      if (outcome.status === 'failed') {
         try {
-          await sql`
-            UPDATE payment_records
-            SET status = 'failed', failure_reason = ${captureReason}, updated_at = now()
-            WHERE id = ${pr.id as string}
-          `;
-        } catch (dbErr) {
-          logger.error({ err: dbErr }, 'Failed to record capture failure');
-        }
-
-        try {
-          const amountFormatted = notificationMoney(finalCostCents ?? 0, sessionCurrency);
           void dispatchDriverNotification(
             sql,
             'payment.CaptureFailed',
-            prDriverId,
+            outcome.driverId,
             {
               stationId: event.aggregateId,
               transactionId,
-              amountFormatted,
-              reason: captureReason.slice(0, 200),
+              amountFormatted: notificationMoney(finalCostCents ?? 0, sessionCurrency),
+              reason: outcome.reason.slice(0, 200),
             },
             ALL_TEMPLATES_DIRS,
             pubsub,
           );
         } catch (err) {
           logger.debug(
-            { err, prDriverId, transactionId },
+            { err, driverId: outcome.driverId, transactionId },
             'CaptureFailed notification dispatch failed; continuing',
           );
         }
         return;
       }
 
-      // Stripe succeeded -- record the result. If the UPDATE fails, log loudly
-      // (Stripe already took the money) and do NOT dispatch CaptureFailed.
-      if (captureSucceeded) {
-        try {
-          await sql`
-            UPDATE payment_records
-            SET status = 'captured',
-                captured_amount_cents = ${totalCaptured},
-                failure_reason = ${topUpFailureReason},
-                metadata = CASE
-                  WHEN ${topUpIntentId}::text IS NULL THEN metadata
-                  ELSE jsonb_set(COALESCE(metadata, '{}'::jsonb), '{topUpIntentId}', to_jsonb(${topUpIntentId}::text))
-                END,
-                updated_at = now()
-            WHERE id = ${pr.id as string}
-          `;
-        } catch (dbErr) {
-          logger.error(
-            { err: dbErr, paymentRecordId: pr.id, paymentIntentId, totalCaptured },
-            'Stripe capture succeeded but payment_records UPDATE failed; manual reconciliation required',
-          );
-          return;
-        }
-
+      // Notify on capture only when it was recorded (a capture whose record
+      // update failed is logged for manual reconciliation instead).
+      if (outcome.status === 'captured' && outcome.recorded) {
         const stationUuid = session.station_uuid as string | null;
         const captureSiteName = stationUuid != null ? await resolveSiteName(stationUuid) : null;
         void dispatchDriverNotification(
           sql,
           'session.PaymentReceived',
-          prDriverId,
+          outcome.driverId,
           {
             siteName: captureSiteName ?? '',
             stationId: session.station_ocpp_id as string,
             transactionId,
-            amountCents: totalCaptured,
-            amountFormatted: notificationMoney(totalCaptured, sessionCurrency),
+            amountCents: outcome.capturedCents,
+            amountFormatted: notificationMoney(outcome.capturedCents, sessionCurrency),
             currency: sessionCurrency,
           },
           ALL_TEMPLATES_DIRS,
           pubsub,
         );
-      } else if (cancelSucceeded) {
-        try {
-          await sql`
-            UPDATE payment_records
-            SET status = 'cancelled', captured_amount_cents = 0, updated_at = now()
-            WHERE id = ${pr.id as string}
-          `;
-        } catch (dbErr) {
-          logger.error(
-            { err: dbErr, paymentRecordId: pr.id, paymentIntentId },
-            'Stripe cancel succeeded but payment_records UPDATE failed; manual reconciliation required',
-          );
-        }
       }
     }
   });

@@ -108,14 +108,22 @@ vi.mock('../server/notification-dispatcher.js', () => ({
   ALL_TEMPLATES_DIRS: ['/mock/templates'],
 }));
 
-vi.mock('stripe', () => ({
-  default: class MockStripe {
-    paymentIntents = {
-      create: vi.fn().mockResolvedValue({ id: 'pi_test' }),
-      capture: vi.fn().mockResolvedValue({}),
-      cancel: vi.fn().mockResolvedValue({}),
-    };
-  },
+// The payment service (@evtivity/payments): the gate's hold, the settlement on
+// Ended, and the NotifySettlement record. The mode classification stays real.
+const mockAuthorizeSessionHold = vi.fn();
+const mockSettleSessionPayment = vi.fn();
+const mockRecordTerminalSettlement = vi.fn();
+vi.mock('@evtivity/payments', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  authorizeSessionHold: (...args: unknown[]) => mockAuthorizeSessionHold(...args) as unknown,
+  settleSessionPayment: (...args: unknown[]) => mockSettleSessionPayment(...args) as unknown,
+  recordTerminalSettlement: (...args: unknown[]) =>
+    mockRecordTerminalSettlement(...args) as unknown,
+}));
+const mockPaymentContext = { registry: {}, logger: {} };
+vi.mock('../lib/payments.js', () => ({
+  paymentRegistry: {},
+  paymentContext: () => mockPaymentContext,
 }));
 
 function createMockEventBus() {
@@ -192,6 +200,13 @@ describe('Event projections', () => {
     sqlResults = [];
     sqlCallIndex = 0;
     vi.clearAllMocks();
+    mockAuthorizeSessionHold.mockResolvedValue({
+      outcome: 'authorized',
+      paymentRecordId: 1,
+      paymentId: 'pi_test',
+    });
+    mockSettleSessionPayment.mockResolvedValue({ mode: 'none' });
+    mockRecordTerminalSettlement.mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -3221,8 +3236,7 @@ describe('Event projections', () => {
       await setup();
 
       setupSqlResults(
-        [{ id: 'session-1', driver_id: 'driver-1' }], // SELECT from charging_sessions
-        [], // INSERT payment_records
+        [{ id: 'session-1', driver_id: 'driver-1', currency: 'EUR' }], // SELECT from charging_sessions
         [], // pg_notify (payment.settled)
       );
 
@@ -3233,6 +3247,13 @@ describe('Event projections', () => {
           settlementAmount: 15.5,
         }),
       );
+
+      expect(mockRecordTerminalSettlement).toHaveBeenCalledWith({
+        sessionId: 'session-1',
+        driverId: 'driver-1',
+        currency: 'EUR',
+        capturedCents: 1550,
+      });
 
       expect(mockDispatchDriver).toHaveBeenCalledWith(
         expect.anything(),
@@ -3258,7 +3279,6 @@ describe('Event projections', () => {
 
       setupSqlResults(
         [{ id: 'session-1', driver_id: null }], // no driver
-        [], // INSERT payment_records
         [], // pg_notify
       );
 
@@ -3270,6 +3290,9 @@ describe('Event projections', () => {
         }),
       );
 
+      expect(mockRecordTerminalSettlement).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'session-1', driverId: null, capturedCents: 1000 }),
+      );
       expect(mockDispatchDriver).not.toHaveBeenCalled();
     });
 
@@ -3286,6 +3309,7 @@ describe('Event projections', () => {
       );
 
       expect(sqlCalls.length).toBe(1);
+      expect(mockRecordTerminalSettlement).not.toHaveBeenCalled();
     });
   });
 

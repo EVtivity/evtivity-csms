@@ -1,0 +1,758 @@
+// Copyright (c) 2024-2026 EVtivity. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
+
+import { and, eq, sql } from 'drizzle-orm';
+import {
+  chargingSessions,
+  chargingStations,
+  db,
+  driverPaymentMethods,
+  driverTokens,
+  getPlatformFeePercent,
+} from '@evtivity/database';
+import { sessionChargeTax } from '@evtivity/lib';
+import { errorMessage } from './context.js';
+import type { PaymentContext } from './context.js';
+import { PaymentDeclinedError, PaymentProviderNotConfiguredError } from './errors.js';
+import { classifySessionPayment } from './payment-mode.js';
+import { pinnedProvider } from './pinning.js';
+import {
+  findRecord,
+  findSessionHold,
+  findSessionRecord,
+  markCancelled,
+  markCaptured,
+  markHoldFailed,
+  markShortfallRecovered,
+  markShortfallRetryFailed,
+  recordFailedHold,
+  recordHold,
+  settlePrepaidSession,
+} from './payment-records.js';
+import type { PaymentRecord } from './payment-records.js';
+import { getSitePaymentConfig } from './settings.js';
+import type { PaymentProvider, PaymentStatus } from './types.js';
+
+/** Hold amount, site config and payout account of new holds at a site. */
+export interface HoldTerms {
+  preAuthAmountCents: number;
+  sitePaymentConfigId: number | null;
+  payoutAccountId: string | null;
+}
+
+/** The enabled site config wins over the global `stripe.preAuthAmountCents`. */
+export async function holdTerms(ctx: PaymentContext, siteId: string | null): Promise<HoldTerms> {
+  const site = siteId != null ? await getSitePaymentConfig(siteId) : null;
+  if (site != null) {
+    return {
+      preAuthAmountCents: site.preAuthAmountCents,
+      sitePaymentConfigId: site.configId,
+      payoutAccountId: site.payoutAccountId,
+    };
+  }
+  const settings = await ctx.registry.settings();
+  return {
+    preAuthAmountCents: settings.preAuthAmountCents,
+    sitePaymentConfigId: null,
+    payoutAccountId: null,
+  };
+}
+
+export interface SessionHoldInput {
+  sessionId: string;
+  /** The session's driver (null on an operator pre-auth of a session without one). */
+  driverId: string | null;
+  /** A `driver_payment_methods` row; null takes the driver's default method. */
+  methodRowId: number | null;
+  siteId: string | null;
+  /** Operator override; default the site or global hold amount. */
+  amountCents?: number;
+  trigger: 'portal_start' | 'projection_gate' | 'operator';
+}
+
+export type HoldOutcome =
+  | { outcome: 'authorized'; paymentRecordId: number; paymentId: string }
+  /** The session already has a payment record (a replay, or the other trigger placed it). */
+  | { outcome: 'exists'; paymentRecordId: number; status: PaymentStatus }
+  /** Declined or not authorizable off session; a `failed` record was written when none existed. */
+  | { outcome: 'declined'; reason: string; paymentRecordId: number | null }
+  /** The provider the method is pinned to is not available in this process. */
+  | { outcome: 'not_configured'; providerId: string }
+  | { outcome: 'no_method' }
+  /** The hold was placed but its record could not be written; the hold was cancelled. */
+  | { outcome: 'record_failed'; reason: string };
+
+interface MethodRow {
+  id: number;
+  customerId: string;
+  methodId: string;
+}
+
+async function sessionMethod(input: SessionHoldInput): Promise<MethodRow | null> {
+  // The given row, else the default method of the session's driver.
+  const condition =
+    input.methodRowId != null
+      ? eq(driverPaymentMethods.id, input.methodRowId)
+      : input.driverId != null
+        ? and(
+            eq(driverPaymentMethods.driverId, input.driverId),
+            eq(driverPaymentMethods.isDefault, true),
+          )
+        : null;
+  if (condition == null) return null;
+  const [row] = await db
+    .select({
+      id: driverPaymentMethods.id,
+      customerId: driverPaymentMethods.stripeCustomerId,
+      methodId: driverPaymentMethods.stripePaymentMethodId,
+    })
+    .from(driverPaymentMethods)
+    .where(condition)
+    .limit(1);
+  return row ?? null;
+}
+
+async function sessionCurrency(sessionId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ currency: sql<string>`upper(${chargingSessions.currency})` })
+    .from(chargingSessions)
+    .where(eq(chargingSessions.id, sessionId));
+  return row?.currency ?? null;
+}
+
+/**
+ * Places the manual-capture hold of a driver session and records it. The
+ * three triggers (portal fail-fast start, OCPP projection gate, operator)
+ * share the idempotency key `preauth_<sessionId>` (P7), so a retry or the
+ * second trigger never places a second hold; an existing record is returned
+ * as `exists` without calling the provider. The hold is off session
+ * (merchant initiated), in the session's currency, on the site's payout
+ * account. When the record cannot be written after the provider placed the
+ * hold, the hold is cancelled (P4 compensation) and logged at error.
+ */
+export async function authorizeSessionHold(
+  input: SessionHoldInput,
+  ctx: PaymentContext,
+): Promise<HoldOutcome> {
+  const existing = await findSessionRecord(input.sessionId);
+  if (existing != null) {
+    return { outcome: 'exists', paymentRecordId: existing.id, status: existing.status };
+  }
+  const method = await sessionMethod(input);
+  if (method == null) return { outcome: 'no_method' };
+
+  let provider: PaymentProvider;
+  try {
+    provider = await pinnedProvider(ctx.registry, method);
+  } catch (err) {
+    if (err instanceof PaymentProviderNotConfiguredError) {
+      return { outcome: 'not_configured', providerId: err.providerId };
+    }
+    throw err;
+  }
+
+  const [terms, currency] = await Promise.all([
+    holdTerms(ctx, input.siteId),
+    sessionCurrency(input.sessionId),
+  ]);
+  if (currency == null) throw new Error(`Session ${input.sessionId} not found`);
+  const amountCents = input.amountCents ?? terms.preAuthAmountCents;
+  const failed = (reason: string): Promise<number | null> =>
+    recordFailedHold({
+      sessionId: input.sessionId,
+      driverId: input.driverId,
+      sitePaymentConfigId: terms.sitePaymentConfigId,
+      customerId: method.customerId,
+      methodId: method.methodId,
+      source: 'web_portal',
+      currency,
+      preAuthAmountCents: input.trigger === 'operator' ? amountCents : null,
+      reason,
+    });
+
+  let paymentId: string;
+  try {
+    const hold = await provider.authorizeHold({
+      method: { kind: 'saved', customerId: method.customerId, methodId: method.methodId },
+      initiator: 'merchant',
+      merchantReference: `sess_${input.sessionId}`,
+      amountCents,
+      currency,
+      payoutAccountId: terms.payoutAccountId,
+      idempotencyKey: `preauth_${input.sessionId}`,
+    });
+    if (hold.status !== 'authorized') {
+      // Off session there is nobody to complete a 3DS step.
+      throw new PaymentDeclinedError('Payment requires authentication', {
+        code: 'authentication_required',
+      });
+    }
+    paymentId = hold.paymentId;
+  } catch (err) {
+    const reason = errorMessage(err, 'Unknown pre-auth error');
+    ctx.logger.warn(
+      { err, sessionId: input.sessionId, trigger: input.trigger },
+      'Session pre-authorization declined',
+    );
+    let recordId: number | null = null;
+    try {
+      recordId = await failed(reason);
+    } catch (dbErr) {
+      ctx.logger.error(
+        { err: dbErr, sessionId: input.sessionId },
+        'Failed to record the declined pre-authorization',
+      );
+    }
+    return { outcome: 'declined', reason, paymentRecordId: recordId };
+  }
+
+  try {
+    const recordId = await recordHold({
+      sessionId: input.sessionId,
+      driverId: input.driverId,
+      sitePaymentConfigId: terms.sitePaymentConfigId,
+      paymentId,
+      customerId: method.customerId,
+      methodId: method.methodId,
+      source: 'web_portal',
+      currency,
+      preAuthAmountCents: amountCents,
+    });
+    if (recordId != null) return { outcome: 'authorized', paymentRecordId: recordId, paymentId };
+    // A concurrent trigger recorded first. With the shared key it is this hold.
+    const winner = await findSessionRecord(input.sessionId);
+    if (winner == null) throw new Error('Payment record vanished after a conflict');
+    return { outcome: 'exists', paymentRecordId: winner.id, status: winner.status };
+  } catch (err) {
+    ctx.logger.error(
+      { err, sessionId: input.sessionId, paymentId },
+      'Failed to record successful pre-auth; reversing the hold',
+    );
+    try {
+      await provider.cancelHold({
+        paymentId,
+        merchantReference: `sess_${input.sessionId}`,
+        idempotencyKey: `cancel_${paymentId}`,
+      });
+    } catch (cancelErr) {
+      ctx.logger.error(
+        { err: cancelErr, sessionId: input.sessionId, paymentId },
+        'Failed to cancel the hold after the record write failed; manual reconciliation required',
+      );
+    }
+    return { outcome: 'record_failed', reason: errorMessage(err, 'Unknown database error') };
+  }
+}
+
+interface SessionCharge {
+  finalCostCents: number | null;
+  tariffTaxRate: string | null;
+  costBreakdown: unknown;
+  siteId: string | null;
+}
+
+async function sessionCharge(sessionId: string): Promise<SessionCharge | null> {
+  const [row] = await db
+    .select({
+      finalCostCents: chargingSessions.finalCostCents,
+      tariffTaxRate: chargingSessions.tariffTaxRate,
+      costBreakdown: chargingSessions.costBreakdown,
+      siteId: chargingStations.siteId,
+    })
+    .from(chargingSessions)
+    .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
+    .where(eq(chargingSessions.id, sessionId));
+  return row ?? null;
+}
+
+export type ManualCaptureOutcome =
+  | { status: 'captured' | 'cancelled'; record: PaymentRecord }
+  | { status: 'no_hold' }
+  | { status: 'missing_payment_id' }
+  | { status: 'not_configured'; providerId: string };
+
+/**
+ * Operator capture of a session hold: `amountCents` (default the session's
+ * final cost), or a cancel at 0. Same idempotency keys as the capture on
+ * session end (`capture_<recordId>`, `cancel_<recordId>`).
+ */
+export async function captureSessionHold(
+  input: { sessionId: string; amountCents?: number },
+  ctx: PaymentContext,
+): Promise<ManualCaptureOutcome> {
+  const record = await findSessionHold(input.sessionId);
+  if (record == null) return { status: 'no_hold' };
+  const paymentId = record.stripePaymentIntentId;
+  if (paymentId == null) return { status: 'missing_payment_id' };
+  const session = await sessionCharge(input.sessionId);
+  const amountCents = input.amountCents ?? session?.finalCostCents ?? 0;
+
+  let provider: PaymentProvider;
+  try {
+    provider = await pinnedProvider(ctx.registry, {
+      customerId: record.stripeCustomerId,
+      paymentId,
+    });
+  } catch (err) {
+    if (err instanceof PaymentProviderNotConfiguredError) {
+      return { status: 'not_configured', providerId: err.providerId };
+    }
+    throw err;
+  }
+
+  if (amountCents === 0) {
+    await provider.cancelHold({
+      paymentId,
+      merchantReference: `sess_${input.sessionId}`,
+      idempotencyKey: `cancel_${String(record.id)}`,
+    });
+    if (!(await markCancelled(record.id))) {
+      ctx.logger.warn({ paymentRecordId: record.id }, 'Hold cancelled but the record had moved on');
+    }
+    return { status: 'cancelled', record: (await findRecord(record.id)) ?? record };
+  }
+
+  await provider.capture({
+    paymentId,
+    amountCents,
+    currency: record.currency,
+    merchantReference: `sess_${input.sessionId}`,
+    payoutAccountId: null,
+    feeTax: sessionChargeTax({
+      finalCostCents: session?.finalCostCents ?? null,
+      tariffTaxRate: session?.tariffTaxRate ?? null,
+      costBreakdown: session?.costBreakdown ?? null,
+    }),
+    platformFeePercent: await getPlatformFeePercent(session?.siteId ?? null),
+    idempotencyKey: `capture_${String(record.id)}`,
+  });
+  if (!(await markCaptured(record.id, { capturedCents: amountCents, failureReason: null }))) {
+    ctx.logger.warn({ paymentRecordId: record.id }, 'Hold captured but the record had moved on');
+  }
+  return { status: 'captured', record: (await findRecord(record.id)) ?? record };
+}
+
+/** Cancels an open hold (cost 0, or a session given up on) and records it. */
+export async function cancelSessionHold(
+  record: PaymentRecord,
+  reason: string,
+  ctx: PaymentContext,
+): Promise<void> {
+  const paymentId = record.stripePaymentIntentId;
+  if (paymentId == null) return;
+  const provider = await pinnedProvider(ctx.registry, {
+    customerId: record.stripeCustomerId,
+    paymentId,
+  });
+  await provider.cancelHold({
+    paymentId,
+    merchantReference:
+      record.sessionId != null ? `sess_${record.sessionId}` : `rec_${String(record.id)}`,
+    idempotencyKey: `cancel_${String(record.id)}`,
+  });
+  if (!(await markCancelled(record.id))) {
+    ctx.logger.warn(
+      { paymentRecordId: record.id, reason },
+      'Hold cancelled but the record had moved on',
+    );
+  }
+}
+
+export type ShortfallRetryOutcome =
+  | { status: 'recovered'; record: PaymentRecord; shortfallCents: number; topUpId: string }
+  | { status: 'failed'; reason: string }
+  | { status: 'not_found' }
+  | { status: 'not_recoverable'; reason: string }
+  | { status: 'not_configured'; providerId: string };
+
+interface ShortfallTarget {
+  record: PaymentRecord;
+  sessionId: string;
+  finalCostCents: number;
+  charge: SessionCharge;
+}
+
+async function chargeShortfall(
+  target: ShortfallTarget,
+  description: string,
+  ctx: PaymentContext,
+): Promise<{ topUpId: string; shortfallCents: number }> {
+  const { record, finalCostCents, charge } = target;
+  const captured = record.capturedAmountCents ?? 0;
+  const paymentId = record.stripePaymentIntentId as string;
+  const provider = await pinnedProvider(ctx.registry, {
+    customerId: record.stripeCustomerId,
+    paymentId,
+  });
+  // Same card and payout account, with the platform fee of the increment on
+  // its net amount, so capture and top-ups add up to the fee of the final cost.
+  const topUp = await provider.chargeShortfall({
+    originalPaymentId: paymentId,
+    ...(record.stripeCustomerId != null && record.stripePaymentMethodId != null
+      ? {
+          method: { customerId: record.stripeCustomerId, methodId: record.stripePaymentMethodId },
+        }
+      : {}),
+    capturedCents: captured,
+    finalCostCents,
+    currency: record.currency,
+    feeTax: sessionChargeTax({
+      finalCostCents,
+      tariffTaxRate: charge.tariffTaxRate,
+      costBreakdown: charge.costBreakdown,
+    }),
+    platformFeePercent: await getPlatformFeePercent(charge.siteId),
+    description,
+    idempotencyKey: `topup_retry_${String(record.id)}_${String(captured)}`,
+  });
+  return { topUpId: topUp.paymentId, shortfallCents: finalCostCents - captured };
+}
+
+/**
+ * Operator retry of a recorded shortfall (`captured` below the final cost).
+ * Key `topup_retry_<recordId>_<captured>`, shared with the daily retry, so the
+ * same shortfall is charged once. A decline returns `failed` and leaves the
+ * record for the next try.
+ */
+export async function retryShortfallForRecord(
+  input: { recordId: number; actorUserId: string },
+  ctx: PaymentContext,
+): Promise<ShortfallRetryOutcome> {
+  const record = await findRecord(input.recordId);
+  if (record == null) return { status: 'not_found' };
+  if (record.stripePaymentIntentId == null) {
+    return { status: 'not_recoverable', reason: 'Payment has no provider payment' };
+  }
+  if (record.sessionId == null) {
+    return { status: 'not_recoverable', reason: 'Payment is not linked to a session' };
+  }
+  const charge = await sessionCharge(record.sessionId);
+  const finalCostCents = charge?.finalCostCents ?? 0;
+  const captured = record.capturedAmountCents ?? 0;
+  if (charge == null || finalCostCents - captured <= 0) {
+    return { status: 'not_recoverable', reason: 'No shortfall to recover' };
+  }
+  let result: { topUpId: string; shortfallCents: number };
+  try {
+    result = await chargeShortfall(
+      { record, sessionId: record.sessionId, finalCostCents, charge },
+      `Retry top-up for session ${record.sessionId}`,
+      ctx,
+    );
+  } catch (err) {
+    if (err instanceof PaymentProviderNotConfiguredError) {
+      return { status: 'not_configured', providerId: err.providerId };
+    }
+    return { status: 'failed', reason: errorMessage(err, 'Top-up failed', 400) };
+  }
+  const updated = await markShortfallRecovered(record.id, {
+    capturedCents: finalCostCents,
+    actorUserId: input.actorUserId,
+    actionReason: `Operator retry top-up; recovered ${String(result.shortfallCents)}c via ${result.topUpId}`,
+  });
+  return {
+    status: 'recovered',
+    record: updated ?? record,
+    shortfallCents: result.shortfallCents,
+    topUpId: result.topUpId,
+  };
+}
+
+interface ShortfallRow extends Record<string, unknown> {
+  pr_id: number;
+  session_id: string;
+}
+
+/**
+ * Daily retry of declined top-ups (records `captured` below the final cost
+ * with a `Top-up declined:` reason, last 30 days, oldest first, 100 per run).
+ * A record still declined gets the new reason and is tried again next run.
+ */
+export async function retryShortfalls(
+  ctx: PaymentContext,
+): Promise<{ total: number; recovered: number; stillFailed: number }> {
+  const rows = await db.execute<ShortfallRow>(sql`
+    SELECT pr.id AS pr_id, cs.id AS session_id
+    FROM payment_records pr
+    JOIN charging_sessions cs ON cs.id = pr.session_id
+    WHERE pr.status = 'captured'
+      AND pr.failure_reason IS NOT NULL
+      AND pr.failure_reason LIKE 'Top-up declined:%'
+      AND pr.captured_amount_cents IS NOT NULL
+      AND cs.final_cost_cents IS NOT NULL
+      AND cs.final_cost_cents > pr.captured_amount_cents
+      AND pr.created_at > now() - interval '30 days'
+    ORDER BY pr.created_at ASC
+    LIMIT 100
+  `);
+  let recovered = 0;
+  let stillFailed = 0;
+  for (const row of rows) {
+    const record = await findRecord(row.pr_id);
+    const charge = await sessionCharge(row.session_id);
+    if (record?.stripePaymentIntentId == null || charge == null) continue;
+    const finalCostCents = charge.finalCostCents ?? 0;
+    const shortfall = finalCostCents - (record.capturedAmountCents ?? 0);
+    if (shortfall <= 0) continue;
+    try {
+      const result = await chargeShortfall(
+        { record, sessionId: row.session_id, finalCostCents, charge },
+        `Capture retry for session ${row.session_id}`,
+        ctx,
+      );
+      await markShortfallRecovered(record.id, {
+        capturedCents: finalCostCents,
+        actorUserId: null,
+        actionReason: `Cron retry top-up; recovered ${String(shortfall)}c via ${result.topUpId}`,
+      });
+      recovered++;
+      ctx.logger.info(
+        { paymentRecordId: record.id, shortfall, topUpIntentId: result.topUpId },
+        'Recovered capture shortfall via cron retry',
+      );
+    } catch (err) {
+      if (err instanceof PaymentProviderNotConfiguredError) {
+        ctx.logger.warn(
+          { paymentRecordId: record.id, providerId: err.providerId },
+          'Payment provider not configured; cannot retry the shortfall',
+        );
+        continue;
+      }
+      stillFailed++;
+      const message = errorMessage(err, 'Unknown error', 350);
+      ctx.logger.warn(
+        { paymentRecordId: record.id, shortfall, err },
+        'Capture retry failed; will try again next run',
+      );
+      try {
+        await markShortfallRetryFailed(
+          record.id,
+          `Top-up declined: ${message}; shortfall ${String(shortfall)}c (last retry ${new Date().toISOString()})`,
+        );
+      } catch (updateErr) {
+        // The record keeps its previous reason and is retried next run (P9).
+        ctx.logger.warn(
+          { err: updateErr, paymentRecordId: record.id },
+          'Failed to record the capture retry failure reason',
+        );
+      }
+    }
+  }
+  return { total: rows.length, recovered, stillFailed };
+}
+
+export type SettlementOutcome =
+  /** The prepaid balance of the session's token was debited. */
+  | { mode: 'prepaid'; tokenId: string; debitedCents: number; balanceCents: number }
+  | {
+      mode: 'card';
+      status: 'captured';
+      paymentRecordId: number;
+      driverId: string;
+      /** The hold capture plus a successful top-up. */
+      capturedCents: number;
+      /** Final cost above what was collected (a declined top-up); 0 otherwise. */
+      shortfallCents: number;
+      /** False when the provider charged but the record could not be updated. */
+      recorded: boolean;
+    }
+  | { mode: 'card'; status: 'cancelled'; paymentRecordId: number; recorded: boolean }
+  | { mode: 'card'; status: 'failed'; paymentRecordId: number; driverId: string; reason: string }
+  /** A guest hold (no driver): the worker finalizes it. */
+  | { mode: 'guest' }
+  /** Nothing to settle (no open hold, a free or roaming session). */
+  | { mode: 'none' };
+
+interface SettlementSession extends SessionCharge {
+  id: string;
+  driverId: string | null;
+  isRoaming: boolean;
+  freeVend: boolean;
+  prepaid: boolean;
+}
+
+async function settlementSession(sessionId: string): Promise<SettlementSession | null> {
+  const [row] = await db
+    .select({
+      id: chargingSessions.id,
+      driverId: chargingSessions.driverId,
+      isRoaming: chargingSessions.isRoaming,
+      freeVend: chargingSessions.freeVend,
+      prepaid: sql<boolean>`${driverTokens.prepaidBalanceCents} IS NOT NULL`,
+      finalCostCents: chargingSessions.finalCostCents,
+      tariffTaxRate: chargingSessions.tariffTaxRate,
+      costBreakdown: chargingSessions.costBreakdown,
+      siteId: chargingStations.siteId,
+    })
+    .from(chargingSessions)
+    .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
+    .leftJoin(driverTokens, eq(driverTokens.id, chargingSessions.tokenId))
+    .where(eq(chargingSessions.id, sessionId));
+  return row ?? null;
+}
+
+/**
+ * Settles an ended session (TransactionEvent Ended, 1.6 StopTransaction). A
+ * prepaid token's balance is debited (once: its record is the idempotency
+ * marker). A driver's open hold is captured by the provider it is pinned to,
+ * at most the hold (`capture_<recordId>`); a final cost above the hold is
+ * charged as a top-up on the same card and payout account (`topup_<recordId>`),
+ * and a declined top-up leaves the record `captured` with a `Top-up declined:`
+ * reason for the daily retry. A cost of 0 cancels the hold
+ * (`cancel_<recordId>`). A failed capture or cancel marks the record `failed`
+ * (only from `pre_authorized`, P5). When the provider charged but the record
+ * cannot be updated, the outcome says `recorded: false` and the error is
+ * logged; no failure is reported to the driver. A guest hold is left to the
+ * worker. Notifications stay with the caller.
+ */
+export async function settleSessionPayment(
+  sessionId: string,
+  ctx: PaymentContext,
+): Promise<SettlementOutcome> {
+  const session = await settlementSession(sessionId);
+  if (session == null) return { mode: 'none' };
+  const mode = classifySessionPayment({ ...session, guestSession: false });
+
+  if (mode === 'prepaid') {
+    try {
+      const settled = await settlePrepaidSession(sessionId, ctx.logger);
+      if (settled != null) return { mode: 'prepaid', ...settled };
+    } catch (err) {
+      ctx.logger.error({ err, sessionId }, 'Prepaid balance debit failed');
+    }
+  }
+
+  // An open hold is settled whatever the mode: an operator can place one on
+  // any session, and it must not stay held.
+  const record = await findSessionHold(sessionId);
+  if (record == null) return { mode: 'none' };
+  if (record.driverId == null) return { mode: 'guest' };
+  const paymentId = record.stripePaymentIntentId;
+  if (paymentId == null) return { mode: 'none' };
+  const driverId = record.driverId;
+  const merchantReference = `sess_${sessionId}`;
+
+  const finalCostCents = session.finalCostCents;
+  let capturedCents = 0;
+  let shortfallCents = 0;
+  let topUpPaymentId: string | null = null;
+  let topUpFailureReason: string | null = null;
+  try {
+    const provider = await pinnedProvider(ctx.registry, {
+      customerId: record.stripeCustomerId,
+      paymentId,
+    });
+    if (finalCostCents == null || finalCostCents <= 0) {
+      await provider.cancelHold({
+        paymentId,
+        merchantReference,
+        idempotencyKey: `cancel_${String(record.id)}`,
+      });
+    } else {
+      const holdCents = record.preAuthAmountCents ?? finalCostCents;
+      const captureCents = Math.min(finalCostCents, holdCents);
+      // The platform fee is a percent of the net amount charged, set on the
+      // capture and on the top-up so the two add up to the fee of the final cost.
+      const feeTax = sessionChargeTax({
+        finalCostCents,
+        tariffTaxRate: session.tariffTaxRate,
+        costBreakdown: session.costBreakdown,
+      });
+      const platformFeePercent = await getPlatformFeePercent(session.siteId);
+      await provider.capture({
+        paymentId,
+        amountCents: captureCents,
+        currency: record.currency,
+        merchantReference,
+        payoutAccountId: null,
+        feeTax,
+        platformFeePercent,
+        idempotencyKey: `capture_${String(record.id)}`,
+      });
+      capturedCents = captureCents;
+      if (finalCostCents > captureCents) {
+        const deltaCents = finalCostCents - captureCents;
+        try {
+          const topUp = await provider.chargeShortfall({
+            originalPaymentId: paymentId,
+            ...(record.stripeCustomerId != null && record.stripePaymentMethodId != null
+              ? {
+                  method: {
+                    customerId: record.stripeCustomerId,
+                    methodId: record.stripePaymentMethodId,
+                  },
+                }
+              : {}),
+            capturedCents: captureCents,
+            finalCostCents,
+            currency: record.currency,
+            feeTax,
+            platformFeePercent,
+            description: `Top-up for session ${sessionId}`,
+            idempotencyKey: `topup_${String(record.id)}`,
+          });
+          topUpPaymentId = topUp.paymentId;
+          capturedCents = finalCostCents;
+        } catch (topUpErr) {
+          shortfallCents = deltaCents;
+          topUpFailureReason =
+            topUpErr instanceof Error
+              ? `Top-up declined: ${topUpErr.message.slice(0, 350)}; shortfall ${String(deltaCents)}c`
+              : `Top-up failed; shortfall ${String(deltaCents)}c`;
+          ctx.logger.warn(
+            { err: topUpErr, paymentRecordId: record.id, deltaCents },
+            'Top-up failed; the hold was captured but the rest is uncollected',
+          );
+        }
+      }
+    }
+  } catch (err) {
+    ctx.logger.error({ err, sessionId, paymentRecordId: record.id }, 'Auto capture/cancel failed');
+    const reason = errorMessage(err, 'Unknown capture error');
+    try {
+      await markHoldFailed(record.id, reason);
+    } catch (dbErr) {
+      ctx.logger.error(
+        { err: dbErr, paymentRecordId: record.id },
+        'Failed to record capture failure',
+      );
+    }
+    return { mode: 'card', status: 'failed', paymentRecordId: record.id, driverId, reason };
+  }
+
+  const cancelled = finalCostCents == null || finalCostCents <= 0;
+  let recorded: boolean;
+  try {
+    recorded = cancelled
+      ? await markCancelled(record.id)
+      : await markCaptured(record.id, {
+          capturedCents,
+          failureReason: topUpFailureReason,
+          topUpPaymentId,
+        });
+    if (!recorded) {
+      ctx.logger.warn(
+        { paymentRecordId: record.id, paymentId },
+        'Payment settled at the provider but the record had moved on',
+      );
+    }
+  } catch (dbErr) {
+    recorded = false;
+    ctx.logger.error(
+      { err: dbErr, paymentRecordId: record.id, paymentId, capturedCents },
+      'Payment settled at the provider but the record update failed; manual reconciliation required',
+    );
+  }
+  if (cancelled) {
+    return { mode: 'card', status: 'cancelled', paymentRecordId: record.id, recorded };
+  }
+  return {
+    mode: 'card',
+    status: 'captured',
+    paymentRecordId: record.id,
+    driverId,
+    capturedCents,
+    shortfallCents,
+    recorded,
+  };
+}

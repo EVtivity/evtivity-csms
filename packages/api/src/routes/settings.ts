@@ -20,8 +20,9 @@ import {
   getCompanyTaxBasis,
   clearSystemSettingsCache,
   clearStationMessageSettingsCache,
-  clearStripeWebhookSecretCache,
+  invalidateReservationSettingsCache,
 } from '@evtivity/database';
+import { clearPaymentCaches, isPaymentSettingKey } from '../lib/payments.js';
 import {
   encryptString,
   clearNotificationSettingsCache,
@@ -130,11 +131,12 @@ function invalidSettingError(key: string): { error: string; code: string } {
   return invalidCurrencyError;
 }
 
-// Keys read through the cached getters in @evtivity/database station-message-settings.
+// Keys read through cached getters in @evtivity/database clear their cache on change.
 function clearCachesForKey(key: string): void {
   if (isCachedSystemSetting(key)) clearSystemSettingsCache();
   if (key.startsWith('stationMessage.')) clearStationMessageSettingsCache();
-  if (key === 'stripe.webhookSecretEnc') clearStripeWebhookSecretCache();
+  if (key.startsWith('reservation.')) invalidateReservationSettingsCache();
+  if (isPaymentSettingKey(key)) clearPaymentCaches();
 }
 
 const settingItem = z

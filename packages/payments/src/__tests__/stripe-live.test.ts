@@ -62,7 +62,11 @@ describe.skipIf(!isTestKey)('StripePaymentProvider against Stripe test mode', ()
       countryCode: 'US',
     });
     expect(web).toMatchObject({ provider: 'stripe', customerId });
-    expect((web as { clientSecret: string }).clientSecret).toMatch(/^seti_/);
+    const webSecret = (web as { clientSecret: string }).clientSecret;
+    expect(webSecret).toMatch(/^seti_/);
+    // allowed_payment_method_types (endive) keeps the SetupIntent card-only.
+    const setupIntent = await client.setupIntents.retrieve(webSecret.split('_secret_')[0] ?? '');
+    expect(setupIntent.payment_method_types).toEqual(['card']);
     const native = await provider.startMethodSetup({
       customerId,
       channel: 'native',
@@ -288,6 +292,15 @@ describe.skipIf(!isTestKey)('StripePaymentProvider against Stripe test mode', ()
     ]);
     const forged = client.webhooks.generateTestHeaderString({ payload, secret: 'whsec_wrong' });
     expect(() => provider.verifyWebhook(payload, { 'stripe-signature': forged })).toThrow(
+      WebhookSignatureError,
+    );
+    // A signature older than the default 300 s tolerance is refused.
+    const stale = client.webhooks.generateTestHeaderString({
+      payload,
+      secret: WEBHOOK_SECRET,
+      timestamp: Math.floor(Date.now() / 1000) - 600,
+    });
+    expect(() => provider.verifyWebhook(payload, { 'stripe-signature': stale })).toThrow(
       WebhookSignatureError,
     );
   });

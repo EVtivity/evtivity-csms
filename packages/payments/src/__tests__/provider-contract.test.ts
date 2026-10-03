@@ -14,8 +14,24 @@ import { SimulatedPaymentProvider } from '../providers/simulated/index.js';
 import { WebhookNotConfiguredError, WebhookSignatureError } from '../errors.js';
 import type { PaymentProvider } from '../types.js';
 import { fakeClient } from './helpers/fake-stripe.js';
+import { fakeAdyenProvider } from './helpers/fake-adyen.js';
 
 const KEY = 'test-encryption-key-32chars-long!';
+const BROWSER = {
+  origin: 'https://portal.example.com',
+  returnUrl: 'https://portal.example.com/return',
+};
+/** Adyen Card component state.data with the documented test card, plus the setup currency. */
+const ADYEN_CARD = {
+  paymentMethod: {
+    type: 'scheme',
+    encryptedCardNumber: 'test_4111111111111111',
+    encryptedExpiryMonth: 'test_03',
+    encryptedExpiryYear: 'test_2030',
+    encryptedSecurityCode: 'test_737',
+  },
+  currency: 'USD',
+};
 
 interface Harness {
   name: string;
@@ -50,6 +66,16 @@ const harnesses: Harness[] = [
       }),
     methodPayload: { testCard: '4242424242424242' },
   },
+  {
+    name: 'adyen (fake Adyen server)',
+    make: () => fakeAdyenProvider().provider,
+    methodPayload: ADYEN_CARD,
+  },
+  {
+    name: 'adyen with authorization adjustment (fake Adyen server)',
+    make: () => fakeAdyenProvider({ authorisationAdjustment: true }).provider,
+    methodPayload: ADYEN_CARD,
+  },
 ];
 
 describe.each(harnesses)('provider contract: $name', ({ make, methodPayload }) => {
@@ -79,6 +105,7 @@ describe.each(harnesses)('provider contract: $name', ({ make, methodPayload }) =
     const setup = await provider.submitMethodSetup({
       customerId,
       payload: methodPayload,
+      browser: BROWSER,
       idempotencyKey: 'method_d1',
     });
     expect(setup.status).toBe('saved');
@@ -115,6 +142,7 @@ describe.each(harnesses)('provider contract: $name', ({ make, methodPayload }) =
     const topUp = await provider.chargeShortfall({
       idempotencyKey: 'topup_1',
       originalPaymentId: hold.paymentId,
+      method: { customerId, methodId: setup.method.methodId },
       capturedCents: 5000,
       finalCostCents: 5600,
       currency: 'USD',

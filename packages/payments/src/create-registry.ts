@@ -6,6 +6,7 @@ import type { PaymentRegistryOptions } from './registry.js';
 import { simulatedProviderFactory } from './providers/simulated/index.js';
 import type { SimulatedProviderOptions } from './providers/simulated/index.js';
 import { stripeProviderFactory } from './providers/stripe/index.js';
+import { adyenProviderFactory } from './providers/adyen/index.js';
 
 export interface CreatePaymentRegistryOptions extends PaymentRegistryOptions {
   /**
@@ -22,6 +23,7 @@ export function createPaymentRegistry(
 ): PaymentProviderRegistry {
   const registry = new PaymentProviderRegistry(options);
   registry.register(stripeProviderFactory);
+  registry.register(adyenProviderFactory);
   if (options.allowSimulated) {
     registry.register(
       simulatedProviderFactory({ ...options.simulated, encryptionKey: options.encryptionKey }),

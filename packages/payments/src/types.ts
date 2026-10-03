@@ -63,7 +63,13 @@ export interface BrowserContext {
 }
 
 export type PaymentMethodInput =
-  | { kind: 'saved'; customerId: string; methodId: string }
+  | {
+      kind: 'saved';
+      customerId: string;
+      methodId: string;
+      /** Shopper-present use of a saved method (Adyen needs it for 3DS; Stripe ignores it). */
+      browser?: BrowserContext;
+    }
   | { kind: 'one_time'; payload: unknown; browser?: BrowserContext };
 
 export interface AuthorizeHoldInput extends Idempotent {
@@ -114,6 +120,11 @@ export interface CaptureResult {
 
 export interface ShortfallInput extends Idempotent {
   originalPaymentId: string;
+  /**
+   * The saved method of the original payment. Stripe reads it from the
+   * original intent; Adyen cannot read a payment back, so it needs it here.
+   */
+  method?: { customerId: string; methodId: string };
   capturedCents: number;
   finalCostCents: number;
   currency: string;
@@ -200,6 +211,8 @@ interface PaymentEventBase {
   /** Provider reference of the modification the event confirms (async providers). */
   operationRef?: string;
   occurredAt: Date;
+  /** The provider's own event type (Stripe `charge.refunded`), recorded with the event id. */
+  providerType?: string;
 }
 
 export type NormalizedPaymentEvent =

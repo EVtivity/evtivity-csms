@@ -5,10 +5,21 @@
     "rootDir": "src"
   },
   "references": [
-    { "path": "../lib" },
-    { "path": "../database" },
-    { "path": "../api" },
-    { "path": "../octt" }
+    {
+      "path": "../lib"
+    },
+    {
+      "path": "../database"
+    },
+    {
+      "path": "../api"
+    },
+    {
+      "path": "../octt"
+    },
+    {
+      "path": "../payments"
+    }
   ],
   "include": ["src"]
 }

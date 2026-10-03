@@ -20,7 +20,6 @@ import {
   users,
   chargingSessions,
   chargingStations,
-  paymentRecords,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { dispatchDriverNotification, formatCurrencyAmount, notificationMoney } from '@evtivity/lib';
@@ -169,7 +168,8 @@ import {
   deleteObject,
   buildS3Key,
 } from '../services/s3.service.js';
-import { getStripeConfig, createRefund } from '../services/stripe.service.js';
+import { refundPaymentRecord } from '@evtivity/payments';
+import { paymentContext } from '../lib/payments.js';
 import { authorize } from '../middleware/rbac.js';
 
 const caseIdParams = z.object({ id: ID_PARAMS.supportCaseId.describe('Support case ID') });
@@ -1624,79 +1624,54 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const [record] = await db
-        .select()
-        .from(paymentRecords)
-        .where(eq(paymentRecords.sessionId, body.sessionId));
-
-      if (
-        record == null ||
-        (record.status !== 'captured' && record.status !== 'partially_refunded')
-      ) {
-        await reply.status(400).send({
-          error: 'No captured payment to refund',
-          code: 'NO_CAPTURED_PAYMENT',
-        });
-        return;
+      // The same refund path as the operator route: the record is locked,
+      // and the request key <recordId>_<refundedSoFar>_<amount> makes a
+      // retried request reuse the provider refund instead of refunding twice
+      // (P7), while a later partial refund gets a new key.
+      const outcome = await refundPaymentRecord(
+        {
+          sessionId: body.sessionId,
+          ...(body.amountCents != null ? { amountCents: body.amountCents } : {}),
+        },
+        paymentContext(request.log),
+      );
+      switch (outcome.status) {
+        case 'no_captured_payment':
+          await reply.status(400).send({
+            error: 'No captured payment to refund',
+            code: 'NO_CAPTURED_PAYMENT',
+          });
+          return;
+        case 'missing_payment_id':
+          await reply.status(400).send({
+            error: 'Payment intent missing',
+            code: 'MISSING_PAYMENT_INTENT',
+          });
+          return;
+        case 'not_configured':
+          await reply.status(400).send({
+            error: 'No payment provider configured',
+            code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+          });
+          return;
+        case 'nothing_refundable':
+          await reply.status(400).send({
+            error: 'No remaining refundable amount on this payment',
+            code: 'REFUND_EXCEEDS_REMAINING',
+          });
+          return;
+        case 'exceeds_remaining':
+          await reply.status(400).send({
+            error: `Refund amount exceeds remaining ${formatCurrencyAmount(outcome.remainingCents, outcome.currency)}`,
+            code: 'REFUND_EXCEEDS_REMAINING',
+          });
+          return;
+        case 'refunded':
+          break;
       }
-
-      if (record.stripePaymentIntentId == null) {
-        await reply.status(400).send({
-          error: 'Payment intent missing',
-          code: 'MISSING_PAYMENT_INTENT',
-        });
-        return;
-      }
-
-      const config = await getStripeConfig(sessionStation?.siteId ?? null);
-      if (config == null) {
-        await reply.status(400).send({
-          error: 'No Stripe configuration available',
-          code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
-        });
-        return;
-      }
-
-      const remaining = (record.capturedAmountCents ?? 0) - record.refundedAmountCents;
-      const refundAmount = body.amountCents ?? remaining;
-
-      // Reject if nothing remains to refund — without this guard Stripe
-      // gets called with amount=undefined (= full refund), fails on a
-      // zero-balance intent, and we return 500 instead of a meaningful 400.
-      if (remaining <= 0 || refundAmount <= 0) {
-        await reply.status(400).send({
-          error: 'No remaining refundable amount on this payment',
-          code: 'REFUND_EXCEEDS_REMAINING',
-        });
-        return;
-      }
-
-      if (refundAmount > remaining) {
-        await reply.status(400).send({
-          error: `Refund amount exceeds remaining ${formatCurrencyAmount(remaining, record.currency)}`,
-          code: 'REFUND_EXCEEDS_REMAINING',
-        });
-        return;
-      }
-
-      // Same request key as the operator refund route (P7): a retried request
-      // for the same refund state and amount reuses the Stripe refund instead
-      // of refunding twice, while a later partial refund gets a new key.
-      const refundRequestId = `${String(record.id)}_${String(record.refundedAmountCents)}_${String(refundAmount)}`;
-      await createRefund(config, record.stripePaymentIntentId, refundAmount, refundRequestId);
-
-      const refundedTotal = record.refundedAmountCents + refundAmount;
-      const isFullRefund = refundedTotal >= (record.capturedAmountCents ?? 0);
-
-      const [updatedPayment] = await db
-        .update(paymentRecords)
-        .set({
-          status: isFullRefund ? 'refunded' : 'partially_refunded',
-          refundedAmountCents: refundedTotal,
-          updatedAt: new Date(),
-        })
-        .where(eq(paymentRecords.id, record.id))
-        .returning();
+      const updatedPayment = outcome.record;
+      const record = outcome.record;
+      const refundAmount = outcome.refundedNowCents;
 
       // Create system message documenting the refund. Best-effort: don't
       // 500 the request after the refund already cleared Stripe and the

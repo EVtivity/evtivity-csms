@@ -18,6 +18,7 @@ import {
 } from '../errors.js';
 import type { AuthorizeHoldInput } from '../types.js';
 import { fakeClient, realStripe } from './helpers/fake-stripe.js';
+import { emptyAdyenSettings } from './helpers/settings.js';
 
 function provider(client = fakeClient(), webhookSecret: string | null = 'whsec_test') {
   return {
@@ -409,6 +410,56 @@ describe('StripePaymentProvider', () => {
     );
   });
 
+  it('reverses the transfer of a destination charge without a fee and refunds a partial amount', async () => {
+    const { client, stripe } = provider();
+    client.paymentIntents.retrieve.mockResolvedValueOnce({
+      transfer_data: { destination: 'acct_1' },
+      application_fee_amount: null,
+    });
+    await stripe.refund({
+      idempotencyKey: 'k2',
+      paymentId: 'pi_1',
+      amountCents: 300,
+      currency: 'EUR',
+      merchantReference: 'sess_1',
+    });
+    expect(client.refunds.create).toHaveBeenCalledWith(
+      { payment_intent: 'pi_1', amount: 300, reverse_transfer: true },
+      { idempotencyKey: 'k2' },
+    );
+  });
+
+  it('charges a saved card on the platform account without a destination or fee', async () => {
+    const { client, stripe } = provider();
+    client.paymentIntents.create.mockResolvedValueOnce({ id: 'pi_fee', status: 'succeeded' });
+    const result = await stripe.chargeSavedMethod({
+      idempotencyKey: 'no-show-fee-r2',
+      customerId: 'cus_1',
+      methodId: 'pm_1',
+      grossCents: 1190,
+      currency: 'EUR',
+      feeTaxRate: 0.19,
+      platformFeePercent: 10,
+      payoutAccountId: null,
+      description: 'Reservation no-show fee',
+      metadata: { reservationId: 'r2', type: 'reservation_no_show_fee' },
+    });
+    expect(client.paymentIntents.create).toHaveBeenCalledWith(
+      {
+        amount: 1190,
+        currency: 'eur',
+        customer: 'cus_1',
+        payment_method: 'pm_1',
+        confirm: true,
+        off_session: true,
+        description: 'Reservation no-show fee',
+        metadata: { reservationId: 'r2', type: 'reservation_no_show_fee' },
+      },
+      { idempotencyKey: 'no-show-fee-r2' },
+    );
+    expect(result).toEqual({ paymentId: 'pi_fee', amountCents: 1190, applicationFeeCents: 0 });
+  });
+
   describe('methods', () => {
     it('creates a customer with the idempotency key', async () => {
       const { client, stripe } = provider();
@@ -442,7 +493,7 @@ describe('StripePaymentProvider', () => {
       });
       expect(client.setupIntents.create).toHaveBeenCalledWith({
         customer: 'cus_1',
-        payment_method_types: ['card'],
+        allowed_payment_method_types: ['card'],
       });
       expect(session).toEqual({
         provider: 'stripe',
@@ -574,6 +625,7 @@ describe('StripePaymentProvider', () => {
           paymentId: 'pi_1',
           reason: 'Declined',
           occurredAt: new Date(1_700_000_000_000),
+          providerType: 'payment_intent.payment_failed',
         },
       ]);
 
@@ -592,6 +644,7 @@ describe('StripePaymentProvider', () => {
         amountCents: null,
         cumulativeRefundedCents: 300,
         capturedCents: 900,
+        providerType: 'charge.refunded',
       });
 
       const disputed = signed({
@@ -604,6 +657,7 @@ describe('StripePaymentProvider', () => {
         type: 'payment.disputed',
         disputeId: 'dp_1',
         reason: 'fraudulent',
+        providerType: 'charge.dispute.created',
       });
 
       const noIntent = signed({
@@ -658,7 +712,7 @@ describe('StripePaymentProvider', () => {
 });
 
 describe('stripeProviderFactory', () => {
-  const base = { provider: 'stripe', preAuthAmountCents: 5000 };
+  const base = { provider: 'stripe', preAuthAmountCents: 5000, adyen: emptyAdyenSettings() };
 
   it('is not configured without a secret or publishable key', async () => {
     expect(

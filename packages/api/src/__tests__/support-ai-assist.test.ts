@@ -145,9 +145,12 @@ vi.mock('../services/s3.service.js', () => ({
   buildS3Key: vi.fn(),
 }));
 
-vi.mock('../services/stripe.service.js', () => ({
-  getStripeConfig: vi.fn(),
-  createRefund: vi.fn(),
+vi.mock('@evtivity/payments', () => ({
+  refundPaymentRecord: vi.fn(),
+}));
+
+vi.mock('../lib/payments.js', () => ({
+  paymentContext: vi.fn(() => ({})),
 }));
 
 vi.mock('../lib/site-access.js', () => ({

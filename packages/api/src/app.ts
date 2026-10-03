@@ -19,6 +19,7 @@ import {
 import { accessLogs, drivers } from '@evtivity/database';
 import { eq } from 'drizzle-orm';
 import { getPubSub } from './lib/pubsub.js';
+import { redactAccessLogBody } from './lib/access-log-redaction.js';
 import { registerCors } from './plugins/cors.js';
 import { registerHelmet } from './plugins/helmet.js';
 import { registerRateLimit } from './plugins/rate-limit.js';
@@ -495,36 +496,9 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       const hasBody = request.method !== 'GET' && request.method !== 'DELETE';
       let metadata: Record<string, unknown> | undefined;
       if (hasBody && request.body != null && typeof request.body === 'object') {
-        const SENSITIVE_KEYS = new Set([
-          'password',
-          'currentPassword',
-          'newPassword',
-          'confirmPassword',
-          'token',
-          'secret',
-          'secretKey',
-          'recaptchaToken',
-          'code',
-          'certificate',
-        ]);
-        const raw = request.body as Record<string, unknown>;
-        const sanitized: Record<string, unknown> = {};
-        // PATCH/PUT /v1/settings/<key> carries the secret in `value`. Per
-        // Principle 12 the runtime encrypts <key>Enc at rest, but the
-        // access log captured the plaintext request body. Operators with
-        // access-log read could read each others' newly-set SMTP passwords,
-        // Stripe keys, etc. for the retention window. Redact `value` on
-        // any settings PATCH/PUT so the access log keeps the audit trail
-        // (who/when/what-key) without the secret material.
-        const redactValue = pathOnly.startsWith('/v1/settings/');
-        for (const [k, v] of Object.entries(raw)) {
-          if (SENSITIVE_KEYS.has(k) || (redactValue && k === 'value')) {
-            sanitized[k] = '[REDACTED]';
-          } else {
-            sanitized[k] = v;
-          }
-        }
-        metadata = sanitized;
+        // Operators with access-log read must never see another operator's
+        // newly-set credentials, so secret fields are redacted by name.
+        metadata = redactAccessLogBody(pathOnly, request.body as Record<string, unknown>);
       }
 
       // Fire-and-forget so the onResponse hook doesn't keep the request

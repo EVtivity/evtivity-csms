@@ -332,7 +332,7 @@
   {
     "path": "/docs/integrations/payment-providers",
     "title": "Payment Providers",
-    "description": "Stripe integration for billing, pre-authorization, guest payments, and reconciliation."
+    "description": "Stripe, Adyen (preview), and the test provider. How the active provider is chosen, Stripe setup and webhooks, pre-authorization, refunds, and testing."
   },
   {
     "path": "/docs/integrations/webhooks",

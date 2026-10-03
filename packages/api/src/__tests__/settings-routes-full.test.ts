@@ -57,7 +57,6 @@ vi.mock('@evtivity/database', () => ({
   getCompanyPriceDisplay: vi.fn(() => Promise.resolve('net')),
   clearSystemSettingsCache: vi.fn(),
   clearStationMessageSettingsCache: vi.fn(),
-  clearStripeWebhookSecretCache: vi.fn(),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -163,8 +162,14 @@ vi.mock('../middleware/rbac.js', () => ({
     },
 }));
 
+vi.mock('../lib/payments.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/payments.js')>()),
+  clearPaymentCaches: vi.fn(),
+}));
+
 import { registerAuth } from '../plugins/auth.js';
 import { settingsRoutes } from '../routes/settings.js';
+import { clearPaymentCaches } from '../lib/payments.js';
 
 const VALID_USER_ID = 'usr_000000000001';
 const VALID_ROLE_ID = 'rol_000000000001';
@@ -445,6 +450,31 @@ describe('Settings routes - full coverage', () => {
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body.key).toBe('new.key');
+      expect(clearPaymentCaches).not.toHaveBeenCalled();
+    });
+
+    it('clears the payment caches after writing a payment setting', async () => {
+      setupDbResults([], [{ key: 'payments.provider', value: 'adyen' }]);
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/settings/payments.provider',
+        headers: { authorization: `Bearer ${operatorToken}` },
+        payload: { value: 'adyen' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(clearPaymentCaches).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not clear the payment caches when the write fails', async () => {
+      setupDbResults([]);
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/settings/stripe.publishableKey',
+        headers: { authorization: `Bearer ${operatorToken}` },
+        payload: { value: 'pk_test_1' },
+      });
+      expect(res.statusCode).toBe(500);
+      expect(clearPaymentCaches).not.toHaveBeenCalled();
     });
 
     it('throws when insert returns no rows', async () => {
@@ -481,6 +511,17 @@ describe('Settings routes - full coverage', () => {
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body.key).toBe('old.key');
+    });
+
+    it('clears the payment caches after deleting a payment setting', async () => {
+      setupDbResults([{ key: 'simulated.resultMode', value: 'approve' }]);
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/settings/simulated.resultMode',
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(clearPaymentCaches).toHaveBeenCalledTimes(1);
     });
 
     it('returns 404 when deleting a nonexistent setting', async () => {

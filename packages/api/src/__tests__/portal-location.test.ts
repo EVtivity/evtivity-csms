@@ -123,8 +123,13 @@ vi.mock('../lib/rate-limiters.js', () => ({
   isStationCheckRateLimited: vi.fn(() => false),
 }));
 
-vi.mock('../services/stripe.service.js', () => ({
-  getStripeConfig: vi.fn(() => Promise.resolve(null)),
+vi.mock('@evtivity/payments', () => ({
+  authorizeSessionHold: vi.fn(),
+}));
+
+vi.mock('../lib/payments.js', () => ({
+  activePaymentProvider: vi.fn().mockResolvedValue(null),
+  paymentContext: vi.fn(() => ({})),
 }));
 
 vi.mock('@evtivity/lib', async (importOriginal) => {

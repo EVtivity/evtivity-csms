@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { encryptString } from '@evtivity/lib';
 
 const mockSelect = vi.fn();
 vi.mock('../config.js', () => ({
@@ -24,62 +23,82 @@ vi.mock('../schema/payments.js', () => ({
   sitePaymentConfigs: {},
 }));
 
-const KEY = 'test-encryption-key-32chars-long!';
-
-function makeChain(result: unknown[]) {
+function makeChain(result: unknown[] | Error) {
   const chain: Record<string, unknown> = {};
   chain['from'] = vi.fn(() => chain);
-  chain['where'] = vi.fn(() => Promise.resolve(result));
+  chain['where'] = vi.fn(() =>
+    result instanceof Error ? Promise.reject(result) : Promise.resolve(result),
+  );
   return chain;
 }
 
-describe('getStripeWebhookSecret', () => {
+/** First select is the platform setting, the second the site config. */
+function respond(platform: unknown[] | Error, site: unknown[] | Error = []): void {
+  mockSelect.mockReturnValueOnce(makeChain(platform)).mockReturnValueOnce(makeChain(site));
+}
+
+describe('getPlatformFeePercent', () => {
   beforeEach(() => {
     vi.resetModules();
-    vi.clearAllMocks();
+    mockSelect.mockReset();
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it('decrypts the stored signing secret', async () => {
-    mockSelect.mockReturnValue(makeChain([{ value: encryptString('whsec_live_1', KEY) }]));
-    const { getStripeWebhookSecret } = await import('../lib/payment-settings.js');
-    expect(await getStripeWebhookSecret(KEY)).toBe('whsec_live_1');
+  it('prefers the enabled site override over the platform setting', async () => {
+    respond([{ value: 5 }], [{ percent: '20' }]);
+    const { getPlatformFeePercent } = await import('../lib/payment-settings.js');
+    expect(await getPlatformFeePercent('site-1')).toBe(20);
   });
 
-  it('returns null when the setting is empty or missing', async () => {
-    mockSelect.mockReturnValueOnce(makeChain([{ value: '' }]));
+  it('falls back to the platform setting, then 0, and clamps to 100', async () => {
     const mod = await import('../lib/payment-settings.js');
-    expect(await mod.getStripeWebhookSecret(KEY)).toBeNull();
-    mod.clearStripeWebhookSecretCache();
-    mockSelect.mockReturnValueOnce(makeChain([]));
-    expect(await mod.getStripeWebhookSecret(KEY)).toBeNull();
+    respond([{ value: 7.5 }]);
+    expect(await mod.getPlatformFeePercent('site-a')).toBe(7.5);
+    respond([]);
+    expect(await mod.getPlatformFeePercent('site-b')).toBe(0);
+    respond([{ value: 150 }]);
+    expect(await mod.getPlatformFeePercent('site-c')).toBe(100);
+    respond([{ value: 'not a number' }]);
+    expect(await mod.getPlatformFeePercent('site-d')).toBe(0);
   });
 
-  it('throws when the stored value cannot be decrypted with the key', async () => {
-    mockSelect.mockReturnValue(makeChain([{ value: encryptString('whsec_x', KEY) }]));
-    const { getStripeWebhookSecret } = await import('../lib/payment-settings.js');
-    await expect(getStripeWebhookSecret('another-key-of-32-characters-long!')).rejects.toThrow();
-  });
-
-  it('caches for 60 seconds and reloads after the TTL or a clear', async () => {
-    vi.useFakeTimers();
-    mockSelect.mockReturnValue(makeChain([{ value: encryptString('whsec_a', KEY) }]));
-    const mod = await import('../lib/payment-settings.js');
-    await mod.getStripeWebhookSecret(KEY);
-    await mod.getStripeWebhookSecret(KEY);
+  it('reads no site config without a site', async () => {
+    mockSelect.mockReturnValueOnce(makeChain([{ value: 3 }]));
+    const { getPlatformFeePercent } = await import('../lib/payment-settings.js');
+    expect(await getPlatformFeePercent(null)).toBe(3);
     expect(mockSelect).toHaveBeenCalledTimes(1);
+  });
 
-    vi.advanceTimersByTime(60_001);
-    mockSelect.mockReturnValue(makeChain([{ value: encryptString('whsec_b', KEY) }]));
-    expect(await mod.getStripeWebhookSecret(KEY)).toBe('whsec_b');
+  it('caches per site for 60 seconds and clears on demand', async () => {
+    vi.useFakeTimers();
+    const mod = await import('../lib/payment-settings.js');
+    respond([{ value: 4 }]);
+    expect(await mod.getPlatformFeePercent('site-x')).toBe(4);
+    expect(await mod.getPlatformFeePercent('site-x')).toBe(4);
     expect(mockSelect).toHaveBeenCalledTimes(2);
 
-    mod.clearStripeWebhookSecretCache();
-    mockSelect.mockReturnValue(makeChain([{ value: encryptString('whsec_c', KEY) }]));
-    expect(await mod.getStripeWebhookSecret(KEY)).toBe('whsec_c');
-    expect(mockSelect).toHaveBeenCalledTimes(3);
+    vi.advanceTimersByTime(60_001);
+    respond([{ value: 6 }]);
+    expect(await mod.getPlatformFeePercent('site-x')).toBe(6);
+
+    mod.clearPlatformFeeCache();
+    respond([{ value: 8 }]);
+    expect(await mod.getPlatformFeePercent('site-x')).toBe(8);
+  });
+
+  it('serves the last value on a read failure and throws without one', async () => {
+    vi.useFakeTimers();
+    const mod = await import('../lib/payment-settings.js');
+    respond(new Error('db down'));
+    await expect(mod.getPlatformFeePercent('site-y')).rejects.toThrow('db down');
+
+    respond([{ value: 9 }]);
+    expect(await mod.getPlatformFeePercent('site-y')).toBe(9);
+    vi.advanceTimersByTime(60_001);
+    respond(new Error('db down'));
+    expect(await mod.getPlatformFeePercent('site-y')).toBe(9);
   });
 });

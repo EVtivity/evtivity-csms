@@ -5,7 +5,6 @@ import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, or, asc, sql } from 'drizzle-orm';
-import type Stripe from 'stripe';
 import {
   db,
   client,
@@ -44,7 +43,8 @@ import {
   getCachedConnectorStatus,
   setCachedConnectorStatus,
 } from '../../lib/rate-limiters.js';
-import { getStripeConfig } from '../../services/stripe.service.js';
+import { authorizeGuestHold, holdTerms, rollbackGuestStart } from '@evtivity/payments';
+import { activePaymentProvider, paymentContext } from '../../lib/payments.js';
 import { isEvseInReservationBuffer } from '../../lib/reservation-buffer.js';
 import { getActiveMaintenanceForStation } from '../../services/maintenance.service.js';
 import { validateQrCodeUrl } from '../../services/web-payment.service.js';
@@ -477,18 +477,24 @@ export function portalGuestRoutes(app: FastifyInstance): void {
               }
             : undefined;
 
-      const config = await getStripeConfig(station.siteId ?? null);
-      if (config == null) {
+      const provider = await activePaymentProvider(request.log);
+      if (provider == null) {
         return { paymentEnabled: false, isFree, isSimulator: station.isSimulator, pricing };
       }
+      const terms = await holdTerms(paymentContext(request.log), station.siteId ?? null);
+      const clientConfig = provider.clientConfig();
 
       return {
         paymentEnabled: true,
         isFree,
         isSimulator: station.isSimulator,
-        publishableKey: config.publishableKey,
-        currency: config.currency,
-        preAuthAmountCents: config.preAuthAmountCents,
+        // Stripe.js needs the publishable key; other providers get their
+        // descriptor with the provider settings (plan P5).
+        ...(clientConfig.provider === 'stripe' && typeof clientConfig.publishableKey === 'string'
+          ? { publishableKey: clientConfig.publishableKey }
+          : {}),
+        currency,
+        preAuthAmountCents: terms.preAuthAmountCents,
         pricing,
       };
     },
@@ -699,7 +705,6 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       // Hoisted so the rollback block at the end can cancel the pre-auth if
       // the station never acks RequestStartTransaction.
       let paymentIntentId: string | null = null;
-      let stripeForRollback: Stripe | null = null;
 
       if (chargingIsFree) {
         // Free charging: skip payment, insert guest session directly
@@ -731,93 +736,35 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           return;
         }
 
-        // Get Stripe config
-        const config = await getStripeConfig(station.siteId ?? null);
-        if (config == null) {
+        // The hold (shopper present, one-time card) and the guest session
+        // row; the service cancels the hold when the row cannot be stored.
+        const hold = await authorizeGuestHold(
+          {
+            sessionToken,
+            stationOcppId: station.stationId,
+            evseId: params.evseId,
+            siteId: station.siteId ?? null,
+            methodPayload: body.paymentMethodId,
+            guestEmail: body.guestEmail,
+            maxCostCents: body.maxCostCents ?? null,
+            maxEnergyWh: body.maxEnergyWh ?? null,
+            maxTimeSeconds: body.maxTimeSeconds ?? null,
+            expiresAt,
+          },
+          paymentContext(request.log),
+        );
+        if (hold.outcome === 'not_configured') {
           await reply.status(400).send({
             error: 'Payment not configured for this station',
             code: 'PAYMENT_NOT_CONFIGURED',
           });
           return;
         }
-
-        // Create PaymentIntent with manual capture (guest pays with provided payment method)
-        let paymentIntent;
-        try {
-          const piParams: Stripe.PaymentIntentCreateParams = {
-            amount: config.preAuthAmountCents,
-            currency: config.currency.toLowerCase(),
-            payment_method: body.paymentMethodId,
-            capture_method: 'manual',
-            confirm: true,
-            automatic_payment_methods: {
-              enabled: true,
-              allow_redirects: 'never',
-            },
-            receipt_email: body.guestEmail,
-          };
-
-          // A destination charge. The platform fee is set at capture, on the
-          // net amount actually charged (finalizeGuestPayment).
-          if (config.connectedAccountId != null) {
-            piParams.on_behalf_of = config.connectedAccountId;
-            piParams.transfer_data = { destination: config.connectedAccountId };
-          }
-
-          paymentIntent = await config.stripe.paymentIntents.create(piParams, {
-            idempotencyKey: `guest_preauth_${sessionToken}`,
-          });
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : 'Payment failed';
-          await reply.status(400).send({ error: message, code: 'PAYMENT_FAILED' });
+        if (hold.outcome === 'declined') {
+          await reply.status(400).send({ error: hold.reason, code: 'PAYMENT_FAILED' });
           return;
         }
-
-        paymentIntentId = paymentIntent.id;
-        stripeForRollback = config.stripe;
-
-        // Insert guest session with payment. If the DB write fails (FK
-        // violation, deadlock, network blip) we must cancel the Stripe
-        // pre-auth before bailing - otherwise the card is held against a
-        // session that doesn't exist anywhere in our system until the
-        // natural 7-day Stripe expiry releases it.
-        try {
-          await db.insert(guestSessions).values({
-            stationOcppId: station.stationId,
-            evseId: params.evseId,
-            stripePaymentIntentId: paymentIntent.id,
-            guestEmail: body.guestEmail,
-            preAuthAmountCents: config.preAuthAmountCents,
-            status: 'payment_authorized',
-            sessionToken,
-            expiresAt,
-            // The authorized amount is the cost ceiling (C25 step 9): a
-            // capture cannot exceed it.
-            maxCostCents: Math.min(
-              body.maxCostCents ?? config.preAuthAmountCents,
-              config.preAuthAmountCents,
-            ),
-            maxEnergyWh: body.maxEnergyWh ?? null,
-            maxTimeSeconds: body.maxTimeSeconds ?? null,
-          });
-        } catch (err: unknown) {
-          request.log.error(
-            { err, paymentIntentId, sessionToken },
-            'guest_sessions insert failed after PaymentIntent created; cancelling Stripe hold',
-          );
-          try {
-            await config.stripe.paymentIntents.cancel(paymentIntent.id);
-          } catch (cancelErr: unknown) {
-            request.log.warn(
-              { err: cancelErr, paymentIntentId },
-              'Failed to cancel guest PaymentIntent after DB insert failure',
-            );
-          }
-          // Re-throw so the global error handler maps it to 500 INTERNAL_ERROR
-          // - we explicitly cancelled the Stripe hold above so the cardholder
-          // is not stranded with an orphaned pre-auth.
-          throw err;
-        }
+        paymentIntentId = hold.paymentId;
       }
 
       // Send RequestStartTransaction and wait for the station to ack so we can
@@ -837,20 +784,12 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       const stationRejected = cmdResult.error == null && cmdStatus !== 'Accepted';
 
       if (cmdResult.error != null || stationRejected) {
-        // Roll back the guest_sessions row and cancel the Stripe pre-auth so
-        // the guest's card isn't held against a session that never started.
-        await db.delete(guestSessions).where(eq(guestSessions.sessionToken, sessionToken));
-
-        if (paymentIntentId != null && stripeForRollback != null) {
-          try {
-            await stripeForRollback.paymentIntents.cancel(paymentIntentId);
-          } catch (err: unknown) {
-            request.log.warn(
-              { err, paymentIntentId },
-              'Failed to cancel guest PaymentIntent after start failure',
-            );
-          }
-        }
+        // Roll back the guest_sessions row and cancel the pre-auth so the
+        // guest's card isn't held against a session that never started.
+        await rollbackGuestStart(
+          { sessionToken, paymentId: paymentIntentId },
+          paymentContext(request.log),
+        );
 
         if (cmdResult.error != null) {
           await reply

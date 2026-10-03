@@ -45,8 +45,12 @@ vi.mock('drizzle-orm', () => ({
   ),
 }));
 
-vi.mock('../lib/reservation-fees.js', () => ({
+vi.mock('@evtivity/payments', () => ({
   chargeReservationFee: chargeCancellationFeeMock,
+}));
+
+vi.mock('../lib/payments.js', () => ({
+  paymentContext: vi.fn((logger: unknown) => ({ registry: 'registry', logger })),
 }));
 
 import { applyReservationCancellation } from '../lib/reservation-cancel.js';
@@ -184,14 +188,18 @@ describe('applyReservationCancellation', () => {
     );
 
     // The fee setting (500) is net; the charge adds the station tariff's tax.
-    expect(chargeCancellationFeeMock).toHaveBeenCalledWith({
-      type: 'reservation_cancellation',
-      reservationId: 'rsv_1',
-      driverId: 'drv_1',
-      stationId: 'sta_1',
-      siteId: 'sit_1',
-      netCents: 500,
-    });
+    // The charge runs with the API's payment context (registry and logger).
+    expect(chargeCancellationFeeMock).toHaveBeenCalledWith(
+      {
+        type: 'reservation_cancellation',
+        reservationId: 'rsv_1',
+        driverId: 'drv_1',
+        stationId: 'sta_1',
+        siteId: 'sit_1',
+        netCents: 500,
+      },
+      { registry: 'registry', logger: expect.anything() },
+    );
     expect(result).toEqual({
       feeChargedCents: 595,
       cancelled: true,
@@ -226,7 +234,7 @@ describe('applyReservationCancellation', () => {
     expect(updateChain.set).not.toHaveBeenCalled();
   });
 
-  it('surfaces feeChargeFailed=true and logs when the Stripe charge throws', async () => {
+  it('surfaces feeChargeFailed=true and logs when the fee charge throws', async () => {
     executeMock.mockResolvedValueOnce([{ id: 'rsv_1', status_before: 'active' }]);
     chargeCancellationFeeMock.mockRejectedValueOnce(new Error('card declined'));
     const errorLog = vi.fn();
@@ -260,13 +268,20 @@ describe('applyReservationCancellation', () => {
       reason: 'Your card was declined.',
     });
     const warnLog = vi.fn();
+    const logger = { warn: warnLog };
 
     const result = await applyReservationCancellation(
       baseInput({
         startsAt: new Date(Date.now() + 5 * 60_000),
-        logger: { warn: warnLog } as never,
+        logger: logger as never,
       }),
     );
+
+    // The caller's logger becomes the payment context logger.
+    expect(chargeCancellationFeeMock).toHaveBeenCalledWith(expect.anything(), {
+      registry: 'registry',
+      logger,
+    });
 
     expect(result).toEqual({
       feeChargedCents: 0,

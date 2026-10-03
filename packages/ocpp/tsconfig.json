@@ -5,5 +5,15 @@
     "rootDir": "src"
   },
   "include": ["src"],
-  "references": [{ "path": "../lib" }, { "path": "../database" }]
+  "references": [
+    {
+      "path": "../lib"
+    },
+    {
+      "path": "../database"
+    },
+    {
+      "path": "../payments"
+    }
+  ]
 }

@@ -155,13 +155,7 @@ export type {
   SessionPricingInput,
 } from './cost-calculator.js';
 
-export {
-  isSimulatedCustomer,
-  isSimulatedIntent,
-  createSimulatedIntentId,
-  shouldSimulatePaymentFailure,
-  isTariffFree,
-} from './payment-helpers.js';
+export { isTariffFree } from './payment-helpers.js';
 
 export {
   platformFeeCents,
@@ -170,13 +164,6 @@ export {
   sessionChargeTax,
 } from './platform-fee.js';
 export type { ChargeTax } from './platform-fee.js';
-export { captureHoldWithFee, chargeShortfallTopUp } from './stripe-charges.js';
-export type {
-  StripeChargeClient,
-  SessionChargeFee,
-  TopUpIntentParams,
-  CaptureParams,
-} from './stripe-charges.js';
 
 export {
   LocalizedValue,

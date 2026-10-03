@@ -72,7 +72,7 @@ vi.mock('@evtivity/database', () => ({
   getCompanyTaxBasis: vi.fn(() => Promise.resolve('gross')),
   clearSystemSettingsCache: vi.fn(),
   clearStationMessageSettingsCache: vi.fn(),
-  clearStripeWebhookSecretCache: vi.fn(),
+  invalidateReservationSettingsCache: vi.fn(),
   writeAudit: vi.fn().mockResolvedValue(undefined),
   siteAuditLog: {},
   stationAuditLog: {},
@@ -124,13 +124,19 @@ vi.mock('../middleware/rbac.js', () => ({
     },
 }));
 
+vi.mock('../lib/payments.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/payments.js')>()),
+  clearPaymentCaches: vi.fn(),
+}));
+
 import { registerAuth } from '../plugins/auth.js';
 import { settingsRoutes } from '../routes/settings.js';
+import { clearPaymentCaches } from '../lib/payments.js';
 import {
   db,
   clearSystemSettingsCache,
   clearStationMessageSettingsCache,
-  clearStripeWebhookSecretCache,
+  invalidateReservationSettingsCache,
 } from '@evtivity/database';
 
 const VALID_USER_ID = 'usr_000000000001';
@@ -438,9 +444,23 @@ describe('Settings routes', () => {
     expect(clearSystemSettingsCache).not.toHaveBeenCalled();
   });
 
-  it('PUT /v1/settings/stripe.webhookSecretEnc encrypts the secret and clears its cache', async () => {
+  it('PUT /v1/settings/reservation.cancellationFeeCents clears the reservation settings cache', async () => {
+    vi.mocked(invalidateReservationSettingsCache).mockClear();
+    vi.mocked(clearStationMessageSettingsCache).mockClear();
+    setupDbResults([], [{ key: 'reservation.cancellationFeeCents', value: 500 }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/reservation.cancellationFeeCents',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 500 },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(invalidateReservationSettingsCache).toHaveBeenCalled();
+    expect(clearStationMessageSettingsCache).not.toHaveBeenCalled();
+  });
+
+  it('PUT /v1/settings/stripe.webhookSecretEnc encrypts the secret and clears the payment caches', async () => {
     vi.mocked(db.insert).mockClear();
-    vi.mocked(clearStripeWebhookSecretCache).mockClear();
     // The returned row passes through decryptForRead; '' passes through unchanged.
     setupDbResults([], [{ key: 'stripe.webhookSecretEnc', value: '' }]);
     const response = await app.inject({
@@ -455,7 +475,60 @@ describe('Settings routes', () => {
     };
     const stored = (insertChain.values.mock.calls[0]?.[0] as { value: unknown }).value;
     expect(stored).not.toBe('whsec_generic');
-    expect(clearStripeWebhookSecretCache).toHaveBeenCalled();
+    expect(clearPaymentCaches).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['payments.provider', 'simulated'],
+    ['stripe.publishableKey', 'pk_test_1'],
+    ['adyen.merchantAccount', 'EVtivityECOM'],
+    ['simulated.resultMode', 'approve'],
+  ])('PUT /v1/settings/%s clears the payment caches', async (key, value) => {
+    setupDbResults([], [{ key, value }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/settings/${key}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(clearPaymentCaches).toHaveBeenCalledTimes(1);
+    expect(clearSystemSettingsCache).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /v1/settings/payments.provider clears the payment caches', async () => {
+    setupDbResults([], [{ key: 'payments.provider', value: 'stripe' }]);
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/settings/payments.provider',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 'stripe' },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(clearPaymentCaches).toHaveBeenCalledTimes(1);
+  });
+
+  it('DELETE /v1/settings/adyen.merchantAccount clears the payment caches', async () => {
+    setupDbResults([{ key: 'adyen.merchantAccount', value: 'EVtivityECOM' }]);
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/settings/adyen.merchantAccount',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(clearPaymentCaches).toHaveBeenCalledTimes(1);
+  });
+
+  it('PUT /v1/settings/smtp.host does not clear the payment caches', async () => {
+    setupDbResults([], [{ key: 'smtp.host', value: 'mail.example.com' }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/smtp.host',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 'mail.example.com' },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(clearPaymentCaches).not.toHaveBeenCalled();
   });
 
   it('GET /v1/portal/branding includes the company price display', async () => {

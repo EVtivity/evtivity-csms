@@ -30,42 +30,6 @@ vi.mock('bullmq', () => ({
   }),
 }));
 
-// db mock supporting both update().set().where() and select().from().where().limit().
-const dbUpdateSet = vi.fn();
-const dbUpdateWhere = vi.fn(() => Promise.resolve());
-const mockSelectLimit = vi.fn(() => Promise.resolve([] as unknown[]));
-const mockDb = {
-  update: vi.fn(() => ({
-    set: (values: unknown) => {
-      dbUpdateSet(values);
-      return { where: dbUpdateWhere };
-    },
-  })),
-  select: vi.fn(() => ({
-    from: vi.fn(() => ({
-      where: vi.fn(() => ({
-        limit: () => mockSelectLimit(),
-      })),
-    })),
-  })),
-};
-vi.mock('@evtivity/database', () => ({
-  db: mockDb,
-  guestSessions: { chargingSessionId: 'chargingSessionId' },
-  paymentRecords: {
-    id: 'id',
-    stripePaymentIntentId: 'stripePaymentIntentId',
-    sitePaymentConfigId: 'sitePaymentConfigId',
-    status: 'status',
-    sessionId: 'sessionId',
-  },
-}));
-
-vi.mock('drizzle-orm', () => ({
-  eq: vi.fn((a: unknown, b: unknown) => ({ eq: [a, b] })),
-  and: vi.fn((...args: unknown[]) => ({ and: args })),
-}));
-
 const mockLogJobStarted = vi.fn().mockResolvedValue(33);
 const mockLogJobCompleted = vi.fn().mockResolvedValue(undefined);
 const mockLogJobFailed = vi.fn().mockResolvedValue(undefined);
@@ -76,16 +40,19 @@ vi.mock('../job-logger.js', () => ({
 }));
 
 const mockHandleGuestSessionEvent = vi.fn().mockResolvedValue(undefined);
-vi.mock('@evtivity/api/src/services/guest-session.service.js', () => ({
+const mockFailExhaustedGuestCapture = vi.fn().mockResolvedValue(undefined);
+vi.mock('@evtivity/payments', () => ({
   handleGuestSessionEvent: (...args: unknown[]) => mockHandleGuestSessionEvent(...args),
+  failExhaustedGuestCapture: (...args: unknown[]) => mockFailExhaustedGuestCapture(...args),
 }));
 
-// Lazy-imported stripe service (imported inside the failed listener cleanup).
-const mockGetStripeConfig = vi.fn();
-const mockCancelPaymentIntent = vi.fn().mockResolvedValue(undefined);
-vi.mock('@evtivity/api/src/services/stripe.service.js', () => ({
-  getStripeConfig: (...args: unknown[]) => mockGetStripeConfig(...args),
-  cancelPaymentIntent: (...args: unknown[]) => mockCancelPaymentIntent(...args),
+const guestDeps = { registry: 'registry', logger: mockLog, templatesDirs: ['tpl'] };
+const paymentCtx = { registry: 'registry', logger: mockLog };
+const mockGuestEventDeps = vi.fn(() => guestDeps);
+const mockPaymentContext = vi.fn(() => paymentCtx);
+vi.mock('../lib/payments.js', () => ({
+  guestEventDeps: (...args: unknown[]) => mockGuestEventDeps(...(args as [])),
+  paymentContext: (...args: unknown[]) => mockPaymentContext(...(args as [])),
 }));
 
 function makeJob(
@@ -97,8 +64,7 @@ function makeJob(
   return { name, data, opts, attemptsMade } as unknown as Job;
 }
 
-// Drains the fire-and-forget cleanup IIFE in the failed listener, including the
-// dynamic import of the stripe service (which settles on a macrotask boundary).
+// Drains the fire-and-forget cleanup promise in the failed listener.
 async function flushMicrotasks(): Promise<void> {
   for (let i = 0; i < 5; i++) {
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -109,29 +75,11 @@ beforeEach(() => {
   capturedProcessor = undefined;
   onHandlers.clear();
   workerCtorCalls.length = 0;
-  mockWorkerOn.mockClear();
-  mockLog.info.mockClear();
-  mockLog.error.mockClear();
-  mockLog.warn.mockClear();
-  dbUpdateSet.mockClear();
-  dbUpdateWhere.mockClear();
-  dbUpdateWhere.mockReturnValue(Promise.resolve());
-  mockDb.update.mockClear();
-  mockDb.select.mockClear();
-  mockSelectLimit.mockClear();
-  mockSelectLimit.mockResolvedValue([]);
-  mockLogJobStarted.mockClear();
   mockLogJobStarted.mockResolvedValue(33);
-  mockLogJobCompleted.mockClear();
   mockLogJobCompleted.mockResolvedValue(undefined);
-  mockLogJobFailed.mockClear();
   mockLogJobFailed.mockResolvedValue(undefined);
-  mockHandleGuestSessionEvent.mockClear();
   mockHandleGuestSessionEvent.mockResolvedValue(undefined);
-  mockGetStripeConfig.mockClear();
-  mockGetStripeConfig.mockResolvedValue({ secretKey: 'sk_test' });
-  mockCancelPaymentIntent.mockClear();
-  mockCancelPaymentIntent.mockResolvedValue(undefined);
+  mockFailExhaustedGuestCapture.mockResolvedValue(undefined);
 });
 
 describe('startGuestSessionBridge', () => {
@@ -321,7 +269,8 @@ describe('createGuestSessionWorker', () => {
     await capturedProcessor?.(makeJob('guest-session-started', { event }));
 
     expect(mockLogJobStarted).toHaveBeenCalledWith('guest-session-started', 'guest-session-events');
-    expect(mockHandleGuestSessionEvent).toHaveBeenCalledWith(event, mockLog);
+    expect(mockHandleGuestSessionEvent).toHaveBeenCalledWith(event, guestDeps);
+    expect(mockGuestEventDeps).toHaveBeenCalledWith(mockLog);
     expect(mockLogJobCompleted).toHaveBeenCalledTimes(1);
     expect(mockLogJobCompleted.mock.calls[0]?.[0]).toBe(33);
     expect(mockLogJobFailed).not.toHaveBeenCalled();
@@ -335,7 +284,7 @@ describe('createGuestSessionWorker', () => {
 
     expect(mockHandleGuestSessionEvent).toHaveBeenCalledWith(
       { type: 'TransactionEnded', sessionId: 'ses_42' },
-      mockLog,
+      guestDeps,
     );
     expect(mockLogJobCompleted).toHaveBeenCalledTimes(1);
   });
@@ -390,15 +339,7 @@ describe('createGuestSessionWorker', () => {
 });
 
 describe('guest-session-worker failed listener (exhausted-retry cleanup)', () => {
-  it('flips the guest session and payment record to failed and cancels the Stripe pre-auth', async () => {
-    mockSelectLimit.mockResolvedValueOnce([
-      {
-        id: 'pr_1',
-        stripePaymentIntentId: 'pi_123',
-        sitePaymentConfigId: 'spc_1',
-        status: 'pre_authorized',
-      },
-    ]);
+  it('fails the guest capture with the error message after the final retry', async () => {
     const { createGuestSessionWorker } = await import('../guest-session-worker.js');
     createGuestSessionWorker({});
 
@@ -411,188 +352,93 @@ describe('guest-session-worker failed listener (exhausted-retry cleanup)', () =>
     );
     await flushMicrotasks();
 
-    // guest_sessions flipped to failed.
-    const guestSet = dbUpdateSet.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(guestSet).toMatchObject({ status: 'failed' });
-
-    // payment_records flipped to failed with a clear reason.
-    const paymentSet = dbUpdateSet.mock.calls[1]?.[0] as Record<string, unknown>;
-    expect(paymentSet['status']).toBe('failed');
-    expect(paymentSet['failureReason']).toContain('Capture worker exhausted retries');
-    expect(paymentSet['failureReason']).toContain('capture failed');
-
-    // Stripe pre-auth cancelled via the lazy-imported service.
-    expect(mockGetStripeConfig).toHaveBeenCalledWith(null);
-    expect(mockCancelPaymentIntent).toHaveBeenCalledWith({ secretKey: 'sk_test' }, 'pi_123');
-
+    expect(mockFailExhaustedGuestCapture).toHaveBeenCalledWith(
+      'ses_1',
+      'capture failed',
+      paymentCtx,
+    );
+    expect(mockPaymentContext).toHaveBeenCalledWith(mockLog);
     expect(mockLog.error).toHaveBeenCalledWith(
       { jobName: 'guest-session-ended', attemptsMade: 3, error: expect.any(Error) },
       'Guest session job failed',
     );
   });
 
-  it('uses "Unknown error" as the failure reason when the rejection is not an Error', async () => {
-    mockSelectLimit.mockResolvedValueOnce([
-      {
-        id: 'pr_ne',
-        stripePaymentIntentId: null,
-        sitePaymentConfigId: 'spc_1',
-        status: 'pre_authorized',
-      },
-    ]);
+  it('cuts the failure reason to 500 characters', async () => {
     const { createGuestSessionWorker } = await import('../guest-session-worker.js');
     createGuestSessionWorker({});
 
-    const failedHandler = onHandlers.get('failed');
-    failedHandler?.(
+    onHandlers.get('failed')?.(
+      makeJob('guest-session-ended', { sessionId: 'ses_long' }, { attempts: 3 }, 3),
+      new Error('x'.repeat(600)),
+    );
+    await flushMicrotasks();
+
+    expect(mockFailExhaustedGuestCapture.mock.calls[0]?.[1]).toBe('x'.repeat(500));
+  });
+
+  it('uses "Unknown error" as the failure reason when the rejection is not an Error', async () => {
+    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    createGuestSessionWorker({});
+
+    onHandlers.get('failed')?.(
       makeJob('guest-session-ended', { sessionId: 'ses_ne' }, { attempts: 3 }, 3),
       'string-failure',
     );
     await flushMicrotasks();
 
-    const paymentSet = dbUpdateSet.mock.calls[1]?.[0] as Record<string, unknown>;
-    expect(paymentSet['failureReason']).toBe('Capture worker exhausted retries: Unknown error');
+    expect(mockFailExhaustedGuestCapture).toHaveBeenCalledWith(
+      'ses_ne',
+      'Unknown error',
+      paymentCtx,
+    );
   });
 
   it('does not run cleanup before the final retry is exhausted', async () => {
     const { createGuestSessionWorker } = await import('../guest-session-worker.js');
     createGuestSessionWorker({});
 
-    const failedHandler = onHandlers.get('failed');
-    failedHandler?.(
+    onHandlers.get('failed')?.(
       makeJob('guest-session-ended', { sessionId: 'ses_1' }, { attempts: 3 }, 1),
       new Error('transient'),
     );
     await flushMicrotasks();
 
-    expect(mockDb.update).not.toHaveBeenCalled();
-    expect(mockGetStripeConfig).not.toHaveBeenCalled();
+    expect(mockFailExhaustedGuestCapture).not.toHaveBeenCalled();
   });
 
   it('does not run cleanup for a started job', async () => {
     const { createGuestSessionWorker } = await import('../guest-session-worker.js');
     createGuestSessionWorker({});
 
-    const failedHandler = onHandlers.get('failed');
-    failedHandler?.(
+    onHandlers.get('failed')?.(
       makeJob('guest-session-started', { event: {} }, { attempts: 3 }, 3),
       new Error('boom'),
     );
     await flushMicrotasks();
 
-    expect(mockDb.update).not.toHaveBeenCalled();
+    expect(mockFailExhaustedGuestCapture).not.toHaveBeenCalled();
   });
 
   it('skips cleanup when the ended job carries no sessionId', async () => {
     const { createGuestSessionWorker } = await import('../guest-session-worker.js');
     createGuestSessionWorker({});
 
-    const failedHandler = onHandlers.get('failed');
-    failedHandler?.(makeJob('guest-session-ended', {}, { attempts: 3 }, 3), new Error('boom'));
-    await flushMicrotasks();
-
-    expect(mockDb.update).not.toHaveBeenCalled();
-  });
-
-  it('stops after flipping the guest session when no pre_authorized payment record exists', async () => {
-    mockSelectLimit.mockResolvedValueOnce([]);
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
-    createGuestSessionWorker({});
-
-    const failedHandler = onHandlers.get('failed');
-    failedHandler?.(
-      makeJob('guest-session-ended', { sessionId: 'ses_np' }, { attempts: 3 }, 3),
+    onHandlers.get('failed')?.(
+      makeJob('guest-session-ended', {}, { attempts: 3 }, 3),
       new Error('boom'),
     );
     await flushMicrotasks();
 
-    // Only the guest_sessions update ran; payment record + stripe path skipped.
-    expect(dbUpdateSet).toHaveBeenCalledTimes(1);
-    expect(dbUpdateSet.mock.calls[0]?.[0]).toMatchObject({ status: 'failed' });
-    expect(mockGetStripeConfig).not.toHaveBeenCalled();
+    expect(mockFailExhaustedGuestCapture).not.toHaveBeenCalled();
   });
 
-  it('skips the Stripe cancel when the payment record has no payment intent', async () => {
-    mockSelectLimit.mockResolvedValueOnce([
-      {
-        id: 'pr_2',
-        stripePaymentIntentId: null,
-        sitePaymentConfigId: 'spc_1',
-        status: 'pre_authorized',
-      },
-    ]);
+  it('logs a cleanup error when the exhausted-capture cleanup rejects', async () => {
+    mockFailExhaustedGuestCapture.mockRejectedValueOnce(new Error('db down'));
     const { createGuestSessionWorker } = await import('../guest-session-worker.js');
     createGuestSessionWorker({});
 
-    const failedHandler = onHandlers.get('failed');
-    failedHandler?.(
-      makeJob('guest-session-ended', { sessionId: 'ses_ni' }, { attempts: 3 }, 3),
-      new Error('boom'),
-    );
-    await flushMicrotasks();
-
-    expect(dbUpdateSet).toHaveBeenCalledTimes(2);
-    expect(mockGetStripeConfig).not.toHaveBeenCalled();
-    expect(mockCancelPaymentIntent).not.toHaveBeenCalled();
-  });
-
-  it('does not cancel when the Stripe config is unavailable', async () => {
-    mockSelectLimit.mockResolvedValueOnce([
-      {
-        id: 'pr_3',
-        stripePaymentIntentId: 'pi_999',
-        sitePaymentConfigId: 'spc_1',
-        status: 'pre_authorized',
-      },
-    ]);
-    mockGetStripeConfig.mockResolvedValueOnce(null);
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
-    createGuestSessionWorker({});
-
-    const failedHandler = onHandlers.get('failed');
-    failedHandler?.(
-      makeJob('guest-session-ended', { sessionId: 'ses_nc' }, { attempts: 3 }, 3),
-      new Error('boom'),
-    );
-    await flushMicrotasks();
-
-    expect(mockGetStripeConfig).toHaveBeenCalledWith(null);
-    expect(mockCancelPaymentIntent).not.toHaveBeenCalled();
-  });
-
-  it('warns but does not throw when the Stripe cancel fails (hold expires naturally)', async () => {
-    mockSelectLimit.mockResolvedValueOnce([
-      {
-        id: 'pr_4',
-        stripePaymentIntentId: 'pi_err',
-        sitePaymentConfigId: 'spc_1',
-        status: 'pre_authorized',
-      },
-    ]);
-    mockCancelPaymentIntent.mockRejectedValueOnce(new Error('stripe 500'));
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
-    createGuestSessionWorker({});
-
-    const failedHandler = onHandlers.get('failed');
-    failedHandler?.(
-      makeJob('guest-session-ended', { sessionId: 'ses_se' }, { attempts: 3 }, 3),
-      new Error('boom'),
-    );
-    await flushMicrotasks();
-
-    expect(mockLog.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: 'ses_se', paymentRecordId: 'pr_4' }),
-      expect.stringContaining('Failed to cancel Stripe pre-auth'),
-    );
-  });
-
-  it('logs a cleanup error when the guest session update rejects', async () => {
-    dbUpdateWhere.mockReturnValueOnce(Promise.reject(new Error('db down')));
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
-    createGuestSessionWorker({});
-
-    const failedHandler = onHandlers.get('failed');
-    failedHandler?.(
+    onHandlers.get('failed')?.(
       makeJob('guest-session-ended', { sessionId: 'ses_db' }, { attempts: 3 }, 3),
       new Error('boom'),
     );
@@ -605,29 +451,26 @@ describe('guest-session-worker failed listener (exhausted-retry cleanup)', () =>
   });
 
   it('defaults maxAttempts to 1 when opts.attempts is absent', async () => {
-    mockSelectLimit.mockResolvedValueOnce([]);
     const { createGuestSessionWorker } = await import('../guest-session-worker.js');
     createGuestSessionWorker({});
 
-    const failedHandler = onHandlers.get('failed');
     // attemptsMade 1 >= default maxAttempts 1 -> cleanup runs.
-    failedHandler?.(
+    onHandlers.get('failed')?.(
       makeJob('guest-session-ended', { sessionId: 'ses_def' }, {}, 1),
       new Error('boom'),
     );
     await flushMicrotasks();
 
-    expect(dbUpdateSet.mock.calls[0]?.[0]).toMatchObject({ status: 'failed' });
+    expect(mockFailExhaustedGuestCapture).toHaveBeenCalledWith('ses_def', 'boom', paymentCtx);
   });
 
   it('ignores a null job', async () => {
     const { createGuestSessionWorker } = await import('../guest-session-worker.js');
     createGuestSessionWorker({});
 
-    const failedHandler = onHandlers.get('failed');
-    failedHandler?.(null, new Error('boom'));
+    onHandlers.get('failed')?.(null, new Error('boom'));
 
     expect(mockLog.error).not.toHaveBeenCalled();
-    expect(mockDb.update).not.toHaveBeenCalled();
+    expect(mockFailExhaustedGuestCapture).not.toHaveBeenCalled();
   });
 });

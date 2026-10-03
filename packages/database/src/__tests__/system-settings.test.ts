@@ -183,3 +183,52 @@ describe('getCompanyTaxBasis', () => {
     expect(await getCompanyTaxBasis()).toBe('net');
   });
 });
+
+describe('getCompanyCountry', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it('returns the configured country, upper-cased', async () => {
+    mockSelect.mockReturnValue(makeChain([{ value: ' de ' }]));
+    const { getCompanyCountry } = await import('../lib/system-settings.js');
+    expect(await getCompanyCountry()).toBe('DE');
+  });
+
+  it('returns null when the setting is missing or not a two-letter code', async () => {
+    mockSelect.mockReturnValue(makeChain([{ value: 'Germany' }]));
+    const { getCompanyCountry, clearSystemSettingsCache } =
+      await import('../lib/system-settings.js');
+    expect(await getCompanyCountry()).toBeNull();
+    clearSystemSettingsCache();
+    mockSelect.mockReturnValue(makeChain([]));
+    expect(await getCompanyCountry()).toBeNull();
+  });
+
+  it('caches the value until the cache is cleared', async () => {
+    mockSelect.mockReturnValue(makeChain([{ value: 'US' }]));
+    const { getCompanyCountry, clearSystemSettingsCache } =
+      await import('../lib/system-settings.js');
+    await getCompanyCountry();
+    await getCompanyCountry();
+    expect(mockSelect).toHaveBeenCalledTimes(1);
+    clearSystemSettingsCache();
+    mockSelect.mockReturnValue(makeChain([{ value: 'FR' }]));
+    expect(await getCompanyCountry()).toBe('FR');
+  });
+
+  it('keeps the last value, or null, when the query fails', async () => {
+    vi.useFakeTimers();
+    mockSelect.mockReturnValue(makeChain([{ value: 'NL' }]));
+    const { getCompanyCountry, clearSystemSettingsCache } =
+      await import('../lib/system-settings.js');
+    expect(await getCompanyCountry()).toBe('NL');
+    vi.advanceTimersByTime(60_001);
+    mockSelect.mockReturnValue(makeFailingChain());
+    expect(await getCompanyCountry()).toBe('NL');
+    clearSystemSettingsCache();
+    expect(await getCompanyCountry()).toBeNull();
+    vi.useRealTimers();
+  });
+});

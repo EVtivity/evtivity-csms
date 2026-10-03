@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import Stripe from 'stripe';
-import { captureHoldWithFee, chargeShortfallTopUp, platformFeeCents } from '@evtivity/lib';
-import type { StripeChargeClient } from '@evtivity/lib';
+import { platformFeeCents } from '@evtivity/lib';
+import { captureHoldWithFee, chargeShortfallTopUp } from './charges.js';
+import type { StripeChargeClient } from './charges.js';
 import {
   PaymentDeclinedError,
   PaymentMethodOwnershipError,
@@ -117,8 +118,8 @@ function destination(
 
 /**
  * Stripe behind the PaymentProvider interface. Every call sends the same
- * Stripe request as the code it replaces (`api/services/stripe.service.ts`,
- * `@evtivity/lib/stripe-charges`, the guest start in `routes/portal/guest.ts`):
+ * Stripe request as the code it replaced (the API `stripe.service.ts`, the
+ * OCPP gate and capture, the guest start; pinned by the golden records):
  * manual-capture holds, a destination charge for a site with a connected
  * account, the platform fee set at capture and read from the intent's
  * destination, and Connect reversal flags on refunds. Results are synchronous.
@@ -170,7 +171,7 @@ export class StripePaymentProvider implements PaymentProvider {
     const setupIntent = await call(() =>
       this.stripe.setupIntents.create({
         customer: input.customerId,
-        payment_method_types: ['card'],
+        allowed_payment_method_types: ['card'],
       }),
     );
     if (setupIntent.client_secret == null || setupIntent.client_secret === '') {

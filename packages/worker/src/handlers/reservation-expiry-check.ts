@@ -8,7 +8,8 @@ import { client, resolveStationTariff, writeReservationAudit } from '@evtivity/d
 import { dispatchDriverNotification } from '@evtivity/lib';
 import type { Logger } from 'pino';
 import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
-import { chargeReservationFee } from '@evtivity/api/src/lib/reservation-fees.js';
+import { chargeReservationFee } from '@evtivity/payments';
+import { paymentContext } from '../lib/payments.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const API_TEMPLATES_DIR =
@@ -167,14 +168,17 @@ export async function reservationExpiryCheckHandler(log: Logger): Promise<void> 
             // amountCents is net (tariff prices are net); the fee is taxed at
             // the tariff rate, recorded as a payment record, and charged
             // through the site's Stripe Connect account.
-            const result = await chargeReservationFee({
-              type: 'reservation_no_show',
-              reservationId: row.id,
-              driverId: row.driver_id,
-              stationId: row.station_uuid,
-              siteId: row.site_id,
-              netCents: amountCents,
-            });
+            const result = await chargeReservationFee(
+              {
+                type: 'reservation_no_show',
+                reservationId: row.id,
+                driverId: row.driver_id,
+                stationId: row.station_uuid,
+                siteId: row.site_id,
+                netCents: amountCents,
+              },
+              paymentContext(log),
+            );
             if (result.status === 'charged') {
               log.info(
                 {

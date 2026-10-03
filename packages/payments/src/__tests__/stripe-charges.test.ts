@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, expect, it, vi } from 'vitest';
-import { captureHoldWithFee, chargeShortfallTopUp } from '../stripe-charges.js';
-import type { StripeChargeClient } from '../stripe-charges.js';
-import { platformFeeCents } from '../platform-fee.js';
+import { platformFeeCents } from '@evtivity/lib';
+import { captureHoldWithFee, chargeShortfallTopUp } from '../providers/stripe/charges.js';
+import type { StripeChargeClient } from '../providers/stripe/charges.js';
 
 function client(intent: Record<string, unknown>) {
   const retrieve = vi.fn().mockResolvedValue({

@@ -125,6 +125,7 @@ export default defineConfig({
           name: '@evtivity/worker',
           root: 'packages/worker',
           include: ['src/**/*.test.ts'],
+          exclude: ['src/__integration__/**'],
         },
       },
       {

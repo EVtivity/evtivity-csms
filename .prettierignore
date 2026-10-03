@@ -4,3 +4,5 @@ coverage/
 packages/ocpp/src/generated/
 **/*.hbs
 packages/api/openapi.json
+# Golden test records are compared byte for byte with test output.
+**/__golden__/

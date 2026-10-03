@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { encryptString } from '@evtivity/lib';
+import { emptyAdyenSettings } from './helpers/settings.js';
 
 const mockSelect = vi.fn();
 vi.mock('@evtivity/database', () => ({
@@ -62,6 +63,7 @@ describe('getPaymentSettings', () => {
       provider: 'stripe',
       preAuthAmountCents: 7500,
       stripe: { secretKey: 'sk_test_1', publishableKey: 'pk_test_1', webhookSecret: 'whsec_1' },
+      adyen: emptyAdyenSettings(),
     });
   });
 
@@ -76,7 +78,59 @@ describe('getPaymentSettings', () => {
       provider: 'none',
       preAuthAmountCents: 5000,
       stripe: { secretKey: null, publishableKey: null, webhookSecret: null },
+      adyen: emptyAdyenSettings(),
     });
+  });
+
+  it('reads the adyen keys and decrypts their Enc values', async () => {
+    mockSelect.mockReturnValueOnce(
+      chain(
+        rows({
+          'adyen.apiKeyEnc': encryptString('AQE_key', KEY),
+          'adyen.merchantAccount': 'TestMerchant',
+          'adyen.clientKey': 'live_CLIENTKEY',
+          'adyen.environment': 'live',
+          'adyen.liveUrlPrefix': '1797a841fbb37ca7-AdyenDemo',
+          'adyen.liveRegion': 'us',
+          'adyen.hmacKeyEnc': encryptString('44782DEF', KEY),
+          'adyen.hmacKeyPreviousEnc': encryptString('0A0B', KEY),
+          'adyen.webhookUsername': 'adyen-hook',
+          'adyen.webhookPasswordEnc': encryptString('hook-password', KEY),
+          'adyen.authorisationAdjustment': true,
+        }),
+      ),
+    );
+    const { getPaymentSettings } = await load();
+    expect((await getPaymentSettings(KEY)).adyen).toEqual({
+      apiKey: 'AQE_key',
+      merchantAccount: 'TestMerchant',
+      clientKey: 'live_CLIENTKEY',
+      environment: 'live',
+      liveUrlPrefix: '1797a841fbb37ca7-AdyenDemo',
+      liveRegion: 'us',
+      hmacKey: '44782DEF',
+      hmacKeyPrevious: '0A0B',
+      webhookUsername: 'adyen-hook',
+      webhookPassword: 'hook-password',
+      authorisationAdjustment: true,
+    });
+  });
+
+  it('defaults an unknown adyen environment to test and region to eu', async () => {
+    mockSelect.mockReturnValueOnce(
+      chain(
+        rows({
+          'adyen.environment': 'production',
+          'adyen.liveRegion': 'mars',
+          'adyen.authorisationAdjustment': 'yes',
+        }),
+      ),
+    );
+    const { getPaymentSettings } = await load();
+    const { adyen } = await getPaymentSettings(KEY);
+    expect(adyen.environment).toBe('test');
+    expect(adyen.liveRegion).toBe('eu');
+    expect(adyen.authorisationAdjustment).toBe(false);
   });
 
   it('caches for 60 seconds and reads again after clearPaymentSettingsCache', async () => {

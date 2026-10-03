@@ -17,11 +17,35 @@ export interface StripeSettings {
   webhookSecret: string | null;
 }
 
+/** Client SDK live regions (https://docs.adyen.com/online-payments/build-your-integration/advanced-flow). */
+export const ADYEN_LIVE_REGIONS = ['eu', 'us', 'au', 'nea', 'in'] as const;
+export type AdyenLiveRegion = (typeof ADYEN_LIVE_REGIONS)[number];
+
+export interface AdyenSettings {
+  apiKey: string | null;
+  merchantAccount: string | null;
+  /** Public client key for the browser and mobile SDKs (not a secret). */
+  clientKey: string | null;
+  environment: 'test' | 'live';
+  /** Required when live (Customer Area > Developers > API URLs). */
+  liveUrlPrefix: string | null;
+  liveRegion: AdyenLiveRegion;
+  /** Hex HMAC key of the webhook endpoint. */
+  hmacKey: string | null;
+  /** The previous HMAC key, accepted during a key rotation. */
+  hmacKeyPrevious: string | null;
+  webhookUsername: string | null;
+  webhookPassword: string | null;
+  /** Raise the hold with an authorization adjustment instead of a top-up charge (D-A1). */
+  authorisationAdjustment: boolean;
+}
+
 export interface PaymentSettings {
   /** Active provider id, or NO_PAYMENT_PROVIDER. */
   provider: string;
   preAuthAmountCents: number;
   stripe: StripeSettings;
+  adyen: AdyenSettings;
 }
 
 export interface SitePaymentConfig {
@@ -38,6 +62,17 @@ const KEYS = [
   'stripe.publishableKey',
   'stripe.webhookSecretEnc',
   'stripe.preAuthAmountCents',
+  'adyen.apiKeyEnc',
+  'adyen.merchantAccount',
+  'adyen.clientKey',
+  'adyen.environment',
+  'adyen.liveUrlPrefix',
+  'adyen.liveRegion',
+  'adyen.hmacKeyEnc',
+  'adyen.hmacKeyPreviousEnc',
+  'adyen.webhookUsername',
+  'adyen.webhookPasswordEnc',
+  'adyen.authorisationAdjustment',
 ];
 
 let settingsCache: { value: PaymentSettings; cachedAt: number } | null = null;
@@ -50,6 +85,24 @@ function nonEmptyString(value: unknown): string | null {
 function decrypted(value: unknown, encryptionKey: string): string | null {
   const stored = nonEmptyString(value);
   return stored == null ? null : decryptString(stored, encryptionKey);
+}
+
+function adyenSettings(byKey: Map<string, unknown>, encryptionKey: string): AdyenSettings {
+  const region = byKey.get('adyen.liveRegion');
+  const adjustment = byKey.get('adyen.authorisationAdjustment');
+  return {
+    apiKey: decrypted(byKey.get('adyen.apiKeyEnc'), encryptionKey),
+    merchantAccount: nonEmptyString(byKey.get('adyen.merchantAccount')),
+    clientKey: nonEmptyString(byKey.get('adyen.clientKey')),
+    environment: byKey.get('adyen.environment') === 'live' ? 'live' : 'test',
+    liveUrlPrefix: nonEmptyString(byKey.get('adyen.liveUrlPrefix')),
+    liveRegion: ADYEN_LIVE_REGIONS.find((r) => r === region) ?? 'eu',
+    hmacKey: decrypted(byKey.get('adyen.hmacKeyEnc'), encryptionKey),
+    hmacKeyPrevious: decrypted(byKey.get('adyen.hmacKeyPreviousEnc'), encryptionKey),
+    webhookUsername: nonEmptyString(byKey.get('adyen.webhookUsername')),
+    webhookPassword: decrypted(byKey.get('adyen.webhookPasswordEnc'), encryptionKey),
+    authorisationAdjustment: adjustment === true || adjustment === 'true',
+  };
 }
 
 /**
@@ -84,6 +137,7 @@ export async function getPaymentSettings(encryptionKey: string): Promise<Payment
       publishableKey: nonEmptyString(byKey.get('stripe.publishableKey')),
       webhookSecret: decrypted(byKey.get('stripe.webhookSecretEnc'), encryptionKey),
     },
+    adyen: adyenSettings(byKey, encryptionKey),
   };
   settingsCache = { value, cachedAt: now };
   return value;

@@ -108,9 +108,23 @@ vi.mock('postgres', () => ({
   }),
 }));
 
-const mockStripePaymentIntentsCreate = vi.fn().mockResolvedValue({ id: 'pi_guest_123' });
-vi.mock('../services/stripe.service.js', () => ({
-  getStripeConfig: vi.fn().mockResolvedValue(null),
+const { mockActivePaymentProvider, mockAuthorizeGuestHold, mockHoldTerms, mockRollbackGuestStart } =
+  vi.hoisted(() => ({
+    mockActivePaymentProvider: vi.fn(),
+    mockAuthorizeGuestHold: vi.fn(),
+    mockHoldTerms: vi.fn(),
+    mockRollbackGuestStart: vi.fn(),
+  }));
+
+vi.mock('@evtivity/payments', () => ({
+  authorizeGuestHold: mockAuthorizeGuestHold,
+  holdTerms: mockHoldTerms,
+  rollbackGuestStart: mockRollbackGuestStart,
+}));
+
+vi.mock('../lib/payments.js', () => ({
+  activePaymentProvider: mockActivePaymentProvider,
+  paymentContext: vi.fn((logger: unknown) => ({ registry: 'registry', logger })),
 }));
 
 vi.mock('../lib/pubsub.js', () => ({
@@ -140,12 +154,42 @@ vi.mock('../services/maintenance.service.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { portalGuestRoutes } from '../routes/portal/guest.js';
-import { getStripeConfig } from '../services/stripe.service.js';
 import { isStationChargingFree, resolveStationTariff } from '@evtivity/database';
 import { isEvseInReservationBuffer } from '../lib/reservation-buffer.js';
 import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../lib/ocpp-command.js';
 import { db } from '@evtivity/database';
 import { getActiveMaintenanceForStation } from '../services/maintenance.service.js';
+
+const CTX = { registry: 'registry', logger: expect.anything() };
+
+function stripeProvider(publishableKey: string) {
+  return {
+    id: 'stripe',
+    clientConfig: vi.fn(() => ({ provider: 'stripe', publishableKey })),
+  };
+}
+
+const PAID_STATION = {
+  id: 'sta_000000000001',
+  stationId: 'CS-001',
+  siteId: 'site-1',
+  isOnline: true,
+  onboardingStatus: 'accepted',
+  ocppProtocol: 'ocpp2.1',
+};
+
+/** Station, EVSE, connector, the empty gate checks and the free-vend lookup. */
+function setupStartRows(...rest: unknown[][]): void {
+  setupDbResults(
+    [PAID_STATION],
+    [{ id: 'evs_000000000001' }],
+    [{ status: 'available' }],
+    [], // active reservation gate (no reservation)
+    [], // evse active session check (none)
+    [{ freeVendEnabled: false }], // siteFreeVend lookup before tariff resolve
+    ...rest,
+  );
+}
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -168,7 +212,13 @@ describe('Portal guest routes - handler logic', () => {
 
   beforeEach(() => {
     setupDbResults();
-    vi.mocked(getStripeConfig).mockResolvedValue(null);
+    mockActivePaymentProvider.mockResolvedValue(null);
+    mockHoldTerms.mockResolvedValue({
+      preAuthAmountCents: 5000,
+      sitePaymentConfigId: null,
+      payoutAccountId: null,
+    });
+    mockRollbackGuestStart.mockResolvedValue(undefined);
     vi.mocked(isStationChargingFree).mockResolvedValue(true);
     vi.mocked(isEvseInReservationBuffer).mockResolvedValue(false);
     vi.mocked(getActiveMaintenanceForStation).mockResolvedValue(null);
@@ -195,12 +245,11 @@ describe('Portal guest routes - handler logic', () => {
       expect(response.json().code).toBe('EVSE_NOT_FOUND');
     });
 
-    it('returns paymentEnabled false when no stripe config', async () => {
+    it('returns paymentEnabled false when no payment provider is active', async () => {
       setupDbResults(
         [{ id: 'sta_000000000001', siteId: null, freeVendEnabled: false }],
         [{ id: 'evs_000000000001' }],
       );
-      vi.mocked(getStripeConfig).mockResolvedValue(null);
 
       const response = await app.inject({
         method: 'GET',
@@ -209,21 +258,20 @@ describe('Portal guest routes - handler logic', () => {
       expect(response.statusCode).toBe(200);
       expect(response.json().paymentEnabled).toBe(false);
       expect(response.json().isFree).toBe(true);
+      expect(response.json()).not.toHaveProperty('preAuthAmountCents');
+      expect(mockHoldTerms).not.toHaveBeenCalled();
     });
 
-    it('returns payment config when stripe is configured', async () => {
+    it('returns the Stripe client config and the site hold amount when Stripe is active', async () => {
       setupDbResults(
         [{ id: 'sta_000000000001', siteId: 'site-1', freeVendEnabled: false }],
         [{ id: 'evs_000000000001' }],
       );
-      vi.mocked(getStripeConfig).mockResolvedValue({
-        stripe: {} as never,
-        publishableKey: 'pk_test_abc',
-        currency: 'EUR',
-        preAuthAmountCents: 5000,
-        configId: 1,
-        connectedAccountId: null,
-        platformFeePercent: 0,
+      mockActivePaymentProvider.mockResolvedValue(stripeProvider('pk_test_abc'));
+      mockHoldTerms.mockResolvedValue({
+        preAuthAmountCents: 7500,
+        sitePaymentConfigId: 4,
+        payoutAccountId: null,
       });
 
       const response = await app.inject({
@@ -235,7 +283,30 @@ describe('Portal guest routes - handler logic', () => {
       expect(body.paymentEnabled).toBe(true);
       expect(body.publishableKey).toBe('pk_test_abc');
       expect(body.currency).toBe('EUR');
+      expect(body.preAuthAmountCents).toBe(7500);
+      expect(mockHoldTerms).toHaveBeenCalledWith(CTX, 'site-1');
+    });
+
+    it('omits the publishable key for a provider other than Stripe', async () => {
+      setupDbResults(
+        [{ id: 'sta_000000000001', siteId: null, freeVendEnabled: false }],
+        [{ id: 'evs_000000000001' }],
+      );
+      mockActivePaymentProvider.mockResolvedValue({
+        id: 'simulated',
+        clientConfig: vi.fn(() => ({ provider: 'simulated' })),
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/guest/charger-config/CS-001/1',
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.paymentEnabled).toBe(true);
+      expect(body).not.toHaveProperty('publishableKey');
       expect(body.preAuthAmountCents).toBe(5000);
+      expect(mockHoldTerms).toHaveBeenCalledWith(CTX, null);
     });
 
     it('returns tariff pricing in the company currency', async () => {
@@ -387,24 +458,8 @@ describe('Portal guest routes - handler logic', () => {
 
     it('returns 400 when payment is not configured', async () => {
       vi.mocked(isStationChargingFree).mockResolvedValue(false);
-      setupDbResults(
-        [
-          {
-            id: 'sta_000000000001',
-            stationId: 'CS-001',
-            siteId: null,
-            isOnline: true,
-            onboardingStatus: 'accepted',
-            ocppProtocol: 'ocpp2.1',
-          },
-        ],
-        [{ id: 'evs_000000000001' }],
-        [{ status: 'available' }],
-        [], // active reservation gate (no reservation)
-        [], // evse active session check (none)
-        [{ freeVendEnabled: false }], // siteFreeVend lookup before tariff resolve
-      );
-      vi.mocked(getStripeConfig).mockResolvedValue(null);
+      setupStartRows();
+      mockAuthorizeGuestHold.mockResolvedValueOnce({ outcome: 'not_configured' });
 
       const response = await app.inject({
         method: 'POST',
@@ -412,40 +467,19 @@ describe('Portal guest routes - handler logic', () => {
         payload: { paymentMethodId: 'pm_test', guestEmail: 'guest@example.com' },
       });
       expect(response.statusCode).toBe(400);
-      expect(response.json().code).toBe('PAYMENT_NOT_CONFIGURED');
+      expect(response.json()).toEqual({
+        error: 'Payment not configured for this station',
+        code: 'PAYMENT_NOT_CONFIGURED',
+      });
+      expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
     });
 
-    it('returns 400 when payment intent creation fails', async () => {
+    it('returns 400 PAYMENT_FAILED with the decline reason when the hold is declined', async () => {
       vi.mocked(isStationChargingFree).mockResolvedValue(false);
-      setupDbResults(
-        [
-          {
-            id: 'sta_000000000001',
-            stationId: 'CS-001',
-            siteId: 'site-1',
-            isOnline: true,
-            onboardingStatus: 'accepted',
-            ocppProtocol: 'ocpp2.1',
-          },
-        ],
-        [{ id: 'evs_000000000001' }],
-        [{ status: 'available' }],
-        [], // active reservation gate (no reservation)
-        [], // evse active session check (none)
-        [{ freeVendEnabled: false }], // siteFreeVend lookup before tariff resolve
-      );
-      vi.mocked(getStripeConfig).mockResolvedValue({
-        stripe: {
-          paymentIntents: {
-            create: vi.fn().mockRejectedValue(new Error('Card declined')),
-          },
-        } as never,
-        publishableKey: 'pk_test',
-        currency: 'USD',
-        preAuthAmountCents: 5000,
-        configId: 1,
-        connectedAccountId: null,
-        platformFeePercent: 0,
+      setupStartRows();
+      mockAuthorizeGuestHold.mockResolvedValueOnce({
+        outcome: 'declined',
+        reason: 'Card declined',
       });
 
       const response = await app.inject({
@@ -454,80 +488,45 @@ describe('Portal guest routes - handler logic', () => {
         payload: { paymentMethodId: 'pm_test', guestEmail: 'guest@example.com' },
       });
       expect(response.statusCode).toBe(400);
-      expect(response.json().code).toBe('PAYMENT_FAILED');
-      expect(response.json().error).toBe('Card declined');
+      expect(response.json()).toEqual({ error: 'Card declined', code: 'PAYMENT_FAILED' });
+      expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
     });
 
-    it('starts guest session when payment succeeds', async () => {
+    it('returns 400 PAYMENT_METHOD_REQUIRED for paid charging without a payment method', async () => {
       vi.mocked(isStationChargingFree).mockResolvedValue(false);
-      setupDbResults(
-        [
-          {
-            id: 'sta_000000000001',
-            stationId: 'CS-001',
-            siteId: 'site-1',
-            isOnline: true,
-            onboardingStatus: 'accepted',
-            ocppProtocol: 'ocpp2.1',
-          },
-        ],
-        [{ id: 'evs_000000000001' }],
-        [{ status: 'available' }],
-        [], // active reservation gate (no reservation)
-        [], // evse active session check (none)
-        [{ freeVendEnabled: false }], // siteFreeVend lookup before tariff resolve
-      );
-      vi.mocked(getStripeConfig).mockResolvedValue({
-        stripe: {
-          paymentIntents: {
-            create: mockStripePaymentIntentsCreate,
-          },
-        } as never,
-        publishableKey: 'pk_test',
-        currency: 'USD',
-        preAuthAmountCents: 5000,
-        configId: 1,
-        connectedAccountId: null,
-        platformFeePercent: 0,
-      });
+      setupStartRows();
 
       const response = await app.inject({
         method: 'POST',
         url: '/portal/guest/start/CS-001/1',
-        payload: { paymentMethodId: 'pm_test', guestEmail: 'guest@example.com' },
+        payload: { guestEmail: 'guest@example.com' },
       });
-      expect(response.statusCode).toBe(200);
-      expect(response.json().sessionToken).toBeDefined();
-      expect(typeof response.json().sessionToken).toBe('string');
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('PAYMENT_METHOD_REQUIRED');
+      expect(mockAuthorizeGuestHold).not.toHaveBeenCalled();
     });
 
-    it('caps a paid session at the pre-authorized amount and starts it as DirectPayment', async () => {
+    it('returns 400 EMAIL_REQUIRED for paid charging without an email', async () => {
       vi.mocked(isStationChargingFree).mockResolvedValue(false);
-      setupDbResults(
-        [
-          {
-            id: 'sta_000000000001',
-            stationId: 'CS-001',
-            siteId: 'site-1',
-            isOnline: true,
-            onboardingStatus: 'accepted',
-            ocppProtocol: 'ocpp2.1',
-          },
-        ],
-        [{ id: 'evs_000000000001' }],
-        [{ status: 'available' }],
-        [], // active reservation gate (no reservation)
-        [], // evse active session check (none)
-        [{ freeVendEnabled: false }], // siteFreeVend lookup before tariff resolve
-      );
-      vi.mocked(getStripeConfig).mockResolvedValue({
-        stripe: { paymentIntents: { create: mockStripePaymentIntentsCreate } } as never,
-        publishableKey: 'pk_test',
-        currency: 'USD',
+      setupStartRows();
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: { paymentMethodId: 'pm_test' },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('EMAIL_REQUIRED');
+      expect(mockAuthorizeGuestHold).not.toHaveBeenCalled();
+    });
+
+    it('places the guest hold with the session limits and starts it as DirectPayment', async () => {
+      vi.mocked(isStationChargingFree).mockResolvedValue(false);
+      setupStartRows();
+      mockAuthorizeGuestHold.mockResolvedValueOnce({
+        outcome: 'authorized',
+        paymentId: 'pi_guest_123',
         preAuthAmountCents: 5000,
-        configId: 1,
-        connectedAccountId: null,
-        platformFeePercent: 0,
       });
 
       const response = await app.inject({
@@ -542,19 +541,34 @@ describe('Portal guest routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      const insertChain = vi.mocked(db.insert).mock.results[0]?.value as {
-        values: ReturnType<typeof vi.fn>;
-      };
-      expect(insertChain.values).toHaveBeenCalledWith(
-        expect.objectContaining({ maxCostCents: 5000, maxEnergyWh: 20000, maxTimeSeconds: null }),
+      const sessionToken = response.json().sessionToken as string;
+      expect(sessionToken).toHaveLength(20);
+      // The service caps maxCostCents at the authorized amount and stores the row.
+      expect(mockAuthorizeGuestHold).toHaveBeenCalledWith(
+        {
+          sessionToken,
+          stationOcppId: 'CS-001',
+          evseId: 1,
+          siteId: 'site-1',
+          methodPayload: 'pm_test',
+          guestEmail: 'guest@example.com',
+          maxCostCents: 9000,
+          maxEnergyWh: 20000,
+          maxTimeSeconds: null,
+          expiresAt: expect.any(Date),
+        },
+        CTX,
       );
+      // The route stores no guest row itself on the paid path.
+      expect(db.insert).not.toHaveBeenCalled();
       expect(vi.mocked(sendOcppCommandAndWait)).toHaveBeenCalledWith(
         'CS-001',
         'RequestStartTransaction',
         expect.objectContaining({
-          idToken: { idToken: response.json().sessionToken as string, type: 'DirectPayment' },
+          idToken: { idToken: sessionToken, type: 'DirectPayment' },
         }),
       );
+      expect(mockRollbackGuestStart).not.toHaveBeenCalled();
     });
 
     it('stores the QR code limits of a free session and starts it as Central', async () => {
@@ -608,30 +622,14 @@ describe('Portal guest routes - handler logic', () => {
       expect(response.statusCode).toBe(400);
     });
 
-    it('returns 504 STATION_TIMEOUT when station does not ack (free path)', async () => {
+    it('returns 504 STATION_TIMEOUT and rolls back the free session when station does not ack', async () => {
       vi.mocked(isStationChargingFree).mockResolvedValue(true);
       vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
         commandId: 'mock-cmd',
         error: 'No response within 35s',
       });
-      setupDbResults(
-        [
-          {
-            id: 'sta_000000000001',
-            stationId: 'CS-001',
-            siteId: null,
-            isOnline: true,
-            onboardingStatus: 'accepted',
-            ocppProtocol: 'ocpp2.1',
-          },
-        ],
-        [{ id: 'evs_000000000001' }],
-        [{ status: 'available' }],
-        [], // active reservation gate (no reservation)
-        [], // evse active session check (none)
-        [{ freeVendEnabled: false }], // siteFreeVend lookup before tariff resolve
+      setupStartRows(
         [], // INSERT guest_sessions
-        [], // DELETE guest_sessions (rollback)
       );
 
       const response = await app.inject({
@@ -642,48 +640,24 @@ describe('Portal guest routes - handler logic', () => {
 
       expect(response.statusCode).toBe(504);
       expect(response.json().code).toBe('STATION_TIMEOUT');
+      expect(mockRollbackGuestStart).toHaveBeenCalledWith(
+        { sessionToken: expect.any(String), paymentId: null },
+        CTX,
+      );
     });
 
-    it('returns 502 STATION_REJECTED and cancels Stripe pre-auth (paid path)', async () => {
+    it('returns 502 STATION_REJECTED and rolls back the guest hold (paid path)', async () => {
       vi.mocked(isStationChargingFree).mockResolvedValue(false);
       vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
         commandId: 'mock-cmd',
         response: { status: 'Rejected' },
       });
-      const cancel = vi.fn().mockResolvedValue({ id: 'pi_guest_123', status: 'canceled' });
-      vi.mocked(getStripeConfig).mockResolvedValue({
-        stripe: {
-          paymentIntents: {
-            create: mockStripePaymentIntentsCreate,
-            cancel,
-          },
-        } as never,
-        publishableKey: 'pk_test',
-        currency: 'USD',
+      setupStartRows();
+      mockAuthorizeGuestHold.mockResolvedValueOnce({
+        outcome: 'authorized',
+        paymentId: 'pi_guest_123',
         preAuthAmountCents: 5000,
-        configId: 1,
-        connectedAccountId: null,
-        platformFeePercent: 0,
       });
-      setupDbResults(
-        [
-          {
-            id: 'sta_000000000001',
-            stationId: 'CS-001',
-            siteId: 'site-1',
-            isOnline: true,
-            onboardingStatus: 'accepted',
-            ocppProtocol: 'ocpp2.1',
-          },
-        ],
-        [{ id: 'evs_000000000001' }],
-        [{ status: 'available' }],
-        [], // active reservation gate (no reservation)
-        [], // evse active session check (none)
-        [{ freeVendEnabled: false }], // siteFreeVend lookup before tariff resolve
-        [], // INSERT guest_sessions (paid)
-        [], // DELETE guest_sessions (rollback)
-      );
 
       const response = await app.inject({
         method: 'POST',
@@ -692,8 +666,15 @@ describe('Portal guest routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(502);
-      expect(response.json().code).toBe('STATION_REJECTED');
-      expect(cancel).toHaveBeenCalledWith('pi_guest_123');
+      expect(response.json()).toEqual({
+        error: 'Station rejected start: Rejected',
+        code: 'STATION_REJECTED',
+      });
+      const [hold] = mockAuthorizeGuestHold.mock.calls[0] as [{ sessionToken: string }];
+      expect(mockRollbackGuestStart).toHaveBeenCalledWith(
+        { sessionToken: hold.sessionToken, paymentId: 'pi_guest_123' },
+        CTX,
+      );
     });
   });
 

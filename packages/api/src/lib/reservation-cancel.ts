@@ -5,8 +5,12 @@ import type { FastifyBaseLogger } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
 import { db, reservations } from '@evtivity/database';
 import { getReservationSettings, writeReservationAudit } from '@evtivity/database';
-import { chargeReservationFee } from './reservation-fees.js';
+import { createLogger } from '@evtivity/lib';
+import { chargeReservationFee } from '@evtivity/payments';
+import { paymentContext } from './payments.js';
 import { getPubSub } from './pubsub.js';
+
+const log = createLogger('reservation-cancel');
 
 /** Who triggered the cancellation. */
 export type ReservationCancelledBy = 'driver' | 'operator' | 'system';
@@ -197,14 +201,17 @@ export async function applyReservationCancellation(
   let feeChargeFailed = false;
   let feeCurrency: string | null = null;
   try {
-    const result = await chargeReservationFee({
-      type: 'reservation_cancellation',
-      reservationId: input.reservationDbId,
-      driverId: input.driverId as string,
-      stationId: winningRow.station_id,
-      siteId: input.siteId,
-      netCents: plannedFeeCents,
-    });
+    const result = await chargeReservationFee(
+      {
+        type: 'reservation_cancellation',
+        reservationId: input.reservationDbId,
+        driverId: input.driverId as string,
+        stationId: winningRow.station_id,
+        siteId: input.siteId,
+        netCents: plannedFeeCents,
+      },
+      paymentContext(input.logger ?? log),
+    );
     if (result.status === 'charged') {
       feeChargedCents = result.grossCents;
       feeCurrency = result.currency;

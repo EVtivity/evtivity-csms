@@ -11,6 +11,7 @@ import { createPaymentRegistry } from '../create-registry.js';
 import { PaymentProviderNotConfiguredError } from '../errors.js';
 import type { PaymentSettings } from '../settings.js';
 import type { PaymentProvider } from '../types.js';
+import { emptyAdyenSettings } from './helpers/settings.js';
 
 const KEY = 'test-encryption-key-32chars-long!';
 
@@ -19,6 +20,7 @@ function settings(overrides: Partial<PaymentSettings> = {}): PaymentSettings {
     provider: 'fake',
     preAuthAmountCents: 5000,
     stripe: { secretKey: null, publishableKey: null, webhookSecret: null },
+    adyen: emptyAdyenSettings(),
     ...overrides,
   };
 }
@@ -115,7 +117,7 @@ describe('createPaymentRegistry', () => {
       allowSimulated: true,
       readSettings,
     });
-    expect(registry.registeredIds()).toEqual(['stripe', 'simulated']);
+    expect(registry.registeredIds()).toEqual(['stripe', 'adyen', 'simulated']);
     expect((await registry.getActivePaymentProvider())?.id).toBe('simulated');
     expect((await registry.getPaymentProvider('stripe')).id).toBe('stripe');
   });
@@ -126,13 +128,35 @@ describe('createPaymentRegistry', () => {
       allowSimulated: false,
       readSettings,
     });
-    expect(registry.registeredIds()).toEqual(['stripe']);
+    expect(registry.registeredIds()).toEqual(['stripe', 'adyen']);
     await expect(registry.getActivePaymentProvider()).rejects.toBeInstanceOf(
       PaymentProviderNotConfiguredError,
     );
     await expect(registry.getPaymentProvider('simulated')).rejects.toBeInstanceOf(
       PaymentProviderNotConfiguredError,
     );
+  });
+
+  it('builds the Adyen provider when it is configured', async () => {
+    let adyen = emptyAdyenSettings();
+    const registry = createPaymentRegistry({
+      encryptionKey: KEY,
+      allowSimulated: false,
+      readSettings: () => Promise.resolve(settings({ provider: 'adyen', adyen })),
+    });
+    await expect(registry.getPaymentProvider('adyen')).rejects.toBeInstanceOf(
+      PaymentProviderNotConfiguredError,
+    );
+    expect(await registry.getActivePaymentProvider()).toBeNull();
+
+    adyen = emptyAdyenSettings({
+      apiKey: 'AQE_key',
+      merchantAccount: 'TestMerchant',
+      clientKey: 'test_CLIENTKEY',
+    });
+    const provider = await registry.getPaymentProvider('adyen');
+    expect(provider.id).toBe('adyen');
+    expect((await registry.getActivePaymentProvider())?.id).toBe('adyen');
   });
 
   it('passes the simulated options through', async () => {

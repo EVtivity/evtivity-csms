@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import type { EventBus, DomainEvent, PubSubClient } from '@evtivity/lib';
 
 // SQL mock: records every tagged-template call (strings + interpolated values)
@@ -55,18 +55,23 @@ vi.mock('postgres', () => {
 
 const mockIsRoamingEnabled = vi.fn().mockResolvedValue(false);
 
-// The shared cached platform client (@evtivity/database stripe-client), built
-// on the mocked Stripe SDK below.
-async function makeStripeClient(..._args: unknown[]): Promise<unknown> {
-  const Stripe = (await import('stripe')).default as unknown as new () => unknown;
-  return new Stripe();
-}
-const mockGetStripeClient = vi.fn(makeStripeClient);
-// A test that overrides the client (mockResolvedValueOnce) must not leak it.
-beforeEach(() => {
-  mockGetStripeClient.mockReset();
-  mockGetStripeClient.mockImplementation(makeStripeClient);
-});
+// The payment service (@evtivity/payments): the gate's hold, the settlement on
+// Ended, and the NotifySettlement record. The mode classification stays real.
+const mockAuthorizeSessionHold = vi.fn();
+const mockSettleSessionPayment = vi.fn();
+const mockRecordTerminalSettlement = vi.fn();
+vi.mock('@evtivity/payments', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  authorizeSessionHold: (...args: unknown[]) => mockAuthorizeSessionHold(...args) as unknown,
+  settleSessionPayment: (...args: unknown[]) => mockSettleSessionPayment(...args) as unknown,
+  recordTerminalSettlement: (...args: unknown[]) =>
+    mockRecordTerminalSettlement(...args) as unknown,
+}));
+const mockPaymentContext = { registry: {}, logger: {} };
+vi.mock('../lib/payments.js', () => ({
+  paymentRegistry: {},
+  paymentContext: () => mockPaymentContext,
+}));
 const mockIsAutoDisableOnCritical = vi.fn().mockResolvedValue(false);
 const mockWriteAudit = vi.fn().mockResolvedValue(undefined);
 const mockWriteReservationAudit = vi.fn().mockResolvedValue(undefined);
@@ -119,8 +124,6 @@ vi.mock('@evtivity/database', async () => ({
   priceSessionAt: (...args: unknown[]) => mockPriceSessionAt(...args) as unknown,
   storeRunningCost: (...args: unknown[]) => mockStoreRunningCost(...args) as unknown,
   client: createSqlMock(),
-  getPlatformFeePercent: vi.fn().mockResolvedValue(0),
-  getStripeClient: (...args: unknown[]) => mockGetStripeClient(...args) as unknown,
   isRoamingEnabled: mockIsRoamingEnabled,
   getIdlingGracePeriodMinutes: vi.fn().mockResolvedValue(0),
   isSplitBillingEnabled: mockIsSplitBilling,
@@ -157,7 +160,6 @@ const mockLoggerError = vi.fn();
 const mockLoggerDebug = vi.fn();
 
 const mockDecryptString = vi.fn().mockReturnValue('sk_test_decrypted');
-const mockShouldSimulateFailure = vi.fn().mockReturnValue(false);
 
 vi.mock('@evtivity/lib', async () => {
   const actual = await vi.importActual<typeof import('@evtivity/lib')>('@evtivity/lib');
@@ -170,7 +172,6 @@ vi.mock('@evtivity/lib', async () => {
   return {
     ...actual,
     decryptString: mockDecryptString,
-    shouldSimulatePaymentFailure: mockShouldSimulateFailure,
     createLogger: () => ({
       info: vi.fn(),
       warn: mockLoggerWarn,
@@ -180,26 +181,6 @@ vi.mock('@evtivity/lib', async () => {
     }),
   };
 });
-
-const mockStripeCreate = vi.fn().mockResolvedValue({ id: 'pi_topup' });
-const mockStripeCapture = vi.fn().mockResolvedValue({});
-const mockStripeCancel = vi.fn().mockResolvedValue({});
-const mockStripeRetrieve = vi.fn().mockResolvedValue({
-  customer: 'cus_x',
-  payment_method: 'pm_x',
-  on_behalf_of: null,
-});
-
-vi.mock('stripe', () => ({
-  default: class MockStripe {
-    paymentIntents = {
-      create: mockStripeCreate,
-      capture: mockStripeCapture,
-      cancel: mockStripeCancel,
-      retrieve: mockStripeRetrieve,
-    };
-  },
-}));
 
 const mockHandleCsrSigned = vi.fn().mockResolvedValue(undefined);
 const mockHandleInstallCertificateResult = vi.fn().mockResolvedValue(undefined);
@@ -294,16 +275,14 @@ describe('Event projections - coverage round 2', () => {
     mockGetTxEndedMeasurands.mockResolvedValue('');
     mockIsSiteFreeVend.mockResolvedValue(false);
     mockIsSplitBilling.mockResolvedValue(false);
-    mockShouldSimulateFailure.mockReturnValue(false);
     mockDecryptString.mockReturnValue('sk_test_decrypted');
-    mockStripeCreate.mockResolvedValue({ id: 'pi_topup' });
-    mockStripeCapture.mockResolvedValue({});
-    mockStripeCancel.mockResolvedValue({});
-    mockStripeRetrieve.mockResolvedValue({
-      customer: 'cus_x',
-      payment_method: 'pm_x',
-      on_behalf_of: null,
+    mockAuthorizeSessionHold.mockResolvedValue({
+      outcome: 'authorized',
+      paymentRecordId: 1,
+      paymentId: 'pi_test',
     });
+    mockSettleSessionPayment.mockResolvedValue({ mode: 'none' });
+    mockRecordTerminalSettlement.mockResolvedValue(true);
     process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
 
     mockPubSub = {
@@ -1914,23 +1893,25 @@ describe('Event projections - coverage round 2', () => {
       await setup();
       setupSqlResults([]); // session lookup empty
       await emit('ocpp.NotifySettlement', 'CS-1', { transactionId: 'tx-1', settlementAmount: 10 });
-      expect(findSql(/INSERT INTO payment_records/)).toBeUndefined();
+      expect(mockRecordTerminalSettlement).not.toHaveBeenCalled();
     });
 
     it('inserts payment record, notifies SSE and driver', async () => {
       await setup();
       setupSqlResults(
-        [{ id: 'ses_1', driver_id: 'drv_1', station_id: 'sta_1' }], // session lookup
-        [], // INSERT payment_records (count 1)
+        [{ id: 'ses_1', driver_id: 'drv_1', station_id: 'sta_1', currency: 'USD' }], // session lookup
         [{ name: 'Site A' }], // resolveSiteName
       );
       await emit('ocpp.NotifySettlement', 'CS-1', {
         transactionId: 'tx-1',
         settlementAmount: 12.5,
       });
-      const ins = findSql(/INSERT INTO payment_records/);
-      expect(ins).toBeDefined();
-      expect(ins?.values).toContain(1250); // 12.50 -> cents
+      expect(mockRecordTerminalSettlement).toHaveBeenCalledWith({
+        sessionId: 'ses_1',
+        driverId: 'drv_1',
+        currency: 'USD',
+        capturedCents: 1250, // 12.50 -> cents
+      });
       expect(mockDispatchDriver).toHaveBeenCalledWith(
         expect.anything(),
         'session.PaymentReceived',
@@ -1949,32 +1930,40 @@ describe('Event projections - coverage round 2', () => {
       );
     });
 
-    it('ignores duplicate settlement (ON CONFLICT count 0)', async () => {
+    it('ignores duplicate settlement (the session already has a record)', async () => {
+      mockRecordTerminalSettlement.mockResolvedValueOnce(false);
       await setup();
-      setupSqlResults(
-        [{ id: 'ses_1', driver_id: 'drv_1', station_id: 'sta_1' }],
-        EMPTY, // INSERT count 0 -> duplicate
-      );
+      setupSqlResults([{ id: 'ses_1', driver_id: 'drv_1', station_id: 'sta_1' }]);
       await emit('ocpp.NotifySettlement', 'CS-1', { transactionId: 'tx-1', settlementAmount: 5 });
+      expect(mockRecordTerminalSettlement).toHaveBeenCalledTimes(1);
       expect(mockDispatchDriver).not.toHaveBeenCalled();
-      expect(mockLoggerWarn).toHaveBeenCalled();
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        { transactionId: 'tx-1', sessionId: 'ses_1' },
+        'Duplicate NotifySettlement ignored; payment already exists for session',
+      );
+      expect(
+        (mockPubSub.publish as Mock<PubSubClient['publish']>).mock.calls.some((c) =>
+          c[1].includes('payment.settled'),
+        ),
+      ).toBe(false);
     });
 
     it('anonymous session: inserts but no driver notification', async () => {
       await setup();
-      setupSqlResults([{ id: 'ses_2', driver_id: null, station_id: 'sta_1' }], []);
+      setupSqlResults([{ id: 'ses_2', driver_id: null, station_id: 'sta_1' }]);
       await emit('ocpp.NotifySettlement', 'CS-1', { transactionId: 'tx-2', settlementAmount: 3 });
-      expect(findSql(/INSERT INTO payment_records/)).toBeDefined();
+      expect(mockRecordTerminalSettlement).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'ses_2', driverId: null, capturedCents: 300 }),
+      );
       expect(mockDispatchDriver).not.toHaveBeenCalled();
     });
   });
 
-  // ---- ocpp.TransactionEvent Ended: auto-capture (second subscriber) ----
+  // ---- ocpp.TransactionEvent Ended: settlement (second subscriber) ----
 
-  describe('ocpp.TransactionEvent Ended auto-capture', () => {
-    // Drive ONLY the second subscriber. The first subscriber for the same event
-    // also runs; we provide enough SQL results so both complete without throwing
-    // and assert on the capture-specific writes.
+  describe('ocpp.TransactionEvent Ended settlement', () => {
+    // Drive ONLY the settlement subscriber; the payment service is mocked, so
+    // its SQL stream is the session lookup and the receipt's site name.
 
     function endedEvent() {
       return makeDomainEvent('ocpp.TransactionEvent', 'CS-1', {
@@ -1986,7 +1975,7 @@ describe('Event projections - coverage round 2', () => {
 
     async function emitEndedSecondOnly(...secondSqlResults: unknown[][]) {
       await setup();
-      // Run only the auto-capture subscriber (index 1) to control its SQL stream.
+      // Run only the settlement subscriber (index 1) to control its SQL stream.
       const handlers = eventBus.subscribers.get('ocpp.TransactionEvent') ?? [];
       const second = handlers[1];
       expect(second).toBeDefined();
@@ -1994,237 +1983,177 @@ describe('Event projections - coverage round 2', () => {
       await second?.(endedEvent());
     }
 
+    const sessionRow = (overrides: Record<string, unknown> = {}) => ({
+      id: 'ses_1',
+      final_cost_cents: 1500,
+      currency: 'EUR',
+      station_uuid: 'sta_1',
+      station_ocpp_id: 'CS-1',
+      site_id: 'site_1',
+      ...overrides,
+    });
+    const captured = (overrides: Record<string, unknown> = {}) => ({
+      mode: 'card',
+      status: 'captured',
+      paymentRecordId: 1,
+      driverId: 'drv_1',
+      capturedCents: 1500,
+      shortfallCents: 0,
+      recorded: true,
+      ...overrides,
+    });
+    const driverCalls = (eventType: string) =>
+      mockDispatchDriver.mock.calls.filter((c: unknown[]) => c[1] === eventType);
+    const csmsEvents = () =>
+      (mockPubSub.publish as Mock<PubSubClient['publish']>).mock.calls
+        .filter((c) => c[0] === 'csms_events')
+        .map((c) => JSON.parse(c[1]) as Record<string, unknown>);
+
     it('returns when session not found', async () => {
       await emitEndedSecondOnly([]); // session lookup empty
-      expect(findSql(/payment_records/)).toBeUndefined();
+      expect(mockSettleSessionPayment).not.toHaveBeenCalled();
     });
 
-    it('returns when no pre_authorized payment record', async () => {
-      await emitEndedSecondOnly(
-        [{ id: 'ses_1', final_cost_cents: 100, currency: 'USD', station_uuid: 'sta_1' }],
-        [], // payment_records pre_authorized -> none
-      );
-      expect(findSql(/UPDATE payment_records/)).toBeUndefined();
+    it('settles the session through the payment service', async () => {
+      await emitEndedSecondOnly([sessionRow()]);
+      expect(mockSettleSessionPayment).toHaveBeenCalledWith('ses_1', mockPaymentContext);
+      // Nothing to settle (the default outcome): no notification.
+      expect(mockDispatchDriver).not.toHaveBeenCalled();
     });
 
-    it('returns when guest payment record (driver_id null)', async () => {
-      await emitEndedSecondOnly(
-        [{ id: 'ses_1', final_cost_cents: 100, currency: 'USD' }],
-        [{ id: 'pr_1', stripe_payment_intent_id: 'pi_sim_1', driver_id: null }],
-      );
-      expect(findSql(/UPDATE payment_records/)).toBeUndefined();
-    });
-
-    it('simulated success: captures and notifies driver', async () => {
-      await emitEndedSecondOnly(
-        [{ id: 'ses_1', final_cost_cents: 1500, currency: 'EUR', station_uuid: 'sta_1' }],
+    it('captured and recorded: sends the receipt in the session currency', async () => {
+      mockSettleSessionPayment.mockResolvedValueOnce(captured({ capturedCents: 1750 }));
+      await emitEndedSecondOnly([sessionRow()], [{ name: 'Site A' }]);
+      expect(driverCalls('session.PaymentReceived')).toEqual([
         [
-          {
-            id: 'pr_1',
-            stripe_payment_intent_id: 'pi_sim_1',
-            driver_id: 'drv_1',
-            pre_auth_amount_cents: 2000,
-          },
+          expect.anything(),
+          'session.PaymentReceived',
+          'drv_1',
+          expect.objectContaining({
+            siteName: 'Site A',
+            stationId: 'CS-1',
+            transactionId: 'tx-cap',
+            amountCents: 1750,
+            currency: 'EUR',
+          }),
+          ['/mock/templates'],
+          mockPubSub,
         ],
-        [], // UPDATE payment_records captured
-      );
-      const upd = findSql(/UPDATE payment_records\s+SET status = 'captured'/);
-      expect(upd).toBeDefined();
-      expect(upd?.values).toContain(1500);
-      expect(mockDispatchDriver).toHaveBeenCalledWith(
-        expect.anything(),
-        'session.PaymentReceived',
-        'drv_1',
-        expect.objectContaining({ currency: 'EUR', amountCents: 1500 }),
-        expect.anything(),
-        expect.anything(),
+      ]);
+      const vars = driverCalls('session.PaymentReceived')[0]?.[3] as {
+        amountFormatted: { format: (locale: string) => string };
+      };
+      expect(vars.amountFormatted.format('en-US')).toBe('€17.50');
+    });
+
+    it('captured on a station without a row id: receipt without a site name', async () => {
+      mockSettleSessionPayment.mockResolvedValueOnce(captured());
+      await emitEndedSecondOnly([sessionRow({ station_uuid: null })]);
+      expect(findSql(/FROM sites/)).toBeUndefined();
+      expect(driverCalls('session.PaymentReceived')[0]?.[3]).toMatchObject({ siteName: '' });
+    });
+
+    it('captured but not recorded: no receipt and no failure notice', async () => {
+      mockSettleSessionPayment.mockResolvedValueOnce(captured({ recorded: false }));
+      await emitEndedSecondOnly([sessionRow()]);
+      expect(driverCalls('session.PaymentReceived')).toHaveLength(0);
+      expect(driverCalls('payment.CaptureFailed')).toHaveLength(0);
+    });
+
+    it('failed: notifies CaptureFailed with the final cost and the reason', async () => {
+      mockSettleSessionPayment.mockResolvedValueOnce({
+        mode: 'card',
+        status: 'failed',
+        paymentRecordId: 1,
+        driverId: 'drv_1',
+        reason: 'provider boom',
+      });
+      await emitEndedSecondOnly([sessionRow({ final_cost_cents: 500, currency: 'USD' })]);
+      const calls = driverCalls('payment.CaptureFailed');
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.[2]).toBe('drv_1');
+      const vars = calls[0]?.[3] as {
+        stationId: string;
+        transactionId: string;
+        reason: string;
+        amountFormatted: { format: (locale: string) => string };
+      };
+      expect(vars).toMatchObject({
+        stationId: 'CS-1',
+        transactionId: 'tx-cap',
+        reason: 'provider boom',
+      });
+      expect(vars.amountFormatted.format('en-US')).toBe('$5.00');
+      expect(driverCalls('session.PaymentReceived')).toHaveLength(0);
+    });
+
+    it('failed: a dispatch that throws is logged and the settlement continues', async () => {
+      mockSettleSessionPayment.mockResolvedValueOnce({
+        mode: 'card',
+        status: 'failed',
+        paymentRecordId: 1,
+        driverId: 'drv_1',
+        reason: 'provider boom',
+      });
+      mockDispatchDriver.mockImplementationOnce(() => {
+        throw new Error('dispatch boom');
+      });
+      await emitEndedSecondOnly([sessionRow()]);
+      expect(mockLoggerDebug).toHaveBeenCalledWith(
+        expect.objectContaining({ driverId: 'drv_1', transactionId: 'tx-cap' }),
+        'CaptureFailed notification dispatch failed; continuing',
       );
     });
 
-    it('simulated zero-cost: cancels payment record', async () => {
-      await emitEndedSecondOnly(
-        [{ id: 'ses_1', final_cost_cents: 0, currency: 'USD', station_uuid: 'sta_1' }],
-        [{ id: 'pr_1', stripe_payment_intent_id: 'pi_sim_1', driver_id: 'drv_1' }],
-        [], // UPDATE cancelled
-      );
-      expect(findSql(/UPDATE payment_records\s+SET status = 'cancelled'/)).toBeDefined();
+    it('prepaid: reports the settlement and the token balance change', async () => {
+      mockSettleSessionPayment.mockResolvedValueOnce({
+        mode: 'prepaid',
+        tokenId: 'dtk_1',
+        debitedCents: 1500,
+        balanceCents: 500,
+      });
+      await emitEndedSecondOnly([sessionRow()]);
+      const events = csmsEvents();
+      expect(events).toContainEqual({ eventType: 'token.changed', tokenId: 'dtk_1' });
+      expect(events.find((e) => e['eventType'] === 'payment.settled')).toMatchObject({
+        sessionId: 'ses_1',
+        siteId: 'site_1',
+      });
+      expect(mockDispatchDriver).not.toHaveBeenCalled();
     });
 
-    it('simulated failure: marks failed and notifies CaptureFailed', async () => {
-      mockShouldSimulateFailure.mockReturnValue(true);
-      await emitEndedSecondOnly(
-        [{ id: 'ses_1', final_cost_cents: 1000, currency: 'USD', station_uuid: 'sta_1' }],
-        [{ id: 'pr_1', stripe_payment_intent_id: 'pi_sim_1', driver_id: 'drv_1' }],
-        [], // UPDATE failed
+    it('prepaid: a failed token.changed publish is logged and ignored', async () => {
+      mockSettleSessionPayment.mockResolvedValueOnce({
+        mode: 'prepaid',
+        tokenId: 'dtk_1',
+        debitedCents: 1500,
+        balanceCents: 500,
+      });
+      await setup();
+      vi.mocked(mockPubSub.publish).mockImplementation((_channel, message) =>
+        message.includes('token.changed')
+          ? Promise.reject(new Error('redis down'))
+          : Promise.resolve(),
       );
-      expect(findSql(/SET status = 'failed'/)).toBeDefined();
-      expect(mockDispatchDriver).toHaveBeenCalledWith(
-        expect.anything(),
-        'payment.CaptureFailed',
-        'drv_1',
-        expect.objectContaining({ reason: 'Simulated capture failure' }),
-        expect.anything(),
-        expect.anything(),
-      );
-    });
-
-    it('real Stripe capture (finalCost <= preAuth): captures and records', async () => {
-      await emitEndedSecondOnly(
-        [
-          {
-            id: 'ses_1',
-            final_cost_cents: 1200,
-            currency: 'USD',
-            station_uuid: 'sta_1',
-            station_ocpp_id: 'CS-1',
-          },
-        ],
-        [
-          {
-            id: 'pr_1',
-            stripe_payment_intent_id: 'pi_real_1',
-            driver_id: 'drv_1',
-            pre_auth_amount_cents: 2000,
-          },
-        ],
-        [], // UPDATE payment_records captured
-        [{ name: 'Site A' }], // resolveSiteName
-      );
-      expect(mockStripeCapture).toHaveBeenCalledWith(
-        'pi_real_1',
-        { amount_to_capture: 1200 },
-        expect.objectContaining({ idempotencyKey: 'capture_pr_1' }),
-      );
-      expect(findSql(/UPDATE payment_records\s+SET status = 'captured'/)).toBeDefined();
-    });
-
-    it('real Stripe top-up when finalCost > preAuth', async () => {
-      await emitEndedSecondOnly(
-        [
-          {
-            id: 'ses_1',
-            final_cost_cents: 3000,
-            currency: 'USD',
-            station_uuid: 'sta_1',
-            station_ocpp_id: 'CS-1',
-          },
-        ],
-        [
-          {
-            id: 'pr_1',
-            stripe_payment_intent_id: 'pi_real_1',
-            driver_id: 'drv_1',
-            pre_auth_amount_cents: 2000,
-          },
-        ],
-        [], // UPDATE captured
-        [{ name: 'Site A' }], // resolveSiteName
-      );
-      expect(mockStripeCapture).toHaveBeenCalledWith(
-        'pi_real_1',
-        { amount_to_capture: 2000 },
-        expect.anything(),
-      );
-      expect(mockStripeRetrieve).toHaveBeenCalledWith('pi_real_1');
-      expect(mockStripeCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ amount: 1000 }),
-        expect.objectContaining({ idempotencyKey: 'topup_pr_1' }),
+      const second = (eventBus.subscribers.get('ocpp.TransactionEvent') ?? [])[1];
+      setupSqlResults([sessionRow({ site_id: null })]);
+      await second?.(endedEvent());
+      expect(mockLoggerDebug).toHaveBeenCalledWith(
+        { err: expect.any(Error) },
+        'token.changed SSE publish failed; continuing',
       );
     });
 
-    it('top-up failure leaves capture recorded with failure_reason', async () => {
-      mockStripeCreate.mockRejectedValueOnce(new Error('card declined'));
-      await emitEndedSecondOnly(
-        [
-          {
-            id: 'ses_1',
-            final_cost_cents: 3000,
-            currency: 'USD',
-            station_uuid: 'sta_1',
-            station_ocpp_id: 'CS-1',
-          },
-        ],
-        [
-          {
-            id: 'pr_1',
-            stripe_payment_intent_id: 'pi_real_1',
-            driver_id: 'drv_1',
-            pre_auth_amount_cents: 2000,
-          },
-        ],
-        [], // UPDATE captured (with failure_reason)
-        [{ name: 'Site A' }],
-      );
-      expect(mockLoggerWarn).toHaveBeenCalledWith(
-        expect.objectContaining({ paymentRecordId: 'pr_1' }),
-        'Top-up PaymentIntent failed; pre-auth was captured but delta uncollected',
-      );
-      const upd = findSql(/UPDATE payment_records\s+SET status = 'captured'/);
-      expect(upd?.values.some((v) => typeof v === 'string' && v.includes('Top-up declined'))).toBe(
-        true,
-      );
-    });
-
-    it('real Stripe cancel when finalCost is zero', async () => {
-      await emitEndedSecondOnly(
-        [{ id: 'ses_1', final_cost_cents: 0, currency: 'USD', station_uuid: 'sta_1' }],
-        [{ id: 'pr_1', stripe_payment_intent_id: 'pi_real_1', driver_id: 'drv_1' }],
-        [], // UPDATE cancelled
-      );
-      expect(mockStripeCancel).toHaveBeenCalledWith('pi_real_1');
-      expect(findSql(/UPDATE payment_records\s+SET status = 'cancelled'/)).toBeDefined();
-    });
-
-    it('records a capture failure when no Stripe secret key is set', async () => {
-      mockGetStripeClient.mockResolvedValueOnce(null);
-      await emitEndedSecondOnly(
-        [{ id: 'ses_1', final_cost_cents: 100, currency: 'USD', station_uuid: 'sta_1' }],
-        [{ id: 'pr_1', stripe_payment_intent_id: 'pi_real_1', driver_id: 'drv_1' }],
-        [], // UPDATE failed
-      );
-      expect(mockStripeCapture).not.toHaveBeenCalled();
-      expect(findSql(/SET status = 'failed'/)).toBeDefined();
-      expect(mockDispatchDriver).toHaveBeenCalledWith(
-        expect.anything(),
-        'payment.CaptureFailed',
-        'drv_1',
-        expect.objectContaining({ reason: 'Stripe is not configured' }),
-        expect.anything(),
-        expect.anything(),
-      );
-    });
-
-    it('Stripe capture error marks failed and notifies CaptureFailed', async () => {
-      mockStripeCapture.mockRejectedValueOnce(new Error('stripe boom'));
-      await emitEndedSecondOnly(
-        [{ id: 'ses_1', final_cost_cents: 500, currency: 'USD', station_uuid: 'sta_1' }],
-        [
-          {
-            id: 'pr_1',
-            stripe_payment_intent_id: 'pi_real_1',
-            driver_id: 'drv_1',
-            pre_auth_amount_cents: 1000,
-          },
-        ],
-        [], // UPDATE failed
-      );
-      expect(findSql(/SET status = 'failed'/)).toBeDefined();
-      expect(mockDispatchDriver).toHaveBeenCalledWith(
-        expect.anything(),
-        'payment.CaptureFailed',
-        'drv_1',
-        expect.anything(),
-        expect.anything(),
-        expect.anything(),
-      );
-    });
-
-    it('returns when payment intent id is null', async () => {
-      await emitEndedSecondOnly(
-        [{ id: 'ses_1', final_cost_cents: 100, currency: 'USD', station_uuid: 'sta_1' }],
-        [{ id: 'pr_1', stripe_payment_intent_id: null, driver_id: 'drv_1' }],
-      );
-      expect(mockStripeCapture).not.toHaveBeenCalled();
+    it.each([
+      { mode: 'card', status: 'cancelled', paymentRecordId: 1, recorded: true },
+      { mode: 'guest' },
+      { mode: 'none' },
+    ])('sends nothing for outcome %o', async (outcome) => {
+      mockSettleSessionPayment.mockResolvedValueOnce(outcome);
+      await emitEndedSecondOnly([sessionRow()]);
+      expect(mockSettleSessionPayment).toHaveBeenCalledTimes(1);
+      expect(mockDispatchDriver).not.toHaveBeenCalled();
+      expect(csmsEvents()).toHaveLength(0);
     });
   });
 

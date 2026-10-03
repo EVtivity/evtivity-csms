@@ -1,16 +1,16 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { incrementalPlatformFeeCents } from './platform-fee.js';
-import type { ChargeTax } from './platform-fee.js';
+import { incrementalPlatformFeeCents } from '@evtivity/lib';
+import type { ChargeTax } from '@evtivity/lib';
 
 /**
  * Session charges on Stripe with the Connect platform fee recomputed on the
  * amount actually charged: the capture of a hold and the shortfall top-up.
- * The capture on session end (OCPP), the operator routes and guest
- * finalization (API), and the daily retry cron (worker) each hold their own
- * Stripe client and call these, so every path charges the same fee. Typed
- * structurally so the lib does not depend on the stripe package.
+ * The Stripe provider's `capture` and `chargeShortfall` call these, so every
+ * path (OCPP capture on session end, operator capture and retry, guest
+ * finalization, daily retry) charges the same fee. Typed structurally so the
+ * tests can pass a fake client.
  *
  * Whether a charge is a destination charge (Stripe Connect) is read from the
  * original PaymentIntent (`transfer_data.destination`), not from the current

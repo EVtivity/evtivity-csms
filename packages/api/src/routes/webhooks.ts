@@ -2,30 +2,32 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import type Stripe from 'stripe';
 import { z } from 'zod';
-import { and, eq, inArray, lte } from 'drizzle-orm';
-import { db, paymentRecords, webhookEvents, getStripeWebhookSecret } from '@evtivity/database';
-import { verifyWebhookSignature } from '../services/stripe.service.js';
+import {
+  ingestPaymentWebhook,
+  WebhookNotConfiguredError,
+  WebhookSignatureError,
+} from '@evtivity/payments';
 import { itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
-import { config as apiConfig } from '../lib/config.js';
+import { paymentContext } from '../lib/payments.js';
 
 const webhookResponse = z
   .object({ received: z.literal(true).describe('Acknowledgement that the webhook was processed') })
   .passthrough();
 
-// Statuses a webhook may move to failed or refunded. Every other status is
-// terminal for that event (design principle P5).
-const FAILABLE_STATUSES: Array<'pending' | 'pre_authorized'> = ['pending', 'pre_authorized'];
-const REFUNDABLE_STATUSES: Array<'captured' | 'partially_refunded'> = [
-  'captured',
-  'partially_refunded',
-];
+function headerMap(headers: Record<string, string | string[] | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (typeof value === 'string') out[name] = value;
+    else if (Array.isArray(value)) out[name] = value.join(',');
+  }
+  return out;
+}
 
 export function webhookRoutes(app: FastifyInstance): void {
-  // Use string parsing for raw body access (needed for Stripe signature verification).
-  // This is encapsulated by Fastify's plugin scope and does not affect other routes.
+  // Raw body for the signature check. Scoped to this plugin, so other routes
+  // keep JSON parsing.
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
     done(null, body);
   });
@@ -36,6 +38,8 @@ export function webhookRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Webhooks'],
         summary: 'Handle Stripe webhook events',
+        description:
+          'Verifies the stripe-signature header with the signing secret from Settings > Payment > Stripe (stripe.webhookSecretEnc), records each event id once (a replay is acknowledged and skipped), then applies payment_intent.payment_failed (only to pending or pre-authorized payments), charge.refunded (never lowering the refunded total) and logs charge.dispute.created.',
         operationId: 'handleStripeWebhook',
         security: [],
         response: {
@@ -53,176 +57,39 @@ export function webhookRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      // The signing secret is the `stripe.webhookSecretEnc` setting
-      // (Settings > Payment > Stripe), read through a 60 s cache.
-      const webhookSecret = await getStripeWebhookSecret(apiConfig.SETTINGS_ENCRYPTION_KEY);
-      if (webhookSecret == null) {
-        app.log.error('Stripe webhook signing secret is not configured (stripe.webhookSecretEnc)');
-        await reply
-          .status(500)
-          .send({ error: 'Webhook not configured', code: 'WEBHOOK_NOT_CONFIGURED' });
-        return;
-      }
-
-      const signature = request.headers['stripe-signature'];
-      if (signature == null || typeof signature !== 'string') {
-        await reply
-          .status(400)
-          .send({ error: 'Missing stripe-signature header', code: 'WEBHOOK_SIGNATURE_MISSING' });
-        return;
-      }
-
-      const rawBody = request.body as string;
-
-      let event: Stripe.Event;
       try {
-        event = verifyWebhookSignature(rawBody, signature, webhookSecret);
-      } catch (err) {
-        app.log.warn(
-          { error: err instanceof Error ? err.message : String(err) },
-          'Webhook signature verification failed',
+        await ingestPaymentWebhook(
+          'stripe',
+          request.body as string,
+          headerMap(request.headers),
+          paymentContext(request.log),
         );
-        await reply
-          .status(400)
-          .send({ error: 'Invalid signature', code: 'WEBHOOK_SIGNATURE_INVALID' });
-        return;
-      }
-
-      app.log.info({ type: event.type, id: event.id }, 'Stripe webhook received');
-
-      // Deduplicate: reject events we have already processed.
-      // Stripe may replay webhooks on timeout or network errors. Use a
-      // single INSERT ... ON CONFLICT DO NOTHING + RETURNING to avoid the
-      // SELECT-then-INSERT race that would 500 the second concurrent
-      // delivery on the unique constraint.
-      const inserted = await db
-        .insert(webhookEvents)
-        .values({ eventId: event.id, eventType: event.type })
-        .onConflictDoNothing()
-        .returning({ eventId: webhookEvents.eventId });
-      if (inserted.length === 0) {
-        app.log.info({ eventId: event.id }, 'Duplicate webhook event, skipping');
-        await reply.status(200).send({ received: true });
-        return;
-      }
-
-      switch (event.type) {
-        case 'payment_intent.payment_failed': {
-          const pi = event.data.object;
-          const [record] = await db
-            .select()
-            .from(paymentRecords)
-            .where(eq(paymentRecords.stripePaymentIntentId, pi.id));
-          if (record != null) {
-            const stripeFailureMessage =
-              pi.last_payment_error?.message ?? pi.last_payment_error?.code ?? null;
-            const failureReason =
-              stripeFailureMessage != null
-                ? `Stripe webhook: ${stripeFailureMessage.slice(0, 480)}`
-                : 'Stripe webhook: payment_intent.payment_failed';
-            // Terminal states are sticky (P5): a failure event never
-            // overwrites a captured, refunded, cancelled or failed record.
-            const updated = await db
-              .update(paymentRecords)
-              .set({
-                status: 'failed',
-                failureReason,
-                updatedAt: new Date(),
-              })
-              .where(
-                and(
-                  eq(paymentRecords.id, record.id),
-                  inArray(paymentRecords.status, FAILABLE_STATUSES),
-                ),
-              )
-              .returning({ id: paymentRecords.id });
-            if (updated.length > 0) {
-              app.log.info(
-                { paymentIntentId: pi.id, reason: stripeFailureMessage },
-                'Payment marked as failed via webhook',
-              );
-            } else {
-              app.log.info(
-                { paymentIntentId: pi.id, status: record.status },
-                'Payment failure webhook ignored: record is in a terminal state',
-              );
-            }
-          }
-          break;
+      } catch (err) {
+        if (err instanceof WebhookNotConfiguredError) {
+          request.log.error(
+            'Stripe webhook signing secret is not configured (stripe.webhookSecretEnc)',
+          );
+          await reply
+            .status(500)
+            .send({ error: 'Webhook not configured', code: 'WEBHOOK_NOT_CONFIGURED' });
+          return;
         }
-        case 'charge.refunded': {
-          const charge = event.data.object;
-          if (charge.payment_intent != null) {
-            const piId =
-              typeof charge.payment_intent === 'string'
-                ? charge.payment_intent
-                : charge.payment_intent.id;
-            const [record] = await db
-              .select()
-              .from(paymentRecords)
-              .where(eq(paymentRecords.stripePaymentIntentId, piId));
-            if (record != null) {
-              const refundedAmount = charge.amount_refunded;
-              // A partially captured hold has amount > amount_captured; the
-              // refundable total is what was captured.
-              const newStatus =
-                refundedAmount >= charge.amount_captured ? 'refunded' : 'partially_refunded';
-              // Only a captured or partially refunded record takes a refund,
-              // and a delayed event with a smaller refunded total never
-              // lowers the stored one (P5).
-              const updated = await db
-                .update(paymentRecords)
-                .set({
-                  status: newStatus,
-                  refundedAmountCents: refundedAmount,
-                  updatedAt: new Date(),
-                })
-                .where(
-                  and(
-                    eq(paymentRecords.id, record.id),
-                    inArray(paymentRecords.status, REFUNDABLE_STATUSES),
-                    lte(paymentRecords.refundedAmountCents, refundedAmount),
-                  ),
-                )
-                .returning({ id: paymentRecords.id });
-              if (updated.length > 0) {
-                app.log.info(
-                  { paymentIntentId: piId, status: newStatus, refundedAmount },
-                  'Payment refund status updated via webhook',
-                );
-              } else {
-                app.log.info(
-                  {
-                    paymentIntentId: piId,
-                    status: record.status,
-                    refundedAmountCents: record.refundedAmountCents,
-                    refundedAmount,
-                  },
-                  'Refund webhook ignored: record not refundable or already refunded further',
-                );
-              }
-            }
+        if (err instanceof WebhookSignatureError) {
+          request.log.warn({ error: err.message }, 'Webhook signature verification failed');
+          if (err.reason === 'missing') {
+            await reply.status(400).send({
+              error: 'Missing stripe-signature header',
+              code: 'WEBHOOK_SIGNATURE_MISSING',
+            });
+          } else {
+            await reply
+              .status(400)
+              .send({ error: 'Invalid signature', code: 'WEBHOOK_SIGNATURE_INVALID' });
           }
-          break;
+          return;
         }
-        case 'charge.dispute.created': {
-          const dispute = event.data.object;
-          if (dispute.payment_intent != null) {
-            const piId =
-              typeof dispute.payment_intent === 'string'
-                ? dispute.payment_intent
-                : dispute.payment_intent.id;
-            app.log.warn(
-              { paymentIntentId: piId, disputeId: dispute.id, reason: dispute.reason },
-              'Payment dispute created',
-            );
-          }
-          break;
-        }
-        default:
-          app.log.debug({ type: event.type }, 'Unhandled webhook event type');
+        throw err;
       }
-
       await reply.status(200).send({ received: true });
     },
   );

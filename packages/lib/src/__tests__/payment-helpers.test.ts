@@ -1,85 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import {
-  createSimulatedIntentId,
-  isSimulatedCustomer,
-  isSimulatedIntent,
-  isTariffFree,
-  shouldSimulatePaymentFailure,
-} from '../payment-helpers.js';
-
-describe('isSimulatedCustomer', () => {
-  it('returns true for a simulated customer id', () => {
-    expect(isSimulatedCustomer('cus_sim_abc123')).toBe(true);
-  });
-
-  it('returns true when the id is exactly the prefix', () => {
-    expect(isSimulatedCustomer('cus_sim_')).toBe(true);
-  });
-
-  it('returns false for a real stripe customer id', () => {
-    expect(isSimulatedCustomer('cus_NffrFeUfNV2Hib')).toBe(false);
-  });
-
-  it('returns false when cus_ is present but not the sim variant', () => {
-    expect(isSimulatedCustomer('cus_simian')).toBe(false);
-  });
-
-  it('returns false for an empty string', () => {
-    expect(isSimulatedCustomer('')).toBe(false);
-  });
-
-  it('returns false when the prefix appears mid-string', () => {
-    expect(isSimulatedCustomer('xcus_sim_abc')).toBe(false);
-  });
-});
-
-describe('simulated intent ids', () => {
-  it('creates pi_sim_ ids of 24 hex characters that are recognized as simulated', () => {
-    const id = createSimulatedIntentId();
-    expect(id).toMatch(/^pi_sim_[0-9a-f]{24}$/);
-    expect(isSimulatedIntent(id)).toBe(true);
-  });
-
-  it('creates a different id each time', () => {
-    expect(createSimulatedIntentId()).not.toBe(createSimulatedIntentId());
-  });
-
-  it('does not treat a real or mid-string id as simulated', () => {
-    expect(isSimulatedIntent('pi_3NffrFeUfNV2Hib')).toBe(false);
-    expect(isSimulatedIntent('xpi_sim_abc')).toBe(false);
-    expect(isSimulatedIntent('')).toBe(false);
-  });
-});
-
-describe('shouldSimulatePaymentFailure', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('returns true when Math.random is below the 0.2 threshold', () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0.1);
-    expect(shouldSimulatePaymentFailure()).toBe(true);
-  });
-
-  it('returns true at the lower boundary value', () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0);
-    expect(shouldSimulatePaymentFailure()).toBe(true);
-  });
-
-  it('returns false exactly at the 0.2 threshold (strict less-than)', () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0.2);
-    expect(shouldSimulatePaymentFailure()).toBe(false);
-  });
-
-  it('returns false when Math.random is above the threshold', () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0.9);
-    expect(shouldSimulatePaymentFailure()).toBe(false);
-  });
-});
+import { isTariffFree } from '../payment-helpers.js';
 
 describe('isTariffFree', () => {
   it('returns true when the tariff is null', () => {

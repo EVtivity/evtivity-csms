@@ -31,6 +31,7 @@ export function normalizeStripeEvent(event: Stripe.Event): NormalizedPaymentEven
         paymentId: pi.id,
         reason: pi.last_payment_error?.message ?? pi.last_payment_error?.code ?? null,
         occurredAt,
+        providerType: event.type,
       };
     }
     case 'charge.refunded': {
@@ -46,6 +47,7 @@ export function normalizeStripeEvent(event: Stripe.Event): NormalizedPaymentEven
         cumulativeRefundedCents: charge.amount_refunded,
         capturedCents: charge.amount_captured,
         occurredAt,
+        providerType: event.type,
       };
     }
     case 'charge.dispute.created': {
@@ -59,6 +61,7 @@ export function normalizeStripeEvent(event: Stripe.Event): NormalizedPaymentEven
         disputeId: dispute.id,
         reason: dispute.reason,
         occurredAt,
+        providerType: event.type,
       };
     }
     default:

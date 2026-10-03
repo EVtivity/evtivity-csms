@@ -29,8 +29,14 @@ vi.mock('@evtivity/api/src/lib/pubsub.js', () => ({
 const mockResolveTariff = vi.fn();
 
 const mockChargeNoShow = vi.fn().mockResolvedValue({ status: 'skipped', reason: 'no_amount' });
-vi.mock('@evtivity/api/src/lib/reservation-fees.js', () => ({
+vi.mock('@evtivity/payments', () => ({
   chargeReservationFee: (...args: unknown[]) => mockChargeNoShow(...args),
+}));
+
+const paymentCtx = { registry: 'registry', logger: 'logger' };
+const mockPaymentContext = vi.fn((_log: unknown) => paymentCtx);
+vi.mock('../../lib/payments.js', () => ({
+  paymentContext: (log: unknown) => mockPaymentContext(log),
 }));
 
 const mockDispatchDriver = vi.fn();
@@ -89,14 +95,18 @@ describe('reservationExpiryCheckHandler', () => {
     await reservationExpiryCheckHandler(log);
 
     // 60 min * $0.05 = $3.00 = 300 cents.
-    expect(mockChargeNoShow).toHaveBeenCalledWith({
-      type: 'reservation_no_show',
-      reservationId: 'rsv_1',
-      driverId: 'drv_1',
-      stationId: 'sta_1',
-      siteId: 'site_1',
-      netCents: 300,
-    });
+    expect(mockChargeNoShow).toHaveBeenCalledWith(
+      {
+        type: 'reservation_no_show',
+        reservationId: 'rsv_1',
+        driverId: 'drv_1',
+        stationId: 'sta_1',
+        siteId: 'site_1',
+        netCents: 300,
+      },
+      paymentCtx,
+    );
+    expect(mockPaymentContext).toHaveBeenCalledWith(log);
     expect(mockPublish).toHaveBeenCalledWith(
       'ocpp_commands',
       expect.stringContaining('"action":"CancelReservation"'),
@@ -318,14 +328,17 @@ describe('reservationExpiryCheckHandler', () => {
     await reservationExpiryCheckHandler(log);
 
     // 30 min from created_at to expires_at * $0.05 = $1.50 = 150 cents.
-    expect(mockChargeNoShow).toHaveBeenCalledWith({
-      type: 'reservation_no_show',
-      reservationId: 'rsv_instant',
-      driverId: 'drv_1',
-      stationId: 'sta_inst',
-      siteId: 'site_inst',
-      netCents: 150,
-    });
+    expect(mockChargeNoShow).toHaveBeenCalledWith(
+      {
+        type: 'reservation_no_show',
+        reservationId: 'rsv_instant',
+        driverId: 'drv_1',
+        stationId: 'sta_inst',
+        siteId: 'site_inst',
+        netCents: 150,
+      },
+      paymentCtx,
+    );
   });
 
   it('does not charge when computed hold duration rounds to zero minutes', async () => {
@@ -431,20 +444,87 @@ describe('reservationExpiryCheckHandler', () => {
       await import('../../handlers/reservation-expiry-check.js');
     await reservationExpiryCheckHandler(log);
 
-    expect(mockChargeNoShow).toHaveBeenCalledWith({
-      type: 'reservation_no_show',
-      reservationId: 'rsv_feefail',
-      driverId: 'drv_1',
-      stationId: 'sta_ff',
-      siteId: 'site_ff',
-      netCents: 300,
-    });
+    expect(mockChargeNoShow).toHaveBeenCalledWith(
+      {
+        type: 'reservation_no_show',
+        reservationId: 'rsv_feefail',
+        driverId: 'drv_1',
+        stationId: 'sta_ff',
+        siteId: 'site_ff',
+        netCents: 300,
+      },
+      paymentCtx,
+    );
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         reservationId: 'rsv_feefail',
         driverId: 'drv_1',
       }),
       'Failed to charge no-show reservation fee',
+    );
+  });
+
+  function noShowRow(id: string): Record<string, unknown> {
+    return {
+      id,
+      driver_id: 'drv_1',
+      prior_status: 'active',
+      reservation_ocpp_id: 101,
+      station_ocpp_id: 'CS-NOSHOW',
+      station_uuid: 'sta_ns',
+      site_id: 'site_ns',
+      starts_at: '2026-01-01T10:00:00Z',
+      expires_at: '2026-01-01T11:00:00Z',
+      created_at: '2026-01-01T10:00:00Z',
+      has_session: false,
+    };
+  }
+
+  it('logs the charged no-show fee', async () => {
+    mockClient.mockResolvedValueOnce([noShowRow('rsv_charged')]).mockResolvedValueOnce([]);
+    mockResolveTariff.mockResolvedValue({ reservationFeePerMinute: '0.05' });
+    mockChargeNoShow.mockResolvedValueOnce({
+      status: 'charged',
+      paymentRecordId: 7,
+      grossCents: 357,
+      netCents: 300,
+      taxCents: 57,
+      taxRate: 0.19,
+      currency: 'EUR',
+    });
+
+    const { reservationExpiryCheckHandler } =
+      await import('../../handlers/reservation-expiry-check.js');
+    await reservationExpiryCheckHandler(log);
+
+    expect(log.info).toHaveBeenCalledWith(
+      {
+        reservationId: 'rsv_charged',
+        driverId: 'drv_1',
+        netCents: 300,
+        grossCents: 357,
+        holdingMinutes: 60,
+      },
+      'Charged no-show reservation fee',
+    );
+  });
+
+  it('warns when the no-show fee is declined', async () => {
+    mockClient.mockResolvedValueOnce([noShowRow('rsv_declined')]).mockResolvedValueOnce([]);
+    mockResolveTariff.mockResolvedValue({ reservationFeePerMinute: '0.05' });
+    mockChargeNoShow.mockResolvedValueOnce({
+      status: 'failed',
+      paymentRecordId: 8,
+      reason: 'Your card was declined.',
+    });
+
+    const { reservationExpiryCheckHandler } =
+      await import('../../handlers/reservation-expiry-check.js');
+    await reservationExpiryCheckHandler(log);
+
+    expect(log.warn).toHaveBeenCalledWith(
+      { reservationId: 'rsv_declined', paymentRecordId: 8 },
+      'No-show reservation fee declined: Your card was declined.',
     );
   });
 

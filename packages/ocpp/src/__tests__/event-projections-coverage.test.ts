@@ -65,19 +65,37 @@ vi.mock('postgres', () => {
 
 const mockIsRoamingEnabled = vi.fn().mockResolvedValue(false);
 
-// The shared cached platform client (@evtivity/database stripe-client), built
-// on the mocked Stripe SDK below.
-async function makeStripeClient(..._args: unknown[]): Promise<unknown> {
-  const Stripe = (await import('stripe')).default as unknown as new () => unknown;
-  return new Stripe();
+// The payment service (@evtivity/payments): the gate's hold and the
+// settlement on Ended. The mode classification stays real.
+const mockAuthorizeSessionHold = vi.fn();
+const mockSettleSessionPayment = vi.fn();
+const mockRecordTerminalSettlement = vi.fn();
+vi.mock('@evtivity/payments', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  authorizeSessionHold: (...args: unknown[]) => mockAuthorizeSessionHold(...args) as unknown,
+  settleSessionPayment: (...args: unknown[]) => mockSettleSessionPayment(...args) as unknown,
+  recordTerminalSettlement: (...args: unknown[]) =>
+    mockRecordTerminalSettlement(...args) as unknown,
+}));
+const mockPaymentContext = { registry: {}, logger: {} };
+vi.mock('../lib/payments.js', () => ({
+  paymentRegistry: {},
+  paymentContext: () => mockPaymentContext,
+}));
+
+/**
+ * Matches a notification value (notificationMoney) that the dispatcher
+ * formats as `text` for an en-US recipient.
+ */
+function formatsTo(text: string): unknown {
+  return {
+    asymmetricMatch: (value: unknown) =>
+      value != null &&
+      typeof (value as { format?: unknown }).format === 'function' &&
+      (value as { format: (locale: string) => string }).format('en-US') === text,
+    toString: () => `formatsTo(${text})`,
+  };
 }
-const mockGetStripeClient = vi.fn(makeStripeClient);
-// A test that overrides the client (mockResolvedValueOnce) must not leak it.
-beforeEach(() => {
-  mockGetStripeClient.mockReset();
-  mockGetStripeClient.mockImplementation(makeStripeClient);
-});
-const mockSettlePrepaidSession = vi.fn().mockResolvedValue(null);
 
 // The one cost assembly (@evtivity/database session-pricing), mocked per test.
 // By default every priced session costs 15.00 (net 15.00, no tax).
@@ -120,8 +138,6 @@ vi.mock('@evtivity/database', async () => ({
   priceSessionAt: (...args: unknown[]) => mockPriceSessionAt(...args) as unknown,
   storeRunningCost: (...args: unknown[]) => mockStoreRunningCost(...args) as unknown,
   client: createSqlMock(),
-  getPlatformFeePercent: vi.fn().mockResolvedValue(0),
-  getStripeClient: (...args: unknown[]) => mockGetStripeClient(...args) as unknown,
   isRoamingEnabled: mockIsRoamingEnabled,
   getIdlingGracePeriodMinutes: vi.fn().mockResolvedValue(0),
   isSplitBillingEnabled: vi.fn().mockResolvedValue(false),
@@ -133,7 +149,6 @@ vi.mock('@evtivity/database', async () => ({
   getTxEndedMeasurands: vi.fn().mockResolvedValue([]),
   isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
-  settlePrepaidSession: (...args: unknown[]) => mockSettlePrepaidSession(...args),
   getCompanyPriceDisplay: vi.fn().mockResolvedValue('net'),
 }));
 
@@ -169,26 +184,6 @@ vi.mock('@evtivity/lib', async () => {
     }),
   };
 });
-
-const mockStripePaymentIntentsCreate = vi.fn().mockResolvedValue({ id: 'pi_test' });
-const mockStripePaymentIntentsCapture = vi.fn().mockResolvedValue({});
-const mockStripePaymentIntentsCancel = vi.fn().mockResolvedValue({});
-const mockStripePaymentIntentsRetrieve = vi.fn().mockResolvedValue({
-  customer: 'cus_test',
-  payment_method: 'pm_test',
-  on_behalf_of: null,
-});
-
-vi.mock('stripe', () => ({
-  default: class MockStripe {
-    paymentIntents = {
-      create: mockStripePaymentIntentsCreate,
-      capture: mockStripePaymentIntentsCapture,
-      cancel: mockStripePaymentIntentsCancel,
-      retrieve: mockStripePaymentIntentsRetrieve,
-    };
-  },
-}));
 
 const mockHandleCsrSigned = vi.fn().mockResolvedValue(undefined);
 const mockHandleInstallCertificateResult = vi.fn().mockResolvedValue(undefined);
@@ -281,6 +276,13 @@ describe('Event projections - coverage expansion', () => {
     sqlCallIndex = 0;
     sqlErrors = new Map();
     vi.clearAllMocks();
+    mockAuthorizeSessionHold.mockResolvedValue({
+      outcome: 'authorized',
+      paymentRecordId: 1,
+      paymentId: 'pi_test',
+    });
+    mockSettleSessionPayment.mockResolvedValue({ mode: 'none' });
+    mockRecordTerminalSettlement.mockResolvedValue(true);
 
     mockPubSub = {
       publish: vi.fn().mockResolvedValue(undefined),
@@ -2334,68 +2336,50 @@ describe('Event projections - coverage expansion', () => {
   // ---- Second TransactionEvent subscriber (Pre-auth / Capture) ----
 
   describe('ocpp.TransactionEvent - Pre-auth on Started', () => {
-    it('creates Stripe pre-auth when driver has default payment method', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
-      await setup();
-
-      // The second subscriber fires after the first one.
-      // We need enough SQL results for BOTH subscribers.
-      setupSqlResults(
-        // --- First subscriber (main TransactionEvent handler) ---
-        [{ id: 'sta_000000000001' }], // 0: resolveStationId
-        [], // 1: INSERT charging_sessions
-        [{ id: 'session-preauth' }], // 2: SELECT id
-        [], // 3: UPDATE stale sessions (RETURNING id, empty)
-        [], // 4: INSERT transaction_events
-
-        [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
-        [{ driver_id: 'driver-pay' }], // 6: SELECT driver_id
-        [], // 7: SELECT driver_tokens by idToken (no match for 'rfid-pay')
-        [], // 8: SELECT vehicle_id (no previous vehicle, auto-link skipped)
-        [
-          {
-            group_id: 'pg-1',
-            group_name: 'Group',
-            group_priority: 5,
-            timezone: null,
-            id: 'tariff-1',
-            price_per_kwh: '0.30',
-            price_per_minute: null,
-            price_per_session: null,
-            idle_fee_price_per_minute: null,
-            reservation_fee_per_minute: null,
-            tax_rate: null,
-            restrictions: null,
-            priority: 0,
-            is_default: true,
-          },
-        ], // 10: loadStationPricing (group, tariffs, timezone)
-        [], // 11: SELECT pricing_holidays (loadHolidays)
-        [], // 13: UPDATE charging_sessions SET tariff_id
-        [], // 14: INSERT session_tariff_segments
-        [{ site_id: 'site-pay' }], // 15: resolveSiteId
-        [{ name: 'Site Pay' }], // 16: resolveSiteName
-        // --- runPaymentGate (called inline) ---
-        [
-          {
-            id: 'pm-1',
-            stripe_customer_id: 'cus_test',
-            stripe_payment_method_id: 'pm_test',
-          },
-        ], // 17: SELECT driver_payment_methods
-        [{ key: 'stripe.preAuthAmountCents', value: 5000 }], // 22: platform settings
-        [], // 23: site payment config
-        [{ currency: 'USD' }], // 24: session currency for the pre-auth
-        [], // 25: existing payment_records guard
-        [], // 27: INSERT payment_records
-      );
-
-      await eventBus.emit(
+    // A driver session (token rfid-pay, driver-pay) on site-pay with a paid
+    // tariff: the gate asks the payment service for the hold.
+    const driverStartedResults = (): unknown[][] => [
+      [{ id: 'sta_000000000001' }], // resolveStationId
+      [], // INSERT charging_sessions
+      [{ id: 'session-preauth' }], // SELECT id
+      [], // UPDATE stale sessions (RETURNING id, empty)
+      [], // INSERT transaction_events
+      [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
+      [{ driver_id: 'driver-pay' }], // SELECT driver_id
+      [], // SELECT driver_tokens by idToken (no match for 'rfid-pay')
+      [], // SELECT vehicle_id (no previous vehicle, auto-link skipped)
+      [
+        {
+          group_id: 'pg-1',
+          group_name: 'Group',
+          group_priority: 5,
+          timezone: null,
+          id: 'tariff-1',
+          price_per_kwh: '0.30',
+          price_per_minute: null,
+          price_per_session: null,
+          idle_fee_price_per_minute: null,
+          reservation_fee_per_minute: null,
+          tax_rate: null,
+          restrictions: null,
+          priority: 0,
+          is_default: true,
+        },
+      ], // loadStationPricing (group, tariffs, timezone)
+      [], // SELECT pricing_holidays (loadHolidays)
+      [], // UPDATE charging_sessions SET tariff_id
+      [], // INSERT session_tariff_segments
+      [{ site_id: 'site-pay' }], // resolveSiteId
+      [{ name: 'Site Pay' }], // resolveSiteName
+      // runPaymentGate: no SQL of its own, the hold goes through the service
+    ];
+    const emitDriverStarted = (transactionId: string) =>
+      eventBus.emit(
         'ocpp.TransactionEvent',
         makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
           eventType: 'Started',
           stationId: 'CS-001',
-          transactionId: 'tx-preauth',
+          transactionId,
           seqNo: 0,
           triggerReason: 'Authorized',
           timestamp: '2024-01-01T00:00:00Z',
@@ -2403,95 +2387,246 @@ describe('Event projections - coverage expansion', () => {
           tokenType: 'ISO14443',
         }),
       );
+    const published = (channel: string): Array<Record<string, unknown>> =>
+      (mockPubSub.publish as Mock<PubSubClient['publish']>).mock.calls
+        .filter((c) => c[0] === channel)
+        .map((c) => JSON.parse(c[1]) as Record<string, unknown>);
+    const stopCommands = () =>
+      published('ocpp_commands').filter((m) => m['action'] === 'RequestStopTransaction');
+    // The eager fault of stopSessionForPayment (status, reason, zeroed cost).
+    const paymentNotifications = () =>
+      mockDispatchDriver.mock.calls.filter((c: unknown[]) => String(c[1]).startsWith('payment.'));
+    const faultUpdate = () => findSql(/SET status = 'faulted',\s*stopped_reason = \?/);
 
-      expect(mockStripePaymentIntentsCreate).toHaveBeenCalled();
-      // The shared client, with the OCPP process's configured encryption key.
-      expect(mockGetStripeClient).toHaveBeenCalledWith(expect.any(String));
+    it('asks the payment service for the hold with the session, driver, and site', async () => {
+      await setup();
+      setupSqlResults(...driverStartedResults());
+
+      await emitDriverStarted('tx-preauth');
+
+      expect(mockAuthorizeSessionHold).toHaveBeenCalledTimes(1);
+      expect(mockAuthorizeSessionHold).toHaveBeenCalledWith(
+        {
+          sessionId: 'session-preauth',
+          driverId: 'driver-pay',
+          methodRowId: null,
+          siteId: 'site-pay',
+          trigger: 'projection_gate',
+        },
+        mockPaymentContext,
+      );
+      // Authorized: the session keeps charging.
+      expect(stopCommands()).toHaveLength(0);
+      expect(faultUpdate()).toBeUndefined();
+      expect(paymentNotifications()).toHaveLength(0);
     });
 
-    it('skips the pre-auth when Stripe is not configured (no secret key)', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
-      mockGetStripeClient.mockResolvedValueOnce(null);
+    it('leaves the session running when the hold already exists', async () => {
+      mockAuthorizeSessionHold.mockResolvedValueOnce({
+        outcome: 'exists',
+        paymentRecordId: 7,
+        status: 'pre_authorized',
+      });
       await setup();
+      setupSqlResults(...driverStartedResults());
 
-      // The second subscriber fires after the first one.
-      // We need enough SQL results for BOTH subscribers.
-      setupSqlResults(
-        // --- First subscriber (main TransactionEvent handler) ---
-        [{ id: 'sta_000000000001' }], // 0: resolveStationId
-        [], // 1: INSERT charging_sessions
-        [{ id: 'session-preauth' }], // 2: SELECT id
-        [], // 3: UPDATE stale sessions (RETURNING id, empty)
-        [], // 4: INSERT transaction_events
+      await emitDriverStarted('tx-exists');
 
-        [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
-        [{ driver_id: 'driver-pay' }], // 6: SELECT driver_id
-        [], // 7: SELECT driver_tokens by idToken (no match for 'rfid-pay')
-        [], // 8: SELECT vehicle_id (no previous vehicle, auto-link skipped)
-        [
-          {
-            group_id: 'pg-1',
-            group_name: 'Group',
-            group_priority: 5,
-            timezone: null,
-            id: 'tariff-1',
-            price_per_kwh: '0.30',
-            price_per_minute: null,
-            price_per_session: null,
-            idle_fee_price_per_minute: null,
-            reservation_fee_per_minute: null,
-            tax_rate: null,
-            restrictions: null,
-            priority: 0,
-            is_default: true,
-          },
-        ], // 10: loadStationPricing (group, tariffs, timezone)
-        [], // 11: SELECT pricing_holidays (loadHolidays)
-        [], // 13: UPDATE charging_sessions SET tariff_id
-        [], // 14: INSERT session_tariff_segments
-        [{ site_id: 'site-pay' }], // 15: resolveSiteId
-        [{ name: 'Site Pay' }], // 16: resolveSiteName
-        // --- runPaymentGate (called inline) ---
-        [
-          {
-            id: 'pm-1',
-            stripe_customer_id: 'cus_test',
-            stripe_payment_method_id: 'pm_test',
-          },
-        ], // 17: SELECT driver_payment_methods
-        [{ key: 'stripe.preAuthAmountCents', value: 5000 }], // 22: platform settings
-        [], // 23: site payment config
-        [{ currency: 'USD' }], // 24: session currency for the pre-auth
-        [], // 25: existing payment_records guard
-        [], // 27: INSERT payment_records (failed)
+      expect(mockAuthorizeSessionHold).toHaveBeenCalledTimes(1);
+      expect(stopCommands()).toHaveLength(0);
+      expect(faultUpdate()).toBeUndefined();
+      expect(published('csms_events').some((m) => String(m['type']).startsWith('payment.'))).toBe(
+        false,
       );
+    });
 
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Started',
-          stationId: 'CS-001',
-          transactionId: 'tx-preauth',
-          seqNo: 0,
-          triggerReason: 'Authorized',
-          timestamp: '2024-01-01T00:00:00Z',
-          idToken: 'rfid-pay',
-          tokenType: 'ISO14443',
-        }),
-      );
+    it('leaves the session running when the payment provider is not configured', async () => {
+      mockAuthorizeSessionHold.mockResolvedValueOnce({
+        outcome: 'not_configured',
+        providerId: 'stripe',
+      });
+      await setup();
+      setupSqlResults(...driverStartedResults());
 
-      expect(mockGetStripeClient).toHaveBeenCalled();
-      expect(mockStripePaymentIntentsCreate).not.toHaveBeenCalled();
+      await emitDriverStarted('tx-not-configured');
+
       // Payments are not configured: the session is neither stopped nor faulted.
-      const publishCalls = (mockPubSub.publish as Mock<PubSubClient['publish']>).mock.calls;
-      expect(publishCalls.find((c) => c[0] === 'ocpp_commands')).toBeUndefined();
-      expect(
-        sqlCalls.some((c) => c.strings.some((s) => s.includes('INSERT INTO payment_records'))),
-      ).toBe(false);
+      expect(stopCommands()).toHaveLength(0);
+      expect(faultUpdate()).toBeUndefined();
+      expect(paymentNotifications()).toHaveLength(0);
     });
+
+    it('stops and faults the session when the driver has no payment method', async () => {
+      mockAuthorizeSessionHold.mockResolvedValueOnce({ outcome: 'no_method' });
+      await setup();
+      setupSqlResults(...driverStartedResults());
+
+      await emitDriverStarted('tx-no-method');
+
+      const stops = stopCommands();
+      expect(stops).toHaveLength(1);
+      expect(stops[0]).toMatchObject({
+        stationId: 'CS-001',
+        payload: { transactionId: 'tx-no-method' },
+      });
+      // Eager fault before the station answers (P4).
+      expect(faultUpdate()?.values).toContain('MissingPaymentMethod');
+      expect(mockDispatchDriver).toHaveBeenCalledWith(
+        expect.anything(),
+        'payment.MissingPaymentMethod',
+        'driver-pay',
+        { stationId: 'CS-001', transactionId: 'tx-no-method' },
+        ['/mock/templates'],
+        mockPubSub,
+      );
+      expect(published('csms_events')).toContainEqual({
+        type: 'payment.missingPaymentMethod',
+        sessionId: 'session-preauth',
+        transactionId: 'tx-no-method',
+      });
+    });
+
+    it('stops and faults the session when the hold is declined', async () => {
+      mockAuthorizeSessionHold.mockResolvedValueOnce({
+        outcome: 'declined',
+        reason: 'card_declined',
+        paymentRecordId: 9,
+      });
+      await setup();
+      mockLoggerError.mockClear();
+      setupSqlResults(...driverStartedResults());
+
+      await emitDriverStarted('tx-decline');
+
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        { sessionId: 'session-preauth', reason: 'card_declined' },
+        'Auto pre-auth failed, stopping session',
+      );
+      const stops = stopCommands();
+      expect(stops).toHaveLength(1);
+      expect(stops[0]).toMatchObject({
+        stationId: 'CS-001',
+        payload: { transactionId: 'tx-decline' },
+      });
+      expect(faultUpdate()?.values).toContain('PaymentFailed');
+      expect(mockDispatchDriver).toHaveBeenCalledWith(
+        expect.anything(),
+        'payment.PreAuthFailed',
+        'driver-pay',
+        { stationId: 'CS-001', transactionId: 'tx-decline', reason: 'card_declined' },
+        ['/mock/templates'],
+        mockPubSub,
+      );
+      expect(published('csms_events')).toContainEqual({
+        type: 'payment.preAuthFailed',
+        sessionId: 'session-preauth',
+        transactionId: 'tx-decline',
+        reason: 'card_declined',
+      });
+    });
+
+    it('cuts a long decline reason to 200 characters in the notification and SSE', async () => {
+      const longReason = 'x'.repeat(450);
+      mockAuthorizeSessionHold.mockResolvedValueOnce({
+        outcome: 'declined',
+        reason: longReason,
+        paymentRecordId: null,
+      });
+      await setup();
+      setupSqlResults(...driverStartedResults());
+
+      await emitDriverStarted('tx-long-reason');
+
+      expect(mockDispatchDriver).toHaveBeenCalledWith(
+        expect.anything(),
+        'payment.PreAuthFailed',
+        'driver-pay',
+        expect.objectContaining({ reason: 'x'.repeat(200) }),
+        ['/mock/templates'],
+        mockPubSub,
+      );
+      const sse = published('csms_events').find((m) => m['type'] === 'payment.preAuthFailed');
+      expect(sse?.['reason']).toBe('x'.repeat(200));
+    });
+
+    it('stops and faults the session when the hold could not be recorded', async () => {
+      mockAuthorizeSessionHold.mockResolvedValueOnce({
+        outcome: 'record_failed',
+        reason: 'connection reset',
+      });
+      await setup();
+      setupSqlResults(...driverStartedResults());
+
+      await emitDriverStarted('tx-record-failed');
+
+      expect(stopCommands()).toHaveLength(1);
+      expect(faultUpdate()?.values).toContain('PaymentFailed');
+      const supportReason = 'Payment recording failed. Please contact support.';
+      expect(mockDispatchDriver).toHaveBeenCalledWith(
+        expect.anything(),
+        'payment.PreAuthFailed',
+        'driver-pay',
+        { stationId: 'CS-001', transactionId: 'tx-record-failed', reason: supportReason },
+        ['/mock/templates'],
+        mockPubSub,
+      );
+      expect(published('csms_events')).toContainEqual({
+        type: 'payment.preAuthFailed',
+        sessionId: 'session-preauth',
+        transactionId: 'tx-record-failed',
+        reason: supportReason,
+      });
+    });
+
+    it('faults the session even when the stop and SSE publishes fail', async () => {
+      mockAuthorizeSessionHold.mockResolvedValueOnce({
+        outcome: 'declined',
+        reason: 'card_declined',
+        paymentRecordId: 9,
+      });
+      await setup();
+      vi.mocked(mockPubSub.publish).mockRejectedValue(new Error('redis down'));
+      setupSqlResults(...driverStartedResults());
+
+      await expect(emitDriverStarted('tx-publish-fails')).resolves.toBeUndefined();
+
+      // The eager fault does not depend on the publish (P4).
+      expect(faultUpdate()?.values).toContain('PaymentFailed');
+    });
+
+    it.each([
+      { outcome: { outcome: 'no_method' }, reason: 'MissingPaymentMethod' },
+      {
+        outcome: { outcome: 'declined', reason: 'card_declined', paymentRecordId: 9 },
+        reason: 'PaymentFailed',
+      },
+    ])(
+      'still stops a $reason session when its notification and SSE fail',
+      async ({ outcome, reason }) => {
+        mockAuthorizeSessionHold.mockResolvedValueOnce(outcome);
+        mockDispatchDriver.mockImplementation((_sql: unknown, eventType: unknown) => {
+          if (String(eventType).startsWith('payment.')) throw new Error('dispatch boom');
+          return Promise.resolve();
+        });
+        try {
+          await setup();
+          vi.mocked(mockPubSub.publish).mockImplementation((channel) =>
+            channel === 'csms_events' ? Promise.reject(new Error('redis down')) : Promise.resolve(),
+          );
+          setupSqlResults(...driverStartedResults());
+
+          await expect(emitDriverStarted('tx-notify-fails')).resolves.toBeUndefined();
+
+          expect(stopCommands()).toHaveLength(1);
+          expect(faultUpdate()?.values).toContain(reason);
+        } finally {
+          // Back to the module default (resolves) for the following tests.
+          mockDispatchDriver.mockImplementation(() => Promise.resolve());
+        }
+      },
+    );
 
     it('skips pre-auth when no driver on session', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
       await setup();
 
       setupSqlResults(
@@ -2520,521 +2655,7 @@ describe('Event projections - coverage expansion', () => {
         }),
       );
 
-      expect(mockStripePaymentIntentsCreate).not.toHaveBeenCalled();
-    });
-
-    it('skips pre-auth when no default payment method', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
-      await setup();
-
-      setupSqlResults(
-        // First subscriber
-        [{ id: 'sta_000000000001' }],
-        [],
-        [{ id: 'session-1' }],
-        [], // UPDATE stale sessions
-        [],
-
-        [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
-        [{ driver_id: 'driver-nopay' }],
-        [
-          {
-            id: 'tariff-1',
-            price_per_kwh: '0.30',
-            price_per_minute: null,
-            price_per_session: null,
-            idle_fee_price_per_minute: null,
-            tax_rate: null,
-          },
-        ],
-        [],
-        [{ site_id: null }],
-        [{ name: null }], // resolveSiteName
-        // runPaymentGate (no session query needed)
-        [], // SELECT driver_payment_methods (empty)
-      );
-
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Started',
-          stationId: 'CS-001',
-          transactionId: 'tx-no-pm',
-          seqNo: 0,
-          triggerReason: 'Authorized',
-          timestamp: '2024-01-01T00:00:00Z',
-          idToken: 'rfid-nopay',
-          tokenType: 'ISO14443',
-        }),
-      );
-
-      expect(mockStripePaymentIntentsCreate).not.toHaveBeenCalled();
-    });
-
-    it('skips pre-auth when no encryption key', async () => {
-      // No SETTINGS_ENCRYPTION_KEY set
-      delete process.env['SETTINGS_ENCRYPTION_KEY'];
-      await setup();
-
-      setupSqlResults(
-        // First subscriber
-        [{ id: 'sta_000000000001' }],
-        [],
-        [{ id: 'session-1' }],
-        [], // UPDATE stale sessions
-        [],
-
-        [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
-        [{ driver_id: 'driver-1' }],
-        [
-          {
-            id: 'tariff-1',
-            price_per_kwh: '0.30',
-            price_per_minute: null,
-            price_per_session: null,
-            idle_fee_price_per_minute: null,
-            tax_rate: null,
-          },
-        ],
-        [],
-        [{ site_id: null }],
-        [{ name: null }], // resolveSiteName
-        // runPaymentGate (no session query needed)
-        [{ id: 'pm-1', stripe_customer_id: 'cus_1', stripe_payment_method_id: 'pm_1' }],
-        [], // SELECT platform settings (empty - defaults used)
-        // No site override (site_id is null)
-        [], // SELECT payment_records guard (no existing record)
-        // encryptionKey is null, so returns early before stripe settings query
-      );
-
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Started',
-          stationId: 'CS-001',
-          transactionId: 'tx-no-enc',
-          seqNo: 0,
-          triggerReason: 'Authorized',
-          timestamp: '2024-01-01T00:00:00Z',
-        }),
-      );
-
-      expect(mockStripePaymentIntentsCreate).not.toHaveBeenCalled();
-    });
-
-    it('handles pre-auth error by stopping session', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
-      mockStripePaymentIntentsCreate.mockRejectedValueOnce(new Error('card_declined'));
-      await setup();
-
-      mockLoggerError.mockClear();
-
-      // No idToken in payload, so eager OCPI check + driver_tokens lookup
-      // are skipped. Driver auto-link triggers vehicle lookup later.
-      setupSqlResults(
-        // First subscriber (TransactionEvent.Started)
-        [{ id: 'sta_000000000001' }], // 0: resolveStationId
-        [{ id: 'session-1' }], // 1: INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
-        [], // 2: UPDATE stale sessions (RETURNING id, empty)
-        [], // 3: INSERT transaction_events
-        [{ is_roaming: false }], // 5: SELECT is_roaming (eager-state seed)
-        [{ driver_id: 'driver-1' }], // 6: SELECT driver_id
-        // idToken is null on this payload, so no driver_tokens lookup
-        [], // 7: SELECT vehicle_id (auto-link)
-        [
-          {
-            group_id: 'pg-1',
-            group_name: 'Group',
-            group_priority: 5,
-            timezone: null,
-            id: 'tariff-1',
-            price_per_kwh: '0.30',
-            price_per_minute: null,
-            price_per_session: null,
-            idle_fee_price_per_minute: null,
-            reservation_fee_per_minute: null,
-            tax_rate: null,
-            restrictions: null,
-            priority: 0,
-            is_default: true,
-          },
-        ], // 9: loadStationPricing (group, tariffs, timezone)
-        [], // 10: SELECT pricing_holidays
-        [], // 12: UPDATE charging_sessions SET tariff_id
-        [], // 13: INSERT session_tariff_segments
-        [{ site_id: null }], // 14: resolveSiteId
-        [{ name: null }], // 15: resolveSiteName
-        // runPaymentGate
-        [{ id: 'pm-1', stripe_customer_id: 'cus_1', stripe_payment_method_id: 'pm_1' }], // 16: pmRows
-        [], // 21: platform settings
-        // No site override (site_id is null, so query is skipped)
-        [{ currency: 'USD' }], // 22: session currency for the pre-auth
-        [], // 23: SELECT payment_records guard
-        [], // 25: INSERT payment_records (failed)
-      );
-
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Started',
-          stationId: 'CS-001',
-          transactionId: 'tx-decline',
-          seqNo: 0,
-          triggerReason: 'Authorized',
-          timestamp: '2024-01-01T00:00:00Z',
-        }),
-      );
-
-      expect(mockLoggerError).toHaveBeenCalledWith(
-        { err: expect.any(Error) },
-        'Auto pre-auth failed, stopping session',
-      );
-
-      // Verify RequestStopTransaction was published
-      const publishCalls = (mockPubSub.publish as Mock<PubSubClient['publish']>).mock.calls;
-      const stopCmd = publishCalls.find((c) => c[0] === 'ocpp_commands');
-      expect(stopCmd).toBeDefined();
-      const stopPayload = JSON.parse(stopCmd![1]);
-      expect(stopPayload.action).toBe('RequestStopTransaction');
-      expect(stopPayload.stationId).toBe('CS-001');
-      expect(stopPayload.payload.transactionId).toBe('tx-decline');
-
-      // Verify payment failure SSE event was published
-      const sseEvent = publishCalls.find(
-        (c) => c[0] === 'csms_events' && c[1].includes('payment.preAuthFailed'),
-      );
-      expect(sseEvent).toBeDefined();
-      const ssePayload = JSON.parse(sseEvent![1]);
-      expect(ssePayload.type).toBe('payment.preAuthFailed');
-      expect(ssePayload.sessionId).toBe('session-1');
-      expect(ssePayload.reason).toBe('card_declined');
-    });
-
-    it('creates local pre_authorized record for simulated customer without calling Stripe', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
-      // Force shouldSimulateFailure to return false (success path)
-      const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
-      await setup();
-
-      // No idToken in payload, so eager OCPI check is skipped + driver_tokens
-      // lookup is skipped.
-      setupSqlResults(
-        [{ id: 'sta_000000000001' }], // 0: resolveStationId
-        [{ id: 'session-sim' }], // 1: INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
-        [], // 2: UPDATE stale sessions
-        [], // 3: INSERT transaction_events
-        [{ is_roaming: false }], // 5: SELECT is_roaming (eager-state seed)
-        [{ driver_id: 'driver-sim' }], // 6: SELECT driver_id
-        [], // 7: SELECT vehicle_id
-        [
-          {
-            group_id: 'pg-1',
-            group_name: 'Group',
-            group_priority: 5,
-            timezone: null,
-            id: 'tariff-1',
-            price_per_kwh: '0.30',
-            price_per_minute: null,
-            price_per_session: null,
-            idle_fee_price_per_minute: null,
-            reservation_fee_per_minute: null,
-            tax_rate: null,
-            restrictions: null,
-            priority: 0,
-            is_default: true,
-          },
-        ], // 9: loadStationPricing (group, tariffs, timezone)
-        [], // 10: SELECT pricing_holidays
-        [], // 12: UPDATE charging_sessions SET tariff_id
-        [], // 13: INSERT session_tariff_segments
-        [{ site_id: null }], // 14: resolveSiteId
-        [{ name: null }], // 15: resolveSiteName
-        [
-          {
-            id: 'pm-sim',
-            stripe_customer_id: 'cus_sim_000001',
-            stripe_payment_method_id: 'pm_sim_000001',
-          },
-        ], // 16: SELECT driver_payment_methods
-        [], // 21: platform settings
-        [{ currency: 'USD' }], // 22: session currency for the pre-auth
-        [], // 23: payment_records guard
-        [], // 24: INSERT payment_records (pre_authorized, simulated)
-      );
-
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Started',
-          stationId: 'CS-001',
-          transactionId: 'tx-sim-preauth',
-          seqNo: 0,
-          triggerReason: 'Authorized',
-          timestamp: '2024-01-01T00:00:00Z',
-        }),
-      );
-
-      // Stripe should never be called for simulated customers
-      expect(mockStripePaymentIntentsCreate).not.toHaveBeenCalled();
-
-      // Verify a payment_records INSERT happened with pre_authorized status
-      const prInsert = sqlCalls.find(
-        (c) =>
-          c.strings.some((s) => s.includes('payment_records')) &&
-          c.strings.some((s) => s.includes('INSERT')),
-      );
-      expect(prInsert).toBeDefined();
-
-      mathRandomSpy.mockRestore();
-    });
-
-    it('pre-authorizes in the company currency when the session currency is null', async () => {
-      const { getCompanyCurrency } = await import('@evtivity/database');
-      vi.mocked(getCompanyCurrency).mockResolvedValue('EUR');
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
-      // Force shouldSimulateFailure to return false (success path)
-      const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
-      await setup();
-
-      // No idToken in payload, so eager OCPI check is skipped + driver_tokens
-      // lookup is skipped.
-      setupSqlResults(
-        [{ id: 'sta_000000000001' }], // 0: resolveStationId
-        [{ id: 'session-sim' }], // 1: INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
-        [], // 2: UPDATE stale sessions
-        [], // 3: INSERT transaction_events
-        [{ is_roaming: false }], // 5: SELECT is_roaming (eager-state seed)
-        [{ driver_id: 'driver-sim' }], // 6: SELECT driver_id
-        [], // 7: SELECT vehicle_id
-        [
-          {
-            group_id: 'pg-1',
-            group_name: 'Group',
-            group_priority: 5,
-            timezone: null,
-            id: 'tariff-1',
-            price_per_kwh: '0.30',
-            price_per_minute: null,
-            price_per_session: null,
-            idle_fee_price_per_minute: null,
-            reservation_fee_per_minute: null,
-            tax_rate: null,
-            restrictions: null,
-            priority: 0,
-            is_default: true,
-          },
-        ], // 9: loadStationPricing (group, tariffs, timezone)
-        [], // 10: SELECT pricing_holidays
-        [], // 12: UPDATE charging_sessions SET tariff_id
-        [], // 13: INSERT session_tariff_segments
-        [{ site_id: null }], // 14: resolveSiteId
-        [{ name: null }], // 15: resolveSiteName
-        [
-          {
-            id: 'pm-sim',
-            stripe_customer_id: 'cus_sim_000001',
-            stripe_payment_method_id: 'pm_sim_000001',
-          },
-        ], // 16: SELECT driver_payment_methods
-        [], // 21: platform settings
-        [{ currency: null }], // 22: session currency for the pre-auth
-        [], // 23: payment_records guard
-        [], // 24: INSERT payment_records (pre_authorized, simulated)
-      );
-
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Started',
-          stationId: 'CS-001',
-          transactionId: 'tx-sim-preauth',
-          seqNo: 0,
-          triggerReason: 'Authorized',
-          timestamp: '2024-01-01T00:00:00Z',
-        }),
-      );
-
-      // Stripe should never be called for simulated customers
-      expect(mockStripePaymentIntentsCreate).not.toHaveBeenCalled();
-
-      // Verify a payment_records INSERT happened with pre_authorized status
-      const prInsert = sqlCalls.find(
-        (c) =>
-          c.strings.some((s) => s.includes('payment_records')) &&
-          c.strings.some((s) => s.includes('INSERT')),
-      );
-      expect(prInsert?.values).toContain('EUR');
-
-      mathRandomSpy.mockRestore();
-      vi.mocked(getCompanyCurrency).mockResolvedValue('USD');
-    });
-
-    it('pre-authorizes in the company currency when the session row is missing', async () => {
-      const { getCompanyCurrency } = await import('@evtivity/database');
-      vi.mocked(getCompanyCurrency).mockResolvedValue('EUR');
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
-      // Force shouldSimulateFailure to return false (success path)
-      const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
-      await setup();
-
-      // No idToken in payload, so eager OCPI check is skipped + driver_tokens
-      // lookup is skipped.
-      setupSqlResults(
-        [{ id: 'sta_000000000001' }], // 0: resolveStationId
-        [{ id: 'session-sim' }], // 1: INSERT charging_sessions ON CONFLICT DO UPDATE RETURNING id
-        [], // 2: UPDATE stale sessions
-        [], // 3: INSERT transaction_events
-        [{ is_roaming: false }], // 5: SELECT is_roaming (eager-state seed)
-        [{ driver_id: 'driver-sim' }], // 6: SELECT driver_id
-        [], // 7: SELECT vehicle_id
-        [
-          {
-            group_id: 'pg-1',
-            group_name: 'Group',
-            group_priority: 5,
-            timezone: null,
-            id: 'tariff-1',
-            price_per_kwh: '0.30',
-            price_per_minute: null,
-            price_per_session: null,
-            idle_fee_price_per_minute: null,
-            reservation_fee_per_minute: null,
-            tax_rate: null,
-            restrictions: null,
-            priority: 0,
-            is_default: true,
-          },
-        ], // 9: loadStationPricing (group, tariffs, timezone)
-        [], // 10: SELECT pricing_holidays
-        [], // 12: UPDATE charging_sessions SET tariff_id
-        [], // 13: INSERT session_tariff_segments
-        [{ site_id: null }], // 14: resolveSiteId
-        [{ name: null }], // 15: resolveSiteName
-        [
-          {
-            id: 'pm-sim',
-            stripe_customer_id: 'cus_sim_000001',
-            stripe_payment_method_id: 'pm_sim_000001',
-          },
-        ], // 16: SELECT driver_payment_methods
-        [], // 21: platform settings
-        [], // 22: session currency for the pre-auth
-        [], // 23: payment_records guard
-        [], // 24: INSERT payment_records (pre_authorized, simulated)
-      );
-
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Started',
-          stationId: 'CS-001',
-          transactionId: 'tx-sim-preauth',
-          seqNo: 0,
-          triggerReason: 'Authorized',
-          timestamp: '2024-01-01T00:00:00Z',
-        }),
-      );
-
-      // Stripe should never be called for simulated customers
-      expect(mockStripePaymentIntentsCreate).not.toHaveBeenCalled();
-
-      // Verify a payment_records INSERT happened with pre_authorized status
-      const prInsert = sqlCalls.find(
-        (c) =>
-          c.strings.some((s) => s.includes('payment_records')) &&
-          c.strings.some((s) => s.includes('INSERT')),
-      );
-      expect(prInsert?.values).toContain('EUR');
-
-      mathRandomSpy.mockRestore();
-      vi.mocked(getCompanyCurrency).mockResolvedValue('USD');
-    });
-
-    it('applies site payment config overrides including connected account', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
-      await setup();
-
-      // Payload has idToken='rfid-site', driver pre-resolved -> driver_tokens
-      // lookup runs (empty), then vehicle auto-link runs.
-      setupSqlResults(
-        [{ id: 'sta_000000000001' }], // 0: resolveStationId
-        [], // 1: INSERT charging_sessions
-        [{ id: 'session-site' }], // 2: SELECT id
-        [], // 3: UPDATE stale
-        [], // 4: INSERT transaction_events
-
-        [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
-        [{ driver_id: 'driver-site' }], // 6: SELECT driver_id
-        [], // 7: SELECT driver_tokens by idToken (no match)
-        [], // 8: SELECT vehicle_id (auto-link)
-        [
-          {
-            group_id: 'pg-1',
-            group_name: 'Group',
-            group_priority: 5,
-            timezone: null,
-            id: 'tariff-1',
-            price_per_kwh: '0.30',
-            price_per_minute: null,
-            price_per_session: null,
-            idle_fee_price_per_minute: null,
-            reservation_fee_per_minute: null,
-            tax_rate: null,
-            restrictions: null,
-            priority: 0,
-            is_default: true,
-          },
-        ], // 10: loadStationPricing (group, tariffs, timezone)
-        [], // 11: SELECT pricing_holidays
-        [], // 13: UPDATE charging_sessions SET tariff_id
-        [], // 14: INSERT session_tariff_segments
-        [{ site_id: 'site-stripe' }], // 15: resolveSiteId
-        [{ name: 'Site Stripe' }], // 16: resolveSiteName
-        // runPaymentGate
-        [{ id: 'pm-1', stripe_customer_id: 'cus_site', stripe_payment_method_id: 'pm_site' }], // 17: pmRows
-        [], // 22: platform settings
-        [
-          {
-            id: 'spc-1',
-            pre_auth_amount_cents: 10000,
-            stripe_connected_account_id: 'acct_connected',
-          },
-        ], // 23: site payment config (override + connected account)
-        [{ currency: 'EUR' }], // 24: session currency for the pre-auth
-        [], // 25: existing payment_records guard
-        [], // 27: INSERT payment_records
-      );
-
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Started',
-          stationId: 'CS-001',
-          transactionId: 'tx-site',
-          seqNo: 0,
-          triggerReason: 'Authorized',
-          timestamp: '2024-01-01T00:00:00Z',
-          idToken: 'rfid-site',
-          tokenType: 'ISO14443',
-        }),
-      );
-
-      expect(mockStripePaymentIntentsCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          amount: 10000,
-          currency: 'eur',
-          on_behalf_of: 'acct_connected',
-          transfer_data: { destination: 'acct_connected' },
-        }),
-        expect.objectContaining({ idempotencyKey: expect.stringMatching(/^preauth_/) }),
-      );
-      // The platform fee is a percent of the net amount charged, set at
-      // capture; the hold carries none.
-      const holdParams = mockStripePaymentIntentsCreate.mock.calls[0]?.[0] as Record<
-        string,
-        unknown
-      >;
-      expect(holdParams).not.toHaveProperty('application_fee_amount');
+      expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
     });
 
     it('skips payment gate for roaming sessions', async () => {
@@ -3093,6 +2714,7 @@ describe('Event projections - coverage expansion', () => {
     });
 
     it('stops session when driver has no payment method and tariff is not free', async () => {
+      mockAuthorizeSessionHold.mockResolvedValueOnce({ outcome: 'no_method' });
       await setup();
 
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -3134,8 +2756,7 @@ describe('Event projections - coverage expansion', () => {
       sqlResults[13] = [{ site_id: null }]; // resolveSiteId
       sqlResults[14] = [{ name: null }]; // resolveSiteName
 
-      // runPaymentGate: free or paid from the session's tariff snapshot
-      sqlResults[15] = []; // SELECT driver_payment_methods (empty)
+      // runPaymentGate: paid tariff, the service finds no payment method
 
       await eventBus.emit(
         'ocpp.TransactionEvent',
@@ -3160,6 +2781,10 @@ describe('Event projections - coverage expansion', () => {
           c[1].includes('RequestStopTransaction'),
       );
       expect(stopCmd).toBeDefined();
+      expect(mockAuthorizeSessionHold).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'session-nopay-nofree', driverId: 'drv_nopay' }),
+        mockPaymentContext,
+      );
 
       consoleWarnSpy.mockRestore();
     });
@@ -3203,8 +2828,7 @@ describe('Event projections - coverage expansion', () => {
       sqlResults[13] = [{ site_id: null }]; // resolveSiteId
       sqlResults[14] = [{ name: null }]; // resolveSiteName
 
-      // runPaymentGate: free or paid from the session's tariff snapshot
-      sqlResults[15] = []; // SELECT driver_payment_methods (empty)
+      // runPaymentGate: free from the session's tariff snapshot (no hold)
 
       await eventBus.emit(
         'ocpp.TransactionEvent',
@@ -3219,6 +2843,9 @@ describe('Event projections - coverage expansion', () => {
           tokenType: 'ISO14443',
         }),
       );
+
+      // A free session needs no payment method and no hold.
+      expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
 
       // No RequestStopTransaction should be published
       const publishCalls = (mockPubSub.publish as Mock<PubSubClient['publish']>).mock.calls;
@@ -3328,684 +2955,281 @@ describe('Event projections - coverage expansion', () => {
       );
       expect(stopCmd).toBeUndefined();
     });
-  });
 
-  describe('ocpp.TransactionEvent - Auto-capture on Ended', () => {
-    it('captures Stripe payment when final cost is positive', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
+    it('stops a guest session whose payment was not authorized and emails the guest', async () => {
+      const { dispatchSystemNotification } = await import('../server/notification-dispatcher.js');
       await setup();
 
       setupSqlResults(
-        // First subscriber (main Ended handler)
-        [{ id: 'sta_000000000001' }], // 0: resolveStationId
-        [], // SELECT payment_records (no failed payment)
-        [], // 1: UPDATE charging_sessions SET status=completed
-        [
-          {
-            id: 'session-capture',
-            tariff_id: null,
-            current_cost_cents: 0,
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-            energy_delivered_wh: 10000,
-            currency: 'USD',
-            tariff_price_per_kwh: null,
-            tariff_price_per_minute: null,
-            tariff_price_per_session: null,
-            tariff_idle_fee_price_per_minute: null,
-            tariff_tax_rate: null,
-          },
-        ], // 2: SELECT session
-        [], // 3: INSERT transaction_events
-        [], // 4: carbon query (no region found)
-        [{ site_id: null }], // 5: resolveSiteId
-        [
-          {
-            driver_id: 'driver-capture',
-            energy_delivered_wh: 10000,
-            final_cost_cents: 2000,
-            currency: 'USD',
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-          },
-        ], // 5: SELECT driver info for notification
-        [{ name: null }], // 6: resolveSiteName
-        [{ ocpp_protocol: 'ocpp2.1' }], // 6b: SELECT ocpp_protocol for station_message_transaction publish
-        // Second subscriber (auto-capture Ended)
-        [
-          {
-            id: 'session-capture',
-            final_cost_cents: 2000,
-            site_id: null,
-          },
-        ], // 7: SELECT session + join
-        [
-          {
-            id: 'pr-1',
-            stripe_payment_intent_id: 'pi_capture_test',
-            driver_id: 'driver-capture',
-            pre_auth_amount_cents: 2000,
-          },
-        ], // 8: SELECT payment_records (now includes driver_id)
-        // New: captureSession query is fetched BEFORE the capture call so the
-        // top-up path knows which currency to use.
-        [{ station_ocpp_id: 'CS-001', currency: 'USD', station_uuid: 'sta_000000000001' }], // 10: SELECT captureSession (station_ocpp_id, currency, station_uuid)
-        [], // 11: UPDATE payment_records
-        [{ driver_id: 'driver-capture' }], // 12: SELECT driver_id for notification
-        [{ name: null }], // 13: resolveSiteName lookup
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [], // eager OCPI roaming check (idToken present, no match)
+        [{ id: 'session-guest' }], // INSERT charging_sessions RETURNING id
+        [], // UPDATE stale sessions
+        [], // INSERT transaction_events
+        [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
+        [{ driver_id: null }], // SELECT driver_id (null)
+        [], // driver_tokens (empty)
+        [{ status: 'pending', guest_email: 'g@test.com' }], // guest_sessions (not authorized)
+        [], // loadStationPricing: no pricing group applies
+        [{ site_id: null }], // resolveSiteId
       );
 
       await eventBus.emit(
         'ocpp.TransactionEvent',
         makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Started',
+          stationId: 'CS-001',
+          transactionId: 'tx-guest-pending',
+          seqNo: 0,
+          triggerReason: 'Authorized',
+          timestamp: '2024-01-01T00:00:00Z',
+          idToken: 'guest-token-abc',
+          tokenType: 'ISO14443',
+        }),
+      );
+
+      const publishCalls = (mockPubSub.publish as Mock<PubSubClient['publish']>).mock.calls;
+      expect(
+        publishCalls.some(
+          (c) => c[0] === 'ocpp_commands' && c[1].includes('RequestStopTransaction'),
+        ),
+      ).toBe(true);
+      expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
+      expect(vi.mocked(dispatchSystemNotification)).toHaveBeenCalledWith(
+        expect.anything(),
+        'payment.PreAuthFailed',
+        { email: 'g@test.com' },
+        expect.objectContaining({
+          transactionId: 'tx-guest-pending',
+          reason: 'Payment authorization not found',
+        }),
+        ['/mock/templates'],
+      );
+    });
+  });
+
+  describe('ocpp.TransactionEvent - Settlement on Ended', () => {
+    // The first subscriber's rows for an ended driver session, then the
+    // settlement subscriber's session row.
+    const endedResults = (
+      settlementSession: Record<string, unknown> | null,
+      ...after: unknown[][]
+    ): unknown[][] => [
+      [{ id: 'sta_000000000001' }], // resolveStationId
+      [], // SELECT payment_records (no failed payment)
+      [], // UPDATE charging_sessions SET status=completed
+      [
+        {
+          id: 'session-capture',
+          tariff_id: null,
+          current_cost_cents: 0,
+          started_at: '2024-01-01T00:00:00Z',
+          ended_at: '2024-01-01T01:00:00Z',
+          energy_delivered_wh: 10000,
+          currency: 'USD',
+          tariff_price_per_kwh: null,
+          tariff_price_per_minute: null,
+          tariff_price_per_session: null,
+          tariff_idle_fee_price_per_minute: null,
+          tariff_tax_rate: null,
+        },
+      ], // SELECT session
+      [], // INSERT transaction_events
+      [], // carbon query (no region found)
+      [{ site_id: null }], // resolveSiteId
+      [
+        {
+          driver_id: 'driver-capture',
+          energy_delivered_wh: 10000,
+          final_cost_cents: 2000,
+          currency: 'USD',
+          started_at: '2024-01-01T00:00:00Z',
+          ended_at: '2024-01-01T01:00:00Z',
+        },
+      ], // SELECT driver info for notification
+      [{ name: null }], // resolveSiteName
+      [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (station_message_transaction)
+      // Settlement subscriber
+      settlementSession == null ? [] : [settlementSession], // SELECT session + station
+      ...after,
+    ];
+    const settlementRow = (finalCostCents: number | null, currency = 'USD') => ({
+      id: 'session-capture',
+      final_cost_cents: finalCostCents,
+      station_uuid: 'sta_000000000001',
+      currency,
+      station_ocpp_id: 'CS-001',
+      site_id: 'site-cap',
+    });
+    const emitEnded = (transactionId: string) =>
+      eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
           eventType: 'Ended',
           stationId: 'CS-001',
-          transactionId: 'tx-capture',
+          transactionId,
           seqNo: 2,
           triggerReason: 'EVDeparted',
           timestamp: '2024-01-01T01:00:00Z',
         }),
       );
+    const driverCalls = (eventType: string) =>
+      mockDispatchDriver.mock.calls.filter((c: unknown[]) => c[1] === eventType);
 
-      expect(mockStripePaymentIntentsCapture).toHaveBeenCalledWith(
-        'pi_capture_test',
-        { amount_to_capture: 2000 },
-        { idempotencyKey: 'capture_pr-1' },
-      );
-      expect(mockDispatchDriver).toHaveBeenCalledWith(
+    it('settles the session through the payment service', async () => {
+      await setup();
+      setupSqlResults(...endedResults(settlementRow(2000)));
+
+      await emitEnded('tx-settle');
+
+      expect(mockSettleSessionPayment).toHaveBeenCalledTimes(1);
+      expect(mockSettleSessionPayment).toHaveBeenCalledWith('session-capture', mockPaymentContext);
+    });
+
+    it('notifies the driver of the captured amount when the capture was recorded', async () => {
+      mockSettleSessionPayment.mockResolvedValueOnce({
+        mode: 'card',
+        status: 'captured',
+        paymentRecordId: 11,
+        driverId: 'driver-capture',
+        capturedCents: 2350,
+        shortfallCents: 0,
+        recorded: true,
+      });
+      await setup();
+      setupSqlResults(...endedResults(settlementRow(2350, 'EUR'), [{ name: 'Site Cap' }]));
+
+      await emitEnded('tx-capture');
+
+      const calls = driverCalls('session.PaymentReceived');
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toEqual([
         expect.anything(),
         'session.PaymentReceived',
         'driver-capture',
-        expect.objectContaining({ amountCents: 2000 }),
+        expect.objectContaining({
+          stationId: 'CS-001',
+          transactionId: 'tx-capture',
+          amountCents: 2350,
+          amountFormatted: formatsTo('€23.50'),
+          currency: 'EUR',
+        }),
         ['/mock/templates'],
+        mockPubSub,
+      ]);
+    });
+
+    it('sends no receipt when the provider charged but the record was not updated', async () => {
+      mockSettleSessionPayment.mockResolvedValueOnce({
+        mode: 'card',
+        status: 'captured',
+        paymentRecordId: 11,
+        driverId: 'driver-capture',
+        capturedCents: 2000,
+        shortfallCents: 0,
+        recorded: false,
+      });
+      await setup();
+      setupSqlResults(...endedResults(settlementRow(2000)));
+
+      await emitEnded('tx-unrecorded');
+
+      expect(driverCalls('session.PaymentReceived')).toHaveLength(0);
+      expect(driverCalls('payment.CaptureFailed')).toHaveLength(0);
+    });
+
+    it('notifies the driver of a failed capture with the final cost and a cut reason', async () => {
+      mockSettleSessionPayment.mockResolvedValueOnce({
+        mode: 'card',
+        status: 'failed',
+        paymentRecordId: 11,
+        driverId: 'driver-fail',
+        reason: 'y'.repeat(300),
+      });
+      await setup();
+      setupSqlResults(...endedResults(settlementRow(2000)));
+
+      await emitEnded('tx-capture-fail');
+
+      const calls = driverCalls('payment.CaptureFailed');
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toEqual([
         expect.anything(),
-      );
-    });
-
-    it('cancels Stripe payment when final cost is zero or null', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
-      await setup();
-
-      setupSqlResults(
-        // First subscriber
-        [{ id: 'sta_000000000001' }], // 0: resolveStationId
-        [], // SELECT payment_records (no failed payment)
-        [], // 1: UPDATE status=completed
-        [
-          {
-            id: 'session-cancel',
-            tariff_id: null,
-            current_cost_cents: 0,
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-            energy_delivered_wh: 0,
-            currency: 'USD',
-            tariff_price_per_kwh: null,
-            tariff_price_per_minute: null,
-            tariff_price_per_session: null,
-            tariff_idle_fee_price_per_minute: null,
-            tariff_tax_rate: null,
-          },
-        ], // 2: SELECT session
-        [], // 3: INSERT transaction_events
-        [], // 4: carbon query (no region found)
-        [{ site_id: null }], // 5: resolveSiteId
-        [
-          {
-            driver_id: null,
-            energy_delivered_wh: 0,
-            final_cost_cents: null,
-            currency: 'USD',
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-          },
-        ], // 6: SELECT driver info
-        [{ ocpp_protocol: 'ocpp2.1' }], // 6b: SELECT ocpp_protocol for station_message_transaction publish
-        // Second subscriber (auto-cancel)
-        [{ id: 'session-cancel', final_cost_cents: null, site_id: null }], // 7: SELECT session
-        [{ id: 'pr-1', stripe_payment_intent_id: 'pi_cancel_test', driver_id: 'driver-cancel' }], // 7: payment records (includes driver_id)
-        [], // 9: UPDATE payment_records (cancelled)
-      );
-
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Ended',
-          stationId: 'CS-001',
-          transactionId: 'tx-cancel',
-          seqNo: 2,
-          triggerReason: 'EVDeparted',
-          timestamp: '2024-01-01T01:00:00Z',
-        }),
-      );
-
-      expect(mockStripePaymentIntentsCancel).toHaveBeenCalledWith('pi_cancel_test');
-    });
-
-    it('skips capture when no pre-authorized payment record', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
-      await setup();
-
-      setupSqlResults(
-        // First subscriber
-        [{ id: 'sta_000000000001' }], // 0
-        [], // SELECT payment_records (no failed payment)
-        [], // 1
-        [
-          {
-            id: 'session-no-pr',
-            tariff_id: null,
-            current_cost_cents: 0,
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-            energy_delivered_wh: 0,
-            currency: 'USD',
-            tariff_price_per_kwh: null,
-            tariff_price_per_minute: null,
-            tariff_price_per_session: null,
-            tariff_idle_fee_price_per_minute: null,
-            tariff_tax_rate: null,
-          },
-        ], // 2
-        [], // 3
-        [], // 4: carbon query (no region found)
-        [{ site_id: null }], // 5
-        [
-          {
-            driver_id: null,
-            energy_delivered_wh: 0,
-            final_cost_cents: null,
-            currency: 'USD',
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-          },
-        ], // 6
-        // Second subscriber
-        [{ id: 'session-no-pr', final_cost_cents: 1000, site_id: null }], // 7
-        [], // 7: No payment records
-      );
-
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Ended',
-          stationId: 'CS-001',
-          transactionId: 'tx-no-pr',
-          seqNo: 2,
-          triggerReason: 'EVDeparted',
-          timestamp: '2024-01-01T01:00:00Z',
-        }),
-      );
-
-      expect(mockStripePaymentIntentsCapture).not.toHaveBeenCalled();
-      expect(mockStripePaymentIntentsCancel).not.toHaveBeenCalled();
-    });
-
-    it('skips capture when payment intent ID is null', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
-      await setup();
-
-      setupSqlResults(
-        // First subscriber
-        [{ id: 'sta_000000000001' }],
-        [], // SELECT payment_records (no failed payment)
-        [],
-        [
-          {
-            id: 'session-null-pi',
-            tariff_id: null,
-            current_cost_cents: 0,
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-            energy_delivered_wh: 0,
-            currency: 'USD',
-            tariff_price_per_kwh: null,
-            tariff_price_per_minute: null,
-            tariff_price_per_session: null,
-            tariff_idle_fee_price_per_minute: null,
-            tariff_tax_rate: null,
-          },
-        ],
-        [],
-        [], // carbon query (no region found)
-        [{ site_id: null }],
-        [
-          {
-            driver_id: null,
-            energy_delivered_wh: 0,
-            final_cost_cents: null,
-            currency: 'USD',
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-          },
-        ],
-        // Second subscriber
-        [{ id: 'session-null-pi', final_cost_cents: 1000, site_id: null }],
-        [{ id: 'pr-1', stripe_payment_intent_id: null }], // null PI ID
-      );
-
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Ended',
-          stationId: 'CS-001',
-          transactionId: 'tx-null-pi',
-          seqNo: 2,
-          triggerReason: 'EVDeparted',
-          timestamp: '2024-01-01T01:00:00Z',
-        }),
-      );
-
-      expect(mockStripePaymentIntentsCapture).not.toHaveBeenCalled();
-    });
-
-    it('skips capture when no encryption key', async () => {
-      delete process.env['SETTINGS_ENCRYPTION_KEY'];
-      await setup();
-
-      setupSqlResults(
-        // First subscriber
-        [{ id: 'sta_000000000001' }],
-        [], // SELECT payment_records (no failed payment)
-        [],
-        [
-          {
-            id: 'session-1',
-            tariff_id: null,
-            current_cost_cents: 0,
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-            energy_delivered_wh: 0,
-            currency: 'USD',
-            tariff_price_per_kwh: null,
-            tariff_price_per_minute: null,
-            tariff_price_per_session: null,
-            tariff_idle_fee_price_per_minute: null,
-            tariff_tax_rate: null,
-          },
-        ],
-        [],
-        [], // carbon query (no region found)
-        [{ site_id: null }],
-        [
-          {
-            driver_id: null,
-            energy_delivered_wh: 0,
-            final_cost_cents: null,
-            currency: 'USD',
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-          },
-        ],
-        // Second subscriber
-        [{ id: 'session-1', final_cost_cents: 1000, site_id: null }],
-        [{ id: 'pr-1', stripe_payment_intent_id: 'pi_test' }],
-      );
-
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Ended',
-          stationId: 'CS-001',
-          transactionId: 'tx-no-enc-end',
-          seqNo: 2,
-          triggerReason: 'EVDeparted',
-          timestamp: '2024-01-01T01:00:00Z',
-        }),
-      );
-
-      expect(mockStripePaymentIntentsCapture).not.toHaveBeenCalled();
-    });
-
-    it('handles capture error gracefully', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
-      mockStripePaymentIntentsCapture.mockRejectedValueOnce(new Error('capture_failed'));
-      await setup();
-
-      mockLoggerError.mockClear();
-
-      setupSqlResults(
-        // First subscriber
-        [{ id: 'sta_000000000001' }],
-        [], // SELECT payment_records (no failed payment)
-        [],
-        [
-          {
-            id: 'session-err',
-            tariff_id: null,
-            current_cost_cents: 0,
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-            energy_delivered_wh: 0,
-            currency: 'USD',
-            tariff_price_per_kwh: null,
-            tariff_price_per_minute: null,
-            tariff_price_per_session: null,
-            tariff_idle_fee_price_per_minute: null,
-            tariff_tax_rate: null,
-          },
-        ],
-        [],
-        [], // carbon query (no region found)
-        [{ site_id: null }],
-        [
-          {
-            driver_id: null,
-            energy_delivered_wh: 0,
-            final_cost_cents: null,
-            currency: 'USD',
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-          },
-        ],
-        [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol for station_message_transaction publish
-        // Second subscriber
-        [{ id: 'session-err', final_cost_cents: 2000, site_id: null }],
-        [{ id: 'pr-1', stripe_payment_intent_id: 'pi_fail', driver_id: 'driver-fail' }],
-      );
-
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Ended',
+        'payment.CaptureFailed',
+        'driver-fail',
+        {
           stationId: 'CS-001',
           transactionId: 'tx-capture-fail',
-          seqNo: 2,
-          triggerReason: 'EVDeparted',
-          timestamp: '2024-01-01T01:00:00Z',
-        }),
-      );
-
-      expect(mockLoggerError).toHaveBeenCalledWith(
-        { err: expect.any(Error) },
-        'Auto capture/cancel failed',
-      );
+          amountFormatted: formatsTo('$20.00'),
+          reason: 'y'.repeat(200),
+        },
+        ['/mock/templates'],
+        mockPubSub,
+      ]);
+      expect(driverCalls('session.PaymentReceived')).toHaveLength(0);
     });
 
-    it('skips capture when session not found in second subscriber', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
+    it('formats a failed capture of a session without a final cost as zero', async () => {
+      mockSettleSessionPayment.mockResolvedValueOnce({
+        mode: 'card',
+        status: 'failed',
+        paymentRecordId: 11,
+        driverId: 'driver-fail',
+        reason: 'capture_failed',
+      });
       await setup();
+      setupSqlResults(...endedResults(settlementRow(null)));
 
-      setupSqlResults(
-        // First subscriber
-        [{ id: 'sta_000000000001' }],
-        [], // SELECT payment_records (no failed payment)
-        [],
-        [
-          {
-            id: 'session-gone',
-            tariff_id: null,
-            current_cost_cents: 0,
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-            energy_delivered_wh: 0,
-            currency: 'USD',
-            tariff_price_per_kwh: null,
-            tariff_price_per_minute: null,
-            tariff_price_per_session: null,
-            tariff_idle_fee_price_per_minute: null,
-            tariff_tax_rate: null,
-          },
-        ],
-        [],
-        [], // carbon query (no region found)
-        [{ site_id: null }],
-        [
-          {
-            driver_id: null,
-            energy_delivered_wh: 0,
-            final_cost_cents: null,
-            currency: 'USD',
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-          },
-        ],
-        // Second subscriber
-        [], // session not found
-      );
+      await emitEnded('tx-capture-fail-null');
 
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Ended',
-          stationId: 'CS-001',
-          transactionId: 'tx-gone',
-          seqNo: 2,
-          triggerReason: 'EVDeparted',
-          timestamp: '2024-01-01T01:00:00Z',
-        }),
-      );
-
-      expect(mockStripePaymentIntentsCapture).not.toHaveBeenCalled();
+      expect(driverCalls('payment.CaptureFailed')[0]?.[3]).toMatchObject({
+        amountFormatted: formatsTo('$0.00'),
+        reason: 'capture_failed',
+      });
     });
 
-    it('skips capture for guest payment records (driver_id is null)', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
+    it('sends nothing for a cancelled hold', async () => {
+      mockSettleSessionPayment.mockResolvedValueOnce({
+        mode: 'card',
+        status: 'cancelled',
+        paymentRecordId: 11,
+        recorded: true,
+      });
       await setup();
+      setupSqlResults(...endedResults(settlementRow(0)));
 
-      setupSqlResults(
-        // First subscriber
-        [{ id: 'sta_000000000001' }], // 0: resolveStationId
-        [], // SELECT payment_records (no failed payment)
-        [], // 1: UPDATE status=completed
-        [
-          {
-            id: 'session-guest-end',
-            tariff_id: null,
-            current_cost_cents: 0,
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-            energy_delivered_wh: 5000,
-            currency: 'USD',
-            tariff_price_per_kwh: null,
-            tariff_price_per_minute: null,
-            tariff_price_per_session: null,
-            tariff_idle_fee_price_per_minute: null,
-            tariff_tax_rate: null,
-          },
-        ], // 2: SELECT session
-        [], // 3: INSERT transaction_events
-        [], // 4: carbon query (no region found)
-        [{ site_id: null }], // 5: resolveSiteId
-        [
-          {
-            driver_id: null,
-            energy_delivered_wh: 5000,
-            final_cost_cents: 1500,
-            currency: 'USD',
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-          },
-        ], // 6: SELECT driver info
-        // Second subscriber (auto-capture)
-        [{ id: 'session-guest-end', final_cost_cents: 1500, site_id: null }], // 7: SELECT session
-        [
-          {
-            id: 'pr-guest',
-            stripe_payment_intent_id: 'pi_guest_abc',
-            driver_id: null,
-          },
-        ], // 7: payment_records with null driver_id
-      );
+      await emitEnded('tx-cancel');
 
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Ended',
-          stationId: 'CS-001',
-          transactionId: 'tx-guest-end',
-          seqNo: 2,
-          triggerReason: 'EVDeparted',
-          timestamp: '2024-01-01T01:00:00Z',
-        }),
-      );
-
-      // Stripe capture should NOT be called for guest records
-      expect(mockStripePaymentIntentsCapture).not.toHaveBeenCalled();
-      expect(mockStripePaymentIntentsCancel).not.toHaveBeenCalled();
+      expect(driverCalls('session.PaymentReceived')).toHaveLength(0);
+      expect(driverCalls('payment.CaptureFailed')).toHaveLength(0);
     });
 
-    it('simulates capture success for pi_sim_ intents', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
-      // Mock Math.random to return 0.5 (> 0.2 threshold = success)
-      const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    it.each([{ mode: 'guest' }, { mode: 'none' }])(
+      'sends nothing when the settlement outcome is $mode',
+      async (outcome) => {
+        mockSettleSessionPayment.mockResolvedValueOnce(outcome);
+        await setup();
+        setupSqlResults(...endedResults(settlementRow(1500)));
+
+        await emitEnded('tx-nothing');
+
+        expect(mockSettleSessionPayment).toHaveBeenCalledTimes(1);
+        expect(driverCalls('session.PaymentReceived')).toHaveLength(0);
+        expect(driverCalls('payment.CaptureFailed')).toHaveLength(0);
+        const tokenChanged = (mockPubSub.publish as Mock<PubSubClient['publish']>).mock.calls.some(
+          (c) => c[1].includes('token.changed'),
+        );
+        expect(tokenChanged).toBe(false);
+      },
+    );
+
+    it('skips the settlement when the session is not found', async () => {
       await setup();
+      setupSqlResults(...endedResults(null));
 
-      setupSqlResults(
-        // First subscriber
-        [{ id: 'sta_000000000001' }], // 0: resolveStationId
-        [], // SELECT payment_records (no failed payment)
-        [], // 1: UPDATE status=completed
-        [
-          {
-            id: 'session-sim-cap',
-            tariff_id: null,
-            current_cost_cents: 0,
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-            energy_delivered_wh: 10000,
-            currency: 'USD',
-            tariff_price_per_kwh: null,
-            tariff_price_per_minute: null,
-            tariff_price_per_session: null,
-            tariff_idle_fee_price_per_minute: null,
-            tariff_tax_rate: null,
-          },
-        ], // 2: SELECT session
-        [], // 3: INSERT transaction_events
-        [], // 4: carbon query (no region found)
-        [{ site_id: null }], // 5: resolveSiteId
-        [
-          {
-            driver_id: 'drv_001',
-            energy_delivered_wh: 10000,
-            final_cost_cents: 2000,
-            currency: 'USD',
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-          },
-        ], // 6: SELECT driver info
-        [{ name: null }], // 7: resolveSiteName
-        [{ ocpp_protocol: 'ocpp2.1' }], // 7b: SELECT ocpp_protocol for station_message_transaction publish
-        // Second subscriber
-        [{ id: 'session-sim-cap', final_cost_cents: 2000, site_id: null }], // 8: SELECT session
-        [
-          {
-            id: 'pr-sim-cap',
-            stripe_payment_intent_id: 'pi_sim_test123',
-            driver_id: 'drv_001',
-          },
-        ], // 8: payment_records
-        [], // 9: UPDATE payment_records (captured)
-      );
+      await emitEnded('tx-gone');
 
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Ended',
-          stationId: 'CS-001',
-          transactionId: 'tx-sim-cap-success',
-          seqNo: 2,
-          triggerReason: 'EVDeparted',
-          timestamp: '2024-01-01T01:00:00Z',
-        }),
-      );
-
-      // No real Stripe capture should be called
-      expect(mockStripePaymentIntentsCapture).not.toHaveBeenCalled();
-
-      // Verify UPDATE to captured status was executed
-      const updateCall = sqlCalls.find(
-        (c) =>
-          c.strings.some((s) => s.includes('payment_records')) &&
-          c.strings.some((s) => s.includes('captured')),
-      );
-      expect(updateCall).toBeDefined();
-
-      mathRandomSpy.mockRestore();
-    });
-
-    it('simulates capture failure for pi_sim_ intents', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
-      // Mock Math.random to return 0.1 (< 0.2 threshold = failure)
-      const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.1);
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      await setup();
-
-      setupSqlResults(
-        // First subscriber
-        [{ id: 'sta_000000000001' }], // 0: resolveStationId
-        [], // SELECT payment_records (no failed payment)
-        [], // 1: UPDATE status=completed
-        [
-          {
-            id: 'session-sim-fail',
-            tariff_id: null,
-            current_cost_cents: 0,
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-            energy_delivered_wh: 10000,
-            currency: 'USD',
-            tariff_price_per_kwh: null,
-            tariff_price_per_minute: null,
-            tariff_price_per_session: null,
-            tariff_idle_fee_price_per_minute: null,
-            tariff_tax_rate: null,
-          },
-        ], // 2: SELECT session
-        [], // 3: INSERT transaction_events
-        [], // 4: carbon query (no region found)
-        [{ site_id: null }], // 5: resolveSiteId
-        [
-          {
-            driver_id: 'drv_001',
-            energy_delivered_wh: 10000,
-            final_cost_cents: 2000,
-            currency: 'USD',
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-          },
-        ], // 6: SELECT driver info
-        [{ name: null }], // 7: resolveSiteName
-        [{ ocpp_protocol: 'ocpp2.1' }], // 7b: SELECT ocpp_protocol for station_message_transaction publish
-        // Second subscriber
-        [{ id: 'session-sim-fail', final_cost_cents: 2000, site_id: null }], // 8: SELECT session
-        [
-          {
-            id: 'pr-sim-fail',
-            stripe_payment_intent_id: 'pi_sim_test456',
-            driver_id: 'drv_001',
-          },
-        ], // 8: payment_records
-        [], // 9: UPDATE payment_records (failed)
-      );
-
-      await eventBus.emit(
-        'ocpp.TransactionEvent',
-        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
-          eventType: 'Ended',
-          stationId: 'CS-001',
-          transactionId: 'tx-sim-cap-fail',
-          seqNo: 2,
-          triggerReason: 'EVDeparted',
-          timestamp: '2024-01-01T01:00:00Z',
-        }),
-      );
-
-      // No real Stripe capture should be called
-      expect(mockStripePaymentIntentsCapture).not.toHaveBeenCalled();
-
-      // Verify UPDATE to failed status was executed
-      const failedCall = sqlCalls.find(
-        (c) =>
-          c.strings.some((s) => s.includes('payment_records')) &&
-          c.strings.some((s) => s.includes("'failed'")) &&
-          c.strings.some((s) => s.includes('UPDATE')),
-      );
-      expect(failedCall).toBeDefined();
-
-      mathRandomSpy.mockRestore();
-      consoleWarnSpy.mockRestore();
+      expect(mockSettleSessionPayment).not.toHaveBeenCalled();
     });
   });
 
@@ -4769,10 +3993,10 @@ describe('Event projections - coverage expansion', () => {
       );
     });
 
-    it('debits the prepaid balance when the session ends and skips the card capture', async () => {
-      process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
+    it('reports the prepaid debit when the session ends', async () => {
       await setup();
-      mockSettlePrepaidSession.mockResolvedValueOnce({
+      mockSettleSessionPayment.mockResolvedValueOnce({
+        mode: 'prepaid',
         tokenId: 'dtk_pp',
         debitedCents: 1000,
         balanceCents: 4000,
@@ -4813,7 +4037,17 @@ describe('Event projections - coverage expansion', () => {
         ],
         [], // SELECT ocpp_protocol
         // Second subscriber
-        [{ id: 'session-pp-end', final_cost_cents: 1000, site_id: null }],
+        [
+          {
+            id: 'session-pp-end',
+            final_cost_cents: 1000,
+            station_uuid: 'sta_000000000001',
+            currency: 'USD',
+            station_ocpp_id: 'CS-001',
+            site_id: 'site-pp',
+          },
+        ],
+        [], // pg_notify (payment.settled)
       );
 
       await eventBus.emit(
@@ -4828,15 +4062,61 @@ describe('Event projections - coverage expansion', () => {
         }),
       );
 
-      expect(mockSettlePrepaidSession).toHaveBeenCalledWith('session-pp-end', expect.anything());
-      expect(sqlCalls.some((c) => c.strings.join('?').includes("status = 'pre_authorized'"))).toBe(
-        false,
-      );
+      expect(mockSettleSessionPayment).toHaveBeenCalledWith('session-pp-end', mockPaymentContext);
       expect(mockPubSub.publish).toHaveBeenCalledWith(
         'csms_events',
         JSON.stringify({ eventType: 'token.changed', tokenId: 'dtk_pp' }),
       );
-      expect(mockStripePaymentIntentsCapture).not.toHaveBeenCalled();
+      const settled = (mockPubSub.publish as Mock<PubSubClient['publish']>).mock.calls
+        .filter((c) => c[0] === 'csms_events')
+        .map((c) => JSON.parse(c[1]) as Record<string, unknown>)
+        .find((m) => m['eventType'] === 'payment.settled');
+      expect(settled).toMatchObject({ sessionId: 'session-pp-end', siteId: 'site-pp' });
+      expect(
+        mockDispatchDriver.mock.calls.some((c: unknown[]) => c[1] === 'session.PaymentReceived'),
+      ).toBe(false);
+    });
+
+    it('continues when the token.changed publish fails after a prepaid debit', async () => {
+      await setup();
+      mockSettleSessionPayment.mockResolvedValueOnce({
+        mode: 'prepaid',
+        tokenId: 'dtk_pp',
+        debitedCents: 1000,
+        balanceCents: 4000,
+      });
+      vi.mocked(mockPubSub.publish).mockImplementation((_channel, message) =>
+        message.includes('token.changed')
+          ? Promise.reject(new Error('redis down'))
+          : Promise.resolve(),
+      );
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }],
+        [], // SELECT payment_records (no failed payment)
+        [],
+        [{ id: 'session-pp-end', tariff_id: null, current_cost_cents: 0, currency: 'USD' }],
+        [],
+        [], // carbon query
+        [{ site_id: null }],
+        [{ driver_id: null, energy_delivered_wh: 0, final_cost_cents: null, currency: 'USD' }],
+        [], // SELECT ocpp_protocol
+        [{ id: 'session-pp-end', final_cost_cents: 1000, station_uuid: null, currency: 'USD' }],
+      );
+
+      await expect(
+        eventBus.emit(
+          'ocpp.TransactionEvent',
+          makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+            eventType: 'Ended',
+            stationId: 'CS-001',
+            transactionId: 'tx-pp-end-2',
+            seqNo: 2,
+            triggerReason: 'EVDeparted',
+            timestamp: '2024-01-01T01:00:00Z',
+          }),
+        ),
+      ).resolves.toBeUndefined();
+      expect(mockSettleSessionPayment).toHaveBeenCalledTimes(1);
     });
   });
 });

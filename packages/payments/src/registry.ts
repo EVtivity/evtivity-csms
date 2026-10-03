@@ -88,6 +88,11 @@ export class PaymentProviderRegistry {
     return this.build(settings.provider);
   }
 
+  /** The payment settings this registry builds providers from (cached reader). */
+  settings(): Promise<PaymentSettings> {
+    return this.readSettings(this.encryptionKey);
+  }
+
   /** Drop the built providers (after a settings change; pair with clearPaymentSettingsCache). */
   clearCache(): void {
     this.instances.clear();

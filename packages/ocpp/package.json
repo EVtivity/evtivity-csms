@@ -19,6 +19,7 @@
   "dependencies": {
     "@evtivity/database": "*",
     "@evtivity/lib": "*",
+    "@evtivity/payments": "*",
     "@peculiar/asn1-ocsp": "^2.10.0",
     "@peculiar/asn1-schema": "^2.10.0",
     "@peculiar/asn1-x509": "^2.10.0",
@@ -29,7 +30,6 @@
     "ioredis": "^5.9.3",
     "nodemailer": "^10.0.11",
     "postgres": "^3.4.8",
-    "stripe": "^20.3.1",
     "ws": "^8.19.0",
     "zod": "^3.24.0"
   },
