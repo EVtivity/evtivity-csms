@@ -430,6 +430,10 @@ const siteStationItem = z
     securityProfile: z
       .number()
       .describe('OCPP security profile level (0=none, 1=basic auth, 2=basic auth + TLS, 3=mTLS)'),
+    ocppProtocol: z
+      .string()
+      .nullable()
+      .describe('OCPP protocol the station speaks (ocpp1.6 or ocpp2.1), null before it connects'),
     lastHeartbeat: z.coerce
       .date()
       .nullable()
@@ -1297,6 +1301,7 @@ export function siteRoutes(app: FastifyInstance): void {
             serialNumber: chargingStations.serialNumber,
             availability: chargingStations.availability,
             securityProfile: chargingStations.securityProfile,
+            ocppProtocol: chargingStations.ocppProtocol,
             lastHeartbeat: chargingStations.lastHeartbeat,
             isOnline: chargingStations.isOnline,
             createdAt: chargingStations.createdAt,

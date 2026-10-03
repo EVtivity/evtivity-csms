@@ -41,13 +41,17 @@ const PNC_KEYS = [
 const HOSTNAME =
   /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/;
 
-const ocspAllowedHost = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .refine((host) => HOSTNAME.test(host) || isIP(host) !== 0, {
-    message: 'Must be a hostname or IP address without scheme or port',
-  });
+// Checked in the handler (normalizeOcspHosts): zod-to-json-schema strips
+// .refine(), .trim(), and .toLowerCase(), and Fastify validates the body with
+// the JSON Schema only.
+const ocspAllowedHost = z.string().max(253);
+
+/** Trimmed, lowercased, de-duplicated hosts, or null when one is not a hostname or IP. */
+function normalizeOcspHosts(hosts: string[]): string[] | null {
+  const normalized = hosts.map((host) => host.trim().toLowerCase());
+  if (normalized.some((host) => !HOSTNAME.test(host) && isIP(host) === 0)) return null;
+  return [...new Set(normalized)];
+}
 
 const updatePncSettingsBody = z.object({
   enabled: z.boolean().optional().describe('Enable or disable Plug and Charge'),
@@ -130,7 +134,10 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
         body: zodSchema(updatePncSettingsBody),
         response: {
           200: successResponse,
-          400: errorWith('Private url', [ERROR_CODES.PRIVATE_URL]),
+          400: errorWith('Private url or invalid OCSP host', [
+            ERROR_CODES.PRIVATE_URL,
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
         },
       },
     },
@@ -145,6 +152,18 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
         await reply.status(400).send({
           error: 'Hubject base URL must not point to a private or internal address',
           code: 'PRIVATE_URL',
+        });
+        return;
+      }
+
+      const ocspHosts =
+        body.ocspAllowedPrivateHosts !== undefined
+          ? normalizeOcspHosts(body.ocspAllowedPrivateHosts)
+          : undefined;
+      if (ocspHosts === null) {
+        await reply.status(400).send({
+          error: 'OCSP allowed hosts must be hostnames or IP addresses without scheme or port',
+          code: 'VALIDATION_ERROR',
         });
         return;
       }
@@ -176,11 +195,8 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
       if (body.expirationCriticalDays !== undefined) {
         updates.push({ key: 'pnc.expirationCriticalDays', value: body.expirationCriticalDays });
       }
-      if (body.ocspAllowedPrivateHosts !== undefined) {
-        updates.push({
-          key: 'pnc.ocsp.allowedPrivateHosts',
-          value: [...new Set(body.ocspAllowedPrivateHosts)],
-        });
+      if (ocspHosts !== undefined) {
+        updates.push({ key: 'pnc.ocsp.allowedPrivateHosts', value: ocspHosts });
       }
 
       // Snapshot prior values so the audit entries can carry an honest

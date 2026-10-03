@@ -5,6 +5,7 @@ import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import {
   formatCurrencyAmount,
+  formatFlatPrice as formatLocaleFlatPrice,
   formatUnitPrice as formatLocaleUnitPrice,
 } from '@evtivity/lib/currency';
 import { formatNumber as formatLocaleNumber } from '@evtivity/lib/number';
@@ -40,6 +41,11 @@ export function formatCents(cents: number | null | undefined, currency: string):
  */
 export function formatUnitPrice(amount: number, currency: string): string {
   return formatLocaleUnitPrice(amount, currency, uiLocale());
+}
+
+/** Format a flat amount in major units (a session fee) as money, rounded to the cent. */
+export function formatFlatPrice(amount: number, currency: string): string {
+  return formatLocaleFlatPrice(amount, currency, uiLocale());
 }
 
 /** Format a tax rate (0.19) as a percentage number in the UI language without trailing zeros (19). */

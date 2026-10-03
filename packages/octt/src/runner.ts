@@ -398,12 +398,12 @@ async function provisionTestTariff(
   `);
 
   // Create a tariff matching TC_I_109 expected values:
-  // energy: 0.25/kWh, idle: 0.10/min, fixed: 0.50, tax: 20% VAT
+  // energy: 0.25/kWh, idle: 0.10/min, fixed: 0.50, tax: 20% VAT (tax_rate is a fraction)
   await db.execute(sql`
     INSERT INTO tariffs (id, pricing_group_id, name, price_per_kwh, price_per_minute,
                          price_per_session, idle_fee_price_per_minute, tax_rate, is_active, priority, is_default)
     VALUES (${tariffId}, ${pricingGroupId}, 'OCTT Test Tariff', '0.25', '0.00',
-            '0.50', '0.10', '20', true, 0, true)
+            '0.50', '0.10', '0.20', true, 0, true)
     ON CONFLICT DO NOTHING
   `);
 

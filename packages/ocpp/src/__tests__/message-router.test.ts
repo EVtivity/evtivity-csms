@@ -22,6 +22,7 @@ function makeCtx(action: string, protocolVersion = 'ocpp2.1'): HandlerContext {
       authenticated: true,
       pendingMessages: new Map(),
       bootStatus: null,
+      readyAnnounced: false,
     },
     protocolVersion,
     messageId: 'msg-1',

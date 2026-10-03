@@ -74,7 +74,8 @@ const STATE_BODIES: Record<StationMessageState, string> = {
   occupied: '{{stationOcppId}}\nTap card or open app\nto start charging',
   reserved:
     'Reserved\n{{#if driverFirstName}}for {{driverFirstName}}{{/if}}\nuntil {{reservationExpiresAt}}',
-  charging: 'Charging\n{{energyKwh}} kWh / {{powerKw}} kW\n{{costFormatted}}\n{{elapsedFormatted}}',
+  charging:
+    'Charging\n{{energyKwh}} kWh{{#if powerKw}} / {{powerKw}} kW{{/if}}\n{{costFormatted}}\n{{elapsedFormatted}}',
   suspended: 'Charging paused\n{{#if idleFeeRate}}Idle fee {{idleFeeRate}} after grace{{/if}}',
   discharging: 'Discharging to grid\n{{energyKwh}} kWh sent\n{{costFormatted}}',
   faulted: 'Station fault\nContact support\n{{supportPhone}}',
@@ -210,6 +211,12 @@ describe('renderStationMessage', () => {
       expect(result).toBe('Charging\n12.4 kWh / 22.0 kW\n$3.42\n12m');
     });
 
+    it('leaves the power out of the charging template when the station reports none', async () => {
+      await setBody(STATE_BODIES.charging);
+      const result = await renderStationMessage('charging', { ...baseContext, powerKw: '' });
+      expect(result).toBe('Charging\n12.4 kWh\n$3.42\n12m');
+    });
+
     it('renders the suspended template', async () => {
       await setBody(STATE_BODIES.suspended);
       const result = await renderStationMessage('suspended', baseContext);
@@ -243,7 +250,7 @@ describe('renderStationMessage', () => {
         stationOcppId: 'CS-1234',
       };
       const result = await renderStationMessage('charging', minimalContext);
-      expect(result).toBe('Charging\n kWh /  kW\n\n');
+      expect(result).toBe('Charging\n kWh\n\n');
     });
 
     it('omits if-blocks when the gating variable is empty', async () => {
@@ -378,7 +385,7 @@ describe('buildStationPriceContext', () => {
     expect(ctx.pricesIncludeTax).toBe(true);
   });
 
-  it('keeps fractional tax rates and sub-cent prices (no toFixed rounding)', () => {
+  it('keeps fractional tax rates and sub-cent rates, and shows the session fee as billed', () => {
     const ctx = buildStationPriceContext({
       tariff: { ...TARIFF, pricePerKwh: '0.40', pricePerMinute: null, taxRate: '0.0825' },
       priceDisplay: 'gross',
@@ -387,7 +394,9 @@ describe('buildStationPriceContext', () => {
       currency: 'USD',
       language: 'en',
     });
-    expect(ctx.pricingDisplay).toBe('Energy: $0.433/kWh | Session: $1.0825 | Idle: $0.1083/min');
+    // Rates keep up to 4 decimals; the flat session fee is money, rounded to the cent.
+    expect(ctx.pricingDisplay).toBe('Energy: $0.433/kWh | Session: $1.08 | Idle: $0.1083/min');
+    expect(ctx.sessionFee).toBe('$1.08');
     expect(ctx.timePrice).toBe('');
     expect(ctx.taxRatePercent).toBe('8.25');
   });

@@ -88,6 +88,7 @@ function makeCtx(idTag: string): {
       pendingMessages: new Map(),
       ocppProtocol: 'ocpp1.6',
       bootStatus: null,
+      readyAnnounced: false,
     },
     messageId: 'msg-1',
     action: 'Authorize',

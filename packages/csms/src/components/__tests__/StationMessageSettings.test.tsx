@@ -83,6 +83,28 @@ describe('StationMessageSettings', () => {
     });
   });
 
+  it('does not request a preview before the templates load', async () => {
+    let resolveTemplates: (value: typeof TEMPLATES) => void = () => {};
+    getMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveTemplates = resolve;
+      }),
+    );
+    renderSettings({ 'stationMessage.language': 'en' });
+
+    // Longer than the 300 ms preview debounce, while the body is still empty.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(postMock).not.toHaveBeenCalled();
+
+    resolveTemplates(TEMPLATES);
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith(
+        '/v1/station-message-templates/preview',
+        expect.objectContaining({ body: 'EN available' }),
+      );
+    });
+  });
+
   it('switches the edited template language and saves with it', async () => {
     renderSettings({ 'stationMessage.language': 'de' });
     await waitFor(() => {

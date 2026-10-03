@@ -12,7 +12,30 @@ import type { HandlerContext } from '../../../server/middleware/pipeline.js';
 // .limit() so both call shapes resolve to the same queued value.
 let whereQueue: Array<unknown[] | Error>;
 const insertValuesFn = vi.fn().mockResolvedValue(undefined);
+// Tariff rows the shared resolver (server/station-tariff.ts) returns, first row wins.
 const executeFn = vi.fn();
+const resolveStationTariffMock = vi.fn(
+  async (_sql: unknown, _stationUuid: string, _driverId: string | null) => {
+    const rows = (await executeFn()) as Array<Record<string, unknown>>;
+    const row = rows[0];
+    if (row == null) return null;
+    return {
+      id: row['id'],
+      pricePerKwh: row['price_per_kwh'],
+      pricePerMinute: row['price_per_minute'],
+      pricePerSession: row['price_per_session'],
+      idleFeePricePerMinute: row['idle_fee_price_per_minute'],
+      reservationFeePerMinute: null,
+      taxRate: row['tax_rate'],
+    };
+  },
+);
+const clientMock = vi.fn(() => Promise.resolve([{ id: 'sta_cs001' }]));
+
+vi.mock('../../../server/station-tariff.js', () => ({
+  resolveStationTariff: (...args: [unknown, string, string | null]) =>
+    resolveStationTariffMock(...args),
+}));
 
 function nextResult(): PromiseLike<unknown[]> & { limit: () => Promise<unknown[]> } {
   const queued = whereQueue.shift();
@@ -38,8 +61,8 @@ vi.mock('@evtivity/database', () => ({
   db: {
     select: selectFn,
     insert: vi.fn(() => ({ values: insertValuesFn })),
-    execute: executeFn,
   },
+  client: clientMock,
   driverTokens: {
     id: 'id',
     driverId: 'driver_id',
@@ -109,6 +132,7 @@ function makeCtx(payload: Record<string, unknown>): {
       pendingMessages: new Map(),
       ocppProtocol: 'ocpp2.1',
       bootStatus: null,
+      readyAnnounced: false,
     },
     messageId: 'msg-1',
     action: 'Authorize',
@@ -471,6 +495,22 @@ describe('v2_1 Authorize handler', () => {
       idleTime: { prices: [{ priceMinute: 0.05 }], taxRates: [{ type: 'VAT', tax: 8 }] },
       fixedFee: { prices: [{ priceFixed: 2 }], taxRates: [{ type: 'VAT', tax: 8 }] },
     });
+    // Resolved like session pricing: the station's internal id and the token's driver.
+    expect(resolveStationTariffMock).toHaveBeenCalledWith(clientMock, 'sta_cs001', 'drv_8');
+  });
+
+  it('uses the station id from the connection without looking it up', async () => {
+    whereQueue = [
+      [{ id: 'dtk_s', driverId: 'drv_s', isActive: true, expiresAt: null, revokedAt: null }],
+      [],
+    ];
+    const { handleAuthorize } = await import('../../../handlers/v2_1/authorize.handler.js');
+    const { ctx } = makeCtx({ idToken: { idToken: 'known-station', type: 'ISO14443' } });
+    ctx.stationDbId = 'sta_known';
+    await handleAuthorize(ctx);
+
+    expect(clientMock).not.toHaveBeenCalled();
+    expect(resolveStationTariffMock).toHaveBeenCalledWith(clientMock, 'sta_known', 'drv_s');
   });
 
   it('sends net prices for a tariff entered on the gross tax basis', async () => {

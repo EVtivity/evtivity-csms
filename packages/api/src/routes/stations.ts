@@ -1567,10 +1567,10 @@ export function stationRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
-      return {
-        ...station,
-        hasPassword: station.basicAuthPasswordHash != null,
-      };
+      // The response schema passes extra fields through, so the password hash
+      // is dropped here and only reported as hasPassword.
+      const { basicAuthPasswordHash, ...publicStation } = station;
+      return { ...publicStation, hasPassword: basicAuthPasswordHash != null };
     },
   );
 

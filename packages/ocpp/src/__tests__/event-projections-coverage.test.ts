@@ -278,6 +278,9 @@ describe('Event projections - coverage expansion', () => {
 
   async function setup() {
     const { registerProjections } = await import('../server/event-projections.js');
+    // Pricing holidays are cached per process; each test expects its own lookup.
+    const { clearPricingHolidayCache } = await import('../server/station-tariff.js');
+    clearPricingHolidayCache();
     registerProjections(eventBus, mockPubSub);
   }
 
@@ -1564,6 +1567,90 @@ describe('Event projections - coverage expansion', () => {
       });
       expect(mockPriceSessionAt).toHaveBeenCalled();
       expect(costUpdateCalls.length).toBe(0);
+    });
+  });
+
+  describe('ocpp.MeterValues - station screen refresh', () => {
+    const meterValuesEvent = () =>
+      makeDomainEvent('ocpp.MeterValues', 'CS-001', {
+        stationId: 'CS-001',
+        transactionId: 'tx-1',
+        source: 'TransactionEvent',
+        meterValues: [
+          {
+            timestamp: '2024-01-01T00:30:00Z',
+            sampledValue: [
+              {
+                measurand: 'Energy.Active.Import.Register',
+                value: 5000,
+                unitOfMeasure: { unit: 'Wh' },
+              },
+            ],
+          },
+        ],
+      });
+    const activeSession = (protocol: string) => ({
+      id: 'session-1',
+      transaction_id: 'tx-1',
+      ocpp_protocol: protocol,
+      tariff_id: 'tariff-1',
+      energy_delivered_wh: 5000,
+      current_cost_cents: 100,
+    });
+    const screenPublishes = () =>
+      (mockPubSub.publish as Mock<PubSubClient['publish']>).mock.calls
+        .filter((c: unknown[]) => c[0] === 'station_message_transaction')
+        .map((c: unknown[]) => JSON.parse(c[1] as string) as Record<string, unknown>);
+
+    it('re-renders the screen of an OCPP 2.1 session once its new cost is stored', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [{ id: 'session-1', evse_id: 'evs_1' }], // resolveMeterValueSession by transactionId
+        [], // INSERT meter_values
+        [], // SELECT previous energy
+        [], // UPDATE meter_start
+        [], // UPDATE energy
+        [activeSession('ocpp2.1')], // active sessions
+        [{ site_id: null }], // resolveSiteId
+      );
+      mockPriceSessionAt.mockResolvedValueOnce(costBreakdown(250));
+
+      await eventBus.emit('ocpp.MeterValues', meterValuesEvent());
+
+      expect(screenPublishes()).toEqual([
+        {
+          sessionId: 'session-1',
+          internalStationId: 'sta_000000000001',
+          stationOcppId: 'CS-001',
+          ocppProtocol: 'ocpp2.1',
+          eventType: 'updated',
+          chargingState: null,
+        },
+      ]);
+    });
+
+    it.each([
+      ['the cost is unchanged', 'ocpp2.1', 100],
+      ['the station is OCPP 1.6', 'ocpp1.6', 250],
+    ])('does not re-render when %s', async (_case, protocol, costCents) => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }],
+        [{ id: 'session-1', evse_id: 'evs_1' }],
+        [],
+        [],
+        [],
+        [],
+        [activeSession(protocol)],
+        [{ site_id: null }],
+      );
+      mockPriceSessionAt.mockResolvedValueOnce(costBreakdown(costCents));
+
+      await eventBus.emit('ocpp.MeterValues', meterValuesEvent());
+
+      expect(mockPriceSessionAt).toHaveBeenCalledTimes(1);
+      expect(screenPublishes()).toEqual([]);
     });
   });
 

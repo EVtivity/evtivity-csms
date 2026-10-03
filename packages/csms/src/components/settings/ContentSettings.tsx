@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { UiLanguage } from '@evtivity/lib/languages';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTab } from '@/hooks/use-tab';
 import { SaveButton } from '@/components/save-button';
@@ -10,13 +11,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { WysiwygEditor } from '@/components/wysiwyg-editor';
+import { LANGUAGES } from '@/components/ui/language-select';
 import { api } from '@/lib/api';
 
 export function ContentSettings(): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
 
-  const [contentLang, setContentLang] = useState<'en' | 'de' | 'es' | 'zh'>('en');
+  const [contentLang, setContentLang] = useState<UiLanguage>('en');
   const [privacyContent, setPrivacyContent] = useState('');
   const [termsContent, setTermsContent] = useState('');
   const [contentSubTab, setContentSubTab] = useTab('privacy', 'sub');
@@ -66,10 +68,10 @@ export function ContentSettings(): React.JSX.Element {
       <CardContent>
         <div className="grid grid-cols-[180px_1fr] gap-6">
           <div className="space-y-1">
-            <Label className="mb-2 block text-xs text-muted-foreground leading-6">
+            <Label className="mb-2 block text-xs text-muted-foreground">
               {t('settings.language')}
             </Label>
-            {(['en', 'de', 'es', 'zh'] as const).map((lang) => (
+            {LANGUAGES.map(({ code: lang, label }) => (
               <button
                 key={lang}
                 type="button"
@@ -82,13 +84,7 @@ export function ContentSettings(): React.JSX.Element {
                     : 'text-foreground hover:bg-muted'
                 }`}
               >
-                {lang === 'en'
-                  ? 'English'
-                  : lang === 'de'
-                    ? 'Deutsch'
-                    : lang === 'es'
-                      ? 'Espa\u00f1ol'
-                      : '\u4e2d\u6587'}
+                {label}
               </button>
             ))}
           </div>

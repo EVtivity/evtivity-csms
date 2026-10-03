@@ -894,5 +894,13 @@
     "empty": "您还没有关注任何充电站。",
     "removeTitle": "取消关注",
     "removeMessage": "当该充电站空闲时，你将不再收到通知。"
+  },
+  "authFooter": {
+    "privacyPolicy": "隐私政策",
+    "termsOfService": "服务条款",
+    "allRightsReserved": "{{year}} {{name}} 版权所有",
+    "recaptchaProtected": "受 reCAPTCHA 保护。",
+    "recaptchaPrivacy": "隐私",
+    "recaptchaTerms": "条款"
   }
 }

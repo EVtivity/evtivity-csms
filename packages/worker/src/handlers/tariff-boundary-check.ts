@@ -45,6 +45,7 @@ export async function tariffBoundaryCheckHandler(log: Logger): Promise<void> {
         currentCostCents: chargingSessions.currentCostCents,
         stationOcppId: chargingStations.stationId,
         ocppProtocol: chargingStations.ocppProtocol,
+        stationOnline: chargingStations.isOnline,
       })
       .from(chargingSessions)
       .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
@@ -106,7 +107,13 @@ export async function tariffBoundaryCheckHandler(log: Logger): Promise<void> {
       // payload used session.sessionId (our internal nanoid PK) so stations
       // couldn't correlate the update with any of their active
       // transactions and silently dropped it.
-      if (session.ocppProtocol != null && session.ocppProtocol.startsWith('ocpp2')) {
+      // An offline station would get the command queued and replayed later with a
+      // stale cost; the session is still split above so billing stays right.
+      if (
+        session.stationOnline &&
+        session.ocppProtocol != null &&
+        session.ocppProtocol.startsWith('ocpp2')
+      ) {
         const commandId = crypto.randomUUID();
         await pubsub.publish(
           'ocpp_commands',

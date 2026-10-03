@@ -4,20 +4,16 @@
 import DOMPurify from 'dompurify';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
+import { useTranslation } from 'react-i18next';
 import { ChevronLeft } from 'lucide-react';
+import { toUiLanguage } from '@evtivity/lib/languages';
 import { api } from '@/lib/api';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
-
-function detectLang(): 'en' | 'de' | 'es' | 'zh' {
-  const lang = navigator.language.toLowerCase();
-  if (lang.startsWith('de')) return 'de';
-  if (lang.startsWith('es')) return 'es';
-  if (lang.startsWith('zh')) return 'zh';
-  return 'en';
-}
+import { LoadingLogo } from '@/components/loading-logo';
 
 export function PrivacyPolicy(): React.JSX.Element {
-  const lang = detectLang();
+  const { t, i18n } = useTranslation();
+  const lang = toUiLanguage(i18n.language);
   const { companyName, companyLogo } = useAuthBranding();
   const { data, isLoading } = useQuery({
     queryKey: ['content', 'privacy-policy', lang],
@@ -33,10 +29,10 @@ export function PrivacyPolicy(): React.JSX.Element {
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-8"
         >
           <ChevronLeft className="h-4 w-4" />
-          Back
+          {t('nav.back')}
         </Link>
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading...</p>
+          <LoadingLogo size="inline" />
         ) : (
           // Content is sanitized with DOMPurify before rendering
           <div

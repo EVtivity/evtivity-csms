@@ -3288,5 +3288,13 @@
     },
     "segmentLine": "第 {{n}} 段：{{label}}",
     "sessionLine": "充电会话 {{date}}（{{kwh}} kWh）"
+  },
+  "authFooter": {
+    "privacyPolicy": "隐私政策",
+    "termsOfService": "服务条款",
+    "allRightsReserved": "{{year}} {{name}} 版权所有",
+    "recaptchaProtected": "受 reCAPTCHA 保护。",
+    "recaptchaPrivacy": "隐私",
+    "recaptchaTerms": "条款"
   }
 }

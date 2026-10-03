@@ -894,5 +894,13 @@
     "empty": "您還沒有關注任何充電樁。",
     "removeTitle": "取消關注",
     "removeMessage": "當該充電站空閒時，你將不再收到通知。"
+  },
+  "authFooter": {
+    "privacyPolicy": "隱私政策",
+    "termsOfService": "服務條款",
+    "allRightsReserved": "{{year}} {{name}} 版權所有",
+    "recaptchaProtected": "受 reCAPTCHA 保護。",
+    "recaptchaPrivacy": "隱私",
+    "recaptchaTerms": "條款"
   }
 }

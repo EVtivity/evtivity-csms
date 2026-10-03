@@ -51,6 +51,7 @@ import {
 } from '@evtivity/database';
 import { getSecuritySeverity } from '../lib/security-severity.js';
 import { upsertStationConfiguration } from './station-configurations.js';
+import { resolveStationTariff } from './station-tariff.js';
 import {
   resolveActiveTariff,
   generateId,
@@ -494,6 +495,34 @@ export function registerProjections(
     }
   }
 
+  // Asks the api to re-render the station screen of an OCPP 2.x transaction.
+  async function publishStationMessageTransaction(
+    screen: { stationUuid: string; stationId: string; protocol: string | null },
+    sessionId: string,
+    kind: 'started' | 'updated' | 'ended',
+    chargingState: string | null,
+  ): Promise<void> {
+    if (screen.protocol == null || !screen.protocol.startsWith('ocpp2')) return;
+    try {
+      await pubsub.publish(
+        'station_message_transaction',
+        JSON.stringify({
+          sessionId,
+          internalStationId: screen.stationUuid,
+          stationOcppId: screen.stationId,
+          ocppProtocol: screen.protocol,
+          eventType: kind,
+          chargingState,
+        }),
+      );
+    } catch (err) {
+      logger.debug(
+        { err, sessionId, kind },
+        'Station-message transaction publish failed; continuing',
+      );
+    }
+  }
+
   async function notifyOcpiPush(
     type: 'location' | 'session' | 'cdr' | 'tariff',
     ids: { siteId?: string; sessionId?: string; cdrId?: string; tariffId?: string },
@@ -623,20 +652,6 @@ export function registerProjections(
   }
 
   // Cached holiday loader (60s TTL)
-  let holidayCache: { dates: Date[]; loadedAt: number } | null = null;
-  const HOLIDAY_CACHE_TTL_MS = 60_000;
-
-  async function loadHolidays(): Promise<Date[]> {
-    const now = Date.now();
-    if (holidayCache != null && now - holidayCache.loadedAt < HOLIDAY_CACHE_TTL_MS) {
-      return holidayCache.dates;
-    }
-    const rows = await sql`SELECT date FROM pricing_holidays`;
-    const dates = rows.map((r) => new Date(r.date as string));
-    holidayCache = { dates, loadedAt: now };
-    return dates;
-  }
-
   // ---- Payment simulation helpers (used in Started/Ended handlers) ----
 
   function isSimulatedIntent(stripePaymentIntentId: string): boolean {
@@ -759,119 +774,11 @@ export function registerProjections(
     return isTariffFree(active, { reserved });
   }
 
-  async function resolvePricingGroupId(
-    stationUuid: string,
-    driverUuid: string | null,
-  ): Promise<string | null> {
-    // Single round-trip 5-tier resolution: driver > fleet > station > site >
-    // default. Each branch is a CTE that emits at most one row with its
-    // priority number; the final SELECT orders by priority and returns the
-    // winner. Mirrors the same shape used by isTariffFreeForStation() above
-    // so both call sites pay one RTT instead of up to five. Called per
-    // MeterValues batch per active session, so the savings compound under
-    // load (2000 sessions × ~10s cadence × 4 saved RTTs = ~800 fewer RTTs/s).
-    //
-    // fleet_drivers has no unique constraint on driver_id; a driver can
-    // belong to multiple fleets, and the oldest membership wins
-    // deterministically. Without ORDER BY the same driver could resolve to
-    // different tariffs across requests.
-    const rows = await sql`
-      WITH driver_group AS (
-        SELECT pgd.pricing_group_id AS id, 1 AS priority
-        FROM pricing_group_drivers pgd
-        WHERE pgd.driver_id = ${driverUuid ?? ''}
-        LIMIT 1
-      ),
-      fleet_group AS (
-        SELECT pgf.pricing_group_id AS id, 2 AS priority
-        FROM pricing_group_fleets pgf
-        JOIN fleet_drivers fd ON fd.fleet_id = pgf.fleet_id
-        WHERE fd.driver_id = ${driverUuid ?? ''}
-        ORDER BY fd.created_at ASC
-        LIMIT 1
-      ),
-      station_group AS (
-        SELECT pgs.pricing_group_id AS id, 3 AS priority
-        FROM pricing_group_stations pgs
-        WHERE pgs.station_id = ${stationUuid}
-        LIMIT 1
-      ),
-      site_group AS (
-        SELECT pgsit.pricing_group_id AS id, 4 AS priority
-        FROM pricing_group_sites pgsit
-        JOIN charging_stations cs ON cs.site_id = pgsit.site_id
-        WHERE cs.id = ${stationUuid}
-        LIMIT 1
-      ),
-      default_group AS (
-        SELECT pg.id, 5 AS priority
-        FROM pricing_groups pg
-        WHERE pg.is_default = true
-        LIMIT 1
-      )
-      SELECT id FROM (
-        SELECT id, priority FROM driver_group
-        UNION ALL SELECT id, priority FROM fleet_group
-        UNION ALL SELECT id, priority FROM station_group
-        UNION ALL SELECT id, priority FROM site_group
-        UNION ALL SELECT id, priority FROM default_group
-      ) groups
-      ORDER BY priority
-      LIMIT 1
-    `;
-    return (rows[0]?.id as string | undefined) ?? null;
-  }
-
   async function resolveTariffForStation(
     stationUuid: string,
     driverUuid: string | null,
   ): Promise<(TariffInput & { id: string }) | null> {
-    const groupId = await resolvePricingGroupId(stationUuid, driverUuid);
-    if (groupId == null) return null;
-
-    const rows = await sql`
-      SELECT id, price_per_kwh, price_per_minute, price_per_session,
-             idle_fee_price_per_minute, reservation_fee_per_minute, tax_rate,
-             restrictions, priority, is_default
-      FROM tariffs
-      WHERE pricing_group_id = ${groupId} AND is_active = true
-    `;
-    if (rows.length === 0) return null;
-
-    const tariffs: TariffWithRestrictions[] = rows.map((r) => ({
-      id: r.id as string,
-      pricePerKwh: r.price_per_kwh as string | null,
-      pricePerMinute: r.price_per_minute as string | null,
-      pricePerSession: r.price_per_session as string | null,
-      idleFeePricePerMinute: r.idle_fee_price_per_minute as string | null,
-      reservationFeePerMinute: r.reservation_fee_per_minute as string | null,
-      taxRate: r.tax_rate as string | null,
-      restrictions: r.restrictions as TariffRestrictions | null,
-      priority: r.priority as number,
-      isDefault: r.is_default as boolean,
-    }));
-
-    const holidays = await loadHolidays();
-    const tzRows = await sql<Array<{ timezone: string | null }>>`
-      SELECT s.timezone
-      FROM charging_stations cs
-      LEFT JOIN sites s ON s.id = cs.site_id
-      WHERE cs.id = ${stationUuid}
-      LIMIT 1
-    `;
-    const timezone = tzRows[0]?.timezone ?? undefined;
-    const resolved = resolveActiveTariff(tariffs, new Date(), holidays, 0, timezone);
-    if (resolved == null) return null;
-
-    return {
-      id: resolved.id,
-      pricePerKwh: resolved.pricePerKwh,
-      pricePerMinute: resolved.pricePerMinute,
-      pricePerSession: resolved.pricePerSession,
-      idleFeePricePerMinute: resolved.idleFeePricePerMinute,
-      reservationFeePerMinute: resolved.reservationFeePerMinute,
-      taxRate: resolved.taxRate,
-    };
+    return resolveStationTariff(sql, stationUuid, driverUuid);
   }
 
   safeSubscribe('station.Connected', async (event: DomainEvent) => {
@@ -911,6 +818,14 @@ export function registerProjections(
     if (siteId != null) {
       await notifyOcpiPush('location', { siteId });
     }
+  });
+
+  // The station may now receive CSMS calls (BootNotification Accepted, or its
+  // first message after a reconnect without a reboot).
+  safeSubscribe('station.Ready', async (event: DomainEvent) => {
+    const stationUuid = await getStationUuid(event);
+    if (stationUuid == null) return;
+    const ocppProtocol = (event.payload as { ocppProtocol?: string }).ocppProtocol ?? null;
 
     // Drain offline command queue for this station
     const stationOcppId = event.aggregateId;
@@ -1641,33 +1556,25 @@ export function registerProjections(
     const timestamp = payload.timestamp as string;
     const payloadJson = JSON.stringify(payload);
 
-    async function publishStationMessageTransaction(
+    const screenStationUuid = stationUuid;
+    async function publishTransactionScreen(
       sessionId: string,
       kind: 'started' | 'updated' | 'ended',
       chargingState: string | null,
     ): Promise<void> {
       try {
         const [stationRow] = await sql`
-          SELECT ocpp_protocol FROM charging_stations WHERE id = ${stationUuid}
+          SELECT ocpp_protocol FROM charging_stations WHERE id = ${screenStationUuid}
         `;
-        const protocol = stationRow?.ocpp_protocol as string | null | undefined;
-        if (protocol == null || !protocol.startsWith('ocpp2')) return;
-        await pubsub.publish(
-          'station_message_transaction',
-          JSON.stringify({
-            sessionId,
-            internalStationId: stationUuid,
-            stationOcppId: stationId,
-            ocppProtocol: protocol,
-            eventType: kind,
-            chargingState,
-          }),
+        const protocol = (stationRow?.ocpp_protocol as string | null | undefined) ?? null;
+        await publishStationMessageTransaction(
+          { stationUuid: screenStationUuid, stationId, protocol },
+          sessionId,
+          kind,
+          chargingState,
         );
       } catch (err) {
-        logger.debug(
-          { err, sessionId, kind },
-          'Station-message transaction publish failed; continuing',
-        );
+        logger.debug({ err, sessionId, kind }, 'Station protocol lookup failed; continuing');
       }
     }
 
@@ -2174,7 +2081,7 @@ export function registerProjections(
       );
       if (startedSessionId != null) {
         const startedChargingState = (payload.chargingState as string | undefined) ?? null;
-        await publishStationMessageTransaction(startedSessionId, 'started', startedChargingState);
+        await publishTransactionScreen(startedSessionId, 'started', startedChargingState);
       }
     } else if (eventType === 'Updated') {
       const updatedRows = await sql`
@@ -2285,7 +2192,7 @@ export function registerProjections(
         }
 
         const updatedChargingState = getString(payload, 'chargingState');
-        await publishStationMessageTransaction(sessionId, 'updated', updatedChargingState);
+        await publishTransactionScreen(sessionId, 'updated', updatedChargingState);
       } else {
         txBuffer.add(transactionId, event);
       }
@@ -2661,7 +2568,7 @@ export function registerProjections(
           );
         }
 
-        await publishStationMessageTransaction(sessionRow.id as string, 'ended', null);
+        await publishTransactionScreen(sessionRow.id as string, 'ended', null);
 
         // Free the per-session CostUpdated throttle entry now that the
         // session is over. Without this the Map grows unbounded over the
@@ -2960,6 +2867,17 @@ export function registerProjections(
       const previousCostCents = session.current_cost_cents as number | null;
 
       if (!(await storeRunningCost(sql, sessionId, breakdown))) continue;
+
+      // The TransactionEvent projection renders the screen before this cost is
+      // stored, so render it again with the new energy and cost.
+      if (previousCostCents !== totalCents) {
+        await publishStationMessageTransaction(
+          { stationUuid, stationId, protocol: session.ocpp_protocol as string | null },
+          sessionId,
+          'updated',
+          null,
+        );
+      }
 
       // Prepaid token on OCPP 1.6: the station gets no transactionLimit, so the
       // CSMS stops the transaction once the running cost reaches the credit.

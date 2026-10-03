@@ -3288,5 +3288,13 @@
     },
     "segmentLine": "Abschnitt {{n}}: {{label}}",
     "sessionLine": "Ladevorgang {{date}} ({{kwh}} kWh)"
+  },
+  "authFooter": {
+    "privacyPolicy": "Datenschutzerklärung",
+    "termsOfService": "Nutzungsbedingungen",
+    "allRightsReserved": "Alle Rechte vorbehalten, {{year}} {{name}}",
+    "recaptchaProtected": "Geschützt durch reCAPTCHA.",
+    "recaptchaPrivacy": "Datenschutz",
+    "recaptchaTerms": "Bedingungen"
   }
 }

@@ -116,6 +116,14 @@ export function formatUnitPrice(amount: number, currency: string, locale = 'en-U
 }
 
 /**
+ * A flat amount in major units, such as a session fee, as money: rounded to the
+ * cent as it is billed ("$0.54", not the "$0.5413" of a gross unit price).
+ */
+export function formatFlatPrice(amount: number, currency: string, locale = 'en-US'): string {
+  return formatCurrencyAmount(Math.round(amount * 100), currency, locale);
+}
+
+/**
  * Words around the prices of a tariff summary, in one language. Each pattern
  * holds a `{price}` placeholder for the formatted unit price, so the language
  * decides word order and units ("{price}/kWh", "세션 {price}").
@@ -150,10 +158,10 @@ export function formatUnitPriceWithLabel(
 }
 
 /**
- * A one-line tariff summary such as "€0.357/kWh + €0.02/min": every price
- * through formatUnitPrice in the currency and locale, the words from the
- * labels. Prices are shown as given; the caller decides net or gross
- * (tariffPriceView in @evtivity/lib/price-display).
+ * A one-line tariff summary such as "€0.357/kWh + €0.02/min": the rates
+ * through formatUnitPrice and the session fee through formatFlatPrice, in the
+ * currency and locale, the words from the labels. Prices are shown as given;
+ * the caller decides net or gross (tariffPriceView in @evtivity/lib/price-display).
  */
 export function formatTariffSummary(
   prices: TariffSummaryPrices,
@@ -162,13 +170,17 @@ export function formatTariffSummary(
   locale = 'en-US',
 ): string {
   const parts: string[] = [];
-  const add = (pattern: string, price: number | null): void => {
+  const add = (pattern: string, price: number | null, flat = false): void => {
     if (price == null || price <= 0) return;
-    parts.push(formatUnitPriceWithLabel(price, pattern, currency, locale));
+    parts.push(
+      flat
+        ? pattern.replace('{price}', formatFlatPrice(price, currency, locale))
+        : formatUnitPriceWithLabel(price, pattern, currency, locale),
+    );
   };
   add(labels.energy, prices.energy);
   add(labels.time, prices.time);
-  add(labels.session, prices.session);
+  add(labels.session, prices.session, true);
   add(labels.idle, prices.idle);
   return parts.length > 0 ? parts.join(labels.separator) : labels.free;
 }

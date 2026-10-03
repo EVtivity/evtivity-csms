@@ -894,5 +894,13 @@
     "empty": "You are not watching any stations.",
     "removeTitle": "Remove from Watching",
     "removeMessage": "You will no longer be notified when this station is free."
+  },
+  "authFooter": {
+    "privacyPolicy": "Privacy Policy",
+    "termsOfService": "Terms of Service",
+    "allRightsReserved": "All rights reserved, {{year}} {{name}}",
+    "recaptchaProtected": "Protected by reCAPTCHA.",
+    "recaptchaPrivacy": "Privacy",
+    "recaptchaTerms": "Terms"
   }
 }

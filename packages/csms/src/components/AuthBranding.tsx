@@ -4,6 +4,7 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '@/lib/api';
 import { APP_VERSION } from '@/lib/version';
@@ -113,33 +114,32 @@ export function AuthFooter({
   companyName: string | null;
   recaptchaEnabled?: boolean | undefined;
 }): React.JSX.Element {
+  const { t } = useTranslation();
   const year = new Date().getFullYear();
   const name = companyName ?? 'EVtivity';
   return (
     <footer className="mt-6 text-center text-xs text-muted-foreground space-y-1">
       <p>
         <Link to="/privacy-policy" className="hover:underline">
-          Privacy Policy
+          {t('authFooter.privacyPolicy')}
         </Link>
         {' | '}
         <Link to="/terms-of-service" className="hover:underline">
-          Terms of Service
+          {t('authFooter.termsOfService')}
         </Link>
       </p>
-      <p>
-        All rights reserved, {String(year)} {name}
-      </p>
+      <p>{t('authFooter.allRightsReserved', { year: String(year), name })}</p>
       <p>v{APP_VERSION}</p>
       {recaptchaEnabled === true && (
         <p className="pt-1">
-          Protected by reCAPTCHA.{' '}
+          {t('authFooter.recaptchaProtected')}{' '}
           <a
             href="https://policies.google.com/privacy"
             target="_blank"
             rel="noopener noreferrer"
             className="hover:underline"
           >
-            Privacy
+            {t('authFooter.recaptchaPrivacy')}
           </a>
           {' - '}
           <a
@@ -148,7 +148,7 @@ export function AuthFooter({
             rel="noopener noreferrer"
             className="hover:underline"
           >
-            Terms
+            {t('authFooter.recaptchaTerms')}
           </a>
         </p>
       )}

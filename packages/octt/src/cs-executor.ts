@@ -219,10 +219,12 @@ export async function executeCsTest(
       ON CONFLICT (station_id) DO NOTHING
     `;
 
-    // Provision css_stations row so StationSimulator can persist state
+    // Provision css_stations row so StationSimulator can persist state. The row
+    // is disabled: the fleet simulator manager starts every enabled row, and a
+    // second copy of the test station would connect to the test server too.
     await sql`
-      INSERT INTO css_stations (id, station_id, target_url, status, source_type)
-      VALUES (${dbId}, ${stationId}, ${url}, 'disconnected', 'api')
+      INSERT INTO css_stations (id, station_id, target_url, status, source_type, enabled)
+      VALUES (${dbId}, ${stationId}, ${url}, 'disconnected', 'api', false)
       ON CONFLICT (id) DO NOTHING
     `;
 

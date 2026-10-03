@@ -8534,6 +8534,8 @@ export class StationSimulator {
 
   private startMeterLoop(evseId: number): void {
     this.stopMeterLoop(evseId);
+    // A transaction resumed after a reboot can finish resuming after stop().
+    if (this.destroyed) return;
 
     const gen = this.meterGens.get(evseId);
     if (gen == null) return;

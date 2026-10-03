@@ -212,7 +212,8 @@
     --muted-foreground: 215 20.2% 65.1%;
     --accent: 217.2 32.6% 17.5%;
     --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
+    /* red-500: error text stays readable on the dark background (5.3:1). */
+    --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
     --success: 160 84% 45%;
     --success-foreground: 210 40% 98%;

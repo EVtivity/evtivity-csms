@@ -120,6 +120,7 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
     STATION_MESSAGE_LANGUAGES: actual.STATION_MESSAGE_LANGUAGES,
     isTaxBasis: actual.isTaxBasis,
     TAX_BASES: actual.TAX_BASES,
+    UI_LANGUAGES: actual.UI_LANGUAGES,
   };
 });
 
@@ -191,6 +192,56 @@ describe('Settings routes - full coverage', () => {
   beforeEach(() => {
     setupDbResults();
     vi.clearAllMocks();
+  });
+
+  // ----------------------------------------------------------------
+  // GET /v1/portal/content/:type (public legal content)
+  // ----------------------------------------------------------------
+  describe('GET /v1/portal/content/:type', () => {
+    it('returns stored content for a Korean request', async () => {
+      setupDbResults([{ key: 'content.privacyPolicy.ko', value: '<h1>Custom KO</h1>' }]);
+      const res = await app.inject({
+        method: 'GET',
+        url: '/portal/content/privacy-policy?lang=ko',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().html).toBe('<h1>Custom KO</h1>');
+    });
+
+    it('falls back to the Korean default when nothing is stored', async () => {
+      setupDbResults([]);
+      const res = await app.inject({
+        method: 'GET',
+        url: '/portal/content/terms-of-service?lang=ko',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().html).toContain('<h1>서비스 이용약관</h1>');
+    });
+
+    it('falls back to the Traditional Chinese default for zh-TW', async () => {
+      setupDbResults([]);
+      const res = await app.inject({
+        method: 'GET',
+        url: '/portal/content/privacy-policy?lang=zh-TW',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().html).toContain('<h1>隱私權政策</h1>');
+    });
+
+    it('defaults to English without a lang parameter', async () => {
+      setupDbResults([]);
+      const res = await app.inject({ method: 'GET', url: '/portal/content/privacy-policy' });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().html).toContain('<h1>Privacy Policy</h1>');
+    });
+
+    it('rejects an unsupported language', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/portal/content/privacy-policy?lang=fr',
+      });
+      expect(res.statusCode).toBe(400);
+    });
   });
 
   // ----------------------------------------------------------------

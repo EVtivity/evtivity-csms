@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, and, gt, inArray, desc } from 'drizzle-orm';
+import { eq, and, gt, inArray, desc, sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import {
   db,
@@ -370,6 +370,34 @@ export async function pushAllStationMessages(
   }
 }
 
+// Renders for one station run one at a time. Two events close together (a
+// TransactionEvent and its meter values) would otherwise both read the old
+// content hash and send the same message twice.
+const stationRenderQueues = new Map<string, Promise<void>>();
+
+export function runStationRender(
+  internalStationId: string,
+  render: () => Promise<void>,
+): Promise<void> {
+  const previous = stationRenderQueues.get(internalStationId) ?? Promise.resolve();
+  // A failed render is logged by its caller and must not block the next one.
+  const next = previous.catch(() => undefined).then(render);
+  stationRenderQueues.set(internalStationId, next);
+  void next.then(
+    () => {
+      if (stationRenderQueues.get(internalStationId) === next) {
+        stationRenderQueues.delete(internalStationId);
+      }
+    },
+    () => {
+      if (stationRenderQueues.get(internalStationId) === next) {
+        stationRenderQueues.delete(internalStationId);
+      }
+    },
+  );
+  return next;
+}
+
 export async function startStationMessageRefreshListener(
   log: FastifyBaseLogger,
 ): Promise<Subscription> {
@@ -389,11 +417,9 @@ export async function startStationMessageRefreshListener(
         ) {
           return;
         }
-        await pushAllStationMessages(
-          parsed.stationOcppId,
-          parsed.internalStationId,
-          parsed.ocppProtocol,
-          log,
+        const { stationOcppId, internalStationId, ocppProtocol } = parsed;
+        await runStationRender(internalStationId, () =>
+          pushAllStationMessages(stationOcppId, internalStationId, ocppProtocol, log),
         );
       } catch (err: unknown) {
         log.warn({ error: err }, 'station_message_refresh handler failed');
@@ -730,7 +756,7 @@ export async function clearAllTransactionMessages(
   }
 }
 
-async function loadTransactionSessionById(
+export async function loadTransactionSessionById(
   sessionId: string,
 ): Promise<TransactionSessionRow | null> {
   const [row] = await db
@@ -747,6 +773,15 @@ async function loadTransactionSessionById(
       tariffIdleFeePricePerMinute: chargingSessions.tariffIdleFeePricePerMinute,
       taxBasis: chargingSessions.taxBasis,
       tariffTaxRate: chargingSessions.tariffTaxRate,
+      // A station sends chargingState only when it changes, so the state is the
+      // one in the latest stored TransactionEvent that carried it.
+      chargingState: sql<string | null>`(
+        SELECT te.payload->>'chargingState' FROM transaction_events te
+        WHERE te.session_id = charging_sessions.id
+          AND te.payload->>'chargingState' IS NOT NULL
+        ORDER BY te.seq_no DESC, te.id DESC
+        LIMIT 1
+      )`,
     })
     .from(chargingSessions)
     .where(eq(chargingSessions.id, sessionId))
@@ -764,7 +799,7 @@ async function loadTransactionSessionById(
     energyDeliveredWh: row.energyDeliveredWh,
     currentCostCents: row.currentCostCents,
     currency: row.currency,
-    chargingState: null,
+    chargingState: row.chargingState,
     tariffIdleFeePricePerMinute: row.tariffIdleFeePricePerMinute,
     taxBasis: row.taxBasis,
     tariffTaxRate: row.tariffTaxRate,
@@ -798,28 +833,27 @@ export async function startStationMessageTransactionListener(
           return;
         }
 
-        if (parsed.eventType === 'ended') {
-          await clearAllTransactionMessages(
-            parsed.internalStationId,
-            parsed.stationOcppId,
-            parsed.ocppProtocol,
+        const { sessionId, internalStationId, stationOcppId, ocppProtocol } = parsed;
+        await runStationRender(internalStationId, async () => {
+          if (parsed.eventType === 'ended') {
+            await clearAllTransactionMessages(internalStationId, stationOcppId, ocppProtocol, log);
+            return;
+          }
+
+          const sessionRow = await loadTransactionSessionById(sessionId);
+          if (sessionRow == null) return;
+
+          // Without a chargingState in the event, keep the last state the station reported.
+          if (parsed.chargingState != null) sessionRow.chargingState = parsed.chargingState;
+
+          await pushTransactionMessage(
+            internalStationId,
+            stationOcppId,
+            ocppProtocol,
+            sessionRow,
             log,
           );
-          return;
-        }
-
-        const sessionRow = await loadTransactionSessionById(parsed.sessionId);
-        if (sessionRow == null) return;
-
-        sessionRow.chargingState = parsed.chargingState ?? null;
-
-        await pushTransactionMessage(
-          parsed.internalStationId,
-          parsed.stationOcppId,
-          parsed.ocppProtocol,
-          sessionRow,
-          log,
-        );
+        });
       } catch (err: unknown) {
         log.warn({ error: err }, 'station_message_transaction handler failed');
       }

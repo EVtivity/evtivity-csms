@@ -6,20 +6,13 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft } from 'lucide-react';
+import { toUiLanguage } from '@evtivity/lib/languages';
 import { api } from '@/lib/api';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 
-function detectLang(): 'en' | 'de' | 'es' | 'zh' {
-  const lang = navigator.language.toLowerCase();
-  if (lang.startsWith('de')) return 'de';
-  if (lang.startsWith('es')) return 'es';
-  if (lang.startsWith('zh')) return 'zh';
-  return 'en';
-}
-
 export function TermsOfService(): React.JSX.Element {
-  const { t } = useTranslation();
-  const lang = detectLang();
+  const { t, i18n } = useTranslation();
+  const lang = toUiLanguage(i18n.language);
   const { companyName, companyLogo, branding } = useAuthBranding();
   const { data, isLoading } = useQuery({
     queryKey: ['content', 'terms-of-service', lang],

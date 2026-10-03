@@ -44,6 +44,7 @@ function makeCtx(payload: Record<string, unknown>): HandlerContext {
       pendingMessages: new Map(),
       ocppProtocol: 'ocpp2.1',
       bootStatus: null,
+      readyAnnounced: false,
     },
     messageId: 'msg-1',
     action: 'GetTransactionStatus',

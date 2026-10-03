@@ -22,6 +22,7 @@ function makeCtx(
       authenticated: true,
       pendingMessages: new Map(),
       bootStatus,
+      readyAnnounced: false,
     },
     protocolVersion: 'ocpp2.1',
     messageId: 'msg-boot',

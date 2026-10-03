@@ -223,6 +223,50 @@ describe('OcppServer integration', () => {
     ws.close();
   });
 
+  describe('station.Ready', () => {
+    function collectReady(srv: OcppServer): string[] {
+      const ready: string[] = [];
+      srv.getEventBus().subscribe('station.Ready', (event) => {
+        ready.push(event.aggregateId);
+        return Promise.resolve();
+      });
+      return ready;
+    }
+
+    it('is not published when the WebSocket opens, only after BootNotification Accepted', async () => {
+      const port = getNextPort();
+      const srv = await startServer(port);
+      const ready = collectReady(srv);
+
+      const ws = await connectStation(port, 'TEST-READY-BOOT');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(ready).toEqual([]);
+
+      await bootStation(ws);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(ready).toEqual(['TEST-READY-BOOT']);
+      ws.close();
+    });
+
+    it('is published once, on the first message of a station that reconnects without a boot', async () => {
+      const port = getNextPort();
+      const srv = await startServer(port);
+      const ready = collectReady(srv);
+
+      const ws = await connectStation(port, 'TEST-READY-RECONNECT');
+      const first = waitForMessage(ws);
+      sendCall(ws, 'hb-1', 'Heartbeat', {});
+      await first;
+      const second = waitForMessage(ws);
+      sendCall(ws, 'hb-2', 'Heartbeat', {});
+      await second;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(ready).toEqual(['TEST-READY-RECONNECT']);
+      ws.close();
+    });
+  });
+
   it('tracks connections in ConnectionManager', async () => {
     const port = getNextPort();
     const srv = await startServer(port);

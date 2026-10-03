@@ -11,7 +11,7 @@ import {
   type PriceDisplay,
   type TaxBasis,
 } from '@evtivity/lib/price-display';
-import { formatTaxPercent, formatUnitPrice } from '@/lib/utils';
+import { formatFlatPrice, formatTaxPercent, formatUnitPrice } from '@/lib/utils';
 
 export interface TariffRestrictionsLite {
   timeRange?: { startTime: string; endTime: string };
@@ -84,11 +84,12 @@ export function PricingDisplay({
   const perSession = pricing.pricePerSession != null ? Number(pricing.pricePerSession) : 0;
   const idleFee = pricing.idleFeePricePerMinute != null ? Number(pricing.idleFeePricePerMinute) : 0;
   const taxRate = pricing.taxRate != null ? Number(pricing.taxRate) : 0;
+  const displayed = (price: number): number =>
+    priceForDisplay(price, taxRate, priceDisplay, resolveTaxBasis(pricing.taxBasis));
   const formatPrice = (price: number): string =>
-    formatUnitPrice(
-      priceForDisplay(price, taxRate, priceDisplay, resolveTaxBasis(pricing.taxBasis)),
-      pricing.currency,
-    );
+    formatUnitPrice(displayed(price), pricing.currency);
+  // A session fee is a flat amount, shown rounded to the cent as it is billed.
+  const formatFee = (price: number): string => formatFlatPrice(displayed(price), pricing.currency);
   const restrictionLabel = formatRestrictions(pricing.restrictions, t);
 
   if (pricing.isFreeVend === true) {
@@ -111,12 +112,12 @@ export function PricingDisplay({
       ? `${formatPrice(perKwh)}/${t('charger.unitKwh')}`
       : perMin > 0
         ? `${formatPrice(perMin)}/${t('charger.unitMin')}`
-        : formatPrice(perSession);
+        : formatFee(perSession);
 
   const breakdownLines: string[] = [];
   if (perKwh > 0) breakdownLines.push(`${formatPrice(perKwh)} ${t('charger.perKwh')}`);
   if (perMin > 0) breakdownLines.push(`${formatPrice(perMin)} ${t('charger.perMin')}`);
-  if (perSession > 0) breakdownLines.push(`${formatPrice(perSession)} ${t('charger.sessionFee')}`);
+  if (perSession > 0) breakdownLines.push(`${formatFee(perSession)} ${t('charger.sessionFee')}`);
   if (idleFee > 0) breakdownLines.push(`${formatPrice(idleFee)} ${t('charger.idleFee')}`);
 
   const taxNote =

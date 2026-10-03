@@ -26,6 +26,7 @@ function makeCtx(
       authenticated: true,
       pendingMessages: new Map(),
       bootStatus,
+      readyAnnounced: false,
     },
     protocolVersion,
     messageId: 'msg-order',

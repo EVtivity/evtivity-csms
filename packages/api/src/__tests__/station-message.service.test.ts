@@ -171,6 +171,7 @@ import {
   pushAllMessagesToAllStations,
   startStationMessageRefreshListener,
   startStationMessageTransactionListener,
+  runStationRender,
   STATION_MESSAGE_SLOT_IDLE,
   STATION_MESSAGE_SLOT_CHARGING,
   STATION_MESSAGE_SLOT_SUSPENDED,
@@ -1121,6 +1122,44 @@ describe('station-message.service', () => {
     });
   });
 
+  describe('runStationRender', () => {
+    it('runs renders for one station one after the other', async () => {
+      const order: string[] = [];
+      let releaseFirst: () => void = () => {};
+      const first = runStationRender('sta_q', async () => {
+        order.push('first:start');
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+        order.push('first:end');
+      });
+      const second = runStationRender('sta_q', async () => {
+        order.push('second');
+        await Promise.resolve();
+      });
+      const other = runStationRender('sta_other', async () => {
+        order.push('other');
+        await Promise.resolve();
+      });
+
+      await other;
+      expect(order).toEqual(['first:start', 'other']);
+      releaseFirst();
+      await Promise.all([first, second]);
+      expect(order).toEqual(['first:start', 'other', 'first:end', 'second']);
+    });
+
+    it('runs the next render after a failed one', async () => {
+      const failed = runStationRender('sta_fail', () => Promise.reject(new Error('boom')));
+      const next = vi.fn(() => Promise.resolve());
+      const after = runStationRender('sta_fail', next);
+
+      await expect(failed).rejects.toThrow('boom');
+      await after;
+      expect(next).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('startStationMessageRefreshListener', () => {
     async function getHandler() {
       await startStationMessageRefreshListener(mockLogger as never);
@@ -1247,6 +1286,50 @@ describe('station-message.service', () => {
       );
       await new Promise((r) => setTimeout(r, 20));
       expect(mockRenderStationMessage).toHaveBeenCalledWith('charging', expect.any(Object), 'en');
+    });
+
+    it.each([
+      ['SuspendedEV', 'suspended'],
+      ['Charging', 'charging'],
+      ['Discharging', 'discharging'],
+    ])(
+      'keeps the last reported state (%s) when the event has no chargingState',
+      async (chargingState, templateState) => {
+        setupDbResults([{ ...SESSION_DB_ROW, chargingState }], [], [], []);
+        const handler = await getHandler();
+        handler(
+          JSON.stringify({
+            sessionId: 'ses_1',
+            internalStationId: INTERNAL_STATION_ID,
+            stationOcppId: STATION_OCPP_ID,
+            ocppProtocol: 'ocpp2.1',
+            eventType: 'updated',
+          }),
+        );
+        await new Promise((r) => setTimeout(r, 20));
+        expect(mockRenderStationMessage).toHaveBeenCalledWith(
+          templateState,
+          expect.any(Object),
+          'en',
+        );
+      },
+    );
+
+    it('lets the chargingState in the event win over the stored state', async () => {
+      setupDbResults([{ ...SESSION_DB_ROW, chargingState: 'Charging' }], [], [], []);
+      const handler = await getHandler();
+      handler(
+        JSON.stringify({
+          sessionId: 'ses_1',
+          internalStationId: INTERNAL_STATION_ID,
+          stationOcppId: STATION_OCPP_ID,
+          ocppProtocol: 'ocpp2.1',
+          eventType: 'updated',
+          chargingState: 'SuspendedEVSE',
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 20));
+      expect(mockRenderStationMessage).toHaveBeenCalledWith('suspended', expect.any(Object), 'en');
     });
 
     it('logs a warning on malformed JSON', async () => {

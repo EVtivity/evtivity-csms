@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import Handlebars from 'handlebars';
-import { formatTariffSummary, formatUnitPrice, formatUnitPriceWithLabel } from './currency.js';
+import {
+  formatFlatPrice,
+  formatTariffSummary,
+  formatUnitPrice,
+  formatUnitPriceWithLabel,
+} from './currency.js';
 import { formatNumber, resolveLocale } from './number.js';
 import {
   formatTaxRatePercent,
@@ -138,7 +143,7 @@ export function buildStationPriceContext(input: {
     ),
     energyPrice: price(view.energy),
     timePrice: price(view.time),
-    sessionFee: price(view.session),
+    sessionFee: view.session == null ? '' : formatFlatPrice(view.session, currency, language),
     idleFee: price(view.idle),
     ...stationTaxNoteContext(view.taxRate, priceDisplay, language),
   };

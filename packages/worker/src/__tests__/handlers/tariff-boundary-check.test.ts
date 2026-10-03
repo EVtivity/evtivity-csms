@@ -94,6 +94,7 @@ function activeSession(overrides: Record<string, unknown> = {}): Record<string, 
     currentCostCents: 650,
     stationOcppId: 'CS-001',
     ocppProtocol: 'ocpp2.1',
+    stationOnline: true,
     ...overrides,
   };
 }
@@ -266,6 +267,18 @@ describe('tariffBoundaryCheckHandler', () => {
 
   it('splits the session but skips CostUpdated for OCPP 1.6 stations', async () => {
     activeSessions = [activeSession({ ocppProtocol: 'ocpp1.6' })];
+    mockResolveTariff.mockResolvedValue(newTariff());
+    const log = makeLog();
+
+    const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
+    await tariffBoundaryCheckHandler(log);
+
+    expect(mockSwitchTariffSegment).toHaveBeenCalledTimes(1);
+    expect(mockPublish).not.toHaveBeenCalled();
+  });
+
+  it('splits the session but skips CostUpdated while the station is offline', async () => {
+    activeSessions = [activeSession({ stationOnline: false })];
     mockResolveTariff.mockResolvedValue(newTariff());
     const log = makeLog();
 

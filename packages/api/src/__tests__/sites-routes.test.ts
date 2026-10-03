@@ -556,6 +556,7 @@ describe('Site routes - handler logic', () => {
         serialNumber: null,
         availability: 'available',
         securityProfile: 0,
+        ocppProtocol: 'ocpp2.1',
         lastHeartbeat: null,
         isOnline: false,
         createdAt: '2024-01-01T00:00:00.000Z',
@@ -580,6 +581,7 @@ describe('Site routes - handler logic', () => {
       expect(body).toHaveProperty('data');
       expect(body).toHaveProperty('total');
       expect(body.data).toHaveLength(1);
+      expect(body.data[0].ocppProtocol).toBe('ocpp2.1');
     });
 
     it('returns 404 when site not found', async () => {

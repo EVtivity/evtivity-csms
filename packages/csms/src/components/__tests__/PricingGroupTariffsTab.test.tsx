@@ -12,7 +12,8 @@ vi.mock('react-router', () => ({
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string, options?: { rate?: string }) =>
+      key === 'invoices.taxRateValue' ? `${String(options?.rate)}%` : key,
   }),
 }));
 
@@ -65,7 +66,13 @@ describe('PricingGroupTariffsTab', () => {
     renderTab();
     expect(await screen.findByText('0,49')).toBeDefined();
     expect(screen.getByText('1,5')).toBeDefined();
-    expect(screen.getByText('0,19')).toBeDefined();
+  });
+
+  it('shows the tax rate as a percentage, not the stored fraction', async () => {
+    await i18next.changeLanguage('en');
+    renderTab();
+    expect(await screen.findByText('19%')).toBeDefined();
+    expect(screen.queryByText('0.19')).toBeNull();
   });
 
   it('keeps "." for English', async () => {

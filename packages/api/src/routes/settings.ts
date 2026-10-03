@@ -32,6 +32,7 @@ import {
   STATION_MESSAGE_LANGUAGES,
   isTaxBasis,
   TAX_BASES,
+  UI_LANGUAGES,
 } from '@evtivity/lib';
 import { getPubSub } from '../lib/pubsub.js';
 
@@ -256,7 +257,7 @@ export function settingsRoutes(app: FastifyInstance): void {
     type: z.enum(['privacy-policy', 'terms-of-service']).describe('Content type'),
   });
   const contentQuery = z.object({
-    lang: z.enum(['en', 'de', 'es', 'zh']).default('en').describe('Language code'),
+    lang: z.enum(UI_LANGUAGES).default('en').describe('Language code'),
   });
   const contentItem = z
     .object({ html: z.string().describe('Rendered HTML content for the requested legal document') })

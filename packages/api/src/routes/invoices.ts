@@ -417,7 +417,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
         tags: ['Invoices'],
         summary: 'Download an invoice as a PDF',
         description:
-          "Renders a portrait A4 PDF of the invoice in the driver's language (English for an invoice without a driver, and for Korean and Chinese until the PDF embeds a CJK font) with the company logo, billed-to driver, line items with their tax rate, the net amount, tax rate, and tax amount per rate, and the totals. Streams application/pdf as an attachment.",
+          "Renders a portrait A4 PDF of the invoice in the driver's language (English for an invoice without a driver) with the company logo, billed-to driver, line items with their tax rate, the net amount, tax rate, and tax amount per rate, and the totals. Streams application/pdf as an attachment.",
         operationId: 'downloadInvoicePdf',
         security: [{ bearerAuth: [] }],
         params: zodSchema(invoiceIdParams),

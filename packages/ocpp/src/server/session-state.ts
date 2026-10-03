@@ -9,6 +9,8 @@ export interface SessionState {
   lastHeartbeat: Date;
   authenticated: boolean;
   bootStatus: 'Accepted' | 'Pending' | 'Rejected' | null;
+  /** station.Ready was published for this connection. */
+  readyAnnounced: boolean;
   pendingMessages: Map<string, PendingMessage>;
 }
 
@@ -30,6 +32,7 @@ export function createSessionState(stationId: string, ocppProtocol?: string): Se
     lastHeartbeat: new Date(),
     authenticated: false,
     bootStatus: null,
+    readyAnnounced: false,
     pendingMessages: new Map(),
   };
 }

@@ -320,6 +320,11 @@ export function StationMessageSettings({
   // Preview (debounced)
   const [preview, setPreview] = useState('');
   useEffect(() => {
+    // The API rejects an empty body; before the templates load there is nothing to render.
+    if (bodyDraft.trim() === '') {
+      setPreview('');
+      return;
+    }
     const timer = setTimeout(() => {
       void (async () => {
         try {

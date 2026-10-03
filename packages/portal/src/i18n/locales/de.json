@@ -894,5 +894,13 @@
     "empty": "Sie beobachten keine Ladestationen.",
     "removeTitle": "Nicht mehr beobachten",
     "removeMessage": "Du wirst nicht mehr benachrichtigt, wenn diese Station frei ist."
+  },
+  "authFooter": {
+    "privacyPolicy": "Datenschutzerklärung",
+    "termsOfService": "Nutzungsbedingungen",
+    "allRightsReserved": "Alle Rechte vorbehalten, {{year}} {{name}}",
+    "recaptchaProtected": "Geschützt durch reCAPTCHA.",
+    "recaptchaPrivacy": "Datenschutz",
+    "recaptchaTerms": "Bedingungen"
   }
 }

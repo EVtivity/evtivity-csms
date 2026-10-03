@@ -211,6 +211,23 @@ describe('StationSimulator action guards', () => {
     });
   });
 
+  describe('startMeterLoop after stop', () => {
+    it('starts no meter timer once the station is stopped', async () => {
+      const sim = makeSimulator();
+      const internals = sim as unknown as {
+        startMeterLoop(evseId: number): void;
+        meterTimers: Map<number, unknown>;
+      };
+      internals.startMeterLoop(1);
+      expect(internals.meterTimers.has(1)).toBe(true);
+
+      await sim.stop();
+      internals.startMeterLoop(1);
+
+      expect(internals.meterTimers.size).toBe(0);
+    });
+  });
+
   describe('plugIn (existing guard)', () => {
     it('no-ops when cable is plugged and a transaction is active', async () => {
       const sim = makeSimulator();

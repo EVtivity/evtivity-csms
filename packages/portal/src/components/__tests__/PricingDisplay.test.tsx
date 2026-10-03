@@ -83,6 +83,24 @@ describe('PricingDisplay', () => {
     expect(screen.getByText('charger.taxExcluded')).toBeDefined();
   });
 
+  it('shows a session fee as money rounded to the cent, as it is billed', async () => {
+    await i18next.changeLanguage('en');
+    render(
+      <PricingDisplay
+        pricing={{
+          ...pricing,
+          currency: 'USD',
+          pricePerKwh: null,
+          pricePerSession: '0.50',
+          taxRate: '0.0825',
+        }}
+        priceDisplay="gross"
+      />,
+    );
+    // 0.50 plus 8.25% tax is 0.54125: a rate would show $0.5413, a fee shows $0.54.
+    expect(screen.getByText('$0.54')).toBeDefined();
+  });
+
   it('shows no tax note without a tax rate', async () => {
     await i18next.changeLanguage('en');
     render(<PricingDisplay pricing={{ ...pricing, taxRate: null }} priceDisplay="gross" />);

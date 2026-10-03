@@ -827,6 +827,40 @@ describe('Station routes - handler logic', () => {
       expect(response.json().onboardingStatus).toBe('blocked');
     });
 
+    it('does not return the password hash', async () => {
+      const station = {
+        id: VALID_STATION_ID,
+        stationId: 'STATION-001',
+        siteId: null,
+        vendorId: null,
+        model: null,
+        serialNumber: null,
+        firmwareVersion: null,
+        availability: 'unavailable',
+        onboardingStatus: 'blocked',
+        isOnline: false,
+        isSimulator: false,
+        loadPriority: 0,
+        securityProfile: 1,
+        pendingSecurityProfile: null,
+        basicAuthPasswordHash: '$argon2id$v=19$m=65536,t=3,p=4$salt$hash',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      };
+      setupDbResults([station], [station]);
+
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body).not.toHaveProperty('basicAuthPasswordHash');
+      expect(body.hasPassword).toBe(true);
+    });
+
     it('returns 404 when station not found', async () => {
       setupDbResults([]);
 

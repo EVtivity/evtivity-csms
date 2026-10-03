@@ -88,6 +88,7 @@ describe('STATION_MESSAGE_DEFAULTS', () => {
         expect(defaults.reserved).toContain('{{#if driverFirstName}}');
         expect(defaults.reserved).toContain('{{reservationExpiresAt}}');
         expect(defaults.suspended).toContain('{{#if idleFeeRate}}');
+        expect(defaults.charging).toContain('{{#if powerKw}}');
         expect(defaults.faulted).toContain('{{supportPhone}}');
         expect(defaults.payment_failed).toContain('{{#if supportPhone}}');
       });

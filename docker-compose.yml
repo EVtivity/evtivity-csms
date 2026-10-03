@@ -73,7 +73,7 @@ services:
       OCPP_TLS_SERVER_URL: wss://ocpp:8443
       # Address stations get when moved to TLS; the simulators reach the ocpp service by name.
       OCPP_STATION_TLS_URL: ${OCPP_STATION_TLS_URL:-wss://ocpp:8443}
-      JWT_SECRET: dev-secret-change-in-production!
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production!!}
       SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-dev-encryption-key-32chars-long!}
       CORS_ORIGIN: local
       LOG_LEVEL: info
@@ -130,6 +130,7 @@ services:
       OCPP_TLS_CA: /app/packages/css/test-certs/ca.pem
       OCPP_TLS_PORT: 8443
       LOG_LEVEL: info
+      SMTP_HOST: mailpit
     healthcheck:
       test:
         [
@@ -313,6 +314,7 @@ services:
       API_BASE_URL: http://api:${API_PORT:-7102}
       LOG_LEVEL: info
       NODE_ENV: development
+      SMTP_HOST: mailpit
     depends_on:
       migrate:
         condition: service_completed_successfully

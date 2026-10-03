@@ -2,9 +2,17 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { encryptString } from '@evtivity/lib';
+import { decryptString, encryptString } from '@evtivity/lib';
 
 const configState = vi.hoisted(() => ({ SETTINGS_ENCRYPTION_KEY: 'unit-test-key' }));
+const realDecrypt = vi.hoisted(() => ({ fn: null as null | typeof decryptString }));
+
+// decryptString is spied on so the cache test can count real decryptions.
+vi.mock('@evtivity/lib', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@evtivity/lib')>();
+  realDecrypt.fn = actual.decryptString;
+  return { ...actual, decryptString: vi.fn(actual.decryptString) };
+});
 
 vi.mock('../lib/config.js', () => ({
   config: configState,
@@ -20,6 +28,7 @@ import {
 beforeEach(() => {
   configState.SETTINGS_ENCRYPTION_KEY = 'unit-test-key';
   clearSettingsDecryptCache();
+  if (realDecrypt.fn != null) vi.mocked(decryptString).mockImplementation(realDecrypt.fn);
 });
 
 describe('isEncryptedAtRest', () => {
@@ -104,15 +113,26 @@ describe('decryptForRead', () => {
     expect(decryptForRead('s3.secretAccessKeyEnc', cipher)).toBe('clearme');
   });
 
-  it('evicts the oldest entry when the cache exceeds its bound', () => {
-    // Fill beyond DECRYPT_CACHE_MAX (256) distinct ciphertexts to exercise the
-    // LRU eviction branch, then confirm a later read still decrypts correctly.
-    // scrypt key derivation makes each decrypt ~30-50ms, so this loop is slow.
-    for (let i = 0; i < 258; i++) {
-      const cipher = encryptString(`secret-${String(i)}`, 'unit-test-key');
-      expect(decryptForRead('smtp.passwordEnc', cipher)).toBe(`secret-${String(i)}`);
+  it('evicts the least recently used entry when the cache exceeds its bound', () => {
+    // A stand-in decrypt keeps 258 reads fast (real scrypt takes ~30-50ms each).
+    const decrypt = vi.mocked(decryptString);
+    decrypt.mockImplementation((ciphertext) => `plain:${ciphertext}`);
+
+    // Fill the 256 entries, touch entry 0 so entry 1 becomes the oldest, then add two more.
+    for (let i = 0; i < 256; i++) {
+      expect(decryptForRead('smtp.passwordEnc', `cipher-${String(i)}`)).toBe(
+        `plain:cipher-${String(i)}`,
+      );
     }
-    const final = encryptString('final-secret', 'unit-test-key');
-    expect(decryptForRead('smtp.passwordEnc', final)).toBe('final-secret');
-  }, 30_000);
+    decryptForRead('smtp.passwordEnc', 'cipher-0');
+    decryptForRead('smtp.passwordEnc', 'cipher-256');
+    decryptForRead('smtp.passwordEnc', 'cipher-257');
+    expect(decrypt).toHaveBeenCalledTimes(258);
+
+    // Entry 0 was used recently and stays cached; entries 1 and 2 were evicted.
+    decryptForRead('smtp.passwordEnc', 'cipher-0');
+    expect(decrypt).toHaveBeenCalledTimes(258);
+    expect(decryptForRead('smtp.passwordEnc', 'cipher-1')).toBe('plain:cipher-1');
+    expect(decrypt).toHaveBeenCalledTimes(259);
+  });
 });

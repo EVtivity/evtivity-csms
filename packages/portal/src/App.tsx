@@ -9,6 +9,7 @@ import { useAuth } from '@/lib/auth';
 import { ServerDown } from '@/components/ServerDown';
 import { useGtag } from '@/hooks/use-gtag';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { ToastProvider } from '@/components/ui/toast';
 import { Layout } from '@/components/Layout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { VerifiedRoute } from '@/components/VerifiedRoute';
@@ -126,74 +127,76 @@ export function App(): React.JSX.Element {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <GtagLoader />
-        <BrowserRouter>
-          <Suspense fallback={SuspenseFallback}>
-            <Routes>
-              {/* Public routes */}
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              <Route path="/forgot-password" element={<ForgotPassword />} />
-              <Route path="/reset-password" element={<ResetPassword />} />
-              <Route path="/activate" element={<Activate />} />
-              <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-              <Route path="/terms-of-service" element={<TermsOfService />} />
-              <Route path="/qr/*" element={<QrLanding />} />
-              <Route path="/charge/:stationId/:evseId" element={<ChargerLanding />} />
-              <Route path="/charge/:stationId" element={<ChargerStationLanding />} />
-              <Route path="/charge/:stationId/:evseId/checkout" element={<GuestCheckout />} />
-              <Route path="/guest-session/:sessionToken" element={<GuestSession />} />
-              <Route path="/location/:siteId" element={<LocationDetail />} />
+        <ToastProvider>
+          <GtagLoader />
+          <BrowserRouter>
+            <Suspense fallback={SuspenseFallback}>
+              <Routes>
+                {/* Public routes */}
+                <Route path="/login" element={<Login />} />
+                <Route path="/register" element={<Register />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
+                <Route path="/activate" element={<Activate />} />
+                <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+                <Route path="/terms-of-service" element={<TermsOfService />} />
+                <Route path="/qr/*" element={<QrLanding />} />
+                <Route path="/charge/:stationId/:evseId" element={<ChargerLanding />} />
+                <Route path="/charge/:stationId" element={<ChargerStationLanding />} />
+                <Route path="/charge/:stationId/:evseId/checkout" element={<GuestCheckout />} />
+                <Route path="/guest-session/:sessionToken" element={<GuestSession />} />
+                <Route path="/location/:siteId" element={<LocationDetail />} />
 
-              {/* Authenticated routes */}
-              <Route
-                element={
-                  <ProtectedRoute>
-                    <Layout />
-                  </ProtectedRoute>
-                }
-              >
-                {/* Accessible without verified email */}
-                <Route path="verify-email" element={<VerifyEmail />} />
+                {/* Authenticated routes */}
+                <Route
+                  element={
+                    <ProtectedRoute>
+                      <Layout />
+                    </ProtectedRoute>
+                  }
+                >
+                  {/* Accessible without verified email */}
+                  <Route path="verify-email" element={<VerifyEmail />} />
 
-                {/* Requires verified email */}
-                <Route element={<VerifiedRoute />}>
-                  <Route index element={<Home />} />
-                  <Route path="activity" element={<Activity />} />
-                  <Route path="activity/statement" element={<MonthlyStatement />} />
-                  <Route path="account" element={<Account />} />
-                  <Route path="account/personal" element={<PersonalInfo />} />
-                  <Route path="account/security" element={<Security />} />
-                  <Route path="account/notifications" element={<NotificationPrefs />} />
-                  <Route path="account/home-cards" element={<HomeScreen />} />
-                  <Route path="sessions" element={<Sessions />} />
-                  <Route path="sessions/:id" element={<SessionDetail />} />
-                  <Route path="reservations" element={<Reservations />} />
-                  <Route path="reservations/new" element={<ReservationSearch />} />
-                  <Route
-                    path="reservations/new/:stationId"
-                    element={<ChargerDetail mode="reserve" />}
-                  />
-                  <Route path="reservations/:id" element={<ReservationDetail />} />
-                  <Route path="support" element={<SupportCases />} />
-                  <Route path="support/new" element={<NewSupportCase />} />
-                  <Route path="support/:id" element={<SupportCaseDetail />} />
-                  <Route path="payment-methods" element={<PaymentMethods />} />
-                  <Route path="rfid-cards" element={<RfidCards />} />
-                  <Route path="vehicles" element={<Vehicles />} />
-                  <Route path="favorites" element={<Favorites />} />
-                  <Route path="station-watches" element={<Watching />} />
-                  <Route path="profile" element={<Profile />} />
-                  <Route path="start" element={<ChargerSearch />} />
-                  <Route path="start/:stationId" element={<ChargerDetail />} />
-                  <Route path="scan" element={<ScanQr />} />
-                  <Route path="*" element={<NotFound />} />
+                  {/* Requires verified email */}
+                  <Route element={<VerifiedRoute />}>
+                    <Route index element={<Home />} />
+                    <Route path="activity" element={<Activity />} />
+                    <Route path="activity/statement" element={<MonthlyStatement />} />
+                    <Route path="account" element={<Account />} />
+                    <Route path="account/personal" element={<PersonalInfo />} />
+                    <Route path="account/security" element={<Security />} />
+                    <Route path="account/notifications" element={<NotificationPrefs />} />
+                    <Route path="account/home-cards" element={<HomeScreen />} />
+                    <Route path="sessions" element={<Sessions />} />
+                    <Route path="sessions/:id" element={<SessionDetail />} />
+                    <Route path="reservations" element={<Reservations />} />
+                    <Route path="reservations/new" element={<ReservationSearch />} />
+                    <Route
+                      path="reservations/new/:stationId"
+                      element={<ChargerDetail mode="reserve" />}
+                    />
+                    <Route path="reservations/:id" element={<ReservationDetail />} />
+                    <Route path="support" element={<SupportCases />} />
+                    <Route path="support/new" element={<NewSupportCase />} />
+                    <Route path="support/:id" element={<SupportCaseDetail />} />
+                    <Route path="payment-methods" element={<PaymentMethods />} />
+                    <Route path="rfid-cards" element={<RfidCards />} />
+                    <Route path="vehicles" element={<Vehicles />} />
+                    <Route path="favorites" element={<Favorites />} />
+                    <Route path="station-watches" element={<Watching />} />
+                    <Route path="profile" element={<Profile />} />
+                    <Route path="start" element={<ChargerSearch />} />
+                    <Route path="start/:stationId" element={<ChargerDetail />} />
+                    <Route path="scan" element={<ScanQr />} />
+                    <Route path="*" element={<NotFound />} />
+                  </Route>
                 </Route>
-              </Route>
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Suspense>
-        </BrowserRouter>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Suspense>
+          </BrowserRouter>
+        </ToastProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   );

@@ -1,9 +1,10 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import {
   db,
+  client,
   driverTokens,
   ocpiExternalTokens,
   chargingSessions,
@@ -23,6 +24,7 @@ import {
   type ContractCertificateVerdict,
 } from '../../services/pki/contract-certificate-validation.js';
 import { prepaidCredit, rememberPrepaidAuthorization } from '../prepaid.js';
+import { resolveStationTariff } from '../../server/station-tariff.js';
 
 // Tokens of these types may be generated on the fly (portal remote start) and
 // are accepted when not present in driver_tokens. Inactive matches still block.
@@ -311,7 +313,12 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
   let tariff: Record<string, unknown> | undefined;
   if (status === 'Accepted' && tokenType !== 'NoAuthorization') {
     try {
-      tariff = await resolveDriverTariff(matchedDriverId, ctx.stationId, ctx.logger);
+      tariff = await resolveDriverTariff(
+        matchedDriverId,
+        ctx.stationId,
+        ctx.stationDbId,
+        ctx.logger,
+      );
     } catch (err) {
       ctx.logger.warn(
         { err, stationId: ctx.stationId, idToken },
@@ -354,58 +361,37 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
   return result;
 }
 
+// The tariff the session would be priced with now (the same resolution as
+// session pricing: pricing group, then the tariff whose restrictions match in
+// the site's timezone), so the station shows the price the driver is billed.
 async function resolveDriverTariff(
   driverId: string | null,
   stationId: string,
+  stationDbId: string | null,
   logger: Logger,
 ): Promise<Record<string, unknown> | undefined> {
-  const rows = await db.execute<{
-    id: string;
-    price_per_kwh: string | null;
-    price_per_minute: string | null;
-    price_per_session: string | null;
-    idle_fee_price_per_minute: string | null;
-    tax_rate: string | null;
-    pricing_group_id: string;
-  }>(sql`
-    WITH resolved_group AS (
-      ${
-        driverId != null
-          ? sql`
-      SELECT pg.id AS group_id, 1 AS group_priority FROM pricing_groups pg
-      JOIN pricing_group_drivers pgd ON pgd.pricing_group_id = pg.id
-      WHERE pgd.driver_id = ${driverId}
-      UNION ALL
-      `
-          : sql``
-      }
-      SELECT pg.id AS group_id, 2 AS group_priority FROM pricing_groups pg
-      JOIN pricing_group_stations pgs ON pgs.pricing_group_id = pg.id
-      JOIN charging_stations cs ON cs.id = pgs.station_id
-      WHERE cs.station_id = ${stationId}
-      UNION ALL
-      SELECT pg.id AS group_id, 3 AS group_priority FROM pricing_groups pg
-      JOIN pricing_group_sites pgsi ON pgsi.pricing_group_id = pg.id
-      JOIN charging_stations cs ON cs.site_id = pgsi.site_id
-      WHERE cs.station_id = ${stationId}
-      UNION ALL
-      SELECT pg.id AS group_id, 4 AS group_priority FROM pricing_groups pg
-      WHERE pg.is_default = true
-    )
-    SELECT t.id, t.price_per_kwh, t.price_per_minute, t.price_per_session,
-           t.idle_fee_price_per_minute, t.tax_rate, t.pricing_group_id
-    FROM tariffs t
-    JOIN resolved_group rg ON rg.group_id = t.pricing_group_id
-    WHERE t.is_active = true
-    ORDER BY rg.group_priority ASC, t.priority DESC, t.is_default DESC
-    LIMIT 1
-  `);
+  let stationUuid = stationDbId;
+  if (stationUuid == null) {
+    const [station] = await client`
+      SELECT id FROM charging_stations WHERE station_id = ${stationId} LIMIT 1
+    `;
+    stationUuid = (station?.id as string | undefined) ?? null;
+  }
+  if (stationUuid == null) return undefined;
 
-  const rawRow = (rows as unknown as Array<Record<string, unknown>>)[0];
-  if (rawRow == null) {
+  const resolved = await resolveStationTariff(client, stationUuid, driverId);
+  if (resolved == null) {
     logger.debug({ stationId, driverId }, 'No tariff found for driver');
     return undefined;
   }
+  const rawRow: Record<string, unknown> = {
+    id: resolved.id,
+    price_per_kwh: resolved.pricePerKwh,
+    price_per_minute: resolved.pricePerMinute,
+    price_per_session: resolved.pricePerSession,
+    idle_fee_price_per_minute: resolved.idleFeePricePerMinute,
+    tax_rate: resolved.taxRate,
+  };
 
   const toNum = (v: unknown): number | null => (v != null ? Number(v) : null);
   const taxRate = toNum(rawRow['tax_rate']);

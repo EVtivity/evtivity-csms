@@ -3288,5 +3288,13 @@
     },
     "segmentLine": "第 {{n}} 段：{{label}}",
     "sessionLine": "充電會話 {{date}}（{{kwh}} kWh）"
+  },
+  "authFooter": {
+    "privacyPolicy": "隱私政策",
+    "termsOfService": "服務條款",
+    "allRightsReserved": "{{year}} {{name}} 版權所有",
+    "recaptchaProtected": "受 reCAPTCHA 保護。",
+    "recaptchaPrivacy": "隱私",
+    "recaptchaTerms": "條款"
   }
 }

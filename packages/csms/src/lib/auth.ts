@@ -259,8 +259,8 @@ export const useAuth = create<AuthState>((set, get) => ({
           set({ apiDown: true, isHydrating: false });
           return;
         }
+        // Keep the language: the sign-in and legal pages stay in the visitor's language.
         localStorage.removeItem('role');
-        localStorage.removeItem('language');
         set({
           user: null,
           role: null,

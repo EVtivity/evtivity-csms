@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { formatDecimal } from '@/lib/formatting';
+import { formatDecimal, formatTaxPercent } from '@/lib/formatting';
 import { DEFAULT_TAX_BASIS } from '@evtivity/lib/price-display';
 import { useCompanyTaxBasis } from '@/hooks/use-company-tax-basis';
 import { api } from '@/lib/api';
@@ -152,7 +152,11 @@ export function PricingGroupTariffsTab({
                     <TableCell>{formatDecimal(tariff.pricePerSession)}</TableCell>
                     <TableCell>{formatDecimal(tariff.idleFeePricePerMinute)}</TableCell>
                     <TableCell>{formatDecimal(tariff.reservationFeePerMinute)}</TableCell>
-                    <TableCell>{formatDecimal(tariff.taxRate)}</TableCell>
+                    <TableCell>
+                      {tariff.taxRate == null
+                        ? t('common.na')
+                        : t('invoices.taxRateValue', { rate: formatTaxPercent(tariff.taxRate) })}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

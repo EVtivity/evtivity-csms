@@ -4,7 +4,6 @@
 import { useState, useCallback, useEffect, useImperativeHandle, useRef, forwardRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import Link from '@tiptap/extension-link';
 import TextAlign from '@tiptap/extension-text-align';
 import Color from '@tiptap/extension-color';
 import { TextStyle } from '@tiptap/extension-text-style';
@@ -144,8 +143,8 @@ export const WysiwygEditor = forwardRef<WysiwygEditorHandle, WysiwygEditorProps>
 
     const editor = useEditor({
       extensions: [
-        StarterKit,
-        Link.configure({ openOnClick: false }),
+        // StarterKit includes the Link extension; configure it here instead of adding it twice.
+        StarterKit.configure({ link: { openOnClick: false } }),
         TextAlign.configure({ types: ['heading', 'paragraph'] }),
         Color,
         TextStyle,

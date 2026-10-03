@@ -69,6 +69,7 @@ vi.mock('@evtivity/database', () => ({
     id: 'id',
     stationId: 'stationId',
     ocppProtocol: 'ocppProtocol',
+    isOnline: 'isOnline',
   },
   stationMessagePushes: {
     stationId: 'stationId',
@@ -121,6 +122,15 @@ describe('stationMessageChargingRefreshHandler', () => {
     expect(mockPublish).not.toHaveBeenCalled();
   });
 
+  it('selects only sessions on stations that are online', async () => {
+    const { eq } = await import('drizzle-orm');
+    const { stationMessageChargingRefreshHandler } =
+      await import('../../handlers/station-message-charging-refresh.js');
+    await stationMessageChargingRefreshHandler(log);
+
+    expect(eq).toHaveBeenCalledWith('isOnline', true);
+  });
+
   it('publishes one transaction event per active OCPP 2.1 session', async () => {
     setupDbResults(
       [
@@ -149,22 +159,16 @@ describe('stationMessageChargingRefreshHandler', () => {
       const body = JSON.parse(c[1] as string) as {
         sessionId: string;
         eventType: string;
-        chargingState: string;
+        chargingState?: string;
       };
       return body;
     });
     expect(events).toEqual([
-      expect.objectContaining({
-        sessionId: 'ses_1',
-        eventType: 'updated',
-        chargingState: 'Charging',
-      }),
-      expect.objectContaining({
-        sessionId: 'ses_2',
-        eventType: 'updated',
-        chargingState: 'Charging',
-      }),
+      expect.objectContaining({ sessionId: 'ses_1', eventType: 'updated' }),
+      expect.objectContaining({ sessionId: 'ses_2', eventType: 'updated' }),
     ]);
+    // A refresh does not claim the session is charging; a suspended session stays suspended.
+    for (const event of events) expect(event).not.toHaveProperty('chargingState');
   });
 
   it('skips sessions whose last push is within the refresh window', async () => {

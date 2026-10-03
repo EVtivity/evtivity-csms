@@ -28,6 +28,9 @@
     },
     "./firmware-signature": {
       "import": "./src/firmware-signature.ts"
+    },
+    "./languages": {
+      "import": "./src/languages.ts"
     }
   },
   "scripts": {

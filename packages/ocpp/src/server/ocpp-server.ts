@@ -349,6 +349,28 @@ export class OcppServer {
       });
   }
 
+  // The CSMS sends a station queued commands and screen messages only once it
+  // may: after a BootNotification it answered Accepted, or, for a station that
+  // reconnected without rebooting (no BootNotification), after its first other
+  // message. Before that the station answers every CSMS call with SecurityError.
+  private announceReady(session: SessionState, action: string): void {
+    if (session.readyAnnounced) return;
+    const bootAccepted = session.bootStatus === 'Accepted';
+    const reconnectedWithoutBoot = session.bootStatus === null && action !== 'BootNotification';
+    if (!bootAccepted && !reconnectedWithoutBoot) return;
+    session.readyAnnounced = true;
+    void this.eventBus.publish({
+      eventType: 'station.Ready',
+      aggregateType: 'ChargingStation',
+      aggregateId: session.stationId,
+      payload: {
+        stationId: session.stationId,
+        stationDbId: session.stationDbId,
+        ocppProtocol: session.ocppProtocol,
+      },
+    });
+  }
+
   private handleConnection(ws: WebSocket, req: IncomingMessage): void {
     const remoteIp = resolveClientIp(req, this.trustedProxies) ?? 'unknown';
 
@@ -613,6 +635,7 @@ export class OcppServer {
         const result = createCallResult(messageId, ctx.response);
         ws.send(JSON.stringify(result));
         this.lifecycle.responded(messageId);
+        this.announceReady(session, action);
 
         // Log outbound CALLRESULT to station
         void this.eventBus.publish({

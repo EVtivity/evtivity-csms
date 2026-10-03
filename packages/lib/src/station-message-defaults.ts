@@ -38,7 +38,7 @@ export const STATION_MESSAGE_DEFAULTS: Record<
     reserved:
       'Reserved\n{{#if driverFirstName}}for {{driverFirstName}}{{/if}}\nuntil {{reservationExpiresAt}}',
     charging:
-      'Charging\n{{energyKwh}} kWh / {{powerKw}} kW\n{{costFormatted}}\n{{elapsedFormatted}}',
+      'Charging\n{{energyKwh}} kWh{{#if powerKw}} / {{powerKw}} kW{{/if}}\n{{costFormatted}}\n{{elapsedFormatted}}',
     suspended: 'Charging paused\n{{#if idleFeeRate}}Idle fee {{idleFeeRate}} after grace{{/if}}',
     discharging: 'Discharging to grid\n{{energyKwh}} kWh sent\n{{costFormatted}}',
     faulted: 'Station fault\nContact support\n{{supportPhone}}',
@@ -55,7 +55,8 @@ export const STATION_MESSAGE_DEFAULTS: Record<
     occupied: '{{stationOcppId}}\nKarte vorhalten oder\nApp öffnen zum Laden',
     reserved:
       'Reserviert\n{{#if driverFirstName}}für {{driverFirstName}}{{/if}}\nbis {{reservationExpiresAt}}',
-    charging: 'Lädt\n{{energyKwh}} kWh / {{powerKw}} kW\n{{costFormatted}}\n{{elapsedFormatted}}',
+    charging:
+      'Lädt\n{{energyKwh}} kWh{{#if powerKw}} / {{powerKw}} kW{{/if}}\n{{costFormatted}}\n{{elapsedFormatted}}',
     suspended:
       'Laden pausiert\n{{#if idleFeeRate}}Standgebühr {{idleFeeRate}} nach Karenzzeit{{/if}}',
     discharging: 'Rückspeisung ins Netz\n{{energyKwh}} kWh abgegeben\n{{costFormatted}}',
@@ -74,7 +75,7 @@ export const STATION_MESSAGE_DEFAULTS: Record<
     reserved:
       'Reservado\n{{#if driverFirstName}}para {{driverFirstName}}{{/if}}\nhasta {{reservationExpiresAt}}',
     charging:
-      'Cargando\n{{energyKwh}} kWh / {{powerKw}} kW\n{{costFormatted}}\n{{elapsedFormatted}}',
+      'Cargando\n{{energyKwh}} kWh{{#if powerKw}} / {{powerKw}} kW{{/if}}\n{{costFormatted}}\n{{elapsedFormatted}}',
     suspended:
       'Carga en pausa\n{{#if idleFeeRate}}Tarifa por inactividad {{idleFeeRate}} tras el periodo de gracia{{/if}}',
     discharging: 'Descargando a la red\n{{energyKwh}} kWh enviados\n{{costFormatted}}',
@@ -94,7 +95,7 @@ export const STATION_MESSAGE_DEFAULTS: Record<
     reserved:
       '예약됨\n{{#if driverFirstName}}{{driverFirstName}}님{{/if}}\n{{reservationExpiresAt}}까지',
     charging:
-      '충전 중\n{{energyKwh}} kWh / {{powerKw}} kW\n{{costFormatted}}\n{{elapsedFormatted}}',
+      '충전 중\n{{energyKwh}} kWh{{#if powerKw}} / {{powerKw}} kW{{/if}}\n{{costFormatted}}\n{{elapsedFormatted}}',
     suspended: '충전 일시 중지\n{{#if idleFeeRate}}유예 시간 후 유휴 요금 {{idleFeeRate}}{{/if}}',
     discharging: '전력망으로 방전 중\n{{energyKwh}} kWh 송전\n{{costFormatted}}',
     faulted: '충전기 고장\n고객센터에 문의하세요\n{{supportPhone}}',
@@ -112,7 +113,8 @@ export const STATION_MESSAGE_DEFAULTS: Record<
     occupied: '{{stationOcppId}}\n请刷卡或打开应用\n开始充电',
     reserved:
       '已预约\n{{#if driverFirstName}}预约人：{{driverFirstName}}{{/if}}\n保留至 {{reservationExpiresAt}}',
-    charging: '充电中\n{{energyKwh}} kWh / {{powerKw}} kW\n{{costFormatted}}\n{{elapsedFormatted}}',
+    charging:
+      '充电中\n{{energyKwh}} kWh{{#if powerKw}} / {{powerKw}} kW{{/if}}\n{{costFormatted}}\n{{elapsedFormatted}}',
     suspended: '充电已暂停\n{{#if idleFeeRate}}宽限期后收取占位费 {{idleFeeRate}}{{/if}}',
     discharging: '正在向电网放电\n已放电 {{energyKwh}} kWh\n{{costFormatted}}',
     faulted: '充电桩故障\n请联系客服\n{{supportPhone}}',
@@ -129,7 +131,8 @@ export const STATION_MESSAGE_DEFAULTS: Record<
     occupied: '{{stationOcppId}}\n請感應卡片或開啟 App\n開始充電',
     reserved:
       '已預約\n{{#if driverFirstName}}預約人：{{driverFirstName}}{{/if}}\n保留至 {{reservationExpiresAt}}',
-    charging: '充電中\n{{energyKwh}} kWh / {{powerKw}} kW\n{{costFormatted}}\n{{elapsedFormatted}}',
+    charging:
+      '充電中\n{{energyKwh}} kWh{{#if powerKw}} / {{powerKw}} kW{{/if}}\n{{costFormatted}}\n{{elapsedFormatted}}',
     suspended: '充電已暫停\n{{#if idleFeeRate}}寬限期後收取佔位費 {{idleFeeRate}}{{/if}}',
     discharging: '正在向電網放電\n已放電 {{energyKwh}} kWh\n{{costFormatted}}',
     faulted: '充電樁故障\n請聯絡客服\n{{supportPhone}}',

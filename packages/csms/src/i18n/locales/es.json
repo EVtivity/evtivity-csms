@@ -3288,5 +3288,13 @@
     },
     "segmentLine": "Tramo {{n}}: {{label}}",
     "sessionLine": "Sesión de carga {{date}} ({{kwh}} kWh)"
+  },
+  "authFooter": {
+    "privacyPolicy": "Política de privacidad",
+    "termsOfService": "Términos del servicio",
+    "allRightsReserved": "Todos los derechos reservados, {{year}} {{name}}",
+    "recaptchaProtected": "Protegido por reCAPTCHA.",
+    "recaptchaPrivacy": "Privacidad",
+    "recaptchaTerms": "Términos"
   }
 }

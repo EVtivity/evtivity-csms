@@ -263,21 +263,75 @@ describe('Event projections', () => {
       expect(sqlCalls.length).toBe(1);
     });
 
-    it('publishes a maintenance re-assert when the station reconnects under an active event', async () => {
+    it('sends queued commands and refreshes the screen when the station is ready', async () => {
+      await setup();
+
+      setupSqlResults(
+        [
+          {
+            id: 7,
+            command_id: 'cmd-queued',
+            action: 'CostUpdated',
+            payload: { totalCost: 1.5, transactionId: 'tx-1' },
+            version: 'ocpp2.1',
+          },
+        ], // offline command queue drain
+        [], // UPDATE offline_command_queue SET status = 'sent'
+        [], // no active maintenance event
+      );
+
+      await eventBus.emit(
+        'station.Ready',
+        makeDomainEvent('station.Ready', 'CS-READY', {
+          ocppProtocol: 'ocpp2.1',
+          stationDbId: 'sta_ready_test1',
+        }),
+      );
+
+      const channels = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c: unknown[]) => c[0],
+      );
+      expect(channels).toContain('ocpp_commands');
+      expect(channels).toContain('station_message_refresh');
+    });
+
+    it('does not send queued commands when the WebSocket opens', async () => {
       await setup();
 
       setupSqlResults(
         [{}], // UPDATE charging_stations
         [{}], // INSERT connection_logs
         [], // SELECT evse_id FROM evses
-        [{ site_id: 'site-m' }], // resolveSiteId
+        [{ site_id: null }], // resolveSiteId
+      );
+
+      await eventBus.emit(
+        'station.Connected',
+        makeDomainEvent('station.Connected', 'CS-OPEN', {
+          ocppProtocol: 'ocpp2.1',
+          stationDbId: 'sta_open_test1',
+        }),
+      );
+
+      const channels = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c: unknown[]) => c[0],
+      );
+      expect(channels).not.toContain('ocpp_commands');
+      expect(channels).not.toContain('station_message_refresh');
+      expect(channels).not.toContain('maintenance_fanout');
+    });
+
+    it('publishes a maintenance re-assert when the station is ready under an active event', async () => {
+      await setup();
+
+      setupSqlResults(
         [], // offline command queue drain
         [{ id: 'mne_maint1' }], // active maintenance event covering this station
       );
 
       await eventBus.emit(
-        'station.Connected',
-        makeDomainEvent('station.Connected', 'CS-MAINT', {
+        'station.Ready',
+        makeDomainEvent('station.Ready', 'CS-MAINT', {
           ocppProtocol: 'ocpp1.6',
           stationDbId: 'sta_maint_test1',
         }),
@@ -298,17 +352,13 @@ describe('Event projections', () => {
       await setup();
 
       setupSqlResults(
-        [{}], // UPDATE charging_stations
-        [{}], // INSERT connection_logs
-        [], // SELECT evse_id FROM evses
-        [{ site_id: 'site-m2' }], // resolveSiteId
         [], // offline command queue drain
         [], // no active maintenance event
       );
 
       await eventBus.emit(
-        'station.Connected',
-        makeDomainEvent('station.Connected', 'CS-NOMAINT', {
+        'station.Ready',
+        makeDomainEvent('station.Ready', 'CS-NOMAINT', {
           ocppProtocol: 'ocpp1.6',
           stationDbId: 'sta_nomaint_test1',
         }),

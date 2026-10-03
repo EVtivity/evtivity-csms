@@ -34,6 +34,9 @@ export async function stationMessageChargingRefreshHandler(log: Logger): Promise
     .where(
       and(
         eq(chargingSessions.status, 'active'),
+        // An offline station would get the message queued, and a queued send
+        // records no push, so every tick would queue it again.
+        eq(chargingStations.isOnline, true),
         sql`${chargingStations.ocppProtocol} LIKE 'ocpp2%'`,
       ),
     );
@@ -81,8 +84,9 @@ export async function stationMessageChargingRefreshHandler(log: Logger): Promise
             internalStationId: session.stationUuid,
             stationOcppId: session.stationOcppId,
             ocppProtocol: session.ocppProtocol,
+            // No chargingState: the api keeps the state the station last reported,
+            // so a suspended session keeps its suspended screen.
             eventType: 'updated',
-            chargingState: 'Charging',
           }),
         )
         .catch((err: unknown) => {

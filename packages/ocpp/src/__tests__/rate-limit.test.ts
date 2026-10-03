@@ -18,6 +18,7 @@ function createMockContext(stationId: string): HandlerContext {
       authenticated: true,
       ocppProtocol: 'ocpp2.1',
       bootStatus: null,
+      readyAnnounced: false,
     },
     messageId: 'test-msg',
     action: 'Heartbeat',

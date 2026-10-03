@@ -6,6 +6,7 @@ import {
   DEFAULT_CURRENCY,
   SUPPORTED_CURRENCIES,
   formatCurrencyAmount,
+  formatFlatPrice,
   formatUnitPrice,
   formatUnitPriceWithLabel,
   formatTariffSummary,
@@ -82,6 +83,14 @@ describe('formatUnitPrice', () => {
 
   it('uses the separators of the locale', () => {
     expect(formatUnitPrice(0.2561, 'EUR', 'de')).toBe('0,2561\u00a0€');
+  });
+});
+
+describe('formatFlatPrice', () => {
+  it('rounds a flat amount to the cent as it is billed', () => {
+    expect(formatFlatPrice(0.54125, 'USD')).toBe('$0.54');
+    expect(formatFlatPrice(1.0825, 'USD')).toBe('$1.08');
+    expect(formatFlatPrice(2, 'EUR', 'de')).toBe('2,00\u00a0€');
   });
 });
 

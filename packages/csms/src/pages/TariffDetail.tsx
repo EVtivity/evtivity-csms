@@ -27,7 +27,7 @@ import { api, ApiError } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
-import { formatDecimal } from '@/lib/formatting';
+import { formatDecimal, formatTaxPercent } from '@/lib/formatting';
 
 interface TariffRestrictions {
   timeRange?: { startTime: string; endTime: string };
@@ -684,7 +684,11 @@ export function TariffDetail(): React.JSX.Element {
               </div>
               <div>
                 <dt className="text-muted-foreground">{t('pricing.taxRate')}</dt>
-                <dd className="font-medium">{formatDecimal(tariff.taxRate)}</dd>
+                <dd className="font-medium">
+                  {tariff.taxRate == null
+                    ? t('common.na')
+                    : t('invoices.taxRateValue', { rate: formatTaxPercent(tariff.taxRate) })}
+                </dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">{t('common.created')}</dt>

@@ -323,7 +323,8 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Generate registration token for the partner to use
+      // Generate registration token for the partner to use. We issue it and the
+      // OCPI server authenticates the partner's calls with it.
       const registrationToken = randomBytes(32).toString('hex');
       const tokenHash = await argon2.hash(registrationToken);
 
@@ -331,7 +332,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         partnerId: partner.id,
         tokenHash,
         tokenPrefix: registrationToken.slice(0, 8),
-        direction: 'received',
+        direction: 'issued',
         isActive: true,
       });
 

@@ -894,5 +894,13 @@
     "empty": "알림을 설정한 충전소가 없습니다.",
     "removeTitle": "알림 해제",
     "removeMessage": "이 충전소가 비어도 더 이상 알림을 받지 않습니다."
+  },
+  "authFooter": {
+    "privacyPolicy": "개인정보처리방침",
+    "termsOfService": "이용약관",
+    "allRightsReserved": "{{year}} {{name}}. 모든 권리 보유.",
+    "recaptchaProtected": "reCAPTCHA로 보호됩니다.",
+    "recaptchaPrivacy": "개인정보",
+    "recaptchaTerms": "약관"
   }
 }

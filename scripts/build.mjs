@@ -2,7 +2,7 @@
 
 import * as esbuild from 'esbuild';
 import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { existsSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -17,14 +17,21 @@ const SERVICES = {
   'ocpi-simulator': { entry: 'packages/ocpi-simulator/src/index.ts' },
 };
 
-const EXTERNAL = [
+// Packages loaded from node_modules at runtime instead of bundled: native
+// addons, and packages that read their own files through __dirname (undefined
+// in the ESM bundle), such as pdfkit's font metrics.
+export const EXTERNAL = [
   'argon2',
   'pino',
   'pino-pretty',
   '@fastify/swagger-ui',
   'pg-native',
   '@resvg/resvg-js',
+  'pdfkit',
 ];
+
+export const BANNER =
+  "import { createRequire } from 'module'; const require = createRequire(import.meta.url);";
 
 // Map workspace @evtivity/* imports to source directories so esbuild reads .ts
 const WORKSPACE_PACKAGES = {
@@ -65,39 +72,44 @@ const workspacePlugin = {
   },
 };
 
-const arg = process.argv[2];
-if (!arg || (!SERVICES[arg] && arg !== 'all')) {
-  console.error(`Usage: node scripts/build.mjs <${Object.keys(SERVICES).join('|')}|all>`);
-  process.exit(1);
+async function main() {
+  const arg = process.argv[2];
+  if (!arg || (!SERVICES[arg] && arg !== 'all')) {
+    console.error(`Usage: node scripts/build.mjs <${Object.keys(SERVICES).join('|')}|all>`);
+    process.exit(1);
+  }
+
+  const targets = arg === 'all' ? Object.entries(SERVICES) : [[arg, SERVICES[arg]]];
+  const start = Date.now();
+
+  for (const [name, config] of targets) {
+    const outfile = resolve(root, `dist/${name}.mjs`);
+    const t0 = Date.now();
+
+    await esbuild.build({
+      entryPoints: [resolve(root, config.entry)],
+      bundle: true,
+      platform: 'node',
+      target: 'node24',
+      format: 'esm',
+      outfile,
+      sourcemap: 'linked',
+      minify: true,
+      treeShaking: true,
+      external: EXTERNAL,
+      plugins: [workspacePlugin],
+      banner: { js: BANNER },
+    });
+
+    const ms = Date.now() - t0;
+    console.log(`  ${name}: OK (${ms}ms)`);
+  }
+
+  const total = Date.now() - start;
+  console.log(`\nDone in ${total}ms`);
 }
 
-const targets = arg === 'all' ? Object.entries(SERVICES) : [[arg, SERVICES[arg]]];
-const start = Date.now();
-
-for (const [name, config] of targets) {
-  const outfile = resolve(root, `dist/${name}.mjs`);
-  const t0 = Date.now();
-
-  await esbuild.build({
-    entryPoints: [resolve(root, config.entry)],
-    bundle: true,
-    platform: 'node',
-    target: 'node24',
-    format: 'esm',
-    outfile,
-    sourcemap: 'linked',
-    minify: true,
-    treeShaking: true,
-    external: EXTERNAL,
-    plugins: [workspacePlugin],
-    banner: {
-      js: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
-    },
-  });
-
-  const ms = Date.now() - t0;
-  console.log(`  ${name}: OK (${ms}ms)`);
+// Build only when run as a script; tests import EXTERNAL and BANNER.
+if (process.argv[1] != null && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
 }
-
-const total = Date.now() - start;
-console.log(`\nDone in ${total}ms`);

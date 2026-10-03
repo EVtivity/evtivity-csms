@@ -894,5 +894,13 @@
     "empty": "No estas vigilando ninguna estacion.",
     "removeTitle": "Dejar de seguir",
     "removeMessage": "Ya no recibiras una notificacion cuando esta estacion este libre."
+  },
+  "authFooter": {
+    "privacyPolicy": "Política de privacidad",
+    "termsOfService": "Términos del servicio",
+    "allRightsReserved": "Todos los derechos reservados, {{year}} {{name}}",
+    "recaptchaProtected": "Protegido por reCAPTCHA.",
+    "recaptchaPrivacy": "Privacidad",
+    "recaptchaTerms": "Términos"
   }
 }

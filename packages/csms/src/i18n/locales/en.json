@@ -3288,5 +3288,13 @@
     },
     "segmentLine": "Segment {{n}}: {{label}}",
     "sessionLine": "Charging session {{date}} ({{kwh}} kWh)"
+  },
+  "authFooter": {
+    "privacyPolicy": "Privacy Policy",
+    "termsOfService": "Terms of Service",
+    "allRightsReserved": "All rights reserved, {{year}} {{name}}",
+    "recaptchaProtected": "Protected by reCAPTCHA.",
+    "recaptchaPrivacy": "Privacy",
+    "recaptchaTerms": "Terms"
   }
 }
