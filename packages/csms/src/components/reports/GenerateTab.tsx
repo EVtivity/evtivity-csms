@@ -95,7 +95,9 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
       <CardContent>
         <form onSubmit={handleSubmit} noValidate className="space-y-4 max-w-2xl">
           <div className="space-y-2">
-            <Label htmlFor="report-name">{t('reports.name')}</Label>
+            <Label htmlFor="report-name" className="leading-6">
+              {t('reports.name')}
+            </Label>
             <Input
               id="report-name"
               value={name}
@@ -111,7 +113,9 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="report-type">{t('reports.reportType')}</Label>
+              <Label htmlFor="report-type" className="leading-6">
+                {t('reports.reportType')}
+              </Label>
               <Select
                 id="report-type"
                 className="h-9"
@@ -129,7 +133,9 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="report-format">{t('reports.format')}</Label>
+              <Label htmlFor="report-format" className="leading-6">
+                {t('reports.format')}
+              </Label>
               <Select
                 id="report-format"
                 className="h-9"
@@ -148,7 +154,7 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
           </div>
 
           <div className="space-y-2">
-            <Label>{t('reports.dateRange')}</Label>
+            <Label className="leading-6">{t('reports.dateRange')}</Label>
             <div className="flex items-center gap-2">
               <Input
                 type="date"
@@ -172,7 +178,9 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="report-site">{t('reports.site')}</Label>
+              <Label htmlFor="report-site" className="leading-6">
+                {t('reports.site')}
+              </Label>
               <Select
                 id="report-site"
                 className="h-9"
@@ -192,7 +200,9 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="report-station">{t('reports.station')}</Label>
+              <Label htmlFor="report-station" className="leading-6">
+                {t('reports.station')}
+              </Label>
               <Select
                 id="report-station"
                 className="h-9"

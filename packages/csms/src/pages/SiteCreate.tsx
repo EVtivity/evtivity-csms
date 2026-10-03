@@ -103,7 +103,9 @@ export function SiteCreate(): React.JSX.Element {
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="site-name">{t('common.name')}</Label>
+              <Label htmlFor="site-name" className="leading-6">
+                {t('common.name')}
+              </Label>
               <Input
                 id="site-name"
                 value={name}
@@ -117,7 +119,9 @@ export function SiteCreate(): React.JSX.Element {
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="site-address">{t('sites.address')}</Label>
+              <Label htmlFor="site-address" className="leading-6">
+                {t('sites.address')}
+              </Label>
               <Input
                 id="site-address"
                 value={address}
@@ -128,7 +132,9 @@ export function SiteCreate(): React.JSX.Element {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="site-city">{t('sites.city')}</Label>
+                <Label htmlFor="site-city" className="leading-6">
+                  {t('sites.city')}
+                </Label>
                 <Input
                   id="site-city"
                   value={city}
@@ -138,7 +144,9 @@ export function SiteCreate(): React.JSX.Element {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="site-state">{t('sites.state')}</Label>
+                <Label htmlFor="site-state" className="leading-6">
+                  {t('sites.state')}
+                </Label>
                 <Input
                   id="site-state"
                   value={state}
@@ -150,7 +158,9 @@ export function SiteCreate(): React.JSX.Element {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="site-postal">{t('sites.postalCode')}</Label>
+                <Label htmlFor="site-postal" className="leading-6">
+                  {t('sites.postalCode')}
+                </Label>
                 <Input
                   id="site-postal"
                   value={postalCode}
@@ -160,7 +170,9 @@ export function SiteCreate(): React.JSX.Element {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="site-country">{t('sites.country')}</Label>
+                <Label htmlFor="site-country" className="leading-6">
+                  {t('sites.country')}
+                </Label>
                 <Input
                   id="site-country"
                   value={country}
@@ -172,7 +184,9 @@ export function SiteCreate(): React.JSX.Element {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="site-latitude">{t('sites.latitude')}</Label>
+                <Label htmlFor="site-latitude" className="leading-6">
+                  {t('sites.latitude')}
+                </Label>
                 <DecimalInput
                   id="site-latitude"
                   placeholder="e.g. 40.7128"
@@ -182,7 +196,9 @@ export function SiteCreate(): React.JSX.Element {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="site-longitude">{t('sites.longitude')}</Label>
+                <Label htmlFor="site-longitude" className="leading-6">
+                  {t('sites.longitude')}
+                </Label>
                 <DecimalInput
                   id="site-longitude"
                   placeholder="e.g. -74.0060"
@@ -201,7 +217,9 @@ export function SiteCreate(): React.JSX.Element {
               }}
             />
             <div className="space-y-2">
-              <Label htmlFor="site-timezone">{t('sites.timezone')}</Label>
+              <Label htmlFor="site-timezone" className="leading-6">
+                {t('sites.timezone')}
+              </Label>
               <Select
                 id="site-timezone"
                 value={timezone}
@@ -228,7 +246,9 @@ export function SiteCreate(): React.JSX.Element {
                 <p className="text-xs text-muted-foreground">{t('sites.contactPublicNote')}</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="site-contact-name">{t('sites.contactName')}</Label>
+                <Label htmlFor="site-contact-name" className="leading-6">
+                  {t('sites.contactName')}
+                </Label>
                 <Input
                   id="site-contact-name"
                   value={contactName}
@@ -239,7 +259,9 @@ export function SiteCreate(): React.JSX.Element {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="site-contact-email">{t('sites.contactEmail')}</Label>
+                  <Label htmlFor="site-contact-email" className="leading-6">
+                    {t('sites.contactEmail')}
+                  </Label>
                   <Input
                     id="site-contact-email"
                     type="email"
@@ -250,7 +272,9 @@ export function SiteCreate(): React.JSX.Element {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="site-contact-phone">{t('sites.contactPhone')}</Label>
+                  <Label htmlFor="site-contact-phone" className="leading-6">
+                    {t('sites.contactPhone')}
+                  </Label>
                   <Input
                     id="site-contact-phone"
                     type="tel"

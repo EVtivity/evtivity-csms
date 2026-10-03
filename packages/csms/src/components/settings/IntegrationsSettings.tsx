@@ -630,7 +630,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
 
             <div className="flex items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <Label>{t('settings.roamingEnabled')}</Label>
+                <Label className="leading-6">{t('settings.roamingEnabled')}</Label>
               </div>
               <button
                 type="button"
@@ -660,7 +660,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
 
             <div className="flex items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <Label>{t('settings.pncEnabled')}</Label>
+                <Label className="leading-6">{t('settings.pncEnabled')}</Label>
               </div>
               <button
                 type="button"
@@ -682,7 +682,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               <>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="pnc-provider">{t('settings.pncProvider')}</Label>
+                    <Label htmlFor="pnc-provider" className="leading-6">
+                      {t('settings.pncProvider')}
+                    </Label>
                     <Select
                       id="pnc-provider"
                       value={pncProvider}
@@ -697,7 +699,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="pnc-warning-days">
+                    <Label htmlFor="pnc-warning-days" className="leading-6">
                       {t('settings.pncExpirationWarningDays')}
                     </Label>
                     <Input
@@ -713,7 +715,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="pnc-critical-days">
+                    <Label htmlFor="pnc-critical-days" className="leading-6">
                       {t('settings.pncExpirationCriticalDays')}
                     </Label>
                     <Input
@@ -730,7 +732,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="pnc-ocsp-allowed-hosts">
+                  <Label htmlFor="pnc-ocsp-allowed-hosts" className="leading-6">
                     {t('settings.pncOcspAllowedPrivateHosts')}
                   </Label>
                   <Textarea
@@ -750,7 +752,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 {pncProvider === 'hubject' && (
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="pnc-hubject-base-url">
+                      <Label htmlFor="pnc-hubject-base-url" className="leading-6">
                         {t('settings.pncHubjectBaseUrl')}
                       </Label>
                       <Input
@@ -764,7 +766,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="pnc-hubject-client-id">
+                      <Label htmlFor="pnc-hubject-client-id" className="leading-6">
                         {t('settings.pncHubjectClientId')}
                       </Label>
                       <Input
@@ -777,7 +779,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="pnc-hubject-client-secret">
+                      <Label htmlFor="pnc-hubject-client-secret" className="leading-6">
                         {t('settings.pncHubjectClientSecret')}
                       </Label>
                       <PasswordInput
@@ -796,7 +798,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="pnc-hubject-token-url">
+                      <Label htmlFor="pnc-hubject-token-url" className="leading-6">
                         {t('settings.pncHubjectTokenUrl')}
                       </Label>
                       <Input
@@ -867,7 +869,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
           <CardContent>
             <div className="flex items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <Label>{t('settings.reservationEnabled')}</Label>
+                <Label className="leading-6">{t('settings.reservationEnabled')}</Label>
                 <p className="text-xs text-muted-foreground">
                   {t('settings.reservationEnabledDesc')}
                 </p>
@@ -902,7 +904,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
           <CardContent>
             <div className="flex items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <Label>{t('settings.supportEnabled')}</Label>
+                <Label className="leading-6">{t('settings.supportEnabled')}</Label>
                 <p className="text-xs text-muted-foreground">{t('settings.supportEnabledDesc')}</p>
               </div>
               <button
@@ -932,7 +934,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
           <CardContent>
             <div className="flex items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <Label>{t('settings.fleetEnabled')}</Label>
+                <Label className="leading-6">{t('settings.fleetEnabled')}</Label>
                 <p className="text-xs text-muted-foreground">{t('settings.fleetEnabledDesc')}</p>
               </div>
               <button
@@ -962,7 +964,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
           <CardContent>
             <div className="flex items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <Label>{t('settings.guestChargingEnabled')}</Label>
+                <Label className="leading-6">{t('settings.guestChargingEnabled')}</Label>
                 <p className="text-xs text-muted-foreground">
                   {t('settings.guestChargingEnabledDesc')}
                 </p>
@@ -1074,7 +1076,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
 
             <div className="flex items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <Label>{t('settings.splitBilling')}</Label>
+                <Label className="leading-6">{t('settings.splitBilling')}</Label>
                 <p className="text-xs text-muted-foreground">{t('settings.splitBillingDesc')}</p>
               </div>
               <button
@@ -1216,7 +1218,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="s3-bucket">{t('settings.s3Bucket')}</Label>
+                <Label htmlFor="s3-bucket" className="leading-6">
+                  {t('settings.s3Bucket')}
+                </Label>
                 <Input
                   id="s3-bucket"
                   value={s3Bucket}
@@ -1228,7 +1232,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="s3-region">{t('settings.s3Region')}</Label>
+                <Label htmlFor="s3-region" className="leading-6">
+                  {t('settings.s3Region')}
+                </Label>
                 <Input
                   id="s3-region"
                   value={s3Region}
@@ -1240,7 +1246,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="s3-access-key">{t('settings.s3AccessKeyId')}</Label>
+                <Label htmlFor="s3-access-key" className="leading-6">
+                  {t('settings.s3AccessKeyId')}
+                </Label>
                 <Input
                   id="s3-access-key"
                   value={s3AccessKeyId}
@@ -1251,7 +1259,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="s3-secret-key">{t('settings.s3SecretAccessKey')}</Label>
+                <Label htmlFor="s3-secret-key" className="leading-6">
+                  {t('settings.s3SecretAccessKey')}
+                </Label>
                 <PasswordInput
                   id="s3-secret-key"
                   value={s3SecretAccessKey}
@@ -1400,7 +1410,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="ftp-host">{t('settings.ftpHost')}</Label>
+                <Label htmlFor="ftp-host" className="leading-6">
+                  {t('settings.ftpHost')}
+                </Label>
                 <Input
                   id="ftp-host"
                   value={ftpHost}
@@ -1411,7 +1423,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="ftp-port">{t('settings.ftpPort')}</Label>
+                <Label htmlFor="ftp-port" className="leading-6">
+                  {t('settings.ftpPort')}
+                </Label>
                 <Input
                   id="ftp-port"
                   type="number"
@@ -1423,7 +1437,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="ftp-username">{t('settings.ftpUsername')}</Label>
+                <Label htmlFor="ftp-username" className="leading-6">
+                  {t('settings.ftpUsername')}
+                </Label>
                 <Input
                   id="ftp-username"
                   value={ftpUsername}
@@ -1434,7 +1450,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="ftp-password">{t('settings.ftpPassword')}</Label>
+                <Label htmlFor="ftp-password" className="leading-6">
+                  {t('settings.ftpPassword')}
+                </Label>
                 <PasswordInput
                   id="ftp-password"
                   value={ftpPassword}
@@ -1445,7 +1463,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               </div>
 
               <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="ftp-path">{t('settings.ftpPath')}</Label>
+                <Label htmlFor="ftp-path" className="leading-6">
+                  {t('settings.ftpPath')}
+                </Label>
                 <Input
                   id="ftp-path"
                   value={ftpPath}
@@ -1488,7 +1508,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
 
             <div className="flex items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <Label>{t('settings.sentryEnabled')}</Label>
+                <Label className="leading-6">{t('settings.sentryEnabled')}</Label>
               </div>
               <button
                 type="button"

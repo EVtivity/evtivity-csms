@@ -97,7 +97,9 @@ export function ProfileChatbotAi(): React.JSX.Element {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="ai-profile-provider">{t('profile.chatbotAiProvider')}</Label>
+          <Label htmlFor="ai-profile-provider" className="leading-6">
+            {t('profile.chatbotAiProvider')}
+          </Label>
           <select
             id="ai-profile-provider"
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -112,7 +114,9 @@ export function ProfileChatbotAi(): React.JSX.Element {
           </select>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="ai-profile-api-key">{t('profile.chatbotAiApiKey')}</Label>
+          <Label htmlFor="ai-profile-api-key" className="leading-6">
+            {t('profile.chatbotAiApiKey')}
+          </Label>
           <PasswordInput
             id="ai-profile-api-key"
             value={chatbotAiApiKey}
@@ -123,7 +127,9 @@ export function ProfileChatbotAi(): React.JSX.Element {
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="ai-profile-model">{t('profile.chatbotAiModel')}</Label>
+          <Label htmlFor="ai-profile-model" className="leading-6">
+            {t('profile.chatbotAiModel')}
+          </Label>
           <Input
             id="ai-profile-model"
             value={chatbotAiModelOverride}
@@ -135,7 +141,9 @@ export function ProfileChatbotAi(): React.JSX.Element {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="ai-profile-temperature">{t('profile.chatbotAiTemperature')}</Label>
+            <Label htmlFor="ai-profile-temperature" className="leading-6">
+              {t('profile.chatbotAiTemperature')}
+            </Label>
             <DecimalInput
               id="ai-profile-temperature"
               value={chatbotAiTemperature}
@@ -147,7 +155,9 @@ export function ProfileChatbotAi(): React.JSX.Element {
             </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="ai-profile-top-p">{t('profile.chatbotAiTopP')}</Label>
+            <Label htmlFor="ai-profile-top-p" className="leading-6">
+              {t('profile.chatbotAiTopP')}
+            </Label>
             <DecimalInput
               id="ai-profile-top-p"
               value={chatbotAiTopP}
@@ -157,7 +167,9 @@ export function ProfileChatbotAi(): React.JSX.Element {
             <p className="text-xs text-muted-foreground">{t('settings.chatbotAiTopPHint')}</p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="ai-profile-top-k">{t('profile.chatbotAiTopK')}</Label>
+            <Label htmlFor="ai-profile-top-k" className="leading-6">
+              {t('profile.chatbotAiTopK')}
+            </Label>
             <Input
               id="ai-profile-top-k"
               type="number"
@@ -174,7 +186,9 @@ export function ProfileChatbotAi(): React.JSX.Element {
           </div>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="ai-profile-system-prompt">{t('profile.chatbotAiSystemPrompt')}</Label>
+          <Label htmlFor="ai-profile-system-prompt" className="leading-6">
+            {t('profile.chatbotAiSystemPrompt')}
+          </Label>
           <textarea
             id="ai-profile-system-prompt"
             rows={4}

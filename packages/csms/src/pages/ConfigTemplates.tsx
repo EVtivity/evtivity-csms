@@ -123,7 +123,7 @@ export function ConfigTemplates({ embedded }: { embedded?: boolean } = {}): Reac
                         <TableCell className="font-medium" data-testid="row-click-target">
                           {template.name}
                         </TableCell>
-                        <TableCell className="text-xs whitespace-normal break-words max-w-md">
+                        <TableCell className="text-xs whitespace-normal wrap-break-word max-w-md">
                           {template.description ?? 'n/a'}
                         </TableCell>
                         <TableCell className="text-xs">

@@ -268,7 +268,9 @@ export function StationDisplayMessages({
           <form onSubmit={handleCreate} noValidate className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="display-msg-priority">{t('stations.messagePriority')}</Label>
+                <Label htmlFor="display-msg-priority" className="leading-6">
+                  {t('stations.messagePriority')}
+                </Label>
                 <Select
                   id="display-msg-priority"
                   value={priority}
@@ -285,7 +287,9 @@ export function StationDisplayMessages({
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="display-msg-format">{t('stations.messageFormat')}</Label>
+                <Label htmlFor="display-msg-format" className="leading-6">
+                  {t('stations.messageFormat')}
+                </Label>
                 <Select
                   id="display-msg-format"
                   value={format}
@@ -303,7 +307,9 @@ export function StationDisplayMessages({
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="msg-content">{t('stations.messageContent')}</Label>
+              <Label htmlFor="msg-content" className="leading-6">
+                {t('stations.messageContent')}
+              </Label>
               <textarea
                 id="msg-content"
                 value={content}
@@ -320,7 +326,9 @@ export function StationDisplayMessages({
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="msg-language">{t('stations.messageLanguage')}</Label>
+                <Label htmlFor="msg-language" className="leading-6">
+                  {t('stations.messageLanguage')}
+                </Label>
                 <Input
                   id="msg-language"
                   value={language}
@@ -332,7 +340,9 @@ export function StationDisplayMessages({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="display-msg-state">{t('stations.messageState')}</Label>
+                <Label htmlFor="display-msg-state" className="leading-6">
+                  {t('stations.messageState')}
+                </Label>
                 <Select
                   id="display-msg-state"
                   value={state}
@@ -352,7 +362,9 @@ export function StationDisplayMessages({
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="msg-start-time">{t('stations.messageStartTime')}</Label>
+                <Label htmlFor="msg-start-time" className="leading-6">
+                  {t('stations.messageStartTime')}
+                </Label>
                 <Input
                   id="msg-start-time"
                   type="datetime-local"
@@ -363,7 +375,9 @@ export function StationDisplayMessages({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="msg-end-time">{t('stations.messageEndTime')}</Label>
+                <Label htmlFor="msg-end-time" className="leading-6">
+                  {t('stations.messageEndTime')}
+                </Label>
                 <Input
                   id="msg-end-time"
                   type="datetime-local"
@@ -376,7 +390,9 @@ export function StationDisplayMessages({
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="msg-transaction-id">{t('stations.messageTransactionId')}</Label>
+                <Label htmlFor="msg-transaction-id" className="leading-6">
+                  {t('stations.messageTransactionId')}
+                </Label>
                 <Input
                   id="msg-transaction-id"
                   value={transactionId}
@@ -387,7 +403,9 @@ export function StationDisplayMessages({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="msg-evse-id">{t('stations.messageEvseId')}</Label>
+                <Label htmlFor="msg-evse-id" className="leading-6">
+                  {t('stations.messageEvseId')}
+                </Label>
                 <Input
                   id="msg-evse-id"
                   type="number"

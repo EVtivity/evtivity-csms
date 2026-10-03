@@ -187,7 +187,9 @@ export function VehicleDetail(): React.JSX.Element {
             <form onSubmit={handleSave} noValidate className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-make">{t('vehicles.make')}</Label>
+                  <Label htmlFor="edit-make" className="leading-6">
+                    {t('vehicles.make')}
+                  </Label>
                   <Combobox
                     id="edit-make"
                     value={make}
@@ -200,7 +202,9 @@ export function VehicleDetail(): React.JSX.Element {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-model">{t('vehicles.model')}</Label>
+                  <Label htmlFor="edit-model" className="leading-6">
+                    {t('vehicles.model')}
+                  </Label>
                   <Combobox
                     id="edit-model"
                     value={model}
@@ -213,7 +217,9 @@ export function VehicleDetail(): React.JSX.Element {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-year">{t('vehicles.year')}</Label>
+                  <Label htmlFor="edit-year" className="leading-6">
+                    {t('vehicles.year')}
+                  </Label>
                   <Combobox
                     id="edit-year"
                     value={year}
@@ -230,7 +236,9 @@ export function VehicleDetail(): React.JSX.Element {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-vin">{t('vehicles.vin')}</Label>
+                  <Label htmlFor="edit-vin" className="leading-6">
+                    {t('vehicles.vin')}
+                  </Label>
                   <Input
                     id="edit-vin"
                     value={vin}
@@ -245,7 +253,9 @@ export function VehicleDetail(): React.JSX.Element {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-plate">{t('vehicles.licensePlate')}</Label>
+                  <Label htmlFor="edit-plate" className="leading-6">
+                    {t('vehicles.licensePlate')}
+                  </Label>
                   <Input
                     id="edit-plate"
                     value={licensePlate}

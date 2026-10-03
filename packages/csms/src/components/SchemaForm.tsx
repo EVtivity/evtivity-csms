@@ -210,7 +210,7 @@ function FieldWrapper({
 }): React.JSX.Element {
   return (
     <div className="space-y-1">
-      <Label htmlFor={`schema-field-${field.name}`}>
+      <Label htmlFor={`schema-field-${field.name}`} className="leading-6">
         {field.name}
         {field.required && <span className="text-destructive ml-0.5">*</span>}
       </Label>
@@ -326,7 +326,7 @@ function ArrayFieldRenderer({
 
   return (
     <fieldset className="border border-input rounded-md p-3 space-y-3">
-      <Label htmlFor={`schema-field-${field.name}`}>
+      <Label htmlFor={`schema-field-${field.name}`} className="leading-6">
         {field.name}
         {field.required && <span className="text-destructive ml-0.5">*</span>}
       </Label>

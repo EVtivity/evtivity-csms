@@ -92,7 +92,9 @@ export function BulkReservationSlotRow({
       <div className="flex items-start gap-2">
         <div className="grid gap-3 flex-1 md:grid-cols-3">
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">{t('reservations.stationId')}</Label>
+            <Label className="text-xs text-muted-foreground leading-6">
+              {t('reservations.stationId')}
+            </Label>
             <StationCombobox
               value={slot.station}
               onSelect={(station) => {
@@ -102,7 +104,9 @@ export function BulkReservationSlotRow({
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">{t('reservations.connector')}</Label>
+            <Label className="text-xs text-muted-foreground leading-6">
+              {t('reservations.connector')}
+            </Label>
             {slot.station != null && connectorOptions.length > 0 ? (
               <Select
                 value={slot.connectorKey}
@@ -128,7 +132,9 @@ export function BulkReservationSlotRow({
             )}
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">{t('reservations.driverName')}</Label>
+            <Label className="text-xs text-muted-foreground leading-6">
+              {t('reservations.driverName')}
+            </Label>
             <DriverCombobox
               value={slot.driver}
               onSelect={(driver) => {

@@ -7,9 +7,14 @@ export const MAX_OCPP_REQUEST_ID = 2_147_483_647;
 /**
  * A random request ID for a CSMS-initiated OCPP request (UpdateFirmware,
  * SignedUpdateFirmware), from 1 to 2^31 - 1, so it fits a 32-bit integer.
- * Date.now() does not (it is about 1.8e12).
+ * Date.now() does not (it is about 1.8e12). The top bit is dropped and 0 is
+ * redrawn, so every ID in the range is equally likely.
  */
 export function newOcppRequestId(): number {
-  const [value = 0] = crypto.getRandomValues(new Uint32Array(1));
-  return (value % MAX_OCPP_REQUEST_ID) + 1;
+  const buffer = new Uint32Array(1);
+  for (;;) {
+    crypto.getRandomValues(buffer);
+    const value = (buffer[0] ?? 0) >>> 1;
+    if (value !== 0) return value;
+  }
 }

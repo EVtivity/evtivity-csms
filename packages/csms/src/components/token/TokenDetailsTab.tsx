@@ -166,7 +166,9 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
           {editing ? (
             <form onSubmit={handleSave} noValidate className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-idToken">{t('tokens.tokenValue')}</Label>
+                <Label htmlFor="edit-idToken" className="leading-6">
+                  {t('tokens.tokenValue')}
+                </Label>
                 <Input
                   id="edit-idToken"
                   value={idToken}
@@ -180,7 +182,9 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-tokenType">{t('tokens.tokenType')}</Label>
+                <Label htmlFor="edit-tokenType" className="leading-6">
+                  {t('tokens.tokenType')}
+                </Label>
                 <Select
                   id="edit-tokenType"
                   value={tokenType}
@@ -196,7 +200,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>{t('tokens.driver')}</Label>
+                <Label className="leading-6">{t('tokens.driver')}</Label>
                 <DriverCombobox value={selectedDriver} onSelect={setSelectedDriver} />
               </div>
               <div className="flex items-center gap-2">
@@ -228,7 +232,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
               </div>
               {isPrepaid && (
                 <div className="space-y-2">
-                  <Label htmlFor="edit-prepaidBalance">
+                  <Label htmlFor="edit-prepaidBalance" className="leading-6">
                     {t('tokens.prepaidBalance')}
                     {currency != null ? ` (${currency})` : ''}
                   </Label>

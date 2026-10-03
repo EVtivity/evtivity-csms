@@ -135,12 +135,16 @@ export function UserDetailsTab({ user, userId, roles }: UserDetailsTabProps): Re
         {editing ? (
           <form onSubmit={handleSave} noValidate className="grid gap-6">
             <div className="space-y-2">
-              <Label htmlFor="edit-email">{t('common.email')}</Label>
+              <Label htmlFor="edit-email" className="leading-6">
+                {t('common.email')}
+              </Label>
               <Input id="edit-email" value={user.email} disabled />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-first">{t('users.firstName')}</Label>
+                <Label htmlFor="edit-first" className="leading-6">
+                  {t('users.firstName')}
+                </Label>
                 <Input
                   id="edit-first"
                   value={firstName}
@@ -150,7 +154,9 @@ export function UserDetailsTab({ user, userId, roles }: UserDetailsTabProps): Re
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-last">{t('users.lastName')}</Label>
+                <Label htmlFor="edit-last" className="leading-6">
+                  {t('users.lastName')}
+                </Label>
                 <Input
                   id="edit-last"
                   value={lastName}
@@ -161,7 +167,9 @@ export function UserDetailsTab({ user, userId, roles }: UserDetailsTabProps): Re
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-phone">{t('users.phone')}</Label>
+              <Label htmlFor="edit-phone" className="leading-6">
+                {t('users.phone')}
+              </Label>
               <Input
                 id="edit-phone"
                 type="tel"
@@ -173,7 +181,9 @@ export function UserDetailsTab({ user, userId, roles }: UserDetailsTabProps): Re
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-role">{t('users.role')}</Label>
+              <Label htmlFor="edit-role" className="leading-6">
+                {t('users.role')}
+              </Label>
               <Select
                 id="edit-role"
                 value={roleId}
@@ -206,7 +216,7 @@ export function UserDetailsTab({ user, userId, roles }: UserDetailsTabProps): Re
               <Label htmlFor="edit-active">{t('common.active')}</Label>
             </div>
             <div className="space-y-2">
-              <Label>{t('users.siteAccess')}</Label>
+              <Label className="leading-6">{t('users.siteAccess')}</Label>
               <div className="flex items-center gap-2">
                 <input
                   id="edit-all-sites"

@@ -83,7 +83,7 @@ export function SessionCharts({
                 type="button"
                 className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
                   activeTab === 'energy'
-                    ? 'bg-background text-foreground shadow-sm'
+                    ? 'bg-background text-foreground shadow-xs'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
                 onClick={() => {
@@ -96,7 +96,7 @@ export function SessionCharts({
                 type="button"
                 className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
                   activeTab === 'power'
-                    ? 'bg-background text-foreground shadow-sm'
+                    ? 'bg-background text-foreground shadow-xs'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
                 onClick={() => {

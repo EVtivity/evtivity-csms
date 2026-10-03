@@ -69,7 +69,7 @@ export function CopyableId({
       {pos != null &&
         createPortal(
           <div
-            className="pointer-events-none fixed rounded bg-foreground px-2 py-0.5 text-xs text-background whitespace-nowrap z-[9999] animate-in fade-in duration-150"
+            className="pointer-events-none fixed rounded bg-foreground px-2 py-0.5 text-xs text-background whitespace-nowrap z-9999 animate-in fade-in duration-150"
             style={{ left: pos.x + 6, top: pos.y, transform: 'translateY(-50%)' }}
           >
             {t('common.copied')}

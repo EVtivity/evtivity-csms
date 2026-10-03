@@ -294,7 +294,7 @@ export function SchedulesTab(): React.JSX.Element {
                           runNowMutation.mutate(schedule.id);
                         }}
                         disabled={runningId === schedule.id}
-                        className="relative min-w-[6rem]"
+                        className="relative min-w-24"
                       >
                         {runningId === schedule.id && (
                           <span className="absolute inset-0 flex items-center justify-center">
@@ -371,7 +371,9 @@ export function SchedulesTab(): React.JSX.Element {
             </DialogHeader>
             <form onSubmit={handleSubmit} noValidate className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="schedule-name">{t('reports.name')}</Label>
+                <Label htmlFor="schedule-name" className="leading-6">
+                  {t('reports.name')}
+                </Label>
                 <Input
                   id="schedule-name"
                   value={name}
@@ -387,7 +389,9 @@ export function SchedulesTab(): React.JSX.Element {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="schedule-type">{t('reports.reportType')}</Label>
+                  <Label htmlFor="schedule-type" className="leading-6">
+                    {t('reports.reportType')}
+                  </Label>
                   <Select
                     id="schedule-type"
                     className="h-9"
@@ -405,7 +409,9 @@ export function SchedulesTab(): React.JSX.Element {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="schedule-format">{t('reports.format')}</Label>
+                  <Label htmlFor="schedule-format" className="leading-6">
+                    {t('reports.format')}
+                  </Label>
                   <Select
                     id="schedule-format"
                     className="h-9"
@@ -425,7 +431,9 @@ export function SchedulesTab(): React.JSX.Element {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="schedule-frequency">{t('reports.frequency')}</Label>
+                  <Label htmlFor="schedule-frequency" className="leading-6">
+                    {t('reports.frequency')}
+                  </Label>
                   <Select
                     id="schedule-frequency"
                     className="h-9"
@@ -444,7 +452,9 @@ export function SchedulesTab(): React.JSX.Element {
 
                 {frequency === 'weekly' && (
                   <div className="space-y-2">
-                    <Label htmlFor="schedule-dow">{t('reports.dayOfWeek')}</Label>
+                    <Label htmlFor="schedule-dow" className="leading-6">
+                      {t('reports.dayOfWeek')}
+                    </Label>
                     <Select
                       id="schedule-dow"
                       className="h-9"
@@ -464,7 +474,9 @@ export function SchedulesTab(): React.JSX.Element {
 
                 {frequency === 'monthly' && (
                   <div className="space-y-2">
-                    <Label htmlFor="schedule-dom">{t('reports.dayOfMonth')}</Label>
+                    <Label htmlFor="schedule-dom" className="leading-6">
+                      {t('reports.dayOfMonth')}
+                    </Label>
                     <Input
                       id="schedule-dom"
                       type="number"
@@ -480,7 +492,7 @@ export function SchedulesTab(): React.JSX.Element {
               </div>
 
               <div className="space-y-2">
-                <Label>{t('reports.dateRange')}</Label>
+                <Label className="leading-6">{t('reports.dateRange')}</Label>
                 <div className="flex items-center gap-2">
                   <Input
                     type="date"
@@ -503,7 +515,9 @@ export function SchedulesTab(): React.JSX.Element {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="schedule-emails">{t('reports.recipientEmails')}</Label>
+                <Label htmlFor="schedule-emails" className="leading-6">
+                  {t('reports.recipientEmails')}
+                </Label>
                 <Input
                   id="schedule-emails"
                   value={recipientEmails}

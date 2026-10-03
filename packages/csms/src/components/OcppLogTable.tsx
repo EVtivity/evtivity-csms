@@ -167,7 +167,7 @@ export function OcppLogTable({
                           <TableCell>
                             <Badge
                               variant={log.messageType === 4 ? 'destructive' : 'secondary'}
-                              className="text-[10px] px-1.5 py-0"
+                              className="text-[10px] leading-5 px-1.5 py-0"
                             >
                               {typeLabel}
                             </Badge>

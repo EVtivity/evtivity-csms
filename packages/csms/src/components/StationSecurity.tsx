@@ -399,7 +399,9 @@ export function StationSecurity({
                 <div className="rounded-md border p-4 space-y-3">
                   <p className="text-sm font-medium">{t('stations.passwordRequiredForProfile')}</p>
                   <div className="space-y-2">
-                    <Label htmlFor="profile-password">{t('stations.password')}</Label>
+                    <Label htmlFor="profile-password" className="leading-6">
+                      {t('stations.password')}
+                    </Label>
                     <PasswordInput
                       id="profile-password"
                       value={profilePassword}
@@ -420,7 +422,7 @@ export function StationSecurity({
                     )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="profile-password-confirm">
+                    <Label htmlFor="profile-password-confirm" className="leading-6">
                       {t('stations.confirmPassword')}
                     </Label>
                     <PasswordInput
@@ -493,7 +495,9 @@ export function StationSecurity({
                 <div className="rounded-md border p-4 space-y-3">
                   <p className="text-sm font-medium">{t('stations.changePassword')}</p>
                   <div className="space-y-2">
-                    <Label htmlFor="new-password">{t('stations.newPassword')}</Label>
+                    <Label htmlFor="new-password" className="leading-6">
+                      {t('stations.newPassword')}
+                    </Label>
                     <PasswordInput
                       id="new-password"
                       value={password}
@@ -510,7 +514,9 @@ export function StationSecurity({
                     )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="confirm-password">{t('stations.confirmPassword')}</Label>
+                    <Label htmlFor="confirm-password" className="leading-6">
+                      {t('stations.confirmPassword')}
+                    </Label>
                     <PasswordInput
                       id="confirm-password"
                       value={confirmPassword}
@@ -573,7 +579,7 @@ export function StationSecurity({
         <CardContent>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-5 mb-4">
             <div className="space-y-1">
-              <Label htmlFor="security-logs-source" className="text-xs">
+              <Label htmlFor="security-logs-source" className="text-xs leading-6">
                 {t('stations.securityLogSource')}
               </Label>
               <Select
@@ -592,7 +598,7 @@ export function StationSecurity({
               </Select>
             </div>
             <div className="space-y-1">
-              <Label htmlFor="security-logs-event" className="text-xs">
+              <Label htmlFor="security-logs-event" className="text-xs leading-6">
                 {t('stations.eventType')}
               </Label>
               {logsSource === 'connection' ? (
@@ -627,7 +633,7 @@ export function StationSecurity({
               )}
             </div>
             <div className="space-y-1">
-              <Label htmlFor="security-logs-from" className="text-xs">
+              <Label htmlFor="security-logs-from" className="text-xs leading-6">
                 {t('common.from')}
               </Label>
               <input
@@ -643,7 +649,7 @@ export function StationSecurity({
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="security-logs-to" className="text-xs">
+              <Label htmlFor="security-logs-to" className="text-xs leading-6">
                 {t('common.to')}
               </Label>
               <input
@@ -659,7 +665,7 @@ export function StationSecurity({
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="security-logs-limit" className="text-xs">
+              <Label htmlFor="security-logs-limit" className="text-xs leading-6">
                 {t('common.pageSize')}
               </Label>
               <Select

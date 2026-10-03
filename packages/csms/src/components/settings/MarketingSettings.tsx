@@ -52,7 +52,9 @@ export function MarketingSettings({ settings }: MarketingSettingsProps): React.J
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="gtag-portal">{t('settings.gtagPortal')}</Label>
+            <Label htmlFor="gtag-portal" className="leading-6">
+              {t('settings.gtagPortal')}
+            </Label>
             <Input
               id="gtag-portal"
               value={gtagPortal}
@@ -65,7 +67,9 @@ export function MarketingSettings({ settings }: MarketingSettingsProps): React.J
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="gtag-csms">{t('settings.gtagCsms')}</Label>
+            <Label htmlFor="gtag-csms" className="leading-6">
+              {t('settings.gtagCsms')}
+            </Label>
             <Input
               id="gtag-csms"
               value={gtagCsms}

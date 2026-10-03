@@ -29,7 +29,9 @@ const NODE_HASH: Record<CertificateHashAlgorithm, string> = {
   SHA512: 'sha512',
 };
 
-const PEM_CERTIFICATE = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g;
+// The base64 body holds no '-', so a match stops at the next dash and the scan
+// stays linear on input with many BEGIN lines and no END line.
+const PEM_CERTIFICATE = /-----BEGIN CERTIFICATE-----[^-]+-----END CERTIFICATE-----/g;
 
 export function isCertificateHashAlgorithm(value: unknown): value is CertificateHashAlgorithm {
   return value === 'SHA256' || value === 'SHA384' || value === 'SHA512';

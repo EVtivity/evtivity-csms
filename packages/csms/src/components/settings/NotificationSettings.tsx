@@ -190,7 +190,9 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="smtp-host">{t('settings.smtpHost')}</Label>
+                <Label htmlFor="smtp-host" className="leading-6">
+                  {t('settings.smtpHost')}
+                </Label>
                 <Input
                   id="smtp-host"
                   value={smtpHost}
@@ -202,7 +204,9 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="smtp-port">{t('settings.smtpPort')}</Label>
+                <Label htmlFor="smtp-port" className="leading-6">
+                  {t('settings.smtpPort')}
+                </Label>
                 <Input
                   id="smtp-port"
                   type="number"
@@ -214,7 +218,9 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="smtp-username">{t('settings.smtpUsername')}</Label>
+                <Label htmlFor="smtp-username" className="leading-6">
+                  {t('settings.smtpUsername')}
+                </Label>
                 <Input
                   id="smtp-username"
                   value={smtpUsername}
@@ -225,7 +231,9 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="smtp-password">{t('settings.smtpPassword')}</Label>
+                <Label htmlFor="smtp-password" className="leading-6">
+                  {t('settings.smtpPassword')}
+                </Label>
                 <PasswordInput
                   id="smtp-password"
                   value={smtpPassword}
@@ -236,7 +244,9 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
               </div>
 
               <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="smtp-from">{t('settings.smtpFrom')}</Label>
+                <Label htmlFor="smtp-from" className="leading-6">
+                  {t('settings.smtpFrom')}
+                </Label>
                 <Input
                   id="smtp-from"
                   value={smtpFrom}
@@ -314,7 +324,9 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="twilio-sid">{t('settings.twilioAccountSid')}</Label>
+                <Label htmlFor="twilio-sid" className="leading-6">
+                  {t('settings.twilioAccountSid')}
+                </Label>
                 <Input
                   id="twilio-sid"
                   value={twilioAccountSid}
@@ -325,7 +337,9 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="twilio-token">{t('settings.twilioAuthToken')}</Label>
+                <Label htmlFor="twilio-token" className="leading-6">
+                  {t('settings.twilioAuthToken')}
+                </Label>
                 <PasswordInput
                   id="twilio-token"
                   value={twilioAuthToken}
@@ -336,7 +350,9 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
               </div>
 
               <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="twilio-from">{t('settings.twilioFromNumber')}</Label>
+                <Label htmlFor="twilio-from" className="leading-6">
+                  {t('settings.twilioFromNumber')}
+                </Label>
                 <Input
                   id="twilio-from"
                   value={twilioFromNumber}
@@ -452,7 +468,9 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
 
             <div className="grid gap-4 lg:grid-cols-2">
               <div className="space-y-3">
-                <Label htmlFor="email-wrapper-template">HTML Template</Label>
+                <Label htmlFor="email-wrapper-template" className="leading-6">
+                  HTML Template
+                </Label>
                 <textarea
                   id="email-wrapper-template"
                   className="h-[500px] w-full rounded-md border bg-background px-3 py-2 font-mono text-sm"
@@ -492,7 +510,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
               </div>
 
               <div className="space-y-3">
-                <Label>{t('settings.emailLayoutPreview')}</Label>
+                <Label className="leading-6">{t('settings.emailLayoutPreview')}</Label>
                 {previewError != null && (
                   <p className="text-sm text-destructive">
                     {t('settings.emailLayoutInvalid')} {previewError}

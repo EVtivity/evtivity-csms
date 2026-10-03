@@ -82,7 +82,9 @@ export function TokenCreate(): React.JSX.Element {
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="idToken">{t('tokens.tokenValue')}</Label>
+              <Label htmlFor="idToken" className="leading-6">
+                {t('tokens.tokenValue')}
+              </Label>
               <Input
                 id="idToken"
                 value={idToken}
@@ -96,7 +98,9 @@ export function TokenCreate(): React.JSX.Element {
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="tokenType">{t('tokens.tokenType')}</Label>
+              <Label htmlFor="tokenType" className="leading-6">
+                {t('tokens.tokenType')}
+              </Label>
               <Select
                 id="tokenType"
                 value={tokenType}
@@ -112,7 +116,7 @@ export function TokenCreate(): React.JSX.Element {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>{t('tokens.driver')}</Label>
+              <Label className="leading-6">{t('tokens.driver')}</Label>
               <DriverCombobox value={selectedDriver} onSelect={setSelectedDriver} />
             </div>
             {createMutation.isError && (

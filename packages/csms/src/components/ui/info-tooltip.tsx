@@ -42,7 +42,7 @@ export function InfoTooltip({
       {pos != null &&
         createPortal(
           <div
-            className="pointer-events-none fixed rounded-lg bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg border z-[9999]"
+            className="pointer-events-none fixed rounded-lg bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg border z-9999"
             style={{ left: pos.x, top: pos.y - 6, transform: 'translate(-50%, -100%)' }}
           >
             {content}

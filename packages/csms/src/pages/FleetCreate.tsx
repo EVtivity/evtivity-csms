@@ -66,7 +66,9 @@ export function FleetCreate(): React.JSX.Element {
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="fleet-name">{t('common.name')}</Label>
+              <Label htmlFor="fleet-name" className="leading-6">
+                {t('common.name')}
+              </Label>
               <Input
                 id="fleet-name"
                 value={name}
@@ -80,7 +82,9 @@ export function FleetCreate(): React.JSX.Element {
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="fleet-description">{t('common.description')}</Label>
+              <Label htmlFor="fleet-description" className="leading-6">
+                {t('common.description')}
+              </Label>
               <Input
                 id="fleet-description"
                 value={description}

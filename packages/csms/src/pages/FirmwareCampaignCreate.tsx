@@ -104,7 +104,9 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="campaign-name">{t('common.name')}</Label>
+              <Label htmlFor="campaign-name" className="leading-6">
+                {t('common.name')}
+              </Label>
               <Input
                 id="campaign-name"
                 value={name}
@@ -119,7 +121,9 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-10 gap-4">
               <div className="space-y-2 md:col-span-7">
-                <Label htmlFor="campaign-firmware-url">{t('firmwareCampaigns.firmwareUrl')}</Label>
+                <Label htmlFor="campaign-firmware-url" className="leading-6">
+                  {t('firmwareCampaigns.firmwareUrl')}
+                </Label>
                 <Input
                   id="campaign-firmware-url"
                   placeholder="https://example.com/firmware-v2.bin"
@@ -134,7 +138,9 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
                 )}
               </div>
               <div className="space-y-2 md:col-span-3">
-                <Label htmlFor="campaign-version">{t('firmwareCampaigns.version')}</Label>
+                <Label htmlFor="campaign-version" className="leading-6">
+                  {t('firmwareCampaigns.version')}
+                </Label>
                 <Input
                   id="campaign-version"
                   value={version}

@@ -226,6 +226,13 @@ describe('station-pki', () => {
     ).toBeNull();
   });
 
+  it('scans many BEGIN lines without an END line in linear time', () => {
+    const input = '-----BEGIN CERTIFICATE-----'.repeat(50_000);
+    const started = performance.now();
+    expect(parseCertificateChain(input)).toBeNull();
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it('generates a CSR whose key matches the certificate issued for it', async () => {
     const { csrPem, privateKeyPem } = await generateKeyPairAndCsr({
       commonName: 'SN-1',

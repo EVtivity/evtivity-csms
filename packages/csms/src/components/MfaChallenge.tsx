@@ -98,7 +98,7 @@ export function MfaChallenge(): React.JSX.Element {
             className="space-y-4"
           >
             <div className="space-y-2">
-              <Label htmlFor="mfaCode" className="sr-only">
+              <Label htmlFor="mfaCode" className="sr-only leading-6">
                 {t('auth.mfaCodeLabel')}
               </Label>
               <Input

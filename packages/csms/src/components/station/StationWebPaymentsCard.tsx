@@ -128,7 +128,9 @@ export function StationWebPaymentsCard({
               <form onSubmit={handleEnable} noValidate className="space-y-4">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="dynamic-qr-validity">{t('stations.dynamicQrValidity')}</Label>
+                    <Label htmlFor="dynamic-qr-validity" className="leading-6">
+                      {t('stations.dynamicQrValidity')}
+                    </Label>
                     <Input
                       id="dynamic-qr-validity"
                       inputMode="numeric"
@@ -147,7 +149,9 @@ export function StationWebPaymentsCard({
                     )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="dynamic-qr-length">{t('stations.dynamicQrLength')}</Label>
+                    <Label htmlFor="dynamic-qr-length" className="leading-6">
+                      {t('stations.dynamicQrLength')}
+                    </Label>
                     <Input
                       id="dynamic-qr-length"
                       inputMode="numeric"

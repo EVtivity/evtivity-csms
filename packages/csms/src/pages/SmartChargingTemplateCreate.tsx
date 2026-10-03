@@ -148,7 +148,9 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="sc-name">{t('common.name')}</Label>
+              <Label htmlFor="sc-name" className="leading-6">
+                {t('common.name')}
+              </Label>
               <Input
                 id="sc-name"
                 value={name}
@@ -163,7 +165,9 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="sc-description">{t('common.description')}</Label>
+              <Label htmlFor="sc-description" className="leading-6">
+                {t('common.description')}
+              </Label>
               <Input
                 id="sc-description"
                 value={description}
@@ -174,7 +178,7 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
             </div>
 
             <div className="space-y-2">
-              <Label>{t('smartCharging.ocppVersion')}</Label>
+              <Label className="leading-6">{t('smartCharging.ocppVersion')}</Label>
               <div className="flex gap-1">
                 <Button
                   type="button"
@@ -309,7 +313,9 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="sc-rate-unit">{t('smartCharging.chargingRateUnit')}</Label>
+                <Label htmlFor="sc-rate-unit" className="leading-6">
+                  {t('smartCharging.chargingRateUnit')}
+                </Label>
                 <Select
                   id="sc-rate-unit"
                   value={chargingRateUnit}
@@ -325,7 +331,9 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="sc-start-schedule">{t('smartCharging.startSchedule')}</Label>
+                <Label htmlFor="sc-start-schedule" className="leading-6">
+                  {t('smartCharging.startSchedule')}
+                </Label>
                 <Input
                   id="sc-start-schedule"
                   type="datetime-local"
@@ -340,7 +348,9 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="sc-valid-from">{t('smartCharging.validFrom')}</Label>
+                <Label htmlFor="sc-valid-from" className="leading-6">
+                  {t('smartCharging.validFrom')}
+                </Label>
                 <Input
                   id="sc-valid-from"
                   type="datetime-local"
@@ -351,7 +361,9 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="sc-valid-to">{t('smartCharging.validTo')}</Label>
+                <Label htmlFor="sc-valid-to" className="leading-6">
+                  {t('smartCharging.validTo')}
+                </Label>
                 <Input
                   id="sc-valid-to"
                   type="datetime-local"
@@ -362,7 +374,9 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="sc-duration">{t('smartCharging.durationSeconds')}</Label>
+                <Label htmlFor="sc-duration" className="leading-6">
+                  {t('smartCharging.durationSeconds')}
+                </Label>
                 <Input
                   id="sc-duration"
                   type="number"
@@ -392,7 +406,9 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="sc-filter-site">{t('configTemplates.site')}</Label>
+                <Label htmlFor="sc-filter-site" className="leading-6">
+                  {t('configTemplates.site')}
+                </Label>
                 <Select
                   id="sc-filter-site"
                   value={filterSiteId}
@@ -409,7 +425,9 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="sc-filter-vendor">{t('configTemplates.vendor')}</Label>
+                <Label htmlFor="sc-filter-vendor" className="leading-6">
+                  {t('configTemplates.vendor')}
+                </Label>
                 <Select
                   id="sc-filter-vendor"
                   value={filterVendorId}
@@ -426,7 +444,9 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="sc-filter-model">{t('configTemplates.model')}</Label>
+                <Label htmlFor="sc-filter-model" className="leading-6">
+                  {t('configTemplates.model')}
+                </Label>
                 <Select
                   id="sc-filter-model"
                   value={filterModel}

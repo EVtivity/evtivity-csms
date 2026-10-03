@@ -77,7 +77,9 @@ export function DriverCreate(): React.JSX.Element {
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="driver-firstName">{t('drivers.firstName')}</Label>
+                <Label htmlFor="driver-firstName" className="leading-6">
+                  {t('drivers.firstName')}
+                </Label>
                 <Input
                   id="driver-firstName"
                   value={firstName}
@@ -91,7 +93,9 @@ export function DriverCreate(): React.JSX.Element {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="driver-lastName">{t('drivers.lastName')}</Label>
+                <Label htmlFor="driver-lastName" className="leading-6">
+                  {t('drivers.lastName')}
+                </Label>
                 <Input
                   id="driver-lastName"
                   value={lastName}
@@ -106,7 +110,9 @@ export function DriverCreate(): React.JSX.Element {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="driver-email">{t('common.email')}</Label>
+              <Label htmlFor="driver-email" className="leading-6">
+                {t('common.email')}
+              </Label>
               <Input
                 id="driver-email"
                 type="email"
@@ -121,7 +127,9 @@ export function DriverCreate(): React.JSX.Element {
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="driver-phone">{t('drivers.phone')}</Label>
+              <Label htmlFor="driver-phone" className="leading-6">
+                {t('drivers.phone')}
+              </Label>
               <Input
                 id="driver-phone"
                 value={phone}

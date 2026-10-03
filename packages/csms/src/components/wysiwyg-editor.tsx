@@ -436,7 +436,7 @@ export const WysiwygEditor = forwardRef<WysiwygEditorHandle, WysiwygEditorProps>
         {showSource ? (
           <textarea
             ref={sourceRef}
-            className="w-full min-h-[200px] p-3 font-mono text-sm bg-background resize-y focus:outline-none"
+            className="w-full min-h-[200px] p-3 font-mono text-sm bg-background resize-y focus:outline-hidden"
             value={sourceValue}
             onChange={(e) => {
               setSourceValue(e.target.value);

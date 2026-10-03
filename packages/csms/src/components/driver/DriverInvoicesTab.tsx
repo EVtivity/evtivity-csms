@@ -227,7 +227,9 @@ export function DriverInvoicesTab({ driverId, timezone }: Props): React.JSX.Elem
               {t('invoices.generateInvoiceDescription')}
             </p>
             <div className="space-y-2">
-              <Label htmlFor="invoice-start-date">{t('invoices.startDate')}</Label>
+              <Label htmlFor="invoice-start-date" className="leading-6">
+                {t('invoices.startDate')}
+              </Label>
               <Input
                 id="invoice-start-date"
                 type="date"
@@ -242,7 +244,9 @@ export function DriverInvoicesTab({ driverId, timezone }: Props): React.JSX.Elem
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="invoice-end-date">{t('invoices.endDate')}</Label>
+              <Label htmlFor="invoice-end-date" className="leading-6">
+                {t('invoices.endDate')}
+              </Label>
               <Input
                 id="invoice-end-date"
                 type="date"

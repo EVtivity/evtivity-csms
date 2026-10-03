@@ -163,7 +163,9 @@ export function Login(): React.JSX.Element {
             className="space-y-4"
           >
             <div className="space-y-2">
-              <Label htmlFor="email">{t('auth.emailLabel')}</Label>
+              <Label htmlFor="email" className="leading-6">
+                {t('auth.emailLabel')}
+              </Label>
               <Input
                 id="email"
                 type="email"
@@ -179,7 +181,9 @@ export function Login(): React.JSX.Element {
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">{t('auth.passwordLabel')}</Label>
+              <Label htmlFor="password" className="leading-6">
+                {t('auth.passwordLabel')}
+              </Label>
               <PasswordInput
                 id="password"
                 value={password}

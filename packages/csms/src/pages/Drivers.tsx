@@ -39,7 +39,7 @@ export function Drivers(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
+      <div className="flex flex-col gap-4 *:w-full sm:flex-row sm:items-start sm:justify-between sm:*:w-auto">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">{t('drivers.title')}</h1>
           <p className="text-sm text-muted-foreground">{t('drivers.subtitle')}</p>
@@ -63,7 +63,7 @@ export function Drivers(): React.JSX.Element {
         );
         const filters = (
           <div className="space-y-2">
-            <Label>{t('common.status')}</Label>
+            <Label className="leading-6">{t('common.status')}</Label>
             <Select
               aria-label={t('common.status')}
               className="h-10"
@@ -105,7 +105,7 @@ export function Drivers(): React.JSX.Element {
               <div className="hidden items-end gap-4 md:flex">
                 <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label>{t('drivers.search')}</Label>
+                    <Label className="leading-6">{t('drivers.search')}</Label>
                     {searchInput}
                   </div>
                   {filters}

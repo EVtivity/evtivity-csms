@@ -197,7 +197,7 @@ function CheckoutForm({
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
       {error !== '' && <p className="text-sm text-destructive">{error}</p>}
       <div className="space-y-2">
-        <label htmlFor="guestEmail" className="text-sm font-medium">
+        <label htmlFor="guestEmail" className="block text-sm font-medium leading-6">
           {t('guest.emailForReceipt')}
         </label>
         <Input
@@ -222,7 +222,7 @@ function CheckoutForm({
         )}
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">{t('guest.card')}</label>
+        <label className="block text-sm font-medium leading-6">{t('guest.card')}</label>
         <div className="rounded-lg border border-input p-3">
           <CardElement
             options={{

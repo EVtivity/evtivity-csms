@@ -63,7 +63,9 @@ export function PricingGroupCreate(): React.JSX.Element {
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="group-name">{t('common.name')}</Label>
+              <Label htmlFor="group-name" className="leading-6">
+                {t('common.name')}
+              </Label>
               <Input
                 id="group-name"
                 value={name}
@@ -77,7 +79,9 @@ export function PricingGroupCreate(): React.JSX.Element {
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="group-description">{t('common.description')}</Label>
+              <Label htmlFor="group-description" className="leading-6">
+                {t('common.description')}
+              </Label>
               <Input
                 id="group-description"
                 value={description}

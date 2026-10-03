@@ -73,7 +73,7 @@ export function Stations(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
+      <div className="flex flex-col gap-4 *:w-full sm:flex-row sm:items-start sm:justify-between sm:*:w-auto">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">{t('stations.title')}</h1>
           <p className="text-sm text-muted-foreground">{t('stations.subtitle')}</p>
@@ -98,7 +98,7 @@ export function Stations(): React.JSX.Element {
         const filters = (
           <>
             <div className="space-y-2">
-              <Label>{t('sites.title')}</Label>
+              <Label className="leading-6">{t('sites.title')}</Label>
               <Select
                 aria-label={t('sites.title')}
                 className="h-10"
@@ -116,7 +116,7 @@ export function Stations(): React.JSX.Element {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>{t('common.status')}</Label>
+              <Label className="leading-6">{t('common.status')}</Label>
               <Select
                 aria-label={t('common.status')}
                 className="h-10"
@@ -134,7 +134,7 @@ export function Stations(): React.JSX.Element {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>{t('stations.connectivity')}</Label>
+              <Label className="leading-6">{t('stations.connectivity')}</Label>
               <Select
                 aria-label={t('stations.connectivity')}
                 className="h-10"
@@ -149,7 +149,7 @@ export function Stations(): React.JSX.Element {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>{t('stations.onboardingStatus')}</Label>
+              <Label className="leading-6">{t('stations.onboardingStatus')}</Label>
               <Select
                 aria-label={t('stations.onboardingStatus')}
                 className="h-10"
@@ -165,7 +165,7 @@ export function Stations(): React.JSX.Element {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>{t('stations.type')}</Label>
+              <Label className="leading-6">{t('stations.type')}</Label>
               <Select
                 aria-label={t('stations.type')}
                 className="h-10"
@@ -217,7 +217,7 @@ export function Stations(): React.JSX.Element {
               <div className="hidden items-end gap-4 lg:flex">
                 <div className="grid flex-1 grid-cols-6 gap-4">
                   <div className="space-y-2">
-                    <Label>{t('stations.search')}</Label>
+                    <Label className="leading-6">{t('stations.search')}</Label>
                     {searchInput}
                   </div>
                   {filters}

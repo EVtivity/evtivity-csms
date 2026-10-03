@@ -206,7 +206,9 @@ export function ReservationCreate(): React.JSX.Element {
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="reservation-site-select">{t('stations.site')}</Label>
+              <Label htmlFor="reservation-site-select" className="leading-6">
+                {t('stations.site')}
+              </Label>
               <Select
                 id="reservation-site-select"
                 value={selectedSiteId}
@@ -223,7 +225,7 @@ export function ReservationCreate(): React.JSX.Element {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>{t('reservations.stationId')}</Label>
+              <Label className="leading-6">{t('reservations.stationId')}</Label>
               <StationCombobox
                 value={selectedStation}
                 onSelect={setSelectedStation}
@@ -234,7 +236,9 @@ export function ReservationCreate(): React.JSX.Element {
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="reservation-connector-select">{t('reservations.connector')}</Label>
+              <Label htmlFor="reservation-connector-select" className="leading-6">
+                {t('reservations.connector')}
+              </Label>
               {selectedStation != null && connectorOptions.length > 0 ? (
                 <Select
                   id="reservation-connector-select"
@@ -262,7 +266,9 @@ export function ReservationCreate(): React.JSX.Element {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="startsAt">{t('reservations.startsAt')}</Label>
+                <Label htmlFor="startsAt" className="leading-6">
+                  {t('reservations.startsAt')}
+                </Label>
                 <Input
                   id="startsAt"
                   type="datetime-local"
@@ -273,7 +279,9 @@ export function ReservationCreate(): React.JSX.Element {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="expiresAt">{t('reservations.expiresAt')}</Label>
+                <Label htmlFor="expiresAt" className="leading-6">
+                  {t('reservations.expiresAt')}
+                </Label>
                 <Input
                   id="expiresAt"
                   type="datetime-local"
@@ -295,7 +303,7 @@ export function ReservationCreate(): React.JSX.Element {
             </InfoNote>
             {isStartInFuture && <InfoNote>{t('reservations.scheduledNote')}</InfoNote>}
             <div className="space-y-2">
-              <Label>{t('reservations.driver')}</Label>
+              <Label className="leading-6">{t('reservations.driver')}</Label>
               <DriverCombobox value={selectedDriver} onSelect={setSelectedDriver} />
               {selectedDriver != null && driverPaymentMissing && (
                 <p className="text-sm text-destructive">

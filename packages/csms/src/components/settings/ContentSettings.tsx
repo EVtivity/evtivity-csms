@@ -66,7 +66,7 @@ export function ContentSettings(): React.JSX.Element {
       <CardContent>
         <div className="grid grid-cols-[180px_1fr] gap-6">
           <div className="space-y-1">
-            <Label className="mb-2 block text-xs text-muted-foreground">
+            <Label className="mb-2 block text-xs text-muted-foreground leading-6">
               {t('settings.language')}
             </Label>
             {(['en', 'de', 'es', 'zh'] as const).map((lang) => (

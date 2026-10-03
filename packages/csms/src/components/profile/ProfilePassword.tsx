@@ -86,7 +86,9 @@ export function ProfilePassword(): React.JSX.Element {
             <p className="text-sm text-green-600">{t('profile.passwordChanged')}</p>
           )}
           <div className="space-y-2">
-            <Label htmlFor="current-password">{t('profile.currentPassword')}</Label>
+            <Label htmlFor="current-password" className="leading-6">
+              {t('profile.currentPassword')}
+            </Label>
             <PasswordInput
               id="current-password"
               value={currentPassword}
@@ -105,7 +107,9 @@ export function ProfilePassword(): React.JSX.Element {
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="new-password">{t('profile.newPassword')}</Label>
+            <Label htmlFor="new-password" className="leading-6">
+              {t('profile.newPassword')}
+            </Label>
             <PasswordInput
               id="new-password"
               value={newPassword}
@@ -125,7 +129,9 @@ export function ProfilePassword(): React.JSX.Element {
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="confirm-password">{t('profile.confirmPassword')}</Label>
+            <Label htmlFor="confirm-password" className="leading-6">
+              {t('profile.confirmPassword')}
+            </Label>
             <PasswordInput
               id="confirm-password"
               value={confirmPassword}

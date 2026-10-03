@@ -551,7 +551,7 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>{t('maintenance.mode')}</Label>
+                  <Label className="leading-6">{t('maintenance.mode')}</Label>
                   <div className="flex items-center gap-4 text-sm">
                     <label className="flex items-center gap-2">
                       <input
@@ -581,7 +581,9 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                 {mode === 'one_off' ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-2">
-                      <Label htmlFor="m-starts">{t('maintenance.start')}</Label>
+                      <Label htmlFor="m-starts" className="leading-6">
+                        {t('maintenance.start')}
+                      </Label>
                       <Input
                         id="m-starts"
                         type="datetime-local"
@@ -592,7 +594,9 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="m-ends">{t('maintenance.end')}</Label>
+                      <Label htmlFor="m-ends" className="leading-6">
+                        {t('maintenance.end')}
+                      </Label>
                       <Input
                         id="m-ends"
                         type="datetime-local"
@@ -605,7 +609,9 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <Label htmlFor="m-ends">{t('maintenance.end')}</Label>
+                    <Label htmlFor="m-ends" className="leading-6">
+                      {t('maintenance.end')}
+                    </Label>
                     <Input
                       id="m-ends"
                       type="datetime-local"
@@ -618,7 +624,9 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                 )}
 
                 <div className="space-y-2">
-                  <Label htmlFor="m-policy">{t('maintenance.sessionPolicy')}</Label>
+                  <Label htmlFor="m-policy" className="leading-6">
+                    {t('maintenance.sessionPolicy')}
+                  </Label>
                   <Select
                     id="m-policy"
                     value={policy}
@@ -635,7 +643,9 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="m-message">{t('maintenance.customMessage')}</Label>
+                  <Label htmlFor="m-message" className="leading-6">
+                    {t('maintenance.customMessage')}
+                  </Label>
                   <Textarea
                     id="m-message"
                     value={customMessage}
@@ -647,7 +657,9 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="m-reason">{t('maintenance.reason')}</Label>
+                  <Label htmlFor="m-reason" className="leading-6">
+                    {t('maintenance.reason')}
+                  </Label>
                   <Input
                     id="m-reason"
                     value={reason}
@@ -1062,7 +1074,9 @@ function EditEventForm({
         <div className="space-y-4">
           {isActive ? (
             <div className="space-y-2">
-              <Label htmlFor="edit-end">{t('maintenance.endsAtLabel')}</Label>
+              <Label htmlFor="edit-end" className="leading-6">
+                {t('maintenance.endsAtLabel')}
+              </Label>
               <Input
                 id="edit-end"
                 type="datetime-local"
@@ -1075,7 +1089,9 @@ function EditEventForm({
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label htmlFor="edit-start">{t('maintenance.start')}</Label>
+                <Label htmlFor="edit-start" className="leading-6">
+                  {t('maintenance.start')}
+                </Label>
                 <Input
                   id="edit-start"
                   type="datetime-local"
@@ -1086,7 +1102,9 @@ function EditEventForm({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-end">{t('maintenance.endsAtLabel')}</Label>
+                <Label htmlFor="edit-end" className="leading-6">
+                  {t('maintenance.endsAtLabel')}
+                </Label>
                 <Input
                   id="edit-end"
                   type="datetime-local"
@@ -1100,7 +1118,9 @@ function EditEventForm({
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="edit-policy">{t('maintenance.sessionPolicy')}</Label>
+            <Label htmlFor="edit-policy" className="leading-6">
+              {t('maintenance.sessionPolicy')}
+            </Label>
             <Select
               id="edit-policy"
               value={event.activeSessionPolicy}
@@ -1118,7 +1138,9 @@ function EditEventForm({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="edit-message">{t('maintenance.customMessage')}</Label>
+            <Label htmlFor="edit-message" className="leading-6">
+              {t('maintenance.customMessage')}
+            </Label>
             <Textarea
               id="edit-message"
               value={customMessage}
@@ -1130,7 +1152,9 @@ function EditEventForm({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="edit-reason">{t('maintenance.reason')}</Label>
+            <Label htmlFor="edit-reason" className="leading-6">
+              {t('maintenance.reason')}
+            </Label>
             <Input
               id="edit-reason"
               value={reason}

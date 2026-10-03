@@ -336,7 +336,9 @@ export function TariffDetail(): React.JSX.Element {
               className="grid grid-cols-1 md:grid-cols-2 gap-4"
             >
               <div className="space-y-2">
-                <Label htmlFor="edit-name">{t('common.name')}</Label>
+                <Label htmlFor="edit-name" className="leading-6">
+                  {t('common.name')}
+                </Label>
                 <Input
                   id="edit-name"
                   value={name}
@@ -350,7 +352,9 @@ export function TariffDetail(): React.JSX.Element {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-is-active">{t('common.status')}</Label>
+                <Label htmlFor="edit-is-active" className="leading-6">
+                  {t('common.status')}
+                </Label>
                 <Select
                   id="edit-is-active"
                   value={isActive ? 'true' : 'false'}
@@ -363,7 +367,9 @@ export function TariffDetail(): React.JSX.Element {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-kwh">{t('pricing.pricePerKwh', { context: taxBasis })}</Label>
+                <Label htmlFor="edit-kwh" className="leading-6">
+                  {t('pricing.pricePerKwh', { context: taxBasis })}
+                </Label>
                 <DecimalInput
                   id="edit-kwh"
                   value={pricePerKwh}
@@ -379,7 +385,7 @@ export function TariffDetail(): React.JSX.Element {
                 <TaxPriceHint price={pricePerKwh} taxRate={taxRate} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-min">
+                <Label htmlFor="edit-min" className="leading-6">
                   {t('pricing.pricePerMinute', { context: taxBasis })}
                 </Label>
                 <DecimalInput
@@ -397,7 +403,7 @@ export function TariffDetail(): React.JSX.Element {
                 <TaxPriceHint price={pricePerMinute} taxRate={taxRate} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-session">
+                <Label htmlFor="edit-session" className="leading-6">
                   {t('pricing.pricePerSession', { context: taxBasis })}
                 </Label>
                 <DecimalInput
@@ -415,7 +421,7 @@ export function TariffDetail(): React.JSX.Element {
                 <TaxPriceHint price={pricePerSession} taxRate={taxRate} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-idle-fee">
+                <Label htmlFor="edit-idle-fee" className="leading-6">
                   {t('pricing.idleFeePricePerMinute', { context: taxBasis })}
                 </Label>
                 <DecimalInput
@@ -437,7 +443,7 @@ export function TariffDetail(): React.JSX.Element {
                 <TaxPriceHint price={idleFeePricePerMinute} taxRate={taxRate} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-reservation-fee">
+                <Label htmlFor="edit-reservation-fee" className="leading-6">
                   {t('pricing.reservationFeePerMinute', { context: taxBasis })}
                 </Label>
                 <DecimalInput
@@ -460,7 +466,9 @@ export function TariffDetail(): React.JSX.Element {
                 <TaxPriceHint price={reservationFeePerMinute} taxRate={taxRate} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-tax-rate">{t('pricing.taxRate')}</Label>
+                <Label htmlFor="edit-tax-rate" className="leading-6">
+                  {t('pricing.taxRate')}
+                </Label>
                 <DecimalInput
                   id="edit-tax-rate"
                   value={taxRate}
@@ -477,7 +485,9 @@ export function TariffDetail(): React.JSX.Element {
               <div className="col-span-full border-t pt-4 space-y-4">
                 <p className="text-sm font-medium">{t('pricing.restrictions')}</p>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-restriction-type">{t('pricing.tariffType')}</Label>
+                  <Label htmlFor="edit-restriction-type" className="leading-6">
+                    {t('pricing.tariffType')}
+                  </Label>
                   <Select
                     id="edit-restriction-type"
                     value={restrictionType}
@@ -497,7 +507,9 @@ export function TariffDetail(): React.JSX.Element {
                 {(restrictionType === 'time' || restrictionType === 'dayTime') && (
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="edit-start-time">{t('pricing.startTime')}</Label>
+                      <Label htmlFor="edit-start-time" className="leading-6">
+                        {t('pricing.startTime')}
+                      </Label>
                       <Input
                         id="edit-start-time"
                         type="time"
@@ -508,7 +520,9 @@ export function TariffDetail(): React.JSX.Element {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="edit-end-time">{t('pricing.endTime')}</Label>
+                      <Label htmlFor="edit-end-time" className="leading-6">
+                        {t('pricing.endTime')}
+                      </Label>
                       <Input
                         id="edit-end-time"
                         type="time"
@@ -523,7 +537,7 @@ export function TariffDetail(): React.JSX.Element {
 
                 {restrictionType === 'dayTime' && (
                   <div className="space-y-2">
-                    <Label>{t('pricing.dayOfWeek')}</Label>
+                    <Label className="leading-6">{t('pricing.dayOfWeek')}</Label>
                     <div className="flex flex-wrap gap-3">
                       {dayLabels.map((label, idx) => (
                         <label
@@ -546,7 +560,9 @@ export function TariffDetail(): React.JSX.Element {
                 {restrictionType === 'seasonal' && (
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="edit-start-date">{t('pricing.startDate')}</Label>
+                      <Label htmlFor="edit-start-date" className="leading-6">
+                        {t('pricing.startDate')}
+                      </Label>
                       <Input
                         id="edit-start-date"
                         value={startDate}
@@ -557,7 +573,9 @@ export function TariffDetail(): React.JSX.Element {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="edit-end-date">{t('pricing.endDate')}</Label>
+                      <Label htmlFor="edit-end-date" className="leading-6">
+                        {t('pricing.endDate')}
+                      </Label>
                       <Input
                         id="edit-end-date"
                         value={endDate}
@@ -576,7 +594,9 @@ export function TariffDetail(): React.JSX.Element {
 
                 {restrictionType === 'energy' && (
                   <div className="space-y-2">
-                    <Label htmlFor="edit-threshold">{t('pricing.thresholdKwh')}</Label>
+                    <Label htmlFor="edit-threshold" className="leading-6">
+                      {t('pricing.thresholdKwh')}
+                    </Label>
                     <DecimalInput
                       id="edit-threshold"
                       value={thresholdKwh}

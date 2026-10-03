@@ -226,7 +226,7 @@ function Tooltip({
   return (
     <span className="group/tip relative inline-flex">
       {children}
-      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover/tip:block whitespace-nowrap rounded bg-popover px-1.5 py-0.5 text-xs text-popover-foreground shadow border z-[100]">
+      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover/tip:block whitespace-nowrap rounded bg-popover px-1.5 py-0.5 text-xs text-popover-foreground shadow-sm border z-100">
         {label}
       </span>
     </span>
@@ -364,7 +364,7 @@ export function StationCard({
         onDragEnd(station.id, snappedX, snappedY);
       }}
       className={cn(
-        'rounded-lg border bg-card text-card-foreground shadow-sm select-none',
+        'rounded-lg border bg-card text-card-foreground shadow-xs select-none',
         expanded ? 'w-[280px]' : 'w-[160px]',
         isDragging && 'ring-2 ring-primary shadow-lg',
       )}

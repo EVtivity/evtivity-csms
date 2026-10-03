@@ -293,7 +293,7 @@ export function StationSearchList({
           <button
             className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
               tab === 'local'
-                ? 'bg-background shadow-sm'
+                ? 'bg-background shadow-xs'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
             onClick={() => {
@@ -306,7 +306,7 @@ export function StationSearchList({
           <button
             className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
               tab === 'roaming'
-                ? 'bg-background shadow-sm'
+                ? 'bg-background shadow-xs'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
             onClick={() => {

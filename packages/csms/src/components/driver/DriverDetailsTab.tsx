@@ -108,7 +108,9 @@ export function DriverDetailsTab({ driver, timezone }: DriverDetailsTabProps): R
             <form onSubmit={handleSave} noValidate className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-first">{t('drivers.firstName')}</Label>
+                  <Label htmlFor="edit-first" className="leading-6">
+                    {t('drivers.firstName')}
+                  </Label>
                   <Input
                     id="edit-first"
                     value={firstName}
@@ -122,7 +124,9 @@ export function DriverDetailsTab({ driver, timezone }: DriverDetailsTabProps): R
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-last">{t('drivers.lastName')}</Label>
+                  <Label htmlFor="edit-last" className="leading-6">
+                    {t('drivers.lastName')}
+                  </Label>
                   <Input
                     id="edit-last"
                     value={lastName}
@@ -137,7 +141,9 @@ export function DriverDetailsTab({ driver, timezone }: DriverDetailsTabProps): R
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-email">{t('common.email')}</Label>
+                <Label htmlFor="edit-email" className="leading-6">
+                  {t('common.email')}
+                </Label>
                 <Input
                   id="edit-email"
                   type="email"
@@ -148,7 +154,9 @@ export function DriverDetailsTab({ driver, timezone }: DriverDetailsTabProps): R
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-phone">{t('drivers.phone')}</Label>
+                <Label htmlFor="edit-phone" className="leading-6">
+                  {t('drivers.phone')}
+                </Label>
                 <Input
                   id="edit-phone"
                   value={phone}

@@ -210,7 +210,7 @@ export function AiAssistant(): React.JSX.Element {
                         handleEditKeyDown(e, i);
                       }}
                       rows={2}
-                      className="w-full rounded-lg border border-primary bg-primary/10 px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="w-full rounded-lg border border-primary bg-primary/10 px-3 py-2 text-sm resize-none focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                     />
                     <div className="flex gap-1 justify-end">
                       <Button
@@ -330,7 +330,7 @@ export function AiAssistant(): React.JSX.Element {
             onKeyDown={handleKeyDown}
             placeholder={t('chatbotAi.placeholder')}
             rows={1}
-            className="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             style={{ maxHeight: '72px' }}
           />
           <Button

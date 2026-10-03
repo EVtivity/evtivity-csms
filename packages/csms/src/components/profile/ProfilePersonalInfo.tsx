@@ -97,7 +97,9 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
           <form onSubmit={handleSave} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-firstName">{t('users.firstName')}</Label>
+                <Label htmlFor="edit-firstName" className="leading-6">
+                  {t('users.firstName')}
+                </Label>
                 <Input
                   id="edit-firstName"
                   value={firstName}
@@ -107,7 +109,9 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-lastName">{t('users.lastName')}</Label>
+                <Label htmlFor="edit-lastName" className="leading-6">
+                  {t('users.lastName')}
+                </Label>
                 <Input
                   id="edit-lastName"
                   value={lastName}
@@ -118,7 +122,9 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-phone">{t('users.phone')}</Label>
+              <Label htmlFor="edit-phone" className="leading-6">
+                {t('users.phone')}
+              </Label>
               <Input
                 id="edit-phone"
                 type="tel"
@@ -131,7 +137,9 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-language">{t('profile.language')}</Label>
+                <Label htmlFor="edit-language" className="leading-6">
+                  {t('profile.language')}
+                </Label>
                 <select
                   id="edit-language"
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -148,7 +156,9 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
                 </select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-timezone">{t('profile.timezone')}</Label>
+                <Label htmlFor="edit-timezone" className="leading-6">
+                  {t('profile.timezone')}
+                </Label>
                 <select
                   id="edit-timezone"
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"

@@ -61,7 +61,7 @@ export function RoamingLayout(): React.JSX.Element {
             </TabsList>
           </div>
           {tabAction != null && (
-            <div className="flex [&>*]:w-full md:shrink-0 md:[&>*]:w-auto">{tabAction}</div>
+            <div className="flex *:w-full md:shrink-0 md:*:w-auto">{tabAction}</div>
           )}
         </div>
       </Tabs>

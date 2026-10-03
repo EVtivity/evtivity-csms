@@ -81,7 +81,7 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
 
           <div className="flex items-center justify-between rounded-lg border p-4">
             <div className="space-y-0.5">
-              <Label>{t('settings.recaptchaEnabled')}</Label>
+              <Label className="leading-6">{t('settings.recaptchaEnabled')}</Label>
             </div>
             <button
               type="button"
@@ -99,7 +99,9 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="recaptcha-site-key">{t('settings.recaptchaSiteKey')}</Label>
+            <Label htmlFor="recaptcha-site-key" className="leading-6">
+              {t('settings.recaptchaSiteKey')}
+            </Label>
             <Input
               id="recaptcha-site-key"
               value={siteKey}
@@ -110,7 +112,9 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="recaptcha-secret-key">{t('settings.recaptchaSecretKey')}</Label>
+            <Label htmlFor="recaptcha-secret-key" className="leading-6">
+              {t('settings.recaptchaSecretKey')}
+            </Label>
             <PasswordInput
               id="recaptcha-secret-key"
               value={secretKey}
@@ -123,7 +127,9 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="recaptcha-threshold">{t('settings.recaptchaThreshold')}</Label>
+            <Label htmlFor="recaptcha-threshold" className="leading-6">
+              {t('settings.recaptchaThreshold')}
+            </Label>
             <DecimalInput id="recaptcha-threshold" value={threshold} onChange={setThreshold} />
             <p className="text-xs text-muted-foreground">{t('settings.recaptchaThresholdHint')}</p>
           </div>

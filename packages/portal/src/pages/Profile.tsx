@@ -198,14 +198,14 @@ export function Profile(): React.JSX.Element {
           <form onSubmit={(e) => void handleProfileUpdate(e)} className="space-y-4">
             {profileMsg !== '' && <p className="text-sm text-muted-foreground">{profileMsg}</p>}
             <div className="space-y-2">
-              <label htmlFor="profileEmail" className="text-sm font-medium">
+              <label htmlFor="profileEmail" className="block text-sm font-medium leading-6">
                 {t('profile.email')}
               </label>
               <Input id="profileEmail" value={driver?.email ?? ''} disabled />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <label htmlFor="profileFirst" className="text-sm font-medium">
+                <label htmlFor="profileFirst" className="block text-sm font-medium leading-6">
                   {t('profile.firstName')}
                 </label>
                 <Input
@@ -217,7 +217,7 @@ export function Profile(): React.JSX.Element {
                 />
               </div>
               <div className="space-y-2">
-                <label htmlFor="profileLast" className="text-sm font-medium">
+                <label htmlFor="profileLast" className="block text-sm font-medium leading-6">
                   {t('profile.lastName')}
                 </label>
                 <Input
@@ -230,7 +230,7 @@ export function Profile(): React.JSX.Element {
               </div>
             </div>
             <div className="space-y-2">
-              <label htmlFor="profilePhone" className="text-sm font-medium">
+              <label htmlFor="profilePhone" className="block text-sm font-medium leading-6">
                 {t('profile.phone')}
               </label>
               <Input
@@ -271,7 +271,7 @@ export function Profile(): React.JSX.Element {
               ))}
             </Select>
             <div className="space-y-2">
-              <label htmlFor="profileTimezone" className="text-sm font-medium">
+              <label htmlFor="profileTimezone" className="block text-sm font-medium leading-6">
                 {t('profile.timezone')}
               </label>
               <Select
@@ -289,7 +289,7 @@ export function Profile(): React.JSX.Element {
               </Select>
             </div>
             <div className="space-y-2">
-              <label htmlFor="profileTheme" className="text-sm font-medium">
+              <label htmlFor="profileTheme" className="block text-sm font-medium leading-6">
                 {t('profile.theme')}
               </label>
               <Select
@@ -327,7 +327,7 @@ export function Profile(): React.JSX.Element {
           <form onSubmit={(e) => void handlePasswordChange(e)} className="space-y-4">
             {passwordMsg !== '' && <p className="text-sm text-muted-foreground">{passwordMsg}</p>}
             <div className="space-y-2">
-              <label htmlFor="currentPw" className="text-sm font-medium">
+              <label htmlFor="currentPw" className="block text-sm font-medium leading-6">
                 {t('profile.currentPassword')}
               </label>
               <PasswordInput
@@ -340,7 +340,7 @@ export function Profile(): React.JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="newPw" className="text-sm font-medium">
+              <label htmlFor="newPw" className="block text-sm font-medium leading-6">
                 {t('profile.newPassword')}
               </label>
               <PasswordInput
@@ -411,7 +411,7 @@ export function Profile(): React.JSX.Element {
               <form onSubmit={(e) => void handleMfaSetup(e)} className="space-y-4">
                 <p className="text-sm text-muted-foreground">{t('profile.mfaDisabled')}</p>
                 <div className="space-y-2">
-                  <label htmlFor="mfaMethod" className="text-sm font-medium">
+                  <label htmlFor="mfaMethod" className="block text-sm font-medium leading-6">
                     {t('profile.mfaSelectMethod')}
                   </label>
                   <Select
@@ -462,7 +462,7 @@ export function Profile(): React.JSX.Element {
                   </div>
                 )}
                 <div className="space-y-2">
-                  <label htmlFor="mfaCode" className="text-sm font-medium">
+                  <label htmlFor="mfaCode" className="block text-sm font-medium leading-6">
                     {t('profile.mfaEnterCode')}
                   </label>
                   <Input

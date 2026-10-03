@@ -106,7 +106,7 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
+      <div className="flex flex-col gap-4 *:w-full sm:flex-row sm:items-start sm:justify-between sm:*:w-auto">
         {!embedded && (
           <div>
             <h1 className="text-2xl md:text-3xl font-bold">{t('conformance.title')}</h1>

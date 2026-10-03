@@ -106,7 +106,7 @@ export function CaCertificatesTab(): React.JSX.Element {
           <CardHeader>
             <div className="flex flex-row items-center justify-between gap-2">
               <CardTitle>{t('pnc.caCertificates')}</CardTitle>
-              <div className="flex flex-col gap-2 [&>*]:w-full sm:flex-row sm:items-center sm:[&>*]:w-auto">
+              <div className="flex flex-col gap-2 *:w-full sm:flex-row sm:items-center sm:*:w-auto">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -150,7 +150,7 @@ export function CaCertificatesTab(): React.JSX.Element {
                   }}
                 >
                   <div className="space-y-2">
-                    <Label>{t('common.status')}</Label>
+                    <Label className="leading-6">{t('common.status')}</Label>
                     <Select
                       aria-label={t('common.status')}
                       value={caStatusFilter}
@@ -246,7 +246,9 @@ export function CaCertificatesTab(): React.JSX.Element {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="upload-cert-type">{t('pnc.certificateType')}</Label>
+              <Label htmlFor="upload-cert-type" className="leading-6">
+                {t('pnc.certificateType')}
+              </Label>
               <Select
                 id="upload-cert-type"
                 value={uploadCertType}
@@ -262,7 +264,9 @@ export function CaCertificatesTab(): React.JSX.Element {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="upload-pem">PEM</Label>
+              <Label htmlFor="upload-pem" className="leading-6">
+                PEM
+              </Label>
               <textarea
                 id="upload-pem"
                 className="h-48 w-full rounded-md border bg-background px-3 py-2 font-mono text-sm"

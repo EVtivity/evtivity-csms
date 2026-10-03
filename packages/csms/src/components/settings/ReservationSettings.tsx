@@ -116,7 +116,7 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
         >
           <div className="grid gap-6 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="reservation-buffer-minutes">
+              <Label htmlFor="reservation-buffer-minutes" className="leading-6">
                 {t('settings.reservationBufferMinutes')}
               </Label>
               <Input
@@ -134,7 +134,7 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="reservation-cancellation-window">
+              <Label htmlFor="reservation-cancellation-window" className="leading-6">
                 {t('settings.reservationCancellationWindowMinutes')}
               </Label>
               <Input
@@ -152,7 +152,7 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="reservation-cancellation-fee">
+              <Label htmlFor="reservation-cancellation-fee" className="leading-6">
                 {t('settings.reservationCancellationFee', { currency: currency ?? '...' })}
               </Label>
               <Input
@@ -171,7 +171,9 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="reservation-max-hours">{t('settings.reservationMaxHours')}</Label>
+              <Label htmlFor="reservation-max-hours" className="leading-6">
+                {t('settings.reservationMaxHours')}
+              </Label>
               <Input
                 id="reservation-max-hours"
                 type="number"

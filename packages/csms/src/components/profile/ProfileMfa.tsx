@@ -111,7 +111,9 @@ export function ProfileMfa(): React.JSX.Element {
             {mfaError !== '' && <p className="text-sm text-destructive">{mfaError}</p>}
             <p className="text-sm text-muted-foreground">{t('profile.mfaDisableConfirm')}</p>
             <div className="space-y-2">
-              <Label htmlFor="mfa-disable-password">{t('profile.currentPassword')}</Label>
+              <Label htmlFor="mfa-disable-password" className="leading-6">
+                {t('profile.currentPassword')}
+              </Label>
               <PasswordInput
                 id="mfa-disable-password"
                 value={disablePassword}
@@ -141,7 +143,9 @@ export function ProfileMfa(): React.JSX.Element {
             </div>
             {mfaError !== '' && <p className="text-sm text-destructive">{mfaError}</p>}
             <div className="space-y-2">
-              <Label htmlFor="mfa-method-select">{t('profile.mfaSelectMethod')}</Label>
+              <Label htmlFor="mfa-method-select" className="leading-6">
+                {t('profile.mfaSelectMethod')}
+              </Label>
               <select
                 id="mfa-method-select"
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -192,7 +196,9 @@ export function ProfileMfa(): React.JSX.Element {
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="mfa-verify-code">{t('profile.mfaEnterCode')}</Label>
+              <Label htmlFor="mfa-verify-code" className="leading-6">
+                {t('profile.mfaEnterCode')}
+              </Label>
               <Input
                 id="mfa-verify-code"
                 value={mfaCode}

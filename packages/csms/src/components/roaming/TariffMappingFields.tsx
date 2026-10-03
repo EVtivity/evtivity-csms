@@ -136,7 +136,9 @@ export function TariffMappingFields({
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor={`${idPrefix}-ocpi-id`}>{t('roaming.tariffs.ocpiTariffId')}</Label>
+        <Label htmlFor={`${idPrefix}-ocpi-id`} className="leading-6">
+          {t('roaming.tariffs.ocpiTariffId')}
+        </Label>
         <Input
           id={`${idPrefix}-ocpi-id`}
           value={values.ocpiTariffId}
@@ -151,7 +153,9 @@ export function TariffMappingFields({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor={`${idPrefix}-partner`}>{t('roaming.tariffs.partner')}</Label>
+        <Label htmlFor={`${idPrefix}-partner`} className="leading-6">
+          {t('roaming.tariffs.partner')}
+        </Label>
         <Select
           id={`${idPrefix}-partner`}
           value={values.partnerId}
@@ -170,7 +174,9 @@ export function TariffMappingFields({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor={`${idPrefix}-source`}>{t('roaming.tariffs.publishedFrom')}</Label>
+        <Label htmlFor={`${idPrefix}-source`} className="leading-6">
+          {t('roaming.tariffs.publishedFrom')}
+        </Label>
         <Select
           id={`${idPrefix}-source`}
           value={values.source}
@@ -190,7 +196,9 @@ export function TariffMappingFields({
 
       {values.source === 'pricingGroup' ? (
         <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-group`}>{t('roaming.tariffs.pricingGroup')}</Label>
+          <Label htmlFor={`${idPrefix}-group`} className="leading-6">
+            {t('roaming.tariffs.pricingGroup')}
+          </Label>
           <Select
             id={`${idPrefix}-group`}
             value={values.pricingGroupId}
@@ -210,7 +218,9 @@ export function TariffMappingFields({
         </div>
       ) : (
         <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-tariff`}>{t('roaming.tariffs.internalTariff')}</Label>
+          <Label htmlFor={`${idPrefix}-tariff`} className="leading-6">
+            {t('roaming.tariffs.internalTariff')}
+          </Label>
           <Select
             id={`${idPrefix}-tariff`}
             value={values.tariffId}

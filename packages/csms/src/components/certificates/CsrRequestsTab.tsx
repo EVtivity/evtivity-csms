@@ -204,7 +204,9 @@ export function CsrRequestsTab(): React.JSX.Element {
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">{t('pnc.signCsrDescription')}</p>
             <div className="space-y-2">
-              <Label htmlFor="signed-chain">{t('pnc.signedCertificateChain')}</Label>
+              <Label htmlFor="signed-chain" className="leading-6">
+                {t('pnc.signedCertificateChain')}
+              </Label>
               <textarea
                 id="signed-chain"
                 className="h-48 w-full rounded-md border bg-background px-3 py-2 font-mono text-sm"

@@ -145,11 +145,13 @@ export function SetPassword(): React.JSX.Element {
               className="space-y-4"
             >
               <div className="space-y-2">
-                <Label>{t('auth.emailLabel')}</Label>
+                <Label className="leading-6">{t('auth.emailLabel')}</Label>
                 <p className="text-sm text-muted-foreground">{email}</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="currentPassword">{t('auth.currentPassword')}</Label>
+                <Label htmlFor="currentPassword" className="leading-6">
+                  {t('auth.currentPassword')}
+                </Label>
                 <PasswordInput
                   id="currentPassword"
                   value={currentPassword}
@@ -165,7 +167,9 @@ export function SetPassword(): React.JSX.Element {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="newPassword">{t('auth.newPassword')}</Label>
+                <Label htmlFor="newPassword" className="leading-6">
+                  {t('auth.newPassword')}
+                </Label>
                 <PasswordInput
                   id="newPassword"
                   value={newPassword}
@@ -182,7 +186,9 @@ export function SetPassword(): React.JSX.Element {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="confirmPassword">{t('auth.confirmPassword')}</Label>
+                <Label htmlFor="confirmPassword" className="leading-6">
+                  {t('auth.confirmPassword')}
+                </Label>
                 <PasswordInput
                   id="confirmPassword"
                   value={confirmPassword}

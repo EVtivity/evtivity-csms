@@ -198,7 +198,9 @@ export function StationInfoTab({
           {editing ? (
             <form onSubmit={handleSave} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-model">{t('stations.model')}</Label>
+                <Label htmlFor="edit-model" className="leading-6">
+                  {t('stations.model')}
+                </Label>
                 <Input
                   id="edit-model"
                   value={model}
@@ -208,7 +210,9 @@ export function StationInfoTab({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-serial">{t('stations.serialNumber')}</Label>
+                <Label htmlFor="edit-serial" className="leading-6">
+                  {t('stations.serialNumber')}
+                </Label>
                 <Input
                   id="edit-serial"
                   value={serialNumber}
@@ -218,7 +222,9 @@ export function StationInfoTab({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-site">{t('stations.site')}</Label>
+                <Label htmlFor="edit-site" className="leading-6">
+                  {t('stations.site')}
+                </Label>
                 <Select
                   id="edit-site"
                   value={siteId}

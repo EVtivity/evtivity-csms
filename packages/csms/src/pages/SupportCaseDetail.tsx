@@ -525,7 +525,9 @@ export function SupportCaseDetail(): React.JSX.Element {
         onConfirm={handleRefundConfirm}
       >
         <div className="space-y-2">
-          <Label htmlFor="support-case-refund-amount">{t('supportCases.refundAmountLabel')}</Label>
+          <Label htmlFor="support-case-refund-amount" className="leading-6">
+            {t('supportCases.refundAmountLabel')}
+          </Label>
           <DecimalInput
             id="support-case-refund-amount"
             decimalScale={2}

@@ -64,7 +64,9 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
         <p className="text-sm text-muted-foreground mb-4">{t('users.resetPasswordDescription')}</p>
         <form onSubmit={handleResetPassword} noValidate className="grid gap-6">
           <div className="space-y-2">
-            <Label htmlFor="new-password">{t('users.newPassword')}</Label>
+            <Label htmlFor="new-password" className="leading-6">
+              {t('users.newPassword')}
+            </Label>
             <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
               <PasswordInput
                 id="new-password"

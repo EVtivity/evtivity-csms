@@ -103,7 +103,7 @@ export function Activate(): React.JSX.Element {
               className="space-y-4"
             >
               <div className="space-y-2">
-                <label htmlFor="password" className="text-sm font-medium leading-none">
+                <label htmlFor="password" className="block text-sm font-medium leading-6">
                   {t('auth.newPassword')}
                 </label>
                 <PasswordInput
@@ -119,7 +119,7 @@ export function Activate(): React.JSX.Element {
                 )}
               </div>
               <div className="space-y-2">
-                <label htmlFor="confirmPassword" className="text-sm font-medium leading-none">
+                <label htmlFor="confirmPassword" className="block text-sm font-medium leading-6">
                   {t('auth.confirmPassword')}
                 </label>
                 <PasswordInput

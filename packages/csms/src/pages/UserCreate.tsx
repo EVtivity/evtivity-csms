@@ -155,7 +155,9 @@ export function UserCreate(): React.JSX.Element {
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit} noValidate className="grid gap-6">
             <div className="space-y-2">
-              <Label htmlFor="user-email">{t('common.email')}</Label>
+              <Label htmlFor="user-email" className="leading-6">
+                {t('common.email')}
+              </Label>
               <Input
                 id="user-email"
                 type="email"
@@ -171,7 +173,9 @@ export function UserCreate(): React.JSX.Element {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="user-first">{t('users.firstName')}</Label>
+                <Label htmlFor="user-first" className="leading-6">
+                  {t('users.firstName')}
+                </Label>
                 <Input
                   id="user-first"
                   value={firstName}
@@ -185,7 +189,9 @@ export function UserCreate(): React.JSX.Element {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="user-last">{t('users.lastName')}</Label>
+                <Label htmlFor="user-last" className="leading-6">
+                  {t('users.lastName')}
+                </Label>
                 <Input
                   id="user-last"
                   value={lastName}
@@ -200,7 +206,9 @@ export function UserCreate(): React.JSX.Element {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="user-phone">{t('users.phone')}</Label>
+              <Label htmlFor="user-phone" className="leading-6">
+                {t('users.phone')}
+              </Label>
               <Input
                 id="user-phone"
                 type="tel"
@@ -212,7 +220,9 @@ export function UserCreate(): React.JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="user-role">{t('users.role')}</Label>
+              <Label htmlFor="user-role" className="leading-6">
+                {t('users.role')}
+              </Label>
               <Select
                 id="user-role"
                 value={roleId}
@@ -246,7 +256,7 @@ export function UserCreate(): React.JSX.Element {
               </Card>
             )}
             <div className="space-y-2">
-              <Label>{t('users.siteAccess')}</Label>
+              <Label className="leading-6">{t('users.siteAccess')}</Label>
               <div className="flex items-center gap-2">
                 <input
                   id="create-all-sites"

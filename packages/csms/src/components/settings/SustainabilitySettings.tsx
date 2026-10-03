@@ -68,7 +68,9 @@ export function SustainabilitySettings({
         <p className="text-sm text-muted-foreground">{t('settings.sustainabilityDescription')}</p>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="grid-emission-factor">{t('settings.gridEmissionFactor')}</Label>
+            <Label htmlFor="grid-emission-factor" className="leading-6">
+              {t('settings.gridEmissionFactor')}
+            </Label>
             <DecimalInput
               id="grid-emission-factor"
               value={gridEmissionFactor}
@@ -77,12 +79,16 @@ export function SustainabilitySettings({
             <p className="text-xs text-muted-foreground">{t('settings.gridEmissionFactorHint')}</p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="ev-efficiency">{t('settings.evEfficiency')}</Label>
+            <Label htmlFor="ev-efficiency" className="leading-6">
+              {t('settings.evEfficiency')}
+            </Label>
             <DecimalInput id="ev-efficiency" value={evEfficiency} onChange={setEvEfficiency} />
             <p className="text-xs text-muted-foreground">{t('settings.evEfficiencyHint')}</p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="gasoline-emission-factor">{t('settings.gasolineEmissionFactor')}</Label>
+            <Label htmlFor="gasoline-emission-factor" className="leading-6">
+              {t('settings.gasolineEmissionFactor')}
+            </Label>
             <DecimalInput
               id="gasoline-emission-factor"
               value={gasolineEmissionFactor}
@@ -93,7 +99,9 @@ export function SustainabilitySettings({
             </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="avg-mpg">{t('settings.avgMpg')}</Label>
+            <Label htmlFor="avg-mpg" className="leading-6">
+              {t('settings.avgMpg')}
+            </Label>
             <DecimalInput id="avg-mpg" value={avgMpg} onChange={setAvgMpg} />
             <p className="text-xs text-muted-foreground">{t('settings.avgMpgHint')}</p>
           </div>

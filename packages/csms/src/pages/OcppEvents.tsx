@@ -67,7 +67,7 @@ export function OcppEvents(): React.JSX.Element {
 
         return (
           <div className="space-y-2">
-            <Label htmlFor="ocpp-event-recipient">
+            <Label htmlFor="ocpp-event-recipient" className="leading-6">
               {channel === 'webhook'
                 ? t('notifications.webhookUrlLabel')
                 : t('notifications.recipientLabel')}

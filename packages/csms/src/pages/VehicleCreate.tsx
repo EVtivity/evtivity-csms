@@ -119,7 +119,9 @@ export function VehicleCreate(): React.JSX.Element {
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="vehicle-make">{t('vehicles.make')}</Label>
+                <Label htmlFor="vehicle-make" className="leading-6">
+                  {t('vehicles.make')}
+                </Label>
                 <Combobox
                   id="vehicle-make"
                   value={make}
@@ -132,7 +134,9 @@ export function VehicleCreate(): React.JSX.Element {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="vehicle-model">{t('vehicles.model')}</Label>
+                <Label htmlFor="vehicle-model" className="leading-6">
+                  {t('vehicles.model')}
+                </Label>
                 <Combobox
                   id="vehicle-model"
                   value={model}
@@ -145,7 +149,9 @@ export function VehicleCreate(): React.JSX.Element {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="vehicle-year">{t('vehicles.year')}</Label>
+                <Label htmlFor="vehicle-year" className="leading-6">
+                  {t('vehicles.year')}
+                </Label>
                 <Combobox
                   id="vehicle-year"
                   value={year}
@@ -162,7 +168,9 @@ export function VehicleCreate(): React.JSX.Element {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="vehicle-vin">{t('vehicles.vin')}</Label>
+                <Label htmlFor="vehicle-vin" className="leading-6">
+                  {t('vehicles.vin')}
+                </Label>
                 <Input
                   id="vehicle-vin"
                   value={vin}
@@ -177,7 +185,9 @@ export function VehicleCreate(): React.JSX.Element {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="vehicle-plate">{t('vehicles.licensePlate')}</Label>
+                <Label htmlFor="vehicle-plate" className="leading-6">
+                  {t('vehicles.licensePlate')}
+                </Label>
                 <Input
                   id="vehicle-plate"
                   value={licensePlate}

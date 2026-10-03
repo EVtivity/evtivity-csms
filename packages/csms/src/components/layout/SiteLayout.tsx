@@ -168,7 +168,7 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
               );
             })}
             {loadManagement != null && loadManagement.stations.length > 0 && (
-              <div className="absolute top-3 right-3 z-50 rounded-lg border bg-card/80 backdrop-blur-sm p-3 space-y-1.5 text-xs shadow-sm max-w-[180px]">
+              <div className="absolute top-3 right-3 z-50 rounded-lg border bg-card/80 backdrop-blur-xs p-3 space-y-1.5 text-xs shadow-xs max-w-[180px]">
                 <div className="flex items-center gap-1.5 font-semibold text-sm">
                   <Zap className="h-3.5 w-3.5" />
                   Power Draw

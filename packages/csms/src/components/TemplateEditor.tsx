@@ -90,7 +90,9 @@ export function TemplateEditor({
     <div className="space-y-4">
       {isEmail && (
         <div className="space-y-2">
-          <Label htmlFor="tpl-subject">{t('notifications.templateSubject')}</Label>
+          <Label htmlFor="tpl-subject" className="leading-6">
+            {t('notifications.templateSubject')}
+          </Label>
           <Input
             id="tpl-subject"
             value={subject}
@@ -116,7 +118,9 @@ export function TemplateEditor({
       )}
 
       <div className="space-y-2">
-        <Label htmlFor="tpl-body">{t('notifications.templateBody')}</Label>
+        <Label htmlFor="tpl-body" className="leading-6">
+          {t('notifications.templateBody')}
+        </Label>
         {isEmail ? (
           <WysiwygEditor ref={wysiwygRef} value={bodyHtml} onChange={onBodyHtmlChange} />
         ) : (
@@ -130,7 +134,7 @@ export function TemplateEditor({
               }}
               onDragOver={handleDragOver}
               onDrop={handleTextareaDrop}
-              className="flex min-h-[200px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm font-mono"
+              className="flex min-h-[200px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs font-mono"
             />
             {isSms && (
               <p className="mt-2 text-xs text-muted-foreground">
@@ -143,7 +147,9 @@ export function TemplateEditor({
 
       {variables.length > 0 && (
         <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">{t('notifications.variableHint')}</Label>
+          <Label className="text-xs text-muted-foreground leading-6">
+            {t('notifications.variableHint')}
+          </Label>
           <div className="flex flex-wrap gap-2">
             {variables.map((v) => (
               <button

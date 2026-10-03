@@ -72,7 +72,7 @@ export function FirmwareSignatureFields({
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">{t('firmwareCampaigns.signingHint')}</p>
       <div className="space-y-2">
-        <Label htmlFor={`${idPrefix}-signing-certificate`}>
+        <Label htmlFor={`${idPrefix}-signing-certificate`} className="leading-6">
           {t('firmwareCampaigns.signingCertificate')}
         </Label>
         <Textarea
@@ -90,7 +90,9 @@ export function FirmwareSignatureFields({
         )}
       </div>
       <div className="space-y-2">
-        <Label htmlFor={`${idPrefix}-signature`}>{t('firmwareCampaigns.signature')}</Label>
+        <Label htmlFor={`${idPrefix}-signature`} className="leading-6">
+          {t('firmwareCampaigns.signature')}
+        </Label>
         <Textarea
           id={`${idPrefix}-signature`}
           rows={3}

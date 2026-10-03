@@ -134,7 +134,9 @@ export function ConfigTemplateCreate(): React.JSX.Element {
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="template-name">{t('common.name')}</Label>
+              <Label htmlFor="template-name" className="leading-6">
+                {t('common.name')}
+              </Label>
               <Input
                 id="template-name"
                 value={name}
@@ -148,7 +150,9 @@ export function ConfigTemplateCreate(): React.JSX.Element {
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="template-description">{t('common.description')}</Label>
+              <Label htmlFor="template-description" className="leading-6">
+                {t('common.description')}
+              </Label>
               <Input
                 id="template-description"
                 value={description}
@@ -159,7 +163,7 @@ export function ConfigTemplateCreate(): React.JSX.Element {
             </div>
 
             <div className="space-y-2">
-              <Label>{t('configTemplates.ocppVersion')}</Label>
+              <Label className="leading-6">{t('configTemplates.ocppVersion')}</Label>
               <div className="flex gap-1">
                 <Button
                   type="button"

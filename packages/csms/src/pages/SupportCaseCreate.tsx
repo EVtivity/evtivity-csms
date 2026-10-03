@@ -120,7 +120,9 @@ export function SupportCaseCreate(): React.JSX.Element {
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="subject">{t('supportCases.subject')}</Label>
+              <Label htmlFor="subject" className="leading-6">
+                {t('supportCases.subject')}
+              </Label>
               <Input
                 id="subject"
                 value={subject}
@@ -134,7 +136,9 @@ export function SupportCaseCreate(): React.JSX.Element {
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="description">{t('supportCases.description')}</Label>
+              <Label htmlFor="description" className="leading-6">
+                {t('supportCases.description')}
+              </Label>
               <textarea
                 id="description"
                 value={description}
@@ -150,7 +154,9 @@ export function SupportCaseCreate(): React.JSX.Element {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="case-category-select">{t('supportCases.category')}</Label>
+                <Label htmlFor="case-category-select" className="leading-6">
+                  {t('supportCases.category')}
+                </Label>
                 <Select
                   id="case-category-select"
                   value={category}
@@ -166,7 +172,9 @@ export function SupportCaseCreate(): React.JSX.Element {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="case-priority-select">{t('supportCases.priority')}</Label>
+                <Label htmlFor="case-priority-select" className="leading-6">
+                  {t('supportCases.priority')}
+                </Label>
                 <Select
                   id="case-priority-select"
                   value={priority}
@@ -183,11 +191,11 @@ export function SupportCaseCreate(): React.JSX.Element {
               </div>
             </div>
             <div className="space-y-2">
-              <Label>{t('supportCases.driver')}</Label>
+              <Label className="leading-6">{t('supportCases.driver')}</Label>
               <DriverCombobox value={selectedDriver} onSelect={setSelectedDriver} />
             </div>
             <div className="space-y-2">
-              <Label>{t('supportCases.linkedSessions')}</Label>
+              <Label className="leading-6">{t('supportCases.linkedSessions')}</Label>
               {selectedSessions.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-2">
                   {selectedSessions.map((s) => {
@@ -271,7 +279,9 @@ export function SupportCaseCreate(): React.JSX.Element {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="case-assigned-to-select">{t('supportCases.assignedTo')}</Label>
+              <Label htmlFor="case-assigned-to-select" className="leading-6">
+                {t('supportCases.assignedTo')}
+              </Label>
               <Select
                 id="case-assigned-to-select"
                 value={assignedTo}

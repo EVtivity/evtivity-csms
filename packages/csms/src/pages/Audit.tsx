@@ -198,7 +198,7 @@ export function Audit(): React.JSX.Element {
   const filters = (
     <>
       <div className="space-y-2">
-        <Label>{t('audit.entityType', 'Entity type')}</Label>
+        <Label className="leading-6">{t('audit.entityType', 'Entity type')}</Label>
         <Select
           aria-label={t('audit.entityType', 'Entity type')}
           className="h-10"
@@ -217,7 +217,7 @@ export function Audit(): React.JSX.Element {
         </Select>
       </div>
       <div className="space-y-2">
-        <Label>{t('audit.actor', 'Actor')}</Label>
+        <Label className="leading-6">{t('audit.actor', 'Actor')}</Label>
         <Select
           aria-label={t('audit.actor', 'Actor')}
           className="h-10"
@@ -236,7 +236,7 @@ export function Audit(): React.JSX.Element {
         </Select>
       </div>
       <div className="space-y-2">
-        <Label>{t('audit.action', 'Action')}</Label>
+        <Label className="leading-6">{t('audit.action', 'Action')}</Label>
         <Select
           aria-label={t('audit.action', 'Action')}
           className="h-10"
@@ -255,7 +255,7 @@ export function Audit(): React.JSX.Element {
         </Select>
       </div>
       <div className="space-y-2">
-        <Label>{t('audit.entityId', 'Entity id')}</Label>
+        <Label className="leading-6">{t('audit.entityId', 'Entity id')}</Label>
         <Input
           value={entityId}
           placeholder={t('audit.entityIdPlaceholder', 'sta_... / sit_... / etc')}
@@ -266,7 +266,7 @@ export function Audit(): React.JSX.Element {
         />
       </div>
       <div className="space-y-2">
-        <Label>{t('audit.from', 'From')}</Label>
+        <Label className="leading-6">{t('audit.from', 'From')}</Label>
         <Input
           type="date"
           value={from}
@@ -277,7 +277,7 @@ export function Audit(): React.JSX.Element {
         />
       </div>
       <div className="space-y-2">
-        <Label>{t('audit.to', 'To')}</Label>
+        <Label className="leading-6">{t('audit.to', 'To')}</Label>
         <Input
           type="date"
           value={to}
@@ -302,7 +302,7 @@ export function Audit(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
+      <div className="flex flex-col gap-4 *:w-full sm:flex-row sm:items-start sm:justify-between sm:*:w-auto">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">{t('audit.title', 'Audit Log')}</h1>
           <p className="text-sm text-muted-foreground">

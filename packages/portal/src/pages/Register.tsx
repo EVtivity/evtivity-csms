@@ -76,7 +76,7 @@ export function Register(): React.JSX.Element {
             {error !== '' && <p className="text-sm text-destructive">{error}</p>}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-2">
-                <label htmlFor="firstName" className="text-sm font-medium">
+                <label htmlFor="firstName" className="block text-sm font-medium leading-6">
                   {t('auth.firstName')}
                 </label>
                 <Input
@@ -95,7 +95,7 @@ export function Register(): React.JSX.Element {
                 )}
               </div>
               <div className="space-y-2">
-                <label htmlFor="lastName" className="text-sm font-medium">
+                <label htmlFor="lastName" className="block text-sm font-medium leading-6">
                   {t('auth.lastName')}
                 </label>
                 <Input
@@ -115,7 +115,7 @@ export function Register(): React.JSX.Element {
               </div>
             </div>
             <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-medium">
+              <label htmlFor="email" className="block text-sm font-medium leading-6">
                 {t('auth.email')}
               </label>
               <Input
@@ -133,7 +133,7 @@ export function Register(): React.JSX.Element {
               )}
             </div>
             <div className="space-y-2">
-              <label htmlFor="phone" className="text-sm font-medium">
+              <label htmlFor="phone" className="block text-sm font-medium leading-6">
                 {t('auth.phoneOptional')}
               </label>
               <Input
@@ -147,7 +147,7 @@ export function Register(): React.JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-medium">
+              <label htmlFor="password" className="block text-sm font-medium leading-6">
                 {t('auth.password')}
               </label>
               <PasswordInput

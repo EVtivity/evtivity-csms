@@ -19,7 +19,9 @@ export function HoursOfOperationField({
   const { t } = useTranslation();
   return (
     <div className="space-y-2">
-      <Label htmlFor={id}>{t('sites.hoursOfOperation')}</Label>
+      <Label htmlFor={id} className="leading-6">
+        {t('sites.hoursOfOperation')}
+      </Label>
       <Textarea
         id={id}
         value={value}

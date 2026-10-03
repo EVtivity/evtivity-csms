@@ -128,7 +128,7 @@ export function AccountSecurity(): React.JSX.Element {
         <h3 className="text-sm font-semibold">{t('profile.changePassword')}</h3>
         {passwordMsg !== '' && <p className="text-sm text-muted-foreground">{passwordMsg}</p>}
         <div className="space-y-2">
-          <label htmlFor="secCurrentPw" className="text-sm font-medium">
+          <label htmlFor="secCurrentPw" className="block text-sm font-medium leading-6">
             {t('profile.currentPassword')}
           </label>
           <PasswordInput
@@ -141,7 +141,7 @@ export function AccountSecurity(): React.JSX.Element {
           />
         </div>
         <div className="space-y-2">
-          <label htmlFor="secNewPw" className="text-sm font-medium">
+          <label htmlFor="secNewPw" className="block text-sm font-medium leading-6">
             {t('profile.newPassword')}
           </label>
           <PasswordInput
@@ -211,7 +211,7 @@ export function AccountSecurity(): React.JSX.Element {
             <form onSubmit={(e) => void handleMfaSetup(e)} className="space-y-4">
               <p className="text-sm text-muted-foreground">{t('profile.mfaDisabled')}</p>
               <div className="space-y-2">
-                <label htmlFor="secMfaMethod" className="text-sm font-medium">
+                <label htmlFor="secMfaMethod" className="block text-sm font-medium leading-6">
                   {t('profile.mfaSelectMethod')}
                 </label>
                 <Select
@@ -260,7 +260,7 @@ export function AccountSecurity(): React.JSX.Element {
                 </div>
               )}
               <div className="space-y-2">
-                <label htmlFor="secMfaCode" className="text-sm font-medium">
+                <label htmlFor="secMfaCode" className="block text-sm font-medium leading-6">
                   {t('profile.mfaEnterCode')}
                 </label>
                 <Input

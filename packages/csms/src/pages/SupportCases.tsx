@@ -94,7 +94,7 @@ export function SupportCases(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
+      <div className="flex flex-col gap-4 *:w-full sm:flex-row sm:items-start sm:justify-between sm:*:w-auto">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">{t('supportCases.title')}</h1>
           <p className="text-sm text-muted-foreground">{t('supportCases.subtitle')}</p>
@@ -110,7 +110,9 @@ export function SupportCases(): React.JSX.Element {
       <Card>
         <CardContent className="grid grid-cols-1 gap-4 p-4 md:grid-cols-3 lg:grid-cols-5">
           <div className="space-y-2">
-            <Label htmlFor="cases-search">{t('supportCases.search')}</Label>
+            <Label htmlFor="cases-search" className="leading-6">
+              {t('supportCases.search')}
+            </Label>
             <SearchInput
               id="cases-search"
               value={search}
@@ -120,7 +122,9 @@ export function SupportCases(): React.JSX.Element {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cases-status">{t('common.status')}</Label>
+            <Label htmlFor="cases-status" className="leading-6">
+              {t('common.status')}
+            </Label>
             <Select
               id="cases-status"
               className="h-9"
@@ -139,7 +143,9 @@ export function SupportCases(): React.JSX.Element {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cases-category">{t('supportCases.category')}</Label>
+            <Label htmlFor="cases-category" className="leading-6">
+              {t('supportCases.category')}
+            </Label>
             <Select
               id="cases-category"
               className="h-9"
@@ -158,7 +164,9 @@ export function SupportCases(): React.JSX.Element {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cases-priority">{t('supportCases.priority')}</Label>
+            <Label htmlFor="cases-priority" className="leading-6">
+              {t('supportCases.priority')}
+            </Label>
             <Select
               id="cases-priority"
               className="h-9"
@@ -177,7 +185,9 @@ export function SupportCases(): React.JSX.Element {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cases-assignee">{t('supportCases.assignedTo')}</Label>
+            <Label htmlFor="cases-assignee" className="leading-6">
+              {t('supportCases.assignedTo')}
+            </Label>
             <Select
               id="cases-assignee"
               className="h-9"

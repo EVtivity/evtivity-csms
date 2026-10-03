@@ -331,7 +331,7 @@ export function SessionDetail(): React.JSX.Element {
               setPendingVehicleId(session.vehicle?.id ?? null);
               setShowVehicleDialog(true);
             }}
-            className="block w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
+            className="block w-full focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring rounded-md"
             aria-label={t('sessionDetail.changeVehicle')}
           >
             <p className="text-3xl font-bold hover:underline decoration-dotted underline-offset-4">

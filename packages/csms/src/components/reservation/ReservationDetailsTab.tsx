@@ -350,7 +350,9 @@ export function ReservationDetailsTab({
           {editing ? (
             <form onSubmit={handleSave} noValidate className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-connector-select">{t('reservations.connector')}</Label>
+                <Label htmlFor="edit-connector-select" className="leading-6">
+                  {t('reservations.connector')}
+                </Label>
                 {connectorOptions.length > 0 ? (
                   <Select
                     id="edit-connector-select"
@@ -374,7 +376,9 @@ export function ReservationDetailsTab({
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="editStartsAt">{t('reservations.startsAt')}</Label>
+                  <Label htmlFor="editStartsAt" className="leading-6">
+                    {t('reservations.startsAt')}
+                  </Label>
                   <Input
                     id="editStartsAt"
                     type="datetime-local"
@@ -385,7 +389,9 @@ export function ReservationDetailsTab({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="editExpiresAt">{t('reservations.expiresAtLabel')}</Label>
+                  <Label htmlFor="editExpiresAt" className="leading-6">
+                    {t('reservations.expiresAtLabel')}
+                  </Label>
                   <Input
                     id="editExpiresAt"
                     type="datetime-local"
@@ -403,7 +409,7 @@ export function ReservationDetailsTab({
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>{t('reservations.driverLabel')}</Label>
+                <Label className="leading-6">{t('reservations.driverLabel')}</Label>
                 <DriverCombobox value={editDriver} onSelect={setEditDriver} />
               </div>
               {editMutation.isError && (

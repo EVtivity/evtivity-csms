@@ -304,7 +304,7 @@ export function Layout(): React.JSX.Element {
       {/* Mobile backdrop */}
       {mobileNavOpen && (
         <div
-          className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-background/80 backdrop-blur-xs lg:hidden"
           onClick={() => {
             setMobileNavOpen(false);
           }}

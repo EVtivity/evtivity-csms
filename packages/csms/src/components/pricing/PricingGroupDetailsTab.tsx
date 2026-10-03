@@ -101,7 +101,9 @@ export function PricingGroupDetailsTab({
           {editing ? (
             <form onSubmit={handleSave} noValidate className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-name">{t('common.name')}</Label>
+                <Label htmlFor="edit-name" className="leading-6">
+                  {t('common.name')}
+                </Label>
                 <Input
                   id="edit-name"
                   value={name}
@@ -115,7 +117,9 @@ export function PricingGroupDetailsTab({
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-description">{t('common.description')}</Label>
+                <Label htmlFor="edit-description" className="leading-6">
+                  {t('common.description')}
+                </Label>
                 <Input
                   id="edit-description"
                   value={description}

@@ -447,7 +447,9 @@ function QuickActionForm({
     case 'Reset':
       return (
         <div className="space-y-2">
-          <Label htmlFor="reset-type-select">{t('commands.type')}</Label>
+          <Label htmlFor="reset-type-select" className="leading-6">
+            {t('commands.type')}
+          </Label>
           <Select
             id="reset-type-select"
             value={form.resetType}
@@ -468,7 +470,9 @@ function QuickActionForm({
       return (
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="operational-status-select">{t('commands.operationalStatus')}</Label>
+            <Label htmlFor="operational-status-select" className="leading-6">
+              {t('commands.operationalStatus')}
+            </Label>
             <Select
               id="operational-status-select"
               value={form.operationalStatus}
@@ -482,7 +486,9 @@ function QuickActionForm({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cmd-avail-evse-id">{t('commands.evseIdOptional')}</Label>
+            <Label htmlFor="cmd-avail-evse-id" className="leading-6">
+              {t('commands.evseIdOptional')}
+            </Label>
             <Input
               id="cmd-avail-evse-id"
               type="number"
@@ -499,7 +505,9 @@ function QuickActionForm({
       return (
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="cmd-unlock-evse-id">{t('commands.evseId')}</Label>
+            <Label htmlFor="cmd-unlock-evse-id" className="leading-6">
+              {t('commands.evseId')}
+            </Label>
             <Input
               id="cmd-unlock-evse-id"
               type="number"
@@ -510,7 +518,9 @@ function QuickActionForm({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cmd-unlock-connector-id">{t('commands.connectorId')}</Label>
+            <Label htmlFor="cmd-unlock-connector-id" className="leading-6">
+              {t('commands.connectorId')}
+            </Label>
             <Input
               id="cmd-unlock-connector-id"
               type="number"
@@ -526,7 +536,9 @@ function QuickActionForm({
       return (
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="cmd-start-id-token">{t('commands.idToken')}</Label>
+            <Label htmlFor="cmd-start-id-token" className="leading-6">
+              {t('commands.idToken')}
+            </Label>
             <Input
               id="cmd-start-id-token"
               value={form.idToken}
@@ -536,7 +548,9 @@ function QuickActionForm({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="token-type-select">{t('commands.tokenType')}</Label>
+            <Label htmlFor="token-type-select" className="leading-6">
+              {t('commands.tokenType')}
+            </Label>
             <Select
               id="token-type-select"
               value={form.idTokenType}
@@ -553,7 +567,9 @@ function QuickActionForm({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cmd-start-evse-id">{t('commands.evseIdOptional')}</Label>
+            <Label htmlFor="cmd-start-evse-id" className="leading-6">
+              {t('commands.evseIdOptional')}
+            </Label>
             <Input
               id="cmd-start-evse-id"
               type="number"
@@ -568,7 +584,9 @@ function QuickActionForm({
     case 'RequestStopTransaction':
       return (
         <div className="space-y-2">
-          <Label htmlFor="cmd-stop-transaction-id">{t('commands.transactionId')}</Label>
+          <Label htmlFor="cmd-stop-transaction-id" className="leading-6">
+            {t('commands.transactionId')}
+          </Label>
           <Input
             id="cmd-stop-transaction-id"
             value={form.transactionId}
@@ -582,7 +600,9 @@ function QuickActionForm({
       return (
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="trigger-message-select">{t('commands.requestedMessage')}</Label>
+            <Label htmlFor="trigger-message-select" className="leading-6">
+              {t('commands.requestedMessage')}
+            </Label>
             <Select
               id="trigger-message-select"
               value={form.triggerMessage}
@@ -599,7 +619,7 @@ function QuickActionForm({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cmd-trigger-evse-id">
+            <Label htmlFor="cmd-trigger-evse-id" className="leading-6">
               {t('commands.evseId')} ({t('common.optional')})
             </Label>
             <Input
@@ -622,7 +642,9 @@ function QuickActionForm({
       return (
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="get-component-name-select">{t('commands.componentName')}</Label>
+            <Label htmlFor="get-component-name-select" className="leading-6">
+              {t('commands.componentName')}
+            </Label>
             <Select
               id="get-component-name-select"
               value={form.componentName}
@@ -640,7 +662,9 @@ function QuickActionForm({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="get-variable-name-select">{t('commands.variableName')}</Label>
+            <Label htmlFor="get-variable-name-select" className="leading-6">
+              {t('commands.variableName')}
+            </Label>
             <Select
               id="get-variable-name-select"
               value={form.variableName}
@@ -658,7 +682,9 @@ function QuickActionForm({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="get-attribute-type-select">{t('commands.attributeType')}</Label>
+            <Label htmlFor="get-attribute-type-select" className="leading-6">
+              {t('commands.attributeType')}
+            </Label>
             <Select
               id="get-attribute-type-select"
               value={form.attributeType}
@@ -700,7 +726,9 @@ function QuickActionForm({
       return (
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="set-component-name-select">{t('commands.componentName')}</Label>
+            <Label htmlFor="set-component-name-select" className="leading-6">
+              {t('commands.componentName')}
+            </Label>
             <Select
               id="set-component-name-select"
               value={form.componentName}
@@ -718,7 +746,9 @@ function QuickActionForm({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="set-variable-name-select">{t('commands.variableName')}</Label>
+            <Label htmlFor="set-variable-name-select" className="leading-6">
+              {t('commands.variableName')}
+            </Label>
             <Select
               id="set-variable-name-select"
               value={form.variableName}
@@ -736,7 +766,9 @@ function QuickActionForm({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="set-attribute-type-select">{t('commands.attributeType')}</Label>
+            <Label htmlFor="set-attribute-type-select" className="leading-6">
+              {t('commands.attributeType')}
+            </Label>
             <Select
               id="set-attribute-type-select"
               value={form.attributeType}
@@ -753,7 +785,9 @@ function QuickActionForm({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cmd-set-var-value">{t('commands.value')}</Label>
+            <Label htmlFor="cmd-set-var-value" className="leading-6">
+              {t('commands.value')}
+            </Label>
             <Input
               id="cmd-set-var-value"
               value={form.variableValue}
@@ -785,7 +819,9 @@ function QuickActionForm({
       return (
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="cmd-fw-url">{t('commands.firmwareLocationUrl')}</Label>
+            <Label htmlFor="cmd-fw-url" className="leading-6">
+              {t('commands.firmwareLocationUrl')}
+            </Label>
             <Input
               id="cmd-fw-url"
               value={form.firmwareUrl}
@@ -796,7 +832,9 @@ function QuickActionForm({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cmd-fw-retrieve-dt">{t('commands.retrieveDateTime')}</Label>
+            <Label htmlFor="cmd-fw-retrieve-dt" className="leading-6">
+              {t('commands.retrieveDateTime')}
+            </Label>
             <Input
               id="cmd-fw-retrieve-dt"
               type="datetime-local"
@@ -839,7 +877,9 @@ function QuickActionForm16({
     case 'Reset':
       return (
         <div className="space-y-2">
-          <Label htmlFor="reset-type-16-select">{t('commands.type')}</Label>
+          <Label htmlFor="reset-type-16-select" className="leading-6">
+            {t('commands.type')}
+          </Label>
           <Select
             id="reset-type-16-select"
             value={form.resetType}
@@ -860,7 +900,9 @@ function QuickActionForm16({
       return (
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="cmd16-avail-connector-id">{t('commands.connectorIdRequired')}</Label>
+            <Label htmlFor="cmd16-avail-connector-id" className="leading-6">
+              {t('commands.connectorIdRequired')}
+            </Label>
             <Input
               id="cmd16-avail-connector-id"
               type="number"
@@ -872,7 +914,9 @@ function QuickActionForm16({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="availability-type-16-select">{t('commands.type')}</Label>
+            <Label htmlFor="availability-type-16-select" className="leading-6">
+              {t('commands.type')}
+            </Label>
             <Select
               id="availability-type-16-select"
               value={form.operationalStatus}
@@ -890,7 +934,9 @@ function QuickActionForm16({
     case 'UnlockConnector':
       return (
         <div className="space-y-2">
-          <Label htmlFor="cmd16-unlock-connector-id">{t('commands.connectorIdRequired')}</Label>
+          <Label htmlFor="cmd16-unlock-connector-id" className="leading-6">
+            {t('commands.connectorIdRequired')}
+          </Label>
           <Input
             id="cmd16-unlock-connector-id"
             type="number"
@@ -905,7 +951,9 @@ function QuickActionForm16({
       return (
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="cmd16-start-id-tag">{t('commands.idTag')}</Label>
+            <Label htmlFor="cmd16-start-id-tag" className="leading-6">
+              {t('commands.idTag')}
+            </Label>
             <Input
               id="cmd16-start-id-tag"
               value={form.idToken}
@@ -915,7 +963,7 @@ function QuickActionForm16({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cmd16-start-connector-id">
+            <Label htmlFor="cmd16-start-connector-id" className="leading-6">
               {t('commands.connectorId')} ({t('common.optional')})
             </Label>
             <Input
@@ -932,7 +980,9 @@ function QuickActionForm16({
     case 'RemoteStopTransaction':
       return (
         <div className="space-y-2">
-          <Label htmlFor="cmd16-stop-transaction-id">{t('commands.transactionId')}</Label>
+          <Label htmlFor="cmd16-stop-transaction-id" className="leading-6">
+            {t('commands.transactionId')}
+          </Label>
           <Input
             id="cmd16-stop-transaction-id"
             type="number"
@@ -947,7 +997,9 @@ function QuickActionForm16({
       return (
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="trigger-message-16-select">{t('commands.requestedMessage')}</Label>
+            <Label htmlFor="trigger-message-16-select" className="leading-6">
+              {t('commands.requestedMessage')}
+            </Label>
             <Select
               id="trigger-message-16-select"
               value={form.triggerMessage}
@@ -964,7 +1016,7 @@ function QuickActionForm16({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cmd16-trigger-connector-id">
+            <Label htmlFor="cmd16-trigger-connector-id" className="leading-6">
               {t('commands.connectorId')} ({t('common.optional')})
             </Label>
             <Input
@@ -983,7 +1035,9 @@ function QuickActionForm16({
     case 'GetConfiguration':
       return (
         <div className="space-y-2">
-          <Label htmlFor="cmd16-get-config-key">{t('commands.configKeyOptional')}</Label>
+          <Label htmlFor="cmd16-get-config-key" className="leading-6">
+            {t('commands.configKeyOptional')}
+          </Label>
           <Select
             id="cmd16-get-config-key"
             value={form.getConfigKey}
@@ -1020,7 +1074,9 @@ function QuickActionForm16({
       return (
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="cmd16-change-config-key">{t('commands.configKey')}</Label>
+            <Label htmlFor="cmd16-change-config-key" className="leading-6">
+              {t('commands.configKey')}
+            </Label>
             <Select
               id="cmd16-change-config-key"
               value={form.configKey}
@@ -1053,7 +1109,9 @@ function QuickActionForm16({
             </Alert>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cmd16-change-config-value">{t('commands.configValue')}</Label>
+            <Label htmlFor="cmd16-change-config-value" className="leading-6">
+              {t('commands.configValue')}
+            </Label>
             <Input
               id="cmd16-change-config-value"
               value={form.configValue}
@@ -1068,7 +1126,9 @@ function QuickActionForm16({
       return (
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="cmd16-fw-url">{t('commands.firmwareLocationUrl')}</Label>
+            <Label htmlFor="cmd16-fw-url" className="leading-6">
+              {t('commands.firmwareLocationUrl')}
+            </Label>
             <Input
               id="cmd16-fw-url"
               value={form.firmwareUrl}
@@ -1079,7 +1139,9 @@ function QuickActionForm16({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cmd16-fw-retrieve-dt">{t('commands.retrieveDateTime')}</Label>
+            <Label htmlFor="cmd16-fw-retrieve-dt" className="leading-6">
+              {t('commands.retrieveDateTime')}
+            </Label>
             <Input
               id="cmd16-fw-retrieve-dt"
               type="datetime-local"
@@ -1090,7 +1152,9 @@ function QuickActionForm16({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cmd16-fw-retries">{t('commands.retries')}</Label>
+            <Label htmlFor="cmd16-fw-retries" className="leading-6">
+              {t('commands.retries')}
+            </Label>
             <Input
               id="cmd16-fw-retries"
               type="number"
@@ -1101,7 +1165,9 @@ function QuickActionForm16({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cmd16-fw-retry-interval">{t('commands.retryInterval')}</Label>
+            <Label htmlFor="cmd16-fw-retry-interval" className="leading-6">
+              {t('commands.retryInterval')}
+            </Label>
             <Input
               id="cmd16-fw-retry-interval"
               type="number"
@@ -1364,7 +1430,9 @@ export function StationCommands({
         <div className="space-y-3">
           <h3 className="text-sm font-medium">{t('commands.advancedCommand')}</h3>
           <div className="space-y-2">
-            <Label htmlFor="advanced-action-select">{t('commands.action')}</Label>
+            <Label htmlFor="advanced-action-select" className="leading-6">
+              {t('commands.action')}
+            </Label>
             <Select
               id="advanced-action-select"
               value={advancedAction}

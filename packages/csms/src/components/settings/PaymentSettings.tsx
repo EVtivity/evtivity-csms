@@ -289,7 +289,9 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="stripe-secret-key">{t('settings.stripeSecretKey')}</Label>
+                  <Label htmlFor="stripe-secret-key" className="leading-6">
+                    {t('settings.stripeSecretKey')}
+                  </Label>
                   <PasswordInput
                     id="stripe-secret-key"
                     value={stripeSecretKey}
@@ -311,7 +313,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="stripe-publishable-key">
+                  <Label htmlFor="stripe-publishable-key" className="leading-6">
                     {t('settings.stripePublishableKey')}
                   </Label>
                   <Input
@@ -325,7 +327,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="stripe-pre-auth">
+                  <Label htmlFor="stripe-pre-auth" className="leading-6">
                     {t('settings.stripePreAuthAmount', { currency: currency ?? '...' })}
                   </Label>
                   <Input
@@ -351,7 +353,9 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="stripe-platform-fee">{t('settings.stripePlatformFee')}</Label>
+                  <Label htmlFor="stripe-platform-fee" className="leading-6">
+                    {t('settings.stripePlatformFee')}
+                  </Label>
                   <DecimalInput
                     id="stripe-platform-fee"
                     value={stripePlatformFee}
@@ -491,7 +495,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
 
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <Label htmlFor="site-connected-account">
+                        <Label htmlFor="site-connected-account" className="leading-6">
                           {t('payments.connectedAccountId')}
                         </Label>
                         <Input
@@ -506,7 +510,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="site-pre-auth">
+                        <Label htmlFor="site-pre-auth" className="leading-6">
                           {t('settings.stripePreAuthAmount', { currency: currency ?? '...' })}
                         </Label>
                         <Input
@@ -536,7 +540,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps): React.JSX.E
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="site-platform-fee">
+                        <Label htmlFor="site-platform-fee" className="leading-6">
                           {t('settings.sitePlatformFeeOverride')}
                         </Label>
                         <DecimalInput

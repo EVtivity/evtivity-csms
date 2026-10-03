@@ -95,7 +95,9 @@ export function ResetPassword(): React.JSX.Element {
               className="space-y-4"
             >
               <div className="space-y-2">
-                <Label htmlFor="password">{t('auth.newPassword')}</Label>
+                <Label htmlFor="password" className="leading-6">
+                  {t('auth.newPassword')}
+                </Label>
                 <PasswordInput
                   id="password"
                   value={password}
@@ -109,7 +111,9 @@ export function ResetPassword(): React.JSX.Element {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="confirmPassword">{t('auth.confirmPassword')}</Label>
+                <Label htmlFor="confirmPassword" className="leading-6">
+                  {t('auth.confirmPassword')}
+                </Label>
                 <PasswordInput
                   id="confirmPassword"
                   value={confirmPassword}

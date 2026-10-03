@@ -113,12 +113,12 @@ export function Tokens(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
+      <div className="flex flex-col gap-4 *:w-full sm:flex-row sm:items-start sm:justify-between sm:*:w-auto">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">{t('tokens.title')}</h1>
           <p className="text-sm text-muted-foreground">{t('tokens.subtitle')}</p>
         </div>
-        <div className="flex flex-col gap-2 [&>*]:w-full sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:[&>*]:w-auto">
+        <div className="flex flex-col gap-2 *:w-full sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:*:w-auto">
           {canReadDrivers && (
             <Button
               variant="outline"
@@ -184,7 +184,7 @@ export function Tokens(): React.JSX.Element {
         const filters = (
           <>
             <div className="space-y-2">
-              <Label>{t('tokens.type')}</Label>
+              <Label className="leading-6">{t('tokens.type')}</Label>
               <Select
                 aria-label={t('tokens.type')}
                 className="h-10"
@@ -202,7 +202,7 @@ export function Tokens(): React.JSX.Element {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>{t('common.status')}</Label>
+              <Label className="leading-6">{t('common.status')}</Label>
               <Select
                 aria-label={t('common.status')}
                 className="h-10"
@@ -246,7 +246,7 @@ export function Tokens(): React.JSX.Element {
               <div className="hidden items-end gap-4 md:flex">
                 <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3">
                   <div className="space-y-2">
-                    <Label>{t('tokens.search')}</Label>
+                    <Label className="leading-6">{t('tokens.search')}</Label>
                     {searchInput}
                   </div>
                   {filters}

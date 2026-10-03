@@ -181,7 +181,9 @@ export function SiteDetailsTab({
           {editing ? (
             <form onSubmit={handleSave} noValidate className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-name">{t('common.name')}</Label>
+                <Label htmlFor="edit-name" className="leading-6">
+                  {t('common.name')}
+                </Label>
                 <Input
                   id="edit-name"
                   value={name}
@@ -195,7 +197,9 @@ export function SiteDetailsTab({
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-address">{t('sites.address')}</Label>
+                <Label htmlFor="edit-address" className="leading-6">
+                  {t('sites.address')}
+                </Label>
                 <Input
                   id="edit-address"
                   value={address}
@@ -206,7 +210,9 @@ export function SiteDetailsTab({
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-city">{t('sites.city')}</Label>
+                  <Label htmlFor="edit-city" className="leading-6">
+                    {t('sites.city')}
+                  </Label>
                   <Input
                     id="edit-city"
                     value={city}
@@ -216,7 +222,9 @@ export function SiteDetailsTab({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-state">{t('sites.state')}</Label>
+                  <Label htmlFor="edit-state" className="leading-6">
+                    {t('sites.state')}
+                  </Label>
                   <Input
                     id="edit-state"
                     value={state}
@@ -228,7 +236,9 @@ export function SiteDetailsTab({
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-postal">{t('sites.postalCode')}</Label>
+                  <Label htmlFor="edit-postal" className="leading-6">
+                    {t('sites.postalCode')}
+                  </Label>
                   <Input
                     id="edit-postal"
                     value={postalCode}
@@ -238,7 +248,9 @@ export function SiteDetailsTab({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-country">{t('sites.country')}</Label>
+                  <Label htmlFor="edit-country" className="leading-6">
+                    {t('sites.country')}
+                  </Label>
                   <Input
                     id="edit-country"
                     value={country}
@@ -250,7 +262,9 @@ export function SiteDetailsTab({
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-latitude">{t('sites.latitude')}</Label>
+                  <Label htmlFor="edit-latitude" className="leading-6">
+                    {t('sites.latitude')}
+                  </Label>
                   <DecimalInput
                     id="edit-latitude"
                     placeholder="e.g. 40.7128"
@@ -260,7 +274,9 @@ export function SiteDetailsTab({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-longitude">{t('sites.longitude')}</Label>
+                  <Label htmlFor="edit-longitude" className="leading-6">
+                    {t('sites.longitude')}
+                  </Label>
                   <DecimalInput
                     id="edit-longitude"
                     placeholder="e.g. -74.0060"
@@ -279,7 +295,9 @@ export function SiteDetailsTab({
                 }}
               />
               <div className="space-y-2">
-                <Label htmlFor="edit-timezone">{t('sites.timezone')}</Label>
+                <Label htmlFor="edit-timezone" className="leading-6">
+                  {t('sites.timezone')}
+                </Label>
                 <Select
                   id="edit-timezone"
                   value={editTimezone}
@@ -306,7 +324,9 @@ export function SiteDetailsTab({
                   <p className="text-xs text-muted-foreground">{t('sites.contactPublicNote')}</p>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-contact-name">{t('sites.contactName')}</Label>
+                  <Label htmlFor="edit-contact-name" className="leading-6">
+                    {t('sites.contactName')}
+                  </Label>
                   <Input
                     id="edit-contact-name"
                     value={contactName}
@@ -317,7 +337,9 @@ export function SiteDetailsTab({
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="edit-contact-email">{t('sites.contactEmail')}</Label>
+                    <Label htmlFor="edit-contact-email" className="leading-6">
+                      {t('sites.contactEmail')}
+                    </Label>
                     <Input
                       id="edit-contact-email"
                       type="email"
@@ -328,7 +350,9 @@ export function SiteDetailsTab({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="edit-contact-phone">{t('sites.contactPhone')}</Label>
+                    <Label htmlFor="edit-contact-phone" className="leading-6">
+                      {t('sites.contactPhone')}
+                    </Label>
                     <Input
                       id="edit-contact-phone"
                       type="tel"

@@ -87,7 +87,7 @@ export function Sessions(): React.JSX.Element {
         const filters = (
           <>
             <div className="space-y-2">
-              <Label>{t('sites.title')}</Label>
+              <Label className="leading-6">{t('sites.title')}</Label>
               <Select
                 aria-label={t('sites.title')}
                 className="h-10"
@@ -106,7 +106,7 @@ export function Sessions(): React.JSX.Element {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>{t('stations.title')}</Label>
+              <Label className="leading-6">{t('stations.title')}</Label>
               <Select
                 aria-label={t('stations.title')}
                 className="h-10"
@@ -124,7 +124,7 @@ export function Sessions(): React.JSX.Element {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>{t('common.status')}</Label>
+              <Label className="leading-6">{t('common.status')}</Label>
               <Select
                 aria-label={t('common.status')}
                 className="h-10"
@@ -175,7 +175,7 @@ export function Sessions(): React.JSX.Element {
               <div className="hidden items-end gap-4 md:flex">
                 <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                   <div className="space-y-2">
-                    <Label>{t('sessions.search')}</Label>
+                    <Label className="leading-6">{t('sessions.search')}</Label>
                     {searchInput}
                   </div>
                   {filters}

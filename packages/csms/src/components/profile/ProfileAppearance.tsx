@@ -18,7 +18,9 @@ export function ProfileAppearance(): React.JSX.Element {
       </CardHeader>
       <CardContent>
         <div className="space-y-2">
-          <Label htmlFor="edit-theme">{t('profile.theme')}</Label>
+          <Label htmlFor="edit-theme" className="leading-6">
+            {t('profile.theme')}
+          </Label>
           <select
             id="edit-theme"
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"

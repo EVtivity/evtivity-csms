@@ -188,7 +188,7 @@ function ScrollSnapRow({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex snap-x snap-mandatory overflow-x-auto scroll-smooth [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex snap-x snap-mandatory overflow-x-auto scroll-smooth [-ms-overflow-style:none] scrollbar-none [&::-webkit-scrollbar]:hidden"
       >
         {pages.map((page) => (
           <div key={page.id} className="w-full shrink-0 snap-start">
@@ -369,9 +369,9 @@ function NoDataOverlay({
 }): React.JSX.Element {
   return (
     <div className="relative">
-      <div className="pointer-events-none select-none blur-sm opacity-50">{children}</div>
+      <div className="pointer-events-none select-none blur-xs opacity-50">{children}</div>
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className="rounded-lg bg-card border border-border px-6 py-3 shadow-sm text-sm text-muted-foreground">
+        <div className="rounded-lg bg-card border border-border px-6 py-3 shadow-xs text-sm text-muted-foreground">
           {message}
         </div>
       </div>

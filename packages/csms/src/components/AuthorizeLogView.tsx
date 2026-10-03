@@ -118,7 +118,9 @@ export function AuthorizeLogView({
         >
           {!hideIdTokenFilter && (
             <div className="space-y-2">
-              <Label htmlFor="authorize-log-token">{t('tokens.idToken')}</Label>
+              <Label htmlFor="authorize-log-token" className="leading-6">
+                {t('tokens.idToken')}
+              </Label>
               <SearchInput
                 id="authorize-log-token"
                 value={idToken}
@@ -129,7 +131,9 @@ export function AuthorizeLogView({
             </div>
           )}
           <div className="space-y-2">
-            <Label htmlFor="authorize-log-outcome">{t('tokens.outcome')}</Label>
+            <Label htmlFor="authorize-log-outcome" className="leading-6">
+              {t('tokens.outcome')}
+            </Label>
             <Select
               id="authorize-log-outcome"
               className="h-9"

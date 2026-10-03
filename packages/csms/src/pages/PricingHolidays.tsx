@@ -141,7 +141,7 @@ export function PricingHolidays(): React.JSX.Element {
         </Link>
       </div>
 
-      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
+      <div className="flex flex-col gap-4 *:w-full sm:flex-row sm:items-start sm:justify-between sm:*:w-auto">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">{t('pricing.holidays')}</h1>
           <p className="text-sm text-muted-foreground">{t('pricing.holidaysSubtitle')}</p>
@@ -274,7 +274,7 @@ export function PricingHolidays(): React.JSX.Element {
           <div className="grid gap-2">
             <Label>{t('pricing.holidays')}</Label>
             <textarea
-              className="flex min-h-40 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="flex min-h-40 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               value={bulkText}
               onChange={(e) => {
                 setBulkText(e.target.value);

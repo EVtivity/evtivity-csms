@@ -213,7 +213,7 @@ export function EventSettingsLayout({
                   <CardContent className="p-6 space-y-4">
                     <div className="grid gap-4 sm:grid-cols-3">
                       <div className="space-y-2">
-                        <Label className="inline-flex items-center gap-1">
+                        <Label className="inline-flex items-center gap-1 leading-6">
                           {t('notifications.channel')}
                           {channelTooltip != null && <InfoTooltip content={channelTooltip} />}
                         </Label>
@@ -238,7 +238,9 @@ export function EventSettingsLayout({
                       </div>
                       {hasToggle && (
                         <div className="space-y-2">
-                          <Label>{isActive ? t('common.active') : t('common.inactive')}</Label>
+                          <Label className="leading-6">
+                            {isActive ? t('common.active') : t('common.inactive')}
+                          </Label>
                           <div className="flex h-10 items-center">
                             <button
                               type="button"
@@ -266,7 +268,7 @@ export function EventSettingsLayout({
                         </div>
                       )}
                       <div className="space-y-2">
-                        <Label>{t('notifications.language')}</Label>
+                        <Label className="leading-6">{t('notifications.language')}</Label>
                         <LanguageSelect value={language} onChange={setLanguage} />
                       </div>
                     </div>

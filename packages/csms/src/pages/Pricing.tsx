@@ -47,12 +47,12 @@ export function Pricing(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 [&>*]:w-full sm:flex-row sm:items-start sm:justify-between sm:[&>*]:w-auto">
+      <div className="flex flex-col gap-4 *:w-full sm:flex-row sm:items-start sm:justify-between sm:*:w-auto">
         <div>
           <h1 className="text-2xl font-bold md:text-3xl">{t('pricing.title')}</h1>
           <p className="text-sm text-muted-foreground">{t('pricing.subtitle')}</p>
         </div>
-        <div className="flex flex-col gap-2 [&>*]:w-full sm:flex-row sm:items-center sm:[&>*]:w-auto">
+        <div className="flex flex-col gap-2 *:w-full sm:flex-row sm:items-center sm:*:w-auto">
           <Button
             variant="outline"
             onClick={() => {

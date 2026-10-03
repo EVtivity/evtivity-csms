@@ -72,7 +72,7 @@ export function ConfigTemplateDetail(): React.JSX.Element {
           <TabsTrigger value="pushes">{t('configTemplates.pushHistory')}</TabsTrigger>
           <TabsTrigger value="matching" className="gap-2">
             {t('firmwareCampaigns.matchingStations')}
-            <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-foreground/15 px-1.5 text-xs font-semibold">
+            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground/15 px-1.5 text-xs font-semibold">
               {matchingTotal?.total ?? 0}
             </span>
           </TabsTrigger>

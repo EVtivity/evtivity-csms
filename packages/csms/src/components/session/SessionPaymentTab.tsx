@@ -172,7 +172,9 @@ export function SessionPaymentTab({
         onConfirm={handleRefundConfirm}
       >
         <div className="space-y-2">
-          <Label htmlFor="session-refund-amount">{t('sessions.refundAmount')}</Label>
+          <Label htmlFor="session-refund-amount" className="leading-6">
+            {t('sessions.refundAmount')}
+          </Label>
           <DecimalInput
             id="session-refund-amount"
             decimalScale={2}

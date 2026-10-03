@@ -83,8 +83,6 @@ export default tseslint.config(
       'coverage/',
       'scripts/',
       'internal-scripts/',
-      '**/postcss.config.js',
-      '**/tailwind.config.*',
       '**/vite.config.*',
       '**/drizzle.config.ts',
       'commitlint.config.cjs',

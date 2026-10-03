@@ -119,7 +119,9 @@ export function RoamingPartnerCreate(): React.JSX.Element {
           ) : (
             <form onSubmit={handleSubmit} noValidate className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="partner-name">{t('common.name')}</Label>
+                <Label htmlFor="partner-name" className="leading-6">
+                  {t('common.name')}
+                </Label>
                 <Input
                   id="partner-name"
                   value={name}
@@ -135,7 +137,9 @@ export function RoamingPartnerCreate(): React.JSX.Element {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="partner-country">{t('roaming.partners.countryCode')}</Label>
+                  <Label htmlFor="partner-country" className="leading-6">
+                    {t('roaming.partners.countryCode')}
+                  </Label>
                   <Input
                     id="partner-country"
                     value={countryCode}
@@ -151,7 +155,9 @@ export function RoamingPartnerCreate(): React.JSX.Element {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="partner-party">{t('roaming.partners.partyIdLabel')}</Label>
+                  <Label htmlFor="partner-party" className="leading-6">
+                    {t('roaming.partners.partyIdLabel')}
+                  </Label>
                   <Input
                     id="partner-party"
                     value={partyId}
@@ -168,7 +174,9 @@ export function RoamingPartnerCreate(): React.JSX.Element {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="partner-version-url">{t('roaming.partners.versionsUrl')}</Label>
+                <Label htmlFor="partner-version-url" className="leading-6">
+                  {t('roaming.partners.versionsUrl')}
+                </Label>
                 <Input
                   id="partner-version-url"
                   value={versionUrl}
@@ -179,7 +187,7 @@ export function RoamingPartnerCreate(): React.JSX.Element {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="partner-registration-token">
+                <Label htmlFor="partner-registration-token" className="leading-6">
                   {t('roaming.partners.partnerRegistrationToken')}
                 </Label>
                 <Input

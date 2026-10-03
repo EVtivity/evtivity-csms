@@ -394,7 +394,9 @@ export function StationMessageSettings({
           >
             <div className="flex items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <Label htmlFor="station-message-enabled">{t('messages.enabled')}</Label>
+                <Label htmlFor="station-message-enabled" className="leading-6">
+                  {t('messages.enabled')}
+                </Label>
                 <p className="text-xs text-muted-foreground">{t('messages.enabledDesc')}</p>
               </div>
               <Toggle
@@ -409,7 +411,7 @@ export function StationMessageSettings({
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="station-message-pricing-format">
+                <Label htmlFor="station-message-pricing-format" className="leading-6">
                   {t('messages.pricingFormat')}
                 </Label>
                 <Select
@@ -426,7 +428,7 @@ export function StationMessageSettings({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="station-message-refresh-seconds">
+                <Label htmlFor="station-message-refresh-seconds" className="leading-6">
                   {t('messages.refreshSeconds')}
                 </Label>
                 <Input
@@ -442,7 +444,7 @@ export function StationMessageSettings({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="station-message-event-ttl-seconds">
+                <Label htmlFor="station-message-event-ttl-seconds" className="leading-6">
                   {t('messages.eventMessageTtlSeconds')}
                 </Label>
                 <Input
@@ -461,7 +463,7 @@ export function StationMessageSettings({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="station-message-display-language">
+              <Label htmlFor="station-message-display-language" className="leading-6">
                 {t('messages.displayLanguage')}
               </Label>
               <LanguageSelect
@@ -475,7 +477,9 @@ export function StationMessageSettings({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="station-message-brand-line">{t('messages.brandLine')}</Label>
+              <Label htmlFor="station-message-brand-line" className="leading-6">
+                {t('messages.brandLine')}
+              </Label>
               <Input
                 id="station-message-brand-line"
                 value={brandLine}
@@ -519,7 +523,7 @@ export function StationMessageSettings({
             </div>
             <div className="space-y-4 p-6">
               <div className="space-y-2">
-                <Label htmlFor="station-message-template-language">
+                <Label htmlFor="station-message-template-language" className="leading-6">
                   {t('messages.templateLanguage')}
                 </Label>
                 <LanguageSelect
@@ -536,7 +540,9 @@ export function StationMessageSettings({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="station-message-body">{t('messages.bodyLabel')}</Label>
+                <Label htmlFor="station-message-body" className="leading-6">
+                  {t('messages.bodyLabel')}
+                </Label>
                 <textarea
                   id="station-message-body"
                   ref={textareaRef}
@@ -545,12 +551,12 @@ export function StationMessageSettings({
                     setBodyDraft(e.target.value);
                   }}
                   placeholder={t('messages.bodyPlaceholder')}
-                  className="flex min-h-[160px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  className="flex min-h-[160px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">
+                <Label className="text-xs text-muted-foreground leading-6">
                   {t('messages.variablesLabel')}
                 </Label>
                 <div className="flex flex-wrap gap-2">
@@ -572,8 +578,10 @@ export function StationMessageSettings({
               </div>
 
               <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">{t('messages.preview')}</Label>
-                <pre className="min-h-[6rem] whitespace-pre-wrap break-words rounded-md border bg-muted/30 px-3 py-2 font-mono text-sm">
+                <Label className="text-xs text-muted-foreground leading-6">
+                  {t('messages.preview')}
+                </Label>
+                <pre className="min-h-24 whitespace-pre-wrap wrap-break-word rounded-md border bg-muted/30 px-3 py-2 font-mono text-sm">
                   {preview}
                 </pre>
                 <p className="text-xs text-muted-foreground">{t('messages.previewHint')}</p>

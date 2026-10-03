@@ -15,7 +15,7 @@ const Radio = React.forwardRef<HTMLInputElement, RadioProps>(
         <input
           type="radio"
           className={cn(
-            'peer h-4 w-4 shrink-0 appearance-none rounded-full border border-input bg-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 checked:border-primary checked:bg-primary',
+            'peer h-4 w-4 shrink-0 appearance-none rounded-full border border-input bg-background transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 checked:border-primary checked:bg-primary',
             error && 'border-destructive',
             className,
           )}
