@@ -213,6 +213,7 @@ function createMockEventBus() {
         await handler(event);
       }
     },
+    track: <T>(work: Promise<T>) => work,
     publish: vi.fn(),
     subscribers,
   } as unknown as EventBus & {
@@ -511,6 +512,59 @@ describe('Event projections - coverage expansion', () => {
         'ocpi_push',
         expect.stringContaining('site-1'),
       );
+    });
+  });
+
+  describe('station.Disconnected - reservation notices', () => {
+    const disconnectedRows = () => [
+      [{ id: 'sta_000000000001' }], // resolveStationId
+      [], // UPDATE charging_stations
+      [{ count: 1 }], // INSERT connection_logs
+      [], // INSERT INTO port_status_log
+      [{ site_id: null }], // resolveSiteId
+      [{ id: 'rsv_1', driver_id: 'drv_1' }], // SELECT reservations
+    ];
+
+    it('tells the reserving driver and tracks the dispatch for the shutdown drain', async () => {
+      await setup();
+      const track = vi.spyOn(eventBus, 'track');
+      setupSqlResults(...disconnectedRows());
+
+      await eventBus.emit(
+        'station.Disconnected',
+        makeDomainEvent('station.Disconnected', 'CS-RSV', { remoteAddress: '10.0.0.1' }),
+      );
+
+      expect(mockDispatchDriver).toHaveBeenCalledWith(
+        expect.anything(),
+        'reservation.StationFaulted',
+        'drv_1',
+        { reservationId: 'rsv_1', stationId: 'CS-RSV' },
+        expect.anything(),
+        mockPubSub,
+      );
+      expect(track).toHaveBeenCalledTimes(1);
+      expect(findSql(/INSERT INTO connection_logs/)?.values).toContain(null);
+    });
+
+    it('records a server shutdown close with its reason and sends no notice', async () => {
+      await setup();
+      setupSqlResults(...disconnectedRows());
+
+      await eventBus.emit(
+        'station.Disconnected',
+        makeDomainEvent('station.Disconnected', 'CS-RSV', {
+          remoteAddress: '10.0.0.1',
+          reason: 'server_shutdown',
+        }),
+      );
+
+      expect(findSql(/SET is_online = false/)).toBeDefined();
+      expect(findSql(/INSERT INTO connection_logs/)?.values).toContainEqual({
+        reason: 'server_shutdown',
+      });
+      expect(findSql(/FROM reservations/)).toBeUndefined();
+      expect(mockDispatchDriver).not.toHaveBeenCalled();
     });
   });
 

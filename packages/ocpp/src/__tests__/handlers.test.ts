@@ -38,6 +38,7 @@ function makeCtx(
       publish: publishMock,
       subscribe: vi.fn(),
       drain: vi.fn(),
+      track: vi.fn(),
     },
     correlator: {} as HandlerContext['correlator'],
     dispatcher: {} as HandlerContext['dispatcher'],

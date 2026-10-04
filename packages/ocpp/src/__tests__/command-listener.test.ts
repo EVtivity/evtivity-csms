@@ -23,6 +23,7 @@ describe('CommandListener', () => {
     publish: Mock<(event: DomainEvent) => Promise<void>>;
     subscribe: Mock;
     drain: Mock<(timeoutMs: number) => Promise<boolean>>;
+    track: Mock;
   };
   let pubsub: PubSubClient;
   let subscribeHandler: ((payload: string) => void) | null;
@@ -52,6 +53,7 @@ describe('CommandListener', () => {
       publish: vi.fn().mockResolvedValue(undefined),
       subscribe: vi.fn(),
       drain: vi.fn().mockResolvedValue(true),
+      track: vi.fn(),
     };
   });
 

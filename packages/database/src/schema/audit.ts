@@ -406,7 +406,7 @@ export const apiKeyAuditLog = pgTable(
   ],
 );
 
-export const settingAuditActionEnum = pgEnum('setting_audit_action', ['updated']);
+export const settingAuditActionEnum = pgEnum('setting_audit_action', ['updated', 'deleted']);
 
 export const settingAuditLog = pgTable(
   'setting_audit_log',

@@ -160,6 +160,31 @@ describe('InMemoryEventBus', () => {
       expect(order).toEqual(['first', 'second', 'drained']);
     });
 
+    it('waits for background work a handler tracks without awaiting', async () => {
+      const bus = new InMemoryEventBus(logger);
+      const order: string[] = [];
+      bus.subscribe('test', () => {
+        void bus.track(
+          new Promise<void>((resolve) => setTimeout(resolve, 20)).then(() => {
+            order.push('background');
+          }),
+        );
+        order.push('handler');
+        return Promise.resolve();
+      });
+
+      await bus.publish(makeEvent({ eventType: 'test' }));
+      await expect(bus.drain(1000)).resolves.toBe(true);
+      order.push('drained');
+
+      expect(order).toEqual(['handler', 'background', 'drained']);
+    });
+
+    it('track returns the tracked promise', async () => {
+      const bus = new InMemoryEventBus(logger);
+      await expect(bus.track(Promise.resolve(7))).resolves.toBe(7);
+    });
+
     it('waits for persistence of an event with no handlers', async () => {
       let releasePersist: () => void = () => undefined;
       const persistence: EventPersistence = {

@@ -210,6 +210,7 @@ function createMockEventBus() {
         await handler(event);
       }
     },
+    track: <T>(work: Promise<T>) => work,
     publish: vi.fn(),
     subscribers,
   } as unknown as EventBus & {

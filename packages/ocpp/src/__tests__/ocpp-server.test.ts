@@ -699,6 +699,29 @@ describe('OcppServer stop drains event handlers', () => {
     expect(order).toEqual(['disconnected:DRAIN-001', 'stopped']);
   });
 
+  it('marks sockets it closes while stopping with the server_shutdown reason', async () => {
+    const port = getNextPort();
+    const srv = await startServer(port);
+    const payloads: Record<string, unknown>[] = [];
+    srv.getEventBus().subscribe('station.Disconnected', (event) => {
+      payloads.push(event.payload);
+      return Promise.resolve();
+    });
+    const own = await connectStation(port, 'REASON-001');
+    own.close();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const ws = await connectStation(port, 'REASON-002');
+    ws.on('error', () => undefined);
+
+    await srv.stop();
+    server = null;
+
+    expect(payloads).toEqual([
+      { stationId: 'REASON-001', remoteAddress: '127.0.0.1' },
+      { stationId: 'REASON-002', remoteAddress: '127.0.0.1', reason: 'server_shutdown' },
+    ]);
+  });
+
   it('drains after the sockets close, with the drain timeout', async () => {
     const port = getNextPort();
     const srv = await startServer(port);
@@ -716,6 +739,89 @@ describe('OcppServer stop drains event handlers', () => {
     expect(drain).toHaveBeenCalledWith(EVENT_DRAIN_TIMEOUT_MS);
     expect(openAtDrain).toBe(0);
   });
+
+  it('closes a connected TLS station and returns (the wss:// close waits for its clients)', async () => {
+    const certDir = mkdtempSync(join(tmpdir(), 'ocpp-tls-stop-'));
+    try {
+      const keyPath = join(certDir, 'key.pem');
+      const certPath = join(certDir, 'cert.pem');
+      execFileSync(
+        'openssl',
+        [
+          'req',
+          '-x509',
+          '-newkey',
+          'rsa:2048',
+          '-nodes',
+          '-keyout',
+          keyPath,
+          '-out',
+          certPath,
+          '-days',
+          '1',
+          '-subj',
+          '/CN=127.0.0.1',
+        ],
+        { stdio: 'ignore' },
+      );
+      const tlsPort = getNextPort();
+      const srv = new OcppServer();
+      server = srv;
+      await srv.start({
+        port: getNextPort(),
+        host: '127.0.0.1',
+        tls: {
+          cert: readFileSync(certPath, 'utf-8'),
+          key: readFileSync(keyPath, 'utf-8'),
+          port: tlsPort,
+        },
+      });
+      const order: string[] = [];
+      srv.getEventBus().subscribe('station.Disconnected', (event) => {
+        order.push(`disconnected:${event.aggregateId}`);
+        return Promise.resolve();
+      });
+      const ws = await new Promise<WebSocket>((resolve, reject) => {
+        const sock = new WebSocket(`wss://127.0.0.1:${String(tlsPort)}/TLS-STOP-001`, ['ocpp2.1'], {
+          rejectUnauthorized: false,
+          headers: {
+            authorization: 'Basic ' + Buffer.from('TLS-STOP-001:password').toString('base64'),
+          },
+        });
+        sock.on('open', () => {
+          resolve(sock);
+        });
+        sock.on('error', reject);
+      });
+      const closeCode = new Promise<number>((resolve) => {
+        ws.on('close', (code) => {
+          resolve(code);
+        });
+      });
+
+      await srv.stop();
+      order.push('stopped');
+      server = null;
+
+      expect(await closeCode).toBe(1001);
+      expect(order).toEqual(['disconnected:TLS-STOP-001', 'stopped']);
+      const refused = await new Promise<boolean>((resolve) => {
+        const late = new WebSocket(`wss://127.0.0.1:${String(tlsPort)}/TLS-STOP-002`, ['ocpp2.1'], {
+          rejectUnauthorized: false,
+        });
+        late.on('open', () => {
+          late.close();
+          resolve(false);
+        });
+        late.on('error', () => {
+          resolve(true);
+        });
+      });
+      expect(refused).toBe(true);
+    } finally {
+      rmSync(certDir, { recursive: true, force: true });
+    }
+  }, 15_000);
 
   it('logs a warning and still returns when handlers outlive the timeout', async () => {
     const port = getNextPort();

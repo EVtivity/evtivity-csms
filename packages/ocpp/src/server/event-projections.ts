@@ -87,6 +87,7 @@ import {
 import { TransactionBuffer } from './transaction-buffer.js';
 import { projectionQueueFor, sessionPricedKey } from './projection-queue.js';
 import { isUnbilledTimeoutEnd } from './session-cost.js';
+import { SERVER_SHUTDOWN_DISCONNECT_REASON } from './graceful-shutdown.js';
 import {
   DEFAULT_LOCATION,
   DEFAULT_MEASURAND,
@@ -453,13 +454,15 @@ export function registerProjections(
     };
 
     if (idleRow.driver_id != null) {
-      void dispatchDriverNotification(
-        sql,
-        'session.IdlingStarted',
-        idleRow.driver_id as string,
-        templateVars,
-        ALL_TEMPLATES_DIRS,
-        pubsub,
+      void eventBus.track(
+        dispatchDriverNotification(
+          sql,
+          'session.IdlingStarted',
+          idleRow.driver_id as string,
+          templateVars,
+          ALL_TEMPLATES_DIRS,
+          pubsub,
+        ),
       );
     } else {
       // Guest session: check for guest email
@@ -470,12 +473,14 @@ export function registerProjections(
       `;
       const guestRow = guestRows[0];
       if (guestRow != null) {
-        void dispatchSystemNotification(
-          sql,
-          'session.IdlingStarted',
-          { email: guestRow.guest_email as string },
-          templateVars,
-          ALL_TEMPLATES_DIRS,
+        void eventBus.track(
+          dispatchSystemNotification(
+            sql,
+            'session.IdlingStarted',
+            { email: guestRow.guest_email as string },
+            templateVars,
+            ALL_TEMPLATES_DIRS,
+          ),
         );
       }
     }
@@ -863,10 +868,17 @@ export function registerProjections(
       WHERE id = ${stationUuid}
     `;
 
-    const remoteAddress = (event.payload as { remoteAddress?: string }).remoteAddress ?? null;
+    const { remoteAddress = null, reason = null } = event.payload as {
+      remoteAddress?: string;
+      reason?: string;
+    };
+    // A socket this instance closed while stopping (rolling deploy): the station
+    // is offline until it reconnects to another instance, but it did not fail.
+    const serverShutdown = reason === SERVER_SHUTDOWN_DISCONNECT_REASON;
     const connLog = await sql`
-      INSERT INTO connection_logs (station_id, event, remote_address)
-      SELECT ${stationUuid}, 'disconnected', ${remoteAddress}
+      INSERT INTO connection_logs (station_id, event, remote_address, metadata)
+      SELECT ${stationUuid}, 'disconnected', ${remoteAddress},
+        ${serverShutdown ? sql.json({ reason }) : null}
       WHERE EXISTS (SELECT 1 FROM charging_stations WHERE id = ${stationUuid})
     `;
     if (connLog.count === 0) {
@@ -895,7 +907,10 @@ export function registerProjections(
       await notifyOcpiPush('location', { siteId });
     }
 
-    // Notify drivers with active or in_use reservations on the disconnected station
+    // Notify drivers with active or in_use reservations on the disconnected
+    // station. Not on a server shutdown: the station did not fault and
+    // reconnects within seconds, so every deploy would email those drivers.
+    if (serverShutdown) return;
     const stationOcppId = event.aggregateId;
     try {
       const affectedReservations = await sql`
@@ -905,22 +920,24 @@ export function registerProjections(
       `;
       for (const reservation of affectedReservations) {
         if (reservation.driver_id == null) continue;
-        void dispatchDriverNotification(
-          sql,
-          'reservation.StationFaulted',
-          reservation.driver_id as string,
-          {
-            reservationId: reservation.id as string,
-            stationId: stationOcppId,
-          },
-          ALL_TEMPLATES_DIRS,
-          pubsub,
-        ).catch((err: unknown) => {
-          logger.error(
-            { err, reservationId: reservation.id },
-            'reservation.StationFaulted notification failed',
-          );
-        });
+        void eventBus.track(
+          dispatchDriverNotification(
+            sql,
+            'reservation.StationFaulted',
+            reservation.driver_id as string,
+            {
+              reservationId: reservation.id as string,
+              stationId: stationOcppId,
+            },
+            ALL_TEMPLATES_DIRS,
+            pubsub,
+          ).catch((err: unknown) => {
+            logger.error(
+              { err, reservationId: reservation.id },
+              'reservation.StationFaulted notification failed',
+            );
+          }),
+        );
       }
     } catch (err) {
       logger.error({ err }, 'failed to query reservations for station fault notification');
@@ -2096,30 +2113,32 @@ export function registerProjections(
           const startedAtDate = new Date(updatedSession.started_at as string);
           const durationMinutes = Math.round((Date.now() - startedAtDate.getTime()) / 60000);
           const updatedSiteName = await resolveSiteName(stationUuid);
-          void dispatchDriverNotification(
-            sql,
-            'session.Updated',
-            updatedSession.driver_id as string,
-            {
-              siteName: updatedSiteName ?? '',
-              stationId,
-              transactionId,
-              energyDeliveredWh: updatedSession.energy_delivered_wh as number,
-              currentCostCents: updatedSession.current_cost_cents as number,
-              costFormatted: notificationMoney(
-                (updatedSession.current_cost_cents as number | null) ?? 0,
-                updatedSession.currency as string,
-              ),
-              // Templates label the cost "incl. tax" only when it contains tax.
-              costIncludesTax: costIncludesTax(
-                updatedSession.current_cost_cents as number | null,
-                updatedSession.tariff_tax_rate as string | null,
-              ),
-              currency: updatedSession.currency as string,
-              durationMinutes,
-            },
-            ALL_TEMPLATES_DIRS,
-            pubsub,
+          void eventBus.track(
+            dispatchDriverNotification(
+              sql,
+              'session.Updated',
+              updatedSession.driver_id as string,
+              {
+                siteName: updatedSiteName ?? '',
+                stationId,
+                transactionId,
+                energyDeliveredWh: updatedSession.energy_delivered_wh as number,
+                currentCostCents: updatedSession.current_cost_cents as number,
+                costFormatted: notificationMoney(
+                  (updatedSession.current_cost_cents as number | null) ?? 0,
+                  updatedSession.currency as string,
+                ),
+                // Templates label the cost "incl. tax" only when it contains tax.
+                costIncludesTax: costIncludesTax(
+                  updatedSession.current_cost_cents as number | null,
+                  updatedSession.tariff_tax_rate as string | null,
+                ),
+                currency: updatedSession.currency as string,
+                durationMinutes,
+              },
+              ALL_TEMPLATES_DIRS,
+              pubsub,
+            ),
           );
         }
 
@@ -2444,59 +2463,63 @@ export function registerProjections(
             (endedAtDate.getTime() - startedAtDate.getTime()) / 60000,
           );
           const endedSiteName = await resolveSiteName(stationUuid);
-          void dispatchDriverNotification(
-            sql,
-            'session.Completed',
-            endedSession.driver_id as string,
-            {
-              siteName: endedSiteName ?? '',
-              stationId,
-              transactionId,
-              energyDeliveredWh: endedSession.energy_delivered_wh as number,
-              finalCostCents: endedSession.final_cost_cents as number,
-              costFormatted: notificationMoney(
-                (endedSession.final_cost_cents as number | null) ?? 0,
-                endedSession.currency as string,
-              ),
-              costIncludesTax: costIncludesTax(
-                endedSession.final_cost_cents as number | null,
-                endedSession.tariff_tax_rate as string | null,
-              ),
-              currency: endedSession.currency as string,
-              durationMinutes,
-              startedAt: endedSession.started_at as string,
-              endedAt: endedSession.ended_at as string,
-            },
-            ALL_TEMPLATES_DIRS,
-            pubsub,
+          void eventBus.track(
+            dispatchDriverNotification(
+              sql,
+              'session.Completed',
+              endedSession.driver_id as string,
+              {
+                siteName: endedSiteName ?? '',
+                stationId,
+                transactionId,
+                energyDeliveredWh: endedSession.energy_delivered_wh as number,
+                finalCostCents: endedSession.final_cost_cents as number,
+                costFormatted: notificationMoney(
+                  (endedSession.final_cost_cents as number | null) ?? 0,
+                  endedSession.currency as string,
+                ),
+                costIncludesTax: costIncludesTax(
+                  endedSession.final_cost_cents as number | null,
+                  endedSession.tariff_tax_rate as string | null,
+                ),
+                currency: endedSession.currency as string,
+                durationMinutes,
+                startedAt: endedSession.started_at as string,
+                endedAt: endedSession.ended_at as string,
+              },
+              ALL_TEMPLATES_DIRS,
+              pubsub,
+            ),
           );
 
           // Session receipt notification
-          void dispatchDriverNotification(
-            sql,
-            'session.Receipt',
-            endedSession.driver_id as string,
-            {
-              siteName: endedSiteName ?? '',
-              stationId,
-              transactionId,
-              energyDeliveredWh: endedSession.energy_delivered_wh as number,
-              finalCostCents: endedSession.final_cost_cents as number,
-              costFormatted: notificationMoney(
-                (endedSession.final_cost_cents as number | null) ?? 0,
-                endedSession.currency as string,
-              ),
-              costIncludesTax: costIncludesTax(
-                endedSession.final_cost_cents as number | null,
-                endedSession.tariff_tax_rate as string | null,
-              ),
-              currency: endedSession.currency as string,
-              durationMinutes,
-              startedAt: endedSession.started_at as string,
-              endedAt: endedSession.ended_at as string,
-            },
-            ALL_TEMPLATES_DIRS,
-            pubsub,
+          void eventBus.track(
+            dispatchDriverNotification(
+              sql,
+              'session.Receipt',
+              endedSession.driver_id as string,
+              {
+                siteName: endedSiteName ?? '',
+                stationId,
+                transactionId,
+                energyDeliveredWh: endedSession.energy_delivered_wh as number,
+                finalCostCents: endedSession.final_cost_cents as number,
+                costFormatted: notificationMoney(
+                  (endedSession.final_cost_cents as number | null) ?? 0,
+                  endedSession.currency as string,
+                ),
+                costIncludesTax: costIncludesTax(
+                  endedSession.final_cost_cents as number | null,
+                  endedSession.tariff_tax_rate as string | null,
+                ),
+                currency: endedSession.currency as string,
+                durationMinutes,
+                startedAt: endedSession.started_at as string,
+                endedAt: endedSession.ended_at as string,
+              },
+              ALL_TEMPLATES_DIRS,
+              pubsub,
+            ),
           );
         }
 
@@ -3275,36 +3298,40 @@ export function registerProjections(
     if (session.driver_id != null) {
       const settleSiteName =
         session.station_id != null ? await resolveSiteName(session.station_id as string) : null;
-      void dispatchDriverNotification(
-        sql,
-        'session.PaymentReceived',
-        session.driver_id as string,
-        {
-          siteName: settleSiteName ?? '',
-          stationId: event.aggregateId,
-          transactionId,
-          amountCents: capturedAmountCents,
-          amountFormatted: notificationMoney(capturedAmountCents, session.currency as string),
-          currency: session.currency as string,
-        },
-        ALL_TEMPLATES_DIRS,
-        pubsub,
+      void eventBus.track(
+        dispatchDriverNotification(
+          sql,
+          'session.PaymentReceived',
+          session.driver_id as string,
+          {
+            siteName: settleSiteName ?? '',
+            stationId: event.aggregateId,
+            transactionId,
+            amountCents: capturedAmountCents,
+            amountFormatted: notificationMoney(capturedAmountCents, session.currency as string),
+            currency: session.currency as string,
+          },
+          ALL_TEMPLATES_DIRS,
+          pubsub,
+        ),
       );
 
       // Driver notification: payment complete
-      void dispatchDriverNotification(
-        sql,
-        'payment.Complete',
-        session.driver_id as string,
-        {
-          stationId: event.aggregateId,
-          transactionId,
-          amountCents: capturedAmountCents,
-          amountFormatted: notificationMoney(capturedAmountCents, session.currency as string),
-          currency: session.currency as string,
-        },
-        ALL_TEMPLATES_DIRS,
-        pubsub,
+      void eventBus.track(
+        dispatchDriverNotification(
+          sql,
+          'payment.Complete',
+          session.driver_id as string,
+          {
+            stationId: event.aggregateId,
+            transactionId,
+            amountCents: capturedAmountCents,
+            amountFormatted: notificationMoney(capturedAmountCents, session.currency as string),
+            currency: session.currency as string,
+          },
+          ALL_TEMPLATES_DIRS,
+          pubsub,
+        ),
       );
     }
   });
@@ -3535,17 +3562,19 @@ export function registerProjections(
 
     async function notifyPreAuthFailed(driver: string, reason: string): Promise<void> {
       try {
-        void dispatchDriverNotification(
-          sql,
-          'payment.PreAuthFailed',
-          driver,
-          {
-            stationId: ocppStationId,
-            transactionId,
-            reason: reason.slice(0, 200),
-          },
-          ALL_TEMPLATES_DIRS,
-          pubsub,
+        void eventBus.track(
+          dispatchDriverNotification(
+            sql,
+            'payment.PreAuthFailed',
+            driver,
+            {
+              stationId: ocppStationId,
+              transactionId,
+              reason: reason.slice(0, 200),
+            },
+            ALL_TEMPLATES_DIRS,
+            pubsub,
+          ),
         );
       } catch (err) {
         logger.debug(
@@ -3570,16 +3599,18 @@ export function registerProjections(
 
     async function notifyMissingPaymentMethod(driver: string): Promise<void> {
       try {
-        void dispatchDriverNotification(
-          sql,
-          'payment.MissingPaymentMethod',
-          driver,
-          {
-            stationId: ocppStationId,
-            transactionId,
-          },
-          ALL_TEMPLATES_DIRS,
-          pubsub,
+        void eventBus.track(
+          dispatchDriverNotification(
+            sql,
+            'payment.MissingPaymentMethod',
+            driver,
+            {
+              stationId: ocppStationId,
+              transactionId,
+            },
+            ALL_TEMPLATES_DIRS,
+            pubsub,
+          ),
         );
       } catch (notifyErr) {
         logger.error({ err: notifyErr }, 'Failed to notify driver of missing payment method');
@@ -3672,16 +3703,18 @@ export function registerProjections(
       await stopSession('GuestPaymentNotAuthorized');
       if (guestEmail != null) {
         try {
-          void dispatchSystemNotification(
-            sql,
-            'payment.PreAuthFailed',
-            { email: guestEmail },
-            {
-              stationId: ocppStationId,
-              transactionId,
-              reason: 'Payment authorization not found',
-            },
-            ALL_TEMPLATES_DIRS,
+          void eventBus.track(
+            dispatchSystemNotification(
+              sql,
+              'payment.PreAuthFailed',
+              { email: guestEmail },
+              {
+                stationId: ocppStationId,
+                transactionId,
+                reason: 'Payment authorization not found',
+              },
+              ALL_TEMPLATES_DIRS,
+            ),
           );
         } catch (notifyErr) {
           logger.error({ err: notifyErr }, 'Failed to notify guest of session stop');
@@ -3753,18 +3786,20 @@ export function registerProjections(
 
       if (outcome.status === 'failed') {
         try {
-          void dispatchDriverNotification(
-            sql,
-            'payment.CaptureFailed',
-            outcome.driverId,
-            {
-              stationId: event.aggregateId,
-              transactionId,
-              amountFormatted: notificationMoney(finalCostCents ?? 0, sessionCurrency),
-              reason: outcome.reason.slice(0, 200),
-            },
-            ALL_TEMPLATES_DIRS,
-            pubsub,
+          void eventBus.track(
+            dispatchDriverNotification(
+              sql,
+              'payment.CaptureFailed',
+              outcome.driverId,
+              {
+                stationId: event.aggregateId,
+                transactionId,
+                amountFormatted: notificationMoney(finalCostCents ?? 0, sessionCurrency),
+                reason: outcome.reason.slice(0, 200),
+              },
+              ALL_TEMPLATES_DIRS,
+              pubsub,
+            ),
           );
         } catch (err) {
           logger.debug(
@@ -3780,20 +3815,22 @@ export function registerProjections(
       if (outcome.status === 'captured' && outcome.recorded) {
         const stationUuid = session.station_uuid as string | null;
         const captureSiteName = stationUuid != null ? await resolveSiteName(stationUuid) : null;
-        void dispatchDriverNotification(
-          sql,
-          'session.PaymentReceived',
-          outcome.driverId,
-          {
-            siteName: captureSiteName ?? '',
-            stationId: session.station_ocpp_id as string,
-            transactionId,
-            amountCents: outcome.capturedCents,
-            amountFormatted: notificationMoney(outcome.capturedCents, sessionCurrency),
-            currency: sessionCurrency,
-          },
-          ALL_TEMPLATES_DIRS,
-          pubsub,
+        void eventBus.track(
+          dispatchDriverNotification(
+            sql,
+            'session.PaymentReceived',
+            outcome.driverId,
+            {
+              siteName: captureSiteName ?? '',
+              stationId: session.station_ocpp_id as string,
+              transactionId,
+              amountCents: outcome.capturedCents,
+              amountFormatted: notificationMoney(outcome.capturedCents, sessionCurrency),
+              currency: sessionCurrency,
+            },
+            ALL_TEMPLATES_DIRS,
+            pubsub,
+          ),
         );
       }
     }

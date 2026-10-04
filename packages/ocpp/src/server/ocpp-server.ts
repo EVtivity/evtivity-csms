@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { createServer as createHttpsServer } from 'node:https';
+import type { Server as HttpsServer } from 'node:https';
 import { WebSocketServer } from 'ws';
 import type WebSocket from 'ws';
 import type { IncomingMessage, OutgoingHttpHeaders } from 'node:http';
@@ -14,7 +15,7 @@ import { createSessionState } from './session-state.js';
 import type { SessionState } from './session-state.js';
 import { MessageCorrelator } from './message-correlator.js';
 import { MessageRouter } from './message-router.js';
-import { GracefulShutdown } from './graceful-shutdown.js';
+import { GracefulShutdown, SERVER_SHUTDOWN_DISCONNECT_REASON } from './graceful-shutdown.js';
 import { PingMonitor } from './ping-monitor.js';
 import { isTlsConnection, parseTrustedProxies, resolveClientIp } from './client-ip.js';
 import { MiddlewarePipeline } from './middleware/pipeline.js';
@@ -137,6 +138,7 @@ export class OcppServer {
   private idleTimeoutRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private wss: WebSocketServer | null = null;
   private wssSecure: WebSocketServer | null = null;
+  private httpsServer: HttpsServer | null = null;
   // Auth results from verifyClient, handed to handleConnection for the same
   // upgrade request.
   private readonly verifiedRequests = new WeakMap<IncomingMessage, AuthResult>();
@@ -229,6 +231,7 @@ export class OcppServer {
         // SP3 client cert validation is handled by the auth middleware.
         rejectUnauthorized: false,
       });
+      this.httpsServer = httpsServer;
 
       this.wssSecure = new WebSocketServer({
         server: httpsServer,
@@ -481,11 +484,18 @@ export class OcppServer {
       this.correlator.clearPending(session);
       // A connection replaced by a newer one is not a disconnect.
       if (!this.connectionManager.remove(stationId, ws)) return;
+      // A socket closed by stop() is not a station failure: the projection
+      // still records the disconnect but sends no fault notices.
+      const serverShutdown = this.shutdown?.isShuttingDown() === true;
       void this.eventBus.publish({
         eventType: 'station.Disconnected',
         aggregateType: 'ChargingStation',
         aggregateId: stationId,
-        payload: { stationId, remoteAddress: remoteIp },
+        payload: {
+          stationId,
+          remoteAddress: remoteIp,
+          ...(serverShutdown ? { reason: SERVER_SHUTDOWN_DISCONNECT_REASON } : {}),
+        },
       });
 
       this.pingMonitor.writeNow();
@@ -762,17 +772,41 @@ export class OcppServer {
       this.idleTimeoutRefreshTimer = null;
     }
     await this.pingMonitor.stop();
-    if (this.wssSecure != null) {
-      const secure = this.wssSecure;
-      await new Promise<void>((resolve) => {
-        secure.close(() => {
-          resolve();
-        });
-      });
-    }
+    // Stop accepting TLS connections now, but await the close only after the
+    // station sockets are closed: ws emits 'close' for a server built on an
+    // external HTTPS server only once its last client is gone, so awaiting it
+    // first waited for as long as any TLS station stayed connected.
+    const secure = this.wssSecure;
+    const https = this.httpsServer;
+    const secureClosed =
+      secure == null
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => {
+            secure.close(() => {
+              resolve();
+            });
+          });
+    const httpsClosed =
+      https == null
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => {
+            https.close(() => {
+              resolve();
+            });
+          });
     if (this.shutdown != null) {
       await this.shutdown.shutdown();
     }
+    // GracefulShutdown closed (or terminated) every station socket. A TLS
+    // socket never registered as a station, and plain HTTPS connections, would
+    // still hold the servers open.
+    if (secure != null) {
+      for (const client of secure.clients) {
+        client.terminate();
+      }
+    }
+    https?.closeAllConnections();
+    await Promise.all([secureClosed, httpsClosed]);
     // Closing the sockets published station.Disconnected for each station.
     // Wait for those projections (and anything still queued) before the
     // caller ends the database client they write through.

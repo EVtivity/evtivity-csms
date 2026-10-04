@@ -32,4 +32,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -
 
 EXPOSE 7103 8081 8443 9229
 
-CMD ["sh", "-c", "node --max-old-space-size=3584 ${NODE_INSPECT:-} --import tsx packages/ocpp/src/start.ts"]
+# exec: node replaces the shell as PID 1, so docker stop delivers SIGTERM to it and the
+# graceful shutdown (socket close + event drain) runs instead of a SIGKILL after the grace period.
+CMD ["sh", "-c", "exec node --max-old-space-size=3584 ${NODE_INSPECT:-} --import tsx packages/ocpp/src/start.ts"]

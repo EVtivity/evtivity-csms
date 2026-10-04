@@ -55,6 +55,7 @@ function makeCtx(payload: Record<string, unknown>): HandlerContext {
       publish: vi.fn().mockResolvedValue(undefined),
       subscribe: vi.fn(),
       drain: vi.fn(),
+      track: vi.fn(),
     },
     correlator: {} as HandlerContext['correlator'],
     dispatcher: {} as HandlerContext['dispatcher'],

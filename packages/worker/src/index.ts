@@ -5,6 +5,7 @@ import { Worker } from 'bullmq';
 import {
   createLogger,
   createBullMQConnection,
+  logBullMQErrors,
   RedisPubSubClient,
   initSentry,
   clearNotificationSettingsCache,
@@ -58,6 +59,21 @@ async function start(): Promise<void> {
     paymentWebhookQueue,
     remoteStartTimeoutQueue,
   } = createQueues(REDIS_URL);
+  // BullMQ re-emits Redis errors on every Queue and Worker; unheard, it
+  // prints each one as a raw stack trace.
+  for (const [name, queue] of Object.entries({
+    cronQueue,
+    loadQueue,
+    guestSessionQueue,
+    reservationQueue,
+    octtQueue,
+    maintenanceFanoutQueue,
+    stationWatchQueue,
+    paymentWebhookQueue,
+    remoteStartTimeoutQueue,
+  })) {
+    logBullMQErrors(queue, name);
+  }
   setSimulatedEventSink(queueSimulatedSink(paymentWebhookQueue));
 
   // Schedule cron jobs from database
@@ -100,6 +116,20 @@ async function start(): Promise<void> {
       concurrency: 1,
     },
   );
+
+  for (const [name, worker] of Object.entries({
+    cronWorker,
+    loadWorker,
+    guestWorker,
+    reservationWorker,
+    maintenanceFanoutWorker,
+    stationWatchWorker,
+    paymentWebhookWorker,
+    remoteStartTimeoutWorker,
+    octtWorker,
+  })) {
+    logBullMQErrors(worker, name);
+  }
 
   // Start bridges (pub/sub -> BullMQ)
   const stopGuestBridge = await startGuestSessionBridge(pubsub, guestSessionQueue);

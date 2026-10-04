@@ -38,7 +38,7 @@ function makeCtx(
       error: vi.fn(),
       debug: vi.fn(),
     } as unknown as HandlerContext['logger'],
-    eventBus: { publish: vi.fn(), subscribe: vi.fn(), drain: vi.fn() },
+    eventBus: { publish: vi.fn(), subscribe: vi.fn(), drain: vi.fn(), track: vi.fn() },
     correlator: {} as HandlerContext['correlator'],
     dispatcher: {} as HandlerContext['dispatcher'],
   };

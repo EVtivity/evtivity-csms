@@ -8,6 +8,11 @@ import type { MessageCorrelator } from './message-correlator.js';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
+// station.Disconnected payload `reason` for a socket the server closed itself
+// while stopping (rolling deploy, scale-in). The station did not fail and
+// normally reconnects to another instance within seconds.
+export const SERVER_SHUTDOWN_DISCONNECT_REASON = 'server_shutdown';
+
 export class GracefulShutdown {
   private readonly wss: WebSocketServer;
   private readonly connectionManager: ConnectionManager;

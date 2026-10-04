@@ -257,8 +257,10 @@ function StatCard({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="text-lg sm:text-2xl font-bold whitespace-nowrap flex items-center gap-2">
-          {animated}
+        {/* The value never breaks; the trend arrow wraps below it when the card is too
+            narrow (six cards per row at lg, e.g. "366.8 MWh"), instead of overflowing. */}
+        <div className="text-lg sm:text-2xl font-bold flex flex-wrap items-center gap-x-2">
+          <span className="whitespace-nowrap">{animated}</span>
           {delta != null && tooltipText != null && (
             <InfoTooltip
               content={<div className="whitespace-nowrap">{tooltipText}</div>}

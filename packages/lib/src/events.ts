@@ -29,6 +29,11 @@ export interface EventBus {
    * clients the handlers use.
    */
   drain(timeoutMs: number): Promise<boolean>;
+  /**
+   * Registers background work a handler starts without awaiting (a
+   * notification dispatch), so `drain()` waits for it too. Returns `work`.
+   */
+  track<T>(work: Promise<T>): Promise<T>;
 }
 
 export interface EventBusOptions {
@@ -78,6 +83,10 @@ export class InMemoryEventBus implements EventBus {
 
   drain(timeoutMs: number): Promise<boolean> {
     return this.inFlight.drain(timeoutMs);
+  }
+
+  track<T>(work: Promise<T>): Promise<T> {
+    return this.inFlight.track(work);
   }
 
   private async process(event: DomainEvent, persisted: () => void): Promise<void> {
