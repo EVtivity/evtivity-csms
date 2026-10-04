@@ -1,6 +1,6 @@
 {
   "name": "@evtivity/portal",
-  "version": "0.1.38-nightly.1",
+  "version": "0.1.38-nightly.2",
   "private": true,
   "type": "module",
   "scripts": {
