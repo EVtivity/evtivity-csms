@@ -3,6 +3,8 @@
 
 import { createServer } from 'node:http';
 import type { OcppTestServer } from './cs-server.js';
+import type { StepResult } from './types.js';
+import { PICS_V2_1 } from './pics/v2_1.js';
 
 /**
  * Wait for a TransactionEvent with the specified chargingState.
@@ -261,4 +263,39 @@ export async function waitForTransactionEventAfterQueue(
     const msg = await server.waitForMessage('TransactionEvent', Math.max(1, deadline - Date.now()));
     if (msg['offline'] !== true) return msg;
   }
+}
+
+/**
+ * True when the simulator starts a transaction at the authorization (PICS
+ * C-09.2, TxStartPoint contains Authorized). The cable plugin timeout test
+ * cases (TC_E_05_CS, TC_E_39_CS, TC_F_04_CS) expect a TransactionEvent with
+ * EVConnectTimeout only then; otherwise no transaction exists when the
+ * EVConnectionTimeOut expires and only the authorization ends (C01.FR.26).
+ */
+export function transactionStartsAtAuthorization(): boolean {
+  return PICS_V2_1.items['C-09.2']?.supported === true;
+}
+
+/**
+ * The cable plugin timeout step for a station whose transaction starts with
+ * the cable: no TransactionEvent may arrive within `waitMs` (the configured
+ * EVConnectionTimeOut plus a margin).
+ */
+export async function noTransactionAtTimeoutStep(
+  server: OcppTestServer,
+  step: number,
+  waitMs: number,
+): Promise<StepResult> {
+  const events = await collectMessages(server, 'TransactionEvent', waitMs, waitMs);
+  return {
+    step,
+    description:
+      'No TransactionEventRequest: the transaction starts with the cable (TxStartPoint has neither Authorized nor ParkingBayOccupancy), so only the authorization ends',
+    status: events.length === 0 ? 'passed' : 'failed',
+    expected: 'No TransactionEventRequest',
+    actual:
+      events.length === 0
+        ? 'No TransactionEventRequest'
+        : `TransactionEventRequest ${events.map((e) => `${String(e['eventType'])}/${String(e['triggerReason'])}`).join(', ')}`,
+  };
 }

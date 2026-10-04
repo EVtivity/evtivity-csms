@@ -39,6 +39,7 @@
     "octt:cs:1.6": "node --env-file-if-exists=.env --import tsx packages/octt/src/cs-cli.ts --version ocpp1.6",
     "test": "vitest run --config vitest.workspace.ts",
     "test:integration": "vitest run --config vitest.integration.ts",
+    "test:release": "bash scripts/release-version.test.sh",
     "lint": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js .",
     "typecheck": "tsc -b",
     "build:prod": "node scripts/build.mjs all",

@@ -30,6 +30,7 @@ import {
   retryShortfallForRecord,
   settleSessionPayment,
 } from '../session-payments.js';
+import { refundKey } from '../idempotency-keys.js';
 import { refundPaymentRecord } from '../refunds.js';
 import type { PaymentContext } from '../context.js';
 import type { PaymentProviderRegistry } from '../registry.js';
@@ -64,6 +65,7 @@ describe.skipIf(!enabled)('Stripe Connect against Stripe test mode', () => {
       client,
       publishableKey: 'pk_test_unused',
       webhookSecret: null,
+      connectWebhookSecret: null,
     });
     ({ customerId } = await provider.createCustomer({
       email: 'connect-contract-test@example.com',
@@ -71,7 +73,7 @@ describe.skipIf(!enabled)('Stripe Connect against Stripe test mode', () => {
       idempotencyKey: key('customer'),
     }));
     const method = await client.paymentMethods.attach('pm_card_visa', { customer: customerId });
-    sessionDb.method = { id: 1, customerId, methodId: method.id };
+    sessionDb.method = { id: 1, provider: 'stripe', customerId, methodId: method.id };
     ctx = {
       registry: {
         getPaymentProvider: () => Promise.resolve(provider),
@@ -85,6 +87,8 @@ describe.skipIf(!enabled)('Stripe Connect against Stripe test mode', () => {
     sessionDb.sitePaymentConfig = {
       configId: 7,
       payoutAccountId: connectedAccount,
+      // The connected account of the test platform is onboarded (see the file header).
+      payoutAccountStatus: 'active',
       preAuthAmountCents: HOLD_CENTS,
     };
     sessionDb.platformFeePercent = FEE_PERCENT;
@@ -164,7 +168,6 @@ describe.skipIf(!enabled)('Stripe Connect against Stripe test mode', () => {
     const intentId = await hold('refund', 1500);
     await settleSessionPayment(sessionDb.current?.sessionId ?? '', ctx);
     const sessionId = sessionDb.current?.sessionId ?? '';
-    const record = memoryRecords.bySession(sessionId);
     const expectedFee = platformFeeCents(1500, TAX, FEE_PERCENT);
 
     const partial = await refundPaymentRecord({ sessionId, amountCents: 500 }, ctx);
@@ -193,7 +196,11 @@ describe.skipIf(!enabled)('Stripe Connect against Stripe test mode', () => {
       amountCents: 500,
       currency: 'USD',
       merchantReference: `sess_${sessionId}`,
-      idempotencyKey: `refund_${intentId}_${String(record?.id)}_0_500`,
+      idempotencyKey: refundKey(intentId, {
+        refundedSoFarCents: 0,
+        amountCents: 500,
+        ledgerEntries: 0,
+      }),
     });
     expect(replay).toMatchObject({ refundId: partialRefund?.id });
     expect((await client.refunds.list({ payment_intent: intentId })).data).toHaveLength(1);

@@ -15,8 +15,10 @@ import {
   sessionIdleMinutesAt,
 } from '@evtivity/database';
 import type { SessionCostBreakdown } from '@evtivity/lib';
+import { cancelOpenSessionHold } from '@evtivity/payments';
 import type { Logger } from 'pino';
 import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
+import { paymentContext } from '../lib/payments.js';
 
 export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
   const timeoutHours = await getStaleSessionTimeoutHours();
@@ -78,7 +80,7 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
 
       // Mark session as faulted. Without a new price the last running cost
       // (stored with its split) becomes the final cost.
-      await db
+      const faulted = await db
         .update(chargingSessions)
         .set({
           status: 'faulted',
@@ -96,7 +98,24 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
           updatedAt: new Date(),
         })
         // A session that ended meanwhile keeps its own end and cost (P5).
-        .where(and(eq(chargingSessions.id, session.id), eq(chargingSessions.status, 'active')));
+        .where(and(eq(chargingSessions.id, session.id), eq(chargingSessions.status, 'active')))
+        .returning({ id: chargingSessions.id });
+
+      // A faulted session is not billed: its open hold (a portal start whose
+      // 1.6 ConnectionTimeOut expired, a session the station lost) is
+      // cancelled now instead of staying held until the provider expires it
+      // (P4). Only when this run faulted it. Fail-open (P9): the record stays
+      // pre_authorized and the hold expires at the provider.
+      if (faulted.length > 0) {
+        try {
+          await cancelOpenSessionHold(session.id, 'Stale session faulted', paymentContext(log));
+        } catch (holdErr: unknown) {
+          log.warn(
+            { sessionId: session.id, err: holdErr },
+            'Failed to cancel the hold of a stale session',
+          );
+        }
+      }
 
       // Audit the reservation linkage so the reservation timeline shows why
       // this session terminated. Mirrors the projection-side fault paths.

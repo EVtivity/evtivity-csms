@@ -5,8 +5,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
 
 // `db.select(...).from().innerJoin().where()` resolves to the stale session
-// list. `db.update().set().where()` resolves to undefined and captures the
-// SET arg. The cost assembly (closeOpenSegment, priceSessionAt) is mocked; it
+// list. `db.update().set().where().returning()` resolves to the faulted rows
+// and captures the SET arg. The cost assembly (closeOpenSegment, priceSessionAt) is mocked; it
 // is tested in @evtivity/database.
 
 let staleSessionRows: unknown[] = [];
@@ -24,7 +24,9 @@ const mockSelect = vi.fn(() => ({
 }));
 
 const updateSetArgs: unknown[] = [];
-const updateWhere = vi.fn(() => Promise.resolve());
+let faultedRows: unknown[] = [{ id: 'ses_1' }];
+const updateReturning = vi.fn(() => Promise.resolve(faultedRows));
+const updateWhere = vi.fn(() => ({ returning: updateReturning }));
 const mockUpdate = vi.fn(() => ({
   set: vi.fn((arg: unknown) => {
     updateSetArgs.push(arg);
@@ -39,6 +41,7 @@ const {
   mockPriceSessionAt,
   mockPublish,
   mockClient,
+  mockCancelOpenSessionHold,
 } = vi.hoisted(() => ({
   mockGetStaleSessionTimeoutHours: vi.fn(),
   mockWriteReservationAudit: vi.fn().mockResolvedValue(undefined),
@@ -46,6 +49,15 @@ const {
   mockPriceSessionAt: vi.fn(),
   mockPublish: vi.fn().mockResolvedValue(undefined),
   mockClient: { __client: true },
+  mockCancelOpenSessionHold: vi.fn(),
+}));
+
+vi.mock('@evtivity/payments', () => ({
+  cancelOpenSessionHold: mockCancelOpenSessionHold,
+}));
+
+vi.mock('../../lib/payments.js', () => ({
+  paymentContext: (logger: unknown) => ({ registry: 'registry', logger }),
 }));
 
 vi.mock('@evtivity/database', async () => ({
@@ -129,6 +141,50 @@ describe('staleSessionCleanupHandler', () => {
     mockWriteReservationAudit.mockResolvedValue(undefined);
     mockPriceSessionAt.mockResolvedValue(null);
     mockPublish.mockResolvedValue(undefined);
+    faultedRows = [{ id: 'ses_1' }];
+    mockCancelOpenSessionHold.mockResolvedValue({ status: 'none' });
+  });
+
+  it('cancels the open hold of a session it faulted, without a capture', async () => {
+    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    setStaleSessions([baseSession({ currentCostCents: 750 })]);
+    mockCancelOpenSessionHold.mockResolvedValueOnce({ status: 'cancelled', paymentRecordId: 9 });
+    const log = makeLog();
+
+    await staleSessionCleanupHandler(log);
+
+    expect(mockCancelOpenSessionHold).toHaveBeenCalledWith(
+      'ses_1',
+      'Stale session faulted',
+      expect.objectContaining({ registry: 'registry' }),
+    );
+    expect(updateSetArgs[0]).toMatchObject({ status: 'faulted', stoppedReason: 'StaleSession' });
+  });
+
+  it('leaves the hold of a session that ended meanwhile to its settlement (P5)', async () => {
+    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    setStaleSessions([baseSession()]);
+    faultedRows = [];
+
+    await staleSessionCleanupHandler(makeLog());
+
+    expect(mockCancelOpenSessionHold).not.toHaveBeenCalled();
+  });
+
+  it('logs a warning and continues when the hold cancel fails (fail-open)', async () => {
+    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    setStaleSessions([baseSession(), baseSession({ id: 'ses_2', transactionId: 'tx-002' })]);
+    mockCancelOpenSessionHold.mockRejectedValueOnce(new Error('provider down'));
+    const log = makeLog();
+
+    await staleSessionCleanupHandler(log);
+
+    expect(mockCancelOpenSessionHold).toHaveBeenCalledTimes(2);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'ses_1' }),
+      'Failed to cancel the hold of a stale session',
+    );
+    expect(log.error).not.toHaveBeenCalled();
   });
 
   it('returns early without querying when timeout is disabled (<= 0)', async () => {

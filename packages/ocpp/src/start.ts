@@ -13,6 +13,7 @@ import { RedisPubSubClient, RedisConnectionRegistry, initSentry } from '@evtivit
 import { registerProjections } from './server/event-projections.js';
 import { subscribeOcppEventSettingsInvalidation } from './server/notification-dispatcher.js';
 import { setAuthorizeLogPubSub } from './handlers/authorize-log.js';
+import { setPaymentPubSub } from './lib/payments.js';
 import { config } from './lib/config.js';
 
 const OCPP_PORT = config.OCPP_PORT;
@@ -84,6 +85,7 @@ async function start(): Promise<void> {
 
   pubsub = new RedisPubSubClient(REDIS_URL);
   setAuthorizeLogPubSub(pubsub);
+  setPaymentPubSub(pubsub);
 
   // Create a separate Redis client for the connection registry (not the pub/sub client)
   registryRedis = new Redis(REDIS_URL);
@@ -184,6 +186,7 @@ async function shutdown(): Promise<void> {
     await cacheInvalidateSub.unsubscribe();
   }
   if (pubsub != null) {
+    setPaymentPubSub(null);
     await pubsub.close();
   }
   if (registryRedis != null) {

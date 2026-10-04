@@ -139,9 +139,13 @@ export const OPERATOR_SUPPORT_EVENTS = [
   'supportCase.DriverReply',
 ] as const;
 
+// Site host events: notifications sent to a site's contact
+export const SITE_HOST_EVENTS = ['site.PayoutOnboarding'] as const;
+
 export const OPERATOR_EVENT_TYPES = [
   ...OPERATOR_ACCOUNT_EVENTS,
   ...OPERATOR_SUPPORT_EVENTS,
+  ...SITE_HOST_EVENTS,
 ] as const;
 
 export const COMMON_VARIABLES: TemplateVariable[] = [
@@ -653,6 +657,13 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'idToken', description: 'Token identifier (e.g. RFID UID)' },
     { name: 'tokenType', description: 'OCPP token type (e.g. ISO14443)' },
     { name: 'reactivatedBy', description: 'Who reactivated (driver, operator, system)' },
+  ],
+  'site.PayoutOnboarding': [
+    { name: 'siteName', description: 'Site name' },
+    { name: 'contactName', description: 'Site contact name' },
+    { name: 'email', description: 'Site contact email address' },
+    { name: 'onboardingUrl', description: 'Link to set up the Stripe payout account' },
+    { name: 'expiresInDays', description: 'Days until the link expires' },
   ],
   'operator.UserCreated': [
     { name: 'firstName', description: 'User first name' },

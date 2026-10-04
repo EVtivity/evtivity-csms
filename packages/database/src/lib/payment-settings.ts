@@ -7,9 +7,9 @@ import { settings } from '../schema/settings.js';
 import { sitePaymentConfigs } from '../schema/payments.js';
 
 /**
- * The Stripe Connect platform fee percent (0 to 100) for charges at a site:
+ * The platform fee percent (0 to 100) for charges at a site:
  * the enabled site payment config's `platform_fee_percent` when set, else the
- * `stripe.platformFeePercent` setting, else 0. The fee itself is
+ * `payments.platformFeePercent` setting, else 0. The fee itself is
  * platformFeeCents (@evtivity/lib), a percent of the net amount charged.
  *
  * Cached per site for 60 seconds. A read failure falls back to the last
@@ -30,7 +30,7 @@ export async function getPlatformFeePercent(siteId: string | null): Promise<numb
       db
         .select({ value: settings.value })
         .from(settings)
-        .where(eq(settings.key, 'stripe.platformFeePercent')),
+        .where(eq(settings.key, 'payments.platformFeePercent')),
       siteId != null
         ? db
             .select({ percent: sitePaymentConfigs.platformFeePercent })
@@ -52,7 +52,7 @@ export async function getPlatformFeePercent(siteId: string | null): Promise<numb
   }
 }
 
-/** Drop the cached fee percents (after a Stripe settings or site payment config change). */
+/** Drop the cached fee percents (after a payment settings or site payment config change). */
 export function clearPlatformFeeCache(): void {
   cache.clear();
 }

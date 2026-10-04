@@ -83,6 +83,8 @@ const handlerMocks = {
   mfaChallengePruneHandler: vi.fn().mockResolvedValue(undefined),
   refreshTokenPruneHandler: vi.fn().mockResolvedValue(undefined),
   maintenanceSchedulerHandler: vi.fn().mockResolvedValue(undefined),
+  payoutAccountSyncHandler: vi.fn().mockResolvedValue(undefined),
+  processVersionWatchHandler: vi.fn().mockResolvedValue(undefined),
 };
 
 vi.mock('../handlers/report-scheduler.js', () => ({
@@ -144,6 +146,12 @@ vi.mock('../handlers/refresh-token-prune.js', () => ({
 }));
 vi.mock('../handlers/maintenance-scheduler.js', () => ({
   maintenanceSchedulerHandler: (...a: unknown[]) => handlerMocks.maintenanceSchedulerHandler(...a),
+}));
+vi.mock('../handlers/payout-account-sync.js', () => ({
+  payoutAccountSyncHandler: (...a: unknown[]) => handlerMocks.payoutAccountSyncHandler(...a),
+}));
+vi.mock('../handlers/process-version-watch.js', () => ({
+  processVersionWatchHandler: (...a: unknown[]) => handlerMocks.processVersionWatchHandler(...a),
 }));
 
 function makeJob(name: string, data: unknown = {}): Job {
@@ -244,6 +252,8 @@ describe('cron-worker processor dispatch', () => {
       ['dashboard-snapshot', 'dashboardSnapshotHandler'],
       ['maintenance-scheduler', 'maintenanceSchedulerHandler'],
       ['audit-retention-prune', 'auditRetentionPruneHandler'],
+      ['payout-account-sync', 'payoutAccountSyncHandler'],
+      ['process-version-watch', 'processVersionWatchHandler'],
     ];
 
     for (const [jobName, handlerKey] of routes) {

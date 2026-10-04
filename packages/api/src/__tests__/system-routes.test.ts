@@ -57,6 +57,14 @@ vi.mock('../middleware/rbac.js', () => ({
     },
 }));
 
+const { mockActivePaymentProvider } = vi.hoisted(() => ({
+  mockActivePaymentProvider: vi.fn(),
+}));
+
+vi.mock('../lib/payments.js', () => ({
+  activePaymentProvider: mockActivePaymentProvider,
+}));
+
 import { registerAuth } from '../plugins/auth.js';
 import { systemRoutes } from '../routes/system.js';
 
@@ -87,6 +95,8 @@ describe('System routes', () => {
 
   beforeEach(() => {
     setupDbResults();
+    mockActivePaymentProvider.mockReset();
+    mockActivePaymentProvider.mockResolvedValue(null);
     savedEnv['SMTP_HOST'] = process.env['SMTP_HOST'];
     delete process.env['SMTP_HOST'];
   });
@@ -114,6 +124,8 @@ describe('System routes', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.secrets.stripeConfigured).toBe(false);
+    expect(body.secrets.adyenConfigured).toBe(false);
+    expect(body.payments).toEqual({ provider: 'none', configured: false });
     expect(body.secrets.smtpConfigured).toBe(false);
     expect(body.secrets.twilioConfigured).toBe(false);
     expect(body.secrets.s3Configured).toBe(false);
@@ -124,7 +136,9 @@ describe('System routes', () => {
 
   it('reports integrations as configured from settings rows', async () => {
     setupDbResults([
+      { key: 'payments.provider', value: 'stripe' },
       { key: 'stripe.secretKeyEnc', value: 'ciphertext' },
+      { key: 'adyen.apiKeyEnc', value: 'ciphertext' },
       { key: 'smtp.host', value: 'smtp.example.com' },
       { key: 'twilio.accountSid', value: 'AC123' },
       { key: 's3.bucket', value: 'attachments' },
@@ -132,6 +146,7 @@ describe('System routes', () => {
       { key: 'pnc.hubject.baseUrl', value: 'https://hubject.example.com' },
       { key: 'googleMaps.apiKeyEnc', value: 'ciphertext' },
     ]);
+    mockActivePaymentProvider.mockResolvedValue({ id: 'stripe' });
     const response = await app.inject({
       method: 'GET',
       url: '/system/info',
@@ -140,6 +155,8 @@ describe('System routes', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.secrets.stripeConfigured).toBe(true);
+    expect(body.secrets.adyenConfigured).toBe(true);
+    expect(body.payments).toEqual({ provider: 'stripe', configured: true });
     expect(body.secrets.smtpConfigured).toBe(true);
     expect(body.secrets.twilioConfigured).toBe(true);
     expect(body.secrets.s3Configured).toBe(true);
@@ -175,5 +192,16 @@ describe('System routes', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.secrets.smtpConfigured).toBe(true);
+  });
+
+  it('reports a selected provider that is not usable as not configured', async () => {
+    setupDbResults([{ key: 'payments.provider', value: 'adyen' }]);
+    const response = await app.inject({
+      method: 'GET',
+      url: '/system/info',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().payments).toEqual({ provider: 'adyen', configured: false });
   });
 });

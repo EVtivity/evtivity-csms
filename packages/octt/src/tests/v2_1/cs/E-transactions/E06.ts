@@ -3,7 +3,10 @@
 
 import type { CsTestCase, StepResult } from '../../../../cs-types.js';
 import {
+  noTransactionAtTimeoutStep,
+  transactionStartsAtAuthorization,
   waitForChargingState,
+  waitForMatchingMessage,
   waitForTransactionEventType,
   waitForTriggerReason,
 } from '../../../../cs-test-helpers.js';
@@ -220,24 +223,34 @@ export const TC_E_39_CS: CsTestCase = {
     }
     // Wait for timeout without plugging in
 
-    // Step 1: TransactionEvent with EVConnectTimeout
-    const txMsg1 = await waitForTriggerReason(ctx.server, 'EVConnectTimeout', 15_000);
-    const tx1Payload = txMsg1 as Record<string, unknown> | null;
-    const trigReason1 = tx1Payload?.['triggerReason'] as string | undefined;
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent with EVConnectTimeout',
-      status: trigReason1 === 'EVConnectTimeout' ? 'passed' : 'failed',
-      expected: 'triggerReason EVConnectTimeout',
-      actual: `triggerReason=${trigReason1}`,
-    });
+    // Steps 1 and 2 are expected only when the transaction started at the
+    // authorization (TxStartPoint ParkingBayOccupancy or Authorized).
+    if (transactionStartsAtAuthorization()) {
+      const txMsg1 = await waitForTriggerReason(ctx.server, 'EVConnectTimeout', 15_000);
+      const tx1Payload = txMsg1 as Record<string, unknown> | null;
+      const trigReason1 = tx1Payload?.['triggerReason'] as string | undefined;
+      steps.push({
+        step: 1,
+        description: 'TransactionEvent with EVConnectTimeout',
+        status: trigReason1 === 'EVConnectTimeout' ? 'passed' : 'failed',
+        expected: 'triggerReason EVConnectTimeout',
+        actual: `triggerReason=${trigReason1}`,
+      });
+    } else {
+      steps.push(await noTransactionAtTimeoutStep(ctx.server, 1, 3_000 + 3_000));
+    }
 
     // Now plug in cable
     await ctx.station.plugIn(1);
 
-    // Step 3: StatusNotification Occupied (after cable connect)
-    const statusMsg = await ctx.server.waitForMessage('StatusNotification', 10000);
-    const statusPayload = statusMsg as Record<string, unknown> | null;
+    // Step 3: StatusNotification Occupied (after cable connect). The optional
+    // StatusNotification Available of the ended authorization is skipped.
+    const statusPayload = await waitForMatchingMessage(
+      ctx.server,
+      'StatusNotification',
+      (p) => p['connectorStatus'] !== 'Available',
+      10_000,
+    );
     const connStatus = statusPayload?.['connectorStatus'] as string | undefined;
     steps.push({
       step: 3,

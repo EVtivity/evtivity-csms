@@ -8,6 +8,7 @@ import { db, settings } from '@evtivity/database';
 import { authorize } from '../middleware/rbac.js';
 import { itemResponse } from '../lib/response-schemas.js';
 import { APP_VERSION } from '../lib/app-version.js';
+import { activePaymentProvider } from '../lib/payments.js';
 
 function envStr(key: string): string {
   return process.env[key] ?? '';
@@ -26,7 +27,9 @@ function envHasValue(key: string, defaultValueIfDev?: string): boolean {
 }
 
 const INTEGRATION_SETTING_KEYS = [
+  'payments.provider',
   'stripe.secretKeyEnc',
+  'adyen.apiKeyEnc',
   'smtp.host',
   'twilio.accountSid',
   's3.bucket',
@@ -127,6 +130,17 @@ const systemInfoResponse = z
       })
       .passthrough()
       .describe('Database seeding configuration'),
+    payments: z
+      .object({
+        provider: z
+          .string()
+          .describe('Provider selected for new payments (payments.provider), or none'),
+        configured: z
+          .boolean()
+          .describe('The selected provider is available in this process and has its credentials'),
+      })
+      .passthrough()
+      .describe('Payment provider status'),
     secrets: z
       .object({
         jwtConfigured: z.boolean().describe('Whether JWT_SECRET is set to a non-default value'),
@@ -136,6 +150,9 @@ const systemInfoResponse = z
         stripeConfigured: z
           .boolean()
           .describe('Whether the Stripe secret key is configured in settings'),
+        adyenConfigured: z
+          .boolean()
+          .describe('Whether the Adyen API key is configured in settings'),
         smtpConfigured: z
           .boolean()
           .describe('Whether an SMTP host is configured (settings or SMTP_HOST override)'),
@@ -171,8 +188,9 @@ export function systemRoutes(app: FastifyInstance): void {
         response: { 200: itemResponse(systemInfoResponse) },
       },
     },
-    async () => {
+    async (request) => {
       const integration = await loadIntegrationSettings();
+      const selected = integration.get('payments.provider');
       return {
         version: APP_VERSION,
         nodeEnv: envStr('NODE_ENV') || 'development',
@@ -219,10 +237,15 @@ export function systemRoutes(app: FastifyInstance): void {
         seed: {
           seedDemo: envStr('SEED_DEMO') || 'false',
         },
+        payments: {
+          provider: typeof selected === 'string' && selected !== '' ? selected : 'none',
+          configured: (await activePaymentProvider(request.log)) != null,
+        },
         secrets: {
           jwtConfigured: envHasValue('JWT_SECRET', 'dev-secret-change-in-production'),
           settingsEncryptionConfigured: envHasValue('SETTINGS_ENCRYPTION_KEY'),
           stripeConfigured: settingHasValue(integration, 'stripe.secretKeyEnc'),
+          adyenConfigured: settingHasValue(integration, 'adyen.apiKeyEnc'),
           smtpConfigured: envHasValue('SMTP_HOST') || settingHasValue(integration, 'smtp.host'),
           twilioConfigured: settingHasValue(integration, 'twilio.accountSid'),
           s3Configured: settingHasValue(integration, 's3.bucket'),

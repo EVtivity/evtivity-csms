@@ -2,22 +2,33 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { clearPlatformFeeCache } from '@evtivity/database';
+import { createLogger } from '@evtivity/lib';
 import {
   activeProvider,
   clearPaymentSettingsCache,
   createPaymentRegistry,
   PaymentProviderNotConfiguredError,
+  pubsubSimulatedSink,
 } from '@evtivity/payments';
 import type { PaymentContext, PaymentLogger, PaymentProvider } from '@evtivity/payments';
 import { config } from './config.js';
+import { getPubSub } from './pubsub.js';
 
 /**
  * The API process's payment providers (@evtivity/payments), built once with
  * this process's SETTINGS_ENCRYPTION_KEY and PAYMENTS_ALLOW_SIMULATED.
+ * Simulated provider events (the dispute card) go to the worker over the
+ * `payment_webhook_deliveries` channel of the process's pub/sub client.
  */
 export const paymentRegistry = createPaymentRegistry({
   encryptionKey: config.SETTINGS_ENCRYPTION_KEY,
   allowSimulated: config.PAYMENTS_ALLOW_SIMULATED,
+  simulated: {
+    events: pubsubSimulatedSink({
+      publish: (channel, payload) => getPubSub().publish(channel, payload),
+    }),
+    logger: createLogger('payments'),
+  },
 });
 
 export function paymentContext(logger: PaymentLogger): PaymentContext {

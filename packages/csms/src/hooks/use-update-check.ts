@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useToast } from '@/components/ui/toast';
 import { useHasPermission } from '@/lib/auth';
 import { APP_VERSION } from '@/lib/version';
+import { isNewerVersion } from '@/lib/version-compare';
 
 const VERSION_URL = 'https://evtivity.com/csms-version.txt';
 const DISMISS_KEY = 'csms_update_dismissed';
@@ -14,27 +15,6 @@ const DISMISS_WINDOW_MS = 24 * 60 * 60 * 1000;
 interface DismissalRecord {
   version: string;
   at: number;
-}
-
-function parseVersion(v: string): number[] {
-  const cleaned = v.replace(/^v/, '').trim();
-  return cleaned.split('.').map((part) => {
-    const n = parseInt(part, 10);
-    return Number.isFinite(n) ? n : 0;
-  });
-}
-
-function isNewer(latest: string, current: string): boolean {
-  const a = parseVersion(latest);
-  const b = parseVersion(current);
-  const len = Math.max(a.length, b.length);
-  for (let i = 0; i < len; i += 1) {
-    const av = a[i] ?? 0;
-    const bv = b[i] ?? 0;
-    if (av > bv) return true;
-    if (av < bv) return false;
-  }
-  return false;
 }
 
 function readDismissal(): DismissalRecord | null {
@@ -64,8 +44,8 @@ export function useUpdateCheck(): void {
         const res = await fetch(VERSION_URL);
         if (!res.ok) return;
         const latest = (await res.text()).trim();
-        if (latest === '' || !/^v?\d+\.\d+/.test(latest)) return;
-        if (!isNewer(latest, APP_VERSION)) return;
+        // Semver precedence: a 0.1.38-beta.1 install is told about 0.1.38.
+        if (!isNewerVersion(latest, APP_VERSION)) return;
 
         const dismissal = readDismissal();
         if (

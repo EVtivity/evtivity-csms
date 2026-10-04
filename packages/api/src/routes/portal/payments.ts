@@ -4,13 +4,15 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
+  continueDriverMethodSetup,
   listDriverMethods,
   removeDriverMethod,
   saveDriverMethod,
   setDefaultDriverMethod,
   startDriverMethodSetup,
+  submitDriverMethodSetup,
 } from '@evtivity/payments';
-import type { DriverPaymentMethod, MethodSetupSession } from '@evtivity/payments';
+import type { BrowserContext, DriverPaymentMethod, MethodSetupSession } from '@evtivity/payments';
 import { zodSchema } from '../../lib/zod-schema.js';
 import {
   errorResponse,
@@ -22,6 +24,21 @@ import {
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
 import { paymentContext } from '../../lib/payments.js';
+import { methodSetupSessionSchema } from '../../lib/payment-provider-schemas.js';
+import {
+  sendSetupStepOutcome,
+  setupDetailsBody,
+  portalSetupSubmitBody,
+  setupStepResponses,
+} from '../../lib/method-setup-step.js';
+import { config as apiConfig } from '../../lib/config.js';
+import { getMobileAppConfig } from '@evtivity/database';
+import {
+  appReturnUrlError,
+  appShopperContext,
+  originMismatchError,
+  shopperBrowserContext,
+} from '../../lib/shopper-browser.js';
 
 const paymentMethodItem = z
   .object({
@@ -51,6 +68,7 @@ const setupIntentResponse = z
       .string()
       .max(255)
       .describe('Stripe publishable key for the configured Stripe account'),
+    session: methodSetupSessionSchema,
   })
   .passthrough();
 
@@ -203,7 +221,7 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
         tags: ['Portal Payments'],
         summary: 'Create a Stripe SetupIntent for adding a payment method',
         description:
-          'Lazily creates the payment provider customer for the driver if one does not already exist (a customer the provider no longer knows is replaced once), then starts the card setup with the active provider (Stripe: a card-only SetupIntent) so the portal can collect a card without an immediate charge. Returns the provider, the client secret and the Stripe publishable key needed to initialize Stripe.js.',
+          'Lazily creates the payment provider customer for the driver if one does not already exist (a customer the provider no longer knows is replaced once), then starts the card setup with the active provider (Stripe: a card-only SetupIntent) so the portal can collect a card without an immediate charge. Returns session, the setup session of the active provider for its card UI, plus the Stripe client secret and publishable key as top-level fields.',
         operationId: 'portalCreateSetupIntent',
         security: [{ bearerAuth: [] }],
         response: {
@@ -247,6 +265,7 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
         clientSecret: fields.clientSecret,
         customerId: result.customerId,
         publishableKey: fields.publishableKey,
+        session: result.session,
       };
     },
   );
@@ -314,6 +333,93 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
           });
           return;
       }
+    },
+  );
+
+  app.post(
+    '/portal/payment-methods/setup/submit',
+    {
+      onRequest: [app.authenticateDriver],
+      schema: {
+        tags: ['Portal Payments'],
+        summary: 'Submit a card collected by the payment provider card UI',
+        description:
+          "Saves the card the active provider's card UI collected after POST /v1/portal/payment-methods/setup-intent. The customer is the driver's own at that provider (never sent by the client); brand and last 4 digits come from the provider. Returns 201 with the saved method, or 200 with an action (3D Secure, test provider challenge) whose result goes to setup/details. A card that can ask for 3D Secure (Adyen) needs browser: the issuer returns the shopper to PORTAL_URL/payments/return?flow=method&provider=&attemptId=, and browser.origin must be the PORTAL_URL origin (else 400 VALIDATION_ERROR). The mobile app sends browser { platform: ios | android, returnUrl } instead: the provider channel follows the platform, and returnUrl (from the app's payment SDK) must lead back to an app build listed in the mobile.app.urlSchemes or mobile.app.androidPackageNames settings (else 400 VALIDATION_ERROR). A refused card is 400 PAYMENT_FAILED with details.reason. The same attemptId returns the same method.",
+        operationId: 'portalSubmitPaymentMethodSetup',
+        security: [{ bearerAuth: [] }],
+        body: zodSchema(portalSetupSubmitBody),
+        response: setupStepResponses(paymentMethodItem),
+      },
+    },
+    async (request, reply) => {
+      const { driverId } = request.user as DriverJwtPayload;
+      const body = request.body as z.infer<typeof portalSetupSubmitBody>;
+      let browser: BrowserContext | undefined;
+      if (body.browser != null && 'platform' in body.browser) {
+        // The mobile app: its payment SDK owns the return URL.
+        const app = appShopperContext(body.browser, await getMobileAppConfig());
+        if (app == null) {
+          await reply.status(400).send(appReturnUrlError());
+          return;
+        }
+        browser = app;
+      } else if (body.browser != null) {
+        // The 3DS return page posts the redirect result to setup/details with
+        // the provider and attemptId from its query.
+        const web = shopperBrowserContext(body.browser, apiConfig.PORTAL_URL, '/payments/return', {
+          flow: 'method',
+          provider: body.provider,
+          attemptId: body.attemptId,
+        });
+        if (web == null) {
+          await reply.status(400).send(originMismatchError(apiConfig.PORTAL_URL));
+          return;
+        }
+        browser = web;
+      }
+      const outcome = await submitDriverMethodSetup(
+        {
+          driverId,
+          providerId: body.provider,
+          attemptId: body.attemptId,
+          payload: body.payload,
+          ...(browser != null ? { browser } : {}),
+          adoptCustomer: false,
+        },
+        paymentContext(request.log),
+      );
+      await sendSetupStepOutcome(reply, outcome, toPublicPaymentMethod);
+    },
+  );
+
+  app.post(
+    '/portal/payment-methods/setup/details',
+    {
+      onRequest: [app.authenticateDriver],
+      schema: {
+        tags: ['Portal Payments'],
+        summary: 'Continue a card setup after a client action',
+        description:
+          'Sends the result of the action setup/submit returned (3D Secure, test provider challenge) with the same attemptId. Returns 201 with the saved method, 200 with a further action, or 400 PAYMENT_FAILED when the card is refused.',
+        operationId: 'portalContinuePaymentMethodSetup',
+        security: [{ bearerAuth: [] }],
+        body: zodSchema(setupDetailsBody),
+        response: setupStepResponses(paymentMethodItem),
+      },
+    },
+    async (request, reply) => {
+      const { driverId } = request.user as DriverJwtPayload;
+      const body = request.body as z.infer<typeof setupDetailsBody>;
+      const outcome = await continueDriverMethodSetup(
+        {
+          driverId,
+          providerId: body.provider,
+          attemptId: body.attemptId,
+          details: body.details,
+        },
+        paymentContext(request.log),
+      );
+      await sendSetupStepOutcome(reply, outcome, toPublicPaymentMethod);
     },
   );
 

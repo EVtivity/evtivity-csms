@@ -15,12 +15,22 @@
 //
 // Modifications (capture, cancel, refund, adjustment) are asynchronous at
 // Adyen: the test asserts the synchronous `received` answer and its
-// pspReference. The outcome arrives by webhook, which needs the webhook route.
+// pspReference. The outcome arrives by webhook, which needs the webhook route
+// and a public tunnel (plan P10 Part L). The last block runs the session and
+// refund services against Adyen with payment records in memory: the pending
+// capture, cancel and refund each carry Adyen's real modification reference,
+// which is what the webhook later matches.
 
 import crypto from 'node:crypto';
-import { describe, it, expect, vi } from 'vitest';
+import { afterAll, describe, it, expect, vi } from 'vitest';
 
-vi.mock('@evtivity/database', () => ({ db: {}, settings: {}, sitePaymentConfigs: {} }));
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/session-db.js')).databaseMock,
+  settings: {},
+  sitePaymentConfigs: {},
+}));
+vi.mock('../settings.js', async () => (await import('./helpers/session-db.js')).settingsMock);
+vi.mock('../payment-records.js', async () => (await import('./helpers/memory-records.js')).records);
 
 import { AdyenPaymentProvider } from '../providers/adyen/index.js';
 import type { AdyenProviderOptions } from '../providers/adyen/index.js';
@@ -32,6 +42,12 @@ import {
   PaymentValidationError,
 } from '../errors.js';
 import type { BrowserContext } from '../types.js';
+import { authorizeSessionHold, settleSessionPayment } from '../session-payments.js';
+import { refundPaymentRecord } from '../refunds.js';
+import type { PaymentContext } from '../context.js';
+import type { PaymentProviderRegistry } from '../registry.js';
+import { memoryRecords } from './helpers/memory-records.js';
+import { sessionDb } from './helpers/session-db.js';
 
 const apiKey = process.env['ADYEN_TEST_API_KEY'] ?? '';
 const merchantAccount = process.env['ADYEN_TEST_MERCHANT_ACCOUNT'] ?? '';
@@ -533,4 +549,119 @@ describe.skipIf(!enabled)('AdyenPaymentProvider against an Adyen TEST account', 
       ),
     ).toBeInstanceOf(PaymentValidationError);
   });
+});
+
+describe.skipIf(!enabled)('payment services against Adyen: async results (P10a)', () => {
+  const run = crypto.randomBytes(6).toString('hex');
+  const key = (name: string) => `async_${run}_${name}`;
+  const provider = new AdyenPaymentProvider({
+    apiKey,
+    merchantAccount,
+    clientKey,
+    environment: 'test',
+    liveUrlPrefix: null,
+    liveRegion: 'eu',
+    hmacKey: null,
+    hmacKeyPrevious: null,
+    webhookUsername: null,
+    webhookPassword: null,
+    authorisationAdjustment: false,
+  });
+  const ctx: PaymentContext = {
+    registry: {
+      getPaymentProvider: () => Promise.resolve(provider),
+      settings: () => Promise.resolve({ preAuthAmountCents: 2000 }),
+    } as unknown as PaymentProviderRegistry,
+    logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  };
+  const saved: Array<{ customerId: string; methodId: string }> = [];
+
+  // The stored cards are deleted again; the holds lapse or settle at Adyen.
+  afterAll(async () => {
+    for (const method of saved) await provider.detachMethod(method);
+  });
+
+  async function heldSession(name: string, finalCostCents: number): Promise<string> {
+    const customerId = `evt_${run}_${name}`;
+    const step = await provider.submitMethodSetup({
+      customerId,
+      payload: { ...card(VISA), currency: 'USD' },
+      browser: BROWSER,
+      idempotencyKey: key(`method_${name}`),
+    });
+    if (step.status !== 'saved') throw new Error(`expected a saved method, got ${step.status}`);
+    saved.push({ customerId, methodId: step.method.methodId });
+    sessionDb.method = { id: 1, provider: 'adyen', customerId, methodId: step.method.methodId };
+    const sessionId = `s_${run}_${name}`;
+    sessionDb.current = { sessionId, finalCostCents, siteId: 'site_async' };
+    const hold = await authorizeSessionHold(
+      { sessionId, driverId: 'd1', methodRowId: null, siteId: null, trigger: 'projection_gate' },
+      ctx,
+    );
+    expect(hold).toMatchObject({ outcome: 'authorized', paymentId: expect.stringMatching(PSP) });
+    return sessionId;
+  }
+
+  it('records a pending capture, refuses a refund until it is confirmed, then lists a pending refund', async () => {
+    const sessionId = await heldSession('capture', 1200);
+    expect(await settleSessionPayment(sessionId, ctx)).toMatchObject({
+      mode: 'card',
+      status: 'captured',
+      capturedCents: 1200,
+      recorded: true,
+    });
+    const captured = memoryRecords.bySession(sessionId);
+    expect(captured).toMatchObject({ status: 'captured', pendingOperation: 'capture' });
+    // Adyen's modification reference, not the payment's: the webhook matches it.
+    expect(captured?.pendingOperationRef).toMatch(PSP);
+    expect(captured?.pendingOperationRef).not.toBe(captured?.providerPaymentId);
+
+    // O3: no refund before the capture is confirmed, and no Adyen call.
+    expect(await refundPaymentRecord({ sessionId, amountCents: 500 }, ctx)).toEqual({
+      status: 'operation_pending',
+      operation: 'capture',
+    });
+
+    // The CAPTURE webhook (Part L, through a tunnel) clears the pending capture.
+    memoryRecords.confirmPending(sessionId);
+    const refund = await refundPaymentRecord({ sessionId, amountCents: 500 }, ctx);
+    expect(refund).toMatchObject({
+      status: 'refunded',
+      refundStatus: 'pending',
+      refundedNowCents: 0,
+      pendingCents: 500,
+    });
+    const refunded = memoryRecords.bySession(sessionId);
+    expect(refunded).toMatchObject({ status: 'captured', refundedAmountCents: 0 });
+    expect(refunded?.providerRefunds).toEqual([
+      expect.objectContaining({
+        refundId: expect.stringMatching(PSP) as unknown,
+        paymentId: captured?.providerPaymentId,
+        amountCents: 500,
+        state: 'pending',
+      }),
+    ]);
+
+    // The pending refund counts as refunded: what is left is 1200 - 500.
+    expect(await refundPaymentRecord({ sessionId, amountCents: 800 }, ctx)).toMatchObject({
+      status: 'exceeds_remaining',
+      remainingCents: 700,
+    });
+  }, 90_000);
+
+  it('records a pending cancel for a session that cost nothing', async () => {
+    const sessionId = await heldSession('cancel', 0);
+    expect(await settleSessionPayment(sessionId, ctx)).toMatchObject({
+      mode: 'card',
+      status: 'cancelled',
+      recorded: true,
+    });
+    const cancelled = memoryRecords.bySession(sessionId);
+    expect(cancelled).toMatchObject({
+      status: 'cancelled',
+      capturedAmountCents: 0,
+      pendingOperation: 'cancel',
+    });
+    expect(cancelled?.pendingOperationRef).toMatch(PSP);
+  }, 90_000);
 });

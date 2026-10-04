@@ -57,16 +57,22 @@ describe('paymentReconciliationHandler', () => {
     const discrepancies = [
       {
         paymentRecordId: 1,
-        stripePaymentIntentId: 'pi_1',
+        provider: 'stripe',
+        providerPaymentId: 'pi_1',
         field: 'status',
         localValue: 'pre_authorized',
+        providerValue: 'captured',
+        stripePaymentIntentId: 'pi_1',
         stripeValue: 'captured',
       },
       {
         paymentRecordId: 2,
-        stripePaymentIntentId: 'pi_2',
+        provider: 'stripe',
+        providerPaymentId: 'pi_2',
         field: 'capturedAmountCents',
         localValue: '500',
+        providerValue: '800',
+        stripePaymentIntentId: 'pi_2',
         stripeValue: '800',
       },
     ];

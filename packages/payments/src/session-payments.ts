@@ -11,43 +11,65 @@ import {
   getPlatformFeePercent,
 } from '@evtivity/database';
 import { sessionChargeTax } from '@evtivity/lib';
-import { errorMessage } from './context.js';
+import { errorMessage, pendingRef } from './context.js';
 import type { PaymentContext } from './context.js';
 import { PaymentDeclinedError, PaymentProviderNotConfiguredError } from './errors.js';
+import { adjustKey, cancelKey, captureKey, topUpKey, topUpRetryKey } from './idempotency-keys.js';
 import { classifySessionPayment } from './payment-mode.js';
 import { pinnedProvider } from './pinning.js';
 import {
+  clearPendingAdjustment,
   findRecord,
   findSessionHold,
   findSessionRecord,
   markCancelled,
   markCaptured,
+  markAdjustmentPending,
   markHoldFailed,
   markShortfallRecovered,
   markShortfallRetryFailed,
   recordFailedHold,
   recordHold,
+  setAdjustmentRef,
   settlePrepaidSession,
 } from './payment-records.js';
 import type { PaymentRecord } from './payment-records.js';
+import {
+  PAYOUT_NOT_READY_FAILURE,
+  PAYOUT_NOT_READY_REASON,
+  sitePayoutReadiness,
+} from './payout-accounts.js';
 import { getSitePaymentConfig } from './settings.js';
-import type { PaymentProvider, PaymentStatus } from './types.js';
+import type { PaymentProvider, PaymentStatus, ProviderState } from './types.js';
 
 /** Hold amount, site config and payout account of new holds at a site. */
 export interface HoldTerms {
   preAuthAmountCents: number;
   sitePaymentConfigId: number | null;
+  /** The payout account of a destination charge; set only when the account is ready. */
   payoutAccountId: string | null;
+  /**
+   * The site's payout account cannot receive payments yet (not `active`, or
+   * its status could not be read): new holds and charges are refused (O5,
+   * fail closed), never moved to the platform.
+   */
+  payoutBlocked: boolean;
 }
 
-/** The enabled site config wins over the global `stripe.preAuthAmountCents`. */
+/**
+ * The enabled site config wins over the global `payments.preAuthAmountCents`.
+ * Its payout account is used only when it is ready (`sitePayoutReadiness`).
+ */
 export async function holdTerms(ctx: PaymentContext, siteId: string | null): Promise<HoldTerms> {
   const site = siteId != null ? await getSitePaymentConfig(siteId) : null;
-  if (site != null) {
+  if (siteId != null && site != null) {
+    const readiness =
+      site.payoutAccountId == null ? 'none' : await sitePayoutReadiness(siteId, ctx);
     return {
       preAuthAmountCents: site.preAuthAmountCents,
       sitePaymentConfigId: site.configId,
-      payoutAccountId: site.payoutAccountId,
+      payoutAccountId: readiness === 'ready' ? site.payoutAccountId : null,
+      payoutBlocked: readiness === 'not_ready',
     };
   }
   const settings = await ctx.registry.settings();
@@ -55,6 +77,7 @@ export async function holdTerms(ctx: PaymentContext, siteId: string | null): Pro
     preAuthAmountCents: settings.preAuthAmountCents,
     sitePaymentConfigId: null,
     payoutAccountId: null,
+    payoutBlocked: false,
   };
 }
 
@@ -74,8 +97,17 @@ export type HoldOutcome =
   | { outcome: 'authorized'; paymentRecordId: number; paymentId: string }
   /** The session already has a payment record (a replay, or the other trigger placed it). */
   | { outcome: 'exists'; paymentRecordId: number; status: PaymentStatus }
-  /** Declined or not authorizable off session; a `failed` record was written when none existed. */
-  | { outcome: 'declined'; reason: string; paymentRecordId: number | null }
+  /**
+   * Declined or not authorizable off session; a `failed` record was written
+   * when none existed. `code` is set when the site's payout account is not
+   * ready (no provider call was made).
+   */
+  | {
+      outcome: 'declined';
+      reason: string;
+      paymentRecordId: number | null;
+      code?: 'payout_account_not_ready';
+    }
   /** The provider the method is pinned to is not available in this process. */
   | { outcome: 'not_configured'; providerId: string }
   | { outcome: 'no_method' }
@@ -84,6 +116,7 @@ export type HoldOutcome =
 
 interface MethodRow {
   id: number;
+  provider: string | null;
   customerId: string;
   methodId: string;
 }
@@ -103,13 +136,15 @@ async function sessionMethod(input: SessionHoldInput): Promise<MethodRow | null>
   const [row] = await db
     .select({
       id: driverPaymentMethods.id,
-      customerId: driverPaymentMethods.stripeCustomerId,
-      methodId: driverPaymentMethods.stripePaymentMethodId,
+      provider: driverPaymentMethods.provider,
+      customerId: driverPaymentMethods.providerCustomerId,
+      methodId: driverPaymentMethods.providerPaymentMethodId,
     })
     .from(driverPaymentMethods)
     .where(condition)
     .limit(1);
-  return row ?? null;
+  if (row?.customerId == null || row.methodId == null) return null;
+  return { ...row, customerId: row.customerId, methodId: row.methodId };
 }
 
 async function sessionCurrency(sessionId: string): Promise<string | null> {
@@ -143,7 +178,7 @@ export async function authorizeSessionHold(
 
   let provider: PaymentProvider;
   try {
-    provider = await pinnedProvider(ctx.registry, method);
+    provider = await pinnedProvider(ctx.registry, method.provider);
   } catch (err) {
     if (err instanceof PaymentProviderNotConfiguredError) {
       return { outcome: 'not_configured', providerId: err.providerId };
@@ -162,6 +197,7 @@ export async function authorizeSessionHold(
       sessionId: input.sessionId,
       driverId: input.driverId,
       sitePaymentConfigId: terms.sitePaymentConfigId,
+      provider: provider.id,
       customerId: method.customerId,
       methodId: method.methodId,
       source: 'web_portal',
@@ -170,7 +206,30 @@ export async function authorizeSessionHold(
       reason,
     });
 
+  if (terms.payoutBlocked) {
+    ctx.logger.warn(
+      { sessionId: input.sessionId, siteId: input.siteId, trigger: input.trigger },
+      'Session pre-authorization refused: the payout account of the site is not ready',
+    );
+    let recordId: number | null = null;
+    try {
+      recordId = await failed(PAYOUT_NOT_READY_FAILURE);
+    } catch (dbErr) {
+      ctx.logger.error(
+        { err: dbErr, sessionId: input.sessionId },
+        'Failed to record the refused pre-authorization',
+      );
+    }
+    return {
+      outcome: 'declined',
+      reason: PAYOUT_NOT_READY_REASON,
+      paymentRecordId: recordId,
+      code: 'payout_account_not_ready',
+    };
+  }
+
   let paymentId: string;
+  let providerState: ProviderState | null = null;
   try {
     const hold = await provider.authorizeHold({
       method: { kind: 'saved', customerId: method.customerId, methodId: method.methodId },
@@ -188,6 +247,7 @@ export async function authorizeSessionHold(
       });
     }
     paymentId = hold.paymentId;
+    providerState = hold.providerState ?? null;
   } catch (err) {
     const reason = errorMessage(err, 'Unknown pre-auth error');
     ctx.logger.warn(
@@ -211,12 +271,14 @@ export async function authorizeSessionHold(
       sessionId: input.sessionId,
       driverId: input.driverId,
       sitePaymentConfigId: terms.sitePaymentConfigId,
+      provider: provider.id,
       paymentId,
       customerId: method.customerId,
       methodId: method.methodId,
       source: 'web_portal',
       currency,
       preAuthAmountCents: amountCents,
+      providerState,
     });
     if (recordId != null) return { outcome: 'authorized', paymentRecordId: recordId, paymentId };
     // A concurrent trigger recorded first. With the shared key it is this hold.
@@ -232,7 +294,7 @@ export async function authorizeSessionHold(
       await provider.cancelHold({
         paymentId,
         merchantReference: `sess_${input.sessionId}`,
-        idempotencyKey: `cancel_${paymentId}`,
+        idempotencyKey: cancelKey(paymentId),
       });
     } catch (cancelErr) {
       ctx.logger.error(
@@ -274,7 +336,7 @@ export type ManualCaptureOutcome =
 /**
  * Operator capture of a session hold: `amountCents` (default the session's
  * final cost), or a cancel at 0. Same idempotency keys as the capture on
- * session end (`capture_<recordId>`, `cancel_<recordId>`).
+ * session end (`capture_<paymentId>`, `cancel_<paymentId>`).
  */
 export async function captureSessionHold(
   input: { sessionId: string; amountCents?: number },
@@ -282,17 +344,14 @@ export async function captureSessionHold(
 ): Promise<ManualCaptureOutcome> {
   const record = await findSessionHold(input.sessionId);
   if (record == null) return { status: 'no_hold' };
-  const paymentId = record.stripePaymentIntentId;
+  const paymentId = record.providerPaymentId;
   if (paymentId == null) return { status: 'missing_payment_id' };
   const session = await sessionCharge(input.sessionId);
   const amountCents = input.amountCents ?? session?.finalCostCents ?? 0;
 
   let provider: PaymentProvider;
   try {
-    provider = await pinnedProvider(ctx.registry, {
-      customerId: record.stripeCustomerId,
-      paymentId,
-    });
+    provider = await pinnedProvider(ctx.registry, record.provider);
   } catch (err) {
     if (err instanceof PaymentProviderNotConfiguredError) {
       return { status: 'not_configured', providerId: err.providerId };
@@ -301,18 +360,18 @@ export async function captureSessionHold(
   }
 
   if (amountCents === 0) {
-    await provider.cancelHold({
+    const cancelled = await provider.cancelHold({
       paymentId,
       merchantReference: `sess_${input.sessionId}`,
-      idempotencyKey: `cancel_${String(record.id)}`,
+      idempotencyKey: cancelKey(paymentId),
     });
-    if (!(await markCancelled(record.id))) {
+    if (!(await markCancelled(record.id, pendingRef(cancelled)))) {
       ctx.logger.warn({ paymentRecordId: record.id }, 'Hold cancelled but the record had moved on');
     }
     return { status: 'cancelled', record: (await findRecord(record.id)) ?? record };
   }
 
-  await provider.capture({
+  const captured = await provider.capture({
     paymentId,
     amountCents,
     currency: record.currency,
@@ -324,9 +383,15 @@ export async function captureSessionHold(
       costBreakdown: session?.costBreakdown ?? null,
     }),
     platformFeePercent: await getPlatformFeePercent(session?.siteId ?? null),
-    idempotencyKey: `capture_${String(record.id)}`,
+    idempotencyKey: captureKey(paymentId),
   });
-  if (!(await markCaptured(record.id, { capturedCents: amountCents, failureReason: null }))) {
+  if (
+    !(await markCaptured(record.id, {
+      capturedCents: amountCents,
+      failureReason: null,
+      pendingRef: pendingRef(captured),
+    }))
+  ) {
     ctx.logger.warn({ paymentRecordId: record.id }, 'Hold captured but the record had moved on');
   }
   return { status: 'captured', record: (await findRecord(record.id)) ?? record };
@@ -338,24 +403,45 @@ export async function cancelSessionHold(
   reason: string,
   ctx: PaymentContext,
 ): Promise<void> {
-  const paymentId = record.stripePaymentIntentId;
+  const paymentId = record.providerPaymentId;
   if (paymentId == null) return;
-  const provider = await pinnedProvider(ctx.registry, {
-    customerId: record.stripeCustomerId,
-    paymentId,
-  });
-  await provider.cancelHold({
+  const provider = await pinnedProvider(ctx.registry, record.provider);
+  const cancelled = await provider.cancelHold({
     paymentId,
     merchantReference:
       record.sessionId != null ? `sess_${record.sessionId}` : `rec_${String(record.id)}`,
-    idempotencyKey: `cancel_${String(record.id)}`,
+    idempotencyKey: cancelKey(paymentId),
   });
-  if (!(await markCancelled(record.id))) {
+  if (!(await markCancelled(record.id, pendingRef(cancelled)))) {
     ctx.logger.warn(
       { paymentRecordId: record.id, reason },
       'Hold cancelled but the record had moved on',
     );
   }
+}
+
+export type OpenHoldCancelOutcome =
+  | { status: 'cancelled'; paymentRecordId: number }
+  /** No open hold on the session (none placed, or already settled). */
+  | { status: 'none' };
+
+/**
+ * Cancels the open hold of a session that ended without being billed (a
+ * remote start the driver never plugged in for, a stale session the cleanup
+ * faulted), through the provider it is pinned to (`cancel_<paymentId>`). No
+ * capture, whatever the session's cost. A provider error is thrown to the
+ * caller.
+ */
+export async function cancelOpenSessionHold(
+  sessionId: string,
+  reason: string,
+  ctx: PaymentContext,
+): Promise<OpenHoldCancelOutcome> {
+  const record = await findSessionHold(sessionId);
+  if (record?.providerPaymentId == null) return { status: 'none' };
+  await cancelSessionHold(record, reason, ctx);
+  ctx.logger.info({ sessionId, paymentRecordId: record.id, reason }, 'Open session hold cancelled');
+  return { status: 'cancelled', paymentRecordId: record.id };
 }
 
 export type ShortfallRetryOutcome =
@@ -379,18 +465,18 @@ async function chargeShortfall(
 ): Promise<{ topUpId: string; topUpCents: number; shortfallCents: number }> {
   const { record, finalCostCents, charge } = target;
   const captured = record.capturedAmountCents ?? 0;
-  const paymentId = record.stripePaymentIntentId as string;
-  const provider = await pinnedProvider(ctx.registry, {
-    customerId: record.stripeCustomerId,
-    paymentId,
-  });
+  const paymentId = record.providerPaymentId as string;
+  const provider = await pinnedProvider(ctx.registry, record.provider);
   // Same card and payout account, with the platform fee of the increment on
   // its net amount, so capture and top-ups add up to the fee of the final cost.
   const topUp = await provider.chargeShortfall({
     originalPaymentId: paymentId,
-    ...(record.stripeCustomerId != null && record.stripePaymentMethodId != null
+    ...(record.providerCustomerId != null && record.providerPaymentMethodId != null
       ? {
-          method: { customerId: record.stripeCustomerId, methodId: record.stripePaymentMethodId },
+          method: {
+            customerId: record.providerCustomerId,
+            methodId: record.providerPaymentMethodId,
+          },
         }
       : {}),
     capturedCents: captured,
@@ -403,7 +489,7 @@ async function chargeShortfall(
     }),
     platformFeePercent: await getPlatformFeePercent(charge.siteId),
     description,
-    idempotencyKey: `topup_retry_${String(record.id)}_${String(captured)}`,
+    idempotencyKey: topUpRetryKey(paymentId, captured),
   });
   return {
     topUpId: topUp.paymentId,
@@ -414,7 +500,7 @@ async function chargeShortfall(
 
 /**
  * Operator retry of a recorded shortfall (`captured` below the final cost).
- * Key `topup_retry_<recordId>_<captured>`, shared with the daily retry, so the
+ * Key `topup_retry_<paymentId>_<captured>`, shared with the daily retry, so the
  * same shortfall is charged once. A decline returns `failed` and leaves the
  * record for the next try.
  */
@@ -424,7 +510,7 @@ export async function retryShortfallForRecord(
 ): Promise<ShortfallRetryOutcome> {
   const record = await findRecord(input.recordId);
   if (record == null) return { status: 'not_found' };
-  if (record.stripePaymentIntentId == null) {
+  if (record.providerPaymentId == null) {
     return { status: 'not_recoverable', reason: 'Payment has no provider payment' };
   }
   if (record.sessionId == null) {
@@ -495,7 +581,7 @@ export async function retryShortfalls(
   for (const row of rows) {
     const record = await findRecord(row.pr_id);
     const charge = await sessionCharge(row.session_id);
-    if (record?.stripePaymentIntentId == null || charge == null) continue;
+    if (record?.providerPaymentId == null || charge == null) continue;
     const finalCostCents = charge.finalCostCents ?? 0;
     const shortfall = finalCostCents - (record.capturedAmountCents ?? 0);
     if (shortfall <= 0) continue;
@@ -564,6 +650,13 @@ export type SettlementOutcome =
     }
   | { mode: 'card'; status: 'cancelled'; paymentRecordId: number; recorded: boolean }
   | { mode: 'card'; status: 'failed'; paymentRecordId: number; driverId: string; reason: string }
+  /**
+   * The hold is being raised to the final cost (an async authorisation
+   * adjustment). The record stays `pre_authorized` with `pending_operation =
+   * 'adjust'`; the adjustment webhook captures (`settleAdjustedHold`) and the
+   * driver hears about the payment then.
+   */
+  | { mode: 'card'; status: 'adjusting'; paymentRecordId: number; driverId: string }
   /** A guest hold (no driver): the worker finalizes it. */
   | { mode: 'guest' }
   /** Nothing to settle (no open hold, a free or roaming session). */
@@ -601,11 +694,18 @@ async function settlementSession(sessionId: string): Promise<SettlementSession |
  * Settles an ended session (TransactionEvent Ended, 1.6 StopTransaction). A
  * prepaid token's balance is debited (once: its record is the idempotency
  * marker). A driver's open hold is captured by the provider it is pinned to,
- * at most the hold (`capture_<recordId>`); a final cost above the hold is
- * charged as a top-up on the same card and payout account (`topup_<recordId>`),
+ * at most the hold (`capture_<paymentId>`); a final cost above the hold is
+ * charged as a top-up on the same card and payout account (`topup_<paymentId>`),
  * and a declined top-up leaves the record `captured` with a `Top-up declined:`
- * reason for the daily retry. A cost of 0 cancels the hold
- * (`cancel_<recordId>`). A failed capture or cancel marks the record `failed`
+ * reason for the daily retry. A provider whose shortfall is `adjust_hold`
+ * (Adyen with `adyen.authorisationAdjustment`) first raises the hold to the
+ * final cost (`adjust_<paymentId>_<finalCost>`): a synchronous success
+ * captures the final cost, an async answer returns `adjusting` and the
+ * adjustment webhook settles (`settleAdjustedHold`), a refusal or an error
+ * falls back to the top-up. A cost of 0 cancels the hold
+ * (`cancel_<paymentId>`). An async provider's capture or cancel is recorded
+ * optimistically with its pending operation, which the webhook confirms or
+ * fails (`webhooks.ts`). A failed capture or cancel marks the record `failed`
  * (only from `pre_authorized`, P5). When the provider charged but the record
  * cannot be updated, the outcome says `recorded: false` and the error is
  * logged; no failure is reported to the driver. A guest hold is left to the
@@ -633,9 +733,120 @@ export async function settleSessionPayment(
   const record = await findSessionHold(sessionId);
   if (record == null) return { mode: 'none' };
   if (record.driverId == null) return { mode: 'guest' };
-  const paymentId = record.stripePaymentIntentId;
-  if (paymentId == null) return { mode: 'none' };
-  const driverId = record.driverId;
+  if (record.providerPaymentId == null) return { mode: 'none' };
+  if (record.pendingOperation === 'adjust') {
+    // An earlier settlement is raising the hold; its webhook settles.
+    return {
+      mode: 'card',
+      status: 'adjusting',
+      paymentRecordId: record.id,
+      driverId: record.driverId,
+    };
+  }
+  return settleHold(record, session, { adjust: true }, ctx);
+}
+
+/**
+ * Settles a session hold after its authorisation adjustment webhook (P10
+ * Part D). The caller matched the pending adjustment
+ * (`matchPendingAdjustment`). A raised hold captures the final cost up to
+ * the authorised amount; a refused adjustment captures the original hold and
+ * charges the rest as a top-up, as without adjustment. Same idempotency keys
+ * as the settlement on session end.
+ */
+export async function settleAdjustedHold(
+  record: PaymentRecord,
+  adjustment: { success: boolean; authorizedCents: number },
+  ctx: PaymentContext,
+): Promise<SettlementOutcome> {
+  if (record.sessionId == null || record.driverId == null) return { mode: 'none' };
+  if (record.providerPaymentId == null) return { mode: 'none' };
+  const session = await settlementSession(record.sessionId);
+  if (session == null) return { mode: 'none' };
+  const holdCents = record.preAuthAmountCents ?? session.finalCostCents ?? 0;
+  const heldCents = adjustment.success
+    ? Math.max(holdCents, adjustment.authorizedCents)
+    : holdCents;
+  return settleHold(record, session, { adjust: false, heldCents }, ctx);
+}
+
+type HoldAdjustment = { kind: 'held'; heldCents: number } | { kind: 'pending' };
+
+/**
+ * Raises the hold to the final cost when the provider adjusts holds. The
+ * record is claimed (`pending_operation = 'adjust'`) before the provider is
+ * asked (P4), so the webhook matches even when it is faster than this
+ * process. A refusal or an error ends the claim and keeps the original hold.
+ */
+async function adjustHoldToFinalCost(
+  provider: PaymentProvider,
+  record: PaymentRecord,
+  paymentId: string,
+  finalCostCents: number,
+  holdCents: number,
+  ctx: PaymentContext,
+): Promise<HoldAdjustment> {
+  if (provider.capabilities.shortfall !== 'adjust_hold' || provider.adjustHold == null) {
+    return { kind: 'held', heldCents: holdCents };
+  }
+  if (!(await markAdjustmentPending(record.id))) {
+    ctx.logger.info(
+      { paymentRecordId: record.id },
+      'Hold already being adjusted by another settlement; its webhook settles',
+    );
+    return { kind: 'pending' };
+  }
+  try {
+    const result = await provider.adjustHold({
+      paymentId,
+      newTotalCents: finalCostCents,
+      currency: record.currency,
+      ...(record.providerState != null ? { providerState: record.providerState } : {}),
+      idempotencyKey: adjustKey(paymentId, finalCostCents),
+    });
+    if (result.state === 'pending') {
+      if (!(await setAdjustmentRef(record.id, result.operationRef))) {
+        ctx.logger.info(
+          { paymentRecordId: record.id, operationRef: result.operationRef },
+          'Adjustment settled by its webhook before its reference was stored',
+        );
+      }
+      return { kind: 'pending' };
+    }
+    return { kind: 'held', heldCents: Math.max(holdCents, result.authorizedCents) };
+  } catch (err) {
+    ctx.logger.warn(
+      { err, paymentRecordId: record.id, finalCostCents, holdCents },
+      'Authorisation adjustment failed; capturing the hold and charging the rest as a top-up',
+    );
+    try {
+      await clearPendingAdjustment(record.id);
+    } catch (dbErr) {
+      // The capture below clears it as well.
+      ctx.logger.warn(
+        { err: dbErr, paymentRecordId: record.id },
+        'Failed to clear the pending adjustment',
+      );
+    }
+    return { kind: 'held', heldCents: holdCents };
+  }
+}
+
+/**
+ * Captures or cancels a driver's open hold for the session's final cost: a
+ * capture up to the held amount, a top-up for the rest, or a cancel at 0.
+ * With `adjust: true` the hold is first raised to the final cost
+ * (`adjustHoldToFinalCost`); otherwise `heldCents` is what the hold covers.
+ */
+async function settleHold(
+  record: PaymentRecord,
+  session: SettlementSession,
+  hold: { adjust: true } | { adjust: false; heldCents: number },
+  ctx: PaymentContext,
+): Promise<SettlementOutcome> {
+  const sessionId = session.id;
+  const paymentId = record.providerPaymentId as string;
+  const driverId = record.driverId as string;
   const merchantReference = `sess_${sessionId}`;
 
   const finalCostCents = session.finalCostCents;
@@ -643,20 +854,39 @@ export async function settleSessionPayment(
   let shortfallCents = 0;
   let topUp: { paymentId: string; amountCents: number } | null = null;
   let topUpFailureReason: string | null = null;
+  // The hold after an authorisation adjustment raised it; null otherwise.
+  let adjustedHoldCents: number | null = null;
+  // The reference of a capture or cancel an async provider confirms later.
+  let operationRef: string | null = null;
   try {
-    const provider = await pinnedProvider(ctx.registry, {
-      customerId: record.stripeCustomerId,
-      paymentId,
-    });
+    const provider = await pinnedProvider(ctx.registry, record.provider);
     if (finalCostCents == null || finalCostCents <= 0) {
-      await provider.cancelHold({
-        paymentId,
-        merchantReference,
-        idempotencyKey: `cancel_${String(record.id)}`,
-      });
+      operationRef = pendingRef(
+        await provider.cancelHold({
+          paymentId,
+          merchantReference,
+          idempotencyKey: cancelKey(paymentId),
+        }),
+      );
     } else {
       const holdCents = record.preAuthAmountCents ?? finalCostCents;
-      const captureCents = Math.min(finalCostCents, holdCents);
+      let heldCents = hold.adjust ? holdCents : hold.heldCents;
+      if (hold.adjust && finalCostCents > holdCents) {
+        const adjusted = await adjustHoldToFinalCost(
+          provider,
+          record,
+          paymentId,
+          finalCostCents,
+          holdCents,
+          ctx,
+        );
+        if (adjusted.kind === 'pending') {
+          return { mode: 'card', status: 'adjusting', paymentRecordId: record.id, driverId };
+        }
+        heldCents = adjusted.heldCents;
+      }
+      if (heldCents > holdCents) adjustedHoldCents = heldCents;
+      const captureCents = Math.min(finalCostCents, heldCents);
       // The platform fee is a percent of the net amount charged, set on the
       // capture and on the top-up so the two add up to the fee of the final cost.
       const feeTax = sessionChargeTax({
@@ -665,27 +895,29 @@ export async function settleSessionPayment(
         costBreakdown: session.costBreakdown,
       });
       const platformFeePercent = await getPlatformFeePercent(session.siteId);
-      await provider.capture({
-        paymentId,
-        amountCents: captureCents,
-        currency: record.currency,
-        merchantReference,
-        payoutAccountId: null,
-        feeTax,
-        platformFeePercent,
-        idempotencyKey: `capture_${String(record.id)}`,
-      });
+      operationRef = pendingRef(
+        await provider.capture({
+          paymentId,
+          amountCents: captureCents,
+          currency: record.currency,
+          merchantReference,
+          payoutAccountId: null,
+          feeTax,
+          platformFeePercent,
+          idempotencyKey: captureKey(paymentId),
+        }),
+      );
       capturedCents = captureCents;
       if (finalCostCents > captureCents) {
         const deltaCents = finalCostCents - captureCents;
         try {
           const charged = await provider.chargeShortfall({
             originalPaymentId: paymentId,
-            ...(record.stripeCustomerId != null && record.stripePaymentMethodId != null
+            ...(record.providerCustomerId != null && record.providerPaymentMethodId != null
               ? {
                   method: {
-                    customerId: record.stripeCustomerId,
-                    methodId: record.stripePaymentMethodId,
+                    customerId: record.providerCustomerId,
+                    methodId: record.providerPaymentMethodId,
                   },
                 }
               : {}),
@@ -695,7 +927,7 @@ export async function settleSessionPayment(
             feeTax,
             platformFeePercent,
             description: `Top-up for session ${sessionId}`,
-            idempotencyKey: `topup_${String(record.id)}`,
+            idempotencyKey: topUpKey(paymentId),
           });
           topUp = { paymentId: charged.paymentId, amountCents: charged.amountCents };
           capturedCents = finalCostCents;
@@ -730,11 +962,13 @@ export async function settleSessionPayment(
   let recorded: boolean;
   try {
     recorded = cancelled
-      ? await markCancelled(record.id)
+      ? await markCancelled(record.id, operationRef)
       : await markCaptured(record.id, {
           capturedCents,
           failureReason: topUpFailureReason,
           topUp,
+          pendingRef: operationRef,
+          ...(adjustedHoldCents != null ? { authorizedCents: adjustedHoldCents } : {}),
         });
     if (!recorded) {
       ctx.logger.warn(

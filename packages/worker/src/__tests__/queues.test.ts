@@ -23,7 +23,7 @@ describe('createQueues', () => {
     vi.clearAllMocks();
   });
 
-  it('creates all seven queues with the expected names', async () => {
+  it('creates all nine queues with the expected names', async () => {
     const { createQueues, QUEUE_NAMES } = await import('../queues.js');
     const queues = createQueues('redis://localhost:6379');
 
@@ -34,6 +34,8 @@ describe('createQueues', () => {
     expect(queues.octtQueue).toBeDefined();
     expect(queues.maintenanceFanoutQueue).toBeDefined();
     expect(queues.stationWatchQueue).toBeDefined();
+    expect(queues.paymentWebhookQueue).toBeDefined();
+    expect(queues.remoteStartTimeoutQueue).toBeDefined();
 
     const names = queueCalls.map((c) => c.name);
     expect(names).toEqual([
@@ -44,6 +46,8 @@ describe('createQueues', () => {
       QUEUE_NAMES.OCTT,
       QUEUE_NAMES.MAINTENANCE_FANOUT,
       QUEUE_NAMES.STATION_WATCH,
+      QUEUE_NAMES.PAYMENT_WEBHOOKS,
+      QUEUE_NAMES.REMOTE_START_TIMEOUTS,
     ]);
     expect(names).toEqual([
       'cron-jobs',
@@ -53,6 +57,8 @@ describe('createQueues', () => {
       'octt',
       'maintenance-fanout',
       'station-watch',
+      'payment-webhooks',
+      'remote-start-timeouts',
     ]);
   });
 
@@ -61,7 +67,7 @@ describe('createQueues', () => {
     const { createQueues } = await import('../queues.js');
     createQueues('redis://localhost:6379');
 
-    expect(createBullMQConnection).toHaveBeenCalledTimes(7);
+    expect(createBullMQConnection).toHaveBeenCalledTimes(9);
     expect(createBullMQConnection).toHaveBeenCalledWith('redis://localhost:6379');
     for (const call of queueCalls) {
       expect(call.opts.connection).toBe(mockConnection);
@@ -107,5 +113,20 @@ describe('createQueues', () => {
     };
     expect(byName['guest-session-events']?.['defaultJobOptions']).toEqual(expected);
     expect(byName['reservations']?.['defaultJobOptions']).toEqual(expected);
+    expect(byName['remote-start-timeouts']?.['defaultJobOptions']).toEqual(expected);
+  });
+
+  it('retries payment webhook deliveries five times with exponential backoff', async () => {
+    const { createQueues } = await import('../queues.js');
+    createQueues('redis://localhost:6379');
+
+    const byName = Object.fromEntries(queueCalls.map((c) => [c.name, c.opts]));
+
+    expect(byName['payment-webhooks']?.['defaultJobOptions']).toEqual({
+      removeOnComplete: 200,
+      removeOnFail: { count: 500 },
+      attempts: 5,
+      backoff: { type: 'exponential', delay: 5000 },
+    });
   });
 });

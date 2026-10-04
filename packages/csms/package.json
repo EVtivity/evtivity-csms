@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@adyen/adyen-web": "^6.46.0",
     "@evtivity/lib": "*",
     "@googlemaps/js-api-loader": "^2.0.2",
     "@stripe/react-stripe-js": "^7.0.0",

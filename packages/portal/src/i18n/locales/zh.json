@@ -179,7 +179,7 @@
     "failedSetup": "初始化支付设置失败",
     "cardSetupFailed": "信用卡设置失败",
     "failedSave": "保存支付方式失败",
-    "stripeNotConfigured": "支付处理暂不可用。",
+    "providerNotConfigured": "支付处理暂不可用。",
     "confirmRemoveTitle": "删除支付方式",
     "confirmRemoveDescription": "确定要删除此支付方式吗？您需要重新添加才能使用它进行充电。",
     "removeFailed": "删除支付方式失败，请重试。",
@@ -619,9 +619,15 @@
     "PAYMENT_METHOD_REQUIRED": "需要支付方式",
     "PAYMENT_NOT_CONFIGURED": "该充电站未配置支付",
     "PAYMENT_NOT_FOUND": "该会话没有支付记录",
+    "PAYMENT_OPERATION_PENDING": "该付款有一项操作正在等待服务商确认。请稍后重试。",
     "PAYMENT_PREAUTH_FAILED": "支付授权被拒绝",
     "PAYMENT_PROVIDER_CONNECTION_FAILED": "支付提供商连接测试失败",
     "PAYMENT_PROVIDER_NOT_CONFIGURED": "支付提供商未配置",
+    "PAYMENT_PROVIDER_PERMISSION_MISSING": "支付提供商凭据缺少所需权限",
+    "PAYMENT_PROVIDER_UPGRADE_PENDING": "仍有早于 v0.1.38 的进程处于连接状态。请完成升级后再选择 Adyen。",
+    "PAYMENT_WEBHOOK_EXISTS": "此服务商已存在 EVtivity Webhook",
+    "PAYOUT_ACCOUNT_EXISTS": "该站点已有收款账户",
+    "PAYOUT_ACCOUNT_NOT_READY": "该站点的收款账户尚不能接收付款",
     "PAYMENT_RECORD_NOT_RECOVERABLE": "支付记录不处于可恢复状态",
     "PAYMENT_TOP_UP_FAILED": "补足支付被拒绝",
     "PERMISSIONS_EXCEED_OWN": "API 密钥权限必须是您自身权限的子集",
@@ -643,6 +649,7 @@
     "RECAPTCHA_FAILED": "reCAPTCHA 验证失败",
     "RECAPTCHA_REQUIRED": "需要 reCAPTCHA 令牌",
     "REFUND_EXCEEDS_REMAINING": "退款金额超过剩余 ...",
+    "REFUND_TOP_UP_UNKNOWN": "此付款包含一笔未记录付款 ID 的补充扣款。请在支付服务商控制台中退还该笔扣款。",
     "REGION_NOT_FOUND": "未找到区域",
     "REPORT_NOT_FOUND": "未找到报告",
     "RESERVATION_BUFFER_ACTIVE": "该连接器有即将开始的预约，无法启动新会话",
@@ -706,7 +713,7 @@
     "WEAK_PASSWORD": "密码不符合复杂度要求",
     "WEBHOOK_NOT_CONFIGURED": "Webhook 未配置",
     "WEBHOOK_SIGNATURE_INVALID": "签名无效",
-    "WEBHOOK_SIGNATURE_MISSING": "缺少 stripe-signature 头",
+    "WEBHOOK_SIGNATURE_MISSING": "缺少 Webhook 签名或凭据",
     "retry": "重试",
     "serverDown": "无法连接",
     "serverDownDescription": "服务器无响应。请检查您的网络连接，然后重试。",
@@ -902,5 +909,66 @@
     "recaptchaProtected": "受 reCAPTCHA 保护。",
     "recaptchaPrivacy": "隐私",
     "recaptchaTerms": "条款"
+  },
+  "payoutOnboarding": {
+    "title": "收款账户设置",
+    "redirecting": "正在跳转到 Stripe 设置您的收款账户...",
+    "checking": "正在检查您的账户...",
+    "ready": "您的收款账户已就绪。您可以关闭此页面。",
+    "pending": "Stripe 正在审核您的资料，可能需要几天时间。您可以关闭此页面。",
+    "actionRequired": "Stripe 需要更多信息才能完成您的账户。",
+    "onboarding": "您的账户设置尚未完成。",
+    "disabled": "Stripe 已停用此账户。请联系运营商。",
+    "continueSetup": "继续设置",
+    "invalidLink": "此链接无效或已过期。",
+    "askOperator": "请向运营商索取新链接。",
+    "notAvailable": "收款设置暂不可用。请联系运营商。",
+    "failed": "出错了，请重试。"
+  },
+  "paymentProviders": {
+    "loadFailed": "无法加载支付表单。",
+    "providerNotSupported": "此处不支持该支付服务商。",
+    "refused": {
+      "default": "该卡被拒绝。请尝试其他卡。",
+      "card_declined": "您的卡被拒绝。请尝试其他卡。",
+      "insufficient_funds": "余额不足。请尝试其他卡。",
+      "authentication_failed": "验证失败。该卡未保存。"
+    },
+    "simulated": {
+      "testMode": "测试模式，不涉及真实资金。请选择一张测试卡。",
+      "testCard": "测试卡",
+      "challengeTitle": "需要验证",
+      "challengeDescription": "此测试卡要求验证，与银行的 3-D Secure 相同。请选择通过或失败以继续。",
+      "challengeApprove": "通过",
+      "challengeFail": "失败",
+      "scenario": {
+        "approve": "批准",
+        "decline": "拒绝：卡被拒绝",
+        "nofunds": "拒绝：余额不足",
+        "chargefail": "可保存，每次扣款都被拒绝",
+        "action": "需要验证",
+        "partial": "部分批准（50%）",
+        "capfail": "扣款确认失败",
+        "adjfail": "预授权调整被拒绝",
+        "refundfail": "退款失败",
+        "dispute": "扣款后发生争议",
+        "random": "随机失败"
+      }
+    },
+    "adyen": {
+      "refused": "银行卡被拒绝（{{reason}}）。请换一张卡。",
+      "error": "银行卡表单出现问题。请重试。",
+      "authenticate": "请完成银行验证以继续。",
+      "return": {
+        "title": "银行卡验证",
+        "processing": "正在完成银行验证...",
+        "invalid": "此验证链接不完整。请从银行卡表单重新开始。",
+        "failed": "无法完成验证。请重试。",
+        "cardSaved": "银行卡已保存。",
+        "backToMethods": "返回支付方式",
+        "viewSession": "查看充电会话",
+        "home": "返回首页"
+      }
+    }
   }
 }

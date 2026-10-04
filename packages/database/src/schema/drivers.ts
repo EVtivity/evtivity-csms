@@ -53,6 +53,8 @@ export const drivers = pgTable(
     isActive: boolean('is_active').notNull().default(true),
     emailVerified: boolean('email_verified').notNull().default(false),
     lastNotificationReadAt: timestamp('last_notification_read_at', { withTimezone: true }),
+    // Kept until P8; driver_payment_customers holds the customer per provider
+    // (drivers_payment_customer_sync copies writes of the previous release).
     stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -93,6 +95,11 @@ export const guestSessions = pgTable(
       onDelete: 'cascade',
     }),
     stripePaymentIntentId: varchar('stripe_payment_intent_id', { length: 255 }),
+    // Payments P4: provider and payment id next to stripe_payment_intent_id
+    // until P8 (guest_sessions_provider_sync copies writes of the previous
+    // release). Null for a free guest session.
+    provider: varchar('provider', { length: 32 }),
+    providerPaymentId: varchar('provider_payment_id', { length: 255 }),
     guestEmail: varchar('guest_email', { length: 255 }).notNull(),
     preAuthAmountCents: integer('pre_auth_amount_cents'),
     // Transaction limit returned in the OCPP 2.1 TransactionEventResponse when
@@ -102,6 +109,10 @@ export const guestSessions = pgTable(
     maxTimeSeconds: integer('max_time_seconds'),
     status: guestSessionStatusEnum('status').notNull().default('pending_payment'),
     sessionToken: varchar('session_token', { length: 64 }).notNull().unique(),
+    // Payments P10 Part B: set by the one request that sends
+    // RequestStartTransaction for this session (the start route, or the
+    // 3DS details route, which can run more than once). Null until then.
+    startRequestedAt: timestamp('start_requested_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

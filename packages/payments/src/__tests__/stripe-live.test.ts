@@ -22,6 +22,7 @@ vi.mock('../payment-records.js', async () => (await import('./helpers/memory-rec
 
 import { StripePaymentProvider } from '../providers/stripe/index.js';
 import { authorizeSessionHold, settleSessionPayment } from '../session-payments.js';
+import { refundKey } from '../idempotency-keys.js';
 import { refundPaymentRecord } from '../refunds.js';
 import type { PaymentContext } from '../context.js';
 import type { PaymentProviderRegistry } from '../registry.js';
@@ -52,6 +53,7 @@ describe.skipIf(!isTestKey)('StripePaymentProvider against Stripe test mode', ()
       client,
       publishableKey: 'pk_test_unused',
       webhookSecret: WEBHOOK_SECRET,
+      connectWebhookSecret: null,
     });
     ({ customerId } = await provider.createCustomer({
       email: 'contract-test@example.com',
@@ -334,7 +336,7 @@ describe.skipIf(!isTestKey)('StripePaymentProvider against Stripe test mode', ()
     let ctx: PaymentContext;
 
     beforeAll(() => {
-      sessionDb.method = { id: 1, customerId, methodId };
+      sessionDb.method = { id: 1, provider: 'stripe', customerId, methodId };
       sessionDb.sitePaymentConfig = null;
       sessionDb.platformFeePercent = 0;
       ctx = {
@@ -434,8 +436,7 @@ describe.skipIf(!isTestKey)('StripePaymentProvider against Stripe test mode', ()
 
     it('replays a spanning refund request without refunding twice', async () => {
       const { sessionId, intentId, topUpId } = await settled('topup_replay', 2600);
-      const record = memoryRecords.bySession(sessionId);
-      const base = `refund_${intentId}_${String(record?.id)}_0_2300`;
+      const parts = { refundedSoFarCents: 0, amountCents: 2300, ledgerEntries: 0 };
       expect(await refundPaymentRecord({ sessionId, amountCents: 2300 }, ctx)).toMatchObject({
         refundedNowCents: 2300,
       });
@@ -444,14 +445,14 @@ describe.skipIf(!isTestKey)('StripePaymentProvider against Stripe test mode', ()
         amountCents: HOLD,
         currency: 'USD',
         merchantReference: `sess_${sessionId}`,
-        idempotencyKey: base,
+        idempotencyKey: refundKey(intentId, parts),
       });
       const topUpReplay = await provider.refund({
         paymentId: topUpId,
         amountCents: 300,
         currency: 'USD',
         merchantReference: `sess_${sessionId}`,
-        idempotencyKey: `${base}_topup_1`,
+        idempotencyKey: refundKey(intentId, parts, 1),
       });
       const holdRefunds = (await client.refunds.list({ payment_intent: intentId })).data;
       const topUpRefunds = (await client.refunds.list({ payment_intent: topUpId })).data;

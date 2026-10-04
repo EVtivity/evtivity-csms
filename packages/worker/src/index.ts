@@ -22,6 +22,16 @@ import {
   startMaintenanceFanoutBridge,
 } from './maintenance-fanout-worker.js';
 import { createStationWatchWorker, startStationWatchBridge } from './station-watch-worker.js';
+import {
+  createPaymentWebhookWorker,
+  queueSimulatedSink,
+  startPaymentWebhookBridge,
+} from './payment-webhook-worker.js';
+import { setSimulatedEventSink } from './lib/payments.js';
+import {
+  createRemoteStartTimeoutWorker,
+  startRemoteStartTimeoutBridge,
+} from './remote-start-timeout-worker.js';
 import { octtRunnerHandler } from './handlers/octt-runner.js';
 import type { OcttJobData } from './handlers/octt-runner.js';
 
@@ -45,7 +55,10 @@ async function start(): Promise<void> {
     octtQueue,
     maintenanceFanoutQueue,
     stationWatchQueue,
+    paymentWebhookQueue,
+    remoteStartTimeoutQueue,
   } = createQueues(REDIS_URL);
+  setSimulatedEventSink(queueSimulatedSink(paymentWebhookQueue));
 
   // Schedule cron jobs from database
   await scheduleCronJobs(cronQueue);
@@ -67,6 +80,14 @@ async function start(): Promise<void> {
     createBullMQConnection(REDIS_URL),
   );
   const stationWatchWorker = createStationWatchWorker(createBullMQConnection(REDIS_URL));
+  const paymentWebhookWorker = createPaymentWebhookWorker(
+    createBullMQConnection(REDIS_URL),
+    pubsub,
+  );
+  const remoteStartTimeoutWorker = createRemoteStartTimeoutWorker(
+    createBullMQConnection(REDIS_URL),
+    pubsub,
+  );
 
   // OCTT conformance test worker
   const octtWorker = new Worker<OcttJobData>(
@@ -88,6 +109,11 @@ async function start(): Promise<void> {
     maintenanceFanoutQueue,
   );
   const stopStationWatchBridge = await startStationWatchBridge(pubsub, stationWatchQueue);
+  const stopPaymentWebhookBridge = await startPaymentWebhookBridge(pubsub, paymentWebhookQueue);
+  const stopRemoteStartTimeoutBridge = await startRemoteStartTimeoutBridge(
+    pubsub,
+    remoteStartTimeoutQueue,
+  );
 
   // Listen for credential-rotation invalidations from the API so the next
   // dispatchDriverNotification / scheduled report email reads fresh SMTP and
@@ -127,6 +153,8 @@ async function start(): Promise<void> {
     await stopReservationBridge();
     await stopMaintenanceFanoutBridge();
     await stopStationWatchBridge();
+    await stopPaymentWebhookBridge();
+    await stopRemoteStartTimeoutBridge();
     await octtSubscription.unsubscribe();
     await cacheInvalidateSubscription.unsubscribe();
     await cronWorker.close();
@@ -135,6 +163,8 @@ async function start(): Promise<void> {
     await reservationWorker.close();
     await maintenanceFanoutWorker.close();
     await stationWatchWorker.close();
+    await paymentWebhookWorker.close();
+    await remoteStartTimeoutWorker.close();
     await octtWorker.close();
     await cronQueue.close();
     await loadQueue.close();
@@ -143,6 +173,9 @@ async function start(): Promise<void> {
     await octtQueue.close();
     await maintenanceFanoutQueue.close();
     await stationWatchQueue.close();
+    setSimulatedEventSink(null);
+    await paymentWebhookQueue.close();
+    await remoteStartTimeoutQueue.close();
     await pubsub.close();
     log.info('Worker shutdown complete');
     process.exit(0);

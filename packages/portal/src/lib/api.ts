@@ -30,6 +30,15 @@ export class ApiError extends Error {
   }
 }
 
+// The stable `code` of an ApiError body, or null.
+export function getApiErrorCode(err: unknown): string | null {
+  if (!(err instanceof ApiError)) return null;
+  const body = err.body;
+  if (body == null || typeof body !== 'object' || Array.isArray(body)) return null;
+  const code = (body as Record<string, unknown>).code;
+  return typeof code === 'string' ? code : null;
+}
+
 // Safely extract `details` (field -> message map) from an ApiError body. The
 // global API error handler attaches this on VALIDATION_ERROR responses so
 // portal forms can show server-rejected fields next to the offending input
@@ -58,6 +67,9 @@ const PUBLIC_PATHS = new Set([
   '/forgot-password',
   '/reset-password',
   '/activate',
+  '/payments/return',
+  '/payout-onboarding',
+  '/payout-onboarding/return',
   '/privacy-policy',
   '/terms-of-service',
 ]);

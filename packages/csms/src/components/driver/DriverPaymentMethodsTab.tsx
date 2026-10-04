@@ -22,12 +22,14 @@ import { PaymentMethodForm } from '@/components/PaymentMethodForm';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
+import { providerLabel } from '@/payments/provider-label';
 
 interface DriverPaymentMethod {
-  id: number;
+  id: string;
   driverId: string;
-  stripeCustomerId: string;
-  stripePaymentMethodId: string;
+  provider: string | null;
+  providerCustomerId: string | null;
+  providerPaymentMethodId: string | null;
   cardBrand: string | null;
   cardLast4: string | null;
   isDefault: boolean;
@@ -47,7 +49,7 @@ export function DriverPaymentMethodsTab({
   const queryClient = useQueryClient();
 
   const [addingPaymentMethod, setAddingPaymentMethod] = useState(false);
-  const [deletePaymentMethodId, setDeletePaymentMethodId] = useState<number | null>(null);
+  const [deletePaymentMethodId, setDeletePaymentMethodId] = useState<string | null>(null);
 
   const { data: paymentMethods } = useQuery({
     queryKey: ['drivers', driverId, 'payment-methods'],
@@ -55,16 +57,16 @@ export function DriverPaymentMethodsTab({
   });
 
   const deletePaymentMethodMutation = useMutation({
-    mutationFn: (pmId: number) =>
-      api.delete(`/v1/drivers/${driverId}/payment-methods/${String(pmId)}`),
+    mutationFn: (pmId: string) =>
+      api.delete(`/v1/drivers/${driverId}/payment-methods/${encodeURIComponent(pmId)}`),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['drivers', driverId, 'payment-methods'] });
     },
   });
 
   const setDefaultMutation = useMutation({
-    mutationFn: (pmId: number) =>
-      api.patch(`/v1/drivers/${driverId}/payment-methods/${String(pmId)}/default`, {}),
+    mutationFn: (pmId: string) =>
+      api.patch(`/v1/drivers/${driverId}/payment-methods/${encodeURIComponent(pmId)}/default`, {}),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['drivers', driverId, 'payment-methods'] });
     },
@@ -103,6 +105,7 @@ export function DriverPaymentMethodsTab({
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>{t('payments.provider')}</TableHead>
                     <TableHead>{t('payments.cardBrand')}</TableHead>
                     <TableHead>{t('payments.cardLast4')}</TableHead>
                     <TableHead>{t('payments.default')}</TableHead>
@@ -113,6 +116,13 @@ export function DriverPaymentMethodsTab({
                 <TableBody>
                   {paymentMethods?.map((pm) => (
                     <TableRow key={pm.id}>
+                      <TableCell>
+                        {pm.provider != null ? (
+                          <Badge variant="secondary">{providerLabel(pm.provider, t)}</Badge>
+                        ) : (
+                          '-'
+                        )}
+                      </TableCell>
                       <TableCell className="capitalize">{pm.cardBrand ?? '-'}</TableCell>
                       <TableCell>{pm.cardLast4 != null ? `****${pm.cardLast4}` : '-'}</TableCell>
                       <TableCell>
@@ -148,7 +158,7 @@ export function DriverPaymentMethodsTab({
                   ))}
                   {(paymentMethods == null || paymentMethods.length === 0) && (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      <TableCell colSpan={6} className="text-center text-muted-foreground">
                         {t('payments.noPaymentMethods')}
                       </TableCell>
                     </TableRow>

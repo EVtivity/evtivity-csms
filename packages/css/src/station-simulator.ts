@@ -3734,7 +3734,7 @@ export class StationSimulator {
           // - Cable not yet plugged -> accept, arm the EVConnectionTimeOut
           //   pre-tx timer, and wait for plugIn() to drive beginTransaction
           //   via its existing auto-start path. If the timer fires first the
-          //   simulator emits Started+Ended with triggerReason=EVConnectTimeout.
+          //   authorization ends without a transaction (C01.FR.26).
           const reportedStatus21 = this.evseConnectorStatus.get(evseId);
           const PLUGGED_21 = new Set(['Occupied', 'EVConnected']);
           const cableEffective =
@@ -7332,9 +7332,14 @@ export class StationSimulator {
     ctx.remoteStartId = null;
   }
 
-  /** OCPP 2.1: Pre-transaction EVConnectionTimeout for remote start without cable.
-   *  No transaction has been started yet. When the timer fires, the station creates
-   *  a brief transaction (Started + Ended) with EVConnectTimeout. */
+  /** OCPP 2.1: EVConnectionTimeOut of an authorization without a cable (a remote start
+   *  or a local authorize before the EV is connected). The simulator starts a
+   *  transaction only with the cable connected and authorized (PowerPathClosed; PICS
+   *  C-09.2 and C-51 unsupported), so no transaction exists yet. When the timer fires
+   *  the authorization ends (C01.FR.26) and no TransactionEvent is sent: TC_C_100_CS,
+   *  TC_E_05_CS, TC_E_39_CS and TC_F_04_CS expect one only when the transaction started
+   *  at Authorized or ParkingBayOccupancy. The StatusNotification Available is the
+   *  optional notification those test cases allow. */
   private startEvConnectTimeoutTimerPreTx(evseId: number): void {
     this.cancelEvConnectTimeoutTimer(evseId);
     const timeoutSec = Number(
@@ -7346,48 +7351,15 @@ export class StationSimulator {
     const timer = setTimeout(() => {
       this.evConnectTimeoutTimers.delete(evseId);
       const ctx = this.evseContexts.get(evseId);
-      if (ctx == null || ctx.cablePlugged) return;
-      // No transaction was started. Create a minimal Started + Ended pair.
-      void (async () => {
-        try {
-          const txId = randomUUID();
-          this.evseSeqNo.set(evseId, 0);
-          // TransactionEvent Started
-          const startOpts: Parameters<typeof this.sendTransactionEvent>[2] = {
-            triggerReason: ctx.remoteStartId != null ? 'RemoteStart' : 'Authorized',
-            transactionId: txId,
-            chargingState: 'EVConnected',
-          };
-          if (ctx.authorizedToken != null) {
-            startOpts.idToken = ctx.authorizedToken;
-            startOpts.tokenType = ctx.authorizedTokenType ?? 'ISO14443';
-          }
-          await this.sendTransactionEvent(evseId, 'Started', startOpts);
-          // TransactionEvent Ended with EVConnectTimeout
-          const seqNo = 1;
-          this.evseSeqNo.set(evseId, seqNo);
-          await this.sendTransactionEvent(evseId, 'Ended', {
-            triggerReason: 'EVConnectTimeout',
-            transactionId: txId,
-            chargingState: 'Idle',
-            stoppedReason: 'Timeout',
-            seqNo,
-          });
-          // Reset EVSE state
-          ctx.state = 'Available';
-          ctx.transactionId = null;
-          ctx.authorizedToken = null;
-          ctx.authorizedTokenType = null;
-          ctx.remoteStartId = null;
-          this.evseSeqNo.set(evseId, 0);
-          this.evseChargingState.set(evseId, null);
-          this.evseConnectorStatus.set(evseId, 'Available');
-          const connectorId = this.getConnectorId(evseId);
-          await this.sendStatusNotification(evseId, connectorId, 'Available');
-        } catch {
-          // Best effort
-        }
-      })();
+      if (ctx == null || ctx.cablePlugged || ctx.transactionId != null) return;
+      ctx.state = 'Available';
+      ctx.authorizedToken = null;
+      ctx.authorizedTokenType = null;
+      ctx.remoteStartId = null;
+      this.evseConnectorStatus.set(evseId, 'Available');
+      const connectorId = this.getConnectorId(evseId);
+      void this.sendStatusNotification(evseId, connectorId, 'Available').catch(() => {});
+      void this.updateEvseStatus(evseId, 'Available').catch(() => {});
     }, timeoutSec * 1000);
     this.evConnectTimeoutTimers.set(evseId, timer);
   }

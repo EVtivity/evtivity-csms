@@ -21,6 +21,11 @@ describe('redactSensitiveNotificationContent', () => {
     expect(out).toContain('Set Your Password');
   });
 
+  it('redacts the onboarding link in a site payout onboarding email', () => {
+    const html = `<a href='https://portal.test/payout-onboarding?token&#x3D;${TOKEN}'>Set Up</a>`;
+    expect(redactSensitiveNotificationContent(html, 'site.PayoutOnboarding')).not.toContain(TOKEN);
+  });
+
   it('redacts the reset link in a forgot-password email', () => {
     const html = `<a href='https://portal.test/reset-password?token&#x3D;${TOKEN}'>Reset</a>`;
     expect(redactSensitiveNotificationContent(html, 'driver.ForgotPassword')).not.toContain(TOKEN);

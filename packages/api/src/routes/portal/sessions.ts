@@ -526,10 +526,10 @@ export function portalSessionRoutes(app: FastifyInstance): void {
 
       const [payment, latestPower, latestSoc, vehicleEfficiency] = await Promise.all([
         // Only return display-safe fields. The full payment_records row
-        // contains stripe_customer_id, stripe_payment_method_id, and
-        // stripe_payment_intent_id which the portal does not need; surfacing
-        // them is the same defense-in-depth issue the payment-methods list
-        // was just fixed for.
+        // contains the provider ids (provider_payment_id, provider_customer_id,
+        // provider_payment_method_id and their stripe_* copies until P8)
+        // which the portal does not need; surfacing them is the same
+        // defense-in-depth issue the payment-methods list was just fixed for.
         db
           .select({
             id: paymentRecords.id,

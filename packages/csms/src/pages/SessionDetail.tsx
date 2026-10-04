@@ -11,7 +11,7 @@ import { CopyableId } from '@/components/copyable-id';
 import { MeterValuesTable } from '@/components/MeterValuesTable';
 import { SessionDetailsTab } from '@/components/session/SessionDetailsTab';
 import { SessionGuestTab } from '@/components/session/SessionGuestTab';
-import { SessionPaymentTab } from '@/components/session/SessionPaymentTab';
+import { SessionPaymentTab, type PaymentRecord } from '@/components/session/SessionPaymentTab';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
@@ -20,23 +20,13 @@ import { useUserTimezone } from '@/lib/timezone';
 import { sessionStatusVariant } from '@/lib/status-variants';
 import { LoadingLogo } from '@/components/loading-logo';
 
-interface PaymentRecord {
-  id: number;
-  status: string;
-  paymentSource: string;
-  currency: string;
-  preAuthAmountCents: number | null;
-  capturedAmountCents: number | null;
-  refundedAmountCents: number;
-  failureReason: string | null;
-}
-
 interface GuestSessionInfo {
   sessionToken: string;
   guestEmail: string;
   status: string;
   preAuthAmountCents: number | null;
-  stripePaymentIntentId: string | null;
+  provider: string | null;
+  providerPaymentId: string | null;
   expiresAt: string;
   createdAt: string;
 }
@@ -116,8 +106,11 @@ export function SessionDetail(): React.JSX.Element {
 
   const currency = session.currency;
   const payment = session.paymentRecord;
+  // A capture the provider has not confirmed cannot be refunded yet (409 PAYMENT_OPERATION_PENDING).
   const canRefund =
-    payment != null && (payment.status === 'captured' || payment.status === 'partially_refunded');
+    payment != null &&
+    (payment.status === 'captured' || payment.status === 'partially_refunded') &&
+    payment.pendingOperation !== 'capture';
   const tokenMismatch =
     session.metadata != null &&
     typeof session.metadata === 'object' &&
@@ -189,6 +182,7 @@ export function SessionDetail(): React.JSX.Element {
             payment={payment}
             canRefund={canRefund}
             formatCents={formatCents}
+            timezone={timezone}
           />
         </TabsContent>
 

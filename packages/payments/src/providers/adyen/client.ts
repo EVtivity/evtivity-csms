@@ -43,10 +43,20 @@ export class AdyenApiError extends Error {
 
   constructor(
     status: number,
-    body: { errorCode?: unknown; errorType?: unknown; message?: unknown; pspReference?: unknown },
+    body: {
+      errorCode?: unknown;
+      errorType?: unknown;
+      message?: unknown;
+      pspReference?: unknown;
+      title?: unknown;
+      detail?: unknown;
+    },
   ) {
-    const message =
-      typeof body.message === 'string' ? body.message : `Adyen HTTP ${String(status)}`;
+    // Checkout answers `message`; the Management API answers problem details (`detail`, `title`).
+    const text = [body.message, body.detail, body.title].find(
+      (v): v is string => typeof v === 'string' && v !== '',
+    );
+    const message = text ?? `Adyen HTTP ${String(status)}`;
     super(message);
     this.name = 'AdyenApiError';
     this.status = status;
@@ -68,7 +78,7 @@ export interface AdyenClientOptions {
 }
 
 export interface AdyenRequest {
-  method: 'GET' | 'POST' | 'DELETE';
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   path: string;
   query?: Record<string, string>;
   body?: object;

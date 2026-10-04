@@ -7,7 +7,13 @@ vi.mock('@evtivity/database', async () => (await import('./helpers/session-db.js
 vi.mock('../settings.js', async () => (await import('./helpers/session-db.js')).settingsMock);
 vi.mock('../payment-records.js', async () => (await import('./helpers/memory-records.js')).records);
 
-import { allocateRefund, paymentCharges, topUpCharges, withTopUpRefunds } from '../top-ups.js';
+import {
+  allocateRefund,
+  paymentCharges,
+  topUpCharges,
+  unlistedTopUpCents,
+  withTopUpRefunds,
+} from '../top-ups.js';
 import type { ChargeRecord } from '../top-ups.js';
 import { SimulatedPaymentProvider } from '../providers/simulated/index.js';
 import {
@@ -23,7 +29,7 @@ import { sessionDb } from './helpers/session-db.js';
 
 function rec(overrides: Partial<ChargeRecord> = {}): ChargeRecord {
   return {
-    stripePaymentIntentId: 'pi_hold',
+    providerPaymentId: 'pi_hold',
     capturedAmountCents: 3000,
     refundedAmountCents: 0,
     preAuthAmountCents: 2000,
@@ -54,23 +60,16 @@ describe('topUpCharges', () => {
     ).toEqual([{ paymentId: 'pi_t1', amountCents: 600, refundedCents: 100 }]);
   });
 
-  it('reads a legacy topUpIntentId as the capture above the hold', () => {
+  it('ignores a legacy topUpIntentId (migration 0121 rewrites it as topUps)', () => {
     expect(
       topUpCharges(rec({ capturedAmountCents: 2600, metadata: { topUpIntentId: 'pi_old' } })),
-    ).toEqual([{ paymentId: 'pi_old', amountCents: 600, refundedCents: 0 }]);
-    // Without a hold amount, or with nothing above it, there is no top-up.
-    expect(
-      topUpCharges(rec({ preAuthAmountCents: null, metadata: { topUpIntentId: 'pi_old' } })),
-    ).toEqual([]);
-    expect(
-      topUpCharges(rec({ capturedAmountCents: 1500, metadata: { topUpIntentId: 'pi_old' } })),
     ).toEqual([]);
   });
 
-  it('is empty without metadata, for other metadata and an empty id', () => {
+  it('is empty without metadata, for other metadata and a non-list', () => {
     expect(topUpCharges(rec({ metadata: null }))).toEqual([]);
     expect(topUpCharges(rec({ metadata: { tokenId: 't1' } }))).toEqual([]);
-    expect(topUpCharges(rec({ metadata: { topUpIntentId: '' } }))).toEqual([]);
+    expect(topUpCharges(rec({ metadata: { topUps: 'pi_t1' } }))).toEqual([]);
     expect(topUpCharges(rec({ metadata: 'text' }))).toEqual([]);
   });
 });
@@ -100,7 +99,32 @@ describe('paymentCharges', () => {
     expect(paymentCharges(rec({ metadata: null }))).toEqual([
       { kind: 'hold', paymentId: 'pi_hold', capturedCents: 3000, refundedCents: 0, number: 0 },
     ]);
-    expect(paymentCharges(rec({ stripePaymentIntentId: null, metadata: null }))).toEqual([]);
+    expect(paymentCharges(rec({ providerPaymentId: null, metadata: null }))).toEqual([]);
+  });
+});
+
+describe('unlistedTopUpCents', () => {
+  it('is the capture above the hold that no listed top-up accounts for', () => {
+    // A retry top-up recorded before v0.1.37: id only in last_action_reason.
+    expect(unlistedTopUpCents(rec({ capturedAmountCents: 2500, metadata: null }))).toBe(500);
+    expect(
+      unlistedTopUpCents(
+        rec({
+          capturedAmountCents: 3300,
+          metadata: { topUps: [{ paymentId: 'pi_t1', amountCents: 600, refundedCents: 0 }] },
+        }),
+      ),
+    ).toBe(700);
+  });
+
+  it('is 0 when the hold and the listed top-ups account for the capture', () => {
+    expect(unlistedTopUpCents(rec())).toBe(0);
+    expect(unlistedTopUpCents(rec({ capturedAmountCents: 1500, metadata: null }))).toBe(0);
+  });
+
+  it('is 0 without a hold payment or a hold amount', () => {
+    expect(unlistedTopUpCents(rec({ preAuthAmountCents: null, metadata: null }))).toBe(0);
+    expect(unlistedTopUpCents(rec({ providerPaymentId: null, metadata: null }))).toBe(0);
   });
 });
 
@@ -171,6 +195,7 @@ describe('top-ups through the simulated provider', () => {
   beforeAll(() => {
     sessionDb.method = {
       id: 1,
+      provider: 'simulated',
       customerId: 'cus_sim_topups',
       methodId: 'pm_sim_approve_4242_topups',
     };

@@ -4,8 +4,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { loadStripe } from '@stripe/stripe-js/pure';
-import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { ArrowLeft, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,17 +15,43 @@ import { EvPlugAnimation } from '@/components/EvPlugAnimation';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
-import { formatCents } from '@/lib/utils';
 import { checkGuestConnectorStatus, qrTransactionLimits } from '@/lib/charger-utils';
 import { useCableCheck } from '@/hooks/use-cable-check';
+import { ProviderHost } from '@/payments/ProviderHost';
+import { submitGuestPaymentDetails, type GuestStartResponse } from '@/payments/api';
+import type { ClientConfig, GuestPayResult, ShopperBrowser } from '@/payments/types';
 
 interface ChargerConfig {
   isFree: boolean;
   isSimulator?: boolean;
-  publishableKey?: string;
+  /** Client config of the active payment provider; null when payments are off. */
+  paymentProvider?: ClientConfig | null;
   currency?: string;
+  /** Company country; Adyen Web needs it. */
+  countryCode?: string | null;
   preAuthAmountCents?: number;
 }
+
+/** The paid checkout terms: present only when a provider and its hold terms are. */
+interface PaidCheckout {
+  provider: ClientConfig;
+  currency: string;
+  countryCode: string | null;
+  preAuthAmountCents: number;
+}
+
+function paidCheckout(config: ChargerConfig): PaidCheckout | null {
+  if (config.paymentProvider == null || config.currency == null) return null;
+  if (config.preAuthAmountCents == null) return null;
+  return {
+    provider: config.paymentProvider,
+    currency: config.currency,
+    countryCode: config.countryCode ?? null,
+    preAuthAmountCents: config.preAuthAmountCents,
+  };
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function FreeStartForm({
   stationId,
@@ -105,96 +129,96 @@ function FreeStartForm({
 function CheckoutForm({
   stationId,
   evseId,
-  config,
+  checkout,
   isSimulator,
 }: {
   stationId: string;
   evseId: string;
-  config: ChargerConfig;
+  checkout: PaidCheckout;
   isSimulator: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
-  const stripe = useStripe();
-  const elements = useElements();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { isCheckingStatus, showEvWarning, setShowEvWarning, runWithCableCheck } = useCableCheck();
 
-  async function doCheckoutAndStart(): Promise<void> {
-    if (stripe == null || elements == null) return;
-    setLoading(true);
-    setError('');
-    try {
-      const cardElement = elements.getElement(CardElement);
-      if (cardElement == null) return;
-
-      // Create a payment method from the card element
-      const { paymentMethod, error: pmError } = await stripe.createPaymentMethod({
-        type: 'card',
-        card: cardElement,
-        billing_details: { email },
-      });
-
-      if (pmError != null) {
-        const errorKey = pmError.decline_code ?? pmError.code ?? 'generic';
-        const knownErrors: Record<string, string> = {
-          card_declined: t('guest.cardDeclined'),
-          expired_card: t('guest.cardExpired'),
-          incorrect_cvc: t('guest.incorrectCvc'),
-          insufficient_funds: t('guest.insufficientFunds'),
-          processing_error: t('guest.processingError'),
-        };
-        setError(knownErrors[errorKey] ?? pmError.message ?? t('guest.cardError'));
-        return;
-      }
-
-      // Start guest session
-      const result = await api.post<{ sessionToken: string }>(
-        `/v1/portal/guest/start/${stationId}/${evseId}`,
-        {
-          paymentMethodId: paymentMethod.id,
-          guestEmail: email,
-          ...qrTransactionLimits(searchParams),
-        },
-      );
-
-      void navigate(`/guest-session/${result.sessionToken}`);
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, t, 'guest.paymentFailed'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  async function handleSubmit(e: React.FormEvent): Promise<void> {
-    e.preventDefault();
-    if (stripe == null || elements == null) return;
-    if (loading || isCheckingStatus) return; // Guard against double-submit
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  function validateEmail(): boolean {
     if (email.trim() === '') {
       setEmailError(t('guest.emailRequired'));
-      return;
+      return false;
     }
-    if (!emailRegex.test(email)) {
+    if (!EMAIL_PATTERN.test(email)) {
       setEmailError(t('guest.emailInvalid'));
-      return;
+      return false;
     }
     setEmailError('');
+    return true;
+  }
+
+  /** Navigates to the session once charging started, or hands the 3D Secure action back. */
+  function guestOutcome(result: GuestStartResponse): GuestPayResult {
+    if (result.status === 'action_required' && result.action != null) {
+      return {
+        status: 'action_required',
+        sessionToken: result.sessionToken,
+        action: result.action,
+      };
+    }
+    void navigate(`/guest-session/${result.sessionToken}`);
+    return { status: 'done' };
+  }
+
+  /**
+   * GuestPaymentProps.pay: resolves when this host handled the outcome (navigation,
+   * email field error, cable check) or with a 3D Secure action, rejects with the start
+   * error for the module to show.
+   */
+  async function pay(payload: unknown, browser?: ShopperBrowser): Promise<GuestPayResult> {
+    if (!validateEmail()) return { status: 'done' };
+    // runWithCableCheck reports its own errors; a start error goes back to the module.
+    const start: { failed: boolean; error: unknown; result: GuestPayResult } = {
+      failed: false,
+      error: null,
+      result: { status: 'done' },
+    };
     await runWithCableCheck(
       () => checkGuestConnectorStatus(stationId, evseId),
-      () => doCheckoutAndStart(),
+      async () => {
+        try {
+          const result = await api.post<GuestStartResponse>(
+            `/v1/portal/guest/start/${stationId}/${evseId}`,
+            {
+              paymentMethod: {
+                provider: checkout.provider.provider,
+                payload,
+                ...(browser != null ? { browser } : {}),
+              },
+              guestEmail: email,
+              ...qrTransactionLimits(searchParams),
+            },
+          );
+          start.result = guestOutcome(result);
+        } catch (err: unknown) {
+          start.failed = true;
+          start.error = err;
+        }
+      },
       setError,
     );
+    if (start.failed) throw start.error;
+    return start.result;
+  }
+
+  /** GuestPaymentProps.payDetails: the 3D Secure result of a started guest session. */
+  async function payDetails(sessionToken: string, details: unknown): Promise<GuestPayResult> {
+    return guestOutcome(await submitGuestPaymentDetails(sessionToken, details));
   }
 
   return (
-    <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+    <div className="space-y-4">
       {error !== '' && <p className="text-sm text-destructive">{error}</p>}
       <div className="space-y-2">
         <label htmlFor="guestEmail" className="block text-sm font-medium leading-6">
@@ -221,42 +245,22 @@ function CheckoutForm({
           </p>
         )}
       </div>
-      <div className="space-y-2">
-        <label className="block text-sm font-medium leading-6">{t('guest.card')}</label>
-        <div className="rounded-lg border border-input p-3">
-          <CardElement
-            options={{
-              style: {
-                base: {
-                  fontSize: '16px',
-                  color: document.documentElement.classList.contains('dark')
-                    ? '#f8fafc'
-                    : '#020817',
-                  '::placeholder': {
-                    color: document.documentElement.classList.contains('dark')
-                      ? '#94a3b8'
-                      : '#64748b',
-                  },
-                },
-              },
-            }}
-          />
-        </div>
-      </div>
-      {config.currency != null && (
-        <p className="text-xs text-muted-foreground">
-          {t('guest.preAuthHold', {
-            amount: formatCents(config.preAuthAmountCents, config.currency),
-          })}
-        </p>
+      <ProviderHost
+        provider={checkout.provider.provider}
+        component="GuestPayment"
+        props={{
+          config: checkout.provider,
+          amountCents: checkout.preAuthAmountCents,
+          currency: checkout.currency,
+          ...(checkout.countryCode != null ? { countryCode: checkout.countryCode } : {}),
+          disabled: isCheckingStatus,
+          pay,
+          payDetails,
+        }}
+      />
+      {isCheckingStatus && (
+        <p className="text-sm text-muted-foreground">{t('charger.checkingStatus')}</p>
       )}
-      <Button type="submit" className="w-full" size="lg" disabled={loading || isCheckingStatus}>
-        {isCheckingStatus
-          ? t('charger.checkingStatus')
-          : loading
-            ? t('guest.processing')
-            : t('guest.startCharging')}
-      </Button>
       <ConfirmDialog
         open={showEvWarning}
         onOpenChange={setShowEvWarning}
@@ -274,7 +278,7 @@ function CheckoutForm({
           </Alert>
         )}
       </ConfirmDialog>
-    </form>
+    </div>
   );
 }
 
@@ -284,7 +288,6 @@ export function GuestCheckout(): React.JSX.Element {
   const navigate = useNavigate();
   const { companyName, companyLogo, branding } = useAuthBranding();
   const [config, setConfig] = useState<ChargerConfig | null>(null);
-  const [stripePromise, setStripePromise] = useState<ReturnType<typeof loadStripe> | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -294,9 +297,7 @@ export function GuestCheckout(): React.JSX.Element {
       .get<ChargerConfig>(`/v1/portal/guest/charger-config/${stationId}/${evseId}`)
       .then((data) => {
         setConfig(data);
-        if (!data.isFree && data.publishableKey != null) {
-          setStripePromise(loadStripe(data.publishableKey));
-        } else if (!data.isFree) {
+        if (!data.isFree && paidCheckout(data) == null) {
           setError(t('guest.paymentNotConfigured'));
         }
       })
@@ -315,7 +316,8 @@ export function GuestCheckout(): React.JSX.Element {
     );
   }
 
-  if (config == null || (!config.isFree && stripePromise == null)) {
+  const checkout = config != null && !config.isFree ? paidCheckout(config) : null;
+  if (config == null || (!config.isFree && checkout == null)) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <p className="text-muted-foreground">{t('guest.loadingPayment')}</p>
@@ -352,15 +354,13 @@ export function GuestCheckout(): React.JSX.Element {
               evseId={evseId ?? ''}
               isSimulator={config.isSimulator === true}
             />
-          ) : stripePromise != null ? (
-            <Elements stripe={stripePromise}>
-              <CheckoutForm
-                stationId={stationId ?? ''}
-                evseId={evseId ?? ''}
-                config={config}
-                isSimulator={config.isSimulator === true}
-              />
-            </Elements>
+          ) : checkout != null ? (
+            <CheckoutForm
+              stationId={stationId ?? ''}
+              evseId={evseId ?? ''}
+              checkout={checkout}
+              isSimulator={config.isSimulator === true}
+            />
           ) : null}
         </CardContent>
       </Card>

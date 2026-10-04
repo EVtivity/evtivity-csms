@@ -3,6 +3,12 @@
 
 export { createBullMQConnection } from './bullmq.js';
 
+export {
+  connectionName,
+  CONNECTION_NAME_PREFIX,
+  LEGACY_CONNECTION_NAME,
+} from './connection-name.js';
+
 export { withLock } from './redis-lock.js';
 export type { WithLockOptions, WithLockResult } from './redis-lock.js';
 
@@ -316,3 +322,12 @@ export type {
   ElectricityRatePeriod,
   ElectricityRatePeriodRestrictions,
 } from './electricity-rate.js';
+export {
+  MOBILE_APP_URL_SCHEMES_KEY,
+  MOBILE_APP_ANDROID_PACKAGES_KEY,
+  isAppUrlScheme,
+  isAndroidPackageName,
+  isMobileAppSettingKey,
+  parseMobileAppList,
+} from './mobile-app.js';
+export type { MobileAppConfig } from './mobile-app.js';

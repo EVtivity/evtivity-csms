@@ -30,6 +30,10 @@ export interface ProviderCapabilities {
   stateLookup: boolean;
   marketplaceSplit: 'none' | 'destination_charge' | 'split_instructions';
   currencies: readonly string[] | 'all';
+  /** Site host payout account onboarding: a provider-hosted link, or none. */
+  payoutOnboarding: 'hosted_link' | 'none';
+  /** listWebhooks and registerWebhook are available. */
+  webhookRegistration: boolean;
 }
 
 /** Public, browser-safe config returned to the portal, CSMS and mobile app. */
@@ -55,9 +59,24 @@ export type ModificationResult<T extends object> =
   | ({ state: 'succeeded' } & T)
   | { state: 'pending'; operationRef: string };
 
-/** Browser context of a shopper-present call. */
-export interface BrowserContext {
+/**
+ * Where the shopper is during a shopper-present call (3D Secure). A web page
+ * (portal, dashboard) sends its origin; the mobile app sends its platform and
+ * the return URL its native SDK registered (plan P10 Part E).
+ */
+export type BrowserContext = WebBrowserContext | AppBrowserContext;
+
+/** A browser page. `channel` defaults to web. */
+export interface WebBrowserContext {
+  channel?: 'web';
   origin: string;
+  returnUrl: string;
+  info?: unknown;
+}
+
+/** The native mobile app. */
+export interface AppBrowserContext {
+  channel: 'ios' | 'android';
   returnUrl: string;
   info?: unknown;
 }
@@ -232,7 +251,11 @@ export type NormalizedPaymentEvent =
   | (PaymentEventBase & { type: 'payment.failed'; reason: string | null })
   | (PaymentEventBase & { type: 'payment.captured'; amountCents: number })
   | (PaymentEventBase & { type: 'payment.capture_failed'; reason: string | null })
-  | (PaymentEventBase & { type: 'payment.cancelled' })
+  | (PaymentEventBase & {
+      type: 'payment.cancelled';
+      /** The authorisation expired at the provider (Adyen EXPIRE), not a cancel request. */
+      expired?: boolean;
+    })
   | (PaymentEventBase & { type: 'payment.cancel_failed'; reason: string | null })
   | (PaymentEventBase & { type: 'payment.adjusted'; authorizedCents: number; success: boolean })
   | (PaymentEventBase & {
@@ -253,6 +276,14 @@ export type NormalizedPaymentEvent =
       reason: string | null;
     })
   | (PaymentEventBase & { type: 'payment.disputed'; disputeId: string; reason: string | null })
+  | {
+      eventId: string;
+      type: 'payout_account.updated';
+      /** The connected account the event is about. Its state is read back from the provider. */
+      accountId: string;
+      occurredAt: Date;
+      providerType?: string;
+    }
   | { eventId: string; type: 'ignored'; providerType: string; occurredAt: Date };
 
 export interface ProviderPaymentState {
@@ -266,6 +297,63 @@ export interface WebhookAck {
   status: number;
   contentType: string;
   body: string;
+}
+
+export interface WebhookRegistrationInput {
+  /** Absolute https URL ending in /v1/webhooks/<webhookPath>. */
+  url: string;
+  /** Replace an EVtivity endpoint that already exists for this provider. */
+  replace: boolean;
+}
+
+export interface WebhookEndpointInfo {
+  id: string;
+  url: string;
+  /** 'platform' or 'connect' (Stripe); 'standard' (Adyen). */
+  scope: string;
+  enabledEvents: string[];
+  apiVersion: string | null;
+  active: boolean;
+}
+
+export interface WebhookRegistration {
+  endpoints: WebhookEndpointInfo[];
+  /**
+   * Settings the caller stores before reporting success. `secret` entries are
+   * `*Enc` keys and are encrypted by the caller; values are plaintext here and
+   * are never logged.
+   */
+  settings: Array<{ key: string; value: string | boolean; secret: boolean }>;
+  /** Run after the settings are stored: turns the webhook on (Adyen). */
+  activate?: () => Promise<void>;
+}
+
+export type PayoutAccountState =
+  | 'onboarding'
+  | 'action_required'
+  | 'pending'
+  | 'active'
+  | 'disabled';
+
+export interface PayoutAccountStatus {
+  accountId: string;
+  state: PayoutAccountState;
+  capabilities: Record<string, 'active' | 'inactive' | 'pending' | 'unrequested'>;
+  detailsSubmitted: boolean;
+  requirementsDue: string[];
+  disabledReason: string | null;
+}
+
+export interface CreatePayoutAccountInput extends Idempotent {
+  displayName: string;
+  /**
+   * The site host's contact email. Required: Stripe refuses an Accounts v2
+   * account with the recipient configuration and no contact email.
+   */
+  contactEmail: string;
+  /** ISO 3166-1 alpha-2. */
+  country: string;
+  metadata: Record<string, string>;
 }
 
 export interface PaymentProvider {
@@ -320,4 +408,22 @@ export interface PaymentProvider {
   webhookAck(): WebhookAck;
   /** Required when capabilities.stateLookup. */
   getPaymentState?(paymentId: string): Promise<ProviderPaymentState>;
+
+  // Webhook registration
+  /** Required when capabilities.webhookRegistration. Lists EVtivity's endpoints. */
+  listWebhooks?(): Promise<WebhookEndpointInfo[]>;
+  /** Required when capabilities.webhookRegistration. Throws WebhookExistsError when replace is false and one exists. */
+  registerWebhook?(input: WebhookRegistrationInput): Promise<WebhookRegistration>;
+
+  // Site host payout accounts
+  /** Required when capabilities.payoutOnboarding is 'hosted_link'. */
+  createPayoutAccount?(input: CreatePayoutAccountInput): Promise<{ accountId: string }>;
+  /** Required when capabilities.payoutOnboarding is 'hosted_link'. */
+  createPayoutOnboardingLink?(input: {
+    accountId: string;
+    refreshUrl: string;
+    returnUrl: string;
+  }): Promise<{ url: string; expiresAt: Date }>;
+  /** Required when capabilities.payoutOnboarding is 'hosted_link'. */
+  getPayoutAccountStatus?(accountId: string): Promise<PayoutAccountStatus>;
 }

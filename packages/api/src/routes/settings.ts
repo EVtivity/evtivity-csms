@@ -21,8 +21,13 @@ import {
   clearSystemSettingsCache,
   clearStationMessageSettingsCache,
   invalidateReservationSettingsCache,
+  clearMobileAppConfigCache,
 } from '@evtivity/database';
 import { clearPaymentCaches, isPaymentSettingKey } from '../lib/payments.js';
+import {
+  assertPaymentProviderWritable,
+  replyIfProviderUpgradePending,
+} from '../lib/provider-switch.js';
 import {
   encryptString,
   clearNotificationSettingsCache,
@@ -35,6 +40,10 @@ import {
   isTaxBasis,
   TAX_BASES,
   UI_LANGUAGES,
+  isMobileAppSettingKey,
+  parseMobileAppList,
+  MOBILE_APP_URL_SCHEMES_KEY,
+  MOBILE_APP_ANDROID_PACKAGES_KEY,
 } from '@evtivity/lib';
 import { getPubSub } from '../lib/pubsub.js';
 
@@ -99,6 +108,10 @@ function normalizeSettingValue(key: string, value: unknown): { value: unknown } 
     return isStationMessageLanguage(value) ? { value } : null;
   }
   if (key === COMPANY_TAX_BASIS_KEY) return isTaxBasis(value) ? { value } : null;
+  if (isMobileAppSettingKey(key)) {
+    const list = parseMobileAppList(key, value);
+    return list != null ? { value: list } : null;
+  }
   if (key !== COMPANY_CURRENCY_KEY) return { value };
   const code = typeof value === 'string' ? value.trim().toUpperCase() : value;
   return isSupportedCurrency(code) ? { value: code } : null;
@@ -124,7 +137,20 @@ const invalidTaxBasisError = {
   code: 'VALIDATION_ERROR',
 };
 
+const invalidMobileAppSchemesError = {
+  error:
+    'mobile.app.urlSchemes must be an array of custom URL schemes (letters, digits, + - .; not http, https or adyencheckout)',
+  code: 'VALIDATION_ERROR',
+};
+
+const invalidMobileAppPackagesError = {
+  error: 'mobile.app.androidPackageNames must be an array of Android application ids',
+  code: 'VALIDATION_ERROR',
+};
+
 function invalidSettingError(key: string): { error: string; code: string } {
+  if (key === MOBILE_APP_URL_SCHEMES_KEY) return invalidMobileAppSchemesError;
+  if (key === MOBILE_APP_ANDROID_PACKAGES_KEY) return invalidMobileAppPackagesError;
   if (key === COMPANY_PRICE_DISPLAY_KEY) return invalidPriceDisplayError;
   if (key === COMPANY_TAX_BASIS_KEY) return invalidTaxBasisError;
   if (key === STATION_MESSAGE_LANGUAGE_KEY) return invalidStationMessageLanguageError;
@@ -137,6 +163,7 @@ function clearCachesForKey(key: string): void {
   if (key.startsWith('stationMessage.')) clearStationMessageSettingsCache();
   if (key.startsWith('reservation.')) invalidateReservationSettingsCache();
   if (isPaymentSettingKey(key)) clearPaymentCaches();
+  if (isMobileAppSettingKey(key)) clearMobileAppConfigCache();
 }
 
 const settingItem = z
@@ -360,6 +387,9 @@ export function settingsRoutes(app: FastifyInstance): void {
           200: itemResponse(settingItem),
           400: errorWith('Invalid setting value', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
+          409: errorWith('Processes older than v0.1.38 are still connected', [
+            ERROR_CODES.PAYMENT_PROVIDER_UPGRADE_PENDING,
+          ]),
         },
       },
     },
@@ -372,6 +402,12 @@ export function settingsRoutes(app: FastifyInstance): void {
       if (normalized == null) {
         await reply.status(400).send(invalidSettingError(key));
         return;
+      }
+      try {
+        await assertPaymentProviderWritable(key, normalized.value);
+      } catch (err) {
+        if (await replyIfProviderUpgradePending(reply, err)) return;
+        throw err;
       }
       const storedValue = encryptForWrite(key, normalized.value);
       const [before] = await db.select().from(settings).where(eq(settings.key, key));
@@ -418,6 +454,9 @@ export function settingsRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(settingItem),
           400: errorWith('Invalid setting value', [ERROR_CODES.VALIDATION_ERROR]),
+          409: errorWith('Processes older than v0.1.38 are still connected', [
+            ERROR_CODES.PAYMENT_PROVIDER_UPGRADE_PENDING,
+          ]),
         },
       },
     },
@@ -430,6 +469,12 @@ export function settingsRoutes(app: FastifyInstance): void {
       if (normalized == null) {
         await reply.status(400).send(invalidSettingError(key));
         return;
+      }
+      try {
+        await assertPaymentProviderWritable(key, normalized.value);
+      } catch (err) {
+        if (await replyIfProviderUpgradePending(reply, err)) return;
+        throw err;
       }
       const storedValue = encryptForWrite(key, normalized.value);
       const [before] = await db.select().from(settings).where(eq(settings.key, key));

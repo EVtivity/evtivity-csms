@@ -3826,9 +3826,96 @@ describe('Event projections - coverage expansion', () => {
       const failedUpdate = sqlCalls.find(
         (c) =>
           c.strings.some((s) => s.includes('UPDATE charging_sessions')) &&
-          c.strings.some((s) => s.includes("status = 'failed'")),
+          c.strings.some((s) => s.includes("ELSE 'failed' END")),
       );
       expect(failedUpdate).toBeDefined();
+    });
+  });
+
+  describe('ocpp.TransactionEvent Ended - EVConnectTimeout on an active priced session', () => {
+    it('fails the session, zeroes its cost and does not price or notify it', async () => {
+      await setup();
+      mockPriceSessionAt.mockClear();
+      mockDispatchDriver.mockClear();
+
+      setupSqlResults(
+        // First subscriber
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [], // SELECT payment_records (no failed payment)
+        [], // UPDATE charging_sessions SET status = 'completed'
+        [
+          {
+            id: 'session-connect-timeout',
+            evse_id: null,
+            // Read before the timeout update: still active (Part L bug)
+            status: 'active',
+            tariff_id: 'trf_1',
+            current_cost_cents: 54,
+            started_at: '2024-01-01T00:00:00Z',
+            ended_at: '2024-01-01T00:01:00Z',
+            energy_delivered_wh: 0,
+            currency: 'USD',
+            tariff_tax_rate: '0.08',
+            idle_started_at: null,
+            idle_minutes: 0,
+            reservation_id: null,
+          },
+        ], // SELECT session
+        [], // UPDATE charging_sessions SET status = failed, cost 0 (timeout end)
+        [{ reservation_id: null }], // auditLinkedReservationFault
+        [], // INSERT transaction_events
+        [], // carbon query (no region found)
+        [{ site_id: null }], // resolveSiteId
+        [
+          {
+            driver_id: 'drv_1',
+            energy_delivered_wh: 0,
+            final_cost_cents: 0,
+            status: 'failed',
+            currency: 'USD',
+            started_at: '2024-01-01T00:00:00Z',
+            ended_at: '2024-01-01T00:01:00Z',
+          },
+        ], // SELECT for driver notification
+        [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (station_message_transaction)
+        // Second subscriber (settlement)
+        [{ id: 'session-connect-timeout', final_cost_cents: 0, site_id: null }],
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Ended',
+          stationId: 'CS-001',
+          transactionId: 'tx-connect-timeout',
+          seqNo: 1,
+          triggerReason: 'EVConnectTimeout',
+          stoppedReason: 'Timeout',
+          // The 2.1 handler answered totalCost 0 (C20.FR.03) and passes no cost.
+          timestamp: '2024-01-01T00:01:00Z',
+        }),
+      );
+
+      const timeoutUpdate = sqlCalls.find(
+        (c) =>
+          c.strings.some((s) => s.includes('UPDATE charging_sessions')) &&
+          c.strings.some((s) => s.includes("ELSE 'failed' END")),
+      );
+      expect(timeoutUpdate).toBeDefined();
+      expect(timeoutUpdate?.strings.join('?')).toContain('final_cost_cents = 0');
+      expect(timeoutUpdate?.strings.join('?')).toContain('current_cost_cents = 0');
+      // No final cost from the tariff snapshot
+      expect(mockPriceSessionAt).not.toHaveBeenCalled();
+      expect(
+        sqlCalls.some((c) => c.strings.some((s) => s.includes('SET final_cost_cents = '))),
+      ).toBe(false);
+      // No session.Completed or session.Receipt for a failed session
+      expect(mockDispatchDriver).not.toHaveBeenCalled();
+      // The settlement still runs: a cost of 0 cancels the hold
+      expect(mockSettleSessionPayment).toHaveBeenCalledWith(
+        'session-connect-timeout',
+        mockPaymentContext,
+      );
     });
   });
 

@@ -283,6 +283,14 @@ async function costForTransaction(
       transactionId,
       at: new Date(request.timestamp),
       meterRegisterWh: registerWh,
+      ...(request.eventType === 'Ended'
+        ? {
+            end: {
+              triggerReason: request.triggerReason,
+              stoppedReason: request.transactionInfo.stoppedReason,
+            },
+          }
+        : {}),
     });
   } catch (err) {
     ctx.logger.warn(

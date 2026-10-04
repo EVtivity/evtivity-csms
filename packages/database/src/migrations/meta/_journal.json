@@ -827,6 +827,90 @@
       "when": 1791000010009,
       "tag": "0117_seed_adyen_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1791000010010,
+      "tag": "0118_payment_webhooks_payout_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1791000010011,
+      "tag": "0119_cron_payout_account_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1791000010012,
+      "tag": "0120_payment_provider_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1791000010013,
+      "tag": "0121_payment_records_provider_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1791000010014,
+      "tag": "0122_payment_methods_customers_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1791000010015,
+      "tag": "0123_payment_provider_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1791000010016,
+      "tag": "0124_cron_process_version_watch",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1791000010017,
+      "tag": "0125_payment_settings_provider_neutral",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1791000010018,
+      "tag": "0126_payment_async_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1791000010019,
+      "tag": "0127_guest_session_start_requested",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1791000010020,
+      "tag": "0128_seed_mobile_app_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1791000010021,
+      "tag": "0129_seed_ev_connection_timeout",
+      "breakpoints": true
     }
   ]
 }

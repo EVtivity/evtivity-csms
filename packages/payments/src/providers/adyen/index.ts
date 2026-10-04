@@ -9,6 +9,7 @@ import {
   PaymentProviderNotConfiguredError,
   PaymentProviderUnavailableError,
   PaymentValidationError,
+  WebhookExistsError,
   WebhookNotConfiguredError,
   WebhookSignatureError,
 } from '../../errors.js';
@@ -38,6 +39,9 @@ import type {
   ShortfallInput,
   StartMethodSetupInput,
   WebhookAck,
+  WebhookEndpointInfo,
+  WebhookRegistration,
+  WebhookRegistrationInput,
 } from '../../types.js';
 import { ADYEN_CURRENCIES, fromAdyenAmount, toAdyenAmount } from './amounts.js';
 import type { AdyenAmount } from './amounts.js';
@@ -48,6 +52,17 @@ import {
 } from './client.js';
 import type { AdyenEnvironment } from './client.js';
 import { isHexKey, isValidAdyenHmac, isValidBasicAuth } from './hmac.js';
+import {
+  ADYEN_WEBHOOK_DESCRIPTION,
+  ADYEN_WEBHOOK_EVENT_CODES,
+  AdyenManagementClient,
+} from './management.js';
+import type {
+  AdyenCredentialInfo,
+  AdyenWebhook,
+  AdyenWebhookTestResult,
+  AdyenWebhookWrite,
+} from './management.js';
 import { normalizeAdyenItem, parseAdyenNotification } from './webhooks.js';
 
 export const ADYEN_PROVIDER_ID = 'adyen';
@@ -81,6 +96,9 @@ export function adyenCapabilities(authorisationAdjustment: boolean): ProviderCap
     marketplaceSplit: 'none',
     // D-A3: IDR blocked.
     currencies: ADYEN_CURRENCIES,
+    // D-A2: no Adyen for Platforms onboarding.
+    payoutOnboarding: 'none',
+    webhookRegistration: true,
   };
 }
 
@@ -132,6 +150,17 @@ interface AdyenStoredMethod {
 interface AdyenComponentData {
   paymentMethod?: unknown;
   browserInfo?: unknown;
+}
+
+function webhookInfo(webhook: AdyenWebhook): WebhookEndpointInfo {
+  return {
+    id: webhook.id,
+    url: webhook.url,
+    scope: 'standard',
+    enabledEvents: webhook.additionalSettings?.includeEventCodes ?? [],
+    apiVersion: null,
+    active: webhook.active,
+  };
 }
 
 function nonEmpty(value: string | undefined | null): string | null {
@@ -186,18 +215,40 @@ function requireBrowser(browser: BrowserContext | undefined, call: string): Brow
   return browser;
 }
 
-/** The return URL, origin and browser info Adyen needs to run 3DS with the shopper. */
+/**
+ * The accept header Adyen's redirect 3DS2 needs from a native app, which has
+ * no browser accept header. Adyen accepts a dummy value ("acceptHeader: You
+ * can use a dummy value", docs.adyen.com/online-payments/3d-secure/redirect-3ds2/ios-component
+ * and .../android-component).
+ */
+const APP_ACCEPT_HEADER = '*/*';
+
+/**
+ * The channel, return URL and browser info Adyen needs to run 3DS with the
+ * shopper. A web page adds its origin (channel Web); the mobile app sends
+ * channel iOS or Android and the return URL of its native SDK.
+ */
 function shopperPresent(
   browser: BrowserContext,
   data?: AdyenComponentData,
 ): Record<string, unknown> {
+  const info = browser.info ?? data?.browserInfo;
+  if (browser.channel === undefined || browser.channel === 'web') {
+    const fields: Record<string, unknown> = {
+      channel: 'Web',
+      origin: browser.origin,
+      returnUrl: browser.returnUrl,
+    };
+    if (info != null) fields['browserInfo'] = info;
+    return fields;
+  }
   const fields: Record<string, unknown> = {
-    channel: 'Web',
-    origin: browser.origin,
+    channel: browser.channel === 'ios' ? 'iOS' : 'Android',
     returnUrl: browser.returnUrl,
   };
-  const info = browser.info ?? data?.browserInfo;
-  if (info != null) fields['browserInfo'] = info;
+  if (info != null && typeof info === 'object') {
+    fields['browserInfo'] = { acceptHeader: APP_ACCEPT_HEADER, ...info };
+  }
   return fields;
 }
 
@@ -222,11 +273,13 @@ export class AdyenPaymentProvider implements PaymentProvider {
   readonly capabilities: ProviderCapabilities;
 
   private readonly client: AdyenCheckoutClient;
+  private readonly management: AdyenManagementClient;
   private readonly merchantAccount: string;
   private readonly clientKey: string;
   private readonly environment: AdyenEnvironment;
   private readonly liveRegion: AdyenLiveRegion;
   private readonly hmacKeys: string[];
+  private readonly hmacKey: string | null;
   private readonly webhookUsername: string | null;
   private readonly webhookPassword: string | null;
   private readonly authorisationAdjustment: boolean;
@@ -239,6 +292,14 @@ export class AdyenPaymentProvider implements PaymentProvider {
       ...(options.sleep != null ? { sleep: options.sleep } : {}),
       ...(options.maxRetries != null ? { maxRetries: options.maxRetries } : {}),
     });
+    this.management = new AdyenManagementClient({
+      apiKey: options.apiKey,
+      merchantAccount: options.merchantAccount,
+      environment: options.environment,
+      ...(options.fetch != null ? { fetch: options.fetch } : {}),
+      ...(options.sleep != null ? { sleep: options.sleep } : {}),
+      ...(options.maxRetries != null ? { maxRetries: options.maxRetries } : {}),
+    });
     this.merchantAccount = options.merchantAccount;
     this.clientKey = options.clientKey;
     this.environment = options.environment;
@@ -246,6 +307,7 @@ export class AdyenPaymentProvider implements PaymentProvider {
     this.hmacKeys = [options.hmacKey, options.hmacKeyPrevious].filter(
       (k): k is string => k != null && k !== '',
     );
+    this.hmacKey = nonEmpty(options.hmacKey);
     this.webhookUsername = options.webhookUsername;
     this.webhookPassword = options.webhookPassword;
     this.authorisationAdjustment = options.authorisationAdjustment;
@@ -777,10 +839,10 @@ export class AdyenPaymentProvider implements PaymentProvider {
     }
     const authorization = headers['authorization'];
     if (authorization == null || authorization === '') {
-      throw new WebhookSignatureError('missing', 'Missing Basic auth');
+      throw new WebhookSignatureError('missing', 'Missing Basic auth', { kind: 'auth' });
     }
     if (!isValidBasicAuth(authorization, this.webhookUsername, this.webhookPassword)) {
-      throw new WebhookSignatureError('invalid', 'Invalid Basic auth');
+      throw new WebhookSignatureError('invalid', 'Invalid Basic auth', { kind: 'auth' });
     }
     const notification = parseAdyenNotification(rawBody);
     if (notification == null) {
@@ -811,6 +873,99 @@ export class AdyenPaymentProvider implements PaymentProvider {
   /** Adyen expects a 2xx; `[accepted]` is its long-standing acknowledgement body. */
   webhookAck(): WebhookAck {
     return { status: 200, contentType: 'text/plain', body: '[accepted]' };
+  }
+
+  /** The credential's Management API roles and allowed origins (`GET /me`). */
+  getCredentialInfo(): Promise<AdyenCredentialInfo> {
+    return this.management.me();
+  }
+
+  /** The merchant webhooks EVtivity manages (marked by their description). */
+  async listWebhooks(): Promise<WebhookEndpointInfo[]> {
+    const webhooks = await this.management.listWebhooks();
+    return webhooks.filter((w) => w.description === ADYEN_WEBHOOK_DESCRIPTION).map(webhookInfo);
+  }
+
+  /**
+   * Creates EVtivity's standard webhook, or updates the existing one when
+   * `replace` is set, with new Basic auth credentials and a new HMAC key
+   * (plan Task B2). A new webhook is created inactive; the caller stores the
+   * returned settings, then calls `activate()`, so no event arrives before
+   * EVtivity can verify it. An existing webhook keeps its active flag: events
+   * that arrive before the new credentials are stored fail verification and
+   * Adyen retries them, while an inactive webhook would drop them. The
+   * current HMAC key becomes the previous key, so events signed with it still
+   * verify. `activate()` also deletes other EVtivity webhooks (duplicates).
+   */
+  async registerWebhook(input: WebhookRegistrationInput): Promise<WebhookRegistration> {
+    const all = await this.management.listWebhooks();
+    const ours = all.filter(
+      (w) => w.url === input.url || w.description === ADYEN_WEBHOOK_DESCRIPTION,
+    );
+    if (ours.length > 0 && !input.replace) {
+      throw new WebhookExistsError(this.id, ours.map(webhookInfo));
+    }
+    const existing = ours.find((w) => w.url === input.url) ?? ours[0];
+    const username = `evtivity-${crypto.randomBytes(6).toString('hex')}`;
+    const password = crypto.randomBytes(24).toString('base64url');
+    const config: AdyenWebhookWrite = {
+      url: input.url,
+      communicationFormat: 'json',
+      encryptionProtocol: 'TLSv1.3',
+      acceptsExpiredCertificate: false,
+      acceptsSelfSignedCertificate: false,
+      acceptsUntrustedRootCertificate: false,
+      username,
+      password,
+      description: ADYEN_WEBHOOK_DESCRIPTION,
+      additionalSettings: { includeEventCodes: [...ADYEN_WEBHOOK_EVENT_CODES] },
+    };
+
+    let webhookId: string;
+    let active: boolean;
+    if (existing != null) {
+      await this.management.updateWebhook(existing.id, config);
+      webhookId = existing.id;
+      active = existing.active;
+    } else {
+      const created = await this.management.createWebhook({
+        type: 'standard',
+        active: false,
+        ...config,
+      });
+      webhookId = created.id;
+      active = false;
+    }
+    const hmacKey = await this.management.generateHmac(webhookId);
+    const duplicates = ours.filter((w) => w.id !== webhookId).map((w) => w.id);
+
+    return {
+      endpoints: [
+        {
+          id: webhookId,
+          url: input.url,
+          scope: 'standard',
+          enabledEvents: [...ADYEN_WEBHOOK_EVENT_CODES],
+          apiVersion: null,
+          active,
+        },
+      ],
+      settings: [
+        { key: 'adyen.webhookUsername', value: username, secret: false },
+        { key: 'adyen.webhookPasswordEnc', value: password, secret: true },
+        { key: 'adyen.hmacKeyEnc', value: hmacKey, secret: true },
+        { key: 'adyen.hmacKeyPreviousEnc', value: this.hmacKey ?? '', secret: true },
+      ],
+      activate: async () => {
+        await this.management.updateWebhook(webhookId, { active: true });
+        for (const id of duplicates) await this.management.deleteWebhook(id);
+      },
+    };
+  }
+
+  /** Asks Adyen to send a sample AUTHORISATION event to the webhook. */
+  sendTestWebhook(webhookId: string): Promise<AdyenWebhookTestResult> {
+    return this.management.testWebhook(webhookId, ['AUTHORISATION']);
   }
 }
 

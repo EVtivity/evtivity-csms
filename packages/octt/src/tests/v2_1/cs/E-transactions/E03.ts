@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { CsTestCase, StepResult } from '../../../../cs-types.js';
-import { waitForChargingState, waitForTriggerReason } from '../../../../cs-test-helpers.js';
+import type { OcppTestServer } from '../../../../cs-server.js';
+import {
+  noTransactionAtTimeoutStep,
+  transactionStartsAtAuthorization,
+  waitForChargingState,
+  waitForTriggerReason,
+} from '../../../../cs-test-helpers.js';
 
 function setupHandler(ctx: {
   server: {
@@ -81,6 +87,42 @@ export const TC_E_04_CS: CsTestCase = {
   },
 };
 
+/** TC_E_05_CS step 1 when the transaction started at the authorization: EVConnectTimeout. */
+async function evConnectTimeoutStep(server: OcppTestServer): Promise<StepResult> {
+  // Skip any Started/Updated events that arrive before the timeout fires.
+  let txPayload: Record<string, unknown> | null = null;
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    try {
+      const msg = await server.waitForMessage('TransactionEvent', remaining);
+      if (msg['triggerReason'] === 'EVConnectTimeout') {
+        txPayload = msg;
+        break;
+      }
+    } catch {
+      break;
+    }
+  }
+  const trigReason = txPayload?.['triggerReason'] as string | undefined;
+  const evtType = txPayload?.['eventType'] as string | undefined;
+  const txInfo = txPayload?.['transactionInfo'] as Record<string, unknown> | undefined;
+  const stoppedReason = txInfo?.['stoppedReason'] as string | undefined;
+
+  const triggerValid = trigReason === 'EVConnectTimeout';
+  const eventValid = evtType === 'Ended' || evtType === 'Updated';
+
+  return {
+    step: 1,
+    description: 'TransactionEvent with EVConnectTimeout',
+    status: triggerValid && eventValid ? 'passed' : 'failed',
+    expected:
+      'triggerReason EVConnectTimeout, eventType Ended (if TxStopPoint Authorized) or Updated',
+    actual: `triggerReason=${trigReason}, eventType=${evtType}, stoppedReason=${stoppedReason}`,
+  };
+}
+
 export const TC_E_05_CS: CsTestCase = {
   id: 'TC_E_05_CS',
   name: 'Local start transaction - Authorization first - Cable plugin timeout',
@@ -106,39 +148,13 @@ export const TC_E_05_CS: CsTestCase = {
     }
     // Do NOT plug in - wait for timeout
 
-    // Step 1: TransactionEvent with EVConnectTimeout trigger.
-    // Skip any Started/Updated events that arrive before the timeout fires.
-    let txPayload: Record<string, unknown> | null = null;
-    const deadline = Date.now() + 120_000;
-    while (Date.now() < deadline) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) break;
-      try {
-        const msg = await ctx.server.waitForMessage('TransactionEvent', remaining);
-        if (msg['triggerReason'] === 'EVConnectTimeout') {
-          txPayload = msg;
-          break;
-        }
-      } catch {
-        break;
-      }
+    // Step 1 is executed only when the transaction started at the
+    // authorization (TxStartPoint contains ParkingBayOccupancy or Authorized).
+    if (transactionStartsAtAuthorization()) {
+      steps.push(await evConnectTimeoutStep(ctx.server));
+    } else {
+      steps.push(await noTransactionAtTimeoutStep(ctx.server, 1, 3_000 + 3_000));
     }
-    const trigReason = txPayload?.['triggerReason'] as string | undefined;
-    const evtType = txPayload?.['eventType'] as string | undefined;
-    const txInfo = txPayload?.['transactionInfo'] as Record<string, unknown> | undefined;
-    const stoppedReason = txInfo?.['stoppedReason'] as string | undefined;
-
-    const triggerValid = trigReason === 'EVConnectTimeout';
-    const eventValid = evtType === 'Ended' || evtType === 'Updated';
-
-    steps.push({
-      step: 1,
-      description: 'TransactionEvent with EVConnectTimeout',
-      status: triggerValid && eventValid ? 'passed' : 'failed',
-      expected:
-        'triggerReason EVConnectTimeout, eventType Ended (if TxStopPoint Authorized) or Updated',
-      actual: `triggerReason=${trigReason}, eventType=${evtType}, stoppedReason=${stoppedReason}`,
-    });
 
     // Step 3: Verify EVSE ready for new session - authorize again
     await ctx.station.authorize(1, 'OCTT-TOKEN-001');

@@ -3,18 +3,39 @@
 
 import { and, eq, inArray } from 'drizzle-orm';
 import { decryptString } from '@evtivity/lib';
+import type { PayoutAccountState } from './types.js';
 import { db, settings, sitePaymentConfigs } from '@evtivity/database';
 
 /** `payments.provider` value that turns payments off. */
 export const NO_PAYMENT_PROVIDER = 'none';
 
-/** Fallback hold amount when `stripe.preAuthAmountCents` is unset (the seeded default). */
+/** Fallback hold amount when `payments.preAuthAmountCents` is unset (the seeded default). */
 export const DEFAULT_PRE_AUTH_AMOUNT_CENTS = 5000;
+
+/** Test (simulated) provider settings (`simulated.*`, migration 0125). */
+export interface SimulatedSettings {
+  /** 'sync' (Stripe-like) or 'async' (Adyen-like, results arrive as webhooks). */
+  resultMode: 'sync' | 'async';
+  /** Delay of async results in seconds (0 to 3600). */
+  asyncDelaySeconds: number;
+  /** Failure rate of methods without a scenario (seeded data), 0 to 1. */
+  randomFailureRate: number;
+}
+
+/** The seeded `simulated.*` values, used for a missing or invalid stored value. */
+export const DEFAULT_SIMULATED_SETTINGS: Readonly<SimulatedSettings> = {
+  resultMode: 'sync',
+  asyncDelaySeconds: 3,
+  randomFailureRate: 0.2,
+};
 
 export interface StripeSettings {
   secretKey: string | null;
   publishableKey: string | null;
+  /** Signing secret of the platform webhook endpoint (`stripe.webhookSecretEnc`). */
   webhookSecret: string | null;
+  /** Signing secret of the Connect webhook endpoint (`stripe.connectWebhookSecretEnc`). */
+  connectWebhookSecret: string | null;
 }
 
 /** Client SDK live regions (https://docs.adyen.com/online-payments/build-your-integration/advanced-flow). */
@@ -46,12 +67,15 @@ export interface PaymentSettings {
   preAuthAmountCents: number;
   stripe: StripeSettings;
   adyen: AdyenSettings;
+  simulated: SimulatedSettings;
 }
 
 export interface SitePaymentConfig {
   configId: number;
   /** Stripe connected account of the site (`acct_...`), or null. */
   payoutAccountId: string | null;
+  /** The payout account's state as last read from the provider; null when never read. */
+  payoutAccountStatus: PayoutAccountState | null;
   preAuthAmountCents: number;
 }
 
@@ -61,7 +85,8 @@ const KEYS = [
   'stripe.secretKeyEnc',
   'stripe.publishableKey',
   'stripe.webhookSecretEnc',
-  'stripe.preAuthAmountCents',
+  'stripe.connectWebhookSecretEnc',
+  'payments.preAuthAmountCents',
   'adyen.apiKeyEnc',
   'adyen.merchantAccount',
   'adyen.clientKey',
@@ -73,6 +98,9 @@ const KEYS = [
   'adyen.webhookUsername',
   'adyen.webhookPasswordEnc',
   'adyen.authorisationAdjustment',
+  'simulated.resultMode',
+  'simulated.asyncDelaySeconds',
+  'simulated.randomFailureRate',
 ];
 
 let settingsCache: { value: PaymentSettings; cachedAt: number } | null = null;
@@ -105,6 +133,34 @@ function adyenSettings(byKey: Map<string, unknown>, encryptionKey: string): Adye
   };
 }
 
+/** A stored number within [min, max], else the fallback (unset, empty or out of range). */
+function numberInRange(value: unknown, min: number, max: number, fallback: number): number {
+  if (typeof value !== 'number' && (typeof value !== 'string' || value.trim() === '')) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
+}
+
+function simulatedSettings(byKey: Map<string, unknown>): SimulatedSettings {
+  const defaults = DEFAULT_SIMULATED_SETTINGS;
+  return {
+    resultMode: byKey.get('simulated.resultMode') === 'async' ? 'async' : defaults.resultMode,
+    asyncDelaySeconds: numberInRange(
+      byKey.get('simulated.asyncDelaySeconds'),
+      0,
+      3600,
+      defaults.asyncDelaySeconds,
+    ),
+    randomFailureRate: numberInRange(
+      byKey.get('simulated.randomFailureRate'),
+      0,
+      1,
+      defaults.randomFailureRate,
+    ),
+  };
+}
+
 /**
  * The payment settings, with `*Enc` values decrypted with the caller's
  * SETTINGS_ENCRYPTION_KEY. Cached for 60 seconds. A read failure returns the
@@ -127,7 +183,7 @@ export async function getPaymentSettings(encryptionKey: string): Promise<Payment
   }
   const byKey = new Map(rows.map((r) => [r.key, r.value]));
 
-  const preAuth = Number(byKey.get('stripe.preAuthAmountCents'));
+  const preAuth = Number(byKey.get('payments.preAuthAmountCents'));
   const value: PaymentSettings = {
     provider: nonEmptyString(byKey.get('payments.provider')) ?? NO_PAYMENT_PROVIDER,
     preAuthAmountCents:
@@ -136,15 +192,17 @@ export async function getPaymentSettings(encryptionKey: string): Promise<Payment
       secretKey: decrypted(byKey.get('stripe.secretKeyEnc'), encryptionKey),
       publishableKey: nonEmptyString(byKey.get('stripe.publishableKey')),
       webhookSecret: decrypted(byKey.get('stripe.webhookSecretEnc'), encryptionKey),
+      connectWebhookSecret: decrypted(byKey.get('stripe.connectWebhookSecretEnc'), encryptionKey),
     },
     adyen: adyenSettings(byKey, encryptionKey),
+    simulated: simulatedSettings(byKey),
   };
   settingsCache = { value, cachedAt: now };
   return value;
 }
 
 /**
- * The enabled payment config of a site (payout account and hold amount), or
+ * The enabled payment config of a site (payout account, its status and the hold amount), or
  * null when the site has none or it is disabled. Cached per site for 60 seconds,
  * with the same read-failure rule as getPaymentSettings.
  */
@@ -153,12 +211,18 @@ export async function getSitePaymentConfig(siteId: string): Promise<SitePaymentC
   const cached = siteCache.get(siteId);
   if (cached != null && now - cached.cachedAt < TTL_MS) return cached.value;
 
-  let rows: Array<{ id: number; accountId: string | null; preAuthAmountCents: number }>;
+  let rows: Array<{
+    id: number;
+    accountId: string | null;
+    payoutAccountStatus: string | null;
+    preAuthAmountCents: number;
+  }>;
   try {
     rows = await db
       .select({
         id: sitePaymentConfigs.id,
-        accountId: sitePaymentConfigs.stripeConnectedAccountId,
+        accountId: sitePaymentConfigs.payoutAccountId,
+        payoutAccountStatus: sitePaymentConfigs.payoutAccountStatus,
         preAuthAmountCents: sitePaymentConfigs.preAuthAmountCents,
       })
       .from(sitePaymentConfigs)
@@ -174,6 +238,7 @@ export async function getSitePaymentConfig(siteId: string): Promise<SitePaymentC
       : {
           configId: row.id,
           payoutAccountId: nonEmptyString(row.accountId),
+          payoutAccountStatus: row.payoutAccountStatus as PayoutAccountState | null,
           preAuthAmountCents: row.preAuthAmountCents,
         };
   siteCache.set(siteId, { value, cachedAt: now });

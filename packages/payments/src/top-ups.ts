@@ -10,13 +10,14 @@
  *
  *   metadata.topUps: [{ paymentId, amountCents, refundedCents }]
  *
- * The hold charge is `stripe_payment_intent_id` with
+ * The hold charge is `provider_payment_id` with
  * captured = captured_amount_cents - sum(topUps.amountCents) and
  * refunded = refunded_amount_cents - sum(topUps.refundedCents).
  *
- * Records written before this shape hold the settlement top-up id only, as
- * `metadata.topUpIntentId`; its amount is the capture above the hold. Plan P4
- * (D-P5) moves the ids to `provider_topup_payment_ids`.
+ * A webhook finds the record of a top-up payment through the GIN index
+ * `idx_payment_records_top_ups` on `metadata -> 'topUps'`. Records of writers
+ * before v0.1.37 held only `metadata.topUpIntentId`; migration 0121 and the
+ * `payment_records_provider_sync` trigger rewrite it as `topUps`.
  */
 
 export interface TopUpCharge {
@@ -35,7 +36,7 @@ export interface PaymentCharge {
 }
 
 export interface ChargeRecord {
-  stripePaymentIntentId: string | null;
+  providerPaymentId: string | null;
   capturedAmountCents: number | null;
   refundedAmountCents: number;
   preAuthAmountCents: number | null;
@@ -52,21 +53,14 @@ function isTopUp(value: unknown): value is TopUpCharge {
   );
 }
 
-/** The record's top-ups, including a legacy `topUpIntentId`. */
+/** The record's top-ups (`metadata.topUps`). */
 export function topUpCharges(record: ChargeRecord): TopUpCharge[] {
   const metadata =
     record.metadata != null && typeof record.metadata === 'object'
       ? (record.metadata as Record<string, unknown>)
       : {};
   const stored = metadata['topUps'];
-  if (Array.isArray(stored)) return stored.filter(isTopUp);
-  const legacyId = metadata['topUpIntentId'];
-  if (typeof legacyId !== 'string' || legacyId === '') return [];
-  // Settlement captured at most the hold and charged the rest as the top-up.
-  const captured = record.capturedAmountCents ?? 0;
-  const held = Math.min(captured, record.preAuthAmountCents ?? captured);
-  const amountCents = captured - held;
-  return amountCents > 0 ? [{ paymentId: legacyId, amountCents, refundedCents: 0 }] : [];
+  return Array.isArray(stored) ? stored.filter(isTopUp) : [];
 }
 
 /** The hold charge first, then each top-up, with what each captured and refunded. */
@@ -75,10 +69,10 @@ export function paymentCharges(record: ChargeRecord): PaymentCharge[] {
   const topUpCaptured = topUps.reduce((sum, t) => sum + t.amountCents, 0);
   const topUpRefunded = topUps.reduce((sum, t) => sum + t.refundedCents, 0);
   const charges: PaymentCharge[] = [];
-  if (record.stripePaymentIntentId != null) {
+  if (record.providerPaymentId != null) {
     charges.push({
       kind: 'hold',
-      paymentId: record.stripePaymentIntentId,
+      paymentId: record.providerPaymentId,
       capturedCents: Math.max(0, (record.capturedAmountCents ?? 0) - topUpCaptured),
       refundedCents: Math.max(0, record.refundedAmountCents - topUpRefunded),
       number: 0,
@@ -94,6 +88,20 @@ export function paymentCharges(record: ChargeRecord): PaymentCharge[] {
     });
   });
   return charges;
+}
+
+/**
+ * Cents captured above the hold that no listed top-up accounts for. A hold
+ * captures at most its authorized amount (`pre_auth_amount_cents`), so this
+ * is a top-up whose payment id was never stored: a retry top-up made before
+ * v0.1.37 kept its id only in `last_action_reason`, which a later action
+ * overwrites. EVtivity cannot refund that charge. 0 for a record without a
+ * hold payment or a hold amount.
+ */
+export function unlistedTopUpCents(record: ChargeRecord): number {
+  if (record.providerPaymentId == null || record.preAuthAmountCents == null) return 0;
+  const listed = topUpCharges(record).reduce((sum, t) => sum + t.amountCents, 0);
+  return Math.max(0, (record.capturedAmountCents ?? 0) - listed - record.preAuthAmountCents);
 }
 
 export interface RefundPiece {

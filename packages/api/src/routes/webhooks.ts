@@ -4,6 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
+  dispatchPaymentWebhookNotices,
   ingestPaymentWebhook,
   WebhookNotConfiguredError,
   WebhookSignatureError,
@@ -11,10 +12,47 @@ import {
 import { itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { paymentContext } from '../lib/payments.js';
+import { getPubSub } from '../lib/pubsub.js';
+import { ALL_TEMPLATES_DIRS } from '../lib/template-dirs.js';
+import { zodSchema } from '../lib/zod-schema.js';
 
-const webhookResponse = z
-  .object({ received: z.literal(true).describe('Acknowledgement that the webhook was processed') })
-  .passthrough();
+const stripeAck = itemResponse(
+  z
+    .object({
+      received: z.literal(true).describe('Acknowledgement that the webhook was processed'),
+    })
+    .passthrough(),
+);
+
+const adyenAck = zodSchema(
+  z.string().describe('The text/plain acknowledgement [accepted] that Adyen expects'),
+);
+
+interface WebhookRouteDoc {
+  providerId: 'stripe' | 'adyen';
+  summary: string;
+  description: string;
+  operationId: string;
+  ack: Record<string, unknown>;
+}
+
+const STRIPE_DOC: WebhookRouteDoc = {
+  providerId: 'stripe',
+  summary: 'Handle Stripe webhook events',
+  description:
+    'Receives the events of both EVtivity endpoints in Stripe: the platform endpoint (signed with stripe.webhookSecretEnc) and the Connect endpoint (signed with stripe.connectWebhookSecretEnc). Verifies the stripe-signature header with either secret, records each event id once (a replay is acknowledged and skipped), then applies payment_intent.payment_failed (only to pending or pre-authorized payments), charge.refunded (never lowering the refunded total), logs charge.dispute.created and passes account.updated to the site payout accounts. Answers {"received":true}.',
+  operationId: 'handleStripeWebhook',
+  ack: stripeAck,
+};
+
+const ADYEN_DOC: WebhookRouteDoc = {
+  providerId: 'adyen',
+  summary: 'Handle Adyen webhook events',
+  description:
+    'Receives Adyen standard webhooks (JSON). Checks the Basic auth credentials (adyen.webhookUsername, adyen.webhookPasswordEnc; 401 when missing or wrong), the HMAC signature of every notification item (adyen.hmacKeyEnc, or adyen.hmacKeyPreviousEnc during a key rotation), the merchant account and the live flag, records each event once (a replay is acknowledged and skipped) and answers the text [accepted].',
+  operationId: 'handleAdyenWebhook',
+  ack: adyenAck,
+};
 
 function headerMap(headers: Record<string, string | string[] | undefined>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -25,27 +63,29 @@ function headerMap(headers: Record<string, string | string[] | undefined>): Reco
   return out;
 }
 
-export function webhookRoutes(app: FastifyInstance): void {
-  // Raw body for the signature check. Scoped to this plugin, so other routes
-  // keep JSON parsing.
-  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
-    done(null, body);
-  });
-
+/**
+ * One route per provider at /webhooks/payments/<provider>, all through
+ * ingestPaymentWebhook. A failed verification answers 4xx; any other error
+ * reaches the global 500 handler so the provider retries (P9).
+ */
+function registerPaymentWebhookRoute(app: FastifyInstance, doc: WebhookRouteDoc): void {
   app.post(
-    '/webhooks/stripe',
+    `/webhooks/payments/${doc.providerId}`,
     {
       schema: {
         tags: ['Webhooks'],
-        summary: 'Handle Stripe webhook events',
-        description:
-          'Verifies the stripe-signature header with the signing secret from Settings > Payment > Stripe (stripe.webhookSecretEnc), records each event id once (a replay is acknowledged and skipped), then applies payment_intent.payment_failed (only to pending or pre-authorized payments), charge.refunded (never lowering the refunded total) and logs charge.dispute.created.',
-        operationId: 'handleStripeWebhook',
+        summary: doc.summary,
+        description: doc.description,
+        operationId: doc.operationId,
         security: [],
         response: {
-          200: itemResponse(webhookResponse),
+          200: doc.ack,
           400: errorWith('Validation error', [
             ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.WEBHOOK_SIGNATURE_MISSING,
+            ERROR_CODES.WEBHOOK_SIGNATURE_INVALID,
+          ]),
+          401: errorWith('Webhook credentials missing or wrong', [
             ERROR_CODES.WEBHOOK_SIGNATURE_MISSING,
             ERROR_CODES.WEBHOOK_SIGNATURE_INVALID,
           ]),
@@ -57,9 +97,10 @@ export function webhookRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      let result;
       try {
-        await ingestPaymentWebhook(
-          'stripe',
+        result = await ingestPaymentWebhook(
+          doc.providerId,
           request.body as string,
           headerMap(request.headers),
           paymentContext(request.log),
@@ -67,7 +108,8 @@ export function webhookRoutes(app: FastifyInstance): void {
       } catch (err) {
         if (err instanceof WebhookNotConfiguredError) {
           request.log.error(
-            'Stripe webhook signing secret is not configured (stripe.webhookSecretEnc)',
+            { provider: doc.providerId },
+            'Payment webhook secret or credentials are not configured',
           );
           await reply
             .status(500)
@@ -75,22 +117,49 @@ export function webhookRoutes(app: FastifyInstance): void {
           return;
         }
         if (err instanceof WebhookSignatureError) {
-          request.log.warn({ error: err.message }, 'Webhook signature verification failed');
+          request.log.warn(
+            { provider: doc.providerId, error: err.message },
+            'Payment webhook verification failed',
+          );
+          const status = err.kind === 'auth' ? 401 : 400;
           if (err.reason === 'missing') {
-            await reply.status(400).send({
-              error: 'Missing stripe-signature header',
+            await reply.status(status).send({
+              error: 'Missing webhook signature or credentials',
               code: 'WEBHOOK_SIGNATURE_MISSING',
             });
           } else {
             await reply
-              .status(400)
+              .status(status)
               .send({ error: 'Invalid signature', code: 'WEBHOOK_SIGNATURE_INVALID' });
           }
           return;
         }
         throw err;
       }
-      await reply.status(200).send({ received: true });
+      // Driver notifications and the operator UI refresh for what the events
+      // changed (fail-open, never delays the acknowledgement on an error).
+      if (result.notices.length > 0) {
+        await dispatchPaymentWebhookNotices(result.notices, {
+          templatesDirs: ALL_TEMPLATES_DIRS,
+          pubsub: getPubSub(),
+          logger: request.log,
+        });
+      }
+      // Every provider acknowledges with 200 (the only success the route
+      // documents) and its own body. A string body with an explicit content
+      // type is sent as is, without the response serializer.
+      await reply.status(200).type(result.ack.contentType).send(result.ack.body);
     },
   );
+}
+
+export function webhookRoutes(app: FastifyInstance): void {
+  // Raw body for the signature check. Scoped to this plugin, so other routes
+  // keep JSON parsing.
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    done(null, body);
+  });
+
+  registerPaymentWebhookRoute(app, STRIPE_DOC);
+  registerPaymentWebhookRoute(app, ADYEN_DOC);
 }

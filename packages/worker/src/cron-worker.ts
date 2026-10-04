@@ -28,6 +28,8 @@ import { refreshTokenPruneHandler } from './handlers/refresh-token-prune.js';
 import { stationWatchPruneHandler } from './handlers/station-watch-prune.js';
 import { maintenanceSchedulerHandler } from './handlers/maintenance-scheduler.js';
 import { ocpiLocationSyncHandler } from './handlers/ocpi-location-sync.js';
+import { payoutAccountSyncHandler } from './handlers/payout-account-sync.js';
+import { processVersionWatchHandler } from './handlers/process-version-watch.js';
 
 const log = createLogger('cron-worker');
 
@@ -56,6 +58,8 @@ const JOB_HANDLERS = new Map<string, JobHandlerFn>([
   ['station-watch-prune', stationWatchPruneHandler],
   ['maintenance-scheduler', maintenanceSchedulerHandler],
   ['ocpi-location-sync', ocpiLocationSyncHandler],
+  ['payout-account-sync', payoutAccountSyncHandler],
+  ['process-version-watch', processVersionWatchHandler],
 ]);
 
 export function createCronWorker(connection: ConnectionOptions): Worker {

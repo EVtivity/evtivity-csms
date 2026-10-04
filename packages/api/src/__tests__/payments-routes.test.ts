@@ -112,7 +112,10 @@ vi.mock('drizzle-orm', () => ({
   sql: Object.assign(vi.fn(), { raw: vi.fn() }),
 }));
 
-vi.mock('@evtivity/lib', () => ({
+vi.mock('@evtivity/lib', async () => ({
+  formatCurrencyAmount: (
+    await vi.importActual<typeof import('@evtivity/lib/currency')>('@evtivity/lib/currency')
+  ).formatCurrencyAmount,
   encryptString: vi.fn().mockReturnValue('encrypted_value'),
   decryptString: vi.fn((value: string) => `decrypted:${value}`),
   dispatchDriverNotification: vi.fn(() => Promise.resolve()),
@@ -133,10 +136,16 @@ const {
   mockRemoveDriverMethod,
   mockSetDefaultDriverMethod,
   mockStartDriverMethodSetup,
+  mockSubmitDriverMethodSetup,
+  mockContinueDriverMethodSetup,
   mockGetPaymentProvider,
   mockClearPaymentCaches,
   mockPaymentContext,
   MockPaymentProviderNotConfiguredError,
+  MockWebhookExistsError,
+  MockPaymentProviderPermissionError,
+  mockSetSitePayoutAccountId,
+  mockRevokePayoutInvites,
 } = vi.hoisted(() => {
   class MockPaymentProviderNotConfiguredError extends Error {
     readonly providerId: string;
@@ -145,7 +154,25 @@ const {
       this.providerId = providerId;
     }
   }
+  class MockWebhookExistsError extends Error {
+    constructor(
+      readonly providerId: string,
+      readonly endpoints: unknown[],
+    ) {
+      super(`An EVtivity webhook already exists for ${providerId}`);
+    }
+  }
+  class MockPaymentProviderPermissionError extends Error {
+    constructor(
+      readonly providerId: string,
+      readonly permission: string,
+    ) {
+      super(`The ${providerId} credential lacks a required permission: ${permission}`);
+    }
+  }
   return {
+    MockWebhookExistsError,
+    MockPaymentProviderPermissionError,
     mockAuthorizeSessionHold: vi.fn(),
     mockCaptureSessionHold: vi.fn(),
     mockRefundPaymentRecord: vi.fn(),
@@ -155,6 +182,10 @@ const {
     mockRemoveDriverMethod: vi.fn(),
     mockSetDefaultDriverMethod: vi.fn(),
     mockStartDriverMethodSetup: vi.fn(),
+    mockSubmitDriverMethodSetup: vi.fn(),
+    mockContinueDriverMethodSetup: vi.fn(),
+    mockSetSitePayoutAccountId: vi.fn(),
+    mockRevokePayoutInvites: vi.fn(),
     mockGetPaymentProvider: vi.fn(),
     mockClearPaymentCaches: vi.fn(),
     mockPaymentContext: vi.fn((logger: unknown) => ({ registry: 'registry', logger })),
@@ -172,13 +203,29 @@ vi.mock('@evtivity/payments', () => ({
   removeDriverMethod: mockRemoveDriverMethod,
   setDefaultDriverMethod: mockSetDefaultDriverMethod,
   startDriverMethodSetup: mockStartDriverMethodSetup,
+  submitDriverMethodSetup: mockSubmitDriverMethodSetup,
+  continueDriverMethodSetup: mockContinueDriverMethodSetup,
+  setSitePayoutAccountId: mockSetSitePayoutAccountId,
   PaymentProviderNotConfiguredError: MockPaymentProviderNotConfiguredError,
+  WebhookExistsError: MockWebhookExistsError,
+  PaymentProviderPermissionError: MockPaymentProviderPermissionError,
+  STRIPE_PLATFORM_EVENTS: [
+    'payment_intent.payment_failed',
+    'charge.refunded',
+    'charge.dispute.created',
+  ],
+  STRIPE_CONNECT_EVENTS: ['account.updated'],
+  STRIPE_WEBHOOK_API_VERSION: '2026-09-30.endive',
 }));
 
 vi.mock('../lib/payments.js', () => ({
   paymentRegistry: { getPaymentProvider: mockGetPaymentProvider },
   paymentContext: mockPaymentContext,
   clearPaymentCaches: mockClearPaymentCaches,
+}));
+
+vi.mock('../services/payout-onboarding.service.js', () => ({
+  revokePayoutInvites: mockRevokePayoutInvites,
 }));
 
 vi.mock('../lib/site-access.js', () => ({
@@ -188,6 +235,7 @@ vi.mock('../lib/site-access.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { paymentRoutes } from '../routes/payments.js';
+import { config as apiConfig } from '../lib/config.js';
 import { db } from '@evtivity/database';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import { getUserSiteIds } from '../lib/site-access.js';
@@ -201,6 +249,10 @@ function paymentRecord(overrides: Record<string, unknown> = {}): Record<string, 
     sessionId: VALID_SESSION_ID,
     driverId: null,
     sitePaymentConfigId: null,
+    provider: 'stripe',
+    providerPaymentId: 'pi_test_123',
+    providerCustomerId: 'cus_test',
+    providerPaymentMethodId: 'pm_test',
     stripePaymentIntentId: 'pi_test_123',
     stripeCustomerId: 'cus_test',
     paymentSource: null,
@@ -251,10 +303,14 @@ describe('Payment routes - handler logic', () => {
       const config = {
         id: 'pc-1',
         siteId: VALID_SITE_ID,
+        payoutAccountId: 'acct_123',
         stripeConnectedAccountId: 'acct_123',
         preAuthAmountCents: 5000,
         platformFeePercent: null,
         isEnabled: true,
+        payoutAccountStatus: 'active',
+        payoutAccountDetails: null,
+        payoutAccountCheckedAt: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -267,6 +323,7 @@ describe('Payment routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(200);
+      expect(response.json().payoutAccountId).toBe('acct_123');
       expect(response.json().stripeConnectedAccountId).toBe('acct_123');
       expect(response.json()).not.toHaveProperty('currency');
     });
@@ -300,18 +357,24 @@ describe('Payment routes - handler logic', () => {
       const updated = {
         id: 'pc-1',
         siteId: VALID_SITE_ID,
+        payoutAccountId: null,
         stripeConnectedAccountId: null,
         preAuthAmountCents: 7500,
         platformFeePercent: null,
         isEnabled: true,
+        payoutAccountStatus: null,
+        payoutAccountDetails: null,
+        payoutAccountCheckedAt: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
       setupDbResults(
         [{ id: VALID_SITE_ID }], // site existence pre-check
         [{ id: 'pc-1' }], // existing found
-        [updated], // update returning
+        [], // update
+        [updated], // read back
       );
+      mockSetSitePayoutAccountId.mockResolvedValue(false);
 
       const response = await app.inject({
         method: 'PUT',
@@ -329,16 +392,218 @@ describe('Payment routes - handler logic', () => {
         expect.not.objectContaining({ currency: expect.anything() }),
       );
       expect(mockClearPaymentCaches).toHaveBeenCalledTimes(1);
+      // The account field goes through the payout account service, never the update.
+      expect(updateChain.set).toHaveBeenCalledWith(
+        expect.not.objectContaining({ stripeConnectedAccountId: expect.anything() }),
+      );
+      // Neither account field sent: the account and its open invite are kept.
+      expect(mockSetSitePayoutAccountId).not.toHaveBeenCalled();
+      expect(mockRevokePayoutInvites).not.toHaveBeenCalled();
+    });
+
+    it('stores a changed connected account through the service and revokes open invites', async () => {
+      const updated = {
+        id: 'pc-1',
+        siteId: VALID_SITE_ID,
+        payoutAccountId: 'acct_new',
+        stripeConnectedAccountId: 'acct_new',
+        preAuthAmountCents: 5000,
+        platformFeePercent: null,
+        isEnabled: true,
+        payoutAccountStatus: 'onboarding',
+        payoutAccountDetails: { requirementsDue: ['business_type'] },
+        payoutAccountCheckedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setupDbResults([{ id: VALID_SITE_ID }], [{ id: 'pc-1' }], [], [updated]);
+      mockSetSitePayoutAccountId.mockResolvedValue(true);
+
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/sites/${VALID_SITE_ID}/payment-config`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { stripeConnectedAccountId: 'acct_new', isEnabled: true },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        stripeConnectedAccountId: 'acct_new',
+        payoutAccountId: 'acct_new',
+        payoutAccountStatus: 'onboarding',
+      });
+      expect(mockSetSitePayoutAccountId).toHaveBeenCalledWith(VALID_SITE_ID, 'acct_new', CTX);
+      expect(mockRevokePayoutInvites).toHaveBeenCalledWith(VALID_SITE_ID);
+    });
+
+    function configRow(accountId: string | null): Record<string, unknown> {
+      return {
+        id: 'pc-1',
+        siteId: VALID_SITE_ID,
+        payoutAccountId: accountId,
+        stripeConnectedAccountId: accountId,
+        preAuthAmountCents: 5000,
+        platformFeePercent: null,
+        isEnabled: true,
+        payoutAccountStatus: null,
+        payoutAccountDetails: null,
+        payoutAccountCheckedAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    async function putConfig(payload: Record<string, unknown>) {
+      return app.inject({
+        method: 'PUT',
+        url: `/sites/${VALID_SITE_ID}/payment-config`,
+        headers: { authorization: 'Bearer ' + token },
+        payload,
+      });
+    }
+
+    it('stores the account given in payoutAccountId', async () => {
+      setupDbResults([{ id: VALID_SITE_ID }], [{ id: 'pc-1' }], [], [configRow('acct_payout')]);
+      mockSetSitePayoutAccountId.mockResolvedValue(true);
+
+      const response = await putConfig({ payoutAccountId: 'acct_payout' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        payoutAccountId: 'acct_payout',
+        stripeConnectedAccountId: 'acct_payout',
+      });
+      expect(mockSetSitePayoutAccountId).toHaveBeenCalledWith(VALID_SITE_ID, 'acct_payout', CTX);
+    });
+
+    it('clears the account when payoutAccountId is null', async () => {
+      setupDbResults([{ id: VALID_SITE_ID }], [{ id: 'pc-1' }], [], [configRow(null)]);
+      mockSetSitePayoutAccountId.mockResolvedValue(true);
+
+      const response = await putConfig({ payoutAccountId: null });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockSetSitePayoutAccountId).toHaveBeenCalledWith(VALID_SITE_ID, null, CTX);
+    });
+
+    it('keeps the account when only isEnabled is sent', async () => {
+      setupDbResults([{ id: VALID_SITE_ID }], [{ id: 'pc-1' }], [], [configRow('acct_kept')]);
+
+      const response = await putConfig({ isEnabled: false });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().payoutAccountId).toBe('acct_kept');
+      expect(mockSetSitePayoutAccountId).not.toHaveBeenCalled();
+      expect(mockRevokePayoutInvites).not.toHaveBeenCalled();
+    });
+
+    function lastUpdateSet(): Record<string, unknown> {
+      const chain = vi.mocked(db.update).mock.results.at(-1)?.value as {
+        set: ReturnType<typeof vi.fn>;
+      };
+      return chain.set.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    }
+
+    it('keeps the stored hold amount and fee when only isEnabled is sent', async () => {
+      setupDbResults([{ id: VALID_SITE_ID }], [{ id: 'pc-1' }], [], [configRow('acct_kept')]);
+
+      const response = await putConfig({ isEnabled: false });
+
+      expect(response.statusCode).toBe(200);
+      const set = lastUpdateSet();
+      expect(set).not.toHaveProperty('preAuthAmountCents');
+      expect(set).not.toHaveProperty('platformFeePercent');
+      expect(set).toMatchObject({ isEnabled: false });
+    });
+
+    it('writes a sent hold amount and fee, and an explicit null fee clears the override', async () => {
+      setupDbResults([{ id: VALID_SITE_ID }], [{ id: 'pc-1' }], [], [configRow(null)]);
+      await putConfig({ preAuthAmountCents: 2500, platformFeePercent: 4.5 });
+      expect(lastUpdateSet()).toMatchObject({
+        preAuthAmountCents: 2500,
+        platformFeePercent: '4.5',
+      });
+
+      setupDbResults([{ id: VALID_SITE_ID }], [{ id: 'pc-1' }], [], [configRow(null)]);
+      await putConfig({ platformFeePercent: null });
+      const set = lastUpdateSet();
+      expect(set).toMatchObject({ platformFeePercent: null });
+      expect(set).not.toHaveProperty('preAuthAmountCents');
+    });
+
+    it('keeps the stored enabled flag when isEnabled is omitted', async () => {
+      setupDbResults([{ id: VALID_SITE_ID }], [{ id: 'pc-1' }], [], [configRow('acct_kept')]);
+
+      const response = await putConfig({ preAuthAmountCents: 2500 });
+
+      expect(response.statusCode).toBe(200);
+      const set = lastUpdateSet();
+      expect(set).not.toHaveProperty('isEnabled');
+      expect(set).toMatchObject({ preAuthAmountCents: 2500 });
+    });
+
+    it('clears the account when the deprecated field is sent empty', async () => {
+      setupDbResults([{ id: VALID_SITE_ID }], [{ id: 'pc-1' }], [], [configRow(null)]);
+      mockSetSitePayoutAccountId.mockResolvedValue(true);
+
+      const response = await putConfig({ stripeConnectedAccountId: '' });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockSetSitePayoutAccountId).toHaveBeenCalledWith(VALID_SITE_ID, null, CTX);
+      expect(mockRevokePayoutInvites).toHaveBeenCalledWith(VALID_SITE_ID);
+    });
+
+    it('accepts both account fields when they name the same account', async () => {
+      setupDbResults([{ id: VALID_SITE_ID }], [{ id: 'pc-1' }], [], [configRow('acct_same')]);
+      mockSetSitePayoutAccountId.mockResolvedValue(false);
+
+      const response = await putConfig({
+        payoutAccountId: 'acct_same',
+        stripeConnectedAccountId: 'acct_same',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockSetSitePayoutAccountId).toHaveBeenCalledWith(VALID_SITE_ID, 'acct_same', CTX);
+    });
+
+    it('treats null and empty as the same cleared account', async () => {
+      setupDbResults([{ id: VALID_SITE_ID }], [{ id: 'pc-1' }], [], [configRow(null)]);
+      mockSetSitePayoutAccountId.mockResolvedValue(false);
+
+      const response = await putConfig({ payoutAccountId: null, stripeConnectedAccountId: '' });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockSetSitePayoutAccountId).toHaveBeenCalledWith(VALID_SITE_ID, null, CTX);
+    });
+
+    it('returns 400 VALIDATION_ERROR without writing when the two account fields differ', async () => {
+      const response = await putConfig({
+        payoutAccountId: 'acct_one',
+        stripeConnectedAccountId: 'acct_two',
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { payoutAccountId: expect.any(String) },
+      });
+      expect(db.select).not.toHaveBeenCalled();
+      expect(mockSetSitePayoutAccountId).not.toHaveBeenCalled();
+      expect(mockClearPaymentCaches).not.toHaveBeenCalled();
     });
 
     it('creates new payment config when none exists', async () => {
       const created = {
         id: 'pc-new',
         siteId: VALID_SITE_ID,
+        payoutAccountId: null,
         stripeConnectedAccountId: null,
         preAuthAmountCents: 5000,
         platformFeePercent: null,
         isEnabled: true,
+        payoutAccountStatus: null,
+        payoutAccountDetails: null,
+        payoutAccountCheckedAt: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -358,6 +623,17 @@ describe('Payment routes - handler logic', () => {
       expect(response.statusCode).toBe(200);
       expect(response.json().id).toBe('pc-new');
       expect(mockClearPaymentCaches).toHaveBeenCalledTimes(1);
+      // A new config without a hold amount gets the 5000 default.
+      const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+        values: ReturnType<typeof vi.fn>;
+      };
+      expect(insertChain.values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preAuthAmountCents: 5000,
+          platformFeePercent: null,
+          isEnabled: true,
+        }),
+      );
     });
 
     it('returns 404 without writing when the site does not exist', async () => {
@@ -391,6 +667,7 @@ describe('Payment routes - handler logic', () => {
       expect(response.statusCode).toBe(200);
       expect(response.json().success).toBe(true);
       expect(mockClearPaymentCaches).toHaveBeenCalledTimes(1);
+      expect(mockRevokePayoutInvites).toHaveBeenCalledWith(VALID_SITE_ID);
     });
 
     it('returns 404 when no payment config to delete', async () => {
@@ -405,6 +682,7 @@ describe('Payment routes - handler logic', () => {
       expect(response.statusCode).toBe(404);
       expect(response.json().code).toBe('PAYMENT_CONFIG_NOT_FOUND');
       expect(mockClearPaymentCaches).not.toHaveBeenCalled();
+      expect(mockRevokePayoutInvites).not.toHaveBeenCalled();
     });
   });
 
@@ -430,15 +708,19 @@ describe('Payment routes - handler logic', () => {
       const body = response.json();
       expect(body).toHaveProperty('publishableKey');
       expect(body).not.toHaveProperty('currency');
-      expect(body).toHaveProperty('preAuthAmountCents');
-      expect(body).toHaveProperty('platformFeePercent');
-      expect(body.webhookSecret).toBeNull();
+      // Moved to GET /v1/settings/payments (P5 A2).
+      expect(body).not.toHaveProperty('preAuthAmountCents');
+      expect(body).not.toHaveProperty('platformFeePercent');
+      expect(body.secretKeyConfigured).toBe(false);
+      expect(body.webhookSecretConfigured).toBe(false);
+      expect(body.connectWebhookSecretConfigured).toBe(false);
     });
 
-    it('returns the decrypted webhook signing secret when set', async () => {
+    it('returns whether each secret is stored, never the secret (D-P6)', async () => {
       setupDbResults([
         { key: 'stripe.secretKeyEnc', value: 'enc_sk' },
         { key: 'stripe.webhookSecretEnc', value: 'enc_whsec' },
+        { key: 'stripe.connectWebhookSecretEnc', value: '' },
       ]);
 
       const response = await app.inject({
@@ -448,8 +730,15 @@ describe('Payment routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json().secretKey).toBe('decrypted:enc_sk');
-      expect(response.json().webhookSecret).toBe('decrypted:enc_whsec');
+      const body = response.json();
+      expect(body.secretKeyConfigured).toBe(true);
+      expect(body.webhookSecretConfigured).toBe(true);
+      expect(body.connectWebhookSecretConfigured).toBe(false);
+      expect(body).not.toHaveProperty('secretKey');
+      expect(body).not.toHaveProperty('webhookSecret');
+      expect(body).not.toHaveProperty('connectWebhookSecret');
+      expect(response.body).not.toContain('enc_');
+      expect(response.body).not.toContain('decrypted:');
     });
   });
 
@@ -457,9 +746,10 @@ describe('Payment routes - handler logic', () => {
 
   describe('PUT /v1/settings/stripe', () => {
     it('saves stripe settings and returns success', async () => {
-      // 1 SELECT for the before-snapshot, 2 upserts (publishableKey,
-      // preAuthAmountCents), then 2 parallel audit inserts via Promise.allSettled.
-      setupDbResults([], [], [], [], []);
+      // 1 SELECT for the before-snapshot, 1 upsert (publishableKey), then 1
+      // audit insert. preAuthAmountCents moved to PUT /v1/settings/payments
+      // and is dropped from this body.
+      setupDbResults([], [], []);
       vi.mocked(db.insert).mockClear();
 
       const response = await app.inject({
@@ -484,6 +774,8 @@ describe('Payment routes - handler logic', () => {
         .map(([row]) => (row as { key?: string }).key);
       expect(written).toContain('stripe.publishableKey');
       expect(written).not.toContain('stripe.currency');
+      expect(written).not.toContain('stripe.preAuthAmountCents');
+      expect(written).not.toContain('payments.preAuthAmountCents');
       expect(mockClearPaymentCaches).toHaveBeenCalledTimes(1);
     });
 
@@ -510,6 +802,28 @@ describe('Payment routes - handler logic', () => {
       expect(rows.some((r) => r.value === 'whsec_test_1')).toBe(false);
     });
 
+    it('stores the Connect signing secret encrypted under stripe.connectWebhookSecretEnc', async () => {
+      setupDbResults([], [], []);
+      vi.mocked(db.insert).mockClear();
+
+      const response = await app.inject({
+        method: 'PUT',
+        url: '/settings/stripe',
+        headers: { authorization: 'Bearer ' + token },
+        payload: { connectWebhookSecret: 'whsec_connect_1' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const rows = vi
+        .mocked(db.insert)
+        .mock.results.flatMap(
+          (res) =>
+            (res.value as { values: ReturnType<typeof vi.fn> }).values.mock.calls as unknown[][],
+        )
+        .map(([row]) => row as { key?: string; value?: unknown });
+      expect(rows).toEqual([{ key: 'stripe.connectWebhookSecretEnc', value: 'encrypted_value' }]);
+    });
+
     function writtenRows(): Array<{ key?: string; value?: unknown }> {
       return vi
         .mocked(db.insert)
@@ -520,8 +834,8 @@ describe('Payment routes - handler logic', () => {
         .map(([row]) => row as { key?: string; value?: unknown });
     }
 
-    it('selects Stripe as the provider when a secret key is saved and no provider is set', async () => {
-      setupDbResults([{ value: 'none' }], [], [], [], [], []);
+    it('stores a secret key encrypted and never selects a provider', async () => {
+      setupDbResults([], [], [], [], []);
       vi.mocked(db.insert).mockClear();
 
       const response = await app.inject({
@@ -532,27 +846,23 @@ describe('Payment routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(writtenRows()).toContainEqual({ key: 'payments.provider', value: 'stripe' });
-      expect(writtenRows()).toContainEqual({
-        key: 'stripe.secretKeyEnc',
-        value: 'encrypted_value',
-      });
+      expect(writtenRows()).toEqual([{ key: 'stripe.secretKeyEnc', value: 'encrypted_value' }]);
       expect(mockClearPaymentCaches).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps another selected provider when a Stripe secret key is saved', async () => {
-      setupDbResults([{ value: 'adyen' }], [], [], [], []);
+    it('clears a secret given as an empty string and keeps omitted secrets', async () => {
+      setupDbResults([], [], [], [], []);
       vi.mocked(db.insert).mockClear();
 
       const response = await app.inject({
         method: 'PUT',
         url: '/settings/stripe',
         headers: { authorization: 'Bearer ' + token },
-        payload: { secretKey: 'sk_test_new' },
+        payload: { webhookSecret: '' },
       });
 
       expect(response.statusCode).toBe(200);
-      expect(writtenRows().map((r) => r.key)).not.toContain('payments.provider');
+      expect(writtenRows()).toEqual([{ key: 'stripe.webhookSecretEnc', value: '' }]);
     });
   });
 
@@ -564,6 +874,9 @@ describe('Payment routes - handler logic', () => {
         {
           id: VALID_PM_ID,
           driverId: VALID_DRIVER_ID,
+          provider: 'stripe',
+          providerCustomerId: 'cus_test',
+          providerPaymentMethodId: 'pm_test',
           stripeCustomerId: 'cus_test',
           stripePaymentMethodId: 'pm_test',
           cardBrand: 'visa',
@@ -585,6 +898,13 @@ describe('Payment routes - handler logic', () => {
       const body = response.json();
       expect(body).toHaveLength(1);
       expect(body[0].cardLast4).toBe('4242');
+      expect(body[0]).toMatchObject({
+        provider: 'stripe',
+        providerCustomerId: 'cus_test',
+        providerPaymentMethodId: 'pm_test',
+        stripeCustomerId: 'cus_test',
+        stripePaymentMethodId: 'pm_test',
+      });
     });
   });
 
@@ -602,6 +922,9 @@ describe('Payment routes - handler logic', () => {
       const method = {
         id: 1,
         driverId: VALID_DRIVER_ID,
+        provider: 'stripe',
+        providerCustomerId: 'cus_test',
+        providerPaymentMethodId: 'pm_test',
         stripeCustomerId: 'cus_test',
         stripePaymentMethodId: 'pm_test',
         cardBrand: 'visa',
@@ -697,6 +1020,9 @@ describe('Payment routes - handler logic', () => {
       const updated = {
         id: 1,
         driverId: VALID_DRIVER_ID,
+        provider: 'stripe',
+        providerCustomerId: 'cus_test',
+        providerPaymentMethodId: 'pm_test',
         stripeCustomerId: 'cus_test',
         stripePaymentMethodId: 'pm_test',
         cardBrand: null,
@@ -741,6 +1067,10 @@ describe('Payment routes - handler logic', () => {
         sessionId: VALID_SESSION_ID,
         driverId: null,
         sitePaymentConfigId: null,
+        provider: null,
+        providerPaymentId: null,
+        providerCustomerId: null,
+        providerPaymentMethodId: null,
         stripePaymentIntentId: null,
         stripeCustomerId: null,
         paymentSource: null,
@@ -790,6 +1120,10 @@ describe('Payment routes - handler logic', () => {
         sessionId: null,
         driverId: null,
         sitePaymentConfigId: null,
+        provider: null,
+        providerPaymentId: null,
+        providerCustomerId: null,
+        providerPaymentMethodId: null,
         stripePaymentIntentId: null,
         stripeCustomerId: null,
         paymentSource: null,
@@ -858,7 +1192,11 @@ describe('Payment routes - handler logic', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json().status).toBe('pre_authorized');
-      expect(response.json().stripePaymentIntentId).toBe('pi_test_123');
+      expect(response.json()).toMatchObject({
+        provider: 'stripe',
+        providerPaymentId: 'pi_test_123',
+        stripePaymentIntentId: 'pi_test_123',
+      });
       expect(mockAuthorizeSessionHold).toHaveBeenCalledWith(
         {
           sessionId: VALID_SESSION_ID,
@@ -935,6 +1273,27 @@ describe('Payment routes - handler logic', () => {
         error: 'Your card was declined.',
         code: 'PRE_AUTH_FAILED',
         paymentRecord: { id: '1', status: 'failed' },
+      });
+    });
+
+    it('returns 409 PAYOUT_ACCOUNT_NOT_READY when the payout account of the site is not ready', async () => {
+      setupDbResults(
+        [sessionRow],
+        [paymentRecord({ status: 'failed', failureReason: 'Payout account not ready' })],
+      );
+      mockAuthorizeSessionHold.mockResolvedValueOnce({
+        outcome: 'declined',
+        reason: 'This site cannot accept card payments yet',
+        paymentRecordId: 1,
+        code: 'payout_account_not_ready',
+      });
+
+      const response = await preAuthorize();
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({
+        code: 'PAYOUT_ACCOUNT_NOT_READY',
+        paymentRecord: { id: '1', status: 'failed', failureReason: 'Payout account not ready' },
       });
     });
 
@@ -1105,6 +1464,8 @@ describe('Payment routes - handler logic', () => {
           refundedAmountCents: 1500,
         }),
         refundedNowCents: 1500,
+        pendingCents: 0,
+        refundStatus: 'succeeded',
         full: true,
       });
 
@@ -1140,6 +1501,8 @@ describe('Payment routes - handler logic', () => {
         status: 'refunded',
         record: paymentRecord({ status: 'partially_refunded', refundedAmountCents: 500 }),
         refundedNowCents: 500,
+        pendingCents: 0,
+        refundStatus: 'succeeded',
         full: false,
       });
 
@@ -1156,12 +1519,49 @@ describe('Payment routes - handler logic', () => {
       expect(dispatchDriverNotification).not.toHaveBeenCalled();
     });
 
+    it('answers a pending refund without notifying the driver yet', async () => {
+      setupDbResults([{ siteId: VALID_SITE_ID }]);
+      mockRefundPaymentRecord.mockResolvedValueOnce({
+        status: 'refunded',
+        record: paymentRecord({ status: 'captured', driverId: VALID_DRIVER_ID }),
+        refundedNowCents: 0,
+        pendingCents: 1500,
+        refundStatus: 'pending',
+        full: false,
+      });
+
+      const response = await refund();
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ status: 'captured', refundStatus: 'pending' });
+      expect(dispatchDriverNotification).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 PAYMENT_OPERATION_PENDING while the capture is unconfirmed', async () => {
+      setupDbResults([{ siteId: VALID_SITE_ID }]);
+      mockRefundPaymentRecord.mockResolvedValueOnce({
+        status: 'operation_pending',
+        operation: 'capture',
+      });
+
+      const response = await refund();
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({
+        error:
+          "The payment has an operation waiting for the provider's confirmation. Try again later.",
+        code: 'PAYMENT_OPERATION_PENDING',
+      });
+    });
+
     it('defaults the action reason to full or partial refund', async () => {
       setupDbResults([{ siteId: VALID_SITE_ID }]);
       mockRefundPaymentRecord.mockResolvedValueOnce({
         status: 'refunded',
         record: paymentRecord({ status: 'refunded' }),
         refundedNowCents: 1500,
+        pendingCents: 0,
+        refundStatus: 'succeeded',
         full: true,
       });
 
@@ -1233,6 +1633,25 @@ describe('Payment routes - handler logic', () => {
       expect(response.json()).toEqual({
         error: 'Refund amount 5000 exceeds remaining refundable balance 1000',
         code: 'REFUND_EXCEEDS_REMAINING',
+      });
+    });
+
+    it('returns 409 REFUND_TOP_UP_UNKNOWN when the refund reaches an unrecorded top-up', async () => {
+      setupDbResults([{ siteId: VALID_SITE_ID }]);
+      mockRefundPaymentRecord.mockResolvedValueOnce({
+        status: 'top_up_unknown',
+        refundableCents: 2000,
+        unlistedCents: 500,
+        currency: 'USD',
+      });
+
+      const response = await refund();
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({
+        error:
+          "This payment includes a top-up charge of $5.00 with no recorded payment id. Refund up to $20.00 here and refund the top-up in the payment provider's dashboard.",
+        code: 'REFUND_TOP_UP_UNKNOWN',
       });
     });
 
@@ -1353,6 +1772,114 @@ describe('Payment routes - handler logic', () => {
 
   // --- POST /v1/drivers/:id/payment-methods/setup-intent ---
 
+  describe('POST /v1/drivers/:id/payment-methods/setup/submit and setup/details', () => {
+    const ATTEMPT = '0b6f3c2e-6a51-4a55-9a77-2f4d3d6c1e10';
+    const method = {
+      id: 2,
+      driverId: VALID_DRIVER_ID,
+      provider: 'simulated',
+      providerCustomerId: 'cus_sim_1',
+      providerPaymentMethodId: 'pm_sim_approve_4242_x',
+      stripeCustomerId: 'cus_sim_1',
+      stripePaymentMethodId: 'pm_sim_approve_4242_x',
+      cardBrand: 'visa',
+      cardLast4: '4242',
+      isDefault: true,
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+    };
+
+    it('submits for the driver, creating the customer when missing, and returns 201', async () => {
+      mockSubmitDriverMethodSetup.mockResolvedValueOnce({ status: 'saved', method });
+      const response = await app.inject({
+        method: 'POST',
+        url: `/drivers/${VALID_DRIVER_ID}/payment-methods/setup/submit`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { provider: 'simulated', attemptId: ATTEMPT, payload: { testCard: '4242' } },
+      });
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toMatchObject({
+        status: 'saved',
+        method: { id: '2', providerPaymentMethodId: 'pm_sim_approve_4242_x' },
+      });
+      expect(mockSubmitDriverMethodSetup).toHaveBeenCalledWith(
+        {
+          driverId: VALID_DRIVER_ID,
+          providerId: 'simulated',
+          attemptId: ATTEMPT,
+          payload: { testCard: '4242' },
+          adoptCustomer: true,
+        },
+        CTX,
+      );
+    });
+
+    it('passes the browser with a return URL built from CSMS_URL and the driver', async () => {
+      const action = { provider: 'adyen', data: { type: 'redirect' } };
+      mockSubmitDriverMethodSetup.mockResolvedValueOnce({ status: 'action_required', action });
+      const origin = new URL(apiConfig.CSMS_URL).origin;
+      const response = await app.inject({
+        method: 'POST',
+        url: `/drivers/${VALID_DRIVER_ID}/payment-methods/setup/submit`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { provider: 'adyen', attemptId: ATTEMPT, payload: {}, browser: { origin } },
+      });
+      expect(response.statusCode).toBe(200);
+      const returnUrl = new URL('/payments/return', apiConfig.CSMS_URL);
+      returnUrl.searchParams.set('flow', 'method');
+      returnUrl.searchParams.set('provider', 'adyen');
+      returnUrl.searchParams.set('attemptId', ATTEMPT);
+      returnUrl.searchParams.set('driverId', VALID_DRIVER_ID);
+      expect(mockSubmitDriverMethodSetup).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adoptCustomer: true,
+          browser: { origin, returnUrl: returnUrl.toString() },
+        }),
+        CTX,
+      );
+    });
+
+    it('refuses a browser origin other than the dashboard', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/drivers/${VALID_DRIVER_ID}/payment-methods/setup/submit`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {
+          provider: 'adyen',
+          attemptId: ATTEMPT,
+          payload: {},
+          browser: { origin: 'https://evil.example' },
+        },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('VALIDATION_ERROR');
+      expect(mockSubmitDriverMethodSetup).not.toHaveBeenCalled();
+    });
+
+    it('continues with the details and maps a refusal to 400 PAYMENT_FAILED', async () => {
+      mockContinueDriverMethodSetup.mockResolvedValueOnce({
+        status: 'refused',
+        reason: 'authentication_failed',
+      });
+      const details = { methodId: 'm', outcome: 'fail' };
+      const response = await app.inject({
+        method: 'POST',
+        url: `/drivers/${VALID_DRIVER_ID}/payment-methods/setup/details`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { provider: 'simulated', attemptId: ATTEMPT, details },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        code: 'PAYMENT_FAILED',
+        details: { reason: 'authentication_failed' },
+      });
+      expect(mockContinueDriverMethodSetup).toHaveBeenCalledWith(
+        { driverId: VALID_DRIVER_ID, providerId: 'simulated', attemptId: ATTEMPT, details },
+        CTX,
+      );
+    });
+  });
+
   describe('POST /v1/drivers/:id/payment-methods/setup-intent', () => {
     async function setupIntent() {
       return app.inject({
@@ -1383,6 +1910,12 @@ describe('Payment routes - handler logic', () => {
         clientSecret: 'seti_secret_123',
         customerId: 'cus_test_123',
         publishableKey: 'pk_test_123',
+        session: {
+          provider: 'stripe',
+          clientSecret: 'seti_secret_123',
+          customerId: 'cus_test_123',
+          publishableKey: 'pk_test_123',
+        },
       });
       expect(mockStartDriverMethodSetup).toHaveBeenCalledWith(
         { driverId: VALID_DRIVER_ID, channel: 'web' },
@@ -1390,12 +1923,18 @@ describe('Payment routes - handler logic', () => {
       );
     });
 
-    it('returns a null client secret and empty publishable key for a non-Stripe session', async () => {
+    it('returns the provider session and empty Stripe fields for a non-Stripe session', async () => {
+      const session = {
+        provider: 'simulated',
+        customerId: 'cus_sim_1',
+        resultMode: 'sync',
+        testCards: [{ number: '4242424242424242', label: 'Success', scenario: 'success' }],
+      };
       mockStartDriverMethodSetup.mockResolvedValueOnce({
         status: 'started',
         providerId: 'simulated',
-        customerId: 'sim_cus_1',
-        session: { provider: 'simulated' },
+        customerId: 'cus_sim_1',
+        session,
       });
 
       const response = await setupIntent();
@@ -1404,8 +1943,9 @@ describe('Payment routes - handler logic', () => {
       expect(response.json()).toEqual({
         provider: 'simulated',
         clientSecret: null,
-        customerId: 'sim_cus_1',
+        customerId: 'cus_sim_1',
         publishableKey: '',
+        session,
       });
     });
 
@@ -1442,6 +1982,282 @@ describe('Payment routes - handler logic', () => {
       expect(response.json()).toEqual({
         error: 'The payment provider rejected the request: Invalid API Key provided',
         code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+      });
+    });
+  });
+
+  // --- Stripe webhook setup ---
+
+  describe('Stripe webhook setup', () => {
+    const URL = 'https://csms.example.com/v1/webhooks/payments/stripe';
+    const ENDPOINTS = [
+      {
+        id: 'we_1',
+        url: URL,
+        scope: 'platform',
+        enabledEvents: [
+          'payment_intent.payment_failed',
+          'charge.refunded',
+          'charge.dispute.created',
+        ],
+        apiVersion: '2026-09-30.endive',
+        active: true,
+      },
+      {
+        id: 'we_2',
+        url: URL,
+        scope: 'connect',
+        enabledEvents: ['account.updated'],
+        apiVersion: '2026-09-30.endive',
+        active: true,
+      },
+    ];
+
+    function writtenRows(): Array<{ key?: string; value?: unknown }> {
+      return vi
+        .mocked(db.insert)
+        .mock.results.flatMap(
+          (res) =>
+            (res.value as { values: ReturnType<typeof vi.fn> }).values.mock.calls as unknown[][],
+        )
+        .map(([row]) => row as { key?: string; value?: unknown });
+    }
+
+    function getWebhook() {
+      return app.inject({
+        method: 'GET',
+        url: '/settings/stripe/webhook',
+        headers: { authorization: 'Bearer ' + token },
+      });
+    }
+
+    function postWebhook(payload: Record<string, unknown>) {
+      return app.inject({
+        method: 'POST',
+        url: '/settings/stripe/webhook',
+        headers: { authorization: 'Bearer ' + token },
+        payload,
+      });
+    }
+
+    describe('GET /v1/settings/stripe/webhook', () => {
+      it('lists the EVtivity endpoints, the stored secrets, the events and API version', async () => {
+        const listWebhooks = vi.fn().mockResolvedValue(ENDPOINTS);
+        mockGetPaymentProvider.mockResolvedValueOnce({ listWebhooks });
+        setupDbResults([
+          { key: 'stripe.webhookSecretEnc', value: 'enc_whsec' },
+          { key: 'stripe.connectWebhookSecretEnc', value: '' },
+        ]);
+
+        const response = await getWebhook();
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual({
+          endpoints: ENDPOINTS,
+          platformSecretConfigured: true,
+          connectSecretConfigured: false,
+          events: {
+            platform: [
+              'payment_intent.payment_failed',
+              'charge.refunded',
+              'charge.dispute.created',
+            ],
+            connect: ['account.updated'],
+          },
+          apiVersion: '2026-09-30.endive',
+        });
+        expect(mockGetPaymentProvider).toHaveBeenCalledWith('stripe');
+      });
+
+      it('returns 400 PAYMENT_PROVIDER_NOT_CONFIGURED without Stripe keys', async () => {
+        mockGetPaymentProvider.mockRejectedValueOnce(
+          new MockPaymentProviderNotConfiguredError('stripe'),
+        );
+
+        const response = await getWebhook();
+
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toEqual({
+          error: 'Stripe is not configured',
+          code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+        });
+      });
+
+      it('returns 400 PAYMENT_PROVIDER_PERMISSION_MISSING for a key without webhook access', async () => {
+        mockGetPaymentProvider.mockResolvedValueOnce({
+          listWebhooks: vi
+            .fn()
+            .mockRejectedValue(
+              new MockPaymentProviderPermissionError('stripe', 'Webhook Endpoints: read'),
+            ),
+        });
+
+        const response = await getWebhook();
+
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toEqual({
+          error: 'The stripe credential lacks a required permission: Webhook Endpoints: read',
+          code: 'PAYMENT_PROVIDER_PERMISSION_MISSING',
+          permission: 'Webhook Endpoints: read',
+        });
+      });
+
+      it('returns 400 PAYMENT_PROVIDER_CONNECTION_FAILED when Stripe refuses the call', async () => {
+        mockGetPaymentProvider.mockResolvedValueOnce({
+          listWebhooks: vi.fn().mockRejectedValue(new Error('Invalid API Key provided')),
+        });
+
+        const response = await getWebhook();
+
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toEqual({
+          error: 'Invalid API Key provided',
+          code: 'PAYMENT_PROVIDER_CONNECTION_FAILED',
+        });
+      });
+    });
+
+    describe('POST /v1/settings/stripe/webhook', () => {
+      it('registers the endpoints and stores both secrets encrypted, never returning them', async () => {
+        const registerWebhook = vi.fn().mockResolvedValue({
+          endpoints: ENDPOINTS,
+          settings: [
+            { key: 'stripe.webhookSecretEnc', value: 'whsec_platform', secret: true },
+            { key: 'stripe.connectWebhookSecretEnc', value: 'whsec_connect', secret: true },
+          ],
+        });
+        mockGetPaymentProvider.mockResolvedValueOnce({ registerWebhook });
+        vi.mocked(db.insert).mockClear();
+
+        const response = await postWebhook({ url: URL, replace: false });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual({ endpoints: ENDPOINTS });
+        expect(response.body).not.toContain('whsec_');
+        expect(registerWebhook).toHaveBeenCalledWith({ url: URL, replace: false });
+        expect(writtenRows()).toEqual([
+          { key: 'stripe.webhookSecretEnc', value: 'encrypted_value' },
+          { key: 'stripe.connectWebhookSecretEnc', value: 'encrypted_value' },
+        ]);
+        expect(mockClearPaymentCaches).toHaveBeenCalled();
+      });
+
+      it('stores a non-secret setting as is', async () => {
+        mockGetPaymentProvider.mockResolvedValueOnce({
+          registerWebhook: vi.fn().mockResolvedValue({
+            endpoints: [],
+            settings: [{ key: 'stripe.someFlag', value: true, secret: false }],
+          }),
+        });
+        vi.mocked(db.insert).mockClear();
+
+        const response = await postWebhook({ url: URL, replace: true });
+
+        expect(response.statusCode).toBe(200);
+        expect(writtenRows()).toEqual([{ key: 'stripe.someFlag', value: true }]);
+      });
+
+      it.each([
+        'http://csms.example.com/v1/webhooks/payments/stripe',
+        'https://csms.example.com/v1/webhooks/stripe',
+        'https://csms.example.com/v1/webhooks/payments/stripe/',
+        'https://csms.example.com/v1/webhooks/payments/adyen',
+        'https://csms.example.com/v1/webhooks/payments/stripe?x=1',
+        'https://csms.example.com/v1/webhooks/payments/stripe#frag',
+        'https://user:pass@csms.example.com/v1/webhooks/payments/stripe',
+        'not a url',
+      ])('refuses %s with 400 VALIDATION_ERROR', async (url) => {
+        const response = await postWebhook({ url, replace: false });
+
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toMatchObject({
+          code: 'VALIDATION_ERROR',
+          details: { url: expect.any(String) },
+        });
+        expect(mockGetPaymentProvider).not.toHaveBeenCalled();
+      });
+
+      it('requires replace', async () => {
+        const response = await postWebhook({ url: URL });
+        expect(response.statusCode).toBe(400);
+        expect(mockGetPaymentProvider).not.toHaveBeenCalled();
+      });
+
+      it('returns 409 PAYMENT_WEBHOOK_EXISTS with the existing endpoints', async () => {
+        mockGetPaymentProvider.mockResolvedValueOnce({
+          registerWebhook: vi
+            .fn()
+            .mockRejectedValue(new MockWebhookExistsError('stripe', ENDPOINTS)),
+        });
+
+        const response = await postWebhook({ url: URL, replace: false });
+
+        expect(response.statusCode).toBe(409);
+        expect(response.json()).toEqual({
+          error: 'An EVtivity webhook already exists for this provider',
+          code: 'PAYMENT_WEBHOOK_EXISTS',
+          endpoints: ENDPOINTS,
+        });
+      });
+
+      it('returns 400 PAYMENT_PROVIDER_PERMISSION_MISSING for a restricted key', async () => {
+        mockGetPaymentProvider.mockResolvedValueOnce({
+          registerWebhook: vi
+            .fn()
+            .mockRejectedValue(
+              new MockPaymentProviderPermissionError('stripe', 'Webhook Endpoints: write'),
+            ),
+        });
+
+        const response = await postWebhook({ url: URL, replace: false });
+
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toMatchObject({
+          code: 'PAYMENT_PROVIDER_PERMISSION_MISSING',
+          permission: 'Webhook Endpoints: write',
+        });
+      });
+
+      it('returns 400 PAYMENT_PROVIDER_NOT_CONFIGURED without Stripe keys', async () => {
+        mockGetPaymentProvider.mockRejectedValueOnce(
+          new MockPaymentProviderNotConfiguredError('stripe'),
+        );
+
+        const response = await postWebhook({ url: URL, replace: false });
+
+        expect(response.statusCode).toBe(400);
+        expect(response.json().code).toBe('PAYMENT_PROVIDER_NOT_CONFIGURED');
+      });
+
+      it('returns 400 PAYMENT_PROVIDER_CONNECTION_FAILED with the Stripe message', async () => {
+        mockGetPaymentProvider.mockResolvedValueOnce({
+          registerWebhook: vi
+            .fn()
+            .mockRejectedValue(new Error('Invalid URL: must be publicly accessible')),
+        });
+
+        const response = await postWebhook({ url: URL, replace: false });
+
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toEqual({
+          error: 'Invalid URL: must be publicly accessible',
+          code: 'PAYMENT_PROVIDER_CONNECTION_FAILED',
+        });
+      });
+
+      it('answers 500 when the secrets cannot be stored', async () => {
+        mockGetPaymentProvider.mockResolvedValueOnce({
+          registerWebhook: vi.fn().mockResolvedValue({
+            endpoints: ENDPOINTS,
+            settings: [{ key: 'stripe.webhookSecretEnc', value: 'whsec_platform', secret: true }],
+          }),
+        });
+        vi.mocked(db.transaction).mockRejectedValueOnce(new Error('db down'));
+
+        const response = await postWebhook({ url: URL, replace: true });
+
+        expect(response.statusCode).toBe(500);
+        expect(response.body).not.toContain('whsec_');
       });
     });
   });
@@ -1520,22 +2336,30 @@ describe('Payment routes - handler logic', () => {
         {
           id: 'pc-1',
           siteId: VALID_SITE_ID,
+          payoutAccountId: 'acct_123',
           stripeConnectedAccountId: 'acct_123',
           currency: 'USD',
           preAuthAmountCents: 5000,
           platformFeePercent: null,
           isEnabled: true,
+          payoutAccountStatus: 'active',
+          payoutAccountDetails: null,
+          payoutAccountCheckedAt: null,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         },
         {
           id: 'pc-2',
           siteId: VALID_DRIVER_ID,
+          payoutAccountId: null,
           stripeConnectedAccountId: null,
           currency: 'EUR',
           preAuthAmountCents: 3000,
           platformFeePercent: '5',
           isEnabled: false,
+          payoutAccountStatus: null,
+          payoutAccountDetails: null,
+          payoutAccountCheckedAt: null,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         },

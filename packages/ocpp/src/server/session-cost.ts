@@ -12,9 +12,30 @@ export interface TransactionCost {
    * True when priced from the session's tariff snapshot by the one cost
    * assembly (`priceSessionAt`, which the Ended projection also stores the
    * final cost with). False when the session is not billed (no tariff, free
-   * vend, or already faulted or failed).
+   * vend, already faulted or failed, or a timeout end without energy).
    */
   calculated: boolean;
+}
+
+/**
+ * True for the end of a transaction the EV never joined: the station timed
+ * out waiting for the cable (2.1 triggerReason `EVConnectTimeout` or
+ * stoppedReason `Timeout`) and no energy was delivered. The session ends
+ * `failed` and is not billed: the CSMS answers totalCost 0 (C20.FR.02/03) and
+ * the driver's hold is cancelled. OCPP 1.6 has no such end: its transaction
+ * starts only once the cable is connected (ConnectionTimeOut cancels the
+ * authorization before any StartTransaction), and its stop reasons have no
+ * Timeout.
+ */
+export function isUnbilledTimeoutEnd(end: {
+  triggerReason: string | null | undefined;
+  stoppedReason: string | null | undefined;
+  energyWh: number;
+}): boolean {
+  return (
+    (end.triggerReason === 'EVConnectTimeout' || end.stoppedReason === 'Timeout') &&
+    end.energyWh === 0
+  );
 }
 
 /**
@@ -24,12 +45,20 @@ export interface TransactionCost {
  * The caller first waits for the projections the session row depends on. The
  * energy is the one the projections store: the register reading of the event
  * (`meterRegisterWh`) minus meter_start when that is higher than the energy
- * from earlier readings. Returns null when the session is unknown (its
- * Started event has not been projected), so the cost is not known.
+ * from earlier readings. `end` carries the reasons of an Ended event: a
+ * timeout end without energy (`isUnbilledTimeoutEnd`) costs 0, as the Ended
+ * projection then fails the session. Returns null when the session is unknown
+ * (its Started event has not been projected), so the cost is not known.
  */
 export async function transactionCostAt(
   sql: postgres.Sql,
-  params: { stationId: string; transactionId: string; at: Date; meterRegisterWh: number | null },
+  params: {
+    stationId: string;
+    transactionId: string;
+    at: Date;
+    meterRegisterWh: number | null;
+    end?: { triggerReason: string; stoppedReason: string | undefined };
+  },
 ): Promise<TransactionCost | null> {
   const rows = await sql`
     SELECT s.id, s.status, s.tariff_id, s.energy_delivered_wh, s.meter_start, s.final_cost_cents
@@ -60,6 +89,9 @@ export async function transactionCostAt(
     params.meterRegisterWh != null && meterStart != null && params.meterRegisterWh >= meterStart
       ? Math.max(storedEnergyWh, params.meterRegisterWh - meterStart)
       : storedEnergyWh;
+  if (params.end != null && isUnbilledTimeoutEnd({ ...params.end, energyWh })) {
+    return { totalCostCents: 0, calculated: false };
+  }
 
   const breakdown = await priceSessionAt(sql, session.id as string, params.at, energyWh);
   if (breakdown == null) return { totalCostCents: 0, calculated: false };

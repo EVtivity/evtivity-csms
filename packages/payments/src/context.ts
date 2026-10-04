@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { PaymentProviderRegistry } from './registry.js';
+import type { ModificationResult } from './types.js';
 
 /** The logger shape the services write to (pino and the Fastify logger both fit). */
 export interface PaymentLogger {
@@ -21,6 +22,14 @@ export interface PaymentLogger {
 export interface PaymentContext {
   registry: PaymentProviderRegistry;
   logger: PaymentLogger;
+}
+
+/**
+ * The provider's reference of an operation it confirms later by webhook
+ * (async providers), or null when the result is final now.
+ */
+export function pendingRef(result: ModificationResult<object>): string | null {
+  return result.state === 'pending' ? result.operationRef : null;
 }
 
 /** The error message stored as a failure reason, cut to the column width. */

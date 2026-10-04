@@ -22,14 +22,15 @@ import {
 import type { AuthorizeHoldInput, PaymentProvider } from '../types.js';
 import {
   adyenOptions,
+  DOC_HMAC_KEY,
   fakeAdyen,
   fakeAdyenProvider,
   MERCHANT,
   MODIFICATION_PSP,
   PAYMENT_PSP,
   TOKEN_ID,
-} from './helpers/fake-adyen.js';
-import { emptyAdyenSettings } from './helpers/settings.js';
+} from '../testing/fake-adyen.js';
+import { defaultSimulatedSettings, emptyAdyenSettings } from './helpers/settings.js';
 
 const TEST_BASE = 'https://checkout-test.adyen.com/v72';
 const BROWSER = {
@@ -76,6 +77,8 @@ describe('AdyenPaymentProvider: identity and configuration', () => {
       marketplaceSplit: 'none',
       clientActions: true,
       manualCapture: true,
+      payoutOnboarding: 'none',
+      webhookRegistration: true,
     });
     const currencies = provider.capabilities.currencies as readonly string[];
     expect(currencies).toContain('EUR');
@@ -154,7 +157,13 @@ describe('adyenProviderFactory', () => {
   const base = {
     provider: 'adyen',
     preAuthAmountCents: 5000,
-    stripe: { secretKey: null, publishableKey: null, webhookSecret: null },
+    stripe: {
+      secretKey: null,
+      publishableKey: null,
+      webhookSecret: null,
+      connectWebhookSecret: null,
+    },
+    simulated: defaultSimulatedSettings(),
   };
   const configured = {
     apiKey: 'AQE_key',
@@ -232,6 +241,11 @@ describe('customers and saved methods', () => {
       currency: 'EUR',
     });
     expect((session as Record<string, unknown>)['paymentMethodsResponse']).toBeDefined();
+    // The session goes to the browser as is: no API key, HMAC key or webhook password in it.
+    const json = JSON.stringify(session);
+    expect(json).not.toContain('AQE_test_key');
+    expect(json).not.toContain(DOC_HMAC_KEY);
+    expect(json).not.toContain('hook-password');
   });
 
   it('stores a card with a zero-value authorization', async () => {
@@ -263,6 +277,46 @@ describe('customers and saved methods', () => {
       status: 'saved',
       method: { methodId: TOKEN_ID, customerId: SHOPPER, brand: 'visa', last4: '1111' },
     });
+  });
+
+  it('stores a card from the mobile app with the app channel and no origin', async () => {
+    const { provider, adyen } = fakeAdyenProvider();
+    await provider.submitMethodSetup({
+      customerId: SHOPPER,
+      payload: { ...CARD, browserInfo: { userAgent: 'iPhone' }, currency: 'EUR' },
+      browser: { channel: 'ios', returnUrl: 'evtivity://payments/adyen' },
+      idempotencyKey: 'method_d1',
+    });
+    const ios = adyen.last().body ?? {};
+    expect(ios['channel']).toBe('iOS');
+    expect(ios['returnUrl']).toBe('evtivity://payments/adyen');
+    expect(ios['origin']).toBeUndefined();
+    // Adyen needs an accept header the app does not have; a dummy is allowed.
+    expect(ios['browserInfo']).toEqual({ acceptHeader: '*/*', userAgent: 'iPhone' });
+
+    await provider.submitMethodSetup({
+      customerId: SHOPPER,
+      payload: { ...CARD, currency: 'EUR' },
+      browser: {
+        channel: 'android',
+        returnUrl: 'adyencheckout://com.evtivity.driver',
+        info: { userAgent: 'Android', acceptHeader: 'text/html' },
+      },
+      idempotencyKey: 'method_d2',
+    });
+    const android = adyen.last().body ?? {};
+    expect(android['channel']).toBe('Android');
+    expect(android['returnUrl']).toBe('adyencheckout://com.evtivity.driver');
+    expect(android['origin']).toBeUndefined();
+    expect(android['browserInfo']).toEqual({ userAgent: 'Android', acceptHeader: 'text/html' });
+
+    await provider.submitMethodSetup({
+      customerId: SHOPPER,
+      payload: { ...CARD, currency: 'EUR' },
+      browser: { channel: 'android', returnUrl: 'adyencheckout://com.evtivity.driver' },
+      idempotencyKey: 'method_d3',
+    });
+    expect(adyen.last().body?.['browserInfo']).toBeUndefined();
   });
 
   it('needs the browser context and the setup currency', async () => {

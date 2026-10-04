@@ -161,6 +161,16 @@ const paymentRecordItem = z
     updatedAt: z.coerce.date().describe('Timestamp when the payment record was last updated'),
   })
   .passthrough();
+
+const supportRefundItem = paymentRecordItem
+  .extend({
+    refundStatus: z
+      .enum(['succeeded', 'pending'])
+      .describe(
+        'succeeded: the refund is done. pending: an asynchronous provider (Adyen) accepted it and confirms it by webhook; the driver is notified then.',
+      ),
+  })
+  .passthrough();
 import {
   getS3Config,
   generateUploadUrl,
@@ -1536,13 +1546,13 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         tags: ['Support Cases'],
         summary: 'Issue a refund for a session linked to a support case',
         description:
-          'Issues a Stripe refund for the supplied sessionId, which must be linked to this case via the support_case_sessions junction table. Supports partial refunds via amountCents. Allowed against captured or partially_refunded payments. Posts an audit message to the case timeline on success.',
+          'Refunds the payment of the supplied sessionId through the provider it was made with; the session must be linked to this case via the support_case_sessions junction table. Supports partial refunds via amountCents. Allowed against captured or partially_refunded payments; 409 PAYMENT_OPERATION_PENDING while the provider has not confirmed the capture. refundStatus is pending when an asynchronous provider (Adyen) confirms the refund later by webhook. Posts an audit message to the case timeline on success.',
         operationId: 'refundSupportCaseSession',
         security: [{ bearerAuth: [] }],
         params: zodSchema(caseIdParams),
         body: zodSchema(refundBody),
         response: {
-          200: itemResponse(paymentRecordItem),
+          200: itemResponse(supportRefundItem),
           400: errorWith('Bad request', [
             ERROR_CODES.MISSING_PAYMENT_INTENT,
             ERROR_CODES.NO_CAPTURED_PAYMENT,
@@ -1551,6 +1561,10 @@ export function supportCaseRoutes(app: FastifyInstance): void {
             ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
           ]),
           404: errorWith('Support case not found', [ERROR_CODES.SUPPORT_CASE_NOT_FOUND]),
+          409: errorWith(
+            'Refund reaches an unrecorded top-up, or the capture is not confirmed yet',
+            [ERROR_CODES.REFUND_TOP_UP_UNKNOWN, ERROR_CODES.PAYMENT_OPERATION_PENDING],
+          ),
         },
       },
     },
@@ -1625,7 +1639,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
       }
 
       // The same refund path as the operator route: the record is locked,
-      // and the request key <recordId>_<refundedSoFar>_<amount> makes a
+      // and the key refund_<paymentId>_<refundedSoFar>_<amount>_<ledger> makes a
       // retried request reuse the provider refund instead of refunding twice
       // (P7), while a later partial refund gets a new key.
       const outcome = await refundPaymentRecord(
@@ -1666,16 +1680,33 @@ export function supportCaseRoutes(app: FastifyInstance): void {
             code: 'REFUND_EXCEEDS_REMAINING',
           });
           return;
+        case 'top_up_unknown':
+          // A retry top-up made before v0.1.37 has no stored payment id, so
+          // only the charges EVtivity knows can be refunded here.
+          await reply.status(409).send({
+            error: `This payment includes a top-up charge of ${formatCurrencyAmount(outcome.unlistedCents, outcome.currency)} with no recorded payment id. Refund up to ${formatCurrencyAmount(outcome.refundableCents, outcome.currency)} here and refund the top-up in the payment provider's dashboard.`,
+            code: 'REFUND_TOP_UP_UNKNOWN',
+          });
+          return;
+        case 'operation_pending':
+          // O3: a refund of a capture the provider may still fail is refused.
+          await reply.status(409).send({
+            error:
+              "The payment has an operation waiting for the provider's confirmation. Try again later.",
+            code: 'PAYMENT_OPERATION_PENDING',
+          });
+          return;
         case 'refunded':
           break;
       }
       const updatedPayment = outcome.record;
       const record = outcome.record;
-      const refundAmount = outcome.refundedNowCents;
+      const pending = outcome.refundStatus === 'pending';
+      const refundAmount = outcome.refundedNowCents + outcome.pendingCents;
 
       // Create system message documenting the refund. Best-effort: don't
-      // 500 the request after the refund already cleared Stripe and the
-      // payment record was updated.
+      // 500 the request after the refund already cleared the provider and
+      // the payment record was updated.
       const amountDisplay = formatCurrencyAmount(refundAmount, record.currency);
       const txLabel = sessionStation?.transactionId ?? body.sessionId;
       try {
@@ -1683,15 +1714,17 @@ export function supportCaseRoutes(app: FastifyInstance): void {
           caseId: id,
           senderType: 'system',
           senderId: userId,
-          body: `Refund of ${amountDisplay} issued for session ${txLabel}`,
+          body: pending
+            ? `Refund of ${amountDisplay} requested for session ${txLabel}; awaiting the payment provider's confirmation`
+            : `Refund of ${amountDisplay} issued for session ${txLabel}`,
           isInternal: false,
         });
       } catch (err) {
         request.log.warn({ err, caseId: id }, 'Failed to write refund system message');
       }
 
-      // Notify driver
-      if (record.driverId != null) {
+      // Notify driver (a pending refund notifies when the provider confirms it)
+      if (record.driverId != null && !pending) {
         void dispatchDriverNotification(
           client,
           'payment.Refunded',
@@ -1727,7 +1760,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         request.log,
       );
 
-      return updatedPayment;
+      return { ...updatedPayment, refundStatus: outcome.refundStatus };
     },
   );
 

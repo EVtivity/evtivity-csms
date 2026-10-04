@@ -1,6 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import type { WebhookEndpointInfo } from './types.js';
+
 /** The provider refused the payment (card declined, insufficient funds, failed capture). */
 export class PaymentDeclinedError extends Error {
   readonly code: string | null;
@@ -68,13 +70,53 @@ export class WebhookNotConfiguredError extends Error {
   }
 }
 
-/** A webhook without a signature ('missing') or with a wrong one ('invalid'). */
+/**
+ * A webhook without a signature ('missing') or with a wrong one ('invalid').
+ * `kind` tells a failed credential check ('auth', Adyen Basic auth, answered
+ * 401) from a failed body signature or body check ('signature', answered 400).
+ */
 export class WebhookSignatureError extends Error {
   readonly reason: 'missing' | 'invalid';
+  readonly kind: 'auth' | 'signature';
 
-  constructor(reason: 'missing' | 'invalid', message: string, options: { cause?: unknown } = {}) {
+  constructor(
+    reason: 'missing' | 'invalid',
+    message: string,
+    options: { cause?: unknown; kind?: 'auth' | 'signature' } = {},
+  ) {
     super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
     this.name = 'WebhookSignatureError';
     this.reason = reason;
+    this.kind = options.kind ?? 'signature';
+  }
+}
+
+/** registerWebhook without `replace` found EVtivity endpoints at the provider. */
+export class WebhookExistsError extends Error {
+  readonly providerId: string;
+  readonly endpoints: WebhookEndpointInfo[];
+
+  constructor(providerId: string, endpoints: WebhookEndpointInfo[]) {
+    super(`An EVtivity webhook already exists for ${providerId}`);
+    this.name = 'WebhookExistsError';
+    this.providerId = providerId;
+    this.endpoints = endpoints;
+  }
+}
+
+/** The provider credential lacks a permission or role the call needs. */
+export class PaymentProviderPermissionError extends Error {
+  readonly providerId: string;
+  /** The provider's name for the missing permission or role. */
+  readonly permission: string;
+
+  constructor(providerId: string, permission: string, options: { cause?: unknown } = {}) {
+    super(
+      `The ${providerId} credential lacks a required permission: ${permission}`,
+      options.cause !== undefined ? { cause: options.cause } : undefined,
+    );
+    this.name = 'PaymentProviderPermissionError';
+    this.providerId = providerId;
+    this.permission = permission;
   }
 }

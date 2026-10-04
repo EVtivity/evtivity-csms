@@ -35,6 +35,7 @@ import { zodSchema } from '../../lib/zod-schema.js';
 import { sessionCurrencySql } from '../../lib/company-currency.js';
 import { ID_PARAMS } from '../../lib/id-validation.js';
 import { getPubSub } from '../../lib/pubsub.js';
+import { scheduleRemoteStartTimeout } from '../../lib/remote-start-timeout.js';
 import {
   errorResponse,
   itemResponse,
@@ -62,7 +63,7 @@ import {
   setCachedConnectorStatus,
 } from '../../lib/rate-limiters.js';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
-import { authorizeSessionHold } from '@evtivity/payments';
+import { authorizeSessionHold, cancelOpenSessionHold } from '@evtivity/payments';
 import { activePaymentProvider, paymentContext } from '../../lib/payments.js';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import { ALL_TEMPLATES_DIRS } from '../../lib/template-dirs.js';
@@ -1994,6 +1995,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
                 { stationId: station.stationId },
                 'TxInProgress recovery: retry succeeded',
               );
+              await scheduleRemoteStartTimeout(
+                { kind: 'session', sessionId: session.id },
+                station,
+                request.log,
+              );
               return { chargingSessionId: session.id };
             }
             // Retry failed, fall through to fault the session
@@ -2004,6 +2010,21 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           .update(chargingSessions)
           .set({ status: 'faulted', updatedAt: new Date() })
           .where(eq(chargingSessions.id, session.id));
+        // The station will not start: the hold placed above is released now
+        // instead of staying open until the provider expires it (P4).
+        // Best effort (P9): the start already failed for the driver.
+        try {
+          await cancelOpenSessionHold(
+            session.id,
+            `Station rejected the start: ${cmdStatus ?? 'Unknown'}`,
+            paymentContext(request.log),
+          );
+        } catch (err) {
+          request.log.warn(
+            { err, sessionId: session.id },
+            'Failed to cancel the hold of a rejected start',
+          );
+        }
         const reason = `Station rejected: ${cmdStatus ?? 'Unknown'}`;
         void dispatchDriverNotification(
           client,
@@ -2020,6 +2041,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         return;
       }
 
+      await scheduleRemoteStartTimeout(
+        { kind: 'session', sessionId: session.id },
+        station,
+        request.log,
+      );
       return { chargingSessionId: session.id };
     },
   );

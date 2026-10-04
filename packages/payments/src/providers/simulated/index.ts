@@ -62,9 +62,10 @@ export interface SimulatedWebhookDelivery {
 }
 
 /**
- * Delivers simulated webhooks into the webhook pipeline. Per D-T2 the
- * production sink publishes on `csms_events` and the worker re-delivers after
- * a delayed BullMQ job into `ingestPaymentWebhook('simulated', ...)` (P10a).
+ * Delivers simulated webhooks into the webhook pipeline. The production sink
+ * (`simulated-delivery.ts`) publishes on `payment_webhook_deliveries`; the
+ * worker re-delivers after a delayed BullMQ job into
+ * `ingestPaymentWebhook('simulated', ...)` (D-T2).
  */
 export interface SimulatedEventSink {
   deliver(delivery: SimulatedWebhookDelivery): Promise<void>;
@@ -138,6 +139,8 @@ export class SimulatedPaymentProvider implements PaymentProvider {
       stateLookup: false,
       marketplaceSplit: 'none',
       currencies: 'all',
+      payoutOnboarding: 'none',
+      webhookRegistration: false,
     };
   }
 
@@ -564,13 +567,35 @@ function declined(code: string): PaymentDeclinedError {
   return new PaymentDeclinedError(DECLINE_MESSAGES[code] ?? code, { code });
 }
 
-/** Always configured: it needs no credentials. Registered only where PAYMENTS_ALLOW_SIMULATED is true. */
-export function simulatedProviderFactory(
-  options: SimulatedProviderOptions,
-): PaymentProviderFactory {
-  const provider = new SimulatedPaymentProvider(options);
+/** The process options of the factory; result mode, delay and failure rate come from `simulated.*`. */
+export type SimulatedFactoryOptions = Omit<
+  SimulatedProviderOptions,
+  'resultMode' | 'asyncDelaySeconds' | 'randomFailureRate'
+>;
+
+/**
+ * Always configured: it needs no credentials. Registered only where
+ * PAYMENTS_ALLOW_SIMULATED is true. The result mode, async delay and random
+ * failure rate are the `simulated.*` settings; the provider is rebuilt only
+ * when one of them changes.
+ */
+export function simulatedProviderFactory(options: SimulatedFactoryOptions): PaymentProviderFactory {
+  let built: { key: string; provider: SimulatedPaymentProvider } | null = null;
   return {
     id: SIMULATED_PROVIDER_ID,
-    create: () => Promise.resolve(provider),
+    create: (settings) => {
+      const { resultMode, asyncDelaySeconds, randomFailureRate } = settings.simulated;
+      const key = `${resultMode}|${String(asyncDelaySeconds)}|${String(randomFailureRate)}`;
+      if (built?.key !== key) {
+        const provider = new SimulatedPaymentProvider({
+          ...options,
+          resultMode,
+          asyncDelaySeconds,
+          randomFailureRate,
+        });
+        built = { key, provider };
+      }
+      return Promise.resolve(built.provider);
+    },
   };
 }

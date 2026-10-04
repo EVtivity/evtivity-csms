@@ -28,6 +28,7 @@ import type { PaginatedResponse } from '../lib/pagination.js';
 import { paginatedResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { pendingOperationSchema, providerRefundsSchema } from '../lib/payment-provider-schemas.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
 
@@ -126,6 +127,8 @@ const paymentRecordItem = z
       .max(500)
       .nullable()
       .describe('Failure description from the payment processor, null on success'),
+    pendingOperation: pendingOperationSchema,
+    providerRefunds: providerRefundsSchema,
   })
   .passthrough();
 
@@ -228,10 +231,22 @@ const sessionDetail = z
           .min(0)
           .nullable()
           .describe('Pre-authorized hold on the guest payment method in cents'),
+        provider: z
+          .string()
+          .max(32)
+          .nullable()
+          .describe('Payment provider of the guest charge (stripe, simulated); null when free'),
+        providerPaymentId: z
+          .string()
+          .max(255)
+          .nullable()
+          .describe('Payment identifier of the guest charge at the payment provider'),
         stripePaymentIntentId: z
           .string()
           .nullable()
-          .describe('Stripe PaymentIntent ID for the guest charge'),
+          .describe(
+            'Stripe PaymentIntent ID for the guest charge. Deprecated: use providerPaymentId; removed in v0.1.39.',
+          ),
         expiresAt: z.coerce.date().describe('Timestamp when the guest session token expires'),
         createdAt: z.coerce.date().describe('Timestamp the guest session was created'),
       })
@@ -469,10 +484,14 @@ export function sessionRoutes(app: FastifyInstance): void {
           capturedAmountCents: paymentRecords.capturedAmountCents,
           refundedAmountCents: paymentRecords.refundedAmountCents,
           failureReason: paymentRecords.failureReason,
+          pendingOperation: paymentRecords.pendingOperation,
+          providerRefunds: paymentRecords.providerRefunds,
           guestSessionToken: guestSessions.sessionToken,
           guestEmail: guestSessions.guestEmail,
           guestStatus: guestSessions.status,
           guestPreAuthAmountCents: guestSessions.preAuthAmountCents,
+          guestProvider: guestSessions.provider,
+          guestProviderPaymentId: guestSessions.providerPaymentId,
           guestStripePaymentIntentId: guestSessions.stripePaymentIntentId,
           guestExpiresAt: guestSessions.expiresAt,
           guestCreatedAt: guestSessions.createdAt,
@@ -508,10 +527,14 @@ export function sessionRoutes(app: FastifyInstance): void {
         capturedAmountCents,
         refundedAmountCents,
         failureReason,
+        pendingOperation,
+        providerRefunds,
         guestSessionToken,
         guestEmail,
         guestStatus,
         guestPreAuthAmountCents,
+        guestProvider,
+        guestProviderPaymentId,
         guestStripePaymentIntentId,
         guestExpiresAt,
         guestCreatedAt,
@@ -546,6 +569,8 @@ export function sessionRoutes(app: FastifyInstance): void {
                 capturedAmountCents,
                 refundedAmountCents: refundedAmountCents ?? 0,
                 failureReason,
+                pendingOperation,
+                providerRefunds: providerRefunds ?? [],
               }
             : null,
         guestSession:
@@ -555,6 +580,8 @@ export function sessionRoutes(app: FastifyInstance): void {
                 guestEmail: guestEmail ?? '',
                 status: guestStatus ?? '',
                 preAuthAmountCents: guestPreAuthAmountCents,
+                provider: guestProvider,
+                providerPaymentId: guestProviderPaymentId,
                 stripePaymentIntentId: guestStripePaymentIntentId,
                 expiresAt: guestExpiresAt as Date,
                 createdAt: guestCreatedAt as Date,

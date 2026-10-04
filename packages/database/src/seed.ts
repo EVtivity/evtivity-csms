@@ -57,6 +57,7 @@ import {
   pkiCaCertificates,
   stationCertificates,
   driverPaymentMethods,
+  driverPaymentCustomers,
   notifications,
   firmwareCampaigns,
   firmwareCampaignStations,
@@ -492,11 +493,13 @@ async function seed(): Promise<void> {
     's3.secretAccessKeyEnc': '',
     // Provider for new payments; 'none' turns payments off (migration 0116).
     'payments.provider': 'none',
+    // Default hold amount and platform fee, any provider (migration 0125).
+    'payments.preAuthAmountCents': 5000,
+    'payments.platformFeePercent': 0,
     'stripe.secretKeyEnc': '',
     'stripe.publishableKey': '',
     'stripe.webhookSecretEnc': '',
-    'stripe.preAuthAmountCents': 5000,
-    'stripe.platformFeePercent': 0,
+    'stripe.connectWebhookSecretEnc': '',
     // Adyen payment provider (migration 0117).
     'adyen.apiKeyEnc': '',
     'adyen.merchantAccount': '',
@@ -509,6 +512,10 @@ async function seed(): Promise<void> {
     'adyen.webhookUsername': '',
     'adyen.webhookPasswordEnc': '',
     'adyen.authorisationAdjustment': false,
+    // Test (simulated) provider, where PAYMENTS_ALLOW_SIMULATED is true (migration 0125).
+    'simulated.resultMode': 'sync',
+    'simulated.asyncDelaySeconds': 3,
+    'simulated.randomFailureRate': 0.2,
     'roaming.enabled': false,
     'pnc.enabled': false,
     'pnc.provider': 'manual',
@@ -545,6 +552,9 @@ async function seed(): Promise<void> {
     'sustainability.avgMpg': '25.4',
     'idling.gracePeriodMinutes': 30,
     'session.staleTimeoutHours': 24,
+    // Connection timeout (s) assumed for a station that has not reported its own,
+    // when the CSMS closes a remote start the driver never plugged in for.
+    'session.evConnectionTimeoutSeconds': 180,
     'security.recaptcha.enabled': false,
     'security.recaptcha.siteKey': '',
     'security.recaptcha.secretKeyEnc': '',
@@ -568,6 +578,11 @@ async function seed(): Promise<void> {
     'mobile.attestation.android.cloudProjectNumber': '',
     'mobile.attestation.android.packageName': '',
     'mobile.attestation.android.serviceAccountEnc': '',
+    // The operator's mobile app builds, so the API accepts a 3D Secure return
+    // URL from the app only when it leads back to one of them. Defaults match
+    // the default brand in the mobile repo (brands/index.js).
+    'mobile.app.urlSchemes': ['evtivity'],
+    'mobile.app.androidPackageNames': ['com.evtivity.driver'],
     'audit.retentionDays': 1095,
     'refreshTokens.retentionDays': 30,
     // Per-log retention. Worker prunes each table on the daily cron; set 0 to
@@ -639,6 +654,7 @@ async function seed(): Promise<void> {
     's3.secretAccessKey': 's3.secretAccessKeyEnc',
     'stripe.secretKey': 'stripe.secretKeyEnc',
     'stripe.webhookSecret': 'stripe.webhookSecretEnc',
+    'stripe.connectWebhookSecret': 'stripe.connectWebhookSecretEnc',
     'adyen.apiKey': 'adyen.apiKeyEnc',
     'adyen.hmacKey': 'adyen.hmacKeyEnc',
     'adyen.hmacKeyPrevious': 'adyen.hmacKeyPreviousEnc',
@@ -1538,15 +1554,29 @@ async function seed(): Promise<void> {
 
   // ------ Driver Payment Methods (all drivers) ------
   const cardBrands = ['visa', 'mastercard', 'amex'];
+  // Both forms of the ids until P8 drops the stripe_* columns.
   const paymentMethodRows = createdDrivers.map((driver, i) => ({
     driverId: driver.id,
     stripeCustomerId: `cus_sim_${padNum(i + 1, 6)}`,
     stripePaymentMethodId: `pm_sim_${padNum(i + 1, 6)}`,
+    provider: 'simulated',
+    providerCustomerId: `cus_sim_${padNum(i + 1, 6)}`,
+    providerPaymentMethodId: `pm_sim_${padNum(i + 1, 6)}`,
     cardBrand: cardBrands[i % cardBrands.length] ?? 'visa',
     cardLast4: '4242',
     isDefault: true,
   }));
   await db.insert(driverPaymentMethods).values(paymentMethodRows);
+  await db
+    .insert(driverPaymentCustomers)
+    .values(
+      paymentMethodRows.map((row) => ({
+        driverId: row.driverId,
+        provider: row.provider,
+        providerCustomerId: row.providerCustomerId,
+      })),
+    )
+    .onConflictDoNothing();
   console.log(`  ${String(paymentMethodRows.length)} driver payment methods created.`);
 
   // ------ Vehicles (120) ------
@@ -1832,6 +1862,9 @@ async function seed(): Promise<void> {
           driverId,
           stripePaymentIntentId: intentId,
           stripeCustomerId: customerId,
+          provider: 'simulated',
+          providerPaymentId: intentId,
+          providerCustomerId: customerId,
           paymentSource: 'web_portal' as const,
           currency: companyCurrency,
           preAuthAmountCents: 5000,
@@ -1848,6 +1881,9 @@ async function seed(): Promise<void> {
           driverId,
           stripePaymentIntentId: intentId,
           stripeCustomerId: customerId,
+          provider: 'simulated',
+          providerPaymentId: intentId,
+          providerCustomerId: customerId,
           paymentSource: 'web_portal' as const,
           currency: companyCurrency,
           preAuthAmountCents: 5000,
@@ -2505,7 +2541,10 @@ async function seed(): Promise<void> {
     driverId: portalDriverId,
     stripePaymentIntentId: `pi_portal_${padNum(i + 1, 4)}`,
     stripeCustomerId: 'cus_U443UCZOsb72EL',
-    paymentSource: 'stripe' as const,
+    provider: 'stripe',
+    providerPaymentId: `pi_portal_${padNum(i + 1, 4)}`,
+    providerCustomerId: 'cus_U443UCZOsb72EL',
+    paymentSource: 'web_portal' as const,
     currency: companyCurrency,
     preAuthAmountCents: 5000,
     capturedAmountCents: portalSessionRows[i]?.finalCostCents ?? 200,
@@ -2519,10 +2558,21 @@ async function seed(): Promise<void> {
     driverId: portalDriverId,
     stripeCustomerId: 'cus_U443UCZOsb72EL',
     stripePaymentMethodId: 'pm_portal_test',
+    provider: 'stripe',
+    providerCustomerId: 'cus_U443UCZOsb72EL',
+    providerPaymentMethodId: 'pm_portal_test',
     cardBrand: 'visa',
     cardLast4: '4242',
     isDefault: true,
   });
+  await db
+    .insert(driverPaymentCustomers)
+    .values({
+      driverId: portalDriverId,
+      provider: 'stripe',
+      providerCustomerId: 'cus_U443UCZOsb72EL',
+    })
+    .onConflictDoNothing();
   console.log('  Portal test driver payment method created.');
 
   // Portal driver support cases (the portal Support page should show data)

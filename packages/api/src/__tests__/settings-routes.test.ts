@@ -71,6 +71,7 @@ vi.mock('@evtivity/database', () => ({
   getCompanyPriceDisplay: vi.fn(() => Promise.resolve('gross')),
   getCompanyTaxBasis: vi.fn(() => Promise.resolve('gross')),
   clearSystemSettingsCache: vi.fn(),
+  clearMobileAppConfigCache: vi.fn(),
   clearStationMessageSettingsCache: vi.fn(),
   invalidateReservationSettingsCache: vi.fn(),
   writeAudit: vi.fn().mockResolvedValue(undefined),
@@ -129,12 +130,19 @@ vi.mock('../lib/payments.js', async (importOriginal) => ({
   clearPaymentCaches: vi.fn(),
 }));
 
+// The provider-switch guard has its own tests (settings-routes-full, provider-switch).
+vi.mock('../lib/provider-switch.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/provider-switch.js')>()),
+  assertPaymentProviderWritable: vi.fn(),
+}));
+
 import { registerAuth } from '../plugins/auth.js';
 import { settingsRoutes } from '../routes/settings.js';
 import { clearPaymentCaches } from '../lib/payments.js';
 import {
   db,
   clearSystemSettingsCache,
+  clearMobileAppConfigCache,
   clearStationMessageSettingsCache,
   invalidateReservationSettingsCache,
 } from '@evtivity/database';
@@ -587,6 +595,45 @@ describe('Settings routes', () => {
     };
     expect(insertChain.values).toHaveBeenCalledWith({ key: 'company.taxBasis', value: 'gross' });
     expect(clearSystemSettingsCache).toHaveBeenCalled();
+  });
+
+  it('PUT /v1/settings/mobile.app.urlSchemes stores normalized schemes and clears the cache', async () => {
+    vi.mocked(db.insert).mockClear();
+    vi.mocked(clearMobileAppConfigCache).mockClear();
+    setupDbResults([], [{ key: 'mobile.app.urlSchemes', value: ['myapp'] }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/mobile.app.urlSchemes',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: [' MyApp ', 'myapp'] },
+    });
+    expect(response.statusCode).toBe(200);
+    const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(insertChain.values).toHaveBeenCalledWith({
+      key: 'mobile.app.urlSchemes',
+      value: ['myapp'],
+    });
+    expect(clearMobileAppConfigCache).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['mobile.app.urlSchemes', ['https'], 'mobile.app.urlSchemes must be'],
+    ['mobile.app.urlSchemes', 'myapp', 'mobile.app.urlSchemes must be'],
+    ['mobile.app.androidPackageNames', ['driver'], 'mobile.app.androidPackageNames must be'],
+  ])('PUT /v1/settings/%s refuses %j', async (key, value, message) => {
+    vi.mocked(db.insert).mockClear();
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/settings/${key}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('VALIDATION_ERROR');
+    expect(response.json().error).toContain(message);
+    expect(db.insert).not.toHaveBeenCalled();
   });
 
   it('GET /v1/portal/branding returns the normalized tax basis', async () => {

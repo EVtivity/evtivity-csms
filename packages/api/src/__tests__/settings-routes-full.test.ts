@@ -56,6 +56,7 @@ vi.mock('@evtivity/database', () => ({
   getCompanyTaxBasis: vi.fn(() => Promise.resolve('net')),
   getCompanyPriceDisplay: vi.fn(() => Promise.resolve('net')),
   clearSystemSettingsCache: vi.fn(),
+  clearMobileAppConfigCache: vi.fn(),
   clearStationMessageSettingsCache: vi.fn(),
   db: {
     select: vi.fn(() => makeChain()),
@@ -112,6 +113,7 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
   return {
     encryptString: vi.fn((_val: string, _key: string) => 'encrypted-value'),
     clearNotificationSettingsCache: vi.fn(),
+    createLogger: actual.createLogger,
     isSupportedCurrency: actual.isSupportedCurrency,
     SUPPORTED_CURRENCIES: actual.SUPPORTED_CURRENCIES,
     isPriceDisplay: actual.isPriceDisplay,
@@ -121,6 +123,10 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
     isTaxBasis: actual.isTaxBasis,
     TAX_BASES: actual.TAX_BASES,
     UI_LANGUAGES: actual.UI_LANGUAGES,
+    isMobileAppSettingKey: actual.isMobileAppSettingKey,
+    parseMobileAppList: actual.parseMobileAppList,
+    MOBILE_APP_URL_SCHEMES_KEY: actual.MOBILE_APP_URL_SCHEMES_KEY,
+    MOBILE_APP_ANDROID_PACKAGES_KEY: actual.MOBILE_APP_ANDROID_PACKAGES_KEY,
   };
 });
 
@@ -167,6 +173,13 @@ vi.mock('../lib/payments.js', async (importOriginal) => ({
   clearPaymentCaches: vi.fn(),
 }));
 
+const { mockAssertWritable } = vi.hoisted(() => ({ mockAssertWritable: vi.fn() }));
+vi.mock('../lib/provider-switch.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/provider-switch.js')>()),
+  assertPaymentProviderWritable: mockAssertWritable,
+}));
+
+import { PaymentProviderUpgradePendingError } from '@evtivity/payments';
 import { registerAuth } from '../plugins/auth.js';
 import { settingsRoutes } from '../routes/settings.js';
 import { clearPaymentCaches } from '../lib/payments.js';
@@ -463,6 +476,50 @@ describe('Settings routes - full coverage', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(clearPaymentCaches).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['PUT', 'PATCH'] as const)(
+      '%s answers 409 and writes nothing while the provider-switch guard refuses',
+      async (method) => {
+        const details = {
+          legacyConnections: 1,
+          hosts: ['172.18.0.5'],
+          lastLegacySeenAt: null,
+          watchCheckedAt: null,
+        };
+        mockAssertWritable.mockRejectedValueOnce(
+          new PaymentProviderUpgradePendingError('adyen', details),
+        );
+        setupDbResults([], [{ key: 'payments.provider', value: 'adyen' }]);
+        const res = await app.inject({
+          method,
+          url: '/settings/payments.provider',
+          headers: { authorization: `Bearer ${operatorToken}` },
+          payload: { value: 'adyen' },
+        });
+        expect(res.statusCode).toBe(409);
+        expect(res.json()).toEqual({
+          error:
+            'A process older than v0.1.38 is still connected. Finish the upgrade, then select Adyen.',
+          code: 'PAYMENT_PROVIDER_UPGRADE_PENDING',
+          details,
+        });
+        expect(mockAssertWritable).toHaveBeenCalledWith('payments.provider', 'adyen');
+        expect(dbCallIndex).toBe(0);
+        expect(clearPaymentCaches).not.toHaveBeenCalled();
+      },
+    );
+
+    it('passes a failed guard check on as 500', async () => {
+      mockAssertWritable.mockRejectedValueOnce(new Error('redis down'));
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/settings/payments.provider',
+        headers: { authorization: `Bearer ${operatorToken}` },
+        payload: { value: 'adyen' },
+      });
+      expect(res.statusCode).toBe(500);
+      expect(dbCallIndex).toBe(0);
     });
 
     it('does not clear the payment caches when the write fails', async () => {

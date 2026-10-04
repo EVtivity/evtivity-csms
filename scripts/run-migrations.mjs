@@ -39,7 +39,16 @@ const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8'));
 
 const databaseUrl =
   process.env.DATABASE_URL ?? 'postgres://evtivity:evtivity@localhost:5433/evtivity';
-const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
+// Same application_name as connectionName() in @evtivity/lib (plain node
+// cannot import the TypeScript source): evtivity@<root package.json version>.
+const rootPackage = JSON.parse(
+  fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+);
+const sql = postgres(databaseUrl, {
+  max: 1,
+  onnotice: () => {},
+  connection: { application_name: `evtivity@${rootPackage.version}` },
+});
 
 try {
   // Session lock so two migrators (a deploy and its rollback, or two

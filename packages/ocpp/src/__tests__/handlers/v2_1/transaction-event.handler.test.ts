@@ -601,6 +601,7 @@ describe('v2_1 TransactionEvent handler', () => {
           transactionId: 'tx-cost',
           at: new Date('2026-06-04T01:00:00Z'),
           meterRegisterWh: 15000,
+          end: { triggerReason: 'StopAuthorized', stoppedReason: 'Local' },
         },
       );
       expect(publishMock).toHaveBeenCalledWith(
@@ -620,6 +621,31 @@ describe('v2_1 TransactionEvent handler', () => {
       const response = await handleTransactionEvent(ctx);
 
       expect(response['totalCost']).toBe(0);
+      const payload = (publishMock.mock.calls[0]?.[0] as { payload: Record<string, unknown> })
+        .payload;
+      expect(payload['finalCostCents']).toBeUndefined();
+    });
+
+    it('passes the end reasons of an EVConnectTimeout end to the cost lookup (C20.FR.03)', async () => {
+      costMock.mockResolvedValue({ totalCostCents: 0, calculated: false });
+      const { handleTransactionEvent } =
+        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { ctx, publishMock } = makeCtx(
+        ended({
+          triggerReason: 'EVConnectTimeout',
+          transactionInfo: { transactionId: 'tx-cost', stoppedReason: 'Timeout' },
+        }),
+      );
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response['totalCost']).toBe(0);
+      expect(costMock).toHaveBeenCalledWith(
+        {},
+        expect.objectContaining({
+          end: { triggerReason: 'EVConnectTimeout', stoppedReason: 'Timeout' },
+        }),
+      );
       const payload = (publishMock.mock.calls[0]?.[0] as { payload: Record<string, unknown> })
         .payload;
       expect(payload['finalCostCents']).toBeUndefined();
@@ -694,6 +720,7 @@ describe('v2_1 TransactionEvent handler', () => {
         {},
         expect.objectContaining({ transactionId: 'tx-cost', meterRegisterWh: 15000 }),
       );
+      expect(costMock.mock.calls[0]?.[1]).not.toHaveProperty('end');
       const payload = (publishMock.mock.calls[0]?.[0] as { payload: Record<string, unknown> })
         .payload;
       expect(payload).not.toHaveProperty('meterStop');

@@ -41,6 +41,9 @@ const DriverCreate = lazy(() =>
 const DriverDetail = lazy(() =>
   import('@/pages/DriverDetail').then((m) => ({ default: m.DriverDetail })),
 );
+const PaymentReturn = lazy(() =>
+  import('@/pages/PaymentReturn').then((m) => ({ default: m.PaymentReturn })),
+);
 const Pricing = lazy(() => import('@/pages/Pricing').then((m) => ({ default: m.Pricing })));
 const PricingGroupCreate = lazy(() =>
   import('@/pages/PricingGroupCreate').then((m) => ({ default: m.PricingGroupCreate })),
@@ -311,6 +314,7 @@ export function App(): React.JSX.Element {
                   <Route path="drivers" element={<Drivers />} />
                   <Route path="drivers/new" element={<DriverCreate />} />
                   <Route path="drivers/:id" element={<DriverDetail />} />
+                  <Route path="payments/return" element={<PaymentReturn />} />
                   <Route path="drivers/:id/pricing/add" element={<DriverAssignPricing />} />
                   <Route path="drivers/:id/tokens/new" element={<DriverTokenCreate />} />
                   <Route path="drivers/:id/vehicles/new" element={<VehicleCreate />} />

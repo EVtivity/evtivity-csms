@@ -11,8 +11,10 @@ function refId(ref: string | { id: string } | null | undefined): string | null {
 
 /**
  * Normalizes a verified Stripe event. Handles the events the webhook route
- * acts on today (failed intent, refunded charge, dispute); everything else is
- * 'ignored'.
+ * acts on (failed intent, refunded charge, dispute, a connected account
+ * change); everything else is 'ignored'. For `account.updated` only the
+ * account id is taken: the handler re-reads the account from Stripe and never
+ * trusts the capabilities in the payload.
  */
 export function normalizeStripeEvent(event: Stripe.Event): NormalizedPaymentEvent {
   const occurredAt = new Date(event.created * 1000);
@@ -64,6 +66,14 @@ export function normalizeStripeEvent(event: Stripe.Event): NormalizedPaymentEven
         providerType: event.type,
       };
     }
+    case 'account.updated':
+      return {
+        eventId: event.id,
+        type: 'payout_account.updated',
+        accountId: event.data.object.id,
+        occurredAt,
+        providerType: event.type,
+      };
     default:
       return ignored;
   }

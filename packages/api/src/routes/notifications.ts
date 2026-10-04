@@ -280,6 +280,7 @@ const SYSTEM_EVENT_TYPES = [
   'driver.PortalInvite',
   'payment.Complete',
   'session.Receipt',
+  'site.PayoutOnboarding',
 ];
 
 const ALL_EVENT_TYPES = [...OCPP_EVENT_TYPES, ...DRIVER_EVENT_TYPES, ...SYSTEM_EVENT_TYPES];
@@ -466,6 +467,7 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
   'driver.Welcome': ['firstName', 'lastName', 'email'],
   'driver.ForgotPassword': ['firstName', 'lastName', 'email'],
   'driver.PortalInvite': ['firstName', 'lastName', 'email', 'activateUrl', 'expiresInDays'],
+  'site.PayoutOnboarding': ['siteName', 'contactName', 'email', 'onboardingUrl', 'expiresInDays'],
   'driver.PasswordChanged': ['firstName', 'lastName'],
   'driver.AccountVerification': ['firstName', 'lastName', 'email'],
   'payment.Complete': [
@@ -537,6 +539,8 @@ const FRIENDLY_SUBJECTS: Record<string, string> = {
   // Operator support events
   'supportCase.NewCaseFromDriver': '{{companyName}} - New support case from driver',
   'supportCase.DriverReply': '{{companyName}} - Driver replied to support case',
+  // Site host events
+  'site.PayoutOnboarding': '{{companyName}} - Set up payouts for {{siteName}}',
 };
 
 function getDefaultSubject(eventType: string, channel: string): string | null {

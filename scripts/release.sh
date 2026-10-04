@@ -7,10 +7,18 @@ set -euo pipefail
 #   scripts/release.sh minor --push       # Minor bump (0.1.x -> 0.2.0)
 #   scripts/release.sh major --push       # Major bump (0.x.y -> 1.0.0)
 #   scripts/release.sh v0.2.1 --push      # Explicit version (for hotfixes)
+#   scripts/release.sh v0.1.38-beta.1 --push  # Prerelease (beta, preview, nightly, rc, ...)
 #   scripts/release.sh --force --push     # Overwrite existing tag and release
 #
-# Bump types: patch (default), minor, major
-# Explicit version: any v-prefixed semver (e.g. v1.2.3)
+# Bump types: patch (default), minor, major. Auto-increment starts from the
+# latest stable tag; prerelease tags are ignored.
+# Explicit version: v + semver 2.0.0 (v1.2.3, or v1.2.3-<prerelease> for a prerelease).
+# A prerelease publishes exact-version images and a GitHub prerelease only: no
+# Helm chart or CDK bump, no website bump (see RELEASE.md).
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=release-version.sh
+source "$SCRIPT_DIR/release-version.sh"
 
 PUSH=false
 FORCE=false
@@ -22,7 +30,13 @@ for arg in "$@"; do
     --push) PUSH=true ;;
     --force) FORCE=true ;;
     major|minor|patch) BUMP="$arg" ;;
-    v[0-9]*) EXPLICIT="$arg" ;;
+    v[0-9]*)
+      if ! release_tag_is_valid "$arg"; then
+        echo "Invalid version: $arg. Use v + semver, e.g. v1.2.3 or v1.2.3-beta.1 (no +build metadata)."
+        exit 1
+      fi
+      EXPLICIT="$arg"
+      ;;
     *) echo "Unknown argument: $arg"; exit 1 ;;
   esac
 done
@@ -49,23 +63,18 @@ elif [ -n "$EXPLICIT" ]; then
   next="$EXPLICIT"
   next_version="${next#v}"
 else
-  # Auto-increment from latest git tag
-  latest=$(git tag -l 'v*' --sort=-v:refname | head -n1)
-  if [ -z "$latest" ]; then
-    next="v0.1.0"
-  else
-    version="${latest#v}"
-    major=$(echo "$version" | cut -d. -f1)
-    minor=$(echo "$version" | cut -d. -f2)
-    patch=$(echo "$version" | cut -d. -f3)
-
-    case "$BUMP" in
-      major) next="v$((major + 1)).0.0" ;;
-      minor) next="v${major}.$((minor + 1)).0" ;;
-      patch) next="v${major}.${minor}.$((patch + 1))" ;;
-    esac
-  fi
+  # Auto-increment from the latest stable git tag (prerelease tags are skipped)
+  next=$(release_next_stable_tag "$BUMP")
   next_version="${next#v}"
+fi
+
+if ! release_tag_is_valid "$next"; then
+  echo "Error: $next is not v + semver. Fix the version in package.json or pass an explicit version."
+  exit 1
+fi
+PRERELEASE=false
+if release_tag_is_prerelease "$next"; then
+  PRERELEASE=true
 fi
 
 # Validate the tag does not already exist (unless --force)
@@ -82,9 +91,12 @@ if git rev-parse "$next" >/dev/null 2>&1; then
 fi
 
 echo "Next tag:   $next"
+echo "Prerelease: $PRERELEASE"
 echo ""
 
-# Update version in all package.json files
+# Update version in all package.json files. A prerelease bumps them too: the API
+# (lib/app-version.ts) and the CSMS and portal (__APP_VERSION__) report the root
+# package.json version, so it must equal the image tag.
 echo "Updating package.json versions to $next_version..."
 node -e "
 const fs = require('fs');
@@ -207,3 +219,7 @@ git tag "$next"
 git push origin HEAD "$next"
 
 echo "Pushed $next. CI will build and push images to ghcr.io/evtivity."
+if [ "$PRERELEASE" = true ]; then
+  echo "Prerelease: CI tags images $next_version only, creates a GitHub prerelease, and"
+  echo "skips the Helm chart and CDK bumps. Do not bump the website csms-version.txt."
+fi

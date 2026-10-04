@@ -119,8 +119,13 @@ vi.mock('@evtivity/database', () => ({
     metadata: 'pr.metadata',
     reservationId: 'pr.reservation_id',
     chargeType: 'pr.charge_type',
-    stripePaymentIntentId: 'pr.stripe_payment_intent_id',
+    provider: 'pr.provider',
+    providerPaymentId: 'pr.provider_payment_id',
     createdAt: 'pr.created_at',
+    pendingOperation: 'pr.pending_operation',
+    pendingOperationRef: 'pr.pending_operation_ref',
+    pendingOperationAt: 'pr.pending_operation_at',
+    providerRefunds: 'pr.provider_refunds',
   },
 }));
 
@@ -138,6 +143,16 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 import {
+  addPendingRefunds,
+  clearPendingAdjustment,
+  confirmOperation,
+  markAdjustmentPending,
+  matchPendingAdjustment,
+  setAdjustmentRef,
+  failPendingCapture,
+  markAuthorisationEnded,
+  recordsAwaitingConfirmation,
+  settleRefund,
   findByChargePaymentId,
   findByPaymentId,
   findRecord,
@@ -192,6 +207,7 @@ describe('inserts', () => {
     sessionId: 's1',
     driverId: 'd1',
     sitePaymentConfigId: 3,
+    provider: 'stripe',
     paymentId: 'pi_1',
     customerId: 'cus_1',
     methodId: 'pm_1',
@@ -209,8 +225,12 @@ describe('inserts', () => {
       sessionId: 's1',
       driverId: 'd1',
       sitePaymentConfigId: 3,
+      provider: 'stripe',
+      providerPaymentId: 'pi_1',
       stripePaymentIntentId: 'pi_1',
+      providerCustomerId: 'cus_1',
       stripeCustomerId: 'cus_1',
+      providerPaymentMethodId: 'pm_1',
       stripePaymentMethodId: 'pm_1',
       paymentSource: 'web_portal',
       currency: 'EUR',
@@ -219,6 +239,26 @@ describe('inserts', () => {
     });
     expect(call.conflict).toEqual({ target: 'pr.session_id' });
     expect(call.returning).toEqual({ id: 'pr.id' });
+  });
+
+  it('recordHold never writes an id of another provider to the stripe_* columns', async () => {
+    h.results.push([{ id: 7 }]);
+    await recordHold({
+      ...hold,
+      provider: 'adyen',
+      paymentId: 'PSP1',
+      customerId: 'SH1',
+      methodId: 'T1',
+    });
+    expect(last().values).toMatchObject({
+      provider: 'adyen',
+      providerPaymentId: 'PSP1',
+      stripePaymentIntentId: null,
+      providerCustomerId: 'SH1',
+      stripeCustomerId: null,
+      providerPaymentMethodId: 'T1',
+      stripePaymentMethodId: null,
+    });
   });
 
   it('recordHold returns null on conflict', async () => {
@@ -232,6 +272,7 @@ describe('inserts', () => {
       sessionId: 's1',
       driverId: null,
       sitePaymentConfigId: null,
+      provider: 'stripe',
       customerId: null,
       methodId: null,
       source: 'guest',
@@ -244,6 +285,12 @@ describe('inserts', () => {
     expect(call.values?.['status']).toBe('failed');
     expect(call.values?.['failureReason']).toBe('x'.repeat(500));
     expect(call.values).not.toHaveProperty('stripePaymentIntentId');
+    expect(call.values).not.toHaveProperty('providerPaymentId');
+    expect(call.values).toMatchObject({
+      provider: 'stripe',
+      providerCustomerId: null,
+      stripeCustomerId: null,
+    });
     expect(call.conflict).toEqual({ target: 'pr.session_id' });
   });
 
@@ -254,6 +301,7 @@ describe('inserts', () => {
         sessionId: 's1',
         driverId: null,
         sitePaymentConfigId: null,
+        provider: 'stripe',
         customerId: null,
         methodId: null,
         source: 'guest',
@@ -270,6 +318,7 @@ describe('inserts', () => {
       await recordGuestHold({
         sessionId: 's2',
         sitePaymentConfigId: 1,
+        provider: 'stripe',
         paymentId: 'pi_g',
         currency: 'USD',
         preAuthAmountCents: 2000,
@@ -280,6 +329,8 @@ describe('inserts', () => {
       sessionId: 's2',
       driverId: null,
       sitePaymentConfigId: 1,
+      provider: 'stripe',
+      providerPaymentId: 'pi_g',
       stripePaymentIntentId: 'pi_g',
       paymentSource: 'guest',
       currency: 'USD',
@@ -293,6 +344,7 @@ describe('inserts', () => {
       await recordGuestHold({
         sessionId: 's2',
         sitePaymentConfigId: null,
+        provider: 'stripe',
         paymentId: 'pi_g',
         currency: 'USD',
         preAuthAmountCents: null,
@@ -306,8 +358,9 @@ describe('inserts', () => {
       reservationId: 'r1',
       driverId: 'd1',
       sitePaymentConfigId: null,
-      customerId: 'cus_1',
-      methodId: 'pm_1',
+      provider: 'simulated',
+      customerId: 'cus_sim_1',
+      methodId: 'pm_sim_1',
       currency: 'USD',
       taxRate: 0.19,
     };
@@ -319,8 +372,11 @@ describe('inserts', () => {
       reservationId: 'r1',
       driverId: 'd1',
       sitePaymentConfigId: null,
-      stripeCustomerId: 'cus_1',
-      stripePaymentMethodId: 'pm_1',
+      provider: 'simulated',
+      providerCustomerId: 'cus_sim_1',
+      stripeCustomerId: 'cus_sim_1',
+      providerPaymentMethodId: 'pm_sim_1',
+      stripePaymentMethodId: 'pm_sim_1',
       paymentSource: 'web_portal',
       currency: 'USD',
       taxRate: '0.19',
@@ -350,9 +406,15 @@ describe('reads', () => {
     expect(await findRecord(2)).toBeNull();
 
     h.results.push([{ id: 3 }]);
-    expect(await findByPaymentId('pi_3')).toEqual({ id: 3 });
-    expect(last().where).toEqual({ op: 'eq', col: 'pr.stripe_payment_intent_id', value: 'pi_3' });
-    expect(await findByPaymentId('pi_3')).toBeNull();
+    expect(await findByPaymentId('stripe', 'pi_3')).toEqual({ id: 3 });
+    expect(last().where).toEqual({
+      op: 'and',
+      args: [
+        { op: 'eq', col: 'pr.provider', value: 'stripe' },
+        { op: 'eq', col: 'pr.provider_payment_id', value: 'pi_3' },
+      ],
+    });
+    expect(await findByPaymentId('stripe', 'pi_3')).toBeNull();
   });
 
   it('findSessionHold reads only a pre_authorized record', async () => {
@@ -391,21 +453,48 @@ describe('reads', () => {
 
   it('findByChargePaymentId finds the own payment first, else a listed top-up', async () => {
     h.results.push([{ id: 3 }]);
-    expect(await findByChargePaymentId('pi_3')).toEqual({ id: 3 });
+    expect(await findByChargePaymentId('stripe', 'pi_3')).toEqual({ id: 3 });
     expect(h.calls.filter((c) => c.kind === 'select')).toHaveLength(1);
 
     h.calls.length = 0;
     h.results.push([], [{ id: 4 }]);
-    expect(await findByChargePaymentId('pi_top')).toEqual({ id: 4 });
-    const where = last().where as { op: string; args: Array<{ text: string; values: unknown[] }> };
-    expect(where.op).toBe('or');
-    expect(where.args[0]?.text).toContain("-> 'topUps' @>");
-    expect(where.args[0]?.values).toContain(JSON.stringify([{ paymentId: 'pi_top' }]));
-    expect(where.args[1]?.text).toContain("->> 'topUpIntentId' =");
+    expect(await findByChargePaymentId('stripe', 'pi_top')).toEqual({ id: 4 });
+    const where = last().where as {
+      op: string;
+      args: Array<{
+        op: string;
+        col?: unknown;
+        value?: unknown;
+        text?: string;
+        values?: unknown[];
+      }>;
+    };
+    expect(where.op).toBe('and');
+    expect(where.args[0]).toEqual({ op: 'eq', col: 'pr.provider', value: 'stripe' });
+    expect(where.args[1]?.text).toContain("-> 'topUps' @>");
+    expect(where.args[1]?.values).toContain(JSON.stringify([{ paymentId: 'pi_top' }]));
+    expect(where.args).toHaveLength(2);
     expect(last().limit).toBe(1);
 
     h.results.push([], []);
-    expect(await findByChargePaymentId('pi_none')).toBeNull();
+    expect(await findByChargePaymentId('stripe', 'pi_none')).toBeNull();
+  });
+
+  it('findByChargePaymentId never matches a payment of another provider', async () => {
+    await findByChargePaymentId('adyen', 'pi_1');
+    const [own, topUp] = h.calls.filter((c) => c.kind === 'select');
+    expect(own?.where).toEqual({
+      op: 'and',
+      args: [
+        { op: 'eq', col: 'pr.provider', value: 'adyen' },
+        { op: 'eq', col: 'pr.provider_payment_id', value: 'pi_1' },
+      ],
+    });
+    expect((topUp?.where as { args: unknown[] }).args[0]).toEqual({
+      op: 'eq',
+      col: 'pr.provider',
+      value: 'adyen',
+    });
   });
 
   it('lockSessionRecord selects for update on the given transaction', async () => {
@@ -428,8 +517,7 @@ describe('reads', () => {
       op: 'and',
       args: [
         { op: 'sql', text: '? >= ?', values: ['pr.created_at', since] },
-        { op: 'sql', text: '? IS NOT NULL', values: ['pr.stripe_payment_intent_id'] },
-        { op: 'sql', text: "? <> ''", values: ['pr.stripe_payment_intent_id'] },
+        { op: 'sql', text: '? IS NOT NULL', values: ['pr.provider_payment_id'] },
         { op: 'sql', text: '? > ?', values: ['pr.id', 9] },
       ],
     });
@@ -493,14 +581,17 @@ describe('status updates are guarded by their from-states', () => {
 
   it('markChargeCaptured moves only pending', async () => {
     h.results.push([{ id: 4 }]);
-    expect(await markChargeCaptured(4, { paymentId: 'pi_4', amountCents: 900 })).toBe(true);
+    const charge = { provider: 'stripe', paymentId: 'pi_4', amountCents: 900 };
+    expect(await markChargeCaptured(4, charge)).toBe(true);
     expect(last().set).toMatchObject({
       status: 'captured',
+      provider: 'stripe',
+      providerPaymentId: 'pi_4',
       stripePaymentIntentId: 'pi_4',
       capturedAmountCents: 900,
     });
     expect(last().where).toEqual(guard(4, ['pending']));
-    expect(await markChargeCaptured(4, { paymentId: 'pi_4', amountCents: 900 })).toBe(false);
+    expect(await markChargeCaptured(4, charge)).toBe(false);
   });
 
   it('markChargeFailed moves only pending and cuts the reason', async () => {
@@ -553,12 +644,13 @@ describe('status updates are guarded by their from-states', () => {
     expect(last().set).toMatchObject({ lastActorUserId: 'u1', lastActionReason: 'Goodwill' });
   });
 
-  it('markRefunded replaces metadata.topUps and drops a legacy topUpIntentId', async () => {
+  it('markRefunded replaces metadata.topUps', async () => {
     h.results.push([{ id: 8 }]);
     const topUps = [{ paymentId: 'pi_top', amountCents: 600, refundedCents: 600 }];
     await markRefunded(8, { refundedTotalCents: 2600, full: true, topUps });
     const metadata = last().set?.['metadata'] as { text: string; values: unknown[] };
-    expect(metadata.text).toContain("- 'topUpIntentId', '{topUps}'");
+    expect(metadata.text).toContain("'{topUps}'");
+    expect(metadata.text).not.toContain('topUpIntentId');
     expect(metadata.values).toEqual(['pr.metadata', JSON.stringify(topUps)]);
 
     h.results.push([{ id: 8 }]);
@@ -776,4 +868,406 @@ describe('settlePrepaidSession', () => {
       expect(h.writeAudit).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('authorisation adjustment (P10 Part D)', () => {
+  const hold = {
+    sessionId: 's1',
+    driverId: 'd1',
+    sitePaymentConfigId: null,
+    provider: 'adyen',
+    paymentId: 'PSP1',
+    customerId: 'shopper_1',
+    methodId: 'TOKEN1',
+    source: 'web_portal' as const,
+    currency: 'EUR',
+    preAuthAmountCents: 5000,
+  };
+
+  it('recordHold stores the provider state of the hold', async () => {
+    h.results.push([{ id: 7 }]);
+    await recordHold({ ...hold, providerState: { adjustAuthorisationData: 'BLOB' } });
+    expect(last().values).toMatchObject({ providerState: { adjustAuthorisationData: 'BLOB' } });
+    h.results.push([{ id: 8 }]);
+    await recordHold({ ...hold, providerState: null });
+    expect(last().values).not.toHaveProperty('providerState');
+  });
+
+  it('markAdjustmentPending claims only an open hold without a pending operation', async () => {
+    h.results.push([{ id: 1 }]);
+    expect(await markAdjustmentPending(1)).toBe(true);
+    const call = last();
+    expect(call.set).toMatchObject({ pendingOperation: 'adjust', pendingOperationRef: null });
+    expect(call.set?.['pendingOperationAt']).toBeInstanceOf(Date);
+    const where = call.where as { args: unknown[] };
+    expect(where.args.slice(0, 2)).toEqual([
+      { op: 'eq', col: 'pr.id', value: 1 },
+      { op: 'inArray', col: 'pr.status', values: ['pre_authorized'] },
+    ]);
+    expect((where.args[2] as { text: string }).text).toBe('? IS NULL');
+    expect(await markAdjustmentPending(1)).toBe(false);
+  });
+
+  it('setAdjustmentRef stores the reference of an unreferenced pending adjustment', async () => {
+    h.results.push([{ id: 2 }]);
+    expect(await setAdjustmentRef(2, 'ADJ1')).toBe(true);
+    const call = last();
+    expect(call.set).toMatchObject({ pendingOperationRef: 'ADJ1' });
+    const where = call.where as { args: unknown[] };
+    expect(where.args.slice(0, 3)).toEqual([
+      { op: 'eq', col: 'pr.id', value: 2 },
+      { op: 'inArray', col: 'pr.status', values: ['pre_authorized'] },
+      { op: 'eq', col: 'pr.pending_operation', value: 'adjust' },
+    ]);
+    expect((where.args[3] as { text: string }).text).toBe('? IS NULL');
+    expect(await setAdjustmentRef(2, 'ADJ1')).toBe(false);
+  });
+
+  it('matchPendingAdjustment returns the open hold whose adjustment has this reference or none yet', async () => {
+    h.results.push([{ id: 3, pendingOperationRef: 'ADJ1' }]);
+    expect(await matchPendingAdjustment(3, 'ADJ1')).toEqual({ id: 3, pendingOperationRef: 'ADJ1' });
+    const call = last();
+    expect(call.set).toMatchObject({ pendingOperationRef: 'ADJ1' });
+    expect(call.returning).toBe('all');
+    const where = call.where as { args: unknown[] };
+    expect(where.args.slice(0, 3)).toEqual([
+      { op: 'eq', col: 'pr.id', value: 3 },
+      { op: 'inArray', col: 'pr.status', values: ['pre_authorized'] },
+      { op: 'eq', col: 'pr.pending_operation', value: 'adjust' },
+    ]);
+    const ref = where.args[3] as { text: string; values: unknown[] };
+    expect(ref.text).toBe('(? IS NULL OR ? = ?)');
+    expect(ref.values).toContain('ADJ1');
+    expect(await matchPendingAdjustment(3, 'OTHER')).toBeNull();
+  });
+
+  it('clearPendingAdjustment ends only the pending adjustment of an open hold', async () => {
+    h.results.push([{ id: 4 }]);
+    expect(await clearPendingAdjustment(4)).toBe(true);
+    expect(last().set).toMatchObject({
+      pendingOperation: null,
+      pendingOperationRef: null,
+      pendingOperationAt: null,
+    });
+    expect(last().where).toEqual({
+      op: 'and',
+      args: [
+        { op: 'eq', col: 'pr.id', value: 4 },
+        { op: 'inArray', col: 'pr.status', values: ['pre_authorized'] },
+        { op: 'eq', col: 'pr.pending_operation', value: 'adjust' },
+      ],
+    });
+    expect(await clearPendingAdjustment(4)).toBe(false);
+  });
+
+  it('markCaptured stores the adjusted hold as the authorized amount', async () => {
+    h.results.push([{ id: 6 }], [{ id: 6 }]);
+    await markCaptured(6, { capturedCents: 7000, failureReason: null, authorizedCents: 7000 });
+    expect(last().set).toMatchObject({ preAuthAmountCents: 7000 });
+    await markCaptured(6, { capturedCents: 7000, failureReason: null });
+    expect(last().set).not.toHaveProperty('preAuthAmountCents');
+  });
+
+  it('every move out of the hold ends a pending adjustment', async () => {
+    const cleared = { pendingOperation: null, pendingOperationRef: null, pendingOperationAt: null };
+    h.results.push([{ id: 5 }], [{ id: 5 }], [{ id: 5 }], [{ id: 5 }], [{ id: 5 }]);
+    await markCaptured(5, { capturedCents: 7000, failureReason: null });
+    expect(last().set).toMatchObject(cleared);
+    await markCancelled(5);
+    expect(last().set).toMatchObject(cleared);
+    await markHoldFailed(5, 'capture refused');
+    expect(last().set).toMatchObject(cleared);
+    await markOpenPaymentFailed(5, 'refused');
+    expect(last().set).toMatchObject(cleared);
+    await markAuthorisationEnded(5, 'expired');
+    expect(last().set).toMatchObject(cleared);
+  });
+});
+
+describe('async operations (P10a)', () => {
+  const entry = (
+    refundId: string,
+    state: 'pending' | 'succeeded' | 'failed',
+    paymentId = 'PSP1',
+    amountCents = 500,
+  ): Record<string, unknown> => ({
+    refundId,
+    paymentId,
+    amountCents,
+    state,
+    requestedAt: '2026-10-03T10:00:00.000Z',
+  });
+
+  function locked(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      id: 9,
+      status: 'captured',
+      providerPaymentId: 'PSP1',
+      capturedAmountCents: 2000,
+      refundedAmountCents: 0,
+      metadata: null,
+      providerRefunds: [entry('RF1', 'pending')],
+      ...overrides,
+    };
+  }
+
+  it('markCaptured with a pending reference records the pending capture', async () => {
+    h.results.push([{ id: 1 }]);
+    await markCaptured(1, { capturedCents: 1200, failureReason: null, pendingRef: 'CAP1' });
+    expect(last().set).toMatchObject({
+      status: 'captured',
+      pendingOperation: 'capture',
+      pendingOperationRef: 'CAP1',
+    });
+    expect(last().set?.['pendingOperationAt']).toBeInstanceOf(Date);
+    expect(last().where).toEqual(guard(1, ['pre_authorized']));
+  });
+
+  it('markCancelled with a pending reference records the pending cancel', async () => {
+    h.results.push([{ id: 2 }]);
+    await markCancelled(2, 'CXL1');
+    expect(last().set).toMatchObject({
+      status: 'cancelled',
+      pendingOperation: 'cancel',
+      pendingOperationRef: 'CXL1',
+    });
+    h.results.push([{ id: 2 }]);
+    await markCancelled(2);
+    expect(last().set).toMatchObject({
+      pendingOperation: null,
+      pendingOperationRef: null,
+      pendingOperationAt: null,
+    });
+  });
+
+  it('confirmOperation clears only the operation with the same reference and keeps the reference', async () => {
+    h.results.push([{ id: 3 }]);
+    expect(await confirmOperation(3, 'capture', 'CAP1')).toBe(true);
+    expect(last().set).toMatchObject({ pendingOperation: null, pendingOperationAt: null });
+    expect(last().set).not.toHaveProperty('pendingOperationRef');
+    expect(last().where).toEqual({
+      op: 'and',
+      args: [
+        { op: 'eq', col: 'pr.id', value: 3 },
+        { op: 'eq', col: 'pr.pending_operation', value: 'capture' },
+        { op: 'eq', col: 'pr.pending_operation_ref', value: 'CAP1' },
+      ],
+    });
+    expect(await confirmOperation(3, 'cancel', 'OTHER')).toBe(false);
+  });
+
+  it('failPendingCapture moves only the captured, unrefunded record of that capture', async () => {
+    h.results.push([{ id: 4, status: 'failed' }]);
+    expect(await failPendingCapture(4, 'CAP1', LONG)).toEqual({ id: 4, status: 'failed' });
+    const call = last();
+    expect(call.set).toMatchObject({
+      status: 'failed',
+      failureReason: LONG.slice(0, 500),
+      pendingOperation: null,
+      pendingOperationAt: null,
+    });
+    const where = call.where as { args: unknown[] };
+    expect(where.args).toEqual([
+      { op: 'eq', col: 'pr.id', value: 4 },
+      { op: 'eq', col: 'pr.status', value: 'captured' },
+      { op: 'eq', col: 'pr.pending_operation_ref', value: 'CAP1' },
+      expect.objectContaining({ op: 'sql' }),
+      { op: 'eq', col: 'pr.refunded_amount_cents', value: 0 },
+    ]);
+    expect((where.args[3] as { text: string }).text).toContain("IS NULL OR ? = 'capture'");
+    expect(await failPendingCapture(4, 'CAP1', 'x')).toBeNull();
+  });
+
+  it('markAuthorisationEnded cancels an open hold with the reason', async () => {
+    h.results.push([{ id: 5 }]);
+    expect(await markAuthorisationEnded(5, 'Adyen authorisation expired')).toBe(true);
+    expect(last().set).toMatchObject({
+      status: 'cancelled',
+      capturedAmountCents: 0,
+      lastActionReason: 'Adyen authorisation expired',
+    });
+    expect(last().where).toEqual(guard(5, ['pre_authorized']));
+  });
+
+  it('markAuthorisationEnded clears a pending cancel of a record already cancelled', async () => {
+    h.results.push([], [{ id: 5 }]);
+    expect(await markAuthorisationEnded(5, 'expired')).toBe(true);
+    expect(last().set).toMatchObject({ pendingOperation: null, pendingOperationAt: null });
+    expect(last().where).toEqual({
+      op: 'and',
+      args: [
+        { op: 'eq', col: 'pr.id', value: 5 },
+        { op: 'eq', col: 'pr.pending_operation', value: 'cancel' },
+      ],
+    });
+    h.results.push([], []);
+    expect(await markAuthorisationEnded(5, 'expired')).toBe(false);
+  });
+
+  it('addPendingRefunds appends pending entries, skipping a listed refund id', async () => {
+    h.results.push([{ refunds: [entry('RF1', 'pending')] }], [{ id: 9 }]);
+    expect(
+      await addPendingRefunds(
+        9,
+        [
+          { refundId: 'RF1', paymentId: 'PSP1', amountCents: 500 },
+          { refundId: 'RF2', paymentId: 'TOP1', amountCents: 300 },
+        ],
+        { actorUserId: 'u1', actionReason: 'Partial' },
+      ),
+    ).toEqual({ id: 9 });
+    const set = last().set as { providerRefunds: Array<Record<string, unknown>> };
+    expect(set.providerRefunds).toHaveLength(2);
+    expect(set.providerRefunds[1]).toMatchObject({
+      refundId: 'RF2',
+      paymentId: 'TOP1',
+      amountCents: 300,
+      state: 'pending',
+    });
+    expect(last().set).toMatchObject({ lastActorUserId: 'u1', lastActionReason: 'Partial' });
+
+    h.results.push([]);
+    expect(await addPendingRefunds(10, [], {})).toBeNull();
+  });
+
+  it('settleRefund raises the total and the status once for a confirmed pending refund', async () => {
+    h.results.push([locked()], [{ id: 9, status: 'partially_refunded' }]);
+    const result = await settleRefund(9, {
+      refundId: 'RF1',
+      paymentId: 'PSP1',
+      amountCents: 999,
+      outcome: 'succeeded',
+    });
+    expect(result).toMatchObject({
+      status: 'applied',
+      record: { id: 9 },
+      entry: { refundId: 'RF1', state: 'succeeded', amountCents: 500 },
+    });
+    const call = last();
+    expect(call.set).toMatchObject({ status: 'partially_refunded', refundedAmountCents: 500 });
+    expect(call.set).not.toHaveProperty('metadata');
+    expect((call.set?.['providerRefunds'] as unknown[])[0]).toMatchObject({
+      refundId: 'RF1',
+      state: 'succeeded',
+      settledAt: expect.any(String) as unknown,
+    });
+    expect(call.where).toEqual({
+      op: 'and',
+      args: [
+        { op: 'eq', col: 'pr.id', value: 9 },
+        { op: 'inArray', col: 'pr.status', values: ['captured', 'partially_refunded'] },
+        { op: 'lte', col: 'pr.refunded_amount_cents', value: 500 },
+      ],
+    });
+  });
+
+  it('settleRefund marks the record refunded at the captured total and raises the top-up', async () => {
+    h.results.push(
+      [
+        locked({
+          capturedAmountCents: 1500,
+          refundedAmountCents: 1000,
+          metadata: { topUps: [{ paymentId: 'TOP1', amountCents: 500, refundedCents: 0 }] },
+          providerRefunds: [entry('RF2', 'pending', 'TOP1', 500)],
+        }),
+      ],
+      [{ id: 9, status: 'refunded' }],
+    );
+    await settleRefund(9, {
+      refundId: 'RF2',
+      paymentId: 'TOP1',
+      amountCents: 500,
+      outcome: 'succeeded',
+    });
+    const set = last().set as Record<string, unknown>;
+    expect(set['status']).toBe('refunded');
+    expect(set['refundedAmountCents']).toBe(1500);
+    const metadata = set['metadata'] as { values: unknown[] };
+    expect(metadata.values).toContain(
+      JSON.stringify([{ paymentId: 'TOP1', amountCents: 500, refundedCents: 500 }]),
+    );
+  });
+
+  it('settleRefund applies a duplicate once', async () => {
+    h.results.push([locked({ providerRefunds: [entry('RF1', 'succeeded')] })]);
+    expect(
+      await settleRefund(9, {
+        refundId: 'RF1',
+        paymentId: 'PSP1',
+        amountCents: 500,
+        outcome: 'succeeded',
+      }),
+    ).toEqual({ status: 'already_settled' });
+    expect(h.calls.filter((c) => c.kind === 'update')).toHaveLength(0);
+  });
+
+  it('settleRefund marks a failed refund in the ledger without touching the totals', async () => {
+    h.results.push([locked()], [{ id: 9, status: 'captured' }]);
+    const result = await settleRefund(9, {
+      refundId: 'RF1',
+      paymentId: 'PSP1',
+      amountCents: 500,
+      outcome: 'failed',
+    });
+    expect(result).toMatchObject({ status: 'applied', entry: { state: 'failed' } });
+    expect(last().set).not.toHaveProperty('refundedAmountCents');
+    expect(last().set).not.toHaveProperty('status');
+  });
+
+  it('settleRefund appends a refund made outside EVtivity', async () => {
+    h.results.push([locked({ providerRefunds: [] })], [{ id: 9 }]);
+    await settleRefund(9, {
+      refundId: 'CA1',
+      paymentId: 'PSP1',
+      amountCents: 700,
+      outcome: 'succeeded',
+    });
+    expect(last().set).toMatchObject({ refundedAmountCents: 700 });
+    expect(last().set?.['providerRefunds']).toEqual([
+      expect.objectContaining({ refundId: 'CA1', amountCents: 700, state: 'succeeded' }),
+    ]);
+  });
+
+  it('settleRefund keeps the totals of a record that cannot take the refund', async () => {
+    h.results.push([locked({ status: 'failed' })], [{ id: 9 }]);
+    expect(
+      await settleRefund(9, {
+        refundId: 'RF1',
+        paymentId: 'PSP1',
+        amountCents: 500,
+        outcome: 'succeeded',
+      }),
+    ).toEqual({ status: 'not_refundable', recordStatus: 'failed' });
+    expect(last().set).not.toHaveProperty('refundedAmountCents');
+
+    h.results.push([locked({ refundedAmountCents: 1800 })], [{ id: 9 }]);
+    expect(
+      await settleRefund(9, {
+        refundId: 'RF1',
+        paymentId: 'PSP1',
+        amountCents: 500,
+        outcome: 'succeeded',
+      }),
+    ).toMatchObject({ status: 'not_refundable' });
+  });
+
+  it('settleRefund returns not_found for an unknown record', async () => {
+    h.results.push([]);
+    expect(
+      await settleRefund(1, { refundId: 'x', paymentId: 'y', amountCents: 1, outcome: 'failed' }),
+    ).toEqual({ status: 'not_found' });
+  });
+
+  it('recordsAwaitingConfirmation reads old pending operations and old pending refunds', async () => {
+    h.results.push([{ id: 1 }]);
+    const olderThan = new Date('2026-10-02T00:00:00Z');
+    const since = new Date('2026-07-01T00:00:00Z');
+    expect(await recordsAwaitingConfirmation(olderThan, since, 50)).toEqual([{ id: 1 }]);
+    const where = last().where as { text: string; values: unknown[] };
+    expect(where.text).toContain('IS NOT NULL AND ? < ?');
+    expect(where.text).toContain("r ->> 'state' = 'pending'");
+    expect(where.values).toContain(olderThan);
+    expect(where.values).toContain(since);
+    expect(last().limit).toBe(50);
+  });
 });

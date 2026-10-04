@@ -3,6 +3,7 @@
 
 import type { Logger } from 'pino';
 import postgres from 'postgres';
+import { connectionName } from '@evtivity/lib';
 import { StationSimulator, type StationConfig } from '@evtivity/css/station-simulator';
 import type { RunConfig } from './types.js';
 import type { CsTestCase, CsTestCaseResult, CsTlsMaterial } from './cs-types.js';
@@ -36,7 +37,7 @@ function getSql(): ReturnType<typeof postgres> {
   if (sharedSql == null) {
     const url =
       process.env['DATABASE_URL'] ?? 'postgres://evtivity:evtivity@localhost:5433/evtivity';
-    sharedSql = postgres(url);
+    sharedSql = postgres(url, { connection: { application_name: connectionName() } });
   }
   return sharedSql;
 }

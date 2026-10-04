@@ -14,7 +14,7 @@ import { SimulatedPaymentProvider } from '../providers/simulated/index.js';
 import { WebhookNotConfiguredError, WebhookSignatureError } from '../errors.js';
 import type { PaymentProvider } from '../types.js';
 import { fakeClient } from './helpers/fake-stripe.js';
-import { fakeAdyenProvider } from './helpers/fake-adyen.js';
+import { fakeAdyenProvider } from '../testing/fake-adyen.js';
 
 const KEY = 'test-encryption-key-32chars-long!';
 const BROWSER = {
@@ -48,6 +48,7 @@ const harnesses: Harness[] = [
         client: fakeClient() as unknown as Stripe,
         publishableKey: 'pk_test_1',
         webhookSecret: 'whsec_test',
+        connectWebhookSecret: null,
       }),
     methodPayload: { paymentMethodId: 'pm_1' },
   },

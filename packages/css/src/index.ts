@@ -3,7 +3,7 @@
 
 import { createServer } from 'node:http';
 import postgres from 'postgres';
-import { RedisPubSubClient } from '@evtivity/lib';
+import { RedisPubSubClient, connectionName } from '@evtivity/lib';
 import { SimulatorManager } from './simulator-manager.js';
 import { ChaosOrchestrator } from './chaos-orchestrator.js';
 import { config } from './lib/config.js';
@@ -15,7 +15,7 @@ const healthPort = config.CSS_HEALTH_PORT;
 const actionIntervalMs = config.CSS_ACTION_INTERVAL_MS;
 const stationLimit = config.CSS_STATION_LIMIT;
 
-const sql = postgres(databaseUrl);
+const sql = postgres(databaseUrl, { connection: { application_name: connectionName() } });
 const pubsub = new RedisPubSubClient(redisUrl);
 const manager = new SimulatorManager(sql, pubsub);
 

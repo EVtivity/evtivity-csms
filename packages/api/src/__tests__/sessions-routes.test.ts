@@ -504,6 +504,8 @@ describe('Session routes', () => {
         guestEmail: null,
         guestStatus: null,
         guestPreAuthAmountCents: null,
+        guestProvider: null,
+        guestProviderPaymentId: null,
         guestStripePaymentIntentId: null,
         guestExpiresAt: null,
         guestCreatedAt: null,
@@ -525,6 +527,90 @@ describe('Session routes', () => {
       expect(body.finalCostCents).toBe(1000);
       expect(body.currency).toBe('USD');
       expect(body.paymentRecord).toBeNull();
+    });
+
+    it('returns the pending operation and refund ledger of the payment', async () => {
+      const session: Record<string, unknown> = {
+        id: VALID_SESSION_ID,
+        stationId: VALID_STATION_ID,
+        stationName: 'Station-01',
+        siteName: 'Site A',
+        siteId: null,
+        driverId: null,
+        driverName: null,
+        transactionId: 'txn-001',
+        status: 'completed',
+        startedAt: '2024-06-01T10:00:00Z',
+        endedAt: '2024-06-01T11:00:00Z',
+        idleStartedAt: null,
+        energyDeliveredWh: '20000',
+        currentCostCents: null,
+        finalCostCents: 1000,
+        currency: 'USD',
+        stoppedReason: null,
+        reservationId: null,
+        freeVend: false,
+        co2AvoidedKg: null,
+        electricityCostCents: null,
+        metadata: null,
+        tokenId: null,
+        tokenIdToken: null,
+        tokenType: null,
+        vehicleId: null,
+        vehicleMake: null,
+        vehicleModel: null,
+        vehicleYear: null,
+        paymentId: null,
+        paymentStatus: null,
+        paymentSource: null,
+        paymentCurrency: null,
+        preAuthAmountCents: null,
+        capturedAmountCents: null,
+        refundedAmountCents: null,
+        failureReason: null,
+        guestSessionToken: null,
+        guestEmail: null,
+        guestStatus: null,
+        guestPreAuthAmountCents: null,
+        guestProvider: null,
+        guestProviderPaymentId: null,
+        guestStripePaymentIntentId: null,
+        guestExpiresAt: null,
+        guestCreatedAt: null,
+      };
+      Object.assign(session, {
+        paymentId: 'pr_1',
+        paymentStatus: 'captured',
+        paymentSource: 'card_on_file',
+        paymentCurrency: 'USD',
+        preAuthAmountCents: 5000,
+        capturedAmountCents: 3000,
+        refundedAmountCents: 0,
+        pendingOperation: 'capture',
+        providerRefunds: [
+          {
+            refundId: 'REF_1',
+            paymentId: 'PSP_1',
+            amountCents: 500,
+            state: 'pending',
+            requestedAt: '2026-10-01T10:00:00.000Z',
+          },
+        ],
+      });
+      setupDbResults([session], [], []);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/sessions/${VALID_SESSION_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.paymentRecord.pendingOperation).toBe('capture');
+      expect(body.paymentRecord.providerRefunds).toEqual([
+        expect.objectContaining({ refundId: 'REF_1', state: 'pending', amountCents: 500 }),
+      ]);
     });
 
     it('returns 404 when session not found', async () => {
@@ -595,6 +681,8 @@ describe('Session routes', () => {
         guestEmail: null,
         guestStatus: null,
         guestPreAuthAmountCents: null,
+        guestProvider: null,
+        guestProviderPaymentId: null,
         guestStripePaymentIntentId: null,
         guestExpiresAt: null,
         guestCreatedAt: null,
@@ -618,6 +706,71 @@ describe('Session routes', () => {
       expect(body.finalCostCents).toBeNull();
       expect(body.currency).toBe('EUR');
       expect(body.paymentRecord).toBeNull();
+    });
+    it('returns the guest provider fields next to the deprecated Stripe field', async () => {
+      const session = {
+        id: VALID_SESSION_ID,
+        stationId: VALID_STATION_ID,
+        stationName: 'Station-01',
+        siteName: null,
+        siteId: null,
+        driverId: null,
+        driverName: null,
+        transactionId: 'txn-guest',
+        status: 'completed',
+        startedAt: '2024-06-01T10:00:00Z',
+        endedAt: '2024-06-01T11:00:00Z',
+        idleStartedAt: null,
+        energyDeliveredWh: '10000',
+        currentCostCents: null,
+        finalCostCents: 800,
+        currency: 'USD',
+        stoppedReason: null,
+        reservationId: null,
+        freeVend: false,
+        co2AvoidedKg: null,
+        electricityCostCents: null,
+        metadata: null,
+        tokenId: null,
+        tokenIdToken: null,
+        tokenType: null,
+        vehicleId: null,
+        vehicleMake: null,
+        vehicleModel: null,
+        vehicleYear: null,
+        paymentId: null,
+        paymentStatus: null,
+        paymentSource: null,
+        paymentCurrency: null,
+        preAuthAmountCents: null,
+        capturedAmountCents: null,
+        refundedAmountCents: null,
+        failureReason: null,
+        guestSessionToken: 'tok_guest',
+        guestEmail: 'guest@example.com',
+        guestStatus: 'completed',
+        guestPreAuthAmountCents: 2000,
+        guestProvider: 'stripe',
+        guestProviderPaymentId: 'pi_guest',
+        guestStripePaymentIntentId: 'pi_guest',
+        guestExpiresAt: '2024-06-02T10:00:00Z',
+        guestCreatedAt: '2024-06-01T09:55:00Z',
+      };
+      setupDbResults([session], [], []);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/sessions/${VALID_SESSION_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().guestSession).toMatchObject({
+        sessionToken: 'tok_guest',
+        provider: 'stripe',
+        providerPaymentId: 'pi_guest',
+        stripePaymentIntentId: 'pi_guest',
+      });
     });
   });
 

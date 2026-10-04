@@ -179,7 +179,7 @@
     "failedSetup": "Zahlungseinrichtung konnte nicht initialisiert werden",
     "cardSetupFailed": "Karteneinrichtung fehlgeschlagen",
     "failedSave": "Zahlungsmethode konnte nicht gespeichert werden",
-    "stripeNotConfigured": "Zahlungsabwicklung ist derzeit nicht verfügbar.",
+    "providerNotConfigured": "Zahlungsabwicklung ist derzeit nicht verfügbar.",
     "confirmRemoveTitle": "Zahlungsmethode entfernen",
     "confirmRemoveDescription": "Möchtest du diese Zahlungsmethode wirklich entfernen? Du musst sie erneut hinzufügen, um sie zum Laden zu verwenden.",
     "removeFailed": "Zahlungsmethode konnte nicht entfernt werden. Bitte erneut versuchen.",
@@ -619,9 +619,15 @@
     "PAYMENT_METHOD_REQUIRED": "Zahlungsmethode erforderlich",
     "PAYMENT_NOT_CONFIGURED": "Zahlung für diese Ladestation nicht konfiguriert",
     "PAYMENT_NOT_FOUND": "Kein Zahlungsdatensatz für diese Sitzung",
+    "PAYMENT_OPERATION_PENDING": "Für die Zahlung steht noch eine Bestätigung des Anbieters aus. Versuchen Sie es später erneut.",
     "PAYMENT_PREAUTH_FAILED": "Zahlungsautorisierung abgelehnt",
     "PAYMENT_PROVIDER_CONNECTION_FAILED": "Verbindungstest zum Zahlungsanbieter fehlgeschlagen",
     "PAYMENT_PROVIDER_NOT_CONFIGURED": "Zahlungsanbieter nicht konfiguriert",
+    "PAYMENT_PROVIDER_PERMISSION_MISSING": "Den Zugangsdaten des Zahlungsanbieters fehlt eine erforderliche Berechtigung",
+    "PAYMENT_PROVIDER_UPGRADE_PENDING": "Ein Prozess älter als v0.1.38 ist noch verbunden. Schließen Sie das Upgrade ab und wählen Sie dann Adyen.",
+    "PAYMENT_WEBHOOK_EXISTS": "Für diesen Anbieter existiert bereits ein EVtivity-Webhook",
+    "PAYOUT_ACCOUNT_EXISTS": "Der Standort hat bereits ein Auszahlungskonto",
+    "PAYOUT_ACCOUNT_NOT_READY": "Das Auszahlungskonto des Standorts kann noch keine Zahlungen empfangen",
     "PAYMENT_RECORD_NOT_RECOVERABLE": "Zahlungseintrag befindet sich nicht in einem wiederherstellbaren Zustand",
     "PAYMENT_TOP_UP_FAILED": "Aufstockungs-Zahlung abgelehnt",
     "PERMISSIONS_EXCEED_OWN": "API-Schlüssel-Berechtigungen müssen eine Teilmenge Ihrer eigenen Berechtigungen sein",
@@ -643,6 +649,7 @@
     "RECAPTCHA_FAILED": "reCAPTCHA-Verifizierung fehlgeschlagen",
     "RECAPTCHA_REQUIRED": "reCAPTCHA-Token ist erforderlich",
     "REFUND_EXCEEDS_REMAINING": "Erstattungsbetrag überschreitet den verbleibenden Betrag ...",
+    "REFUND_TOP_UP_UNKNOWN": "Diese Zahlung enthält eine Nachbelastung ohne gespeicherte Zahlungs-ID. Erstatten Sie diese im Dashboard des Zahlungsanbieters.",
     "REGION_NOT_FOUND": "Region nicht gefunden",
     "REPORT_NOT_FOUND": "Bericht nicht gefunden",
     "RESERVATION_BUFFER_ACTIVE": "Dieser Stecker hat eine bevorstehende Reservierung und kann keine neue Sitzung starten",
@@ -706,7 +713,7 @@
     "WEAK_PASSWORD": "Passwort erfüllt die Komplexitätsanforderungen nicht",
     "WEBHOOK_NOT_CONFIGURED": "Webhook nicht konfiguriert",
     "WEBHOOK_SIGNATURE_INVALID": "Ungültige Signatur",
-    "WEBHOOK_SIGNATURE_MISSING": "Fehlender stripe-signature Header",
+    "WEBHOOK_SIGNATURE_MISSING": "Webhook-Signatur oder Zugangsdaten fehlen",
     "retry": "Erneut versuchen",
     "serverDown": "Verbindung nicht möglich",
     "serverDownDescription": "Der Server antwortet nicht. Bitte prüfe deine Verbindung und versuche es erneut.",
@@ -902,5 +909,66 @@
     "recaptchaProtected": "Geschützt durch reCAPTCHA.",
     "recaptchaPrivacy": "Datenschutz",
     "recaptchaTerms": "Bedingungen"
+  },
+  "payoutOnboarding": {
+    "title": "Einrichtung des Auszahlungskontos",
+    "redirecting": "Sie werden zu Stripe weitergeleitet, um Ihr Auszahlungskonto einzurichten...",
+    "checking": "Ihr Konto wird geprüft...",
+    "ready": "Ihr Auszahlungskonto ist bereit. Sie können diese Seite schließen.",
+    "pending": "Stripe prüft Ihre Angaben. Das kann einige Tage dauern. Sie können diese Seite schließen.",
+    "actionRequired": "Stripe benötigt weitere Angaben, um Ihr Konto fertigzustellen.",
+    "onboarding": "Die Einrichtung Ihres Kontos ist noch nicht abgeschlossen.",
+    "disabled": "Stripe hat dieses Konto deaktiviert. Wenden Sie sich an den Betreiber.",
+    "continueSetup": "Einrichtung fortsetzen",
+    "invalidLink": "Dieser Link ist ungültig oder abgelaufen.",
+    "askOperator": "Bitten Sie den Betreiber um einen neuen Link.",
+    "notAvailable": "Die Einrichtung der Auszahlung ist derzeit nicht verfügbar. Wenden Sie sich an den Betreiber.",
+    "failed": "Etwas ist schiefgelaufen. Versuchen Sie es erneut."
+  },
+  "paymentProviders": {
+    "loadFailed": "Das Zahlungsformular konnte nicht geladen werden.",
+    "providerNotSupported": "Dieser Zahlungsanbieter wird hier nicht unterstützt.",
+    "refused": {
+      "default": "Die Karte wurde abgelehnt. Versuchen Sie eine andere Karte.",
+      "card_declined": "Ihre Karte wurde abgelehnt. Versuchen Sie eine andere Karte.",
+      "insufficient_funds": "Unzureichende Deckung. Versuchen Sie eine andere Karte.",
+      "authentication_failed": "Authentifizierung fehlgeschlagen. Die Karte wurde nicht gespeichert."
+    },
+    "simulated": {
+      "testMode": "Testmodus, kein echtes Geld. Wählen Sie eine Testkarte.",
+      "testCard": "Testkarte",
+      "challengeTitle": "Authentifizierung erforderlich",
+      "challengeDescription": "Diese Testkarte verlangt eine Authentifizierung, wie eine Bank mit 3-D Secure. Genehmigen Sie sie oder lassen Sie sie fehlschlagen, um fortzufahren.",
+      "challengeApprove": "Genehmigen",
+      "challengeFail": "Fehlschlagen",
+      "scenario": {
+        "approve": "Wird genehmigt",
+        "decline": "Abgelehnt: Karte abgelehnt",
+        "nofunds": "Abgelehnt: unzureichende Deckung",
+        "chargefail": "Wird gespeichert, jede Belastung wird abgelehnt",
+        "action": "Erfordert Authentifizierung",
+        "partial": "Teilgenehmigung (50 %)",
+        "capfail": "Erfassung schlägt fehl",
+        "adjfail": "Anpassung der Vorautorisierung abgelehnt",
+        "refundfail": "Erstattung schlägt fehl",
+        "dispute": "Nach der Erfassung angefochten",
+        "random": "Zufällige Fehler"
+      }
+    },
+    "adyen": {
+      "refused": "Die Karte wurde abgelehnt ({{reason}}). Versuchen Sie eine andere Karte.",
+      "error": "Im Kartenformular ist ein Problem aufgetreten. Versuchen Sie es erneut.",
+      "authenticate": "Schließen Sie die Bestätigung Ihrer Bank ab, um fortzufahren.",
+      "return": {
+        "title": "Kartenbestätigung",
+        "processing": "Die Bestätigung mit Ihrer Bank wird abgeschlossen...",
+        "invalid": "Dieser Bestätigungslink ist unvollständig. Beginnen Sie erneut im Kartenformular.",
+        "failed": "Die Bestätigung konnte nicht abgeschlossen werden. Versuchen Sie es erneut.",
+        "cardSaved": "Karte gespeichert.",
+        "backToMethods": "Zurück zu den Zahlungsmethoden",
+        "viewSession": "Ladevorgang anzeigen",
+        "home": "Zur Startseite"
+      }
+    }
   }
 }

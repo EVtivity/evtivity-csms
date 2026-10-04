@@ -154,11 +154,17 @@ export const ERROR_CODES = {
   PAYMENT_METHOD_REQUIRED: 'PAYMENT_METHOD_REQUIRED',
   PAYMENT_NOT_CONFIGURED: 'PAYMENT_NOT_CONFIGURED',
   PAYMENT_NOT_FOUND: 'PAYMENT_NOT_FOUND',
+  PAYMENT_OPERATION_PENDING: 'PAYMENT_OPERATION_PENDING',
   PAYMENT_PREAUTH_FAILED: 'PAYMENT_PREAUTH_FAILED',
   PAYMENT_PROVIDER_CONNECTION_FAILED: 'PAYMENT_PROVIDER_CONNECTION_FAILED',
   PAYMENT_PROVIDER_NOT_CONFIGURED: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+  PAYMENT_PROVIDER_PERMISSION_MISSING: 'PAYMENT_PROVIDER_PERMISSION_MISSING',
+  PAYMENT_PROVIDER_UPGRADE_PENDING: 'PAYMENT_PROVIDER_UPGRADE_PENDING',
   PAYMENT_RECORD_NOT_RECOVERABLE: 'PAYMENT_RECORD_NOT_RECOVERABLE',
   PAYMENT_TOP_UP_FAILED: 'PAYMENT_TOP_UP_FAILED',
+  PAYMENT_WEBHOOK_EXISTS: 'PAYMENT_WEBHOOK_EXISTS',
+  PAYOUT_ACCOUNT_EXISTS: 'PAYOUT_ACCOUNT_EXISTS',
+  PAYOUT_ACCOUNT_NOT_READY: 'PAYOUT_ACCOUNT_NOT_READY',
   PERMISSIONS_EXCEED_OWN: 'PERMISSIONS_EXCEED_OWN',
   PNC_DISABLED: 'PNC_DISABLED',
   PORTAL_ALREADY_ACTIVE: 'PORTAL_ALREADY_ACTIVE',
@@ -178,6 +184,7 @@ export const ERROR_CODES = {
   RECAPTCHA_FAILED: 'RECAPTCHA_FAILED',
   RECAPTCHA_REQUIRED: 'RECAPTCHA_REQUIRED',
   REFUND_EXCEEDS_REMAINING: 'REFUND_EXCEEDS_REMAINING',
+  REFUND_TOP_UP_UNKNOWN: 'REFUND_TOP_UP_UNKNOWN',
   REGION_NOT_FOUND: 'REGION_NOT_FOUND',
   REPORT_NOT_FOUND: 'REPORT_NOT_FOUND',
   RESERVATION_BUFFER_ACTIVE: 'RESERVATION_BUFFER_ACTIVE',
@@ -398,11 +405,17 @@ export type ErrorCode =
   | 'PAYMENT_METHOD_REQUIRED'
   | 'PAYMENT_NOT_CONFIGURED'
   | 'PAYMENT_NOT_FOUND'
+  | 'PAYMENT_OPERATION_PENDING'
   | 'PAYMENT_PREAUTH_FAILED'
   | 'PAYMENT_PROVIDER_CONNECTION_FAILED'
   | 'PAYMENT_PROVIDER_NOT_CONFIGURED'
+  | 'PAYMENT_PROVIDER_PERMISSION_MISSING'
+  | 'PAYMENT_PROVIDER_UPGRADE_PENDING'
   | 'PAYMENT_RECORD_NOT_RECOVERABLE'
   | 'PAYMENT_TOP_UP_FAILED'
+  | 'PAYMENT_WEBHOOK_EXISTS'
+  | 'PAYOUT_ACCOUNT_EXISTS'
+  | 'PAYOUT_ACCOUNT_NOT_READY'
   | 'PERMISSIONS_EXCEED_OWN'
   | 'PNC_DISABLED'
   | 'PORTAL_ALREADY_ACTIVE'
@@ -422,6 +435,7 @@ export type ErrorCode =
   | 'RECAPTCHA_FAILED'
   | 'RECAPTCHA_REQUIRED'
   | 'REFUND_EXCEEDS_REMAINING'
+  | 'REFUND_TOP_UP_UNKNOWN'
   | 'REGION_NOT_FOUND'
   | 'REPORT_NOT_FOUND'
   | 'RESERVATION_BUFFER_ACTIVE'
@@ -651,11 +665,20 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   PAYMENT_METHOD_REQUIRED: 'Payment method required',
   PAYMENT_NOT_CONFIGURED: 'Payment not configured for this station',
   PAYMENT_NOT_FOUND: 'No payment record for this session',
+  PAYMENT_OPERATION_PENDING:
+    "The payment has an operation waiting for the provider's confirmation. Try again later.",
   PAYMENT_PREAUTH_FAILED: 'Payment authorization declined',
   PAYMENT_PROVIDER_CONNECTION_FAILED: 'Payment provider connection test failed',
   PAYMENT_PROVIDER_NOT_CONFIGURED: 'Payment provider is not configured',
+  PAYMENT_PROVIDER_PERMISSION_MISSING:
+    'The payment provider credential lacks a required permission',
+  PAYMENT_PROVIDER_UPGRADE_PENDING:
+    'A process older than v0.1.38 is still connected. Finish the upgrade, then select Adyen.',
   PAYMENT_RECORD_NOT_RECOVERABLE: 'Payment record is not in a recoverable state',
   PAYMENT_TOP_UP_FAILED: 'Payment top-up rejected',
+  PAYMENT_WEBHOOK_EXISTS: 'An EVtivity webhook already exists for this provider',
+  PAYOUT_ACCOUNT_EXISTS: 'The site already has a payout account',
+  PAYOUT_ACCOUNT_NOT_READY: "The site's payout account cannot receive payments yet",
   PERMISSIONS_EXCEED_OWN: 'API key permissions must be a subset of your own permissions',
   PNC_DISABLED: 'Plug & Charge is disabled',
   PORTAL_ALREADY_ACTIVE: 'Driver already has portal access',
@@ -676,6 +699,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   RECAPTCHA_FAILED: 'reCAPTCHA verification failed',
   RECAPTCHA_REQUIRED: 'reCAPTCHA token is required',
   REFUND_EXCEEDS_REMAINING: 'Refund amount exceeds remaining ...',
+  REFUND_TOP_UP_UNKNOWN:
+    "This payment includes a top-up charge with no recorded payment id. Refund the top-up in the payment provider's dashboard.",
   REGION_NOT_FOUND: 'Region not found',
   REPORT_NOT_FOUND: 'Report not found',
   RESERVATION_BUFFER_ACTIVE:
@@ -745,11 +770,11 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   UNAUTHORIZED: 'Unauthorized',
   UNKNOWN_ACTION: 'Unknown OCPP action',
   USER_NOT_FOUND: 'User not found',
-  VALIDATION_ERROR: 'Voltage must be one of: 120, 208, 240, 277, 480',
+  VALIDATION_ERROR: 'Validation error',
   VEHICLE_NOT_FOUND: 'Vehicle not found',
   VENDOR_NOT_FOUND: 'Vendor not found',
   WEAK_PASSWORD: 'Password does not meet complexity requirements',
   WEBHOOK_NOT_CONFIGURED: 'Webhook not configured',
   WEBHOOK_SIGNATURE_INVALID: 'Invalid signature',
-  WEBHOOK_SIGNATURE_MISSING: 'Missing stripe-signature header',
+  WEBHOOK_SIGNATURE_MISSING: 'Missing webhook signature or credentials',
 };

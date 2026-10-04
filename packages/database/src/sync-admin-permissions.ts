@@ -16,12 +16,12 @@
 // migrations because their default set is a curated subset, not "all".
 
 import postgres from 'postgres';
-import { ADMIN_DEFAULT_PERMISSIONS } from '@evtivity/lib';
+import { ADMIN_DEFAULT_PERMISSIONS, connectionName } from '@evtivity/lib';
 
 const DATABASE_URL =
   process.env['DATABASE_URL'] ?? 'postgres://evtivity:evtivity@localhost:5433/evtivity';
 
-const sql = postgres(DATABASE_URL, { max: 1 });
+const sql = postgres(DATABASE_URL, { max: 1, connection: { application_name: connectionName() } });
 
 try {
   const admins = await sql<{ id: string }[]>`

@@ -1,0 +1,30 @@
+/* Adyen Web reads its colors from --adyen-sdk-* variables (with built-in light
+   fallbacks). Mapping them to the theme tokens makes the card form follow the
+   light and dark theme. The card number, expiry and CVC inputs live in Adyen
+   iframes and get their text colors from the Card `styles` option instead. */
+.evt-adyen {
+  --adyen-sdk-color-label-primary: hsl(var(--foreground));
+  --adyen-sdk-color-label-secondary: hsl(var(--muted-foreground));
+  --adyen-sdk-color-label-tertiary: hsl(var(--muted-foreground));
+  --adyen-sdk-color-label-disabled: hsl(var(--muted-foreground));
+  --adyen-sdk-color-label-critical: hsl(var(--destructive));
+  --adyen-sdk-color-label-highlight: hsl(var(--primary));
+  --adyen-sdk-color-label-on-color: hsl(var(--primary-foreground));
+  --adyen-sdk-color-background-primary: hsl(var(--card));
+  --adyen-sdk-color-background-primary-hover: hsl(var(--muted));
+  --adyen-sdk-color-background-secondary: hsl(var(--muted));
+  --adyen-sdk-color-background-secondary-hover: hsl(var(--muted));
+  --adyen-sdk-color-background-secondary-active: hsl(var(--muted));
+  --adyen-sdk-color-background-tertiary: hsl(var(--muted));
+  --adyen-sdk-color-background-quaternary: hsl(var(--muted));
+  --adyen-sdk-color-background-disabled: hsl(var(--muted));
+  --adyen-sdk-color-outline-primary: hsl(var(--input));
+  --adyen-sdk-color-outline-primary-hover: hsl(var(--ring));
+  --adyen-sdk-color-outline-primary-active: hsl(var(--ring));
+  --adyen-sdk-color-outline-secondary: hsl(var(--border));
+  --adyen-sdk-color-outline-tertiary: hsl(var(--border));
+  --adyen-sdk-color-outline-disabled: hsl(var(--border));
+  --adyen-sdk-color-outline-critical: hsl(var(--destructive));
+  --adyen-sdk-color-separator-primary: hsl(var(--border));
+  --adyen-sdk-color-separator-secondary: hsl(var(--border));
+}

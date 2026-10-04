@@ -8,7 +8,7 @@
 
 import argon2 from 'argon2';
 import postgres from 'postgres';
-import { ADMIN_DEFAULT_PERMISSIONS } from '@evtivity/lib';
+import { ADMIN_DEFAULT_PERMISSIONS, connectionName } from '@evtivity/lib';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
 const INITIAL_ADMIN_EMAIL = process.env['INITIAL_ADMIN_EMAIL'];
@@ -33,7 +33,7 @@ function rid(prefix: string): string {
   return `${prefix}_${s}`;
 }
 
-const sql = postgres(DATABASE_URL);
+const sql = postgres(DATABASE_URL, { connection: { application_name: connectionName() } });
 
 try {
   const passwordHash = await argon2.hash(INITIAL_ADMIN_PASSWORD);

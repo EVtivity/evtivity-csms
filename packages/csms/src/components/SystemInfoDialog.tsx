@@ -52,10 +52,17 @@ interface SystemInfo {
     stationLimit: string | null;
   };
   seed: { seedDemo: string };
+  payments: {
+    /** `payments.provider`: a provider id, or none when payments are off. */
+    provider: string;
+    /** The selected provider is available in this process and has its credentials. */
+    configured: boolean;
+  };
   secrets: {
     jwtConfigured: boolean;
     settingsEncryptionConfigured: boolean;
     stripeConfigured: boolean;
+    adyenConfigured: boolean;
     smtpConfigured: boolean;
     twilioConfigured: boolean;
     s3Configured: boolean;
@@ -186,6 +193,16 @@ export function SystemInfoDialog({ open, onOpenChange }: Props): React.JSX.Eleme
               <Row label="CSS_STATION_LIMIT" value={nullable(data.simulator.stationLimit)} />
             </Section>
 
+            <Section title={t('paymentProviders.systemInfo.title')}>
+              <Row label="payments.provider" value={data.payments.provider} />
+              {data.payments.provider !== 'none' && (
+                <Row
+                  label={t('paymentProviders.systemInfo.providerStatus')}
+                  value={<Configured on={data.payments.configured} />}
+                />
+              )}
+            </Section>
+
             <Section title={t('systemInfo.integrations')}>
               <Row label="JWT_SECRET" value={<Configured on={data.secrets.jwtConfigured} />} />
               <Row
@@ -193,6 +210,7 @@ export function SystemInfoDialog({ open, onOpenChange }: Props): React.JSX.Eleme
                 value={<Configured on={data.secrets.settingsEncryptionConfigured} />}
               />
               <Row label="Stripe" value={<Configured on={data.secrets.stripeConfigured} />} />
+              <Row label="Adyen" value={<Configured on={data.secrets.adyenConfigured} />} />
               <Row label="SMTP" value={<Configured on={data.secrets.smtpConfigured} />} />
               <Row label="Twilio" value={<Configured on={data.secrets.twilioConfigured} />} />
               <Row label="S3" value={<Configured on={data.secrets.s3Configured} />} />

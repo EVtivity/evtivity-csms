@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { createHash } from 'node:crypto';
 import { and, eq, lte, sql } from 'drizzle-orm';
 import {
   chargingSessions,
@@ -18,8 +19,10 @@ import {
   sessionChargeTax,
 } from '@evtivity/lib';
 import type { PaymentContext } from './context.js';
-import { errorMessage } from './context.js';
+import { errorMessage, pendingRef } from './context.js';
 import { PaymentDeclinedError, PaymentProviderNotConfiguredError } from './errors.js';
+import { cancelKey, captureKey } from './idempotency-keys.js';
+import { stripeColumnValue } from './legacy-columns.js';
 import { activeProvider, pinnedProvider } from './pinning.js';
 import {
   findSessionRecord,
@@ -28,18 +31,27 @@ import {
   markHoldFailed,
   recordGuestHold,
 } from './payment-records.js';
+import { PAYOUT_NOT_READY_REASON } from './payout-accounts.js';
 import { holdTerms } from './session-payments.js';
-import type { PaymentProvider } from './types.js';
+import type {
+  BrowserContext,
+  ClientAction,
+  HoldResult,
+  PaymentProvider,
+  PaymentProviderId,
+} from './types.js';
 
 /**
  * Guest checkout (no account, one-time card): the hold at the start, its link
  * to the charging session, capture or cancel at the end, and the cleanup of
  * holds that never started or whose finalization gave up. Guest holds are
  * placed with the active provider and finished with the provider they are
- * pinned to. Idempotency keys: `guest_preauth_<token>` (hold),
- * `capture_<recordId>`, `cancel_<recordId>`, `cancel_guest_<token>` (a hold
- * without a record).
+ * pinned to. Idempotency keys: `guest_preauth_<token>` (hold), and
+ * `capture_<paymentId>`, `cancel_<paymentId>` (`idempotency-keys.ts`).
  */
+
+/** The merchant reference of a guest hold is `guest_<sessionToken>`. */
+export const GUEST_REFERENCE_PREFIX = 'guest_';
 
 export interface GuestHoldInput {
   sessionToken: string;
@@ -48,6 +60,11 @@ export interface GuestHoldInput {
   siteId: string | null;
   /** The provider's one-time method (Stripe: a PaymentMethod id from Stripe.js). */
   methodPayload: unknown;
+  /**
+   * The guest's browser, for a 3DS round trip. Without it a card that needs
+   * authentication is declined (the client cannot run a client action).
+   */
+  browser?: BrowserContext;
   guestEmail: string;
   maxCostCents: number | null;
   maxEnergyWh: number | null;
@@ -57,17 +74,24 @@ export interface GuestHoldInput {
 
 export type GuestHoldOutcome =
   | { outcome: 'authorized'; paymentId: string; preAuthAmountCents: number }
+  /**
+   * The card needs a 3DS step: the guest session is stored as
+   * `pending_payment`; the client runs the action and sends its details to
+   * `continueGuestHold`.
+   */
+  | { outcome: 'action_required'; action: ClientAction }
   | { outcome: 'declined'; reason: string }
   | { outcome: 'not_configured' };
 
 /**
  * Places the guest's hold (the shopper is present) and stores the guest
  * session with it. The authorized amount is the cost ceiling (OCPP 2.1 C25
- * step 9): a capture cannot exceed it. A card that needs a 3DS step is
- * declined and its pending payment cancelled (the guest checkout has no
- * authentication step yet, plan P10c). When the guest session cannot be
- * stored, the hold is cancelled so the card is not held for a session that
- * does not exist (P4), and the error is rethrown.
+ * step 9): a capture cannot exceed it. A card that needs a 3DS step returns
+ * the client action when the guest's browser context came with the request
+ * (the session waits in `pending_payment`); without one it is declined and
+ * its pending payment cancelled. When the guest session cannot be stored,
+ * the hold is cancelled so the card is not held for a session that does not
+ * exist (P4), and the error is rethrown.
  */
 export async function authorizeGuestHold(
   input: GuestHoldInput,
@@ -82,13 +106,24 @@ export async function authorizeGuestHold(
   }
   if (provider == null) return { outcome: 'not_configured' };
   const [terms, currency] = await Promise.all([holdTerms(ctx, input.siteId), getCompanyCurrency()]);
-  const merchantReference = `guest_${input.sessionToken}`;
-  const cancelKey = `cancel_guest_${input.sessionToken}`;
+  if (terms.payoutBlocked) {
+    // O5, fail closed: no hold on the platform instead of the site host.
+    ctx.logger.warn(
+      { siteId: input.siteId, sessionToken: input.sessionToken },
+      'Guest hold refused: the payout account of the site is not ready',
+    );
+    return { outcome: 'declined', reason: PAYOUT_NOT_READY_REASON };
+  }
+  const merchantReference = `${GUEST_REFERENCE_PREFIX}${input.sessionToken}`;
 
-  let paymentId: string;
+  let hold: HoldResult;
   try {
-    const hold = await provider.authorizeHold({
-      method: { kind: 'one_time', payload: input.methodPayload },
+    hold = await provider.authorizeHold({
+      method: {
+        kind: 'one_time',
+        payload: input.methodPayload,
+        ...(input.browser != null ? { browser: input.browser } : {}),
+      },
       initiator: 'shopper',
       merchantReference,
       amountCents: terms.preAuthAmountCents,
@@ -97,28 +132,33 @@ export async function authorizeGuestHold(
       receiptEmail: input.guestEmail,
       idempotencyKey: `guest_preauth_${input.sessionToken}`,
     });
-    if (hold.status !== 'authorized') {
+    if (hold.status !== 'authorized' && input.browser == null) {
       if (hold.paymentId != null) {
-        await cancelQuietly(provider, hold.paymentId, merchantReference, cancelKey, ctx);
+        await cancelQuietly(provider, hold.paymentId, merchantReference, ctx);
       }
       throw new PaymentDeclinedError('Your card requires authentication.', {
         code: 'authentication_required',
       });
     }
-    paymentId = hold.paymentId;
   } catch (err) {
     if (err instanceof PaymentProviderNotConfiguredError) return { outcome: 'not_configured' };
     return { outcome: 'declined', reason: errorMessage(err, 'Payment failed') };
   }
 
+  const paymentId = hold.paymentId;
   try {
     await db.insert(guestSessions).values({
       stationOcppId: input.stationOcppId,
       evseId: input.evseId,
-      stripePaymentIntentId: paymentId,
+      provider: provider.id,
+      providerPaymentId: paymentId,
+      stripePaymentIntentId: stripeColumnValue(provider.id, paymentId),
       guestEmail: input.guestEmail,
       preAuthAmountCents: terms.preAuthAmountCents,
-      status: 'payment_authorized',
+      status: hold.status === 'authorized' ? 'payment_authorized' : 'pending_payment',
+      // An authorized hold is started by the calling route right away; a
+      // 3DS hold is started later by the one request that claims it.
+      startRequestedAt: hold.status === 'authorized' ? new Date() : null,
       sessionToken: input.sessionToken,
       expiresAt: input.expiresAt,
       maxCostCents: Math.min(
@@ -133,21 +173,242 @@ export async function authorizeGuestHold(
       { err, paymentId, sessionToken: input.sessionToken },
       'guest_sessions insert failed after the hold; cancelling it',
     );
-    await cancelQuietly(provider, paymentId, merchantReference, cancelKey, ctx);
+    if (paymentId != null) {
+      await cancelQuietly(provider, paymentId, merchantReference, ctx);
+    }
     throw err;
   }
-  return { outcome: 'authorized', paymentId, preAuthAmountCents: terms.preAuthAmountCents };
+  if (hold.status !== 'authorized') return { outcome: 'action_required', action: hold.action };
+  return {
+    outcome: 'authorized',
+    paymentId: hold.paymentId,
+    preAuthAmountCents: terms.preAuthAmountCents,
+  };
+}
+
+export type GuestContinueOutcome =
+  | { outcome: 'authorized'; paymentId: string; preAuthAmountCents: number }
+  | { outcome: 'action_required'; action: ClientAction }
+  | { outcome: 'declined'; reason: string }
+  /** No guest session waiting for its payment under this token (unknown, expired or finished). */
+  | { outcome: 'not_pending' }
+  | { outcome: 'not_configured' };
+
+/**
+ * The second step of a guest hold that needed a 3DS round trip: the details
+ * the client collected (`onAdditionalDetails`, or the `redirectResult` of the
+ * return page) go to the provider the guest session is pinned to. An
+ * authorized hold moves the session to `payment_authorized` (also when the
+ * provider's webhook attached it first, `attachGuestAuthorisation`); a
+ * refusal fails it. Key `guest_details_<token>_<sha256(details)>` (P7): a
+ * replay of the same details reaches the same provider answer. A hold
+ * authorized for a session that expired meanwhile is cancelled.
+ */
+export async function continueGuestHold(
+  input: { sessionToken: string; details: unknown },
+  ctx: PaymentContext,
+): Promise<GuestContinueOutcome> {
+  const [guest] = await db
+    .select()
+    .from(guestSessions)
+    .where(eq(guestSessions.sessionToken, input.sessionToken));
+  if (guest == null) return { outcome: 'not_pending' };
+  if (guest.status === 'payment_authorized' && guest.providerPaymentId != null) {
+    return {
+      outcome: 'authorized',
+      paymentId: guest.providerPaymentId,
+      preAuthAmountCents: guest.preAuthAmountCents ?? 0,
+    };
+  }
+  if (guest.status !== 'pending_payment' || guest.expiresAt.getTime() <= Date.now()) {
+    return { outcome: 'not_pending' };
+  }
+
+  let provider: PaymentProvider;
+  try {
+    provider = await pinnedProvider(ctx.registry, guest.provider);
+  } catch (err) {
+    if (err instanceof PaymentProviderNotConfiguredError) return { outcome: 'not_configured' };
+    throw err;
+  }
+  const digest = createHash('sha256')
+    .update(JSON.stringify(input.details ?? null))
+    .digest('hex')
+    .slice(0, 24);
+  let hold: HoldResult;
+  try {
+    hold = await provider.continueHold({
+      paymentId: guest.providerPaymentId,
+      details: input.details,
+      idempotencyKey: `guest_details_${input.sessionToken}_${digest}`,
+    });
+  } catch (err) {
+    if (err instanceof PaymentProviderNotConfiguredError) return { outcome: 'not_configured' };
+    const reason = errorMessage(err, 'Payment failed');
+    ctx.logger.warn({ err, guestSessionId: guest.id }, 'Guest 3DS authorisation declined');
+    await db
+      .update(guestSessions)
+      .set({ status: 'failed', updatedAt: new Date() })
+      .where(and(eq(guestSessions.id, guest.id), eq(guestSessions.status, 'pending_payment')));
+    return { outcome: 'declined', reason };
+  }
+
+  if (hold.status !== 'authorized') {
+    if (hold.paymentId != null && hold.paymentId !== guest.providerPaymentId) {
+      await db
+        .update(guestSessions)
+        .set({
+          providerPaymentId: hold.paymentId,
+          stripePaymentIntentId: stripeColumnValue(provider.id, hold.paymentId),
+          updatedAt: new Date(),
+        })
+        .where(and(eq(guestSessions.id, guest.id), eq(guestSessions.status, 'pending_payment')));
+    }
+    return { outcome: 'action_required', action: hold.action };
+  }
+
+  const paymentId = hold.paymentId;
+  const moved = await db
+    .update(guestSessions)
+    .set({
+      providerPaymentId: paymentId,
+      stripePaymentIntentId: stripeColumnValue(provider.id, paymentId),
+      status: 'payment_authorized',
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(guestSessions.id, guest.id),
+        sql`${guestSessions.expiresAt} > now()`,
+        sql`(${guestSessions.status} = 'pending_payment' OR (${guestSessions.status} = 'payment_authorized' AND ${guestSessions.providerPaymentId} = ${paymentId}))`,
+      ),
+    )
+    .returning({ id: guestSessions.id });
+  if (moved.length === 0) {
+    ctx.logger.warn(
+      { guestSessionId: guest.id, paymentId },
+      'Guest hold authorized for a session that is no longer waiting; cancelling it',
+    );
+    await cancelQuietly(provider, paymentId, `${GUEST_REFERENCE_PREFIX}${input.sessionToken}`, ctx);
+    return { outcome: 'not_pending' };
+  }
+  return {
+    outcome: 'authorized',
+    paymentId,
+    preAuthAmountCents: guest.preAuthAmountCents ?? 0,
+  };
+}
+
+export type GuestAttachOutcome =
+  /** The waiting guest session now holds the authorisation. */
+  | 'attached'
+  /** The session already holds this payment (the client's details step came first). */
+  | 'already_attached'
+  /** No guest session with this token: it was never stored (its start rolled back). */
+  | 'missing'
+  /** The session expired, failed or holds another payment: the authorisation is an orphan. */
+  | 'orphan';
+
+/**
+ * An authorisation the provider reports for a guest checkout (Adyen
+ * `AUTHORISATION`, merchant reference `guest_<token>`), for a guest who
+ * finished 3DS at the issuer but whose browser never sent the details (owner
+ * decision O4). A session still waiting for its payment, not expired and
+ * pinned to the same provider, takes the hold (`payment_authorized`). The
+ * caller cancels an orphan.
+ */
+export async function attachGuestAuthorisation(input: {
+  provider: PaymentProviderId;
+  sessionToken: string;
+  paymentId: string;
+}): Promise<GuestAttachOutcome> {
+  const [guest] = await db
+    .select({
+      id: guestSessions.id,
+      provider: guestSessions.provider,
+      providerPaymentId: guestSessions.providerPaymentId,
+    })
+    .from(guestSessions)
+    .where(eq(guestSessions.sessionToken, input.sessionToken));
+  if (guest == null) return 'missing';
+  const moved = await db
+    .update(guestSessions)
+    .set({
+      providerPaymentId: input.paymentId,
+      stripePaymentIntentId: stripeColumnValue(input.provider, input.paymentId),
+      status: 'payment_authorized',
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(guestSessions.id, guest.id),
+        eq(guestSessions.status, 'pending_payment'),
+        eq(guestSessions.provider, input.provider),
+        sql`${guestSessions.expiresAt} > now()`,
+        sql`(${guestSessions.providerPaymentId} IS NULL OR ${guestSessions.providerPaymentId} = ${input.paymentId})`,
+      ),
+    )
+    .returning({ id: guestSessions.id });
+  if (moved.length > 0) return 'attached';
+  return guest.provider === input.provider && guest.providerPaymentId === input.paymentId
+    ? 'already_attached'
+    : 'orphan';
+}
+
+export type GuestStartClaim =
+  /** This caller sends RequestStartTransaction. */
+  | { claim: 'claimed'; stationOcppId: string; evseId: number; paymentId: string | null }
+  /** Another request already sent it (a replayed details step); the session runs or failed. */
+  | { claim: 'already_requested' }
+  /** No authorized, unexpired guest session under this token. */
+  | { claim: 'not_startable' };
+
+/**
+ * Claims the station start of a guest session whose hold is authorized: the
+ * first caller sets `start_requested_at` and sends RequestStartTransaction;
+ * every later caller (a reloaded return page, a second details post after the
+ * webhook attached the hold) gets `already_requested`, so the station never
+ * receives two starts for one guest (P7).
+ */
+export async function claimGuestStart(sessionToken: string): Promise<GuestStartClaim> {
+  const [claimed] = await db
+    .update(guestSessions)
+    .set({ startRequestedAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(guestSessions.sessionToken, sessionToken),
+        eq(guestSessions.status, 'payment_authorized'),
+        sql`${guestSessions.startRequestedAt} IS NULL`,
+        sql`${guestSessions.expiresAt} > now()`,
+      ),
+    )
+    .returning({
+      stationOcppId: guestSessions.stationOcppId,
+      evseId: guestSessions.evseId,
+      paymentId: guestSessions.providerPaymentId,
+    });
+  if (claimed != null) return { claim: 'claimed', ...claimed };
+  const [guest] = await db
+    .select({ startRequestedAt: guestSessions.startRequestedAt })
+    .from(guestSessions)
+    .where(eq(guestSessions.sessionToken, sessionToken));
+  return guest?.startRequestedAt != null
+    ? { claim: 'already_requested' }
+    : { claim: 'not_startable' };
 }
 
 async function cancelQuietly(
   provider: PaymentProvider,
   paymentId: string,
   merchantReference: string,
-  idempotencyKey: string,
   ctx: PaymentContext,
 ): Promise<void> {
   try {
-    await provider.cancelHold({ paymentId, merchantReference, idempotencyKey });
+    await provider.cancelHold({
+      paymentId,
+      merchantReference,
+      idempotencyKey: cancelKey(paymentId),
+    });
   } catch (err) {
     // The hold expires by itself (Stripe: 7 days); P9 fail open.
     ctx.logger.warn({ err, paymentId }, 'Failed to cancel the guest hold');
@@ -162,15 +423,17 @@ export async function rollbackGuestStart(
   input: { sessionToken: string; paymentId: string | null },
   ctx: PaymentContext,
 ): Promise<void> {
-  await db.delete(guestSessions).where(eq(guestSessions.sessionToken, input.sessionToken));
+  const [deleted] = await db
+    .delete(guestSessions)
+    .where(eq(guestSessions.sessionToken, input.sessionToken))
+    .returning({ provider: guestSessions.provider });
   if (input.paymentId == null) return;
   try {
-    const provider = await pinnedProvider(ctx.registry, { paymentId: input.paymentId });
+    const provider = await pinnedProvider(ctx.registry, deleted?.provider ?? null);
     await cancelQuietly(
       provider,
       input.paymentId,
-      `guest_${input.sessionToken}`,
-      `cancel_guest_${input.sessionToken}`,
+      `${GUEST_REFERENCE_PREFIX}${input.sessionToken}`,
       ctx,
     );
   } catch (err) {
@@ -228,7 +491,12 @@ async function linkGuestSession(
     .set({ chargingSessionId: sessionId, status: 'charging', updatedAt: new Date() })
     .where(eq(guestSessions.id, guest.id));
 
-  if (guest.stripePaymentIntentId != null) {
+  if (guest.providerPaymentId != null && guest.provider == null) {
+    deps.logger.error(
+      { guestSessionId: guest.id, paymentId: guest.providerPaymentId },
+      'Guest hold has no provider; its payment record was not written',
+    );
+  } else if (guest.providerPaymentId != null && guest.provider != null) {
     const [station] = await db
       .select({ siteId: chargingStations.siteId })
       .from(chargingStations)
@@ -243,7 +511,8 @@ async function linkGuestSession(
     await recordGuestHold({
       sessionId,
       sitePaymentConfigId: terms.sitePaymentConfigId,
-      paymentId: guest.stripePaymentIntentId,
+      provider: guest.provider,
+      paymentId: guest.providerPaymentId,
       currency: session?.currency ?? (await getCompanyCurrency()),
       preAuthAmountCents: guest.preAuthAmountCents,
     });
@@ -291,7 +560,7 @@ async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Pr
     );
     return;
   }
-  const paymentId = record?.stripePaymentIntentId ?? null;
+  const paymentId = record?.providerPaymentId ?? null;
   if (record == null || paymentId == null) {
     await completeGuestSession(guest.id);
     deps.logger.info({ guestSessionId: guest.id }, 'Free guest session completed');
@@ -313,7 +582,7 @@ async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Pr
 
   let provider: PaymentProvider;
   try {
-    provider = await pinnedProvider(deps.registry, { paymentId });
+    provider = await pinnedProvider(deps.registry, record.provider);
   } catch (err) {
     if (!(err instanceof PaymentProviderNotConfiguredError)) throw err;
     deps.logger.error(
@@ -331,7 +600,7 @@ async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Pr
       const holdCents = record.preAuthAmountCents ?? finalCost;
       const captureCents = Math.min(finalCost, holdCents);
       const shortfallCents = finalCost - captureCents;
-      await provider.capture({
+      const captured = await provider.capture({
         paymentId,
         amountCents: captureCents,
         currency: record.currency,
@@ -339,7 +608,7 @@ async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Pr
         payoutAccountId: null,
         feeTax: sessionChargeTax(session),
         platformFeePercent: await getPlatformFeePercent(session.siteId),
-        idempotencyKey: `capture_${String(record.id)}`,
+        idempotencyKey: captureKey(paymentId),
       });
       const failureReason =
         shortfallCents > 0
@@ -356,15 +625,19 @@ async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Pr
           'Captured guest payment',
         );
       }
-      await markCaptured(record.id, { capturedCents: captureCents, failureReason });
+      await markCaptured(record.id, {
+        capturedCents: captureCents,
+        failureReason,
+        pendingRef: pendingRef(captured),
+      });
     } else {
-      await provider.cancelHold({
+      const cancelled = await provider.cancelHold({
         paymentId,
         merchantReference,
-        idempotencyKey: `cancel_${String(record.id)}`,
+        idempotencyKey: cancelKey(paymentId),
       });
       deps.logger.info({ guestSessionId: guest.id }, 'Cancelled zero-cost guest payment intent');
-      await markCancelled(record.id);
+      await markCancelled(record.id, pendingRef(cancelled));
     }
     await completeGuestSession(guest.id);
     await sendGuestReceipt(guest, sessionId, deps);
@@ -442,14 +715,14 @@ export async function failExhaustedGuestCapture(
   const record = await findSessionRecord(sessionId);
   if (record?.status !== 'pre_authorized') return;
   await markHoldFailed(record.id, `Capture worker exhausted retries: ${reason}`);
-  const paymentId = record.stripePaymentIntentId;
+  const paymentId = record.providerPaymentId;
   if (paymentId == null) return;
   try {
-    const provider = await pinnedProvider(ctx.registry, { paymentId });
+    const provider = await pinnedProvider(ctx.registry, record.provider);
     await provider.cancelHold({
       paymentId,
       merchantReference: `sess_${sessionId}`,
-      idempotencyKey: `cancel_${String(record.id)}`,
+      idempotencyKey: cancelKey(paymentId),
     });
   } catch (err) {
     ctx.logger.warn(
@@ -476,15 +749,13 @@ export async function expireGuestSessions(ctx: PaymentContext): Promise<number> 
       ),
     );
   for (const gs of expired) {
-    if (gs.stripePaymentIntentId != null) {
+    if (gs.providerPaymentId != null) {
       try {
-        const provider = await pinnedProvider(ctx.registry, {
-          paymentId: gs.stripePaymentIntentId,
-        });
+        const provider = await pinnedProvider(ctx.registry, gs.provider);
         await provider.cancelHold({
-          paymentId: gs.stripePaymentIntentId,
-          merchantReference: `guest_${gs.sessionToken}`,
-          idempotencyKey: `cancel_guest_${gs.sessionToken}`,
+          paymentId: gs.providerPaymentId,
+          merchantReference: `${GUEST_REFERENCE_PREFIX}${gs.sessionToken}`,
+          idempotencyKey: cancelKey(gs.providerPaymentId),
         });
       } catch (err) {
         ctx.logger.warn(

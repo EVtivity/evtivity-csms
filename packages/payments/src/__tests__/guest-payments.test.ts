@@ -6,9 +6,11 @@ import { sessionChargeTax } from '@evtivity/lib';
 
 const m = vi.hoisted(() => {
   const selectQueue: unknown[][] = [];
-  const updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
+  const updates: Array<{ table: unknown; values: Record<string, unknown>; where?: unknown }> = [];
+  const updateReturns: unknown[][] = [];
   const inserts: Array<{ table: unknown; values: Record<string, unknown> }> = [];
   const deletes: unknown[] = [];
+  const deletedRows: unknown[] = [];
   const failures = { insert: null as Error | null, updates: [] as Array<Error | null> };
 
   function selectChain(): Record<string, unknown> {
@@ -25,10 +27,15 @@ const m = vi.hoisted(() => {
     select: vi.fn(() => selectChain()),
     update: vi.fn((table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
-        where: () => {
-          updates.push({ table, values });
+        where: (where: unknown) => {
+          updates.push({ table, values, where });
           const err = failures.updates.shift() ?? null;
-          return err != null ? Promise.reject(err) : Promise.resolve();
+          const done = err != null ? Promise.reject(err) : Promise.resolve();
+          return {
+            then: (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) =>
+              done.then(resolve, reject),
+            returning: () => done.then(() => updateReturns.shift() ?? [{ id: 21 }]),
+          };
         },
       }),
     })),
@@ -41,7 +48,7 @@ const m = vi.hoisted(() => {
     delete: vi.fn((table: unknown) => ({
       where: () => {
         deletes.push(table);
-        return Promise.resolve();
+        return { returning: () => Promise.resolve(deletedRows.splice(0)) };
       },
     })),
   };
@@ -49,8 +56,10 @@ const m = vi.hoisted(() => {
   return {
     selectQueue,
     updates,
+    updateReturns,
     inserts,
     deletes,
+    deletedRows,
     failures,
     db,
     getCompanyCurrency: vi.fn(),
@@ -70,7 +79,7 @@ vi.mock('@evtivity/database', () => ({
   client: { __client: true },
   getCompanyCurrency: m.getCompanyCurrency,
   getPlatformFeePercent: m.getPlatformFeePercent,
-  guestSessions: { __table: 'guest_sessions' },
+  guestSessions: { __table: 'guest_sessions', provider: 'gs.provider' },
   chargingSessions: { __table: 'charging_sessions' },
   chargingStations: { __table: 'charging_stations' },
 }));
@@ -101,7 +110,10 @@ vi.mock('../payment-records.js', () => ({
 vi.mock('../session-payments.js', () => ({ holdTerms: m.holdTerms }));
 
 import {
+  attachGuestAuthorisation,
   authorizeGuestHold,
+  claimGuestStart,
+  continueGuestHold,
   expireGuestSessions,
   failExhaustedGuestCapture,
   handleGuestSessionEvent,
@@ -114,6 +126,7 @@ import type { PaymentProviderRegistry } from '../registry.js';
 const provider = {
   id: 'stripe',
   authorizeHold: vi.fn(),
+  continueHold: vi.fn(),
   capture: vi.fn(),
   cancelHold: vi.fn(),
 };
@@ -129,17 +142,23 @@ const deps: GuestEventDeps = {
   templatesDirs: ['/templates'],
 };
 
-const TERMS = { preAuthAmountCents: 5000, sitePaymentConfigId: 3, payoutAccountId: 'acct_site' };
+const TERMS = {
+  preAuthAmountCents: 5000,
+  sitePaymentConfigId: 3,
+  payoutAccountId: 'acct_site',
+  payoutBlocked: false,
+};
 
 function guestTable(): unknown {
-  return { __table: 'guest_sessions' };
+  return { __table: 'guest_sessions', provider: 'gs.provider' };
 }
 
 function record(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: 11,
     status: 'pre_authorized',
-    stripePaymentIntentId: 'pi_1',
+    provider: 'stripe',
+    providerPaymentId: 'pi_1',
     preAuthAmountCents: 5000,
     currency: 'EUR',
     ...overrides,
@@ -169,8 +188,10 @@ function receiptSession(overrides: Record<string, unknown> = {}): Record<string,
 beforeEach(() => {
   m.selectQueue.length = 0;
   m.updates.length = 0;
+  m.updateReturns.length = 0;
   m.inserts.length = 0;
   m.deletes.length = 0;
+  m.deletedRows.length = 0;
   m.failures.insert = null;
   m.failures.updates = [];
   m.getCompanyCurrency.mockResolvedValue('EUR');
@@ -196,7 +217,15 @@ beforeEach(() => {
 describe('handleGuestSessionEvent: TransactionStarted', () => {
   it('links the guest session and records its hold in the session currency', async () => {
     m.selectQueue.push(
-      [{ id: 21, stationOcppId: 'CS-1', stripePaymentIntentId: 'pi_1', preAuthAmountCents: 5000 }],
+      [
+        {
+          id: 21,
+          stationOcppId: 'CS-1',
+          provider: 'stripe',
+          providerPaymentId: 'pi_1',
+          preAuthAmountCents: 5000,
+        },
+      ],
       [{ siteId: 'site_1' }],
       [{ currency: 'GBP' }],
     );
@@ -213,6 +242,7 @@ describe('handleGuestSessionEvent: TransactionStarted', () => {
     expect(m.recordGuestHold).toHaveBeenCalledWith({
       sessionId: 'ses_1',
       sitePaymentConfigId: 3,
+      provider: 'stripe',
       paymentId: 'pi_1',
       currency: 'GBP',
       preAuthAmountCents: 5000,
@@ -226,7 +256,15 @@ describe('handleGuestSessionEvent: TransactionStarted', () => {
 
   it('falls back to no site and the company currency when station and session are missing', async () => {
     m.selectQueue.push(
-      [{ id: 21, stationOcppId: 'CS-1', stripePaymentIntentId: 'pi_1', preAuthAmountCents: null }],
+      [
+        {
+          id: 21,
+          stationOcppId: 'CS-1',
+          provider: 'stripe',
+          providerPaymentId: 'pi_1',
+          preAuthAmountCents: null,
+        },
+      ],
       [],
       [],
     );
@@ -243,7 +281,7 @@ describe('handleGuestSessionEvent: TransactionStarted', () => {
   });
 
   it('links a guest session without a hold and records no payment', async () => {
-    m.selectQueue.push([{ id: 21, stationOcppId: 'CS-1', stripePaymentIntentId: null }]);
+    m.selectQueue.push([{ id: 21, stationOcppId: 'CS-1', providerPaymentId: null }]);
 
     await handleGuestSessionEvent(
       { type: 'TransactionStarted', sessionId: 'ses_1', idToken: { idToken: 'tok_1' } },
@@ -252,6 +290,24 @@ describe('handleGuestSessionEvent: TransactionStarted', () => {
 
     expect(m.updates).toHaveLength(1);
     expect(m.recordGuestHold).not.toHaveBeenCalled();
+  });
+
+  it('logs and records no payment for a hold without a provider', async () => {
+    m.selectQueue.push([
+      { id: 21, stationOcppId: 'CS-1', provider: null, providerPaymentId: 'pi_1' },
+    ]);
+
+    await handleGuestSessionEvent(
+      { type: 'TransactionStarted', sessionId: 'ses_1', idToken: { idToken: 'tok_1' } },
+      deps,
+    );
+
+    expect(m.updates).toHaveLength(1);
+    expect(m.recordGuestHold).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith(
+      { guestSessionId: 21, paymentId: 'pi_1' },
+      'Guest hold has no provider; its payment record was not written',
+    );
   });
 
   it('is a no-op when no authorized guest session matches the token', async () => {
@@ -267,7 +323,9 @@ describe('handleGuestSessionEvent: TransactionStarted', () => {
   });
 
   it('does not link when the event has no sessionId', async () => {
-    m.selectQueue.push([{ id: 21, stationOcppId: 'CS-1', stripePaymentIntentId: 'pi_1' }]);
+    m.selectQueue.push([
+      { id: 21, stationOcppId: 'CS-1', provider: 'stripe', providerPaymentId: 'pi_1' },
+    ]);
 
     await handleGuestSessionEvent(
       { type: 'TransactionStarted', idToken: { idToken: 'tok_1' } },
@@ -304,10 +362,14 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
       payoutAccountId: null,
       feeTax: sessionChargeTax({ finalCostCents: 800, tariffTaxRate: null, costBreakdown: null }),
       platformFeePercent: 10,
-      idempotencyKey: 'capture_11',
+      idempotencyKey: 'capture_pi_1',
     });
     expect(m.getPlatformFeePercent).toHaveBeenCalledWith('site_1');
-    expect(m.markCaptured).toHaveBeenCalledWith(11, { capturedCents: 800, failureReason: null });
+    expect(m.markCaptured).toHaveBeenCalledWith(11, {
+      capturedCents: 800,
+      failureReason: null,
+      pendingRef: null,
+    });
     expect(m.updates.at(-1)?.values).toMatchObject({ status: 'completed' });
     expect(m.dispatchSystemNotification).toHaveBeenCalledWith(
       { __client: true },
@@ -334,7 +396,7 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
     await end();
 
     expect(provider.capture).toHaveBeenCalledWith(
-      expect.objectContaining({ amountCents: 5000, idempotencyKey: 'capture_11' }),
+      expect.objectContaining({ amountCents: 5000, idempotencyKey: 'capture_pi_1' }),
     );
     const [, captured] = m.markCaptured.mock.calls[0] as [number, { failureReason: string }];
     expect(captured).toMatchObject({ capturedCents: 5000 });
@@ -354,7 +416,11 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
     await end();
 
     expect(provider.capture).toHaveBeenCalledWith(expect.objectContaining({ amountCents: 9000 }));
-    expect(m.markCaptured).toHaveBeenCalledWith(11, { capturedCents: 9000, failureReason: null });
+    expect(m.markCaptured).toHaveBeenCalledWith(11, {
+      capturedCents: 9000,
+      failureReason: null,
+      pendingRef: null,
+    });
   });
 
   it('cancels the hold at a cost of 0', async () => {
@@ -367,9 +433,9 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
     expect(provider.cancelHold).toHaveBeenCalledWith({
       paymentId: 'pi_1',
       merchantReference: 'sess_ses_1',
-      idempotencyKey: 'cancel_11',
+      idempotencyKey: 'cancel_pi_1',
     });
-    expect(m.markCancelled).toHaveBeenCalledWith(11);
+    expect(m.markCancelled).toHaveBeenCalledWith(11, null);
     expect(m.updates.at(-1)?.values).toMatchObject({ status: 'completed' });
   });
 
@@ -401,7 +467,7 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
   });
 
   it('completes a session whose record has no payment id', async () => {
-    m.findSessionRecord.mockResolvedValue(record({ stripePaymentIntentId: null }));
+    m.findSessionRecord.mockResolvedValue(record({ providerPaymentId: null }));
     m.selectQueue.push([finalizeGuest()], [receiptSession()]);
 
     await end();
@@ -436,7 +502,9 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
   });
 
   it('finishes a simulated hold with the simulated provider', async () => {
-    m.findSessionRecord.mockResolvedValue(record({ stripePaymentIntentId: 'pi_sim_1' }));
+    m.findSessionRecord.mockResolvedValue(
+      record({ provider: 'simulated', providerPaymentId: 'pi_sim_1' }),
+    );
     m.selectQueue.push([finalizeGuest()], [chargedSession(800)], [receiptSession()]);
 
     await end();
@@ -582,8 +650,10 @@ describe('authorizeGuestHold', () => {
     expect(await authorizeGuestHold(input, deps)).toEqual({ outcome: 'not_configured' });
   });
 
-  it('returns not_configured for a provider whose ids cannot be stored yet', async () => {
-    registry.getActivePaymentProvider.mockResolvedValue({ ...provider, id: 'adyen' });
+  it('returns not_configured when the selected provider has no credentials', async () => {
+    registry.getActivePaymentProvider.mockRejectedValue(
+      new PaymentProviderNotConfiguredError('adyen'),
+    );
 
     expect(await authorizeGuestHold(input, deps)).toEqual({ outcome: 'not_configured' });
   });
@@ -592,6 +662,17 @@ describe('authorizeGuestHold', () => {
     registry.getActivePaymentProvider.mockRejectedValue(new Error('settings unreadable'));
 
     await expect(authorizeGuestHold(input, deps)).rejects.toThrow('settings unreadable');
+  });
+
+  it('declines before any provider call when the payout account is not ready', async () => {
+    m.holdTerms.mockResolvedValue({ ...TERMS, payoutAccountId: null, payoutBlocked: true });
+
+    expect(await authorizeGuestHold(input, deps)).toEqual({
+      outcome: 'declined',
+      reason: 'This site cannot accept card payments yet',
+    });
+    expect(provider.authorizeHold).not.toHaveBeenCalled();
+    expect(m.inserts).toHaveLength(0);
   });
 
   it('places the hold, stores the guest session and caps the cost at the hold', async () => {
@@ -618,10 +699,13 @@ describe('authorizeGuestHold', () => {
     expect(m.inserts[0]?.values).toEqual({
       stationOcppId: 'CS-1',
       evseId: 1,
+      provider: 'stripe',
+      providerPaymentId: 'pi_new',
       stripePaymentIntentId: 'pi_new',
       guestEmail: 'guest@example.com',
       preAuthAmountCents: 5000,
       status: 'payment_authorized',
+      startRequestedAt: expect.any(Date),
       sessionToken: 'tok_1',
       expiresAt: input.expiresAt,
       maxCostCents: 5000,
@@ -677,7 +761,7 @@ describe('authorizeGuestHold', () => {
     expect(provider.cancelHold).toHaveBeenCalledWith({
       paymentId: 'pi_3ds',
       merchantReference: 'guest_tok_1',
-      idempotencyKey: 'cancel_guest_tok_1',
+      idempotencyKey: 'cancel_pi_3ds',
     });
     expect(m.inserts).toHaveLength(0);
   });
@@ -716,7 +800,7 @@ describe('authorizeGuestHold', () => {
     expect(provider.cancelHold).toHaveBeenCalledWith({
       paymentId: 'pi_new',
       merchantReference: 'guest_tok_1',
-      idempotencyKey: 'cancel_guest_tok_1',
+      idempotencyKey: 'cancel_pi_new',
     });
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({ paymentId: 'pi_new', sessionToken: 'tok_1' }),
@@ -726,7 +810,8 @@ describe('authorizeGuestHold', () => {
 });
 
 describe('rollbackGuestStart', () => {
-  it('deletes the guest session and cancels its hold', async () => {
+  it('deletes the guest session and cancels its hold with the provider of the row', async () => {
+    m.deletedRows.push({ provider: 'stripe' });
     await rollbackGuestStart({ sessionToken: 'tok_1', paymentId: 'pi_1' }, deps);
 
     expect(m.deletes).toEqual([guestTable()]);
@@ -734,7 +819,7 @@ describe('rollbackGuestStart', () => {
     expect(provider.cancelHold).toHaveBeenCalledWith({
       paymentId: 'pi_1',
       merchantReference: 'guest_tok_1',
-      idempotencyKey: 'cancel_guest_tok_1',
+      idempotencyKey: 'cancel_pi_1',
     });
   });
 
@@ -745,7 +830,18 @@ describe('rollbackGuestStart', () => {
     expect(registry.getPaymentProvider).not.toHaveBeenCalled();
   });
 
+  it('warns when the deleted row has no provider', async () => {
+    await rollbackGuestStart({ sessionToken: 'tok_1', paymentId: 'pi_1' }, deps);
+    expect(registry.getPaymentProvider).not.toHaveBeenCalled();
+    expect(provider.cancelHold).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentId: 'pi_1' }),
+      'Failed to cancel guest PaymentIntent after start failure',
+    );
+  });
+
   it('warns when the hold provider is not available', async () => {
+    m.deletedRows.push({ provider: 'stripe' });
     registry.getPaymentProvider.mockRejectedValue(new PaymentProviderNotConfiguredError('stripe'));
 
     await expect(
@@ -774,7 +870,7 @@ describe('failExhaustedGuestCapture', () => {
     expect(provider.cancelHold).toHaveBeenCalledWith({
       paymentId: 'pi_1',
       merchantReference: 'sess_ses_1',
-      idempotencyKey: 'cancel_11',
+      idempotencyKey: 'cancel_pi_1',
     });
   });
 
@@ -797,7 +893,7 @@ describe('failExhaustedGuestCapture', () => {
   });
 
   it('records the failure but cancels nothing without a payment id', async () => {
-    m.findSessionRecord.mockResolvedValue(record({ stripePaymentIntentId: null }));
+    m.findSessionRecord.mockResolvedValue(record({ providerPaymentId: null }));
 
     await failExhaustedGuestCapture('ses_1', 'boom', deps);
 
@@ -821,9 +917,9 @@ describe('failExhaustedGuestCapture', () => {
 describe('expireGuestSessions', () => {
   it('cancels each hold and marks every expired session expired', async () => {
     m.selectQueue.push([
-      { id: 1, stripePaymentIntentId: 'pi_a', sessionToken: 'tok_a' },
-      { id: 2, stripePaymentIntentId: null, sessionToken: 'tok_b' },
-      { id: 3, stripePaymentIntentId: 'pi_sim_c', sessionToken: 'tok_c' },
+      { id: 1, provider: 'stripe', providerPaymentId: 'pi_a', sessionToken: 'tok_a' },
+      { id: 2, providerPaymentId: null, sessionToken: 'tok_b' },
+      { id: 3, provider: 'simulated', providerPaymentId: 'pi_sim_c', sessionToken: 'tok_c' },
     ]);
 
     expect(await expireGuestSessions(deps)).toBe(3);
@@ -832,7 +928,7 @@ describe('expireGuestSessions', () => {
     expect(provider.cancelHold).toHaveBeenCalledWith({
       paymentId: 'pi_a',
       merchantReference: 'guest_tok_a',
-      idempotencyKey: 'cancel_guest_tok_a',
+      idempotencyKey: 'cancel_pi_a',
     });
     expect(registry.getPaymentProvider).toHaveBeenCalledWith('simulated');
     expect(m.updates).toHaveLength(3);
@@ -849,7 +945,9 @@ describe('expireGuestSessions', () => {
   });
 
   it('still expires the row when the cancel fails', async () => {
-    m.selectQueue.push([{ id: 4, stripePaymentIntentId: 'pi_d', sessionToken: 'tok_d' }]);
+    m.selectQueue.push([
+      { id: 4, provider: 'stripe', providerPaymentId: 'pi_d', sessionToken: 'tok_d' },
+    ]);
     provider.cancelHold.mockRejectedValue(new Error('already cancelled'));
 
     expect(await expireGuestSessions(deps)).toBe(1);
@@ -863,8 +961,8 @@ describe('expireGuestSessions', () => {
 
   it('logs and continues when marking a row expired fails', async () => {
     m.selectQueue.push([
-      { id: 5, stripePaymentIntentId: null, sessionToken: 'tok_e' },
-      { id: 6, stripePaymentIntentId: null, sessionToken: 'tok_f' },
+      { id: 5, providerPaymentId: null, sessionToken: 'tok_e' },
+      { id: 6, providerPaymentId: null, sessionToken: 'tok_f' },
     ]);
     m.failures.updates = [new Error('db write failed')];
 
@@ -875,5 +973,244 @@ describe('expireGuestSessions', () => {
       'Failed to mark guest session expired',
     );
     expect(m.updates).toHaveLength(2);
+  });
+});
+
+describe('guest 3DS round trip (P10a)', () => {
+  const browser = { origin: 'https://portal.example', returnUrl: 'https://portal.example/r' };
+  const input: GuestHoldInput = {
+    sessionToken: 'tok_1',
+    stationOcppId: 'CS-1',
+    evseId: 1,
+    siteId: 'site_1',
+    methodPayload: { paymentMethod: { type: 'scheme' } },
+    browser,
+    guestEmail: 'guest@example.com',
+    maxCostCents: null,
+    maxEnergyWh: null,
+    maxTimeSeconds: null,
+    expiresAt: new Date('2099-01-01T00:00:00Z'),
+  };
+  const action = { provider: 'adyen', data: { type: 'redirect' } };
+  const adyen = { ...provider, id: 'adyen' };
+
+  function waiting(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      id: 21,
+      status: 'pending_payment',
+      provider: 'adyen',
+      providerPaymentId: null,
+      preAuthAmountCents: 5000,
+      expiresAt: new Date('2099-01-01T00:00:00Z'),
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    registry.getActivePaymentProvider.mockResolvedValue(adyen);
+    registry.getPaymentProvider.mockResolvedValue(adyen);
+  });
+
+  it('stores a pending_payment session without Stripe ids and returns the client action', async () => {
+    // activeProvider refuses adyen until the guard part lands; the shape is
+    // the same for any provider with client actions.
+    registry.getActivePaymentProvider.mockResolvedValue(provider);
+    provider.authorizeHold.mockResolvedValue({
+      status: 'action_required',
+      paymentId: null,
+      action,
+    });
+
+    expect(await authorizeGuestHold(input, deps)).toEqual({ outcome: 'action_required', action });
+    expect(provider.authorizeHold).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: { kind: 'one_time', payload: input.methodPayload, browser },
+        initiator: 'shopper',
+        merchantReference: 'guest_tok_1',
+      }),
+    );
+    expect(provider.cancelHold).not.toHaveBeenCalled();
+    expect(m.inserts[0]?.values).toMatchObject({
+      provider: 'stripe',
+      providerPaymentId: null,
+      stripePaymentIntentId: null,
+      status: 'pending_payment',
+      startRequestedAt: null,
+    });
+  });
+
+  it('continues with the details and authorizes the waiting session', async () => {
+    m.selectQueue.push([waiting()]);
+    adyen.continueHold.mockResolvedValue({
+      status: 'authorized',
+      paymentId: 'PSP1',
+      authorizedCents: 5000,
+    });
+
+    expect(
+      await continueGuestHold({ sessionToken: 'tok_1', details: { redirectResult: 'abc' } }, deps),
+    ).toEqual({ outcome: 'authorized', paymentId: 'PSP1', preAuthAmountCents: 5000 });
+    const call = adyen.continueHold.mock.calls[0]?.[0] as { idempotencyKey: string };
+    expect(call).toMatchObject({ paymentId: null, details: { redirectResult: 'abc' } });
+    expect(call.idempotencyKey).toMatch(/^guest_details_tok_1_[0-9a-f]{24}$/);
+    expect(call.idempotencyKey.length).toBeLessThanOrEqual(64);
+    expect(m.updates.at(-1)?.values).toMatchObject({
+      providerPaymentId: 'PSP1',
+      stripePaymentIntentId: null,
+      status: 'payment_authorized',
+    });
+  });
+
+  it('answers a session the webhook already authorized without a provider call', async () => {
+    m.selectQueue.push([waiting({ status: 'payment_authorized', providerPaymentId: 'PSP1' })]);
+    expect(await continueGuestHold({ sessionToken: 'tok_1', details: {} }, deps)).toEqual({
+      outcome: 'authorized',
+      paymentId: 'PSP1',
+      preAuthAmountCents: 5000,
+    });
+    expect(adyen.continueHold).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['an unknown token', []],
+    ['an expired session', [waiting({ expiresAt: new Date('2000-01-01T00:00:00Z') })]],
+    ['a failed session', [waiting({ status: 'failed' })]],
+  ])('returns not_pending for %s', async (_label, rows) => {
+    m.selectQueue.push(rows);
+    expect(await continueGuestHold({ sessionToken: 'tok_1', details: {} }, deps)).toEqual({
+      outcome: 'not_pending',
+    });
+    expect(adyen.continueHold).not.toHaveBeenCalled();
+  });
+
+  it('returns another client action and stores a payment id it learns', async () => {
+    m.selectQueue.push([waiting()]);
+    adyen.continueHold.mockResolvedValue({ status: 'action_required', paymentId: 'PSP1', action });
+    expect(await continueGuestHold({ sessionToken: 'tok_1', details: {} }, deps)).toEqual({
+      outcome: 'action_required',
+      action,
+    });
+    expect(m.updates.at(-1)?.values).toMatchObject({ providerPaymentId: 'PSP1' });
+  });
+
+  it('fails the session on a refusal', async () => {
+    m.selectQueue.push([waiting()]);
+    adyen.continueHold.mockRejectedValue(new PaymentDeclinedError('Refused'));
+    expect(await continueGuestHold({ sessionToken: 'tok_1', details: {} }, deps)).toEqual({
+      outcome: 'declined',
+      reason: 'Refused',
+    });
+    expect(m.updates.at(-1)?.values).toMatchObject({ status: 'failed' });
+  });
+
+  it('cancels a hold authorized after the session stopped waiting', async () => {
+    m.selectQueue.push([waiting()]);
+    m.updateReturns.push([]);
+    adyen.continueHold.mockResolvedValue({
+      status: 'authorized',
+      paymentId: 'PSP1',
+      authorizedCents: 5000,
+    });
+    expect(await continueGuestHold({ sessionToken: 'tok_1', details: {} }, deps)).toEqual({
+      outcome: 'not_pending',
+    });
+    expect(adyen.cancelHold).toHaveBeenCalledWith({
+      paymentId: 'PSP1',
+      merchantReference: 'guest_tok_1',
+      idempotencyKey: 'cancel_PSP1',
+    });
+  });
+
+  it('returns not_configured when the pinned provider is gone', async () => {
+    m.selectQueue.push([waiting()]);
+    registry.getPaymentProvider.mockRejectedValue(new PaymentProviderNotConfiguredError('adyen'));
+    expect(await continueGuestHold({ sessionToken: 'tok_1', details: {} }, deps)).toEqual({
+      outcome: 'not_configured',
+    });
+  });
+
+  describe('attachGuestAuthorisation (O4)', () => {
+    const attach = { provider: 'adyen', sessionToken: 'tok_1', paymentId: 'PSP1' };
+
+    it('attaches the authorisation to a waiting session', async () => {
+      m.selectQueue.push([{ id: 21, provider: 'adyen', providerPaymentId: null }]);
+      expect(await attachGuestAuthorisation(attach)).toBe('attached');
+      expect(m.updates.at(-1)?.values).toMatchObject({
+        providerPaymentId: 'PSP1',
+        stripePaymentIntentId: null,
+        status: 'payment_authorized',
+      });
+    });
+
+    it('reports a session that already holds the payment', async () => {
+      m.selectQueue.push([{ id: 21, provider: 'adyen', providerPaymentId: 'PSP1' }]);
+      m.updateReturns.push([]);
+      expect(await attachGuestAuthorisation(attach)).toBe('already_attached');
+    });
+
+    it('reports an orphan when the session no longer waits or holds another payment', async () => {
+      m.selectQueue.push([{ id: 21, provider: 'adyen', providerPaymentId: 'OTHER' }]);
+      m.updateReturns.push([]);
+      expect(await attachGuestAuthorisation(attach)).toBe('orphan');
+    });
+
+    it('reports a missing session', async () => {
+      m.selectQueue.push([]);
+      expect(await attachGuestAuthorisation(attach)).toBe('missing');
+      expect(m.updates).toHaveLength(0);
+    });
+  });
+
+  it('records pending captures and cancels at guest finalization', async () => {
+    m.findSessionRecord.mockResolvedValue(record());
+    provider.capture.mockResolvedValue({ state: 'pending', operationRef: 'CAP1' });
+    registry.getPaymentProvider.mockResolvedValue(provider);
+    m.selectQueue.push([finalizeGuest()], [chargedSession(800)], [receiptSession()]);
+    await handleGuestSessionEvent({ type: 'TransactionEnded', sessionId: 'ses_1' }, deps);
+    expect(m.markCaptured).toHaveBeenCalledWith(11, {
+      capturedCents: 800,
+      failureReason: null,
+      pendingRef: 'CAP1',
+    });
+
+    provider.cancelHold.mockResolvedValue({ state: 'pending', operationRef: 'CXL1' });
+    m.selectQueue.push([finalizeGuest()], [chargedSession(0)], [receiptSession()]);
+    await handleGuestSessionEvent({ type: 'TransactionEnded', sessionId: 'ses_1' }, deps);
+    expect(m.markCancelled).toHaveBeenCalledWith(11, 'CXL1');
+  });
+});
+
+describe('claimGuestStart (P10 Part B)', () => {
+  it('claims the start of an authorized session once and returns where to start it', async () => {
+    m.updateReturns.push([{ stationOcppId: 'CS-1', evseId: 2, paymentId: 'PSP1' }]);
+
+    expect(await claimGuestStart('tok_1')).toEqual({
+      claim: 'claimed',
+      stationOcppId: 'CS-1',
+      evseId: 2,
+      paymentId: 'PSP1',
+    });
+    const update = m.updates.at(-1);
+    expect(update?.values).toEqual({
+      startRequestedAt: expect.any(Date),
+      updatedAt: expect.any(Date),
+    });
+    expect(JSON.stringify(update?.where)).toContain('payment_authorized');
+    expect(JSON.stringify(update?.where)).toContain('IS NULL');
+  });
+
+  it('reports a start another request already sent', async () => {
+    m.updateReturns.push([]);
+    m.selectQueue.push([{ startRequestedAt: new Date() }]);
+
+    expect(await claimGuestStart('tok_1')).toEqual({ claim: 'already_requested' });
+  });
+
+  it('reports a session that cannot be started (unknown, waiting, expired)', async () => {
+    m.updateReturns.push([], []);
+    m.selectQueue.push([], [{ startRequestedAt: null }]);
+
+    expect(await claimGuestStart('tok_1')).toEqual({ claim: 'not_startable' });
+    expect(await claimGuestStart('tok_1')).toEqual({ claim: 'not_startable' });
   });
 });

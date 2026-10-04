@@ -43,6 +43,35 @@ export interface FakeIntent {
   last_payment_error: null;
 }
 
+/** A webhook endpoint as Stripe returns it; `secret` only on create. */
+export interface FakeWebhookEndpoint {
+  id: string;
+  object: 'webhook_endpoint';
+  url: string;
+  enabled_events: string[];
+  api_version: string | null;
+  application: null;
+  description: string | null;
+  metadata: Record<string, string>;
+  status: 'enabled' | 'disabled';
+  secret?: string;
+}
+
+/** A connected account as v1 `accounts.retrieve` returns it (the fields EVtivity reads). */
+export interface FakePayoutAccount {
+  id: string;
+  object: 'account';
+  capabilities: Record<string, string>;
+  details_submitted: boolean;
+  requirements: {
+    currently_due: string[];
+    past_due: string[];
+    pending_verification: string[];
+    disabled_reason: string | null;
+  };
+  metadata: Record<string, string>;
+}
+
 interface FakePaymentMethod {
   id: string;
   customer: string | null;
@@ -96,6 +125,15 @@ class StripeRecorder {
   retrieveFailIntents = new Set<string>();
   /** Customers Stripe does not know (deleted, or another account). */
   staleCustomers = new Set<string>();
+  /** Webhook endpoints of the account (secrets are not kept, as in Stripe). */
+  webhookEndpoints = new Map<string, FakeWebhookEndpoint>();
+  /**
+   * Per call name (`webhookEndpoints.create`), the outcome of its next calls
+   * in order: an error to throw, or null to succeed. Empty means succeed.
+   */
+  callFailures = new Map<string, Array<Error | null>>();
+  /** Connected accounts of the platform (v1 shape), by id. */
+  payoutAccounts = new Map<string, FakePayoutAccount>();
   private counters = new Map<string, number>();
 
   reset(): void {
@@ -108,7 +146,64 @@ class StripeRecorder {
     this.captureFailIntents.clear();
     this.retrieveFailIntents.clear();
     this.staleCustomers.clear();
+    this.webhookEndpoints.clear();
+    this.callFailures.clear();
+    this.payoutAccounts.clear();
     this.counters.clear();
+  }
+
+  /** Throws the queued failure of the call, if any (see callFailures). */
+  failIfQueued(call: string): void {
+    const failure = this.callFailures.get(call)?.shift();
+    if (failure != null) throw failure;
+  }
+
+  /** A webhook endpoint that exists in Stripe before the scenario. */
+  seedWebhookEndpoint(fields: Partial<FakeWebhookEndpoint> & { id: string }): FakeWebhookEndpoint {
+    const endpoint: FakeWebhookEndpoint = {
+      object: 'webhook_endpoint',
+      url: 'https://seeded.example.com/v1/webhooks/payments/stripe',
+      enabled_events: ['*'],
+      api_version: null,
+      application: null,
+      description: null,
+      metadata: {},
+      status: 'enabled',
+      ...fields,
+    };
+    delete endpoint.secret;
+    this.webhookEndpoints.set(endpoint.id, endpoint);
+    return endpoint;
+  }
+
+  /**
+   * A connected account that exists before the scenario. Default: onboarding
+   * finished, `card_payments` and `transfers` active.
+   */
+  seedPayoutAccount(
+    id: string,
+    fields: Partial<Omit<FakePayoutAccount, 'requirements'>> & {
+      requirements?: Partial<FakePayoutAccount['requirements']>;
+    } = {},
+  ): FakePayoutAccount {
+    const { requirements, ...rest } = fields;
+    const account: FakePayoutAccount = {
+      id,
+      object: 'account',
+      capabilities: { card_payments: 'active', transfers: 'active' },
+      details_submitted: true,
+      metadata: {},
+      ...rest,
+      requirements: {
+        currently_due: [],
+        past_due: [],
+        pending_verification: [],
+        disabled_reason: null,
+        ...requirements,
+      },
+    };
+    this.payoutAccounts.set(id, account);
+    return account;
   }
 
   next(prefix: string): string {
@@ -363,6 +458,131 @@ class FakeStripe {
     },
   };
 
+  webhookEndpoints = {
+    list: (params?: Record<string, unknown>): Promise<unknown> => {
+      stripeRecorder.record('webhookEndpoints.list', [params ?? {}]);
+      return settle(() => {
+        stripeRecorder.failIfQueued('webhookEndpoints.list');
+        return {
+          object: 'list',
+          data: [...stripeRecorder.webhookEndpoints.values()].map((e) => clone(e)),
+          has_more: false,
+        };
+      });
+    },
+    create: (params: Record<string, unknown>, options?: RequestOptions): Promise<unknown> => {
+      stripeRecorder.record('webhookEndpoints.create', [params], options);
+      return settle(() => {
+        stripeRecorder.failIfQueued('webhookEndpoints.create');
+        const id = stripeRecorder.next('we_fake');
+        const endpoint: FakeWebhookEndpoint = {
+          id,
+          object: 'webhook_endpoint',
+          url: params['url'] as string,
+          enabled_events: params['enabled_events'] as string[],
+          api_version: (params['api_version'] as string | undefined) ?? null,
+          application: null,
+          description: (params['description'] as string | undefined) ?? null,
+          metadata: (params['metadata'] as Record<string, string> | undefined) ?? {},
+          status: 'enabled',
+        };
+        stripeRecorder.webhookEndpoints.set(id, endpoint);
+        return { ...clone(endpoint), secret: `whsec_${id}` };
+      });
+    },
+    del: (id: string): Promise<unknown> => {
+      stripeRecorder.record('webhookEndpoints.del', [id]);
+      return settle(() => {
+        stripeRecorder.failIfQueued('webhookEndpoints.del');
+        if (!stripeRecorder.webhookEndpoints.delete(id)) {
+          throw new FakeStripeError(
+            'StripeInvalidRequestError',
+            `No such webhook endpoint: '${id}'`,
+            {
+              code: 'resource_missing',
+              statusCode: 404,
+            },
+          );
+        }
+        return { id, object: 'webhook_endpoint', deleted: true };
+      });
+    },
+  };
+
+  accounts = {
+    /** v1 read of a connected account (v1 or v2), as the status refresh does. */
+    retrieve: (id: string): Promise<FakePayoutAccount> => {
+      stripeRecorder.record('accounts.retrieve', [id]);
+      return settle(() => {
+        stripeRecorder.failIfQueued('accounts.retrieve');
+        const account = stripeRecorder.payoutAccounts.get(id);
+        if (account == null) throw accountInvalid(id);
+        return clone(account);
+      });
+    },
+  };
+
+  v2 = {
+    core: {
+      accounts: {
+        /** Accounts v2 create. A repeated idempotency key returns the same account. */
+        create: (params: Record<string, unknown>, options?: RequestOptions): Promise<unknown> => {
+          stripeRecorder.record('v2.core.accounts.create', [params], options);
+          return settle(() => {
+            stripeRecorder.failIfQueued('v2.core.accounts.create');
+            const id =
+              options?.idempotencyKey != null
+                ? `acct_${options.idempotencyKey}`
+                : stripeRecorder.next('acct_fake');
+            if (!stripeRecorder.payoutAccounts.has(id)) {
+              // A new account: nothing submitted, both capabilities inactive.
+              stripeRecorder.seedPayoutAccount(id, {
+                capabilities: { card_payments: 'inactive', transfers: 'inactive' },
+                details_submitted: false,
+                metadata: (params['metadata'] as Record<string, string> | undefined) ?? {},
+                requirements: {
+                  currently_due: ['business_type', 'external_account', 'tos_acceptance.date'],
+                  past_due: ['business_type', 'external_account', 'tos_acceptance.date'],
+                  disabled_reason: 'requirements.past_due',
+                },
+              });
+            }
+            return {
+              id,
+              object: 'v2.core.account',
+              display_name: params['display_name'] ?? null,
+              contact_email: params['contact_email'] ?? null,
+              dashboard: params['dashboard'] ?? null,
+              metadata: params['metadata'] ?? {},
+              livemode: false,
+            };
+          });
+        },
+      },
+      accountLinks: {
+        /** Accounts v2 Account Link: single use, expires 300 seconds after creation. */
+        create: (params: Record<string, unknown>): Promise<unknown> => {
+          stripeRecorder.record('v2.core.accountLinks.create', [params]);
+          return settle(() => {
+            stripeRecorder.failIfQueued('v2.core.accountLinks.create');
+            const account = params['account'] as string;
+            if (!stripeRecorder.payoutAccounts.has(account)) throw accountInvalid(account);
+            const n = stripeRecorder.next('link');
+            return {
+              object: 'v2.core.account_link',
+              account,
+              created: FAKE_LINK_CREATED,
+              expires_at: FAKE_LINK_EXPIRES_AT,
+              url: `https://connect.stripe.com/fake/onboarding/${n}`,
+              use_case: params['use_case'],
+              livemode: false,
+            };
+          });
+        },
+      },
+    },
+  };
+
   webhooks = {
     /** Accepts the signature `t=1,v1=<secret>`; not a network call, so not recorded. */
     constructEvent: (body: string, signature: string, secret: string): unknown => {
@@ -376,6 +596,19 @@ class FakeStripe {
       return JSON.parse(body) as unknown;
     },
   };
+}
+
+/** Fixed timestamps of fake Account Links, so recorded scenarios are stable. */
+export const FAKE_LINK_CREATED = '2026-10-03T12:00:00.000Z';
+export const FAKE_LINK_EXPIRES_AT = '2026-10-03T12:05:00.000Z';
+
+/** What Stripe answers for an account the platform cannot access or that does not exist. */
+function accountInvalid(id: string): FakeStripeError {
+  return new FakeStripeError(
+    'StripePermissionError',
+    `The provided key does not have access to account '${id}' (or that account does not exist). Application access may have been revoked.`,
+    { code: 'account_invalid', statusCode: 403 },
+  );
 }
 
 function settle<T>(fn: () => T): Promise<T> {
@@ -400,7 +633,7 @@ export function fakeStripeSignature(secret: string): string {
 const ID_PATTERN =
   /(?<![0-9a-z])(rol|usr|sit|sta|evs|con|ses|drv|dtk|rsv|cas|pgr|trf|flt|veh|inv)_[0-9a-z]{12}(?![0-9a-z])/g;
 // Guest checkout session tokens (20 hex characters) in idempotency keys and intent ids.
-const GUEST_TOKEN_PATTERN = /(?<=guest_preauth_|cancel_guest_)[0-9a-f]{20}(?![0-9a-z])/g;
+const GUEST_TOKEN_PATTERN = /(?<=guest_preauth_)[0-9a-f]{20}(?![0-9a-z])/g;
 
 /**
  * Replaces generated entity ids (`ses_<12>`, `drv_<12>`, ...) with stable

@@ -4,6 +4,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { z } from 'zod';
+import { connectionName } from '@evtivity/lib';
 
 const dbConfigSchema = z.object({
   DATABASE_URL: z.string().url().default('postgres://evtivity:evtivity@localhost:5433/evtivity'),
@@ -27,8 +28,12 @@ const connectionString = dbConfig.DATABASE_URL;
  * max_lifetime: Seconds before a connection is retired regardless of activity.
  *               Prevents issues with stale connections behind load balancers
  *               or PgBouncer.
+ * application_name: `evtivity@<version>`, so pg_stat_activity tells this
+ *                   release's processes from older ones (the provider-switch
+ *                   guard of @evtivity/payments relies on it).
  */
 const client = postgres(connectionString, {
+  connection: { application_name: connectionName() },
   onnotice: () => {},
   max: dbConfig.DB_POOL_MAX,
   idle_timeout: dbConfig.DB_POOL_IDLE_TIMEOUT,

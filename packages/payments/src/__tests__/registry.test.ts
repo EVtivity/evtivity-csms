@@ -11,7 +11,7 @@ import { createPaymentRegistry } from '../create-registry.js';
 import { PaymentProviderNotConfiguredError } from '../errors.js';
 import type { PaymentSettings } from '../settings.js';
 import type { PaymentProvider } from '../types.js';
-import { emptyAdyenSettings } from './helpers/settings.js';
+import { defaultSimulatedSettings, emptyAdyenSettings } from './helpers/settings.js';
 
 const KEY = 'test-encryption-key-32chars-long!';
 
@@ -19,8 +19,14 @@ function settings(overrides: Partial<PaymentSettings> = {}): PaymentSettings {
   return {
     provider: 'fake',
     preAuthAmountCents: 5000,
-    stripe: { secretKey: null, publishableKey: null, webhookSecret: null },
+    stripe: {
+      secretKey: null,
+      publishableKey: null,
+      webhookSecret: null,
+      connectWebhookSecret: null,
+    },
     adyen: emptyAdyenSettings(),
+    simulated: defaultSimulatedSettings(),
     ...overrides,
   };
 }
@@ -107,7 +113,12 @@ describe('createPaymentRegistry', () => {
     Promise.resolve(
       settings({
         provider: 'simulated',
-        stripe: { secretKey: 'sk_test_x', publishableKey: 'pk_test_x', webhookSecret: null },
+        stripe: {
+          secretKey: 'sk_test_x',
+          publishableKey: 'pk_test_x',
+          webhookSecret: null,
+          connectWebhookSecret: null,
+        },
       }),
     );
 
@@ -159,14 +170,27 @@ describe('createPaymentRegistry', () => {
     expect((await registry.getActivePaymentProvider())?.id).toBe('adyen');
   });
 
-  it('passes the simulated options through', async () => {
+  it('builds the simulated provider from the simulated settings', async () => {
+    let current = settings({ provider: 'simulated' });
     const registry = createPaymentRegistry({
       encryptionKey: KEY,
       allowSimulated: true,
-      readSettings,
-      simulated: { resultMode: 'async', events: { deliver: () => Promise.resolve() } },
+      readSettings: () => Promise.resolve(current),
+      simulated: { events: { deliver: () => Promise.resolve() } },
     });
-    const provider = await registry.getPaymentProvider('simulated');
-    expect(provider.capabilities.modificationResults).toBe('async');
+    const sync = await registry.getPaymentProvider('simulated');
+    expect(sync.capabilities.modificationResults).toBe('sync');
+
+    current = settings({
+      provider: 'simulated',
+      simulated: { resultMode: 'async', asyncDelaySeconds: 1, randomFailureRate: 0 },
+    });
+    const async = await registry.getPaymentProvider('simulated');
+    expect(async.capabilities.modificationResults).toBe('async');
+    expect(async).not.toBe(sync);
+
+    // A new settings read with the same simulated values reuses the provider.
+    current = { ...current };
+    expect(await registry.getPaymentProvider('simulated')).toBe(async);
   });
 });

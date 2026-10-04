@@ -77,6 +77,7 @@ const SENSITIVE_EVENT_TYPES = new Set([
   'operator.UserCreated',
   'operator.AccountVerification',
   'operator.Welcome',
+  'site.PayoutOnboarding',
 ]);
 
 // Replace 6-digit codes (OTP/MFA) and known token-bearing URL parameters
@@ -442,6 +443,7 @@ const FRIENDLY_SUBJECTS: Record<string, string> = {
   'operator.UserCreated': '{{{companyName}}} - Set your password to get started',
   'operator.PasswordChanged': '{{{companyName}}} - Password changed',
   'report.Scheduled': '{{{companyName}}} - Scheduled report',
+  'site.PayoutOnboarding': '{{{companyName}}} - Set up payouts for {{{siteName}}}',
 };
 
 function defaultSubject(eventType: string, variables: Record<string, unknown>): string {

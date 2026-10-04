@@ -12,14 +12,20 @@ const {
   mockSaveDriverMethod,
   mockRemoveDriverMethod,
   mockSetDefaultDriverMethod,
+  mockSubmitDriverMethodSetup,
+  mockContinueDriverMethodSetup,
   mockPaymentContext,
+  mockGetMobileAppConfig,
 } = vi.hoisted(() => ({
   mockListDriverMethods: vi.fn(),
   mockStartDriverMethodSetup: vi.fn(),
   mockSaveDriverMethod: vi.fn(),
   mockRemoveDriverMethod: vi.fn(),
   mockSetDefaultDriverMethod: vi.fn(),
+  mockSubmitDriverMethodSetup: vi.fn(),
+  mockContinueDriverMethodSetup: vi.fn(),
   mockPaymentContext: vi.fn((logger: unknown) => ({ registry: 'registry', logger })),
+  mockGetMobileAppConfig: vi.fn(),
 }));
 
 vi.mock('@evtivity/payments', () => ({
@@ -28,6 +34,13 @@ vi.mock('@evtivity/payments', () => ({
   saveDriverMethod: mockSaveDriverMethod,
   removeDriverMethod: mockRemoveDriverMethod,
   setDefaultDriverMethod: mockSetDefaultDriverMethod,
+  submitDriverMethodSetup: mockSubmitDriverMethodSetup,
+  continueDriverMethodSetup: mockContinueDriverMethodSetup,
+}));
+
+vi.mock('@evtivity/database', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/database')>()),
+  getMobileAppConfig: mockGetMobileAppConfig,
 }));
 
 vi.mock('../lib/payments.js', () => ({
@@ -36,6 +49,7 @@ vi.mock('../lib/payments.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { portalPaymentRoutes } from '../routes/portal/payments.js';
+import { config as apiConfig } from '../lib/config.js';
 
 const VALID_USER_ID = 'usr_000000000001';
 const VALID_ROLE_ID = 'rol_000000000001';
@@ -50,6 +64,9 @@ function methodRow(overrides: Partial<DriverPaymentMethod> = {}): DriverPaymentM
     driverId: DRIVER_ID,
     stripeCustomerId: 'cus_123',
     stripePaymentMethodId: 'pm_123',
+    provider: 'stripe',
+    providerCustomerId: 'cus_123',
+    providerPaymentMethodId: 'pm_123',
     cardBrand: 'visa',
     cardLast4: '4242',
     isDefault: true,
@@ -139,6 +156,8 @@ describe('Portal payment routes - handler logic', () => {
       for (const row of body) {
         expect(row).not.toHaveProperty('stripeCustomerId');
         expect(row).not.toHaveProperty('stripePaymentMethodId');
+        expect(row).not.toHaveProperty('providerCustomerId');
+        expect(row).not.toHaveProperty('providerPaymentMethodId');
       }
     });
   });
@@ -175,6 +194,12 @@ describe('Portal payment routes - handler logic', () => {
         clientSecret: 'seti_secret_test',
         customerId: 'cus_123',
         publishableKey: 'pk_test_123',
+        session: {
+          provider: 'stripe',
+          clientSecret: 'seti_secret_test',
+          customerId: 'cus_123',
+          publishableKey: 'pk_test_123',
+        },
       });
       expect(mockStartDriverMethodSetup).toHaveBeenCalledWith(
         { driverId: DRIVER_ID, channel: 'web' },
@@ -182,12 +207,21 @@ describe('Portal payment routes - handler logic', () => {
       );
     });
 
-    it('returns a null client secret and empty publishable key for a non-Stripe session', async () => {
+    it('returns the provider session and empty Stripe fields for a non-Stripe session', async () => {
+      const session = {
+        provider: 'adyen',
+        customerId: 'drv_1',
+        clientKey: 'test_CLIENTKEY',
+        environment: 'test',
+        countryCode: 'NL',
+        currency: 'EUR',
+        paymentMethodsResponse: { paymentMethods: [{ type: 'scheme' }] },
+      };
       mockStartDriverMethodSetup.mockResolvedValueOnce({
         status: 'started',
-        providerId: 'simulated',
-        customerId: 'sim_cus_1',
-        session: { provider: 'simulated', token: 'sim_tok' },
+        providerId: 'adyen',
+        customerId: 'drv_1',
+        session,
       });
       const response = await app.inject({
         method: 'POST',
@@ -196,10 +230,11 @@ describe('Portal payment routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({
-        provider: 'simulated',
+        provider: 'adyen',
         clientSecret: null,
-        customerId: 'sim_cus_1',
+        customerId: 'drv_1',
         publishableKey: '',
+        session,
       });
     });
 
@@ -413,6 +448,209 @@ describe('Portal payment routes - handler logic', () => {
     });
   });
 
+  describe('POST /v1/portal/payment-methods/setup/submit and setup/details', () => {
+    const ATTEMPT = '0b6f3c2e-6a51-4a55-9a77-2f4d3d6c1e10';
+
+    function post(step: 'submit' | 'details', payload: Record<string, unknown>) {
+      return app.inject({
+        method: 'POST',
+        url: `/portal/payment-methods/setup/${step}`,
+        headers: authHeaders(),
+        payload,
+      });
+    }
+
+    it('returns 401 without token', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/payment-methods/setup/submit',
+        payload: { provider: 'simulated', attemptId: ATTEMPT, payload: {} },
+      });
+      expect(response.statusCode).toBe(401);
+      expect(mockSubmitDriverMethodSetup).not.toHaveBeenCalled();
+    });
+
+    it('rejects a body without a UUID attemptId', async () => {
+      const response = await post('submit', { provider: 'simulated', attemptId: 'x', payload: {} });
+      expect(response.statusCode).toBe(400);
+      expect(mockSubmitDriverMethodSetup).not.toHaveBeenCalled();
+    });
+
+    it('submits for the driver without adopting a customer and returns 201 without provider ids', async () => {
+      mockSubmitDriverMethodSetup.mockResolvedValueOnce({ status: 'saved', method: methodRow() });
+      const response = await post('submit', {
+        provider: 'simulated',
+        attemptId: ATTEMPT,
+        payload: { testCard: '4242424242424242' },
+      });
+      expect(response.statusCode).toBe(201);
+      const body = response.json();
+      expect(body.status).toBe('saved');
+      expect(body.method).toMatchObject({ id: '1', cardLast4: '4242', isDefault: true });
+      expect(body.method).not.toHaveProperty('providerCustomerId');
+      expect(body.method).not.toHaveProperty('stripePaymentMethodId');
+      expect(mockSubmitDriverMethodSetup).toHaveBeenCalledWith(
+        {
+          driverId: DRIVER_ID,
+          providerId: 'simulated',
+          attemptId: ATTEMPT,
+          payload: { testCard: '4242424242424242' },
+          adoptCustomer: false,
+        },
+        CTX,
+      );
+    });
+
+    it('passes the browser with a return URL built from PORTAL_URL', async () => {
+      const action = { provider: 'adyen', data: { type: 'redirect' } };
+      mockSubmitDriverMethodSetup.mockResolvedValueOnce({ status: 'action_required', action });
+      const origin = new URL(apiConfig.PORTAL_URL).origin;
+      const response = await post('submit', {
+        provider: 'adyen',
+        attemptId: ATTEMPT,
+        payload: { paymentMethod: { type: 'scheme' }, currency: 'EUR' },
+        browser: { origin, info: { language: 'en' } },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ status: 'action_required', action });
+      const returnUrl = new URL('/payments/return', apiConfig.PORTAL_URL);
+      returnUrl.searchParams.set('flow', 'method');
+      returnUrl.searchParams.set('provider', 'adyen');
+      returnUrl.searchParams.set('attemptId', ATTEMPT);
+      expect(mockSubmitDriverMethodSetup).toHaveBeenCalledWith(
+        expect.objectContaining({
+          browser: { origin, returnUrl: returnUrl.toString(), info: { language: 'en' } },
+        }),
+        CTX,
+      );
+    });
+
+    it('refuses a browser origin other than the portal', async () => {
+      const response = await post('submit', {
+        provider: 'adyen',
+        attemptId: ATTEMPT,
+        payload: {},
+        browser: { origin: 'https://evil.example' },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('VALIDATION_ERROR');
+      expect(mockSubmitDriverMethodSetup).not.toHaveBeenCalled();
+    });
+
+    describe('from the mobile app', () => {
+      const apps = { urlSchemes: ['evtivity'], androidPackageNames: ['com.evtivity.driver'] };
+      const payload = { paymentMethod: { type: 'scheme' }, currency: 'EUR' };
+
+      it.each([
+        ['ios', 'evtivity://payments/adyen'],
+        ['android', 'adyencheckout://com.evtivity.driver'],
+        ['android', 'evtivity://payments/adyen'],
+      ] as const)(
+        'passes the %s channel and the SDK return URL %s',
+        async (platform, returnUrl) => {
+          mockGetMobileAppConfig.mockResolvedValueOnce(apps);
+          const action = { provider: 'adyen', data: { type: 'redirect' } };
+          mockSubmitDriverMethodSetup.mockResolvedValueOnce({ status: 'action_required', action });
+          const response = await post('submit', {
+            provider: 'adyen',
+            attemptId: ATTEMPT,
+            payload,
+            browser: { platform, returnUrl, info: { userAgent: 'app' } },
+          });
+          expect(response.statusCode).toBe(200);
+          expect(mockSubmitDriverMethodSetup).toHaveBeenCalledWith(
+            expect.objectContaining({
+              browser: { channel: platform, returnUrl, info: { userAgent: 'app' } },
+            }),
+            CTX,
+          );
+        },
+      );
+
+      it.each([
+        ['ios', 'adyencheckout://com.evtivity.driver'],
+        ['android', 'adyencheckout://com.other.app'],
+        ['android', 'adyencheckout://com.evtivity.driver/path'],
+        ['android', 'adyencheckout://user@com.evtivity.driver'],
+        ['ios', 'otherapp://payments/adyen'],
+        ['ios', 'https://portal.example/payments/return'],
+        ['ios', 'not a url'],
+      ] as const)('refuses the %s return URL %s', async (platform, returnUrl) => {
+        mockGetMobileAppConfig.mockResolvedValueOnce(apps);
+        const response = await post('submit', {
+          provider: 'adyen',
+          attemptId: ATTEMPT,
+          payload,
+          browser: { platform, returnUrl },
+        });
+        expect(response.statusCode).toBe(400);
+        expect(response.json().code).toBe('VALIDATION_ERROR');
+        expect(mockSubmitDriverMethodSetup).not.toHaveBeenCalled();
+      });
+
+      it('refuses every app return URL when no app build is configured', async () => {
+        mockGetMobileAppConfig.mockResolvedValueOnce({ urlSchemes: [], androidPackageNames: [] });
+        const response = await post('submit', {
+          provider: 'adyen',
+          attemptId: ATTEMPT,
+          payload,
+          browser: { platform: 'ios', returnUrl: 'evtivity://payments/adyen' },
+        });
+        expect(response.statusCode).toBe(400);
+        expect(mockSubmitDriverMethodSetup).not.toHaveBeenCalled();
+      });
+    });
+
+    it('returns 200 with the action', async () => {
+      const action = { provider: 'simulated', data: { challenge: 'method_setup', methodId: 'm' } };
+      mockSubmitDriverMethodSetup.mockResolvedValueOnce({ status: 'action_required', action });
+      const response = await post('submit', {
+        provider: 'simulated',
+        attemptId: ATTEMPT,
+        payload: { testCard: '4000002500003155' },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ status: 'action_required', action });
+    });
+
+    it('continues with the details', async () => {
+      mockContinueDriverMethodSetup.mockResolvedValueOnce({ status: 'saved', method: methodRow() });
+      const details = { methodId: 'm', outcome: 'approve' };
+      const response = await post('details', {
+        provider: 'simulated',
+        attemptId: ATTEMPT,
+        details,
+      });
+      expect(response.statusCode).toBe(201);
+      expect(mockContinueDriverMethodSetup).toHaveBeenCalledWith(
+        { driverId: DRIVER_ID, providerId: 'simulated', attemptId: ATTEMPT, details },
+        CTX,
+      );
+    });
+
+    it.each([
+      [{ status: 'refused', reason: 'card_declined' }, 400, 'PAYMENT_FAILED'],
+      [{ status: 'invalid', reason: 'Unknown test card' }, 400, 'VALIDATION_ERROR'],
+      [{ status: 'not_configured' }, 400, 'PAYMENT_PROVIDER_NOT_CONFIGURED'],
+      [{ status: 'provider_mismatch' }, 400, 'PAYMENT_PROVIDER_NOT_CONFIGURED'],
+      [{ status: 'not_initialized' }, 400, 'PAYMENT_PROVIDER_NOT_CONFIGURED'],
+      [{ status: 'forbidden' }, 403, 'FORBIDDEN'],
+      [{ status: 'driver_not_found' }, 404, 'DRIVER_NOT_FOUND'],
+    ])('maps %j to %i %s', async (outcome, status, code) => {
+      mockSubmitDriverMethodSetup.mockResolvedValueOnce(outcome);
+      const response = await post('submit', {
+        provider: 'simulated',
+        attemptId: ATTEMPT,
+        payload: {},
+      });
+      expect(response.statusCode).toBe(status);
+      expect(response.json().code).toBe(code);
+      if (outcome.status === 'refused') {
+        expect(response.json().details).toEqual({ reason: 'card_declined' });
+      }
+    });
+  });
+
   describe('DELETE /v1/portal/payment-methods/:pmId', () => {
     it('returns 401 without token', async () => {
       const response = await app.inject({
@@ -510,6 +748,7 @@ describe('Portal payment routes - handler logic', () => {
       const body = response.json<Record<string, unknown>>();
       expect(body).toMatchObject({ id: '1', isDefault: true });
       expect(body).not.toHaveProperty('stripeCustomerId');
+      expect(body).not.toHaveProperty('providerCustomerId');
       expect(mockSetDefaultDriverMethod).toHaveBeenCalledWith(DRIVER_ID, 1);
     });
   });

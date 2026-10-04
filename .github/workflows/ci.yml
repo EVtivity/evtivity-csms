@@ -63,6 +63,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts && npm rebuild argon2
       - run: npm test
+      - run: npm run test:release
 
   audit:
     name: Dependency audit

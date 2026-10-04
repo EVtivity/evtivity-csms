@@ -86,6 +86,7 @@ import {
 } from './notification-dispatcher.js';
 import { TransactionBuffer } from './transaction-buffer.js';
 import { projectionQueueFor, sessionPricedKey } from './projection-queue.js';
+import { isUnbilledTimeoutEnd } from './session-cost.js';
 import {
   DEFAULT_LOCATION,
   DEFAULT_MEASURAND,
@@ -2176,25 +2177,27 @@ export function registerProjections(
           }
         }
 
-        // After session query, check for timeout with zero energy
-        const energyWh = Number(sessionRow.energy_delivered_wh ?? 0);
-        const isTimeoutEnd =
-          (triggerReason === 'EVConnectTimeout' || stoppedReason === 'Timeout') && energyWh === 0;
-
-        // Read the FRESH status from the row we just queried (post-CASE),
-        // not the locally-computed `endStatus` which can be stale. If the
-        // session is already faulted/failed (preserved by the CASE guard
-        // above), do not overwrite it with a different terminal state.
-        const currentSessionStatus = sessionRow.status as string | undefined;
-        if (
-          isTimeoutEnd &&
-          currentSessionStatus !== 'faulted' &&
-          currentSessionStatus !== 'failed'
-        ) {
+        // The EV never connected (EVConnectTimeout, no energy): the session
+        // fails and is not billed (C20.FR.02/03). A faulted or failed status
+        // the CASE guard preserved stays (P5). The cost is zeroed eagerly so
+        // the settlement below cancels the hold, and `sessionStatus` carries
+        // the status this update wrote: `sessionRow` was read before it.
+        const isTimeoutEnd = isUnbilledTimeoutEnd({
+          triggerReason,
+          stoppedReason,
+          energyWh: Number(sessionRow.energy_delivered_wh ?? 0),
+        });
+        let sessionStatus = sessionRow.status as string;
+        if (isTimeoutEnd) {
           await sql`
-            UPDATE charging_sessions SET status = 'failed', updated_at = now()
+            UPDATE charging_sessions
+            SET status = CASE WHEN status IN ('faulted', 'failed') THEN status ELSE 'failed' END,
+                final_cost_cents = 0,
+                current_cost_cents = 0,
+                updated_at = now()
             WHERE id = ${sessionId}
           `;
+          if (sessionStatus !== 'faulted') sessionStatus = 'failed';
         }
 
         // If this session was linked to a reservation and it ended in a
@@ -2224,11 +2227,9 @@ export function registerProjections(
 
         // Compute final cost from snapshotted tariff rates. Skip when the
         // session was already faulted/failed by the payment gate (or any
-        // other pre-stop path): the driver never authorized payment, so
-        // charging them pricePerSession + tax produces a phantom row in
-        // Recent Sessions and a misleading $X.XX in the portal even though
-        // no Stripe capture ever runs.
-        const sessionStatus = sessionRow.status as string;
+        // other pre-stop path), or failed by the timeout end above: the
+        // driver is not charged, so pricePerSession + tax would be a phantom
+        // cost in Recent Sessions and the portal, and a capture of the hold.
         const skipCostCalc = sessionStatus === 'faulted' || sessionStatus === 'failed';
         const hasTariffSnapshot = sessionRow.tariff_id != null;
         if (hasTariffSnapshot && !skipCostCalc) {

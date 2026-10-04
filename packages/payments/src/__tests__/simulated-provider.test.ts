@@ -24,7 +24,7 @@ import {
   WebhookSignatureError,
 } from '../errors.js';
 import type { AuthorizeHoldInput } from '../types.js';
-import { emptyAdyenSettings } from './helpers/settings.js';
+import { defaultSimulatedSettings, emptyAdyenSettings } from './helpers/settings.js';
 
 const KEY = 'test-encryption-key-32chars-long!';
 
@@ -128,6 +128,8 @@ describe('SimulatedPaymentProvider (sync)', () => {
       marketplaceSplit: 'none',
       stateLookup: false,
       nativeMobileSheet: false,
+      payoutOnboarding: 'none',
+      webhookRegistration: false,
     });
   });
 
@@ -678,8 +680,14 @@ describe('simulatedProviderFactory', () => {
     const settings = {
       provider: 'simulated',
       preAuthAmountCents: 5000,
-      stripe: { secretKey: null, publishableKey: null, webhookSecret: null },
+      stripe: {
+        secretKey: null,
+        publishableKey: null,
+        webhookSecret: null,
+        connectWebhookSecret: null,
+      },
       adyen: emptyAdyenSettings(),
+      simulated: defaultSimulatedSettings(),
     };
     const a = await factory.create(settings);
     expect(a?.id).toBe('simulated');

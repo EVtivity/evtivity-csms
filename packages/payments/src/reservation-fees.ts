@@ -22,6 +22,7 @@ import {
   markChargeFailed,
   recordPendingCharge,
 } from './payment-records.js';
+import { PAYOUT_NOT_READY_FAILURE, sitePayoutReadiness } from './payout-accounts.js';
 import { getSitePaymentConfig } from './settings.js';
 import type { PaymentProvider } from './types.js';
 
@@ -92,8 +93,9 @@ export async function chargeReservationFee(
 
   const [method] = await db
     .select({
-      customerId: driverPaymentMethods.stripeCustomerId,
-      methodId: driverPaymentMethods.stripePaymentMethodId,
+      provider: driverPaymentMethods.provider,
+      customerId: driverPaymentMethods.providerCustomerId,
+      methodId: driverPaymentMethods.providerPaymentMethodId,
     })
     .from(driverPaymentMethods)
     .where(
@@ -103,11 +105,15 @@ export async function chargeReservationFee(
       ),
     )
     .limit(1);
-  if (method == null) return { status: 'skipped', reason: 'no_payment_method' };
+  if (method?.customerId == null || method.methodId == null) {
+    return { status: 'skipped', reason: 'no_payment_method' };
+  }
+  const customerId = method.customerId;
+  const methodId = method.methodId;
 
   let provider: PaymentProvider;
   try {
-    provider = await pinnedProvider(ctx.registry, method);
+    provider = await pinnedProvider(ctx.registry, method.provider);
   } catch (err) {
     if (err instanceof PaymentProviderNotConfiguredError) {
       return { status: 'skipped', reason: 'payments_not_configured' };
@@ -128,8 +134,9 @@ export async function chargeReservationFee(
     reservationId: input.reservationId,
     driverId: input.driverId,
     sitePaymentConfigId: site?.configId ?? null,
-    customerId: method.customerId,
-    methodId: method.methodId,
+    provider: provider.id,
+    customerId,
+    methodId,
     currency,
     taxRate,
   });
@@ -138,11 +145,26 @@ export async function chargeReservationFee(
     return { status: 'duplicate', paymentRecordId: existing ?? 0 };
   }
 
+  // O5, fail closed: a payout account that is not ready gets no charge, and
+  // the charge is not moved to the platform either.
+  const readiness =
+    input.siteId != null && site?.payoutAccountId != null
+      ? await sitePayoutReadiness(input.siteId, ctx)
+      : 'none';
+  if (readiness === 'not_ready') {
+    await markChargeFailed(recordId, PAYOUT_NOT_READY_FAILURE);
+    ctx.logger.warn(
+      { paymentRecordId: recordId, reservationId: input.reservationId, siteId: input.siteId },
+      'Reservation fee not charged: the payout account of the site is not ready',
+    );
+    return { status: 'failed', paymentRecordId: recordId, reason: PAYOUT_NOT_READY_FAILURE };
+  }
+
   let paymentId: string;
   try {
     const result = await provider.chargeSavedMethod({
-      customerId: method.customerId,
-      methodId: method.methodId,
+      customerId,
+      methodId,
       grossCents: charge.grossCents,
       currency,
       feeTaxRate: taxRate,
@@ -159,7 +181,13 @@ export async function chargeReservationFee(
     return { status: 'failed', paymentRecordId: recordId, reason };
   }
 
-  if (!(await markChargeCaptured(recordId, { paymentId, amountCents: charge.grossCents }))) {
+  if (
+    !(await markChargeCaptured(recordId, {
+      provider: provider.id,
+      paymentId,
+      amountCents: charge.grossCents,
+    }))
+  ) {
     ctx.logger.error(
       { paymentRecordId: recordId, paymentId },
       'Reservation fee charged but its record had moved on; manual reconciliation required',

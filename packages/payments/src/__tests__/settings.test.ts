@@ -3,7 +3,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { encryptString } from '@evtivity/lib';
-import { emptyAdyenSettings } from './helpers/settings.js';
+import { defaultSimulatedSettings, emptyAdyenSettings } from './helpers/settings.js';
 
 const mockSelect = vi.fn();
 vi.mock('@evtivity/database', () => ({
@@ -13,7 +13,8 @@ vi.mock('@evtivity/database', () => ({
     id: 'id',
     siteId: 'site_id',
     isEnabled: 'is_enabled',
-    stripeConnectedAccountId: 'acct',
+    payoutAccountId: 'payout_account_id',
+    payoutAccountStatus: 'payout_status',
     preAuthAmountCents: 'pre_auth',
   },
 }));
@@ -54,7 +55,10 @@ describe('getPaymentSettings', () => {
           'stripe.secretKeyEnc': encryptString('sk_test_1', KEY),
           'stripe.publishableKey': 'pk_test_1',
           'stripe.webhookSecretEnc': encryptString('whsec_1', KEY),
-          'stripe.preAuthAmountCents': 7500,
+          'stripe.connectWebhookSecretEnc': encryptString('whsec_connect_1', KEY),
+          'payments.preAuthAmountCents': 7500,
+          // Pre-P5 key, still written for the rolling upgrade: never read.
+          'stripe.preAuthAmountCents': 9900,
         }),
       ),
     );
@@ -62,23 +66,40 @@ describe('getPaymentSettings', () => {
     expect(await getPaymentSettings(KEY)).toEqual({
       provider: 'stripe',
       preAuthAmountCents: 7500,
-      stripe: { secretKey: 'sk_test_1', publishableKey: 'pk_test_1', webhookSecret: 'whsec_1' },
+      stripe: {
+        secretKey: 'sk_test_1',
+        publishableKey: 'pk_test_1',
+        webhookSecret: 'whsec_1',
+        connectWebhookSecret: 'whsec_connect_1',
+      },
       adyen: emptyAdyenSettings(),
+      simulated: defaultSimulatedSettings(),
     });
   });
 
   it('treats missing and empty values as not configured', async () => {
     mockSelect.mockReturnValueOnce(
       chain(
-        rows({ 'payments.provider': '', 'stripe.secretKeyEnc': '', 'stripe.publishableKey': '' }),
+        rows({
+          'payments.provider': '',
+          'stripe.secretKeyEnc': '',
+          'stripe.publishableKey': '',
+          'stripe.connectWebhookSecretEnc': '',
+        }),
       ),
     );
     const { getPaymentSettings } = await load();
     expect(await getPaymentSettings(KEY)).toEqual({
       provider: 'none',
       preAuthAmountCents: 5000,
-      stripe: { secretKey: null, publishableKey: null, webhookSecret: null },
+      stripe: {
+        secretKey: null,
+        publishableKey: null,
+        webhookSecret: null,
+        connectWebhookSecret: null,
+      },
       adyen: emptyAdyenSettings(),
+      simulated: defaultSimulatedSettings(),
     });
   });
 
@@ -173,9 +194,41 @@ describe('getPaymentSettings', () => {
   });
 
   it('ignores a non-positive or non-integer hold amount', async () => {
-    mockSelect.mockReturnValueOnce(chain(rows({ 'stripe.preAuthAmountCents': -5 })));
+    mockSelect.mockReturnValueOnce(chain(rows({ 'payments.preAuthAmountCents': -5 })));
     const { getPaymentSettings } = await load();
     expect((await getPaymentSettings(KEY)).preAuthAmountCents).toBe(5000);
+  });
+
+  it('reads the simulated settings', async () => {
+    mockSelect.mockReturnValueOnce(
+      chain(
+        rows({
+          'simulated.resultMode': 'async',
+          'simulated.asyncDelaySeconds': 10,
+          'simulated.randomFailureRate': '0.5',
+        }),
+      ),
+    );
+    const { getPaymentSettings } = await load();
+    expect((await getPaymentSettings(KEY)).simulated).toEqual({
+      resultMode: 'async',
+      asyncDelaySeconds: 10,
+      randomFailureRate: 0.5,
+    });
+  });
+
+  it('defaults unknown or out-of-range simulated settings', async () => {
+    mockSelect.mockReturnValueOnce(
+      chain(
+        rows({
+          'simulated.resultMode': 'later',
+          'simulated.asyncDelaySeconds': 7200,
+          'simulated.randomFailureRate': '',
+        }),
+      ),
+    );
+    const { getPaymentSettings } = await load();
+    expect((await getPaymentSettings(KEY)).simulated).toEqual(defaultSimulatedSettings());
   });
 });
 
@@ -187,13 +240,28 @@ describe('getSitePaymentConfig', () => {
     vi.useRealTimers();
   });
 
-  it('returns the enabled config with its payout account, cached per site', async () => {
-    mockSelect.mockReturnValue(chain([{ id: 3, accountId: 'acct_1', preAuthAmountCents: 9000 }]));
+  it('returns the enabled config with its payout account and status, cached per site', async () => {
+    mockSelect.mockReturnValue(
+      chain([
+        { id: 3, accountId: 'acct_1', payoutAccountStatus: 'active', preAuthAmountCents: 9000 },
+      ]),
+    );
     const mod = await load();
     const config = await mod.getSitePaymentConfig('site-1');
-    expect(config).toEqual({ configId: 3, payoutAccountId: 'acct_1', preAuthAmountCents: 9000 });
+    expect(config).toEqual({
+      configId: 3,
+      payoutAccountId: 'acct_1',
+      payoutAccountStatus: 'active',
+      preAuthAmountCents: 9000,
+    });
     expect(await mod.getSitePaymentConfig('site-1')).toBe(config);
     expect(mockSelect).toHaveBeenCalledTimes(1);
+    expect(mockSelect).toHaveBeenCalledWith({
+      id: 'id',
+      accountId: 'payout_account_id',
+      payoutAccountStatus: 'payout_status',
+      preAuthAmountCents: 'pre_auth',
+    });
     await mod.getSitePaymentConfig('site-2');
     expect(mockSelect).toHaveBeenCalledTimes(2);
   });

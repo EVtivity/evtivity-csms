@@ -12,6 +12,8 @@ export const QUEUE_NAMES = {
   OCTT: 'octt',
   MAINTENANCE_FANOUT: 'maintenance-fanout',
   STATION_WATCH: 'station-watch',
+  PAYMENT_WEBHOOKS: 'payment-webhooks',
+  REMOTE_START_TIMEOUTS: 'remote-start-timeouts',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -29,6 +31,8 @@ export function createQueues(redisUrl: string): {
   octtQueue: Queue;
   maintenanceFanoutQueue: Queue;
   stationWatchQueue: Queue;
+  paymentWebhookQueue: Queue;
+  remoteStartTimeoutQueue: Queue;
 } {
   // Each queue needs its own connection for BullMQ blocking commands
   return {
@@ -93,6 +97,29 @@ export function createQueues(redisUrl: string): {
         removeOnComplete: 100,
         removeOnFail: { count: 500 },
         attempts: 1,
+      },
+    }),
+    // Delayed simulated provider events into the webhook pipeline. Retrying is
+    // safe: the pipeline dedupes each event on its id (webhook_events, P7).
+    paymentWebhookQueue: new Queue(QUEUE_NAMES.PAYMENT_WEBHOOKS, {
+      connection: createBullMQConnection(redisUrl),
+      defaultJobOptions: {
+        removeOnComplete: 200,
+        removeOnFail: { count: 500 },
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 5000 },
+      },
+    }),
+    // Delayed close-out of accepted remote starts that never became a
+    // transaction. Retrying is safe: the session update is status-guarded and
+    // the hold cancel carries its cancel key.
+    remoteStartTimeoutQueue: new Queue(QUEUE_NAMES.REMOTE_START_TIMEOUTS, {
+      connection: createBullMQConnection(redisUrl),
+      defaultJobOptions: {
+        removeOnComplete: 200,
+        removeOnFail: { count: 500 },
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
       },
     }),
   };

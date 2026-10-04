@@ -179,7 +179,7 @@
     "failedSetup": "결제 설정 초기화에 실패했습니다",
     "cardSetupFailed": "카드 설정에 실패했습니다",
     "failedSave": "결제 수단 저장에 실패했습니다",
-    "stripeNotConfigured": "현재 결제 처리를 이용할 수 없습니다.",
+    "providerNotConfigured": "현재 결제 처리를 이용할 수 없습니다.",
     "confirmRemoveTitle": "결제 수단 삭제",
     "confirmRemoveDescription": "이 결제 수단을 삭제하시겠습니까? 충전에 사용하려면 다시 추가해야 합니다.",
     "removeFailed": "결제 수단을 제거하지 못했습니다. 다시 시도해 주세요.",
@@ -619,9 +619,15 @@
     "PAYMENT_METHOD_REQUIRED": "결제 수단이 필요합니다",
     "PAYMENT_NOT_CONFIGURED": "이 충전소에 결제가 구성되지 않았습니다",
     "PAYMENT_NOT_FOUND": "이 세션에 대한 결제 기록이 없습니다",
+    "PAYMENT_OPERATION_PENDING": "결제에 제공업체의 확인을 기다리는 작업이 있습니다. 나중에 다시 시도하세요.",
     "PAYMENT_PREAUTH_FAILED": "결제 승인이 거부되었습니다",
     "PAYMENT_PROVIDER_CONNECTION_FAILED": "결제 제공업체 연결 테스트에 실패했습니다",
     "PAYMENT_PROVIDER_NOT_CONFIGURED": "결제 제공업체가 구성되지 않았습니다",
+    "PAYMENT_PROVIDER_PERMISSION_MISSING": "결제 제공업체 자격 증명에 필요한 권한이 없습니다",
+    "PAYMENT_PROVIDER_UPGRADE_PENDING": "v0.1.38 이전 프로세스가 아직 연결되어 있습니다. 업그레이드를 완료한 후 Adyen을 선택하세요.",
+    "PAYMENT_WEBHOOK_EXISTS": "이 제공업체에 대한 EVtivity 웹훅이 이미 있습니다",
+    "PAYOUT_ACCOUNT_EXISTS": "이 사이트에는 이미 정산 계좌가 있습니다",
+    "PAYOUT_ACCOUNT_NOT_READY": "사이트의 정산 계좌가 아직 결제를 받을 수 없습니다",
     "PAYMENT_RECORD_NOT_RECOVERABLE": "결제 기록이 복구 가능한 상태가 아닙니다",
     "PAYMENT_TOP_UP_FAILED": "추가 결제가 거부되었습니다",
     "PERMISSIONS_EXCEED_OWN": "API 키 권한은 본인 권한의 부분 집합이어야 합니다",
@@ -643,6 +649,7 @@
     "RECAPTCHA_FAILED": "reCAPTCHA 인증에 실패했습니다",
     "RECAPTCHA_REQUIRED": "reCAPTCHA 토큰이 필요합니다",
     "REFUND_EXCEEDS_REMAINING": "환불 금액이 남은 ...을(를) 초과합니다",
+    "REFUND_TOP_UP_UNKNOWN": "이 결제에는 결제 ID가 기록되지 않은 추가 청구가 포함되어 있습니다. 해당 청구는 결제 제공업체 대시보드에서 환불하세요.",
     "REGION_NOT_FOUND": "지역을 찾을 수 없습니다",
     "REPORT_NOT_FOUND": "보고서를 찾을 수 없습니다",
     "RESERVATION_BUFFER_ACTIVE": "이 커넥터에 예정된 예약이 있어 새 세션을 시작할 수 없습니다",
@@ -706,7 +713,7 @@
     "WEAK_PASSWORD": "비밀번호가 복잡성 요구 사항을 충족하지 않습니다",
     "WEBHOOK_NOT_CONFIGURED": "웹훅이 구성되지 않았습니다",
     "WEBHOOK_SIGNATURE_INVALID": "유효하지 않은 서명입니다",
-    "WEBHOOK_SIGNATURE_MISSING": "stripe-signature 헤더가 누락되었습니다",
+    "WEBHOOK_SIGNATURE_MISSING": "웹훅 서명 또는 자격 증명이 없습니다",
     "retry": "다시 시도",
     "serverDown": "연결할 수 없음",
     "serverDownDescription": "서버가 응답하지 않습니다. 연결을 확인하고 다시 시도해 주세요.",
@@ -902,5 +909,66 @@
     "recaptchaProtected": "reCAPTCHA로 보호됩니다.",
     "recaptchaPrivacy": "개인정보",
     "recaptchaTerms": "약관"
+  },
+  "payoutOnboarding": {
+    "title": "정산 계정 설정",
+    "redirecting": "정산 계정을 설정하기 위해 Stripe로 이동합니다...",
+    "checking": "계정을 확인하는 중...",
+    "ready": "정산 계정이 준비되었습니다. 이 페이지를 닫아도 됩니다.",
+    "pending": "Stripe가 정보를 확인하고 있습니다. 며칠이 걸릴 수 있습니다. 이 페이지를 닫아도 됩니다.",
+    "actionRequired": "계정을 완료하려면 Stripe에 추가 정보가 필요합니다.",
+    "onboarding": "계정 설정이 아직 완료되지 않았습니다.",
+    "disabled": "Stripe가 이 계정을 비활성화했습니다. 운영자에게 문의하세요.",
+    "continueSetup": "설정 계속하기",
+    "invalidLink": "이 링크는 유효하지 않거나 만료되었습니다.",
+    "askOperator": "운영자에게 새 링크를 요청하세요.",
+    "notAvailable": "지금은 정산 설정을 사용할 수 없습니다. 운영자에게 문의하세요.",
+    "failed": "문제가 발생했습니다. 다시 시도하세요."
+  },
+  "paymentProviders": {
+    "loadFailed": "결제 양식을 불러올 수 없습니다.",
+    "providerNotSupported": "여기서는 이 결제 대행사를 지원하지 않습니다.",
+    "refused": {
+      "default": "카드가 거절되었습니다. 다른 카드를 사용해 보세요.",
+      "card_declined": "카드가 거절되었습니다. 다른 카드를 사용해 보세요.",
+      "insufficient_funds": "잔액이 부족합니다. 다른 카드를 사용해 보세요.",
+      "authentication_failed": "인증에 실패했습니다. 카드가 저장되지 않았습니다."
+    },
+    "simulated": {
+      "testMode": "테스트 모드이며 실제 돈은 사용되지 않습니다. 테스트 카드를 선택하세요.",
+      "testCard": "테스트 카드",
+      "challengeTitle": "인증 필요",
+      "challengeDescription": "이 테스트 카드는 은행의 3-D Secure처럼 인증을 요청합니다. 계속하려면 승인 또는 실패를 선택하세요.",
+      "challengeApprove": "승인",
+      "challengeFail": "실패",
+      "scenario": {
+        "approve": "승인됨",
+        "decline": "거절됨: 카드 거절",
+        "nofunds": "거절됨: 잔액 부족",
+        "chargefail": "저장됨, 모든 결제 거절",
+        "action": "인증 필요",
+        "partial": "부분 승인 (50%)",
+        "capfail": "매입 실패",
+        "adjfail": "보류 금액 조정 거절",
+        "refundfail": "환불 실패",
+        "dispute": "매입 후 이의 제기",
+        "random": "무작위 실패"
+      }
+    },
+    "adyen": {
+      "refused": "카드가 거절되었습니다({{reason}}). 다른 카드를 사용해 보세요.",
+      "error": "카드 양식에 문제가 발생했습니다. 다시 시도하세요.",
+      "authenticate": "계속하려면 은행 인증을 완료하세요.",
+      "return": {
+        "title": "카드 인증",
+        "processing": "은행 인증을 완료하는 중...",
+        "invalid": "이 인증 링크가 불완전합니다. 카드 양식에서 다시 시작하세요.",
+        "failed": "인증을 완료할 수 없습니다. 다시 시도하세요.",
+        "cardSaved": "카드가 저장되었습니다.",
+        "backToMethods": "결제 수단으로 돌아가기",
+        "viewSession": "충전 세션 보기",
+        "home": "홈으로 이동"
+      }
+    }
   }
 }

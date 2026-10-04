@@ -33,14 +33,26 @@ const h = vi.hoisted(() => {
     transaction: vi.fn((fn: (tx: unknown) => Promise<unknown>) => fn({ tag: 'tx' })),
     markOpenPaymentFailed: vi.fn(),
     markRefunded: vi.fn(),
+    refreshPayoutAccountById: vi.fn(),
+    findRecord: vi.fn(),
+    confirmOperation: vi.fn(),
+    failPendingCapture: vi.fn(),
+    markAuthorisationEnded: vi.fn(),
+    markCaptured: vi.fn(),
+    markHoldFailed: vi.fn(),
+    settleRefund: vi.fn(),
+    attachGuestAuthorisation: vi.fn(),
+    matchPendingAdjustment: vi.fn(),
+    settleAdjustedHold: vi.fn(),
   };
 });
 
 vi.mock('@evtivity/database', () => ({
   db: { insert: h.insert, delete: () => ({ where: h.deleteWhere }), transaction: h.transaction },
-  webhookEvents: { eventId: 'we.event_id' },
+  webhookEvents: { provider: 'we.provider', eventId: 'we.event_id' },
 }));
 vi.mock('drizzle-orm', () => ({
+  and: (...args: unknown[]) => ({ op: 'and', args }),
   eq: (col: unknown, value: unknown) => ({ op: 'eq', col, value }),
 }));
 vi.mock('../payment-records.js', () => ({
@@ -49,6 +61,23 @@ vi.mock('../payment-records.js', () => ({
   lockRecord: h.lockRecord,
   markOpenPaymentFailed: h.markOpenPaymentFailed,
   markRefunded: h.markRefunded,
+  findRecord: h.findRecord,
+  confirmOperation: h.confirmOperation,
+  failPendingCapture: h.failPendingCapture,
+  markAuthorisationEnded: h.markAuthorisationEnded,
+  markCaptured: h.markCaptured,
+  markHoldFailed: h.markHoldFailed,
+  matchPendingAdjustment: h.matchPendingAdjustment,
+  settleRefund: h.settleRefund,
+}));
+vi.mock('../session-payments.js', () => ({ settleAdjustedHold: h.settleAdjustedHold }));
+vi.mock('../guest-payments.js', () => ({
+  GUEST_REFERENCE_PREFIX: 'guest_',
+  attachGuestAuthorisation: h.attachGuestAuthorisation,
+}));
+
+vi.mock('../payout-accounts.js', () => ({
+  refreshPayoutAccountById: h.refreshPayoutAccountById,
 }));
 
 import { applyPaymentEvent, ingestPaymentWebhook } from '../webhooks.js';
@@ -104,9 +133,12 @@ beforeEach(() => {
     refundedAmountCents: 0,
   });
   // A record without top-ups is found by its own payment, as before.
-  h.findByChargePaymentId.mockImplementation((id: string) => h.findByPaymentId(id) as unknown);
+  h.findByChargePaymentId.mockImplementation(
+    (provider: string, id: string) => h.findByPaymentId(provider, id) as unknown,
+  );
   h.markOpenPaymentFailed.mockResolvedValue(true);
   h.markRefunded.mockResolvedValue({ id: 5, status: 'partially_refunded' });
+  h.findRecord.mockImplementation((id: number) => Promise.resolve({ id, status: 'changed' }));
 });
 
 describe('ingestPaymentWebhook', () => {
@@ -140,7 +172,13 @@ describe('ingestPaymentWebhook', () => {
     h.markRefunded.mockRejectedValue(new Error('db timeout'));
     await expect(ingestPaymentWebhook('stripe', 'raw', {}, ctx)).rejects.toThrow('db timeout');
     expect(h.deleteWhere).toHaveBeenCalledOnce();
-    expect(h.deleteWhere).toHaveBeenCalledWith({ op: 'eq', col: 'we.event_id', value: 'evt_9' });
+    expect(h.deleteWhere).toHaveBeenCalledWith({
+      op: 'and',
+      args: [
+        { op: 'eq', col: 'we.provider', value: 'stripe' },
+        { op: 'eq', col: 'we.event_id', value: 'evt_9' },
+      ],
+    });
     expect(h.inserts).toHaveLength(1);
   });
 
@@ -163,11 +201,16 @@ describe('ingestPaymentWebhook', () => {
     const result = await ingestPaymentWebhook('stripe', 'raw', headers, ctx);
 
     expect(verifyWebhook).toHaveBeenCalledWith('raw', headers);
-    expect(result).toEqual({ ack, applied: 2, duplicates: 1 });
+    expect(result).toEqual({
+      ack,
+      applied: 2,
+      duplicates: 1,
+      notices: [{ kind: 'record_changed', record: { id: 5, status: 'changed' } }],
+    });
     expect(h.inserts.map((c) => c.values)).toEqual([
-      { eventId: 'evt_1', eventType: 'payment_intent.payment_failed' },
-      { eventId: 'evt_2', eventType: 'customer.created' },
-      { eventId: 'evt_3', eventType: 'payment.refunded' },
+      { provider: 'stripe', eventId: 'evt_1', eventType: 'payment_intent.payment_failed' },
+      { provider: 'stripe', eventId: 'evt_2', eventType: 'customer.created' },
+      { provider: 'stripe', eventId: 'evt_3', eventType: 'payment.refunded' },
     ]);
     expect(h.inserts.every((c) => c.conflict)).toBe(true);
     expect(h.markOpenPaymentFailed).toHaveBeenCalledOnce();
@@ -193,7 +236,7 @@ describe('applyPaymentEvent', () => {
 
     it('marks an open payment failed with a labelled reason', async () => {
       await applyPaymentEvent('stripe', failed('card_declined'), ctx);
-      expect(h.findByPaymentId).toHaveBeenCalledWith('pi_1');
+      expect(h.findByPaymentId).toHaveBeenCalledWith('stripe', 'pi_1');
       expect(h.markOpenPaymentFailed).toHaveBeenCalledWith(5, 'Stripe webhook: card_declined');
       expect(logger.info).toHaveBeenCalledWith(
         { paymentId: 'pi_1', reason: 'card_declined' },
@@ -303,17 +346,31 @@ describe('applyPaymentEvent', () => {
       );
     });
 
-    it('does not apply an increment-only refund', async () => {
-      await applyPaymentEvent(
+    it('settles an increment-only refund once through the ledger', async () => {
+      const record = { id: 5, status: 'partially_refunded' };
+      h.settleRefund.mockResolvedValue({
+        status: 'applied',
+        record,
+        entry: { refundId: 'OP1', paymentId: 'pi_1', amountCents: 500, state: 'succeeded' },
+      });
+      const notice = await applyPaymentEvent(
         'adyen',
-        refunded({ cumulativeRefundedCents: null, refundId: 're_1', amountCents: 500 }),
+        refunded({
+          cumulativeRefundedCents: null,
+          refundId: 're_1',
+          operationRef: 'OP1',
+          amountCents: 500,
+        }),
         ctx,
       );
+      expect(h.settleRefund).toHaveBeenCalledWith(5, {
+        refundId: 'OP1',
+        paymentId: 'pi_1',
+        amountCents: 500,
+        outcome: 'succeeded',
+      });
       expect(h.markRefunded).not.toHaveBeenCalled();
-      expect(logger.warn).toHaveBeenCalledWith(
-        { paymentId: 'pi_1', refundId: 're_1', amountCents: 500 },
-        'Refund webhook without a cumulative total not applied',
-      );
+      expect(notice).toEqual({ kind: 'refund_succeeded', record, amountCents: 500 });
     });
 
     it('does nothing for an unknown payment', async () => {
@@ -329,7 +386,7 @@ describe('applyPaymentEvent', () => {
       return {
         id: 9,
         status: 'captured',
-        stripePaymentIntentId: 'pi_1',
+        providerPaymentId: 'pi_1',
         capturedAmountCents: 2600,
         refundedAmountCents: 0,
         preAuthAmountCents: 2000,
@@ -350,7 +407,7 @@ describe('applyPaymentEvent', () => {
         refunded({ paymentId: 'pi_top', cumulativeRefundedCents: 600, capturedCents: 600 }),
         ctx,
       );
-      expect(h.findByChargePaymentId).toHaveBeenCalledWith('pi_top');
+      expect(h.findByChargePaymentId).toHaveBeenCalledWith('stripe', 'pi_top');
       expect(h.lockRecord).toHaveBeenCalledWith({ tag: 'tx' }, 9);
       expect(h.markRefunded).toHaveBeenCalledWith(
         9,
@@ -426,10 +483,7 @@ describe('applyPaymentEvent', () => {
       );
     });
 
-    it('maps a legacy topUpIntentId record and caps a charge at its capture', async () => {
-      const legacy = topUpRecord({ metadata: { topUpIntentId: 'pi_top' } });
-      h.findByChargePaymentId.mockResolvedValue(legacy);
-      h.lockRecord.mockResolvedValue(legacy);
+    it('caps a charge at its capture', async () => {
       await applyPaymentEvent(
         'stripe',
         refunded({ paymentId: 'pi_top', cumulativeRefundedCents: 900, capturedCents: 600 }),
@@ -463,7 +517,7 @@ describe('applyPaymentEvent', () => {
       h.lockRecord.mockResolvedValueOnce(null);
       await applyPaymentEvent('stripe', refunded({ paymentId: 'pi_top' }), ctx);
       h.findByChargePaymentId.mockResolvedValueOnce(topUpRecord());
-      h.lockRecord.mockResolvedValueOnce(topUpRecord({ stripePaymentIntentId: 'pi_other' }));
+      h.lockRecord.mockResolvedValueOnce(topUpRecord({ providerPaymentId: 'pi_other' }));
       await applyPaymentEvent('stripe', refunded({ paymentId: 'pi_1' }), ctx);
       expect(h.markRefunded).not.toHaveBeenCalled();
     });
@@ -501,22 +555,515 @@ describe('applyPaymentEvent', () => {
     expect(h.findByPaymentId).not.toHaveBeenCalled();
   });
 
-  it('warns on an async confirmation it does not handle', async () => {
-    await applyPaymentEvent(
-      'adyen',
-      {
-        type: 'payment.captured',
-        eventId: 'evt_c',
-        paymentId: 'pi_1',
-        occurredAt: at,
-        amountCents: 1,
-      },
+  const payoutEvent = {
+    type: 'payout_account.updated' as const,
+    eventId: 'evt_a',
+    accountId: 'acct_1',
+    occurredAt: at,
+    providerType: 'account.updated',
+  };
+
+  it('refreshes the payout account from the provider, never from the payload', async () => {
+    h.refreshPayoutAccountById.mockResolvedValueOnce(2);
+    await applyPaymentEvent('stripe', payoutEvent, ctx);
+    expect(h.refreshPayoutAccountById).toHaveBeenCalledWith('acct_1', ctx);
+    expect(logger.info).toHaveBeenCalledWith(
+      { accountId: 'acct_1', updated: 2 },
+      'Payout account status refreshed',
+    );
+    expect(h.findByPaymentId).not.toHaveBeenCalled();
+    expect(h.findByChargePaymentId).not.toHaveBeenCalled();
+  });
+
+  it('logs an account no site uses at info', async () => {
+    h.refreshPayoutAccountById.mockResolvedValueOnce(0);
+    await applyPaymentEvent('stripe', payoutEvent, ctx);
+    expect(logger.info).toHaveBeenCalledWith(
+      { accountId: 'acct_1' },
+      'Payout account event for an account no site uses',
+    );
+  });
+
+  it('throws when the account cannot be read, so the provider retries', async () => {
+    h.refreshPayoutAccountById.mockRejectedValueOnce(new Error('Stripe down'));
+    await expect(applyPaymentEvent('stripe', payoutEvent, ctx)).rejects.toThrow('Stripe down');
+  });
+});
+
+describe('applyPaymentEvent: authorisation adjustment (P10 Part D)', () => {
+  const hold = {
+    id: 9,
+    status: 'pre_authorized',
+    providerPaymentId: 'PSP1',
+    pendingOperation: 'adjust',
+    pendingOperationRef: 'ADJ1',
+  };
+  const adjusted = (
+    overrides: Partial<Extract<NormalizedPaymentEvent, { type: 'payment.adjusted' }>> = {},
+  ): NormalizedPaymentEvent => ({
+    type: 'payment.adjusted',
+    eventId: 'AUTHORISATION_ADJUSTMENT:ADJ1:true',
+    paymentId: 'PSP1',
+    operationRef: 'ADJ1',
+    occurredAt: at,
+    authorizedCents: 7000,
+    success: true,
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    h.findByChargePaymentId.mockResolvedValue(hold);
+    h.matchPendingAdjustment.mockResolvedValue(hold);
+    h.findRecord.mockResolvedValue({ ...hold, status: 'captured' });
+    h.settleAdjustedHold.mockResolvedValue({
+      mode: 'card',
+      status: 'captured',
+      paymentRecordId: 9,
+      driverId: 'd1',
+      capturedCents: 7000,
+      shortfallCents: 0,
+      recorded: true,
+    });
+  });
+
+  it('settles the hold at the adjusted amount and tells the driver', async () => {
+    const notice = await applyPaymentEvent('adyen', adjusted(), ctx);
+    expect(h.matchPendingAdjustment).toHaveBeenCalledWith(9, 'ADJ1');
+    expect(h.settleAdjustedHold).toHaveBeenCalledWith(
+      hold,
+      { success: true, authorizedCents: 7000 },
+      ctx,
+    );
+    expect(notice).toEqual({
+      kind: 'session_paid',
+      record: { ...hold, status: 'captured' },
+      amountCents: 7000,
+    });
+    expect(logger.info).toHaveBeenCalledWith(
+      { paymentRecordId: 9, authorizedCents: 7000, operationRef: 'ADJ1' },
+      'Authorisation adjusted via webhook; capturing the final cost',
+    );
+  });
+
+  it('falls back to the hold and a top-up when the adjustment was refused', async () => {
+    await applyPaymentEvent('adyen', adjusted({ success: false, authorizedCents: 0 }), ctx);
+    expect(h.settleAdjustedHold).toHaveBeenCalledWith(
+      hold,
+      { success: false, authorizedCents: 0 },
       ctx,
     );
     expect(logger.warn).toHaveBeenCalledWith(
-      { type: 'payment.captured', paymentId: 'pi_1' },
-      'Payment webhook event not handled by synchronous providers',
+      { paymentRecordId: 9, operationRef: 'ADJ1' },
+      'Authorisation adjustment refused; capturing the hold and charging the rest as a top-up',
     );
-    expect(h.findByPaymentId).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed capture to the driver', async () => {
+    h.settleAdjustedHold.mockResolvedValue({
+      mode: 'card',
+      status: 'failed',
+      paymentRecordId: 9,
+      driverId: 'd1',
+      reason: 'Refused',
+    });
+    h.findRecord.mockResolvedValue({ ...hold, status: 'failed' });
+    expect(await applyPaymentEvent('adyen', adjusted(), ctx)).toEqual({
+      kind: 'capture_failed',
+      record: { ...hold, status: 'failed' },
+      reason: 'Refused',
+    });
+  });
+
+  it('refreshes the operator UI for an unrecorded capture, a cancel or a pending adjustment', async () => {
+    for (const outcome of [
+      {
+        mode: 'card',
+        status: 'captured',
+        paymentRecordId: 9,
+        driverId: 'd1',
+        capturedCents: 7000,
+        shortfallCents: 0,
+        recorded: false,
+      },
+      { mode: 'card', status: 'cancelled', paymentRecordId: 9, recorded: true },
+      { mode: 'card', status: 'adjusting', paymentRecordId: 9, driverId: 'd1' },
+    ]) {
+      h.settleAdjustedHold.mockResolvedValueOnce(outcome);
+      expect(await applyPaymentEvent('adyen', adjusted(), ctx)).toMatchObject({
+        kind: 'record_changed',
+      });
+    }
+  });
+
+  it('returns nothing when the settlement had nothing to settle or the record is gone', async () => {
+    h.settleAdjustedHold.mockResolvedValueOnce({ mode: 'none' });
+    expect(await applyPaymentEvent('adyen', adjusted(), ctx)).toBeNull();
+    h.findRecord.mockResolvedValueOnce(null);
+    expect(await applyPaymentEvent('adyen', adjusted(), ctx)).toBeNull();
+  });
+
+  it('ignores an event for an unknown payment', async () => {
+    h.findByChargePaymentId.mockResolvedValue(null);
+    expect(await applyPaymentEvent('adyen', adjusted(), ctx)).toBeNull();
+    expect(h.matchPendingAdjustment).not.toHaveBeenCalled();
+  });
+
+  it('ignores an adjustment that is not pending, foreign or without a reference', async () => {
+    h.matchPendingAdjustment.mockResolvedValue(null);
+    expect(await applyPaymentEvent('adyen', adjusted(), ctx)).toBeNull();
+    expect(logger.info).toHaveBeenCalledWith(
+      { paymentRecordId: 9, status: 'pre_authorized', operationRef: 'ADJ1' },
+      'Adjustment webhook ignored: no matching pending adjustment',
+    );
+    h.matchPendingAdjustment.mockClear();
+    const withoutRef = adjusted() as Extract<NormalizedPaymentEvent, { type: 'payment.adjusted' }>;
+    delete withoutRef.operationRef;
+    expect(await applyPaymentEvent('adyen', withoutRef, ctx)).toBeNull();
+    // A top-up payment of the record is not the hold.
+    expect(await applyPaymentEvent('adyen', adjusted({ paymentId: 'TOPUP1' }), ctx)).toBeNull();
+    expect(h.matchPendingAdjustment).not.toHaveBeenCalled();
+    expect(h.settleAdjustedHold).not.toHaveBeenCalled();
+  });
+});
+
+describe('applyPaymentEvent: async provider confirmations (P10a)', () => {
+  const base = { eventId: 'evt_x', paymentId: 'PSP1', operationRef: 'MOD1', occurredAt: at };
+  const hold = {
+    id: 9,
+    status: 'pre_authorized',
+    providerPaymentId: 'PSP1',
+    pendingOperationRef: null,
+    refundedAmountCents: 0,
+  };
+  const captured = {
+    ...hold,
+    status: 'captured',
+    pendingOperation: 'capture',
+    pendingOperationRef: 'MOD1',
+  };
+  const cancelHold = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    h.findByChargePaymentId.mockResolvedValue(captured);
+    h.findRecord.mockImplementation((id: number) => Promise.resolve({ id, status: 'changed' }));
+    h.confirmOperation.mockResolvedValue(false);
+    h.failPendingCapture.mockResolvedValue(null);
+    h.markAuthorisationEnded.mockResolvedValue(false);
+    h.markCaptured.mockResolvedValue(false);
+    h.markHoldFailed.mockResolvedValue(false);
+    cancelHold.mockResolvedValue({ state: 'pending', operationRef: 'CANCELREF' });
+    getPaymentProvider.mockResolvedValue({ id: 'adyen', cancelHold });
+  });
+
+  describe('payment.captured', () => {
+    const event: NormalizedPaymentEvent = { ...base, type: 'payment.captured', amountCents: 4000 };
+
+    it('confirms the pending capture with the same reference', async () => {
+      h.confirmOperation.mockResolvedValue(true);
+      const notice = await applyPaymentEvent('adyen', event, ctx);
+      expect(h.findByChargePaymentId).toHaveBeenCalledWith('adyen', 'PSP1');
+      expect(h.confirmOperation).toHaveBeenCalledWith(9, 'capture', 'MOD1');
+      expect(notice).toEqual({ kind: 'record_changed', record: { id: 9, status: 'changed' } });
+    });
+
+    it('captures an open hold when the confirmation arrives before the capture was recorded', async () => {
+      h.findByChargePaymentId.mockResolvedValue(hold);
+      h.markCaptured.mockResolvedValue(true);
+      const notice = await applyPaymentEvent('adyen', event, ctx);
+      expect(h.markCaptured).toHaveBeenCalledWith(9, { capturedCents: 4000, failureReason: null });
+      expect(notice).toMatchObject({ kind: 'record_changed' });
+    });
+
+    it('ignores a capture of a failed record (a CAPTURE after CAPTURE_FAILED does not revive it)', async () => {
+      h.findByChargePaymentId.mockResolvedValue({ ...captured, status: 'failed' });
+      expect(await applyPaymentEvent('adyen', event, ctx)).toBeNull();
+      expect(h.markCaptured).not.toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith(
+        { paymentRecordId: 9, status: 'failed', operationRef: 'MOD1' },
+        'Capture webhook ignored: no matching pending capture',
+      );
+    });
+
+    it('does nothing for a payment without a record', async () => {
+      h.findByChargePaymentId.mockResolvedValue(null);
+      expect(await applyPaymentEvent('adyen', event, ctx)).toBeNull();
+      expect(h.confirmOperation).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('payment.capture_failed', () => {
+    const event: NormalizedPaymentEvent = {
+      ...base,
+      type: 'payment.capture_failed',
+      reason: 'Insufficient balance',
+    };
+
+    it('fails the capture with the matching reference and returns the notice', async () => {
+      const failed = { ...captured, status: 'failed' };
+      h.failPendingCapture.mockResolvedValue(failed);
+      const notice = await applyPaymentEvent('adyen', event, ctx);
+      expect(h.failPendingCapture).toHaveBeenCalledWith(
+        9,
+        'MOD1',
+        'Adyen capture failed: Insufficient balance',
+      );
+      expect(notice).toEqual({
+        kind: 'capture_failed',
+        record: failed,
+        reason: 'Insufficient balance',
+      });
+    });
+
+    it('fails an open hold when the failure arrives before the capture was recorded', async () => {
+      h.findByChargePaymentId.mockResolvedValue(hold);
+      h.markHoldFailed.mockResolvedValue(true);
+      h.findRecord.mockResolvedValue({ id: 9, status: 'failed' });
+      const notice = await applyPaymentEvent('adyen', event, ctx);
+      expect(h.markHoldFailed).toHaveBeenCalledWith(
+        9,
+        'Adyen capture failed: Insufficient balance',
+      );
+      expect(notice).toMatchObject({ kind: 'capture_failed', record: { status: 'failed' } });
+    });
+
+    it('logs an error for a failure it cannot apply (foreign reference or refunded record)', async () => {
+      h.findByChargePaymentId.mockResolvedValue({ ...captured, refundedAmountCents: 500 });
+      expect(await applyPaymentEvent('adyen', event, ctx)).toBeNull();
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ paymentRecordId: 9, refundedAmountCents: 500 }),
+        'Capture failure webhook not applied: no matching capture of an unrefunded record',
+      );
+    });
+
+    it('uses a reason without a provider reason', async () => {
+      await applyPaymentEvent('adyen', { ...event, reason: null }, ctx);
+      expect(h.failPendingCapture).toHaveBeenCalledWith(9, 'MOD1', 'Adyen capture failed');
+    });
+  });
+
+  describe('payment.cancelled and payment.cancel_failed', () => {
+    const cancelled: NormalizedPaymentEvent = { ...base, type: 'payment.cancelled' };
+
+    it('confirms the pending cancel with the same reference', async () => {
+      h.findByChargePaymentId.mockResolvedValue({ ...hold, status: 'cancelled' });
+      h.confirmOperation.mockResolvedValue(true);
+      expect(await applyPaymentEvent('adyen', cancelled, ctx)).toMatchObject({
+        kind: 'record_changed',
+      });
+      expect(h.confirmOperation).toHaveBeenCalledWith(9, 'cancel', 'MOD1');
+      expect(h.markAuthorisationEnded).not.toHaveBeenCalled();
+    });
+
+    it('ends an open hold the provider let expire, without a confirmation lookup', async () => {
+      h.findByChargePaymentId.mockResolvedValue(hold);
+      h.markAuthorisationEnded.mockResolvedValue(true);
+      await applyPaymentEvent('adyen', { ...cancelled, expired: true }, ctx);
+      expect(h.confirmOperation).not.toHaveBeenCalled();
+      expect(h.markAuthorisationEnded).toHaveBeenCalledWith(9, 'Adyen authorisation expired');
+    });
+
+    it('ends an open hold cancelled outside EVtivity', async () => {
+      h.findByChargePaymentId.mockResolvedValue(hold);
+      h.markAuthorisationEnded.mockResolvedValue(true);
+      await applyPaymentEvent('adyen', cancelled, ctx);
+      expect(h.markAuthorisationEnded).toHaveBeenCalledWith(9, 'Adyen cancelled the authorisation');
+    });
+
+    it('ignores the cancellation of a top-up payment of the record', async () => {
+      h.findByChargePaymentId.mockResolvedValue({ ...captured, providerPaymentId: 'OTHER' });
+      expect(await applyPaymentEvent('adyen', cancelled, ctx)).toBeNull();
+      expect(h.markAuthorisationEnded).not.toHaveBeenCalled();
+    });
+
+    it('clears a failed pending cancel and logs it at error', async () => {
+      h.confirmOperation.mockResolvedValue(true);
+      const notice = await applyPaymentEvent(
+        'adyen',
+        { ...base, type: 'payment.cancel_failed', reason: 'Already captured' },
+        ctx,
+      );
+      expect(h.confirmOperation).toHaveBeenCalledWith(9, 'cancel', 'MOD1');
+      expect(notice).toMatchObject({ kind: 'record_changed' });
+      expect(logger.error).toHaveBeenCalledWith(
+        { paymentRecordId: 9, operationRef: 'MOD1', reason: 'Already captured' },
+        'Cancel of the hold failed at the provider; the authorisation stays until it expires',
+      );
+    });
+
+    it('ignores a cancel failure without a matching pending cancel', async () => {
+      expect(
+        await applyPaymentEvent(
+          'adyen',
+          { ...base, type: 'payment.cancel_failed', reason: null },
+          ctx,
+        ),
+      ).toBeNull();
+    });
+  });
+
+  describe('payment.refund_failed and duplicates', () => {
+    const failed: NormalizedPaymentEvent = {
+      ...base,
+      type: 'payment.refund_failed',
+      refundId: 'MOD1',
+      amountCents: 700,
+      reason: 'Refund rejected',
+    };
+
+    it('marks the ledger entry failed and returns the notice', async () => {
+      const record = { id: 9, status: 'captured' };
+      h.settleRefund.mockResolvedValue({
+        status: 'applied',
+        record,
+        entry: { refundId: 'MOD1', paymentId: 'PSP1', amountCents: 700, state: 'failed' },
+      });
+      const notice = await applyPaymentEvent('adyen', failed, ctx);
+      expect(h.settleRefund).toHaveBeenCalledWith(9, {
+        refundId: 'MOD1',
+        paymentId: 'PSP1',
+        amountCents: 700,
+        outcome: 'failed',
+      });
+      expect(notice).toEqual({
+        kind: 'refund_failed',
+        record,
+        amountCents: 700,
+        reason: 'Refund rejected',
+      });
+    });
+
+    it('returns nothing for an entry settled before', async () => {
+      h.settleRefund.mockResolvedValue({ status: 'already_settled' });
+      expect(await applyPaymentEvent('adyen', failed, ctx)).toBeNull();
+    });
+
+    it('logs an error for a confirmed refund the record cannot take', async () => {
+      h.settleRefund.mockResolvedValue({ status: 'not_refundable', recordStatus: 'failed' });
+      const notice = await applyPaymentEvent(
+        'adyen',
+        {
+          ...base,
+          type: 'payment.refunded',
+          refundId: 'MOD1',
+          amountCents: 700,
+          cumulativeRefundedCents: null,
+          capturedCents: null,
+        },
+        ctx,
+      );
+      expect(notice).toBeNull();
+      expect(logger.error).toHaveBeenCalledWith(
+        { paymentRecordId: 9, refundId: 'MOD1', status: 'failed' },
+        'Refund confirmed by the provider for a record that cannot take it; check the payment',
+      );
+    });
+
+    it('warns about an increment refund without an amount', async () => {
+      expect(
+        await applyPaymentEvent(
+          'adyen',
+          {
+            ...base,
+            type: 'payment.refunded',
+            refundId: null,
+            amountCents: null,
+            cumulativeRefundedCents: null,
+            capturedCents: null,
+          },
+          ctx,
+        ),
+      ).toBeNull();
+      expect(h.settleRefund).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('payment.authorized (orphan guest authorisations, O4)', () => {
+    const authorised = (merchantReference: string): NormalizedPaymentEvent => ({
+      eventId: 'evt_auth',
+      type: 'payment.authorized',
+      paymentId: 'PSPAUTH',
+      amountCents: 5000,
+      merchantReference,
+      occurredAt: at,
+    });
+
+    beforeEach(() => {
+      h.findByChargePaymentId.mockResolvedValue(null);
+    });
+
+    it('ignores an authorisation of a recorded payment', async () => {
+      h.findByChargePaymentId.mockResolvedValue(hold);
+      expect(await applyPaymentEvent('adyen', authorised('guest_tok'), ctx)).toBeNull();
+      expect(h.attachGuestAuthorisation).not.toHaveBeenCalled();
+    });
+
+    it('attaches the authorisation to a waiting guest session', async () => {
+      h.attachGuestAuthorisation.mockResolvedValue('attached');
+      await applyPaymentEvent('adyen', authorised('guest_tok'), ctx);
+      expect(h.attachGuestAuthorisation).toHaveBeenCalledWith({
+        provider: 'adyen',
+        sessionToken: 'tok',
+        paymentId: 'PSPAUTH',
+      });
+      expect(cancelHold).not.toHaveBeenCalled();
+    });
+
+    it.each(['already_attached', 'missing'])('leaves a %s session alone', async (outcome) => {
+      h.attachGuestAuthorisation.mockResolvedValue(outcome);
+      await applyPaymentEvent('adyen', authorised('guest_tok'), ctx);
+      expect(cancelHold).not.toHaveBeenCalled();
+    });
+
+    it('cancels an orphan authorisation with the cancel key of its payment', async () => {
+      h.attachGuestAuthorisation.mockResolvedValue('orphan');
+      await applyPaymentEvent('adyen', authorised('guest_tok'), ctx);
+      expect(getPaymentProvider).toHaveBeenCalledWith('adyen');
+      expect(cancelHold).toHaveBeenCalledWith({
+        paymentId: 'PSPAUTH',
+        merchantReference: 'guest_tok',
+        idempotencyKey: 'cancel_PSPAUTH',
+      });
+    });
+
+    it('fails open when the orphan cancel fails', async () => {
+      h.attachGuestAuthorisation.mockResolvedValue('orphan');
+      cancelHold.mockRejectedValue(new Error('Adyen down'));
+      await expect(applyPaymentEvent('adyen', authorised('guest_tok'), ctx)).resolves.toBeNull();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionToken: 'tok', paymentId: 'PSPAUTH' }),
+        'Failed to cancel an orphan guest authorisation; it expires by itself',
+      );
+    });
+
+    it.each(['sess_s1', 'method_setup_d1_a1', 'topup_42'])(
+      'leaves a %s authorisation to the request that made it',
+      async (reference) => {
+        await applyPaymentEvent('adyen', authorised(reference), ctx);
+        expect(h.attachGuestAuthorisation).not.toHaveBeenCalled();
+        expect(cancelHold).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  it('returns a dispute notice for a recorded payment', async () => {
+    const notice = await applyPaymentEvent(
+      'adyen',
+      {
+        eventId: 'evt_d',
+        type: 'payment.disputed',
+        paymentId: 'PSP1',
+        disputeId: 'CB1',
+        reason: 'fraud',
+        occurredAt: at,
+      },
+      ctx,
+    );
+    expect(notice).toEqual({
+      kind: 'disputed',
+      record: captured,
+      disputeId: 'CB1',
+      reason: 'fraud',
+    });
   });
 });

@@ -141,7 +141,11 @@ export function normalizeAdyenItem(item: AdyenNotificationItem): NormalizedPayme
     case 'EXPIRE':
       if (modification == null) return ignored;
       return success
-        ? { ...modification, type: 'payment.cancelled' }
+        ? {
+            ...modification,
+            type: 'payment.cancelled',
+            ...(eventCode === 'EXPIRE' ? { expired: true } : {}),
+          }
         : { ...modification, type: 'payment.cancel_failed', reason };
     case 'REFUND':
       if (modification == null || amount == null) return ignored;

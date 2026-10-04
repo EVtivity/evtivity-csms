@@ -29,7 +29,7 @@ import {
   fakeAdyenProvider,
   MERCHANT,
   signedNotification,
-} from './helpers/fake-adyen.js';
+} from '../testing/fake-adyen.js';
 
 // The example of https://docs.adyen.com/development-resources/webhooks/secure-webhooks/verify-hmac-signatures
 const DOC_ITEM: AdyenNotificationItem = {
@@ -129,16 +129,33 @@ describe('AdyenPaymentProvider.verifyWebhook', () => {
     });
   });
 
-  it('requires Basic auth', () => {
+  it('requires Basic auth, reported as a credential failure', () => {
     const { provider } = fakeAdyenProvider();
     expect(errorOf(() => provider.verifyWebhook(DOC_BODY, {}))).toMatchObject({
       reason: 'missing',
+      kind: 'auth',
     });
     expect(
       errorOf(() =>
         provider.verifyWebhook(DOC_BODY, { authorization: basicAuth('adyen-hook', 'nope') }),
       ),
-    ).toMatchObject({ reason: 'invalid' });
+    ).toMatchObject({ reason: 'invalid', kind: 'auth' });
+  });
+
+  it('reports HMAC and body failures as signature failures', () => {
+    const { provider } = fakeAdyenProvider();
+    const unsigned = JSON.stringify({
+      live: 'false',
+      notificationItems: [{ NotificationRequestItem: { ...DOC_ITEM, additionalData: {} } }],
+    });
+    expect(errorOf(() => provider.verifyWebhook(unsigned, AUTH))).toMatchObject({
+      reason: 'missing',
+      kind: 'signature',
+    });
+    expect(errorOf(() => provider.verifyWebhook('not json', AUTH))).toMatchObject({
+      reason: 'invalid',
+      kind: 'signature',
+    });
   });
 
   it('is not configured without an HMAC key, a valid hex key, or Basic auth credentials', () => {
@@ -316,13 +333,20 @@ describe('normalizeAdyenItem', () => {
   });
 
   it('CANCELLATION, TECHNICAL_CANCEL and EXPIRE cancel; a failed cancellation is cancel_failed', () => {
-    for (const eventCode of ['CANCELLATION', 'TECHNICAL_CANCEL', 'EXPIRE']) {
+    for (const eventCode of ['CANCELLATION', 'TECHNICAL_CANCEL']) {
       expect(n({ eventCode })).toEqual({
         eventId: `${eventCode}:MODPSP0000000001:true`,
         type: 'payment.cancelled',
         ...modification,
       });
     }
+    // EXPIRE is the authorisation lapsing, not a cancel request of ours.
+    expect(n({ eventCode: 'EXPIRE' })).toEqual({
+      eventId: 'EXPIRE:MODPSP0000000001:true',
+      type: 'payment.cancelled',
+      ...modification,
+      expired: true,
+    });
     expect(
       n({ eventCode: 'CANCELLATION', success: 'false', reason: 'Already captured' }),
     ).toMatchObject({

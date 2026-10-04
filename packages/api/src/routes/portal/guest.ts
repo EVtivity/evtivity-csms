@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import crypto from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, or, asc, sql } from 'drizzle-orm';
 import {
   db,
   client,
+  getCompanyCountry,
   getCompanyCurrency,
   getCompanyTaxBasis,
   isStationLevelUnavailable,
@@ -30,6 +31,7 @@ import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { sessionCurrencySql } from '../../lib/company-currency.js';
 import { getPubSub } from '../../lib/pubsub.js';
+import { scheduleGuestStartTimeout } from '../../lib/remote-start-timeout.js';
 import { successResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import {
@@ -43,8 +45,20 @@ import {
   getCachedConnectorStatus,
   setCachedConnectorStatus,
 } from '../../lib/rate-limiters.js';
-import { authorizeGuestHold, holdTerms, rollbackGuestStart } from '@evtivity/payments';
+import {
+  authorizeGuestHold,
+  claimGuestStart,
+  continueGuestHold,
+  holdTerms,
+  rollbackGuestStart,
+} from '@evtivity/payments';
 import { activePaymentProvider, paymentContext } from '../../lib/payments.js';
+import { config as apiConfig } from '../../lib/config.js';
+import {
+  originMismatchError,
+  shopperBrowserBody,
+  shopperBrowserContext,
+} from '../../lib/shopper-browser.js';
 import { isEvseInReservationBuffer } from '../../lib/reservation-buffer.js';
 import { getActiveMaintenanceForStation } from '../../services/maintenance.service.js';
 import { validateQrCodeUrl } from '../../services/web-payment.service.js';
@@ -79,14 +93,31 @@ const chargerConfigResponse = z
   .object({
     paymentEnabled: z
       .boolean()
-      .describe('Whether Stripe is configured for this station and payment is required'),
+      .describe('Whether a payment provider is configured and payment is required'),
     isFree: z.boolean().describe('Whether the station is free to use (no payment required)'),
     publishableKey: z
       .string()
       .max(255)
       .optional()
       .describe('Stripe publishable key for the configured Stripe account'),
+    paymentProvider: z
+      .object({
+        provider: z.string().describe('Provider id the guest checkout loads its payment UI for'),
+      })
+      .passthrough()
+      .nullable()
+      .describe(
+        'Browser-safe client config of the active payment provider. Null when payments are off.',
+      ),
     currency: z.string().length(3).optional().describe('ISO 4217 currency code'),
+    countryCode: z
+      .string()
+      .max(2)
+      .nullable()
+      .optional()
+      .describe(
+        'ISO 3166-1 alpha-2 country of the company (company.country), null when unset. Card UIs that need the shopper country (Adyen Web) read it',
+      ),
     preAuthAmountCents: z
       .number()
       .int()
@@ -99,14 +130,38 @@ const chargerConfigResponse = z
   })
   .passthrough();
 
+const guestActionSchema = z
+  .object({
+    provider: z.string().describe('Provider whose client UI handles the action'),
+    data: z.unknown().describe('Provider action data (Adyen: the 3D Secure action)'),
+  })
+  .passthrough()
+  .describe(
+    'Action for the card UI; post its result to POST /v1/portal/guest/payment-details/{sessionToken}',
+  );
+
 const guestStartResponse = z
   .object({
+    status: z
+      .enum(['started', 'action_required'])
+      .describe(
+        'started: the hold is authorized and the station accepted the start. action_required: the card needs 3D Secure first',
+      ),
     sessionToken: z
       .string()
       .length(20)
       .describe('Opaque session token used to track the guest session lifecycle'),
+    action: guestActionSchema.optional().describe('Present when status is action_required'),
   })
   .passthrough();
+
+const guestDetailsBody = z.object({
+  details: z
+    .unknown()
+    .describe(
+      'Result of the 3D Secure action. Adyen: the onAdditionalDetails state.data, or { details: { redirectResult } } from the return page',
+    ),
+});
 
 const guestStatusResponse = z
   .object({
@@ -193,7 +248,33 @@ const chargerConfigParams = z.object({
 // and maxcost (OCPP 2.1 C25.FR.04-06) and are returned to the station as
 // transactionLimit when the transaction starts (C25.FR.24).
 const guestStartBody = z.object({
-  paymentMethodId: z.string().min(1).max(255).optional(),
+  paymentMethodId: z
+    .string()
+    .min(1)
+    .max(255)
+    .optional()
+    .describe(
+      'Stripe PaymentMethod id of the one-time card (the Stripe form of paymentMethod). Send one of paymentMethodId and paymentMethod, not both',
+    ),
+  paymentMethod: z
+    .object({
+      provider: z
+        .string()
+        .min(1)
+        .describe('Provider whose card UI collected the card (charger-config paymentProvider)'),
+      payload: z
+        .unknown()
+        .describe(
+          'The one-time card. Stripe: the PaymentMethod id string. Test provider: { testCard }. Adyen: the Card component state.data',
+        ),
+      browser: shopperBrowserBody
+        .optional()
+        .describe(
+          'The browser the card UI runs in, for a 3D Secure step (required by Adyen). The issuer returns the guest to PORTAL_URL/payments/return?flow=guest&token=<sessionToken>, built by the server',
+        ),
+    })
+    .optional()
+    .describe('The one-time card, tagged with the provider that collected it'),
   guestEmail: z.string().email().max(255).optional(),
   maxEnergyWh: z
     .number()
@@ -252,6 +333,53 @@ const qrValidateResponse = z
       .describe('Why the URL is not valid'),
   })
   .passthrough();
+
+interface GuestStartFailure {
+  statusCode: 502 | 504;
+  body: { error: string; code: string };
+}
+
+/**
+ * Sends RequestStartTransaction for a guest session and waits for the
+ * station's answer, so an offline station or a dropped command is reported
+ * before the guest is sent to the session page. On a timeout or rejection
+ * the guest session is deleted and its hold cancelled (the card is not held
+ * for a session that never started); the failure reply is returned. An
+ * accepted start schedules its close-out (`scheduleGuestStartTimeout`).
+ */
+async function dispatchGuestStart(
+  input: { sessionToken: string; stationOcppId: string; evseId: number; paymentId: string | null },
+  log: FastifyBaseLogger,
+): Promise<GuestStartFailure | null> {
+  const cmdResult = await sendOcppCommandAndWait(input.stationOcppId, 'RequestStartTransaction', {
+    evseId: input.evseId,
+    remoteStartId: Math.floor(Math.random() * 2_147_483_647),
+    // A paid session is an ad hoc payment (OCPP 2.1 C25.FR.23): DirectPayment.
+    idToken: {
+      idToken: input.sessionToken,
+      type: input.paymentId != null ? 'DirectPayment' : 'Central',
+    },
+  });
+  const cmdStatus = cmdResult.response?.['status'] as string | undefined;
+  if (cmdResult.error == null && cmdStatus === 'Accepted') {
+    // Closes the start if the guest never plugs in (no transaction by the
+    // station's connection timeout): the guest session fails, the hold is cancelled.
+    await scheduleGuestStartTimeout(input.sessionToken, log);
+    return null;
+  }
+
+  await rollbackGuestStart(
+    { sessionToken: input.sessionToken, paymentId: input.paymentId },
+    paymentContext(log),
+  );
+  if (cmdResult.error != null) {
+    return { statusCode: 504, body: { error: 'Station did not respond', code: 'STATION_TIMEOUT' } };
+  }
+  return {
+    statusCode: 502,
+    body: { error: `Station rejected start: ${cmdStatus ?? 'Unknown'}`, code: 'STATION_REJECTED' },
+  };
+}
 
 export function portalGuestRoutes(app: FastifyInstance): void {
   app.post(
@@ -479,21 +607,32 @@ export function portalGuestRoutes(app: FastifyInstance): void {
 
       const provider = await activePaymentProvider(request.log);
       if (provider == null) {
-        return { paymentEnabled: false, isFree, isSimulator: station.isSimulator, pricing };
+        return {
+          paymentEnabled: false,
+          isFree,
+          isSimulator: station.isSimulator,
+          paymentProvider: null,
+          pricing,
+        };
       }
-      const terms = await holdTerms(paymentContext(request.log), station.siteId ?? null);
+      const [terms, countryCode] = await Promise.all([
+        holdTerms(paymentContext(request.log), station.siteId ?? null),
+        getCompanyCountry(),
+      ]);
       const clientConfig = provider.clientConfig();
 
       return {
         paymentEnabled: true,
         isFree,
         isSimulator: station.isSimulator,
-        // Stripe.js needs the publishable key; other providers get their
-        // descriptor with the provider settings (plan P5).
+        // The guest checkout loads the payment UI of paymentProvider.provider.
+        // publishableKey stays for portal bundles cached before the descriptor.
+        paymentProvider: clientConfig,
         ...(clientConfig.provider === 'stripe' && typeof clientConfig.publishableKey === 'string'
           ? { publishableKey: clientConfig.publishableKey }
           : {}),
         currency,
+        countryCode,
         preAuthAmountCents: terms.preAuthAmountCents,
         pricing,
       };
@@ -507,7 +646,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         tags: ['Portal Guest'],
         summary: 'Start a guest charging session with payment',
         description:
-          'Creates a guest_sessions row with a 20-character session token (unique per guest), creates a Stripe PaymentIntent with capture_method=manual for paid sessions (free sessions skip Stripe), and dispatches RequestStartTransaction with the token as the OCPP idToken (type DirectPayment for paid sessions, Central for free ones). An OCPP 2.1 station receives the limits as transactionLimit when the transaction starts: maxCost is the pre-authorized amount (or the lower maxCostCents), maxEnergy and maxTime come from maxEnergyWh and maxTimeSeconds. Rate limited 5/min per IP. Returns 504 if the station does not ack within 35s (cancels the pre-auth and rolls back the row).',
+          'Creates a guest_sessions row with a 20-character session token (unique per guest), creates a Stripe PaymentIntent with capture_method=manual for paid sessions (free sessions skip Stripe), and dispatches RequestStartTransaction with the token as the OCPP idToken (type DirectPayment for paid sessions, Central for free ones). An OCPP 2.1 station receives the limits as transactionLimit when the transaction starts: maxCost is the pre-authorized amount (or the lower maxCostCents), maxEnergy and maxTime come from maxEnergyWh and maxTimeSeconds. Rate limited 5/min per IP. Returns 504 if the station does not ack within 35s (cancels the pre-auth and rolls back the row). The one-time card is paymentMethod { provider, payload, browser? } (400 PAYMENT_PROVIDER_NOT_CONFIGURED when provider is not the active one) or, for Stripe, paymentMethodId; both give 400 VALIDATION_ERROR. Answers status started, or status action_required with the 3D Secure action when the card needs it and browser was sent (browser.origin must be the PORTAL_URL origin, else 400 VALIDATION_ERROR): the session then waits in pending_payment and POST /v1/portal/guest/payment-details/{sessionToken} continues it.',
         operationId: 'portalGuestStartCharging',
         security: [],
         params: zodSchema(chargerConfigParams),
@@ -520,7 +659,9 @@ export function portalGuestRoutes(app: FastifyInstance): void {
             ERROR_CODES.PAYMENT_FAILED,
             ERROR_CODES.PAYMENT_METHOD_REQUIRED,
             ERROR_CODES.PAYMENT_NOT_CONFIGURED,
+            ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
             ERROR_CODES.STATION_OFFLINE,
+            ERROR_CODES.VALIDATION_ERROR,
           ]),
           403: errorWith('Forbidden', [
             ERROR_CODES.CONNECTOR_RESERVED,
@@ -545,6 +686,14 @@ export function portalGuestRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const params = request.params as z.infer<typeof chargerConfigParams>;
       const body = request.body as z.infer<typeof guestStartBody>;
+
+      if (body.paymentMethodId != null && body.paymentMethod != null) {
+        await reply.status(400).send({
+          error: 'Send either paymentMethodId or paymentMethod, not both',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
 
       // Find station
       const [station] = await db
@@ -713,6 +862,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           evseId: params.evseId,
           guestEmail: body.guestEmail ?? '',
           status: 'payment_authorized',
+          startRequestedAt: new Date(),
           sessionToken,
           expiresAt,
           maxCostCents: body.maxCostCents ?? null,
@@ -721,7 +871,8 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         });
       } else {
         // Paid charging: require payment method and email
-        if (body.paymentMethodId == null) {
+        const methodPayload: unknown = body.paymentMethod?.payload ?? body.paymentMethodId;
+        if (body.paymentMethod == null && body.paymentMethodId == null) {
           await reply.status(400).send({
             error: 'Payment method required',
             code: 'PAYMENT_METHOD_REQUIRED',
@@ -735,6 +886,31 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           });
           return;
         }
+        // The 3DS return page continues the hold with the session token.
+        const browserInput = body.paymentMethod?.browser;
+        const browser =
+          browserInput != null
+            ? shopperBrowserContext(browserInput, apiConfig.PORTAL_URL, '/payments/return', {
+                flow: 'guest',
+                token: sessionToken,
+              })
+            : undefined;
+        if (browser === null) {
+          await reply.status(400).send(originMismatchError(apiConfig.PORTAL_URL));
+          return;
+        }
+        // A card collected by another provider's UI (the active provider
+        // changed after the page loaded) is refused before any hold.
+        if (body.paymentMethod != null) {
+          const active = await activePaymentProvider(request.log);
+          if (active != null && active.id !== body.paymentMethod.provider) {
+            await reply.status(400).send({
+              error: 'The card was collected for another payment provider; reload the page',
+              code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+            });
+            return;
+          }
+        }
 
         // The hold (shopper present, one-time card) and the guest session
         // row; the service cancels the hold when the row cannot be stored.
@@ -744,7 +920,8 @@ export function portalGuestRoutes(app: FastifyInstance): void {
             stationOcppId: station.stationId,
             evseId: params.evseId,
             siteId: station.siteId ?? null,
-            methodPayload: body.paymentMethodId,
+            methodPayload,
+            ...(browser != null ? { browser } : {}),
             guestEmail: body.guestEmail,
             maxCostCents: body.maxCostCents ?? null,
             maxEnergyWh: body.maxEnergyWh ?? null,
@@ -764,47 +941,109 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           await reply.status(400).send({ error: hold.reason, code: 'PAYMENT_FAILED' });
           return;
         }
+        if (hold.outcome === 'action_required') {
+          // 3D Secure: the session waits in pending_payment; the details
+          // route authorizes the hold and starts charging.
+          return { status: 'action_required', sessionToken, action: hold.action };
+        }
         paymentIntentId = hold.paymentId;
       }
 
-      // Send RequestStartTransaction and wait for the station to ack so we can
-      // surface failures (offline station, dropped command) before navigating
-      // the guest into the session-monitoring page.
-      const cmdResult = await sendOcppCommandAndWait(station.stationId, 'RequestStartTransaction', {
-        evseId: params.evseId,
-        remoteStartId: Math.floor(Math.random() * 2_147_483_647),
-        // A paid session is an ad hoc payment (OCPP 2.1 C25.FR.23): DirectPayment.
-        idToken: {
-          idToken: sessionToken,
-          type: paymentIntentId != null ? 'DirectPayment' : 'Central',
+      const failure = await dispatchGuestStart(
+        {
+          sessionToken,
+          stationOcppId: station.stationId,
+          evseId: params.evseId,
+          paymentId: paymentIntentId,
         },
-      });
+        request.log,
+      );
+      if (failure != null) {
+        await reply.status(failure.statusCode).send(failure.body);
+        return;
+      }
+      return { status: 'started', sessionToken };
+    },
+  );
 
-      const cmdStatus = cmdResult.response?.['status'] as string | undefined;
-      const stationRejected = cmdResult.error == null && cmdStatus !== 'Accepted';
+  app.post(
+    '/portal/guest/payment-details/:sessionToken',
+    {
+      schema: {
+        tags: ['Portal Guest'],
+        summary: 'Continue a guest payment after 3D Secure and start charging',
+        description:
+          'Second step of a guest start that answered status action_required: sends the 3D Secure result (the card UI onAdditionalDetails data, or the redirectResult the return page PORTAL_URL/payments/return?flow=guest&token= received) to the provider the guest session is pinned to. An authorized hold moves the session to payment_authorized and dispatches RequestStartTransaction exactly once, also when the provider webhook attached the hold first; a replay after the start answers status started without a second start. A further action answers status action_required. A refused card is 400 PAYMENT_FAILED and the session fails. 404 SESSION_NOT_FOUND when no session under the token waits for its payment (unknown, expired, failed). Station rejection or timeout rolls back the session and cancels the hold (502/504). Rate limited like the auth routes.',
+        operationId: 'portalGuestContinuePayment',
+        security: [],
+        params: zodSchema(sessionTokenParams),
+        body: zodSchema(guestDetailsBody),
+        response: {
+          200: itemResponse(guestStartResponse),
+          400: errorWith('Bad request', [
+            ERROR_CODES.PAYMENT_FAILED,
+            ERROR_CODES.PAYMENT_NOT_CONFIGURED,
+          ]),
+          404: errorWith('No guest session waits for its payment', [ERROR_CODES.SESSION_NOT_FOUND]),
+          502: errorWith('Station rejected', [ERROR_CODES.STATION_REJECTED]),
+          504: errorWith('Station did not respond within timeout', [ERROR_CODES.STATION_TIMEOUT]),
+        },
+      },
+      config: {
+        rateLimit: {
+          max: apiConfig.AUTH_RATE_LIMIT_MAX,
+          timeWindow: apiConfig.AUTH_RATE_LIMIT_WINDOW,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { sessionToken } = request.params as z.infer<typeof sessionTokenParams>;
+      const body = request.body as z.infer<typeof guestDetailsBody>;
 
-      if (cmdResult.error != null || stationRejected) {
-        // Roll back the guest_sessions row and cancel the pre-auth so the
-        // guest's card isn't held against a session that never started.
-        await rollbackGuestStart(
-          { sessionToken, paymentId: paymentIntentId },
-          paymentContext(request.log),
-        );
-
-        if (cmdResult.error != null) {
-          await reply
-            .status(504)
-            .send({ error: 'Station did not respond', code: 'STATION_TIMEOUT' });
-          return;
-        }
-        await reply.status(502).send({
-          error: `Station rejected start: ${cmdStatus ?? 'Unknown'}`,
-          code: 'STATION_REJECTED',
+      const continued = await continueGuestHold(
+        { sessionToken, details: body.details },
+        paymentContext(request.log),
+      );
+      if (continued.outcome === 'not_configured') {
+        await reply.status(400).send({
+          error: 'Payment not configured for this station',
+          code: 'PAYMENT_NOT_CONFIGURED',
         });
         return;
       }
+      if (continued.outcome === 'declined') {
+        await reply.status(400).send({ error: continued.reason, code: 'PAYMENT_FAILED' });
+        return;
+      }
+      if (continued.outcome === 'action_required') {
+        return { status: 'action_required', sessionToken, action: continued.action };
+      }
 
-      return { sessionToken };
+      // authorized, or not_pending for a session that already moved on (a
+      // replayed details post after the start): the claim tells which.
+      const claim = await claimGuestStart(sessionToken);
+      if (claim.claim === 'already_requested') return { status: 'started', sessionToken };
+      if (claim.claim === 'not_startable') {
+        await reply.status(404).send({
+          error: 'No guest session waits for its payment under this token',
+          code: 'SESSION_NOT_FOUND',
+        });
+        return;
+      }
+      const failure = await dispatchGuestStart(
+        {
+          sessionToken,
+          stationOcppId: claim.stationOcppId,
+          evseId: claim.evseId,
+          paymentId: claim.paymentId,
+        },
+        request.log,
+      );
+      if (failure != null) {
+        await reply.status(failure.statusCode).send(failure.body);
+        return;
+      }
+      return { status: 'started', sessionToken };
     },
   );
 

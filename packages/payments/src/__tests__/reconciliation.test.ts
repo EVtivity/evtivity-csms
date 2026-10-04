@@ -16,6 +16,7 @@ const m = vi.hoisted(() => {
       })),
     },
     recordsWithPayments: vi.fn(),
+    recordsAwaitingConfirmation: vi.fn(),
   };
 });
 
@@ -24,7 +25,10 @@ vi.mock('@evtivity/database', () => ({
   paymentReconciliationRuns: { __table: 'payment_reconciliation_runs' },
 }));
 
-vi.mock('../payment-records.js', () => ({ recordsWithPayments: m.recordsWithPayments }));
+vi.mock('../payment-records.js', () => ({
+  recordsWithPayments: m.recordsWithPayments,
+  recordsAwaitingConfirmation: m.recordsAwaitingConfirmation,
+}));
 
 import { reconcilePayments, runPaymentReconciliation } from '../reconciliation.js';
 import { PaymentProviderNotConfiguredError } from '../errors.js';
@@ -65,9 +69,13 @@ function rec(id: number, overrides: Record<string, unknown> = {}): Record<string
   return {
     id,
     status: 'captured',
-    stripePaymentIntentId: `pi_${String(id)}`,
-    stripeCustomerId: 'cus_1',
+    provider: 'stripe',
+    providerPaymentId: `pi_${String(id)}`,
+    providerCustomerId: 'cus_1',
     capturedAmountCents: 1000,
+    refundedAmountCents: 0,
+    preAuthAmountCents: null,
+    metadata: null,
     ...overrides,
   };
 }
@@ -75,6 +83,7 @@ function rec(id: number, overrides: Record<string, unknown> = {}): Record<string
 beforeEach(() => {
   m.inserts.length = 0;
   m.recordsWithPayments.mockResolvedValue([]);
+  m.recordsAwaitingConfirmation.mockResolvedValue([]);
   registry.getPaymentProvider.mockImplementation((id: string) =>
     Promise.resolve(id === 'stripe' ? stripe : simulated),
   );
@@ -121,9 +130,12 @@ describe('reconcilePayments', () => {
     expect(result.discrepancies).toEqual([
       {
         paymentRecordId: 2,
-        stripePaymentIntentId: 'pi_2',
+        provider: 'stripe',
+        providerPaymentId: 'pi_2',
         field: 'status',
         localValue: 'pre_authorized',
+        providerValue: 'succeeded (acceptable local: captured|partially_refunded|refunded)',
+        stripePaymentIntentId: 'pi_2',
         stripeValue: 'succeeded (acceptable local: captured|partially_refunded|refunded)',
       },
     ]);
@@ -149,9 +161,12 @@ describe('reconcilePayments', () => {
       expect(result.discrepancies).toEqual([
         {
           paymentRecordId: 4,
-          stripePaymentIntentId: 'pi_4',
+          provider: 'stripe',
+          providerPaymentId: 'pi_4',
           field: 'capturedAmountCents',
           localValue: '500',
+          providerValue: '800',
+          stripePaymentIntentId: 'pi_4',
           stripeValue: '800',
         },
       ]);
@@ -241,7 +256,7 @@ describe('reconcilePayments', () => {
 
   it('skips records of providers without a status lookup', async () => {
     m.recordsWithPayments.mockResolvedValueOnce([
-      rec(15, { stripeCustomerId: 'cus_sim_1', stripePaymentIntentId: 'pi_sim_15' }),
+      rec(15, { provider: 'simulated', providerPaymentId: 'pi_sim_15' }),
       rec(16),
     ]);
 
@@ -263,6 +278,93 @@ describe('reconcilePayments', () => {
     const result = await reconcilePayments(ctx);
 
     expect(result).toMatchObject({ checked: 0, matched: 0 });
+  });
+
+  it('records a record without a provider as an error', async () => {
+    m.recordsWithPayments.mockResolvedValueOnce([rec(18, { provider: null })]);
+
+    const result = await reconcilePayments(ctx);
+
+    expect(registry.getPaymentProvider).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      checked: 1,
+      matched: 0,
+      discrepancies: [],
+      errors: ['Failed to retrieve pi_18: Payment record has no provider'],
+    });
+  });
+
+  describe('per charge (hold plus top-ups, F14)', () => {
+    // Hold pi_20 of 2000 captured 2000, top-up pi_top of 600: captured 2600.
+    const withTopUp = (overrides: Record<string, unknown> = {}): Record<string, unknown> =>
+      rec(20, {
+        capturedAmountCents: 2600,
+        preAuthAmountCents: 2000,
+        metadata: { topUps: [{ paymentId: 'pi_top', amountCents: 600, refundedCents: 0 }] },
+        ...overrides,
+      });
+
+    it('matches a hold plus top-up record whose charges agree', async () => {
+      m.recordsWithPayments.mockResolvedValueOnce([withTopUp()]);
+      stripe.getPaymentState
+        .mockResolvedValueOnce(state('succeeded', ['captured'], 2000))
+        .mockResolvedValueOnce(state('succeeded', ['captured'], 600));
+
+      const result = await reconcilePayments(ctx);
+
+      expect(stripe.getPaymentState.mock.calls).toEqual([['pi_20'], ['pi_top']]);
+      expect(result).toEqual({ checked: 1, matched: 1, discrepancies: [], errors: [] });
+    });
+
+    it('reports a top-up whose captured amount differs, with the top-up id', async () => {
+      m.recordsWithPayments.mockResolvedValueOnce([withTopUp()]);
+      stripe.getPaymentState
+        .mockResolvedValueOnce(state('succeeded', ['captured'], 2000))
+        .mockResolvedValueOnce(state('succeeded', ['captured'], 500));
+
+      const result = await reconcilePayments(ctx);
+
+      expect(result.matched).toBe(0);
+      expect(result.discrepancies).toEqual([
+        {
+          paymentRecordId: 20,
+          provider: 'stripe',
+          providerPaymentId: 'pi_top',
+          field: 'capturedAmountCents',
+          localValue: '600',
+          providerValue: '500',
+          stripePaymentIntentId: 'pi_top',
+          stripeValue: '500',
+        },
+      ]);
+    });
+
+    it('checks the record status against the hold only', async () => {
+      m.recordsWithPayments.mockResolvedValueOnce([withTopUp({ status: 'partially_refunded' })]);
+      stripe.getPaymentState
+        .mockResolvedValueOnce(state('succeeded', ['partially_refunded'], 2000))
+        .mockResolvedValueOnce(state('succeeded', ['captured'], 600));
+
+      const result = await reconcilePayments(ctx);
+
+      expect(result).toMatchObject({ checked: 1, matched: 1, discrepancies: [] });
+    });
+
+    it('records a failed top-up lookup as an error with the top-up id', async () => {
+      m.recordsWithPayments.mockResolvedValueOnce([withTopUp()]);
+      stripe.getPaymentState
+        .mockResolvedValueOnce(state('succeeded', ['captured'], 2000))
+        .mockRejectedValueOnce(new Error('rate limited'));
+
+      const result = await reconcilePayments(ctx);
+
+      expect(result).toEqual({
+        checked: 1,
+        matched: 0,
+        discrepancies: [],
+        errors: ['Failed to retrieve pi_top: rate limited'],
+      });
+    });
   });
 
   it('pages through full batches after the last id and stops on a short batch', async () => {
@@ -289,6 +391,86 @@ describe('reconcilePayments', () => {
       { checked: 200, matched: 200, discrepancies: 0, errors: 0 },
       'Payment reconciliation completed',
     );
+  });
+});
+
+describe('reconcilePayments: pending confirmations (async providers)', () => {
+  const hours = (h: number): Date => new Date(Date.now() - h * 3600_000);
+
+  it('asks for operations and refunds older than 24 hours', async () => {
+    await reconcilePayments(ctx);
+    expect(m.recordsAwaitingConfirmation).toHaveBeenCalledWith(
+      expect.any(Date),
+      expect.any(Date),
+      500,
+    );
+    const [olderThan, since] = m.recordsAwaitingConfirmation.mock.calls[0] as [Date, Date];
+    expect(Date.now() - olderThan.getTime()).toBeGreaterThanOrEqual(24 * 3600_000 - 1000);
+    expect(Date.now() - since.getTime()).toBeGreaterThanOrEqual(90 * 86_400_000 - 1000);
+  });
+
+  it('reports an unconfirmed capture and an unconfirmed refund as pending_confirmation', async () => {
+    m.recordsAwaitingConfirmation.mockResolvedValueOnce([
+      rec(7, {
+        provider: 'adyen',
+        providerPaymentId: 'PSP7',
+        pendingOperation: 'capture',
+        pendingOperationRef: 'CAP7',
+        pendingOperationAt: hours(30),
+        providerRefunds: [
+          {
+            refundId: 'RF7',
+            paymentId: 'TOP7',
+            amountCents: 300,
+            state: 'pending',
+            requestedAt: hours(26).toISOString(),
+          },
+          {
+            refundId: 'RF8',
+            paymentId: 'PSP7',
+            amountCents: 100,
+            state: 'pending',
+            requestedAt: hours(1).toISOString(),
+          },
+          {
+            refundId: 'RF9',
+            paymentId: 'PSP7',
+            amountCents: 100,
+            state: 'succeeded',
+            requestedAt: hours(48).toISOString(),
+          },
+        ],
+      }),
+    ]);
+    const result = await reconcilePayments(ctx);
+    expect(result.discrepancies).toEqual([
+      expect.objectContaining({
+        paymentRecordId: 7,
+        provider: 'adyen',
+        providerPaymentId: 'PSP7',
+        field: 'pendingOperation',
+        localValue: expect.stringMatching(/^capture CAP7 requested /) as unknown,
+        providerValue: 'not confirmed by webhook',
+        kind: 'pending_confirmation',
+      }),
+      expect.objectContaining({
+        paymentRecordId: 7,
+        providerPaymentId: 'TOP7',
+        field: 'providerRefunds',
+        localValue: expect.stringMatching(/^refund RF7 of 300 requested /) as unknown,
+        kind: 'pending_confirmation',
+      }),
+    ]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentRecordId: 7, field: 'pendingOperation' }),
+      'Payment operation not confirmed by the provider for 24 hours; check its webhook log',
+    );
+  });
+
+  it('leaves a mismatch discrepancy without a kind (stored runs keep their shape)', async () => {
+    m.recordsWithPayments.mockResolvedValueOnce([rec(1, { status: 'pre_authorized' })]);
+    const result = await reconcilePayments(ctx);
+    expect(result.discrepancies[0]).not.toHaveProperty('kind');
   });
 });
 

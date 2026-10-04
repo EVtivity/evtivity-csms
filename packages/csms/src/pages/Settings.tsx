@@ -194,7 +194,7 @@ export function Settings(): React.JSX.Element {
 
         {tabVisible('payment') && (
           <TabsContent value="payment">
-            <PaymentSettings settings={settings} />
+            <PaymentSettings />
           </TabsContent>
         )}
 

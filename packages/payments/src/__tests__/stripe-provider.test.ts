@@ -18,15 +18,20 @@ import {
 } from '../errors.js';
 import type { AuthorizeHoldInput } from '../types.js';
 import { fakeClient, realStripe } from './helpers/fake-stripe.js';
-import { emptyAdyenSettings } from './helpers/settings.js';
+import { defaultSimulatedSettings, emptyAdyenSettings } from './helpers/settings.js';
 
-function provider(client = fakeClient(), webhookSecret: string | null = 'whsec_test') {
+function provider(
+  client = fakeClient(),
+  webhookSecret: string | null = 'whsec_test',
+  connectWebhookSecret: string | null = null,
+) {
   return {
     client,
     stripe: new StripePaymentProvider({
       client: client as unknown as Stripe,
       publishableKey: 'pk_test_1',
       webhookSecret,
+      connectWebhookSecret,
     }),
   };
 }
@@ -53,6 +58,8 @@ describe('StripePaymentProvider', () => {
       modificationResults: 'sync',
       marketplaceSplit: 'destination_charge',
       stateLookup: true,
+      payoutOnboarding: 'hosted_link',
+      webhookRegistration: true,
     });
     expect(stripe.clientConfig()).toEqual({ provider: 'stripe', publishableKey: 'pk_test_1' });
     expect(stripe.webhookPath).toBe('payments/stripe');
@@ -501,6 +508,8 @@ describe('StripePaymentProvider', () => {
         customerId: 'cus_1',
         publishableKey: 'pk_test_1',
       });
+      // The session goes to the browser as is: no secret key or signing secret in it.
+      expect(JSON.stringify(session)).not.toMatch(/sk_|whsec_/);
       expect(client.ephemeralKeys.create).not.toHaveBeenCalled();
     });
 
@@ -701,6 +710,61 @@ describe('StripePaymentProvider', () => {
       );
     });
 
+    it('verifies with the platform secret or the Connect secret', () => {
+      const { stripe } = provider(fakeClient(), 'whsec_platform', 'whsec_connect');
+      const event = { id: 'evt_9', created: 1, type: 'customer.created', data: { object: {} } };
+      const platform = signed(event, 'whsec_platform');
+      expect(stripe.verifyWebhook(platform.payload, platform.headers)[0]?.eventId).toBe('evt_9');
+      const connect = signed(event, 'whsec_connect');
+      expect(stripe.verifyWebhook(connect.payload, connect.headers)[0]?.eventId).toBe('evt_9');
+      const neither = signed(event, 'whsec_other');
+      const err = (() => {
+        try {
+          stripe.verifyWebhook(neither.payload, neither.headers);
+        } catch (e) {
+          return e;
+        }
+        return null;
+      })();
+      expect(err).toBeInstanceOf(WebhookSignatureError);
+      expect((err as WebhookSignatureError).reason).toBe('invalid');
+    });
+
+    it('verifies with the Connect secret alone and needs at least one secret', () => {
+      const connectOnly = provider(fakeClient(), null, 'whsec_connect').stripe;
+      const event = signed(
+        { id: 'evt_10', created: 1, type: 'customer.created', data: { object: {} } },
+        'whsec_connect',
+      );
+      expect(connectOnly.verifyWebhook(event.payload, event.headers)[0]?.eventId).toBe('evt_10');
+      expect(() =>
+        provider(fakeClient(), null, null).stripe.verifyWebhook(event.payload, event.headers),
+      ).toThrow(WebhookNotConfiguredError);
+    });
+
+    it('normalizes account.updated to a payout account event without reading the payload', () => {
+      const { stripe } = provider(fakeClient(), 'whsec_platform', 'whsec_connect');
+      const event = signed(
+        {
+          id: 'evt_acct_1',
+          created: 1_700_000_000,
+          type: 'account.updated',
+          account: 'acct_1',
+          data: { object: { id: 'acct_1', object: 'account', charges_enabled: true } },
+        },
+        'whsec_connect',
+      );
+      expect(stripe.verifyWebhook(event.payload, event.headers)).toEqual([
+        {
+          eventId: 'evt_acct_1',
+          type: 'payout_account.updated',
+          accountId: 'acct_1',
+          occurredAt: new Date(1_700_000_000_000),
+          providerType: 'account.updated',
+        },
+      ]);
+    });
+
     it('acknowledges like the current route', () => {
       expect(provider().stripe.webhookAck()).toEqual({
         status: 200,
@@ -712,19 +776,34 @@ describe('StripePaymentProvider', () => {
 });
 
 describe('stripeProviderFactory', () => {
-  const base = { provider: 'stripe', preAuthAmountCents: 5000, adyen: emptyAdyenSettings() };
+  const base = {
+    provider: 'stripe',
+    preAuthAmountCents: 5000,
+    adyen: emptyAdyenSettings(),
+    simulated: defaultSimulatedSettings(),
+  };
 
   it('is not configured without a secret or publishable key', async () => {
     expect(
       await stripeProviderFactory.create({
         ...base,
-        stripe: { secretKey: null, publishableKey: 'pk', webhookSecret: null },
+        stripe: {
+          secretKey: null,
+          publishableKey: 'pk',
+          webhookSecret: null,
+          connectWebhookSecret: null,
+        },
       }),
     ).toBeNull();
     expect(
       await stripeProviderFactory.create({
         ...base,
-        stripe: { secretKey: 'sk_test_1', publishableKey: null, webhookSecret: null },
+        stripe: {
+          secretKey: 'sk_test_1',
+          publishableKey: null,
+          webhookSecret: null,
+          connectWebhookSecret: null,
+        },
       }),
     ).toBeNull();
   });
@@ -732,9 +811,32 @@ describe('stripeProviderFactory', () => {
   it('builds a provider from the decrypted keys', async () => {
     const built = await stripeProviderFactory.create({
       ...base,
-      stripe: { secretKey: 'sk_test_1', publishableKey: 'pk_test_1', webhookSecret: 'whsec_1' },
+      stripe: {
+        secretKey: 'sk_test_1',
+        publishableKey: 'pk_test_1',
+        webhookSecret: 'whsec_1',
+        connectWebhookSecret: null,
+      },
     });
     expect(built?.id).toBe('stripe');
     expect(built?.clientConfig()).toEqual({ provider: 'stripe', publishableKey: 'pk_test_1' });
+  });
+
+  it('passes the Connect webhook secret to the provider', async () => {
+    const built = await stripeProviderFactory.create({
+      ...base,
+      stripe: {
+        secretKey: 'sk_test_1',
+        publishableKey: 'pk_test_1',
+        webhookSecret: null,
+        connectWebhookSecret: 'whsec_connect_1',
+      },
+    });
+    const payload = JSON.stringify({ id: 'evt_c', created: 1, type: 'x', data: { object: {} } });
+    const header = realStripe.webhooks.generateTestHeaderString({
+      payload,
+      secret: 'whsec_connect_1',
+    });
+    expect(built?.verifyWebhook(payload, { 'stripe-signature': header })[0]?.eventId).toBe('evt_c');
   });
 });

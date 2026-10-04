@@ -73,7 +73,13 @@ const expected = sqlFiles.map((f) => {
   };
 });
 
-const sql = postgres(DATABASE_URL, { max: 1 });
+// Same application_name as connectionName() in @evtivity/lib (plain node
+// cannot import the TypeScript source): evtivity@<root package.json version>.
+const rootVersion = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')).version;
+const sql = postgres(DATABASE_URL, {
+  max: 1,
+  connection: { application_name: `evtivity@${rootVersion}` },
+});
 
 try {
   const rows = await sql`SELECT hash FROM drizzle.__drizzle_migrations`;

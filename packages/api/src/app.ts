@@ -44,15 +44,20 @@ import { authorizeAttemptRoutes } from './routes/authorize-attempts.js';
 import { dashboardRoutes } from './routes/dashboard.js';
 import { settingsRoutes } from './routes/settings.js';
 import { paymentRoutes } from './routes/payments.js';
+import { adyenSettingsRoutes } from './routes/adyen-settings.js';
+import { payoutAccountRoutes } from './routes/payout-accounts.js';
+import { paymentSettingsRoutes } from './routes/payment-settings.js';
 import { eventStreamRoutes } from './routes/events.js';
 import { loadManagementRoutes } from './routes/load-management.js';
 import { notificationRoutes } from './routes/notifications.js';
 import { portalAuthRoutes } from './routes/portal/auth.js';
 import { portalDriverRoutes } from './routes/portal/driver.js';
 import { portalPaymentRoutes } from './routes/portal/payments.js';
+import { portalPaymentProviderRoutes } from './routes/portal/payment-provider.js';
 import { portalSessionRoutes } from './routes/portal/sessions.js';
 import { portalChargerRoutes } from './routes/portal/charger.js';
 import { portalGuestRoutes } from './routes/portal/guest.js';
+import { portalPayoutOnboardingRoutes } from './routes/portal/payout-onboarding.js';
 import { reservationRoutes } from './routes/reservations.js';
 import { maintenanceRoutes, maintenancePreviewRoutes } from './routes/maintenance.js';
 import { accessLogRoutes } from './routes/access-logs.js';
@@ -197,6 +202,9 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(dashboardRoutes);
       await v1.register(settingsRoutes);
       await v1.register(paymentRoutes);
+      await v1.register(adyenSettingsRoutes);
+      await v1.register(payoutAccountRoutes);
+      await v1.register(paymentSettingsRoutes);
       await v1.register(eventStreamRoutes);
       await v1.register(loadManagementRoutes);
       await v1.register(notificationRoutes);
@@ -206,9 +214,11 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(portalAuthRoutes);
       await v1.register(portalDriverRoutes);
       await v1.register(portalPaymentRoutes);
+      await v1.register(portalPaymentProviderRoutes);
       await v1.register(portalSessionRoutes);
       await v1.register(portalChargerRoutes);
       await v1.register(portalGuestRoutes);
+      await v1.register(portalPayoutOnboardingRoutes);
       await v1.register(accessLogRoutes);
       await v1.register(displayMessageRoutes);
       await v1.register(reportRoutes);
@@ -344,6 +354,8 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
     '/v1/portal/auth/forgot-password',
     '/v1/portal/auth/reset-password',
     '/v1/portal/auth/activate',
+    '/v1/portal/payout-onboarding/link',
+    '/v1/portal/payout-onboarding/status',
     '/v1/portal/auth/mfa/verify',
     '/v1/portal/auth/mfa/resend',
     '/v1/portal/auth/attest/challenge',

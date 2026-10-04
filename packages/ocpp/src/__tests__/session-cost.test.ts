@@ -10,7 +10,7 @@ vi.mock('@evtivity/database', () => ({
   priceSessionAt: priceSessionAtMock,
 }));
 
-const { transactionCostAt } = await import('../server/session-cost.js');
+const { transactionCostAt, isUnbilledTimeoutEnd } = await import('../server/session-cost.js');
 
 /** A tagged-template sql mock answering by the first matching query fragment. */
 function makeSql(answers: Array<[string, Record<string, unknown>[]]>): postgres.Sql {
@@ -128,5 +128,76 @@ describe('transactionCostAt', () => {
       calculated: false,
     });
     expect(priceSessionAtMock).not.toHaveBeenCalled();
+  });
+
+  it('costs 0 for an EVConnectTimeout end without energy (C20.FR.03)', async () => {
+    const sql = makeSql([
+      [
+        'FROM charging_sessions s',
+        [{ ...baseSession, status: 'active', energy_delivered_wh: null, meter_start: 10000 }],
+      ],
+    ]);
+    await expect(
+      transactionCostAt(sql, {
+        ...params,
+        meterRegisterWh: 10000,
+        end: { triggerReason: 'EVConnectTimeout', stoppedReason: 'Timeout' },
+      }),
+    ).resolves.toEqual({ totalCostCents: 0, calculated: false });
+    expect(priceSessionAtMock).not.toHaveBeenCalled();
+  });
+
+  it('prices a timeout end that delivered energy, and other ends', async () => {
+    const sql = makeSql([
+      [
+        'FROM charging_sessions s',
+        [{ ...baseSession, status: 'active', energy_delivered_wh: null, meter_start: 10000 }],
+      ],
+    ]);
+    await expect(
+      transactionCostAt(sql, {
+        ...params,
+        end: { triggerReason: 'EVConnectTimeout', stoppedReason: 'Timeout' },
+      }),
+    ).resolves.toEqual({ totalCostCents: 250, calculated: true });
+    await expect(
+      transactionCostAt(sql, {
+        ...params,
+        meterRegisterWh: 10000,
+        end: { triggerReason: 'EVDeparted', stoppedReason: 'EVDisconnected' },
+      }),
+    ).resolves.toEqual({ totalCostCents: 250, calculated: true });
+  });
+});
+
+describe('isUnbilledTimeoutEnd', () => {
+  it('matches a timeout trigger or stop reason without energy only', () => {
+    expect(
+      isUnbilledTimeoutEnd({
+        triggerReason: 'EVConnectTimeout',
+        stoppedReason: undefined,
+        energyWh: 0,
+      }),
+    ).toBe(true);
+    expect(
+      isUnbilledTimeoutEnd({
+        triggerReason: 'StopAuthorized',
+        stoppedReason: 'Timeout',
+        energyWh: 0,
+      }),
+    ).toBe(true);
+    expect(
+      isUnbilledTimeoutEnd({
+        triggerReason: 'EVConnectTimeout',
+        stoppedReason: 'Timeout',
+        energyWh: 1,
+      }),
+    ).toBe(false);
+    expect(
+      isUnbilledTimeoutEnd({ triggerReason: 'Local', stoppedReason: 'Local', energyWh: 0 }),
+    ).toBe(false);
+    expect(isUnbilledTimeoutEnd({ triggerReason: null, stoppedReason: null, energyWh: 0 })).toBe(
+      false,
+    );
   });
 });

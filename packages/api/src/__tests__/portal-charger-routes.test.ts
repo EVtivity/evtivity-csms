@@ -122,14 +122,26 @@ vi.mock('postgres', () => ({
   }),
 }));
 
-const { mockActivePaymentProvider, mockAuthorizeSessionHold } = vi.hoisted(() => ({
+const {
+  mockActivePaymentProvider,
+  mockAuthorizeSessionHold,
+  mockCancelOpenSessionHold,
+  mockScheduleRemoteStartTimeout,
+} = vi.hoisted(() => ({
   mockActivePaymentProvider: vi.fn(),
   mockAuthorizeSessionHold: vi.fn(),
+  mockCancelOpenSessionHold: vi.fn(),
+  mockScheduleRemoteStartTimeout: vi.fn(),
 }));
 
 vi.mock('@evtivity/payments', () => ({
   authorizeSessionHold: mockAuthorizeSessionHold,
+  cancelOpenSessionHold: mockCancelOpenSessionHold,
   chargeReservationFee: vi.fn(),
+}));
+
+vi.mock('../lib/remote-start-timeout.js', () => ({
+  scheduleRemoteStartTimeout: mockScheduleRemoteStartTimeout,
 }));
 
 vi.mock('../lib/payments.js', () => ({
@@ -790,6 +802,58 @@ describe('Portal charger routes - handler logic', () => {
         'RequestStartTransaction',
         expect.objectContaining({ evseId: 1 }),
       );
+      // The accepted start is closed by the worker if no transaction follows.
+      expect(mockScheduleRemoteStartTimeout).toHaveBeenCalledWith(
+        { kind: 'session', sessionId: VALID_SESSION_ID },
+        expect.objectContaining({ id: stationRow.id }),
+        expect.anything(),
+      );
+      expect(mockCancelOpenSessionHold).not.toHaveBeenCalled();
+    });
+
+    it('cancels the hold and schedules nothing when the station rejects the start', async () => {
+      setupStartRows([{ id: 7 }], [{ id: VALID_SESSION_ID }]);
+      mockAuthorizeSessionHold.mockResolvedValueOnce({
+        outcome: 'authorized',
+        paymentRecordId: 3,
+        paymentId: 'pi_test_123',
+      });
+      mockCancelOpenSessionHold.mockResolvedValueOnce({ status: 'cancelled', paymentRecordId: 3 });
+      vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+        response: { status: 'Rejected' },
+        error: null,
+      } as never);
+
+      const response = await startWithCard();
+
+      expect(response.statusCode).toBe(502);
+      expect(response.json().code).toBe('START_REJECTED');
+      expect(sessionUpdateSets()).toContainEqual(expect.objectContaining({ status: 'faulted' }));
+      expect(mockCancelOpenSessionHold).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+        'Station rejected the start: Rejected',
+        { registry: 'registry', logger: expect.anything() },
+      );
+      expect(mockScheduleRemoteStartTimeout).not.toHaveBeenCalled();
+    });
+
+    it('still answers the rejection when the hold cancel fails (fail-open)', async () => {
+      setupStartRows([{ id: 7 }], [{ id: VALID_SESSION_ID }]);
+      mockAuthorizeSessionHold.mockResolvedValueOnce({
+        outcome: 'authorized',
+        paymentRecordId: 3,
+        paymentId: 'pi_test_123',
+      });
+      mockCancelOpenSessionHold.mockRejectedValueOnce(new Error('provider down'));
+      vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+        response: { status: 'Rejected' },
+        error: null,
+      } as never);
+
+      const response = await startWithCard();
+
+      expect(response.statusCode).toBe(502);
+      expect(response.json().code).toBe('START_REJECTED');
     });
 
     it('returns 402 and fails the session without starting the station when the card is declined', async () => {

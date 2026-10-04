@@ -19,6 +19,7 @@ const m = vi.hoisted(() => {
     findReservationCharge: vi.fn(),
     markChargeCaptured: vi.fn(),
     markChargeFailed: vi.fn(),
+    sitePayoutReadiness: vi.fn(),
   };
 });
 
@@ -37,6 +38,10 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 vi.mock('../settings.js', () => ({ getSitePaymentConfig: m.getSitePaymentConfig }));
+vi.mock('../payout-accounts.js', () => ({
+  PAYOUT_NOT_READY_FAILURE: 'Payout account not ready',
+  sitePayoutReadiness: m.sitePayoutReadiness,
+}));
 
 vi.mock('../payment-records.js', () => ({
   recordPendingCharge: m.recordPendingCharge,
@@ -69,7 +74,7 @@ const baseInput: ReservationFeeInput = {
 };
 
 beforeEach(() => {
-  m.methodRows.value = [{ customerId: 'cus_1', methodId: 'pm_1' }];
+  m.methodRows.value = [{ provider: 'stripe', customerId: 'cus_1', methodId: 'pm_1' }];
   m.getCompanyCurrency.mockResolvedValue('USD');
   m.getPlatformFeePercent.mockResolvedValue(10);
   m.resolveStationTariff.mockResolvedValue({ taxRate: '0.19' });
@@ -78,6 +83,7 @@ beforeEach(() => {
     payoutAccountId: 'acct_site',
     preAuthAmountCents: 5000,
   });
+  m.sitePayoutReadiness.mockResolvedValue('ready');
   m.recordPendingCharge.mockResolvedValue(7);
   m.findReservationCharge.mockResolvedValue(7);
   m.markChargeCaptured.mockResolvedValue(true);
@@ -91,6 +97,35 @@ beforeEach(() => {
 });
 
 describe('chargeReservationFee', () => {
+  it('records a failed fee without charging when the payout account is not ready', async () => {
+    m.sitePayoutReadiness.mockResolvedValue('not_ready');
+
+    await expect(chargeReservationFee(baseInput, ctx)).resolves.toEqual({
+      status: 'failed',
+      paymentRecordId: 7,
+      reason: 'Payout account not ready',
+    });
+    expect(m.sitePayoutReadiness).toHaveBeenCalledWith('site_1', ctx);
+    expect(m.markChargeFailed).toHaveBeenCalledWith(7, 'Payout account not ready');
+    expect(provider.chargeSavedMethod).not.toHaveBeenCalled();
+  });
+
+  it('charges the platform without checking readiness when the site has no payout account', async () => {
+    m.getSitePaymentConfig.mockResolvedValue({
+      configId: 3,
+      payoutAccountId: null,
+      preAuthAmountCents: 5000,
+    });
+
+    await expect(chargeReservationFee(baseInput, ctx)).resolves.toMatchObject({
+      status: 'charged',
+    });
+    expect(m.sitePayoutReadiness).not.toHaveBeenCalled();
+    expect(provider.chargeSavedMethod).toHaveBeenCalledWith(
+      expect.objectContaining({ payoutAccountId: null }),
+    );
+  });
+
   it('skips without an amount', async () => {
     await expect(chargeReservationFee({ ...baseInput, netCents: 0 }, ctx)).resolves.toEqual({
       status: 'skipped',
@@ -141,6 +176,7 @@ describe('chargeReservationFee', () => {
       reservationId: 'rsv_1',
       driverId: 'drv_1',
       sitePaymentConfigId: 3,
+      provider: 'stripe',
       customerId: 'cus_1',
       methodId: 'pm_1',
       currency: 'USD',
@@ -163,6 +199,7 @@ describe('chargeReservationFee', () => {
       idempotencyKey: 'cancellation-fee-rsv_1',
     });
     expect(m.markChargeCaptured).toHaveBeenCalledWith(7, {
+      provider: 'stripe',
       paymentId: 'pi_fee',
       amountCents: 595,
     });
@@ -256,12 +293,26 @@ describe('chargeReservationFee', () => {
   });
 
   it('charges a simulated card through the simulated provider', async () => {
-    m.methodRows.value = [{ customerId: 'cus_sim_1', methodId: 'pm_sim_1' }];
+    m.methodRows.value = [{ provider: 'simulated', customerId: 'cus_sim_1', methodId: 'pm_sim_1' }];
 
     const result = await chargeReservationFee(baseInput, ctx);
 
     expect(registry.getPaymentProvider).toHaveBeenCalledWith('simulated');
     expect(result).toMatchObject({ status: 'charged', grossCents: 595 });
+  });
+
+  it('skips a default method without a provider or provider ids', async () => {
+    m.methodRows.value = [{ provider: null, customerId: 'cus_1', methodId: 'pm_1' }];
+    await expect(chargeReservationFee(baseInput, ctx)).resolves.toEqual({
+      status: 'skipped',
+      reason: 'payments_not_configured',
+    });
+    m.methodRows.value = [{ provider: 'stripe', customerId: null, methodId: 'pm_1' }];
+    await expect(chargeReservationFee(baseInput, ctx)).resolves.toEqual({
+      status: 'skipped',
+      reason: 'no_payment_method',
+    });
+    expect(m.recordPendingCharge).not.toHaveBeenCalled();
   });
 
   it('logs when the charged record had already moved on', async () => {

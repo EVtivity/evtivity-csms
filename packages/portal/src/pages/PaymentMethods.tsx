@@ -4,8 +4,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { loadStripe } from '@stripe/stripe-js/pure';
-import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { CreditCard, Trash2, Star } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
@@ -14,112 +12,12 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
-import { api } from '@/lib/api';
+import { api, getApiErrorCode } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
-
-interface PaymentMethod {
-  id: number;
-  cardBrand: string | null;
-  cardLast4: string | null;
-  isDefault: boolean;
-}
-
-interface SetupIntentResponse {
-  clientSecret: string;
-  customerId: string;
-  publishableKey: string;
-}
-
-function AddCardForm({
-  onSuccess,
-  clientSecret: initialClientSecret,
-  customerId: initialCustomerId,
-}: {
-  onSuccess: () => void;
-  clientSecret: string;
-  customerId: string;
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  const stripe = useStripe();
-  const elements = useElements();
-  const queryClient = useQueryClient();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const customerId = initialCustomerId;
-  const clientSecret = initialClientSecret;
-
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  async function handleSubmit(e: React.FormEvent): Promise<void> {
-    e.preventDefault();
-    if (stripe == null || elements == null) return;
-
-    setError('');
-    setLoading(true);
-    try {
-      const cardElement = elements.getElement(CardElement);
-      if (cardElement == null) return;
-
-      const { setupIntent, error: stripeError } = await stripe.confirmCardSetup(clientSecret, {
-        payment_method: { card: cardElement },
-      });
-
-      if (stripeError != null) {
-        setError(stripeError.message ?? t('payments.cardSetupFailed'));
-        return;
-      }
-
-      if (setupIntent.payment_method == null) {
-        setError(t('payments.cardSetupFailed'));
-        return;
-      }
-
-      const pmId =
-        typeof setupIntent.payment_method === 'string'
-          ? setupIntent.payment_method
-          : setupIntent.payment_method.id;
-
-      // The server fetches cardBrand/cardLast4 from Stripe authoritatively;
-      // SetupIntent.payment_method here is just the ID string by default.
-      await api.post('/v1/portal/payment-methods', {
-        stripePaymentMethodId: pmId,
-        stripeCustomerId: customerId,
-      });
-
-      await queryClient.invalidateQueries({ queryKey: ['portal-payment-methods'] });
-      onSuccess();
-    } catch {
-      setError(t('payments.failedSave'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
-      {error !== '' && <p className="text-sm text-destructive">{error}</p>}
-      <div className="rounded-lg border border-input p-3">
-        <CardElement
-          options={{
-            style: {
-              base: {
-                fontSize: '16px',
-                color: document.documentElement.classList.contains('dark') ? '#f8fafc' : '#020817',
-                '::placeholder': {
-                  color: document.documentElement.classList.contains('dark')
-                    ? '#94a3b8'
-                    : '#64748b',
-                },
-              },
-            },
-          }}
-        />
-      </div>
-      <Button type="submit" className="w-full" disabled={loading}>
-        {loading ? t('common.saving') : t('payments.saveCard')}
-      </Button>
-    </form>
-  );
-}
+import { ProviderHost } from '@/payments/ProviderHost';
+import { startSetup } from '@/payments/api';
+import { createCardSetupSteps, type CardSetupSteps } from '@/payments/setup-attempt';
+import type { PaymentMethodItem, SetupSession } from '@/payments/types';
 
 function formatBrand(brand: string | null): string {
   if (brand == null || brand.length === 0) return '';
@@ -130,16 +28,15 @@ export function PaymentMethods(): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [showAdd, setShowAdd] = useState(false);
-  const [stripeError, setStripeError] = useState('');
-  const [stripePromise, setStripePromise] = useState<ReturnType<typeof loadStripe> | null>(null);
-  const [setupClientSecret, setSetupClientSecret] = useState('');
-  const [setupCustomerId, setSetupCustomerId] = useState('');
-  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  const [setupError, setSetupError] = useState('');
+  const [starting, setStarting] = useState(false);
+  // The opened card form: its provider session and one attempt id (createCardSetupSteps).
+  const [setup, setSetup] = useState<{ session: SetupSession; steps: CardSetupSteps } | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const { data: methods, isLoading } = useQuery({
     queryKey: ['portal-payment-methods'],
-    queryFn: () => api.get<PaymentMethod[]>('/v1/portal/payment-methods'),
+    queryFn: () => api.get<PaymentMethodItem[]>('/v1/portal/payment-methods'),
   });
 
   function toastApiError(err: unknown, fallbackKey: string): void {
@@ -147,7 +44,8 @@ export function PaymentMethods(): React.JSX.Element {
   }
 
   const deleteMutation = useMutation({
-    mutationFn: (pmId: number) => api.delete(`/v1/portal/payment-methods/${String(pmId)}`),
+    mutationFn: (pmId: string) =>
+      api.delete(`/v1/portal/payment-methods/${encodeURIComponent(pmId)}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['portal-payment-methods'] }),
     onError: (err: unknown) => {
       toastApiError(err, 'payments.removeFailed');
@@ -156,8 +54,8 @@ export function PaymentMethods(): React.JSX.Element {
   });
 
   const setDefaultMutation = useMutation({
-    mutationFn: (pmId: number) =>
-      api.patch(`/v1/portal/payment-methods/${String(pmId)}/default`, {}),
+    mutationFn: (pmId: string) =>
+      api.patch(`/v1/portal/payment-methods/${encodeURIComponent(pmId)}/default`, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['portal-payment-methods'] }),
     onError: (err: unknown) => {
       toastApiError(err, 'payments.setDefaultFailed');
@@ -165,27 +63,20 @@ export function PaymentMethods(): React.JSX.Element {
   });
 
   async function handleShowAdd(): Promise<void> {
-    setStripeError('');
+    if (starting) return;
+    setSetupError('');
+    setStarting(true);
     try {
-      const data = await api.post<SetupIntentResponse>(
-        '/v1/portal/payment-methods/setup-intent',
-        {},
+      const session = await startSetup();
+      setSetup({ session, steps: createCardSetupSteps(session.provider) });
+    } catch (err: unknown) {
+      setSetupError(
+        getApiErrorCode(err) === 'PAYMENT_PROVIDER_NOT_CONFIGURED'
+          ? t('payments.providerNotConfigured')
+          : getErrorMessage(err, t, 'payments.cardSetupFailed'),
       );
-      // Defensive: backend validates both are non-empty before returning 200,
-      // but if the contract is ever violated we'd otherwise mount Elements
-      // with an empty key and the user sees a blank card form.
-      if (!data.publishableKey || !data.clientSecret) {
-        setStripeError(t('payments.stripeNotConfigured'));
-        return;
-      }
-      setSetupClientSecret(data.clientSecret);
-      setSetupCustomerId(data.customerId);
-      if (stripePromise == null) {
-        setStripePromise(loadStripe(data.publishableKey));
-      }
-      setShowAdd(true);
-    } catch {
-      setStripeError(t('payments.stripeNotConfigured'));
+    } finally {
+      setStarting(false);
     }
   }
 
@@ -193,27 +84,33 @@ export function PaymentMethods(): React.JSX.Element {
     <div className="space-y-4">
       <PageHeader title={t('payments.title')} />
 
-      {stripeError !== '' && <p className="text-sm text-destructive">{stripeError}</p>}
+      {setupError !== '' && <p className="text-sm text-destructive">{setupError}</p>}
 
       {/* Add entry point sits at the top, matching the mobile app. While the
-          inline Stripe form is open it replaces the button to avoid two
-          simultaneous entry points. */}
-      {showAdd && stripePromise != null ? (
+          card form is open it replaces the button to avoid two entry points. */}
+      {setup != null ? (
         <Card>
           <CardContent className="pt-6">
-            <Elements stripe={stripePromise}>
-              <AddCardForm
-                clientSecret={setupClientSecret}
-                customerId={setupCustomerId}
-                onSuccess={() => {
-                  setShowAdd(false);
-                }}
-              />
-            </Elements>
+            <ProviderHost
+              provider={setup.session.provider}
+              component="CardSetup"
+              props={{
+                session: setup.session,
+                submit: setup.steps.submit,
+                submitDetails: setup.steps.submitDetails,
+                onSaved: () => {
+                  setSetup(null);
+                  void queryClient.invalidateQueries({ queryKey: ['portal-payment-methods'] });
+                },
+                onCancel: () => {
+                  setSetup(null);
+                },
+              }}
+            />
           </CardContent>
         </Card>
       ) : (
-        <Button className="w-full" onClick={() => void handleShowAdd()}>
+        <Button className="w-full" disabled={starting} onClick={() => void handleShowAdd()}>
           {t('payments.addCard')}
         </Button>
       )}
@@ -226,7 +123,7 @@ export function PaymentMethods(): React.JSX.Element {
         </div>
       )}
 
-      {methods != null && methods.length === 0 && !showAdd && (
+      {methods != null && methods.length === 0 && setup == null && (
         <p className="text-center text-sm text-muted-foreground">{t('payments.noMethods')}</p>
       )}
 

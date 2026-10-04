@@ -56,6 +56,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
   // Idling and session
   const [idlingGracePeriod, setIdlingGracePeriod] = useState('30');
   const [staleSessionTimeout, setStaleSessionTimeout] = useState('24');
+  const [evConnectionTimeout, setEvConnectionTimeout] = useState('180');
 
   // Pricing
   const [splitBillingEnabled, setSplitBillingEnabled] = useState(true);
@@ -148,6 +149,8 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     setIdlingGracePeriod(gp != null ? Number(gp).toString() : '30');
     const sst = settings['session.staleTimeoutHours'];
     setStaleSessionTimeout(sst != null ? Number(sst).toString() : '24');
+    const ect = settings['session.evConnectionTimeoutSeconds'];
+    setEvConnectionTimeout(ect != null ? Number(ect).toString() : '180');
     setSplitBillingEnabled(settings['pricing.splitBillingEnabled'] !== false);
     const mapsKey = settings['googleMaps.apiKeyEnc'];
     setGoogleMapsApiKey(typeof mapsKey === 'string' ? mapsKey : '');
@@ -311,6 +314,14 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
   const staleSessionTimeoutMutation = useMutation({
     mutationFn: (hours: number) =>
       api.put('/v1/settings/session.staleTimeoutHours', { value: hours }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+    },
+  });
+
+  const evConnectionTimeoutMutation = useMutation({
+    mutationFn: (seconds: number) =>
+      api.put('/v1/settings/session.evConnectionTimeoutSeconds', { value: seconds }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['settings'] });
     },
@@ -1061,6 +1072,37 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               }}
             />
             {staleSessionTimeoutMutation.isSuccess && (
+              <p className="text-sm text-success">{t('common.saved')}</p>
+            )}
+            <div className="grid gap-2 max-w-xs">
+              <Label htmlFor="ev-connection-timeout">
+                {t('settings.evConnectionTimeoutSeconds')}
+              </Label>
+              <Input
+                id="ev-connection-timeout"
+                type="number"
+                min={1}
+                step={1}
+                value={evConnectionTimeout}
+                onChange={(e) => {
+                  setEvConnectionTimeout(e.target.value);
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('settings.evConnectionTimeoutHelp')}
+              </p>
+            </div>
+            <SaveButton
+              isPending={evConnectionTimeoutMutation.isPending}
+              type="button"
+              onClick={() => {
+                const seconds = parseInt(evConnectionTimeout, 10);
+                if (!isNaN(seconds) && seconds >= 1) {
+                  evConnectionTimeoutMutation.mutate(seconds);
+                }
+              }}
+            />
+            {evConnectionTimeoutMutation.isSuccess && (
               <p className="text-sm text-success">{t('common.saved')}</p>
             )}
           </CardContent>

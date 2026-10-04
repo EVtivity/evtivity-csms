@@ -11,6 +11,8 @@
  *   vi.mock('../settings.js', async () => (await import('./helpers/session-db.js')).settingsMock);
  */
 
+import type { PayoutAccountState } from '../../types.js';
+
 export interface SessionScenario {
   sessionId: string;
   finalCostCents: number | null;
@@ -19,10 +21,11 @@ export interface SessionScenario {
 
 export const sessionDb = {
   current: null as SessionScenario | null,
-  method: null as { id: number; customerId: string; methodId: string } | null,
+  method: null as { id: number; provider: string; customerId: string; methodId: string } | null,
   sitePaymentConfig: null as {
     configId: number;
     payoutAccountId: string | null;
+    payoutAccountStatus: PayoutAccountState | null;
     preAuthAmountCents: number;
   } | null,
   platformFeePercent: 0,
@@ -90,12 +93,14 @@ export const databaseMock = {
     id: 'm.id',
     driverId: 'm.driver_id',
     isDefault: 'm.is_default',
-    stripeCustomerId: 'm.stripe_customer_id',
-    stripePaymentMethodId: 'm.stripe_payment_method_id',
+    provider: 'm.provider',
+    providerCustomerId: 'm.provider_customer_id',
+    providerPaymentMethodId: 'm.provider_payment_method_id',
   },
   getPlatformFeePercent: () => Promise.resolve(sessionDb.platformFeePercent),
 };
 
 export const settingsMock = {
   getSitePaymentConfig: () => Promise.resolve(sessionDb.sitePaymentConfig),
+  clearPaymentSettingsCache: (): void => undefined,
 };

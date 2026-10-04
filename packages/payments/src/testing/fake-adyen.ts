@@ -5,10 +5,10 @@
 // the documented samples (docs.adyen.com: adjust-with-preauth, create-tokens,
 // managing-tokens); a test queues its own answers with `next`.
 
-import { adyenHmacSignature } from '../../providers/adyen/hmac.js';
-import type { AdyenNotificationItem } from '../../providers/adyen/hmac.js';
-import { AdyenPaymentProvider } from '../../providers/adyen/index.js';
-import type { AdyenProviderOptions } from '../../providers/adyen/index.js';
+import { adyenHmacSignature } from '../providers/adyen/hmac.js';
+import type { AdyenNotificationItem } from '../providers/adyen/hmac.js';
+import { AdyenPaymentProvider } from '../providers/adyen/index.js';
+import type { AdyenProviderOptions } from '../providers/adyen/index.js';
 
 /** The HMAC key of the Adyen verify-hmac-signatures example. */
 export const DOC_HMAC_KEY = '44782DEF547AAA06C910C43932B1EB0C71FC68D9D0C057550C48EC2ACF6BA056';
@@ -16,6 +16,9 @@ export const MERCHANT = 'TestMerchant';
 export const PAYMENT_PSP = 'KHQC5N7G84BLNK43';
 export const MODIFICATION_PSP = 'QJ7GWQ756L2GWR86';
 export const TOKEN_ID = 'M5N7TQ4TG5PFWR50';
+/** Management API answers (spike B1 shapes). */
+export const WEBHOOK_ID = 'WBHK42CL222322CG5Q3X74J2D23KCN';
+export const NEW_HMAC_KEY = 'B0B1B2B3B4B5B6B7B8B9BABBBCBDBEBFC0C1C2C3C4C5C6C7C8C9CACBCCCDCECF';
 
 export interface RecordedCall {
   method: string;
@@ -122,9 +125,55 @@ function defaultAnswer(call: RecordedCall): FakeAnswer {
     };
   }
   if (method === 'DELETE' && path.includes('/storedPaymentMethods/')) return { status: 204 };
+  if (path.startsWith('/v3/')) return managementAnswer(call);
   return {
     status: 404,
     body: { status: 404, errorCode: '000', message: 'Not found', errorType: 'validation' },
+  };
+}
+
+function managementAnswer(call: RecordedCall): FakeAnswer {
+  const { method, path, body } = call;
+  if (method === 'GET' && path === '/v3/me') {
+    return {
+      body: {
+        id: 'ws@Company.Test',
+        roles: ['Checkout webservice role', 'Management API - Webhooks read and write'],
+        allowedOrigins: [{ id: 'S2-1', domain: 'http://localhost:7101' }],
+        clientKey: 'test_CLIENTKEY',
+      },
+    };
+  }
+  if (method === 'GET' && /^\/v3\/merchants\/[^/]+\/webhooks$/.test(path)) {
+    return { body: { itemsTotal: 0, pagesTotal: 0 } };
+  }
+  if (method === 'POST' && /^\/v3\/merchants\/[^/]+\/webhooks$/.test(path)) {
+    const { password, ...rest } = body ?? {};
+    return { body: { id: WEBHOOK_ID, ...rest, hasPassword: password != null } };
+  }
+  if (method === 'POST' && path.endsWith('/generateHmac'))
+    return { body: { hmacKey: NEW_HMAC_KEY } };
+  if (method === 'POST' && path.endsWith('/test')) {
+    return {
+      body: {
+        data: [
+          {
+            status: 'success',
+            responseCode: '200',
+            output: '[accepted]',
+            requestSent: '{"live":"false"}',
+            responseTime: '20 ms',
+          },
+        ],
+      },
+    };
+  }
+  const webhook = /^\/v3\/merchants\/[^/]+\/webhooks\/([^/]+)$/.exec(path);
+  if (method === 'PATCH' && webhook != null) return { body: { id: webhook[1] } };
+  if (method === 'DELETE' && webhook != null) return { status: 204 };
+  return {
+    status: 422,
+    body: { status: 422, title: 'Invalid webhook information provided.', errorCode: '31_003' },
   };
 }
 
