@@ -1,6 +1,6 @@
 {
   "name": "@evtivity/csms",
-  "version": "0.1.38-nightly.5",
+  "version": "0.1.38-beta.1",
   "private": true,
   "type": "module",
   "scripts": {
