@@ -401,7 +401,11 @@ import {
   pendingOperationSchema,
   providerRefundsSchema,
 } from '../lib/payment-provider-schemas.js';
-import { checkPaymentWebhookUrl, splitWebhookEndpoints } from '../lib/payment-webhook-url.js';
+import {
+  checkPaymentWebhookLookupUrl,
+  checkPaymentWebhookUrl,
+  splitWebhookEndpoints,
+} from '../lib/payment-webhook-url.js';
 import { decryptForRead } from '../lib/settings-crypto.js';
 
 const siteIdParams = z.object({ id: ID_PARAMS.siteId.describe('Site ID') });
@@ -517,7 +521,7 @@ const sitePaymentConfigSaveItem = sitePaymentConfigItem.extend({
   holdBelowSessionFee: z
     .boolean()
     .describe(
-      'True when preAuthAmountCents is below sessionFeeCents: a guest hold is raised to the session fee at start, so raise the hold to cover it',
+      'True when preAuthAmountCents is below sessionFeeCents: a guest then holds the session fee plus preAuthAmountCents at start, so raise the hold to cover the fee',
     ),
 });
 
@@ -675,7 +679,7 @@ const stripeWebhookSetupQuery = z.object({
     .max(2048)
     .optional()
     .describe(
-      'Webhook URL of this deployment (https, ending in /v1/webhooks/payments/stripe). Splits the EVtivity endpoints into the ones at this URL and the ones of other deployments.',
+      'Webhook URL of this deployment (http or https, ending in /v1/webhooks/payments/stripe). Splits the EVtivity endpoints into the ones at this URL and the ones of other deployments.',
     ),
 });
 
@@ -1146,7 +1150,7 @@ export function paymentRoutes(app: FastifyInstance): void {
       const query = request.query as z.infer<typeof stripeWebhookSetupQuery>;
       let url: string | undefined;
       if (query.url !== undefined) {
-        const checked = checkPaymentWebhookUrl(query.url, 'stripe');
+        const checked = checkPaymentWebhookLookupUrl(query.url, 'stripe');
         if (!checked.ok) {
           await reply.status(400).send({
             error: 'Invalid webhook URL',

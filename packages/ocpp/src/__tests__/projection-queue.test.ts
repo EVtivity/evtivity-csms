@@ -6,7 +6,7 @@ import type { EventBus } from '@evtivity/lib';
 import { projectionQueueFor } from '../server/projection-queue.js';
 
 function makeBus(): EventBus {
-  return { publish: vi.fn(), subscribe: vi.fn() };
+  return { publish: vi.fn(), subscribe: vi.fn(), drain: vi.fn() };
 }
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {

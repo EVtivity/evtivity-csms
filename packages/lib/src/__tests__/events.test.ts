@@ -126,4 +126,90 @@ describe('InMemoryEventBus', () => {
     const received = handler.mock.calls[0]?.[0] as DomainEvent;
     expect(received.occurredAt).toBeInstanceOf(Date);
   });
+
+  describe('drain', () => {
+    it('resolves true at once when nothing is in flight', async () => {
+      const bus = new InMemoryEventBus(logger);
+      await expect(bus.drain(10)).resolves.toBe(true);
+    });
+
+    it('waits for running handlers, including events they publish', async () => {
+      const bus = new InMemoryEventBus(logger);
+      const order: string[] = [];
+      let releaseFirst: () => void = () => undefined;
+      bus.subscribe('first', async () => {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+        order.push('first');
+        void bus.publish(makeEvent({ eventType: 'second' }));
+      });
+      bus.subscribe('second', async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        order.push('second');
+      });
+
+      await bus.publish(makeEvent({ eventType: 'first' }));
+      const drained = bus.drain(1000).then((result) => {
+        order.push('drained');
+        return result;
+      });
+      releaseFirst();
+
+      await expect(drained).resolves.toBe(true);
+      expect(order).toEqual(['first', 'second', 'drained']);
+    });
+
+    it('waits for persistence of an event with no handlers', async () => {
+      let releasePersist: () => void = () => undefined;
+      const persistence: EventPersistence = {
+        persist: () =>
+          new Promise<void>((resolve) => {
+            releasePersist = resolve;
+          }),
+      };
+      const bus = new InMemoryEventBus(logger, persistence);
+      void bus.publish(makeEvent());
+
+      await expect(bus.drain(20)).resolves.toBe(false);
+      releasePersist();
+      await expect(bus.drain(1000)).resolves.toBe(true);
+    });
+
+    it('resolves false when a handler outlives the timeout', async () => {
+      const bus = new InMemoryEventBus(logger);
+      let release: () => void = () => undefined;
+      bus.subscribe('test.event', () => {
+        return new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      });
+      await bus.publish(makeEvent());
+
+      await expect(bus.drain(20)).resolves.toBe(false);
+      release();
+      await expect(bus.drain(1000)).resolves.toBe(true);
+    });
+
+    it('logs a handler that throws synchronously and keeps dispatching', async () => {
+      const bus = new InMemoryEventBus(logger);
+      const next = vi.fn().mockResolvedValue(undefined);
+      bus.subscribe('test.event', () => {
+        throw new Error('sync boom');
+      });
+      bus.subscribe('test.event', next);
+      await bus.publish(makeEvent());
+
+      await expect(bus.drain(1000)).resolves.toBe(true);
+      expect(next).toHaveBeenCalledOnce();
+    });
+
+    it('counts a failed handler as settled', async () => {
+      const bus = new InMemoryEventBus(logger);
+      bus.subscribe('test.event', () => Promise.reject(new Error('boom')));
+      await bus.publish(makeEvent());
+
+      await expect(bus.drain(1000)).resolves.toBe(true);
+    });
+  });
 });

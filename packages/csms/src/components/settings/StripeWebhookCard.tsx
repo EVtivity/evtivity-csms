@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,7 @@ import {
   PaymentWebhookSetup,
   WebhookEndpointsTable,
   defaultWebhookUrl,
+  useWebhookUrl,
   webhookSetupPath,
   type WebhookEndpoint,
 } from './PaymentWebhookSetup';
@@ -59,14 +60,17 @@ export function StripeWebhookCard({ canWrite }: { canWrite: boolean }): React.JS
   const queryClient = useQueryClient();
   const [manualOpen, setManualOpen] = useState(false);
 
+  const urlState = useWebhookUrl(STRIPE_WEBHOOK_PATH);
+
   const setup = useQuery({
-    queryKey: ['stripe-webhook'],
+    queryKey: ['stripe-webhook', urlState.queryUrl],
     queryFn: () =>
       api.get<StripeWebhookSetup>(
-        webhookSetupPath('/v1/settings/stripe/webhook', STRIPE_WEBHOOK_PATH),
+        webhookSetupPath('/v1/settings/stripe/webhook', urlState.queryUrl),
       ),
     staleTime: 30_000,
     retry: false,
+    placeholderData: keepPreviousData,
   });
 
   const notConfigured = getApiErrorCode(setup.error) === 'PAYMENT_PROVIDER_NOT_CONFIGURED';
@@ -82,6 +86,7 @@ export function StripeWebhookCard({ canWrite }: { canWrite: boolean }): React.JS
 
         <PaymentWebhookSetup<{ endpoints: WebhookEndpoint[] }>
           idPrefix="stripe"
+          urlState={urlState}
           path={STRIPE_WEBHOOK_PATH}
           urlLabel={t('settings.stripeWebhookUrl')}
           urlHint={t('settings.stripeWebhookUrlHint')}

@@ -3,7 +3,8 @@
 
 import type { FastifyServerOptions } from 'fastify';
 import { RedisPubSubClient, initSentry } from '@evtivity/lib';
-import { getSentryConfig } from '@evtivity/database';
+import { client, getSentryConfig } from '@evtivity/database';
+import { createShutdownHandler } from './lib/process-shutdown.js';
 import { buildApp } from './app.js';
 import { config } from './lib/config.js';
 import { setPubSub } from './lib/pubsub.js';
@@ -82,6 +83,17 @@ async function start(): Promise<void> {
     await cacheInvalidateSubscription.unsubscribe();
     await pubsub.close();
   });
+
+  // Without handlers SIGTERM kills the process at once: in-flight requests
+  // are cut and the onClose hooks above never run.
+  const shutdown = createShutdownHandler({
+    closeApp: () => app.close(),
+    closeDatabase: () => client.end({ timeout: 5 }),
+    exit: (code) => process.exit(code),
+    logger: app.log,
+  });
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
 
   await app.listen({ port: config.API_PORT, host: config.API_HOST });
   app.log.info(`API server listening on ${config.API_HOST}:${String(config.API_PORT)}`);

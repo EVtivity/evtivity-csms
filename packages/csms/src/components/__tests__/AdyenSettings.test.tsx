@@ -86,17 +86,19 @@ const ENDPOINT = {
   active: true,
 };
 
+const WEBHOOK_GET_PREFIX = '/v1/settings/adyen/webhook?url=';
+
 function mockGets(
   options: {
     providers?: unknown[];
-    webhook?: () => Promise<unknown>;
+    webhook?: (url: string) => Promise<unknown>;
   } = {},
 ): void {
   getMock.mockImplementation((url: string) => {
     if (url === '/v1/settings/adyen') return Promise.resolve(SETTINGS);
-    if (url === `/v1/settings/adyen/webhook?url=${encodeURIComponent(ENDPOINT.url)}`) {
+    if (url.startsWith(WEBHOOK_GET_PREFIX)) {
       return (
-        options.webhook?.() ??
+        options.webhook?.(decodeURIComponent(url.slice(WEBHOOK_GET_PREFIX.length))) ??
         Promise.resolve({
           endpoints: [],
           hmacKeyConfigured: true,
@@ -271,6 +273,85 @@ describe('AdyenSettings', () => {
     const other = await screen.findByTestId('other-webhook-endpoints');
     expect(other.textContent).toContain('settings.webhookOtherEndpoints');
     expect(other.textContent).toContain(otherUrl);
+  });
+
+  describe('split by the URL in the field', () => {
+    const TUNNEL_URL = 'https://tunnel.trycloudflare.com/v1/webhooks/payments/adyen';
+    const TUNNEL_ENDPOINT = { ...ENDPOINT, id: 'WBHK_TUNNEL', url: TUNNEL_URL };
+
+    function mockSplit(): void {
+      mockGets({
+        webhook: (url) =>
+          Promise.resolve({
+            endpoints: [url === TUNNEL_URL ? TUNNEL_ENDPOINT : ENDPOINT],
+            otherEndpoints: [url === TUNNEL_URL ? ENDPOINT : TUNNEL_ENDPOINT],
+            hmacKeyConfigured: true,
+            webhookPasswordConfigured: true,
+            events: ['AUTHORISATION'],
+          }),
+      });
+    }
+
+    function webhookGets(url: string): number {
+      const path = `${WEBHOOK_GET_PREFIX}${encodeURIComponent(url)}`;
+      return getMock.mock.calls.filter(([called]) => called === path).length;
+    }
+
+    it('lists the webhook at the edited URL as this deployment, after the typing pauses', async () => {
+      mockSplit();
+      renderSettings();
+      await form();
+      const other = await screen.findByTestId('other-webhook-endpoints');
+      expect(other.textContent).toContain(TUNNEL_URL);
+
+      fireEvent.change(screen.getByLabelText('settings.adyenWebhookUrl'), {
+        target: { value: TUNNEL_URL },
+      });
+      expect(webhookGets(TUNNEL_URL)).toBe(0);
+      expect(screen.getByTestId('other-webhook-endpoints').textContent).toContain(TUNNEL_URL);
+
+      await waitFor(
+        () => {
+          expect(screen.getByTestId('other-webhook-endpoints').textContent).toContain(ENDPOINT.url);
+        },
+        { timeout: 2000 },
+      );
+      expect(screen.getByTestId('other-webhook-endpoints').textContent).not.toContain(TUNNEL_URL);
+      expect(webhookGets(TUNNEL_URL)).toBe(1);
+    });
+
+    it('Create moves the list to the field URL at once, matching the update dialog', async () => {
+      mockSplit();
+      postMock.mockRejectedValueOnce(
+        new ApiError(409, {
+          code: 'PAYMENT_WEBHOOK_EXISTS',
+          endpoints: [TUNNEL_ENDPOINT],
+          otherEndpoints: [ENDPOINT],
+        }),
+      );
+      renderSettings();
+      await form();
+      await screen.findByTestId('other-webhook-endpoints');
+      fireEvent.change(screen.getByLabelText('settings.adyenWebhookUrl'), {
+        target: { value: TUNNEL_URL },
+      });
+      fireEvent.click(screen.getByRole('button', { name: /settings\.stripeWebhookCreate/ }));
+
+      await waitFor(
+        () => {
+          expect(webhookGets(TUNNEL_URL)).toBe(1);
+        },
+        { timeout: 300 },
+      );
+      expect(await screen.findByText('settings.adyenWebhookReplaceBody')).toBeTruthy();
+      expect(postMock).toHaveBeenCalledWith('/v1/settings/adyen/webhook', {
+        url: TUNNEL_URL,
+        replace: false,
+      });
+      await waitFor(() => {
+        expect(screen.getByTestId('other-webhook-endpoints').textContent).toContain(ENDPOINT.url);
+      });
+    });
   });
 
   it('refuses a webhook URL that is not https before calling the API', async () => {

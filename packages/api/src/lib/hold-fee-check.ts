@@ -10,8 +10,8 @@ import { client, db, sites, siteMaxSessionFeeGrossCents } from '@evtivity/databa
  * refused, on the site payment config save: the tariff that applies also
  * depends on the driver's or fleet's pricing group, the time of day and
  * holidays, and tariffs change after the config is saved, so no save-time
- * check can be complete. The guest start raises the hold to the fee of the
- * tariff that applies (`guestHoldTerms` in @evtivity/payments), the layer that
+ * check can be complete. The guest start then holds the fee of the tariff that
+ * applies plus the configured hold (`guestHoldTerms` in @evtivity/payments), the layer that
  * holds at every start (P11).
  */
 export async function holdFeeCheck(

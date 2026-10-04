@@ -1,8 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { createLogger } from '@evtivity/lib';
+import { createInFlightTracker, createLogger } from '@evtivity/lib';
 import type { PubSubClient, Subscription } from '@evtivity/lib';
+import { drainListener, trackListenerWork } from '../lib/listener-drain.js';
 import { initiateRegistration } from './credentials.service.js';
 import type { OcpiVersion } from '../types/ocpi.js';
 
@@ -52,6 +53,7 @@ async function handleRegisterNotification(payload: string): Promise<void> {
 export class OcpiRegisterListener {
   private readonly pubsub: PubSubClient;
   private subscription: Subscription | null = null;
+  private readonly inFlight = createInFlightTracker();
 
   constructor(pubsub: PubSubClient) {
     this.pubsub = pubsub;
@@ -59,7 +61,7 @@ export class OcpiRegisterListener {
 
   async start(): Promise<void> {
     this.subscription = await this.pubsub.subscribe(CHANNEL, (payload: string) => {
-      void handleRegisterNotification(payload);
+      trackListenerWork(this.inFlight, logger, () => handleRegisterNotification(payload));
     });
     logger.info({ channel: CHANNEL }, 'Listening for OCPI register notifications');
   }
@@ -69,6 +71,7 @@ export class OcpiRegisterListener {
       await this.subscription.unsubscribe();
       this.subscription = null;
     }
+    await drainListener(this.inFlight, logger);
     logger.info('OCPI register listener stopped');
   }
 }

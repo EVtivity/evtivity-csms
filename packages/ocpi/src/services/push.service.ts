@@ -17,8 +17,9 @@ import {
   maintenanceEvents,
   isStationLevelUnavailable,
 } from '@evtivity/database';
-import { createLogger } from '@evtivity/lib';
+import { createInFlightTracker, createLogger } from '@evtivity/lib';
 import type { PubSubClient, Subscription } from '@evtivity/lib';
+import { drainListener, trackListenerWork } from '../lib/listener-drain.js';
 import { OcpiClient } from '../lib/ocpi-client.js';
 import { getOutboundToken } from '../lib/outbound-token.js';
 import { config } from '../lib/config.js';
@@ -487,6 +488,7 @@ async function handlePushNotification(raw: string): Promise<void> {
 export class OcpiPushListener {
   private readonly pubsub: PubSubClient;
   private subscription: Subscription | null = null;
+  private readonly inFlight = createInFlightTracker();
 
   constructor(pubsub: PubSubClient) {
     this.pubsub = pubsub;
@@ -494,7 +496,7 @@ export class OcpiPushListener {
 
   async start(): Promise<void> {
     this.subscription = await this.pubsub.subscribe(CHANNEL, (payload: string) => {
-      void handlePushNotification(payload);
+      trackListenerWork(this.inFlight, logger, () => handlePushNotification(payload));
     });
     logger.info({ channel: CHANNEL }, 'Listening for OCPI push notifications');
   }
@@ -504,6 +506,7 @@ export class OcpiPushListener {
       await this.subscription.unsubscribe();
       this.subscription = null;
     }
+    await drainListener(this.inFlight, logger);
     logger.info('OCPI push listener stopped');
   }
 }

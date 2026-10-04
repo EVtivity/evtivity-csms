@@ -2128,6 +2128,23 @@ describe('Payment routes - handler logic', () => {
         expect(body.otherEndpoints).toEqual([other]);
       });
 
+      it('accepts an http url query (a local or plain-HTTP deployment) for the split', async () => {
+        const local = { ...ENDPOINTS[0], url: 'http://localhost:7100/v1/webhooks/payments/stripe' };
+        mockGetPaymentProvider.mockResolvedValueOnce({
+          listWebhooks: vi.fn().mockResolvedValue([local, ...ENDPOINTS]),
+        });
+        setupDbResults([]);
+
+        const response = await getWebhook(
+          `?url=${encodeURIComponent('http://localhost:7100/v1/webhooks/payments/stripe')}`,
+        );
+
+        expect(response.statusCode).toBe(200);
+        const body = response.json<{ endpoints: unknown[]; otherEndpoints: unknown[] }>();
+        expect(body.endpoints).toEqual([local]);
+        expect(body.otherEndpoints).toEqual(ENDPOINTS);
+      });
+
       it('returns 400 VALIDATION_ERROR for an invalid url query', async () => {
         const response = await getWebhook(
           `?url=${encodeURIComponent('https://csms.example.com/v1/webhooks/payments/adyen')}`,

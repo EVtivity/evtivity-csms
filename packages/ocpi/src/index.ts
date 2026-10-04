@@ -64,18 +64,26 @@ async function start(): Promise<void> {
   const commandCallbackService = initCommandCallbackService(pubsub);
   await commandCallbackService.start();
 
-  // Graceful shutdown
+  // Graceful shutdown: stop HTTP intake and finish in-flight requests, then
+  // stop the listeners (each waits for the messages it is still handling),
+  // and only then close pub/sub and the lock Redis connection they use.
   const shutdown = async (): Promise<void> => {
-    await commandCallbackService.stop();
-    await registerListener.stop();
-    await pullListener.stop();
-    await pushListener.stop();
+    await app.close();
+    await Promise.all([
+      commandCallbackService.stop(),
+      registerListener.stop(),
+      pullListener.stop(),
+      pushListener.stop(),
+    ]);
     await pubsub.close();
     await lockRedis.quit();
-    await app.close();
   };
 
+  let shuttingDown = false;
   const handleSignal = (): void => {
+    // SIGINT and SIGTERM can both arrive; run the sequence once.
+    if (shuttingDown) return;
+    shuttingDown = true;
     shutdown()
       .then(() => process.exit(0))
       .catch(() => process.exit(1));

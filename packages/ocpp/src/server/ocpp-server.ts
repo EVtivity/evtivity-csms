@@ -109,6 +109,13 @@ export interface OcppServerOptions {
 const MIN_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const IDLE_TIMEOUT_REFRESH_MS = 60_000;
 
+// How long stop() waits, after the station sockets close, for event-bus
+// handlers to finish (station.Disconnected projections, notifications). The
+// caller closes pub/sub, Redis and the database after stop() returns. Socket
+// close (10 s) plus this stays inside the 30 s ECS stop timeout and the
+// Kubernetes termination grace period.
+export const EVENT_DRAIN_TIMEOUT_MS = 10_000;
+
 export function idleTimeoutForHeartbeat(heartbeatSeconds: number): number {
   return Math.max(MIN_IDLE_TIMEOUT_MS, heartbeatSeconds * 2 * 1000);
 }
@@ -765,6 +772,16 @@ export class OcppServer {
     }
     if (this.shutdown != null) {
       await this.shutdown.shutdown();
+    }
+    // Closing the sockets published station.Disconnected for each station.
+    // Wait for those projections (and anything still queued) before the
+    // caller ends the database client they write through.
+    const drained = await this.eventBus.drain(EVENT_DRAIN_TIMEOUT_MS);
+    if (!drained) {
+      this.logger.warn(
+        { timeoutMs: EVENT_DRAIN_TIMEOUT_MS },
+        'Event handlers still running at shutdown; closing anyway',
+      );
     }
   }
 }

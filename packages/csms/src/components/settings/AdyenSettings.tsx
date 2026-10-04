@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Info } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import {
   OtherWebhookEndpoints,
   PaymentWebhookSetup,
   WebhookEndpointsTable,
+  useWebhookUrl,
   webhookSetupPath,
   type WebhookEndpoint,
 } from './PaymentWebhookSetup';
@@ -138,14 +139,17 @@ function AdyenWebhookCard({ canWrite }: { canWrite: boolean }): React.JSX.Elemen
   const queryClient = useQueryClient();
   const [lastTest, setLastTest] = useState<AdyenWebhookCreated['test'] | null>(null);
 
+  const urlState = useWebhookUrl(ADYEN_WEBHOOK_PATH);
+
   const webhook = useQuery({
-    queryKey: ['adyen-webhook'],
+    queryKey: ['adyen-webhook', urlState.queryUrl],
     queryFn: () =>
       api.get<AdyenWebhookResponse>(
-        webhookSetupPath('/v1/settings/adyen/webhook', ADYEN_WEBHOOK_PATH),
+        webhookSetupPath('/v1/settings/adyen/webhook', urlState.queryUrl),
       ),
     staleTime: 30_000,
     retry: false,
+    placeholderData: keepPreviousData,
   });
   const notConfigured = getApiErrorCode(webhook.error) === 'PAYMENT_PROVIDER_NOT_CONFIGURED';
 
@@ -158,6 +162,7 @@ function AdyenWebhookCard({ canWrite }: { canWrite: boolean }): React.JSX.Elemen
         <p className="text-sm text-muted-foreground">{t('settings.adyenWebhookDescription')}</p>
         <PaymentWebhookSetup<AdyenWebhookCreated>
           idPrefix="adyen"
+          urlState={urlState}
           path={ADYEN_WEBHOOK_PATH}
           urlLabel={t('settings.adyenWebhookUrl')}
           urlHint={t('settings.adyenWebhookUrlHint')}

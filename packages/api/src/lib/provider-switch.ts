@@ -3,6 +3,7 @@
 
 import type { FastifyReply } from 'fastify';
 import { Redis } from 'ioredis';
+import { logRedisErrors } from '@evtivity/lib';
 import { assertProviderSelectable, PaymentProviderUpgradePendingError } from '@evtivity/payments';
 import type { ProcessWatchStore } from '@evtivity/payments';
 import { config } from './config.js';
@@ -15,7 +16,10 @@ let redis: Redis | null = null;
 
 function redisClient(): Redis {
   if (redis == null) {
-    redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: 2 });
+    redis = logRedisErrors(
+      new Redis(config.REDIS_URL, { maxRetriesPerRequest: 2 }),
+      'provider-switch-guard',
+    );
   }
   return redis;
 }

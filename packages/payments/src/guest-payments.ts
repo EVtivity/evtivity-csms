@@ -86,12 +86,15 @@ export type GuestHoldOutcome =
   | { outcome: 'not_configured' };
 
 /**
- * The guest's hold terms: the site (or global) hold, raised to the session
- * fee with tax of the tariff a guest pays at the station. The guest hold is
- * the station's maxCost (no saved card for a top-up), so a hold below the fee
- * would stop the session at once with CostLimitReached. The site config save
- * warns about such a hold; this is the layer that holds at every start (P11),
- * also for a tariff changed after the config was saved.
+ * The guest's hold terms: the site (or global) hold, or, when that hold is
+ * below the session fee with tax of the tariff a guest pays at the station,
+ * the session fee plus the configured hold (owner decision 2026-10-04, N18).
+ * The guest hold is the station's maxCost (no saved card for a top-up): a hold
+ * below the fee, or equal to it, stops the session at the first reading with
+ * CostLimitReached, so the configured amount stays available for energy on
+ * top of the fee. A hold at or above the fee is used as configured. The site
+ * config save warns about such a hold; this is the layer that holds at every
+ * start (P11), also for a tariff changed after the config was saved.
  */
 export async function guestHoldTerms(
   ctx: PaymentContext,
@@ -110,11 +113,18 @@ export async function guestHoldTerms(
       ? 0
       : await sessionFeeGrossCents({ stationUuid: station.id, driverUuid: null }, client);
   if (sessionFeeCents > terms.preAuthAmountCents) {
+    const raisedCents = sessionFeeCents + terms.preAuthAmountCents;
     ctx.logger.warn(
-      { siteId, stationOcppId, preAuthAmountCents: terms.preAuthAmountCents, sessionFeeCents },
-      'Guest hold raised to the session fee: the configured hold cannot cover one session',
+      {
+        siteId,
+        stationOcppId,
+        preAuthAmountCents: terms.preAuthAmountCents,
+        sessionFeeCents,
+        holdCents: raisedCents,
+      },
+      'Guest hold below the session fee: holding the session fee plus the configured hold',
     );
-    return { ...terms, preAuthAmountCents: sessionFeeCents, sessionFeeCents };
+    return { ...terms, preAuthAmountCents: raisedCents, sessionFeeCents };
   }
   return { ...terms, sessionFeeCents };
 }

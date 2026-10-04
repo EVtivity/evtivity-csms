@@ -47,7 +47,10 @@ import {
   triggerReasonEnum,
   uploadLogStatusEnum,
 } from '../lib/ocpp-zod-types-v21.js';
-import { meterValueType as meterValueType16 } from '../lib/ocpp-zod-types-v16.js';
+import {
+  meterValueType as meterValueType16,
+  sampledValueType as sampledValueType16,
+} from '../lib/ocpp-zod-types-v16.js';
 import { OCPP21_CONFIG_DEFAULTS, OCPP16_CONFIG_DEFAULTS } from '../lib/css-config-defaults.js';
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
@@ -400,6 +403,16 @@ const sendMeterValuesBody = z.object({
     .optional()
     .describe('Sampled values array (auto-generated if omitted)'),
   transactionId: z.string().optional().describe('Transaction ID (1.6 only)'),
+});
+
+// OCPP 1.6 SampledValue: string value and a flat unit, not the 2.1 shape.
+const sendMeterValuesBody16 = z.object({
+  evseId: z.number().int().describe('Connector ID'),
+  sampledValues: z
+    .array(sampledValueType16)
+    .optional()
+    .describe('OCPP 1.6 sampled values (auto-generated if omitted)'),
+  transactionId: z.string().optional().describe('Transaction ID'),
 });
 
 const sendAuthorizeBody = z.object({
@@ -1480,7 +1493,13 @@ export function cssRoutes(app: FastifyInstance): void {
       'Send StatusNotification',
       sendStatusNotificationBody,
     );
-    actionRoute(app, 'sendMeterValues', ver, 'Send MeterValues', sendMeterValuesBody);
+    actionRoute(
+      app,
+      'sendMeterValues',
+      ver,
+      'Send MeterValues',
+      ver === 'ocpp1.6' ? sendMeterValuesBody16 : sendMeterValuesBody,
+    );
     actionRoute(app, 'sendAuthorize', ver, 'Send Authorize request', sendAuthorizeBody);
     actionRoute(
       app,

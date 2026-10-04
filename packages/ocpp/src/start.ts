@@ -9,7 +9,12 @@ import { Redis } from 'ioredis';
 import { OcppServer } from './server/ocpp-server.js';
 import { CommandListener } from './server/command-listener.js';
 import { PgEventPersistence, client, getSentryConfig } from '@evtivity/database';
-import { RedisPubSubClient, RedisConnectionRegistry, initSentry } from '@evtivity/lib';
+import {
+  RedisPubSubClient,
+  RedisConnectionRegistry,
+  initSentry,
+  logRedisErrors,
+} from '@evtivity/lib';
 import { registerProjections } from './server/event-projections.js';
 import { subscribeOcppEventSettingsInvalidation } from './server/notification-dispatcher.js';
 import { setAuthorizeLogPubSub } from './handlers/authorize-log.js';
@@ -88,7 +93,7 @@ async function start(): Promise<void> {
   setPaymentPubSub(pubsub);
 
   // Create a separate Redis client for the connection registry (not the pub/sub client)
-  registryRedis = new Redis(REDIS_URL);
+  registryRedis = logRedisErrors(new Redis(REDIS_URL), 'connection-registry');
   const registry = new RedisConnectionRegistry(registryRedis);
 
   // Pass registry to connection manager for station ownership tracking
@@ -174,6 +179,8 @@ async function start(): Promise<void> {
 }
 
 async function shutdown(): Promise<void> {
+  // SIGINT and SIGTERM can both arrive; run the sequence once.
+  if (shuttingDown) return;
   console.log('\nShutting down OCPP server...');
   shuttingDown = true;
   if (healthServer != null) {
@@ -185,6 +192,11 @@ async function shutdown(): Promise<void> {
   if (cacheInvalidateSub != null) {
     await cacheInvalidateSub.unsubscribe();
   }
+  // Stops accepting connections, closes the station sockets, and waits for
+  // the station.Disconnected projections and other event handlers to finish.
+  // Those handlers use pub/sub, the connection registry and the database, so
+  // the clients close only after it returns.
+  await server.stop();
   if (pubsub != null) {
     setPaymentPubSub(null);
     await pubsub.close();
@@ -192,7 +204,6 @@ async function shutdown(): Promise<void> {
   if (registryRedis != null) {
     registryRedis.disconnect();
   }
-  await server.stop();
   await client.end();
   process.exit(0);
 }

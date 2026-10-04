@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import crypto from 'node:crypto';
-import { createLogger } from '@evtivity/lib';
+import { createInFlightTracker, createLogger } from '@evtivity/lib';
 import type { PubSubClient, Subscription } from '@evtivity/lib';
+import { drainListener, trackListenerWork } from '../lib/listener-drain.js';
 import { getOutboundToken } from '../lib/outbound-token.js';
 import { config } from '../lib/config.js';
 import type { OcpiCommandType, OcpiCommandResult, OcpiCommandResultType } from '../types/ocpi.js';
@@ -86,6 +87,7 @@ export class OcpiCommandCallbackService {
   private readonly pubsub: PubSubClient;
   private readonly pending = new Map<string, PendingCommand>();
   private subscription: Subscription | null = null;
+  private readonly inFlight = createInFlightTracker();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(pubsub: PubSubClient) {
@@ -123,7 +125,7 @@ export class OcpiCommandCallbackService {
 
   async start(): Promise<void> {
     this.subscription = await this.pubsub.subscribe(RESULTS_CHANNEL, (payload: string) => {
-      void this.handleResult(payload);
+      trackListenerWork(this.inFlight, logger, () => this.handleResult(payload));
     });
 
     this.cleanupTimer = setInterval(() => {
@@ -228,7 +230,9 @@ export class OcpiCommandCallbackService {
         // Send TIMEOUT result to partner
         const commandResult: OcpiCommandResult = { result: 'TIMEOUT' };
         logger.warn({ commandId, commandType: pending.commandType }, 'Command timed out');
-        void this.postCommandResult(pending.responseUrl, pending.partnerId, commandResult);
+        trackListenerWork(this.inFlight, logger, () =>
+          this.postCommandResult(pending.responseUrl, pending.partnerId, commandResult),
+        );
       }
     }
   }
@@ -242,6 +246,7 @@ export class OcpiCommandCallbackService {
       await this.subscription.unsubscribe();
       this.subscription = null;
     }
+    await drainListener(this.inFlight, logger);
     logger.info('Command callback service stopped');
   }
 }

@@ -4,9 +4,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
 
-const { mockRecord, redisInstances } = vi.hoisted(() => ({
+const { mockRecord, redisInstances, redisListeners } = vi.hoisted(() => ({
   mockRecord: vi.fn(),
   redisInstances: [] as Array<{ url: string; options: unknown }>,
+  redisListeners: [] as string[],
 }));
 
 vi.mock('@evtivity/payments', () => ({ recordProcessWatch: mockRecord }));
@@ -17,6 +18,10 @@ vi.mock('ioredis', () => ({
     }
     get(): Promise<null> {
       return Promise.resolve(null);
+    }
+    on(event: string): this {
+      redisListeners.push(event);
+      return this;
     }
   },
 }));
@@ -43,6 +48,7 @@ describe('processVersionWatchHandler', () => {
     await processVersionWatchHandler(log);
 
     expect(redisInstances).toHaveLength(1);
+    expect(redisListeners).toEqual(['error']);
     expect(redisInstances[0]?.options).toEqual({ maxRetriesPerRequest: 2 });
     expect(mockRecord).toHaveBeenCalledTimes(2);
     expect(log.info).toHaveBeenCalledWith(

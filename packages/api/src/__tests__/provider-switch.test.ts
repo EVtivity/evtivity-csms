@@ -4,9 +4,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { FastifyReply } from 'fastify';
 
-const { mockAssertSelectable, redisInstances } = vi.hoisted(() => ({
+const { mockAssertSelectable, redisInstances, redisListeners } = vi.hoisted(() => ({
   mockAssertSelectable: vi.fn(),
   redisInstances: [] as Array<{ url: string; options: unknown }>,
+  redisListeners: [] as string[],
 }));
 
 vi.mock('@evtivity/payments', async (importOriginal) => ({
@@ -24,6 +25,10 @@ vi.mock('ioredis', () => ({
     }
     set(...args: unknown[]) {
       return Promise.resolve(args.length === 4 ? 'OK' : null);
+    }
+    on(event: string): this {
+      redisListeners.push(event);
+      return this;
     }
   },
 }));
@@ -81,6 +86,8 @@ describe('providerSwitchStore', () => {
     await expect(redisStore.set('k', 'v', 'EX', 60)).resolves.toBe('OK');
     expect(redisInstances).toHaveLength(1);
     expect(redisInstances[0]?.options).toEqual({ maxRetriesPerRequest: 2 });
+    // Connection errors go to the structured log, not "[ioredis] Unhandled error event".
+    expect(redisListeners).toEqual(['error']);
   });
 
   it('returns the store a test sets', () => {

@@ -97,7 +97,11 @@ const ENDPOINTS = [
   },
 ];
 
-function mockGets(webhook: () => Promise<unknown> = () => Promise.resolve(webhookSetup())): void {
+const WEBHOOK_GET_PREFIX = '/v1/settings/stripe/webhook?url=';
+
+function mockGets(
+  webhook: (url: string) => Promise<unknown> = () => Promise.resolve(webhookSetup()),
+): void {
   getMock.mockImplementation((url: string) => {
     if (url === '/v1/settings/stripe') {
       return Promise.resolve({
@@ -107,8 +111,8 @@ function mockGets(webhook: () => Promise<unknown> = () => Promise.resolve(webhoo
         connectWebhookSecret: null,
       });
     }
-    if (url === `/v1/settings/stripe/webhook?url=${encodeURIComponent(STRIPE_URL)}`) {
-      return webhook();
+    if (url.startsWith(WEBHOOK_GET_PREFIX)) {
+      return webhook(decodeURIComponent(url.slice(WEBHOOK_GET_PREFIX.length)));
     }
     if (url.startsWith('/v1/sites?')) {
       return Promise.resolve({ data: [{ id: 'sit_1', name: 'Main Street' }], total: 1 });
@@ -274,6 +278,128 @@ describe('PaymentSettings Stripe tab', () => {
       expect(postMock).toHaveBeenCalledWith('/v1/settings/stripe/webhook', {
         url: 'https://tunnel.trycloudflare.com/v1/webhooks/payments/stripe',
         replace: false,
+      });
+    });
+  });
+
+  describe('split by the URL in the field', () => {
+    const TUNNEL_URL = 'https://tunnel.trycloudflare.com/v1/webhooks/payments/stripe';
+    const TUNNEL_ENDPOINTS = ENDPOINTS.map((endpoint) => ({
+      ...endpoint,
+      id: `${endpoint.id}_tunnel`,
+      url: TUNNEL_URL,
+    }));
+
+    function mockSplit(): void {
+      mockGets((url) =>
+        Promise.resolve(
+          url === TUNNEL_URL
+            ? { ...webhookSetup(TUNNEL_ENDPOINTS), otherEndpoints: ENDPOINTS }
+            : { ...webhookSetup(ENDPOINTS), otherEndpoints: TUNNEL_ENDPOINTS },
+        ),
+      );
+    }
+
+    function webhookGets(url: string): number {
+      const path = `${WEBHOOK_GET_PREFIX}${encodeURIComponent(url)}`;
+      return getMock.mock.calls.filter(([called]) => called === path).length;
+    }
+
+    it('lists the webhooks at the edited URL as this deployment, after the typing pauses', async () => {
+      mockSplit();
+      renderSettings();
+      const url = await screen.findByLabelText('settings.stripeWebhookUrl');
+      const other = await screen.findByTestId('other-webhook-endpoints');
+      expect(other.textContent).toContain(TUNNEL_URL);
+
+      fireEvent.change(url, { target: { value: 'https://tunnel.trycloudflare.com' } });
+      fireEvent.change(url, { target: { value: TUNNEL_URL } });
+      // The last result stays on screen while the field changes.
+      expect(webhookGets(TUNNEL_URL)).toBe(0);
+      expect(screen.getByTestId('other-webhook-endpoints').textContent).toContain(TUNNEL_URL);
+
+      await waitFor(
+        () => {
+          expect(screen.getByTestId('other-webhook-endpoints').textContent).toContain(STRIPE_URL);
+        },
+        { timeout: 2000 },
+      );
+      expect(screen.getByTestId('other-webhook-endpoints').textContent).not.toContain(TUNNEL_URL);
+      expect(webhookGets(TUNNEL_URL)).toBe(1);
+      // The partial value was never queried.
+      expect(
+        getMock.mock.calls.filter(([called]) =>
+          String(called).endsWith(encodeURIComponent('https://tunnel.trycloudflare.com')),
+        ),
+      ).toHaveLength(0);
+    });
+
+    it('does not query an invalid URL and keeps the last list', async () => {
+      mockSplit();
+      renderSettings();
+      const url = await screen.findByLabelText('settings.stripeWebhookUrl');
+      await screen.findByTestId('other-webhook-endpoints');
+      const callsBefore = getMock.mock.calls.length;
+      for (const value of [
+        `${TUNNEL_URL}?x=1`,
+        'https://tunnel.trycloudflare.com/v1/webhooks/payments/adyen',
+        'https://user:pass@tunnel.trycloudflare.com/v1/webhooks/payments/stripe',
+        'ftp://tunnel.trycloudflare.com/v1/webhooks/payments/stripe',
+      ]) {
+        fireEvent.change(url, { target: { value } });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      expect(getMock.mock.calls.length).toBe(callsBefore);
+      expect(screen.getByTestId('other-webhook-endpoints').textContent).toContain(TUNNEL_URL);
+    });
+
+    it('queries an http URL, which the lookup accepts, but Create still refuses it', async () => {
+      const httpUrl = 'http://localhost:7102/v1/webhooks/payments/stripe';
+      mockSplit();
+      renderSettings();
+      const url = await screen.findByLabelText('settings.stripeWebhookUrl');
+      await screen.findByTestId('other-webhook-endpoints');
+      fireEvent.change(url, { target: { value: httpUrl } });
+      await waitFor(
+        () => {
+          expect(webhookGets(httpUrl)).toBe(1);
+        },
+        { timeout: 2000 },
+      );
+      fireEvent.click(screen.getByRole('button', { name: /settings\.stripeWebhookCreate/ }));
+      expect(await screen.findByText('settings.webhookUrlInvalid')).toBeTruthy();
+      expect(postMock).not.toHaveBeenCalled();
+    });
+
+    it('Create moves the list to the field URL at once, matching the replace dialog', async () => {
+      mockSplit();
+      postMock.mockRejectedValueOnce(
+        new ApiError(409, {
+          code: 'PAYMENT_WEBHOOK_EXISTS',
+          endpoints: TUNNEL_ENDPOINTS,
+          otherEndpoints: ENDPOINTS,
+        }),
+      );
+      renderSettings();
+      const url = await screen.findByLabelText('settings.stripeWebhookUrl');
+      await screen.findByTestId('other-webhook-endpoints');
+      fireEvent.change(url, { target: { value: TUNNEL_URL } });
+      fireEvent.click(screen.getByRole('button', { name: /settings\.stripeWebhookCreate/ }));
+
+      // No wait for the typing pause: the list follows the submitted URL now.
+      await waitFor(
+        () => {
+          expect(webhookGets(TUNNEL_URL)).toBe(1);
+        },
+        { timeout: 300 },
+      );
+      expect(await screen.findByText('settings.stripeWebhookReplaceBody')).toBeTruthy();
+      expect(postMock).toHaveBeenCalledWith('/v1/settings/stripe/webhook', {
+        url: TUNNEL_URL,
+        replace: false,
+      });
+      await waitFor(() => {
+        expect(screen.getByTestId('other-webhook-endpoints').textContent).toContain(STRIPE_URL);
       });
     });
   });

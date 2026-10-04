@@ -3,6 +3,7 @@
 
 import { Redis } from 'ioredis';
 import { createLogger } from './logger.js';
+import { logRedisErrors } from './redis-errors.js';
 import type { PubSubClient, Subscription } from './pubsub.js';
 
 const logger = createLogger('pubsub-redis');
@@ -13,8 +14,8 @@ export class RedisPubSubClient implements PubSubClient {
   private readonly handlers = new Map<string, Set<(payload: string) => void>>();
 
   constructor(url: string) {
-    this.publisher = new Redis(url, { lazyConnect: true });
-    this.subscriber = new Redis(url, { lazyConnect: true });
+    this.publisher = logRedisErrors(new Redis(url, { lazyConnect: true }), 'pubsub-publisher');
+    this.subscriber = logRedisErrors(new Redis(url, { lazyConnect: true }), 'pubsub-subscriber');
 
     this.subscriber.on('message', (channel: string, message: string) => {
       const channelHandlers = this.handlers.get(channel);

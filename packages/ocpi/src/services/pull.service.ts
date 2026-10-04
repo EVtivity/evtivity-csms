@@ -12,8 +12,9 @@ import {
   ocpiCdrs,
   ocpiSyncLog,
 } from '@evtivity/database';
-import { createLogger, withLock } from '@evtivity/lib';
+import { createInFlightTracker, createLogger, withLock } from '@evtivity/lib';
 import type { PubSubClient, Subscription } from '@evtivity/lib';
+import { drainListener, trackListenerWork } from '../lib/listener-drain.js';
 import { OcpiClient } from '../lib/ocpi-client.js';
 import { getOutboundToken } from '../lib/outbound-token.js';
 import { config } from '../lib/config.js';
@@ -538,6 +539,7 @@ export class OcpiPullListener {
   private readonly pubsub: PubSubClient;
   private readonly lockRedis: Redis | undefined;
   private subscription: Subscription | null = null;
+  private readonly inFlight = createInFlightTracker();
 
   constructor(pubsub: PubSubClient, lockRedis?: Redis) {
     this.pubsub = pubsub;
@@ -546,7 +548,9 @@ export class OcpiPullListener {
 
   async start(): Promise<void> {
     this.subscription = await this.pubsub.subscribe(CHANNEL, (payload: string) => {
-      void handleSyncNotification(payload, this.lockRedis);
+      trackListenerWork(this.inFlight, logger, () =>
+        handleSyncNotification(payload, this.lockRedis),
+      );
     });
     logger.info({ channel: CHANNEL }, 'Listening for OCPI sync notifications');
   }
@@ -556,6 +560,7 @@ export class OcpiPullListener {
       await this.subscription.unsubscribe();
       this.subscription = null;
     }
+    await drainListener(this.inFlight, logger);
     logger.info('OCPI pull listener stopped');
   }
 }

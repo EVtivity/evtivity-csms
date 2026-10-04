@@ -25,6 +25,8 @@ export {
 } from './errors.js';
 
 export { InMemoryEventBus } from './events.js';
+export { createInFlightTracker } from './in-flight.js';
+export type { InFlightTracker } from './in-flight.js';
 export type { DomainEvent, EventHandler, EventPersistence, EventBus } from './events.js';
 
 export { generateId, ID_PREFIXES } from './id.js';
@@ -56,6 +58,7 @@ export type { CreateChallengeResult } from './mfa.js';
 
 export type { PubSubClient, Subscription } from './pubsub.js';
 export { RedisPubSubClient } from './pubsub-redis.js';
+export { logRedisErrors } from './redis-errors.js';
 
 export { RedisConnectionRegistry } from './connection-registry.js';
 export type { ConnectionRegistry } from './connection-registry.js';

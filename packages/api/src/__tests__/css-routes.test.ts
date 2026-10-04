@@ -345,6 +345,49 @@ describe('CSS routes', () => {
       });
       expect(response.statusCode).toBe(200);
     });
+
+    it('v16 sendMeterValues takes OCPP 1.6 sampled values (string value, flat unit)', async () => {
+      setupDbResults([{ id: 'id-1', stationId: 'TEST-16', ocppProtocol: 'ocpp1.6' }]);
+      const sampledValues = [
+        { value: '0', measurand: 'Power.Active.Import', unit: 'W' },
+        { value: '1250', measurand: 'Energy.Active.Import.Register', unit: 'Wh' },
+      ];
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/css/actions/v16/sendMeterValues',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-16', evseId: 1, transactionId: '21', sampledValues },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const publishCall = mockState.publishCalls.find(
+        ([ch, raw]) => ch === 'css_commands' && raw.includes('"action":"sendMeterValues"'),
+      );
+      expect(publishCall?.[1]).toContain('"value":"0"');
+      expect(publishCall?.[1]).toContain('"unit":"W"');
+    });
+
+    it('v16 sendMeterValues sends a numeric value as the 1.6 string', async () => {
+      setupDbResults([{ id: 'id-1', stationId: 'TEST-16', ocppProtocol: 'ocpp1.6' }]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/css/actions/v16/sendMeterValues',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          stationId: 'TEST-16',
+          evseId: 1,
+          sampledValues: [{ value: 7000, measurand: 'Power.Active.Import', unit: 'W' }],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const publishCall = mockState.publishCalls.find(
+        ([ch, raw]) => ch === 'css_commands' && raw.includes('"action":"sendMeterValues"'),
+      );
+      expect(publishCall?.[1]).toContain('"value":"7000"');
+    });
   });
 
   // ===================================================================

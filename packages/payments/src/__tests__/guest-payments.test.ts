@@ -625,13 +625,13 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
 });
 
 describe('guestHoldTerms', () => {
-  it('raises a hold below the session fee of the tariff a guest pays to that fee', async () => {
+  it('holds the session fee plus the configured hold when the hold is below the fee', async () => {
     m.holdTerms.mockResolvedValue({ ...TERMS, preAuthAmountCents: 50 });
     m.selectQueue.push([{ id: 'sta_1' }]);
     m.sessionFeeGrossCents.mockResolvedValue(217);
     expect(await guestHoldTerms(deps, 'site_1', 'CS-1')).toEqual({
       ...TERMS,
-      preAuthAmountCents: 217,
+      preAuthAmountCents: 267,
       sessionFeeCents: 217,
     });
     expect(m.sessionFeeGrossCents).toHaveBeenCalledWith(

@@ -31,7 +31,7 @@ function makeCtx(payload: Record<string, unknown>): {
     protocolVersion: 'ocpp2.1',
     payload,
     logger,
-    eventBus: { publish: publishMock, subscribe: vi.fn() },
+    eventBus: { publish: publishMock, subscribe: vi.fn(), drain: vi.fn() },
     correlator: {} as HandlerContext['correlator'],
     dispatcher: {} as HandlerContext['dispatcher'],
   };

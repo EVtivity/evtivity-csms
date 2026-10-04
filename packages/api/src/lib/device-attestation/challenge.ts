@@ -3,6 +3,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { Redis } from 'ioredis';
+import { logRedisErrors } from '@evtivity/lib';
 import { config } from '../config.js';
 
 // Single-use nonces back the attestation challenge. Stored in Redis with a short
@@ -13,7 +14,10 @@ const TTL_SECONDS = 300;
 let redis: Redis | null = null;
 function client(): Redis {
   if (redis == null) {
-    redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: 2 });
+    redis = logRedisErrors(
+      new Redis(config.REDIS_URL, { maxRetriesPerRequest: 2 }),
+      'attestation-nonces',
+    );
   }
   return redis;
 }

@@ -347,11 +347,26 @@ describe('Adyen settings routes', () => {
       });
     });
 
+    it('accepts an http url query (a local or plain-HTTP deployment) for the split', async () => {
+      const provider = fakeProvider();
+      const local = { ...endpoint(true), url: 'http://localhost:7100/v1/webhooks/payments/adyen' };
+      provider.listWebhooks.mockResolvedValue([local, endpoint(true)]);
+      const response = await call(
+        'GET',
+        `/settings/adyen/webhook?url=${encodeURIComponent('http://localhost:7100/v1/webhooks/payments/adyen')}`,
+      );
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        endpoints: [local],
+        otherEndpoints: [endpoint(true)],
+      });
+    });
+
     it('answers 400 VALIDATION_ERROR for an invalid url query', async () => {
       const provider = fakeProvider();
       const response = await call(
         'GET',
-        `/settings/adyen/webhook?url=${encodeURIComponent('http://csms.example.com/v1/webhooks/payments/adyen')}`,
+        `/settings/adyen/webhook?url=${encodeURIComponent('https://csms.example.com/v1/webhooks/payments/stripe')}`,
       );
       expect(response.statusCode).toBe(400);
       expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });

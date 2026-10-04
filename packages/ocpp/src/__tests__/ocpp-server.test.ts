@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { OcppServer } from '../server/ocpp-server.js';
+import { EVENT_DRAIN_TIMEOUT_MS, OcppServer } from '../server/ocpp-server.js';
 import type { HandlerContext } from '../server/middleware/pipeline.js';
 
 let testPort = 19080;
@@ -677,5 +677,58 @@ describe('OcppServer integration', () => {
     } finally {
       rmSync(certDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('OcppServer stop drains event handlers', () => {
+  it('returns only after the station.Disconnected handlers of the sockets it closed finish', async () => {
+    const port = getNextPort();
+    const srv = await startServer(port);
+    const order: string[] = [];
+    srv.getEventBus().subscribe('station.Disconnected', async (event) => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      order.push(`disconnected:${event.aggregateId}`);
+    });
+    const ws = await connectStation(port, 'DRAIN-001');
+    ws.on('error', () => undefined);
+
+    await srv.stop();
+    order.push('stopped');
+    server = null;
+
+    expect(order).toEqual(['disconnected:DRAIN-001', 'stopped']);
+  });
+
+  it('drains after the sockets close, with the drain timeout', async () => {
+    const port = getNextPort();
+    const srv = await startServer(port);
+    const ws = await connectStation(port, 'DRAIN-002');
+    ws.on('error', () => undefined);
+    let openAtDrain = -1;
+    const drain = vi.spyOn(srv.getEventBus(), 'drain').mockImplementation(() => {
+      openAtDrain = srv.getConnectionManager().count();
+      return Promise.resolve(true);
+    });
+
+    await srv.stop();
+    server = null;
+
+    expect(drain).toHaveBeenCalledWith(EVENT_DRAIN_TIMEOUT_MS);
+    expect(openAtDrain).toBe(0);
+  });
+
+  it('logs a warning and still returns when handlers outlive the timeout', async () => {
+    const port = getNextPort();
+    const srv = await startServer(port);
+    vi.spyOn(srv.getEventBus(), 'drain').mockResolvedValue(false);
+    const warn = vi.spyOn(srv.getLogger(), 'warn');
+
+    await expect(srv.stop()).resolves.toBeUndefined();
+    server = null;
+
+    expect(warn).toHaveBeenCalledWith(
+      { timeoutMs: EVENT_DRAIN_TIMEOUT_MS },
+      'Event handlers still running at shutdown; closing anyway',
+    );
   });
 });

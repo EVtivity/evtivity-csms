@@ -59,6 +59,9 @@ services:
       context: .
       dockerfile: packages/api/Dockerfile.dev
     restart: unless-stopped
+    # The ECS stop timeout and the Kubernetes grace period are 30 s; the
+    # processes drain in-flight work before exiting (docker stop waits 10 s).
+    stop_grace_period: 30s
     ports:
       - '${BIND_IP:-0.0.0.0}:${API_PORT:-7102}:${API_PORT:-7102}'
     mem_limit: 2g
@@ -109,6 +112,7 @@ services:
       context: .
       dockerfile: packages/ocpp/Dockerfile.dev
     restart: unless-stopped
+    stop_grace_period: 30s
     ports:
       - '${BIND_IP:-0.0.0.0}:${OCPP_PORT:-7103}:${OCPP_PORT:-7103}'
       - '${BIND_IP:-0.0.0.0}:8443:8443'
@@ -200,6 +204,7 @@ services:
       context: .
       dockerfile: packages/css/Dockerfile.dev
     restart: unless-stopped
+    stop_grace_period: 30s
     mem_limit: 1g
     cpus: 0.5
     environment:
@@ -222,6 +227,7 @@ services:
       context: .
       dockerfile: packages/ocpi/Dockerfile.dev
     restart: unless-stopped
+    stop_grace_period: 30s
     ports:
       - '${BIND_IP:-0.0.0.0}:${OCPI_PORT:-7104}:${OCPI_PORT:-7104}'
     mem_limit: 1g
@@ -304,6 +310,7 @@ services:
       context: .
       dockerfile: packages/worker/Dockerfile.dev
     restart: unless-stopped
+    stop_grace_period: 30s
     mem_limit: 1g
     cpus: 0.5
     environment:

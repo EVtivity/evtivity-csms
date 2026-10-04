@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { Logger } from './logger.js';
+import { createInFlightTracker } from './in-flight.js';
 
 export interface DomainEvent {
   eventType: string;
@@ -21,6 +22,13 @@ export interface EventPersistence {
 export interface EventBus {
   publish(event: DomainEvent): Promise<void>;
   subscribe(eventType: string, handler: EventHandler): void;
+  /**
+   * Waits for events published so far (and events their handlers publish) to
+   * finish persistence and handler dispatch. Resolves false when handlers are
+   * still running after `timeoutMs`. Call at shutdown before closing the
+   * clients the handlers use.
+   */
+  drain(timeoutMs: number): Promise<boolean>;
 }
 
 export interface EventBusOptions {
@@ -37,6 +45,7 @@ export class InMemoryEventBus implements EventBus {
   private readonly logger: Logger;
   private readonly persistence: EventPersistence | null;
   private readonly persistDenylist: Set<string>;
+  private readonly inFlight = createInFlightTracker();
 
   constructor(logger: Logger, persistence?: EventPersistence, options?: EventBusOptions) {
     this.logger = logger;
@@ -56,20 +65,40 @@ export class InMemoryEventBus implements EventBus {
       occurredAt: event.occurredAt ?? new Date(),
     };
 
-    if (this.persistence != null && !this.persistDenylist.has(event.eventType)) {
-      // Fail-open: domain-event persistence is an audit trail, not the source
-      // of truth (projections update the domain tables). Callers fire publish
-      // with `void`, so a rejection here is an unhandledRejection that kills
-      // the whole process -- a transient DB connect timeout during a
-      // reconnect storm crash-looped the OCPP server this way.
-      try {
-        await this.persistence.persist(eventWithTime);
-      } catch (err) {
-        this.logger.warn(
-          { eventType: event.eventType, aggregateId: event.aggregateId, err },
-          'Domain event persistence failed; continuing with handler dispatch',
-        );
+    // One tracked promise covers persistence and handler dispatch, so
+    // `drain()` sees the event from publish until its last handler settles.
+    // The caller waits only for persistence; handlers run in the background.
+    let persisted: () => void = () => undefined;
+    const persistDone = new Promise<void>((resolve) => {
+      persisted = resolve;
+    });
+    void this.inFlight.track(this.process(eventWithTime, persisted));
+    await persistDone;
+  }
+
+  drain(timeoutMs: number): Promise<boolean> {
+    return this.inFlight.drain(timeoutMs);
+  }
+
+  private async process(event: DomainEvent, persisted: () => void): Promise<void> {
+    try {
+      if (this.persistence != null && !this.persistDenylist.has(event.eventType)) {
+        // Fail-open: domain-event persistence is an audit trail, not the source
+        // of truth (projections update the domain tables). Callers fire publish
+        // with `void`, so a rejection here is an unhandledRejection that kills
+        // the whole process -- a transient DB connect timeout during a
+        // reconnect storm crash-looped the OCPP server this way.
+        try {
+          await this.persistence.persist(event);
+        } catch (err) {
+          this.logger.warn(
+            { eventType: event.eventType, aggregateId: event.aggregateId, err },
+            'Domain event persistence failed; continuing with handler dispatch',
+          );
+        }
       }
+    } finally {
+      persisted();
     }
 
     const handlers = this.handlers.get(event.eventType) ?? [];
@@ -78,17 +107,25 @@ export class InMemoryEventBus implements EventBus {
       return;
     }
 
-    // Run handlers in background so callers (OCPP handlers) are not blocked
-    // by slow DB projections. Errors are logged but do not propagate.
-    void Promise.allSettled(handlers.map((handler) => handler(eventWithTime))).then((results) => {
-      for (const result of results) {
-        if (result.status === 'rejected') {
-          this.logger.error(
-            { eventType: event.eventType, error: result.reason },
-            'Event handler failed',
-          );
+    // Handlers run in the background so callers (OCPP handlers) are not
+    // blocked by slow DB projections. Errors are logged but do not propagate,
+    // including a handler that throws before returning its promise.
+    const results = await Promise.allSettled(
+      handlers.map((handler) => {
+        try {
+          return handler(event);
+        } catch (err) {
+          return Promise.reject(err instanceof Error ? err : new Error(String(err)));
         }
+      }),
+    );
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        this.logger.error(
+          { eventType: event.eventType, error: result.reason },
+          'Event handler failed',
+        );
       }
-    });
+    }
   }
 }

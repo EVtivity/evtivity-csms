@@ -26,7 +26,11 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { config } from '../lib/config.js';
 import { paymentRegistry } from '../lib/payments.js';
 import { writePaymentSettings } from '../lib/payment-settings-writes.js';
-import { checkPaymentWebhookUrl, splitWebhookEndpoints } from '../lib/payment-webhook-url.js';
+import {
+  checkPaymentWebhookLookupUrl,
+  checkPaymentWebhookUrl,
+  splitWebhookEndpoints,
+} from '../lib/payment-webhook-url.js';
 import { decryptForRead } from '../lib/settings-crypto.js';
 
 /** The path Adyen posts to; the operator's webhook URL must end in it exactly. */
@@ -168,7 +172,7 @@ const adyenWebhookQuery = z.object({
     .max(2048)
     .optional()
     .describe(
-      `Webhook URL of this deployment (https, ending in ${ADYEN_WEBHOOK_URL_PATH}). Splits the EVtivity webhooks into the one at this URL and the ones of other deployments.`,
+      `Webhook URL of this deployment (http or https, ending in ${ADYEN_WEBHOOK_URL_PATH}). Splits the EVtivity webhooks into the one at this URL and the ones of other deployments.`,
     ),
 });
 
@@ -454,7 +458,7 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
       const query = request.query as z.infer<typeof adyenWebhookQuery>;
       let url: string | undefined;
       if (query.url !== undefined) {
-        const checked = checkPaymentWebhookUrl(query.url, 'adyen');
+        const checked = checkPaymentWebhookLookupUrl(query.url, 'adyen');
         if (!checked.ok) {
           await reply.status(400).send({
             error: 'Invalid webhook URL',

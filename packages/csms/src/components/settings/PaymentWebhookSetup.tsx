@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation } from '@tanstack/react-query';
 import { Webhook } from 'lucide-react';
@@ -39,23 +39,92 @@ export function defaultWebhookUrl(path: string): string {
 }
 
 /**
- * The webhook setup GET route of a provider, scoped to this deployment's
- * webhook URL: the answer splits the EVtivity webhooks at that URL from the
- * ones of other deployments sharing the provider account.
+ * The webhook setup GET route of a provider, scoped to a webhook URL: the
+ * answer splits the EVtivity webhooks at that URL from the ones of other
+ * deployments sharing the provider account.
  */
-export function webhookSetupPath(route: string, path: string): string {
-  return `${route}?url=${encodeURIComponent(defaultWebhookUrl(path))}`;
+export function webhookSetupPath(route: string, url: string): string {
+  return `${route}?url=${encodeURIComponent(url)}`;
 }
 
-/** Same rule as the API: https, the exact path, no query or fragment. */
-export function isValidWebhookUrl(raw: string, path: string): boolean {
+/** How long the URL field must stay unchanged before the webhook list follows it. */
+export const WEBHOOK_URL_QUERY_DELAY_MS = 500;
+
+export interface WebhookUrlState {
+  /** The URL field's value. */
+  url: string;
+  setUrl: (url: string) => void;
+  /**
+   * The last URL of the field the lookup accepts (http or https), debounced:
+   * the webhook list is split by it.
+   */
+  queryUrl: string;
+  /** Moves the list to the field's URL now, when it is valid (Create webhook). */
+  commitUrl: () => void;
+}
+
+/**
+ * The URL field of a webhook card and the URL its webhook list is split by.
+ * The list follows the field, so webhooks at an edited URL (a tunnel) show as
+ * this deployment's: the ones Create webhook would replace. A value the lookup
+ * refuses keeps the last accepted URL and its list on screen.
+ */
+export function useWebhookUrl(path: string): WebhookUrlState {
+  const [url, setUrl] = useState(() => defaultWebhookUrl(path));
+  const [queryUrl, setQueryUrl] = useState(() => defaultWebhookUrl(path));
+
+  useEffect(() => {
+    const next = url.trim();
+    if (next === queryUrl || !isValidWebhookLookupUrl(next, path)) return;
+    const timer = setTimeout(() => {
+      setQueryUrl(next);
+    }, WEBHOOK_URL_QUERY_DELAY_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [url, queryUrl, path]);
+
+  function commitUrl(): void {
+    const next = url.trim();
+    if (isValidWebhookLookupUrl(next, path)) setQueryUrl(next);
+  }
+
+  return { url, setUrl, queryUrl, commitUrl };
+}
+
+function checkWebhookUrl(raw: string, path: string, allowHttp: boolean): boolean {
+  const value = raw.trim();
   let url: URL;
   try {
-    url = new URL(raw.trim());
+    url = new URL(value);
   } catch {
     return false;
   }
-  return url.protocol === 'https:' && url.pathname === path && url.search === '' && url.hash === '';
+  const protocolOk = url.protocol === 'https:' || (allowHttp && url.protocol === 'http:');
+  return (
+    protocolOk &&
+    url.username === '' &&
+    url.password === '' &&
+    url.pathname === path &&
+    !value.includes('?') &&
+    !value.includes('#')
+  );
+}
+
+/**
+ * Same rule as the API registration: https, the exact path, no credentials,
+ * query or fragment.
+ */
+export function isValidWebhookUrl(raw: string, path: string): boolean {
+  return checkWebhookUrl(raw, path, false);
+}
+
+/**
+ * Same rule as the API lookup (the `url` query of the webhook setup GET):
+ * http is accepted too, so a local or plain-HTTP deployment lists its webhooks.
+ */
+export function isValidWebhookLookupUrl(raw: string, path: string): boolean {
+  return checkWebhookUrl(raw, path, true);
 }
 
 const SCOPES = ['platform', 'connect', 'standard'] as const;
@@ -136,6 +205,8 @@ export function OtherWebhookEndpoints({
 
 interface PaymentWebhookSetupProps<T> {
   idPrefix: string;
+  /** The URL field, shared with the card's webhook list (useWebhookUrl). */
+  urlState: WebhookUrlState;
   /** Path the URL must end in, for example /v1/webhooks/payments/stripe. */
   path: string;
   urlLabel: string;
@@ -154,10 +225,12 @@ interface PaymentWebhookSetupProps<T> {
  * When webhooks already exist at the URL the API answers 409
  * PAYMENT_WEBHOOK_EXISTS with them; the operator confirms the replacement and
  * the call is repeated with replace: true. Webhooks of other EVtivity
- * deployments at other URLs are never replaced.
+ * deployments at other URLs are never replaced. The card's webhook list is
+ * split by the same URL, so the dialog and the list name the same webhooks.
  */
 export function PaymentWebhookSetup<T>({
   idPrefix,
+  urlState,
   path,
   urlLabel,
   urlHint,
@@ -170,7 +243,7 @@ export function PaymentWebhookSetup<T>({
   onCreated,
 }: PaymentWebhookSetupProps<T>): React.JSX.Element {
   const { t } = useTranslation();
-  const [url, setUrl] = useState(() => defaultWebhookUrl(path));
+  const { url, setUrl, commitUrl } = urlState;
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [serverUrlInvalid, setServerUrlInvalid] = useState(false);
   const [existing, setExisting] = useState<WebhookEndpoint[] | null>(null);
@@ -199,6 +272,7 @@ export function PaymentWebhookSetup<T>({
   function handleCreate(): void {
     setHasSubmitted(true);
     if (urlInvalid) return;
+    commitUrl();
     mutation.mutate(false);
   }
 

@@ -29,7 +29,7 @@ function makeCtx(action: string, protocolVersion = 'ocpp2.1'): HandlerContext {
     action,
     payload: {},
     logger,
-    eventBus: { publish: vi.fn(), subscribe: vi.fn() },
+    eventBus: { publish: vi.fn(), subscribe: vi.fn(), drain: vi.fn() },
     correlator: {} as HandlerContext['correlator'],
     dispatcher: {} as HandlerContext['dispatcher'],
   };

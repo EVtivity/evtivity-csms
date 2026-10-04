@@ -252,10 +252,45 @@ describe('notification-dispatch', () => {
         expect.objectContaining({
           to: 'to@test.com',
           subject: 'Subject',
-          text: 'Body',
+          text: 'HTML',
           html: '<p>HTML</p>',
         }),
       );
+    });
+
+    it('derives the text part from the HTML, not the HTML template', async () => {
+      const { sendEmail } = await import('../notification-dispatch.js');
+      const html =
+        '<img src="https://x.test/logo.png" alt="Logo"><h2 style="color:#111">Set up your account</h2>' +
+        "<p>Hi Nightly,</p><a href='https://portal.test/activate?token&#x3D;abc'>Set Your Password</a>";
+      await sendEmail(
+        { host: 'smtp.test.com', port: 587, username: '', password: '', from: 'f@test.com' },
+        'to@test.com',
+        'Subject',
+        html,
+        html,
+      );
+      const text = (mockSendMail.mock.calls.at(-1)?.[0] as { text: string }).text;
+      expect(text).not.toContain('<');
+      expect(text).not.toContain('style=');
+      expect(text).not.toContain('logo.png');
+      expect(text).toContain('SET UP YOUR ACCOUNT');
+      expect(text).toContain('Hi Nightly,');
+      expect(text).toContain('Set Your Password [https://portal.test/activate?token=abc]');
+    });
+
+    it('sends the body as the text part without HTML', async () => {
+      const { sendEmail } = await import('../notification-dispatch.js');
+      await sendEmail(
+        { host: 'smtp.test.com', port: 587, username: '', password: '', from: 'f@test.com' },
+        'to@test.com',
+        'Subject',
+        'Plain body',
+      );
+      expect(mockSendMail.mock.calls.at(-1)?.[0]).toMatchObject({
+        text: 'Plain body',
+        html: undefined,
+      });
     });
 
     it('returns false on send failure', async () => {

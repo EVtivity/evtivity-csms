@@ -6,7 +6,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Subscription } from '@evtivity/lib';
 import { createLogger } from '@evtivity/lib';
 import { getPubSub } from '../../lib/pubsub.js';
-import { writeSseClient } from '../../lib/sse-broadcast.js';
+import { endSseClients, writeSseClient } from '../../lib/sse-broadcast.js';
 
 const logger = createLogger('portal-events-sse');
 
@@ -120,6 +120,11 @@ export function portalEventRoutes(app: FastifyInstance): void {
       await reply;
     },
   );
+
+  app.addHook('preClose', (done) => {
+    endSseClients(clients, logger);
+    done();
+  });
 
   app.addHook('onClose', async () => {
     if (keepaliveTimer != null) {

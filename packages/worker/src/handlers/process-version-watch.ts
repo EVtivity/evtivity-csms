@@ -4,14 +4,18 @@
 import type { Logger } from 'pino';
 import { Redis } from 'ioredis';
 import { recordProcessWatch } from '@evtivity/payments';
+import { logRedisErrors } from '@evtivity/lib';
 
 let redis: Redis | null = null;
 
 function watchStore(): Redis {
   if (redis == null) {
-    redis = new Redis(process.env['REDIS_URL'] ?? 'redis://localhost:6379', {
-      maxRetriesPerRequest: 2,
-    });
+    redis = logRedisErrors(
+      new Redis(process.env['REDIS_URL'] ?? 'redis://localhost:6379', {
+        maxRetriesPerRequest: 2,
+      }),
+      'process-version-watch',
+    );
   }
   return redis;
 }

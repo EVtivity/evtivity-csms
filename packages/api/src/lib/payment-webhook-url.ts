@@ -21,10 +21,38 @@ export function checkPaymentWebhookUrl(
   raw: string,
   providerId: 'stripe' | 'adyen',
 ): PaymentWebhookUrlCheck {
+  return checkUrl(raw, providerId, false);
+}
+
+/**
+ * Checks the `url` query of the webhook setup GET routes. It only picks which
+ * EVtivity webhooks belong to this deployment, so it also accepts http: the
+ * CSMS sends its own default webhook URL, which is http on a local or
+ * plain-HTTP deployment, and the endpoint list must still load there.
+ * Registration keeps requiring https (`checkPaymentWebhookUrl`).
+ */
+export function checkPaymentWebhookLookupUrl(
+  raw: string,
+  providerId: 'stripe' | 'adyen',
+): PaymentWebhookUrlCheck {
+  return checkUrl(raw, providerId, true);
+}
+
+function checkUrl(
+  raw: string,
+  providerId: 'stripe' | 'adyen',
+  allowHttp: boolean,
+): PaymentWebhookUrlCheck {
   const path = paymentWebhookPath(providerId);
   if (!URL.canParse(raw)) return { ok: false, problem: 'Must be an absolute URL' };
   const url = new URL(raw);
-  if (url.protocol !== 'https:') return { ok: false, problem: 'Must use https' };
+  if (allowHttp) {
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+      return { ok: false, problem: 'Must use http or https' };
+    }
+  } else if (url.protocol !== 'https:') {
+    return { ok: false, problem: 'Must use https' };
+  }
   if (url.username !== '' || url.password !== '') {
     return { ok: false, problem: 'Must not contain credentials' };
   }

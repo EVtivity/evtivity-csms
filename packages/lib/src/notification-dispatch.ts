@@ -3,6 +3,7 @@
 
 import postgres from 'postgres';
 import nodemailer from 'nodemailer';
+import { convert as htmlToText } from 'html-to-text';
 import { readFile } from 'node:fs/promises';
 import { createLogger } from './logger.js';
 import { decryptString } from './encryption.js';
@@ -533,6 +534,27 @@ export interface EmailAttachment {
   contentType?: string;
 }
 
+/**
+ * The plain-text alternative of an HTML email: readable text with links as
+ * "label [url]" and images left out. Mail clients that show the text/plain
+ * part (text-only clients, previews, screen readers in plain mode) would
+ * otherwise show the raw HTML template.
+ */
+export function emailTextFromHtml(html: string): string {
+  return htmlToText(html, {
+    wordwrap: 100,
+    selectors: [
+      { selector: 'img', format: 'skip' },
+      { selector: 'a', options: { hideLinkHrefIfSameAsText: true } },
+    ],
+  }).trim();
+}
+
+/**
+ * Sends one email. With `html`, the text/plain part is derived from it
+ * (`emailTextFromHtml`), because the rendered email `body` is the HTML
+ * template; without `html`, `body` is the plain text.
+ */
 export async function sendEmail(
   config: SmtpConfig,
   to: string,
@@ -559,7 +581,7 @@ export async function sendEmail(
       from: config.from,
       to,
       subject,
-      text: body,
+      text: html != null ? emailTextFromHtml(html) : body,
       html: html ?? undefined,
       attachments: attachments?.map((a) => ({
         filename: a.filename,
