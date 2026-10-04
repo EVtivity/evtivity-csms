@@ -12,7 +12,7 @@ export {
 export { withLock } from './redis-lock.js';
 export type { WithLockOptions, WithLockResult } from './redis-lock.js';
 
-export { createLogger } from './logger.js';
+export { createLogger, logFormatOptions } from './logger.js';
 export type { Logger } from './logger.js';
 
 export {

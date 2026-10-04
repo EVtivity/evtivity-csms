@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyServerOptions } from 'fastify';
-import { RedisPubSubClient, createBullMQConnection, initSentry } from '@evtivity/lib';
+import {
+  RedisPubSubClient,
+  createBullMQConnection,
+  initSentry,
+  logFormatOptions,
+} from '@evtivity/lib';
 import { getSentryConfig } from '@evtivity/database';
 import { buildOcpiApp } from './app.js';
 import { OcpiPushListener } from './services/push.service.js';
@@ -19,6 +24,7 @@ async function start(): Promise<void> {
   const opts: FastifyServerOptions = {
     logger: {
       level: config.LOG_LEVEL,
+      ...logFormatOptions,
       serializers: {
         req(request) {
           return {

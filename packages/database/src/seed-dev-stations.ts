@@ -9,8 +9,9 @@
 // SEED_DEMO=true already created them).
 
 import argon2 from 'argon2';
-import { and, eq, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db, client } from './config.js';
+import { acceptPendingFixtureStations } from './lib/fixture-stations.js';
 import {
   sites,
   vendors,
@@ -225,20 +226,9 @@ console.log(`  ${String(createdCount)} dev stations created (skipped any that al
 // CS-0001 and CS-0002 already exist from migration 0001, which leaves them
 // pending, so the insert above skips them. Accept them so the simulators boot
 // into service. A station an operator blocked stays blocked.
-const accepted = await db
-  .update(chargingStations)
-  .set({ onboardingStatus: 'accepted', updatedAt: new Date() })
-  .where(
-    and(
-      inArray(chargingStations.stationId, ['CS-0001', 'CS-0002']),
-      eq(chargingStations.onboardingStatus, 'pending'),
-    ),
-  )
-  .returning({ stationId: chargingStations.stationId });
+const accepted = await acceptPendingFixtureStations();
 if (accepted.length > 0) {
-  console.log(
-    `  Accepted pending fixture stations: ${accepted.map((s) => s.stationId).join(', ')}.`,
-  );
+  console.log(`  Accepted pending fixture stations: ${accepted.join(', ')}.`);
 }
 
 // Dev driver: matches the credentials baked into docker-build.sh's PORTAL_LOGIN

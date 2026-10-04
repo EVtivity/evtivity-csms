@@ -47,6 +47,18 @@ interface TrendDay extends SnapshotData {
   date: string;
 }
 
+/**
+ * A stat value stays on one line (value and unit are joined by a no-break space), so its size
+ * follows the card, not the viewport: the card content is a size container. Six cards per row
+ * (xl) leave about 99 px of content at 1280 px and 114 px at 1366 px, where "359.6 MWh" needs
+ * 91 px at text-base, 102 px at text-lg and 136 px at text-2xl.
+ */
+const STAT_VALUE_CLASS =
+  'text-base @min-[6.5rem]:text-lg @min-[9rem]:text-2xl font-bold whitespace-nowrap';
+
+/** Rows of six stat cards; three per row below xl, where six leave no room for the values. */
+const SIX_CARD_GRID_CLASS = 'grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-6';
+
 type DashboardMode = 'live' | 'historical' | 'trend';
 
 interface EnergyPoint {
@@ -256,11 +268,10 @@ function StatCard({
           {info != null && <InfoTooltip content={<div className="max-w-56">{info}</div>} />}
         </CardTitle>
       </CardHeader>
-      <CardContent>
-        {/* The value never breaks; the trend arrow wraps below it when the card is too
-            narrow (six cards per row at lg, e.g. "366.8 MWh"), instead of overflowing. */}
-        <div className="text-lg sm:text-2xl font-bold flex flex-wrap items-center gap-x-2">
-          <span className="whitespace-nowrap">{animated}</span>
+      <CardContent className="@container">
+        {/* The trend arrow wraps below the value when the card is too narrow. */}
+        <div className={`${STAT_VALUE_CLASS} flex flex-wrap items-center gap-x-2`}>
+          <span>{animated}</span>
           {delta != null && tooltipText != null && (
             <InfoTooltip
               content={<div className="whitespace-nowrap">{tooltipText}</div>}
@@ -328,8 +339,8 @@ function TrendStatCard({
           {info != null && <InfoTooltip content={<div className="max-w-56">{info}</div>} />}
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2">
-        <div className="text-lg sm:text-2xl font-bold whitespace-nowrap">{animated}</div>
+      <CardContent className="@container space-y-2">
+        <div className={STAT_VALUE_CLASS}>{animated}</div>
         <Sparkline
           data={[...data].reverse()}
           strokeColor={
@@ -700,7 +711,7 @@ function AdminDashboard({
 
     return (
       <>
-        <div className="grid gap-4 grid-cols-2 lg:grid-cols-6">
+        <div className={SIX_CARD_GRID_CLASS}>
           <StatCard
             title={t('dashboard.totalStations')}
             value={stats.totalStations}
@@ -744,15 +755,15 @@ function AdminDashboard({
                 />
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-lg sm:text-2xl font-bold whitespace-nowrap text-success">
+            <CardContent className="@container">
+              <div className={`${STAT_VALUE_CLASS} text-success`}>
                 {formatCo2(carbonStats.data?.totalCo2AvoidedKg ?? 0)}
               </div>
             </CardContent>
           </Card>
         </div>
 
-        <div className="grid gap-4 grid-cols-2 lg:grid-cols-6">
+        <div className={SIX_CARD_GRID_CLASS}>
           <StatCard
             title={t('dashboard.energyDelivered')}
             value={formatEnergy(stats.totalEnergyWh)}

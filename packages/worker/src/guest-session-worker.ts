@@ -11,11 +11,35 @@ import { guestEventDeps, paymentContext } from './lib/payments.js';
 
 const log = createLogger('guest-session-worker');
 
-interface CsmsEvent {
+export interface CsmsEvent {
   type: string;
   sessionId?: string;
   idToken?: { idToken: string; type: string };
   [key: string]: unknown;
+}
+
+/** Adds the job that links a guest session to its started transaction (bridge and Redis recovery). */
+export async function enqueueGuestSessionStarted(
+  guestSessionQueue: Queue,
+  event: CsmsEvent & { idToken: { idToken: string; type: string } },
+): Promise<void> {
+  await guestSessionQueue.add(
+    'guest-session-started',
+    { event },
+    { jobId: `guest-session-started-${event.idToken.idToken}`, attempts: 3 },
+  );
+}
+
+/** Adds the job that captures or cancels a guest hold when its transaction ended (bridge and Redis recovery). */
+export async function enqueueGuestSessionEnded(
+  guestSessionQueue: Queue,
+  sessionId: string,
+): Promise<void> {
+  await guestSessionQueue.add(
+    'guest-session-ended',
+    { sessionId },
+    { jobId: `guest-session-ended-${sessionId}`, attempts: 3 },
+  );
 }
 
 /**
@@ -36,27 +60,18 @@ export async function startGuestSessionBridge(
     }
 
     if (event.type === 'TransactionStarted' && event.idToken?.idToken != null) {
-      void guestSessionQueue
-        .add(
-          'guest-session-started',
-          { event },
-          { jobId: `guest-session-started-${event.idToken.idToken}`, attempts: 3 },
-        )
-        .catch((err: unknown) => {
-          log.error({ err }, 'Failed to enqueue guest-session-started job');
-        });
+      enqueueGuestSessionStarted(guestSessionQueue, {
+        ...event,
+        idToken: event.idToken,
+      }).catch((err: unknown) => {
+        log.error({ err }, 'Failed to enqueue guest-session-started job');
+      });
     }
 
     if (event.type === 'TransactionEnded' && event.sessionId != null) {
-      void guestSessionQueue
-        .add(
-          'guest-session-ended',
-          { sessionId: event.sessionId },
-          { jobId: `guest-session-ended-${event.sessionId}`, attempts: 3 },
-        )
-        .catch((err: unknown) => {
-          log.error({ err }, 'Failed to enqueue guest-session-ended job');
-        });
+      enqueueGuestSessionEnded(guestSessionQueue, event.sessionId).catch((err: unknown) => {
+        log.error({ err }, 'Failed to enqueue guest-session-ended job');
+      });
     }
   });
 

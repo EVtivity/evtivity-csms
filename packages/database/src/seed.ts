@@ -88,6 +88,7 @@ import {
   invoices,
   invoiceLineItems,
 } from './schema/index.js';
+import { acceptPendingFixtureStations } from './lib/fixture-stations.js';
 import argon2 from 'argon2';
 import {
   encryptString,
@@ -839,6 +840,14 @@ async function seed(): Promise<void> {
     console.log('Seed complete (SEED_DEMO=false).');
     await client.end();
     return;
+  }
+
+  // Demo installs run the CS-0001/CS-0002 simulators (fixtures of migration
+  // 0001, inserted pending) like the compose dev fixture does. Before the demo
+  // marker check, so a rerun also fixes a demo install seeded before this.
+  const acceptedFixtures = await acceptPendingFixtureStations();
+  if (acceptedFixtures.length > 0) {
+    console.log(`  Accepted pending fixture stations: ${acceptedFixtures.join(', ')}.`);
   }
 
   // The demo rows have no natural keys (random sessions, generated IDs), so

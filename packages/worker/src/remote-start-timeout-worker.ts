@@ -29,6 +29,18 @@ export function remoteStartTimeoutJobId(target: RemoteStartTimeoutTarget): strin
     : `remote-start-timeout-guest-${String(target.guestSessionId)}`;
 }
 
+/** Adds the delayed timeout job of an accepted start (bridge and Redis recovery). */
+export async function enqueueRemoteStartTimeout(
+  queue: Queue,
+  target: RemoteStartTimeoutTarget,
+  delayMs: number,
+): Promise<void> {
+  await queue.add('remote-start-timeout', target, {
+    jobId: remoteStartTimeoutJobId(target),
+    delay: delayMs,
+  });
+}
+
 /**
  * Subscribes to REMOTE_START_TIMEOUT_CHANNEL (an accepted portal or guest
  * start, published by the API) and enqueues a delayed timeout job.
@@ -46,11 +58,9 @@ export async function startRemoteStartTimeoutBridge(
       return;
     }
     const { delayMs: delay, ...target } = message;
-    queue
-      .add('remote-start-timeout', target, { jobId: remoteStartTimeoutJobId(target), delay })
-      .catch((err: unknown) => {
-        log.error({ err, target }, 'Failed to enqueue remote start timeout job');
-      });
+    enqueueRemoteStartTimeout(queue, target, delay).catch((err: unknown) => {
+      log.error({ err, target }, 'Failed to enqueue remote start timeout job');
+    });
   });
 
   log.info('Remote start timeout bridge started');

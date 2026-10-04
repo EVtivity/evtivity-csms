@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyServerOptions } from 'fastify';
-import { RedisPubSubClient, initSentry } from '@evtivity/lib';
+import { RedisPubSubClient, initSentry, logFormatOptions } from '@evtivity/lib';
 import { client, getSentryConfig } from '@evtivity/database';
 import { createShutdownHandler } from './lib/process-shutdown.js';
 import { buildApp } from './app.js';
@@ -35,6 +35,7 @@ async function start(): Promise<void> {
   const opts: FastifyServerOptions = {
     logger: {
       level: config.LOG_LEVEL,
+      ...logFormatOptions,
       serializers: {
         req(request) {
           return {

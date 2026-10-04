@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { createLogger } from '../logger.js';
+import { Writable } from 'node:stream';
+import pino from 'pino';
+import { createLogger, logFormatOptions } from '../logger.js';
 
 describe('createLogger', () => {
   const originalLevel = process.env['LOG_LEVEL'];
@@ -99,5 +101,23 @@ describe('createLogger', () => {
     const b = createLogger('beta');
     expect(a.bindings().name).toBe('alpha');
     expect(b.bindings().name).toBe('beta');
+  });
+});
+
+describe('logFormatOptions', () => {
+  it('writes the level as a label and the time as an ISO string', () => {
+    const lines: string[] = [];
+    const sink = new Writable({
+      write(chunk: Buffer, _encoding, callback) {
+        lines.push(chunk.toString());
+        callback();
+      },
+    });
+    // The shape the Fastify request loggers of the API and OCPI servers get.
+    pino({ level: 'info', ...logFormatOptions }, sink).warn('request failed');
+    const line = JSON.parse(lines[0] ?? '{}') as { level: unknown; time: unknown };
+    expect(line.level).toBe('warn');
+    expect(typeof line.time).toBe('string');
+    expect(new Date(line.time as string).toISOString()).toBe(line.time);
   });
 });

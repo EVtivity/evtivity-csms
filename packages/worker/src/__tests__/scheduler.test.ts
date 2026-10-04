@@ -37,3 +37,48 @@ describe('scheduleCronJobs', () => {
     );
   });
 });
+
+describe('scheduleLoadManagementCoordinator', () => {
+  it('registers the coordinator every 10 s under its scheduler id', async () => {
+    const { scheduleLoadManagementCoordinator } = await import('../scheduler.js');
+    const upsert = vi.fn().mockResolvedValue(undefined);
+    await scheduleLoadManagementCoordinator({ upsertJobScheduler: upsert } as never);
+    expect(upsert).toHaveBeenCalledWith(
+      'load-management-coordinator',
+      { every: 10_000 },
+      { name: 'load-management-coordinator' },
+    );
+  });
+});
+
+describe('findMissingSchedulers', () => {
+  function queue(keys: string[]): never {
+    return {
+      getJobSchedulers: vi.fn().mockResolvedValue(keys.map((key) => ({ key, name: key }))),
+    } as never;
+  }
+
+  it('returns nothing while Redis holds every cron scheduler and the coordinator', async () => {
+    const { findMissingSchedulers } = await import('../scheduler.js');
+    const missing = await findMissingSchedulers(
+      queue(['report-scheduler', 'guest-session-cleanup']),
+      queue(['load-management-coordinator']),
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it('names each cronjobs row and the coordinator that Redis lost', async () => {
+    const { findMissingSchedulers } = await import('../scheduler.js');
+    expect(await findMissingSchedulers(queue([]), queue([]))).toEqual([
+      'report-scheduler',
+      'guest-session-cleanup',
+      'load-management-coordinator',
+    ]);
+    expect(
+      await findMissingSchedulers(
+        queue(['report-scheduler']),
+        queue(['load-management-coordinator']),
+      ),
+    ).toEqual(['guest-session-cleanup']);
+  });
+});

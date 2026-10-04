@@ -14,7 +14,8 @@ import { getSentryConfig } from '@evtivity/database';
 import { setPubSub } from '@evtivity/api/src/lib/pubsub.js';
 import { createQueues, QUEUE_NAMES } from './queues.js';
 import { createCronWorker } from './cron-worker.js';
-import { scheduleCronJobs } from './scheduler.js';
+import { scheduleCronJobs, scheduleLoadManagementCoordinator } from './scheduler.js';
+import { rebuildDelayedJobs, startRedisRecoveryWatch } from './redis-recovery.js';
 import { createLoadManagementWorker } from './load-management-worker.js';
 import { createGuestSessionWorker, startGuestSessionBridge } from './guest-session-worker.js';
 import { createReservationWorker, startReservationBridge } from './reservation-worker.js';
@@ -38,7 +39,6 @@ import type { OcttJobData } from './handlers/octt-runner.js';
 
 const log = createLogger('worker');
 const REDIS_URL = process.env['REDIS_URL'] ?? 'redis://localhost:6379';
-const LOAD_MANAGEMENT_INTERVAL_MS = 10_000;
 
 async function start(): Promise<void> {
   const sentryConfig = await getSentryConfig();
@@ -80,11 +80,21 @@ async function start(): Promise<void> {
   await scheduleCronJobs(cronQueue);
 
   // Schedule load management coordinator (runs every 10s, fans out per-site)
-  await loadQueue.upsertJobScheduler(
-    'load-management-coordinator',
-    { every: LOAD_MANAGEMENT_INTERVAL_MS },
-    { name: 'load-management-coordinator' },
-  );
+  await scheduleLoadManagementCoordinator(loadQueue);
+
+  // Redis without persistence loses schedulers and delayed jobs on a restart
+  // or failover: rebuild the delayed jobs the database knows about now (a
+  // restart together with Redis), and watch for a later loss.
+  const recoveryQueues = {
+    cronQueue,
+    loadQueue,
+    reservationQueue,
+    remoteStartTimeoutQueue,
+    guestSessionQueue,
+  };
+  const rebuilt = await rebuildDelayedJobs(recoveryQueues);
+  log.info({ ...rebuilt }, 'Delayed jobs checked against the database');
+  const redisRecoveryWatch = await startRedisRecoveryWatch(recoveryQueues, log);
 
   // Create workers (each needs its own Redis connection per BullMQ docs)
   const cronWorker = createCronWorker(createBullMQConnection(REDIS_URL));
@@ -179,6 +189,7 @@ async function start(): Promise<void> {
 
   const shutdown = async (): Promise<void> => {
     log.info('Worker shutting down...');
+    await redisRecoveryWatch.stop();
     await stopGuestBridge();
     await stopReservationBridge();
     await stopMaintenanceFanoutBridge();

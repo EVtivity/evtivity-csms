@@ -11,6 +11,27 @@ import { handleReservationActivate } from './handlers/reservation-activate.js';
 const log = createLogger('reservation-worker');
 
 /**
+ * Adds the delayed activation job of a scheduled reservation. One job per
+ * reservation (P7): every worker replica receives each pub/sub message, and
+ * the Redis recovery rebuilds the same job id from the database.
+ */
+export async function enqueueReservationActivation(
+  reservationQueue: Queue,
+  reservationDbId: string,
+  delayMs: number,
+): Promise<void> {
+  await reservationQueue.add(
+    'reservation-activate',
+    { reservationDbId },
+    {
+      jobId: `reservation-activate-${reservationDbId}`,
+      delay: delayMs,
+      attempts: 3,
+    },
+  );
+}
+
+/**
  * Subscribes to the reservation_schedule pub/sub channel and enqueues delayed
  * BullMQ jobs that fire at the reservation's startsAt time.
  */
@@ -27,22 +48,14 @@ export async function startReservationBridge(
       return;
     }
 
-    void reservationQueue
-      .add(
-        'reservation-activate',
-        { reservationDbId: data.reservationDbId },
-        {
-          jobId: `reservation-activate-${data.reservationDbId}`,
-          delay: data.delayMs,
-          attempts: 3,
-        },
-      )
-      .catch((err: unknown) => {
+    enqueueReservationActivation(reservationQueue, data.reservationDbId, data.delayMs).catch(
+      (err: unknown) => {
         log.error(
           { err, reservationDbId: data.reservationDbId },
           'Failed to enqueue reservation-activate job',
         );
-      });
+      },
+    );
   });
 
   log.info('Reservation schedule bridge started');
