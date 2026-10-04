@@ -764,6 +764,49 @@ describe('Event projections', () => {
       );
     });
 
+    it('notifies once per idle period: no notification when the period was already claimed', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [{ id: 'evse_000000000001' }], // SELECT evses (found)
+        [{ status: 'charging' }], // SELECT status FROM connectors (prevRows)
+        [], // INSERT port_status_log
+        [], // UPDATE connectors
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
+        [], // UPDATE charging_stations (connector fault reconciliation)
+        [{ site_id: null }], // resolveSiteId
+        [], // UPDATE charging_sessions SET idle_started_at (already set)
+        [{ id: 'session-1', transaction_id: 'tx-1' }], // SELECT active session
+        [], // dispatchIdlingNotification: claim found idle_notified_at = idle_started_at
+      );
+
+      await eventBus.emit(
+        'ocpp.StatusNotification',
+        makeDomainEvent('ocpp.StatusNotification', 'CS-001', {
+          evseId: 1,
+          connectorId: 1,
+          connectorStatus: 'SuspendedEV',
+          timestamp: '2024-01-01T01:05:00Z',
+        }),
+      );
+
+      const claim = sqlCalls.find((c) =>
+        c.strings.join('').includes('idle_notified_at = COALESCE'),
+      );
+      expect(claim?.strings.join('')).toContain(
+        'idle_notified_at IS DISTINCT FROM COALESCE(idle_started_at',
+      );
+      expect(mockDispatchDriver).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'session.IdlingStarted',
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
     it('shows the idle fee excluding tax when the driver follows a net company setting', async () => {
       await setup();
 
@@ -2563,6 +2606,10 @@ describe('Event projections', () => {
         );
       });
       expect(accumulateCall).toBeDefined();
+      // The meter fallback never ends an idle period the station reported (claimed).
+      expect(accumulateCall?.strings.join('')).toContain(
+        'idle_notified_at IS DISTINCT FROM idle_started_at',
+      );
     });
 
     it('sets idle_started_at when energy reading unchanged from previous', async () => {

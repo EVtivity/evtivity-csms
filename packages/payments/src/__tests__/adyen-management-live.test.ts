@@ -7,11 +7,13 @@
 // so it is skipped there. Never log or commit the key, the webhook password or
 // the HMAC key.
 //
-// The merchant account must hold no EVtivity webhook (description
-// "EVtivity payments") when the test starts: registration with replace
-// updates that webhook and activation deletes other EVtivity webhooks, so the
-// test refuses to run on an account that has one. It deletes every webhook it
-// creates.
+// Registration acts only on the webhooks at its own URL (origin and path):
+// replace updates the one there and activation deletes duplicates there. The
+// test refuses to run when the merchant account already has an EVtivity
+// webhook (description "EVtivity payments") at the URL it uses. It creates an
+// EVtivity webhook at another URL to stand for another deployment sharing the
+// account, proves registration never touches it, and deletes every webhook it
+// creates. Webhooks of real deployments on the account are left alone.
 //
 // The delivery block also needs ADYEN_TEST_WEBHOOK_URL: a public https URL
 // ending in /v1/webhooks/payments/adyen that reaches a running EVtivity API,
@@ -39,6 +41,7 @@ import {
 } from '../providers/adyen/management.js';
 import { WebhookExistsError } from '../errors.js';
 import type { WebhookRegistration } from '../types.js';
+import { partitionWebhookEndpoints } from '../webhook-endpoint-url.js';
 import { basicAuth, signedNotification } from '../testing/fake-adyen.js';
 
 const apiKey = process.env['ADYEN_TEST_API_KEY'] ?? '';
@@ -55,6 +58,8 @@ const deliveryEnabled =
 
 /** Resolvable host (Adyen rejects unresolvable URLs); never delivered to during the test. */
 const UNREACHABLE_URL = 'https://example.com/v1/webhooks/payments/adyen';
+/** Another EVtivity deployment on the same merchant account; never delivered to either. */
+const OTHER_DEPLOYMENT_URL = 'https://example.org/v1/webhooks/payments/adyen';
 
 function options(): AdyenProviderOptions {
   return {
@@ -72,12 +77,16 @@ function options(): AdyenProviderOptions {
   };
 }
 
-/** Refuses to run against a merchant account that already has an EVtivity webhook. */
-async function assertNoEvtivityWebhook(provider: AdyenPaymentProvider): Promise<void> {
-  const existing = await provider.listWebhooks();
+/** Refuses to run when the merchant account already has an EVtivity webhook at one of the URLs. */
+async function assertNoEvtivityWebhook(
+  provider: AdyenPaymentProvider,
+  urls: string[],
+): Promise<void> {
+  const all = await provider.listWebhooks();
+  const existing = urls.flatMap((url) => partitionWebhookEndpoints(all, url).matching);
   if (existing.length > 0) {
     throw new Error(
-      `The Adyen merchant account already has ${String(existing.length)} EVtivity webhook(s). ` +
+      `The Adyen merchant account already has ${String(existing.length)} EVtivity webhook(s) at the test URL. ` +
         'Registration with replace changes them, so this test does not run here.',
     );
   }
@@ -97,7 +106,7 @@ describe.skipIf(!enabled)('Adyen webhook registration against an Adyen TEST acco
   beforeAll(async () => {
     provider = new AdyenPaymentProvider(options());
     management = new AdyenManagementClient({ apiKey, merchantAccount, environment: 'test' });
-    await assertNoEvtivityWebhook(provider);
+    await assertNoEvtivityWebhook(provider, [UNREACHABLE_URL, OTHER_DEPLOYMENT_URL]);
   }, 60_000);
 
   afterAll(async () => {
@@ -110,11 +119,42 @@ describe.skipIf(!enabled)('Adyen webhook registration against an Adyen TEST acco
   }, 60_000);
 
   it('creates the webhook inactive, refuses a second one, updates it in place, and activates it', async () => {
-    const first = await provider.registerWebhook({ url: UNREACHABLE_URL, replace: false });
+    // Another deployment's EVtivity webhook on the same merchant account.
+    const other = await management.createWebhook({
+      type: 'standard',
+      url: OTHER_DEPLOYMENT_URL,
+      active: false,
+      communicationFormat: 'json',
+      encryptionProtocol: 'TLSv1.3',
+      username: `evtivity-${crypto.randomBytes(6).toString('hex')}`,
+      password: crypto.randomBytes(24).toString('base64url'),
+      description: ADYEN_WEBHOOK_DESCRIPTION,
+      additionalSettings: { includeEventCodes: [...ADYEN_WEBHOOK_EVENT_CODES] },
+    });
+    created.add(other.id);
+    // Adyen returns the event codes in no fixed order.
+    const snapshot = async (): Promise<unknown> => {
+      const w = (await management.listWebhooks()).find((hook) => hook.id === other.id);
+      if (w == null) return null;
+      return {
+        url: w.url,
+        description: w.description,
+        username: w.username,
+        hasPassword: w.hasPassword,
+        active: w.active,
+        events: [...(w.additionalSettings?.includeEventCodes ?? [])].sort(),
+      };
+    };
+    const otherBefore = await snapshot();
+    expect(otherBefore).not.toBeNull();
+
+    // Even with replace, the webhook at another URL is not adopted: a new one is created.
+    const first = await provider.registerWebhook({ url: UNREACHABLE_URL, replace: true });
     const [endpoint] = first.endpoints;
     if (endpoint == null) throw new Error('no endpoint');
     created.add(endpoint.id);
     expect(first.endpoints).toHaveLength(1);
+    expect(endpoint.id).not.toBe(other.id);
     expect(endpoint).toMatchObject({ url: UNREACHABLE_URL, scope: 'standard', active: false });
 
     // Adyen holds what EVtivity sent: JSON, TLS 1.3, Basic auth, the event codes.
@@ -138,6 +178,8 @@ describe.skipIf(!enabled)('Adyen webhook registration against an Adyen TEST acco
       (err: unknown) => err,
     );
     expect(refused).toBeInstanceOf(WebhookExistsError);
+    expect((refused as WebhookExistsError).endpoints.map((e) => e.id)).toEqual([endpoint.id]);
+    expect((refused as WebhookExistsError).otherEndpoints.map((e) => e.id)).toContain(other.id);
 
     // Replace keeps the webhook and its id, with new credentials and HMAC key.
     const second = await provider.registerWebhook({ url: UNREACHABLE_URL, replace: true });
@@ -151,7 +193,11 @@ describe.skipIf(!enabled)('Adyen webhook registration against an Adyen TEST acco
 
     await second.activate?.();
     const listed = await provider.listWebhooks();
-    expect(listed).toEqual([expect.objectContaining({ id: endpoint.id, active: true })]);
+    expect(partitionWebhookEndpoints(listed, UNREACHABLE_URL).matching).toEqual([
+      expect.objectContaining({ id: endpoint.id, active: true }),
+    ]);
+    // The other deployment's webhook is unchanged: same URL, credentials and state.
+    expect(await snapshot()).toEqual(otherBefore);
 
     // Adyen's test delivery to a URL that answers no 2xx reports a failure.
     const test = await provider.sendTestWebhook(endpoint.id);
@@ -190,7 +236,7 @@ describe.skipIf(!deliveryEnabled)('Adyen webhook delivery to a running EVtivity 
   beforeAll(async () => {
     provider = new AdyenPaymentProvider(options());
     management = new AdyenManagementClient({ apiKey, merchantAccount, environment: 'test' });
-    await assertNoEvtivityWebhook(provider);
+    await assertNoEvtivityWebhook(provider, [webhookUrl]);
     previous = (await db.select().from(settings).where(inArray(settings.key, touchedKeys))).map(
       (row) => ({ key: row.key, value: row.value }),
     );

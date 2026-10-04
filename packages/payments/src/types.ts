@@ -302,7 +302,11 @@ export interface WebhookAck {
 export interface WebhookRegistrationInput {
   /** Absolute https URL ending in /v1/webhooks/<webhookPath>. */
   url: string;
-  /** Replace an EVtivity endpoint that already exists for this provider. */
+  /**
+   * Replace the webhooks that already exist at this URL (same origin and
+   * path). Webhooks of other EVtivity deployments on the same account, at
+   * other URLs, are never changed.
+   */
   replace: boolean;
 }
 
@@ -393,6 +397,12 @@ export interface PaymentProvider {
   ): Promise<ModificationResult<{ authorizedCents: number; providerState?: ProviderState }>>;
   capture(input: CaptureInput): Promise<ModificationResult<CaptureResult>>;
   chargeShortfall(input: ShortfallInput): Promise<ChargeResult>;
+  /**
+   * Smallest amount one new charge can take in `currency` (ISO 4217, minor
+   * units), or null when the provider sets none or it is not known for that
+   * currency. A top-up below it can never be collected, so it is not tried.
+   */
+  minimumChargeCents?(currency: string): number | null;
   chargeSavedMethod(input: ImmediateChargeInput): Promise<ChargeResult>;
   cancelHold(
     input: { paymentId: string | null; merchantReference: string } & Idempotent,
@@ -410,9 +420,17 @@ export interface PaymentProvider {
   getPaymentState?(paymentId: string): Promise<ProviderPaymentState>;
 
   // Webhook registration
-  /** Required when capabilities.webhookRegistration. Lists EVtivity's endpoints. */
+  /**
+   * Required when capabilities.webhookRegistration. Lists the EVtivity
+   * endpoints on the account, of every deployment that shares it; split them
+   * by URL with `partitionWebhookEndpoints`.
+   */
   listWebhooks?(): Promise<WebhookEndpointInfo[]>;
-  /** Required when capabilities.webhookRegistration. Throws WebhookExistsError when replace is false and one exists. */
+  /**
+   * Required when capabilities.webhookRegistration. Acts only on the
+   * webhooks at `input.url`. Throws WebhookExistsError when replace is false
+   * and one exists there.
+   */
   registerWebhook?(input: WebhookRegistrationInput): Promise<WebhookRegistration>;
 
   // Site host payout accounts

@@ -13,6 +13,7 @@ import type {
   WebhookRegistration,
   WebhookRegistrationInput,
 } from '../../types.js';
+import { partitionWebhookEndpoints } from '../../webhook-endpoint-url.js';
 
 /**
  * Snapshot event shape of the endpoints EVtivity creates: the API version the
@@ -111,21 +112,27 @@ async function createEndpoint(
 /**
  * Creates the two endpoints EVtivity needs, each with its own signing secret:
  * the platform endpoint (payment events) and the Connect endpoint
- * (`account.updated` of connected accounts). Existing EVtivity endpoints are
- * replaced only with `replace` (Stripe returns a secret only on create, so an
- * existing endpoint cannot be adopted), and deleted only after both new ones
- * exist, so events keep flowing. If the Connect endpoint fails, the new
- * platform endpoint is deleted again: nothing is left half registered.
- * No idempotency key: a retry lists first and finds an earlier attempt's
- * endpoints. The secrets are only in the returned settings.
+ * (`account.updated` of connected accounts). Only EVtivity endpoints at the
+ * requested URL (same origin and path) count as existing: endpoints of other
+ * EVtivity deployments on the same Stripe account are never deleted.
+ * Existing endpoints at the URL are replaced only with `replace` (Stripe
+ * returns a secret only on create, so an existing endpoint cannot be
+ * adopted), and deleted only after both new ones exist, so events keep
+ * flowing. If the Connect endpoint fails, the new platform endpoint is
+ * deleted again: nothing is left half registered. No idempotency key: a
+ * retry lists first and finds an earlier attempt's endpoints. The secrets
+ * are only in the returned settings.
  */
 export async function registerStripeWebhookEndpoints(
   stripe: WebhookEndpointsClient,
   input: WebhookRegistrationInput,
 ): Promise<WebhookRegistration> {
-  const existing = await listEvtivityWebhookEndpoints(stripe);
+  const { matching: existing, other } = partitionWebhookEndpoints(
+    await listEvtivityWebhookEndpoints(stripe),
+    input.url,
+  );
   if (existing.length > 0 && !input.replace) {
-    throw new WebhookExistsError(PROVIDER_ID, existing);
+    throw new WebhookExistsError(PROVIDER_ID, existing, other);
   }
 
   const platform = await createEndpoint(stripe, {
@@ -153,14 +160,15 @@ export async function registerStripeWebhookEndpoints(
       const reason = err instanceof Error ? err.message : String(err);
       const cleanup = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
       throw new PaymentProviderUnavailableError(
-        `Stripe did not create the Connect webhook endpoint (${reason}), and the new platform endpoint ${platform.id} could not be deleted (${cleanup}). Create the webhook again with replace to remove it.`,
+        `Stripe did not create the Connect webhook endpoint (${reason}), and the new platform endpoint ${platform.id} could not be deleted (${cleanup}). Create the webhook again at the same URL with replace to remove it.`,
         { cause: err },
       );
     }
     throw err;
   }
 
-  // An old endpoint that cannot be deleted stays listed, so the operator sees it.
+  // An old endpoint at this URL that cannot be deleted stays listed, so the
+  // operator sees it.
   const leftOver: WebhookEndpointInfo[] = [];
   for (const old of existing) {
     try {

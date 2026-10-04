@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, ne, and, or, ilike, sql, desc, asc } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, pgErrorCode, PG_UNIQUE_VIOLATION, PG_FOREIGN_KEY_VIOLATION } from '@evtivity/database';
 import {
   drivers,
   driverTokens,
@@ -455,11 +455,7 @@ export function driverRoutes(app: FastifyInstance): void {
         // The pre-check above is non-transactional, so two concurrent POSTs with the
         // same lowercased email can both pass it and race here. The partial unique
         // index uq_drivers_email_lower (migration 0052) raises 23505 on the loser.
-        if (
-          typeof err === 'object' &&
-          err !== null &&
-          (err as { code?: string }).code === '23505'
-        ) {
+        if (pgErrorCode(err) === PG_UNIQUE_VIOLATION) {
           await reply.status(409).send({ error: 'Email already in use', code: 'DUPLICATE_EMAIL' });
           return;
         }
@@ -548,11 +544,7 @@ export function driverRoutes(app: FastifyInstance): void {
         // Same race as POST: the eq() collision pre-check is non-transactional,
         // so a concurrent INSERT/UPDATE with the same lowercased email can
         // happen between the check and this UPDATE.
-        if (
-          typeof err === 'object' &&
-          err !== null &&
-          (err as { code?: string }).code === '23505'
-        ) {
+        if (pgErrorCode(err) === PG_UNIQUE_VIOLATION) {
           await reply.status(409).send({ error: 'Email already in use', code: 'DUPLICATE_EMAIL' });
           return;
         }
@@ -746,11 +738,7 @@ export function driverRoutes(app: FastifyInstance): void {
         // Pre-check is non-transactional, so the driver can be deleted
         // between the check and this INSERT. Map the FK violation back
         // to the same 404 the pre-check would have produced.
-        if (
-          typeof err === 'object' &&
-          err !== null &&
-          (err as { code?: string }).code === '23503'
-        ) {
+        if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
           await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
           return;
         }
@@ -1239,11 +1227,7 @@ export function driverRoutes(app: FastifyInstance): void {
         // The pre-check is non-transactional, so the pricing group can be
         // deleted between the lookup and this INSERT. Map the FK violation
         // back to 404 — same pattern as sites/stations/fleets.
-        if (
-          typeof err === 'object' &&
-          err !== null &&
-          (err as { code?: string }).code === '23503'
-        ) {
+        if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
           await reply
             .status(404)
             .send({ error: 'Pricing group not found', code: 'PRICING_GROUP_NOT_FOUND' });

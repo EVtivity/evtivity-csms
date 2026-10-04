@@ -36,16 +36,19 @@ function calls(): string[] {
   return stripeRecorder.calls.map((c) => c.call);
 }
 
-function seedEvtivityEndpoints(): void {
+const OTHER_DEPLOYMENT_URL = 'https://other.example.com/v1/webhooks/payments/stripe';
+
+/** EVtivity endpoints at `url`; by default this deployment's URL. */
+function seedEvtivityEndpoints(url = URL, prefix = 'we_old'): void {
   stripeRecorder.seedWebhookEndpoint({
-    id: 'we_old_platform',
-    url: 'https://old.example.com/v1/webhooks/payments/stripe',
+    id: `${prefix}_platform`,
+    url,
     enabled_events: [...STRIPE_PLATFORM_EVENTS],
     metadata: { evtivity_scope: 'platform' },
   });
   stripeRecorder.seedWebhookEndpoint({
-    id: 'we_old_connect',
-    url: 'https://old.example.com/v1/webhooks/payments/stripe',
+    id: `${prefix}_connect`,
+    url,
     enabled_events: [...STRIPE_CONNECT_EVENTS],
     metadata: { evtivity_scope: 'connect' },
   });
@@ -78,7 +81,7 @@ describe('Stripe webhook endpoints', () => {
 
   describe('listWebhooks', () => {
     it('lists only the endpoints EVtivity created', async () => {
-      seedEvtivityEndpoints();
+      seedEvtivityEndpoints('https://old.example.com/v1/webhooks/payments/stripe');
       stripeRecorder.seedWebhookEndpoint({ id: 'we_foreign', metadata: {} });
       stripeRecorder.seedWebhookEndpoint({
         id: 'we_disabled',
@@ -188,8 +191,9 @@ describe('Stripe webhook endpoints', () => {
       expect(JSON.stringify(result.endpoints)).not.toContain('whsec_');
     });
 
-    it('refuses to replace existing EVtivity endpoints without replace', async () => {
+    it('refuses to replace existing EVtivity endpoints at the URL without replace', async () => {
       seedEvtivityEndpoints();
+      seedEvtivityEndpoints(OTHER_DEPLOYMENT_URL, 'we_other');
       stripeRecorder.seedWebhookEndpoint({ id: 'we_foreign' });
 
       const err = await provider()
@@ -201,11 +205,49 @@ describe('Stripe webhook endpoints', () => {
         'we_old_platform',
         'we_old_connect',
       ]);
+      // Other deployments' endpoints are listed apart.
+      expect((err as WebhookExistsError).otherEndpoints.map((e) => e.id)).toEqual([
+        'we_other_platform',
+        'we_other_connect',
+      ]);
       expect(calls()).toEqual(['webhookEndpoints.list']);
     });
 
-    it('with replace creates both new endpoints before deleting the old ones', async () => {
+    it('matches the URL by origin and path, so a different host or port is another deployment', async () => {
+      // Same deployment: Stripe may store the default port or another host case.
+      seedEvtivityEndpoints('https://CSMS.example.com:443/v1/webhooks/payments/stripe');
+      const err = await provider()
+        .registerWebhook({ url: URL, replace: false })
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(WebhookExistsError);
+
+      stripeRecorder.reset();
+      seedEvtivityEndpoints('https://csms.example.com:8443/v1/webhooks/payments/stripe');
+      await expect(provider().registerWebhook({ url: URL, replace: false })).resolves.toBeDefined();
+    });
+
+    it("creates its endpoints next to another deployment's without touching them", async () => {
+      seedEvtivityEndpoints(OTHER_DEPLOYMENT_URL, 'we_other');
+
+      const result = await provider().registerWebhook({ url: URL, replace: false });
+
+      expect(calls()).toEqual([
+        'webhookEndpoints.list',
+        'webhookEndpoints.create',
+        'webhookEndpoints.create',
+      ]);
+      expect([...stripeRecorder.webhookEndpoints.keys()].sort()).toEqual([
+        'we_fake_1',
+        'we_fake_2',
+        'we_other_connect',
+        'we_other_platform',
+      ]);
+      expect(result.endpoints.map((e) => e.id)).toEqual(['we_fake_1', 'we_fake_2']);
+    });
+
+    it('with replace creates both new endpoints before deleting the old ones at the URL', async () => {
       seedEvtivityEndpoints();
+      seedEvtivityEndpoints(OTHER_DEPLOYMENT_URL, 'we_other');
       stripeRecorder.seedWebhookEndpoint({ id: 'we_foreign' });
 
       const result = await provider().registerWebhook({ url: URL, replace: true });
@@ -221,11 +263,13 @@ describe('Stripe webhook endpoints', () => {
         'we_old_platform',
         'we_old_connect',
       ]);
-      // An endpoint EVtivity did not create is left alone.
+      // An endpoint EVtivity did not create, and another deployment's, are left alone.
       expect([...stripeRecorder.webhookEndpoints.keys()].sort()).toEqual([
         'we_fake_1',
         'we_fake_2',
         'we_foreign',
+        'we_other_connect',
+        'we_other_platform',
       ]);
       expect(result.endpoints.map((e) => e.id)).toEqual(['we_fake_1', 'we_fake_2']);
     });

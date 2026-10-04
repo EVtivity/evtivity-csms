@@ -94,6 +94,22 @@ echo "Next tag:   $next"
 echo "Prerelease: $PRERELEASE"
 echo ""
 
+# Save the files the release changes before its commit. Any failure from here on
+# (typecheck, codegen, bundle, image build, declined push) puts them back, so a
+# failed release leaves no version bump in the working tree.
+BACKUP_DIR=$(mktemp -d)
+RELEASE_COMMITTED=false
+release_cleanup() {
+  local status=$?
+  if [ "$status" -ne 0 ] && [ "$RELEASE_COMMITTED" = false ]; then
+    echo "Release failed: restoring the package.json versions and the AI tools."
+    release_restore_version_files "$BACKUP_DIR"
+  fi
+  rm -rf "$BACKUP_DIR"
+}
+trap release_cleanup EXIT
+release_backup_version_files "$BACKUP_DIR"
+
 # Update version in all package.json files. A prerelease bumps them too: the API
 # (lib/app-version.ts) and the CSMS and portal (__APP_VERSION__) report the root
 # package.json version, so it must equal the image tag.
@@ -215,6 +231,7 @@ if git diff --cached --quiet; then
 else
   git commit -m "release: version $next_version"
 fi
+RELEASE_COMMITTED=true
 git tag "$next"
 git push origin HEAD "$next"
 

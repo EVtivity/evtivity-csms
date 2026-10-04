@@ -5,7 +5,13 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, asc, desc } from 'drizzle-orm';
-import { db, writeAudit, stationImageAuditLog } from '@evtivity/database';
+import {
+  db,
+  writeAudit,
+  stationImageAuditLog,
+  pgErrorCode,
+  PG_FOREIGN_KEY_VIOLATION,
+} from '@evtivity/database';
 import { stationImages } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -270,11 +276,7 @@ export function stationImageRoutes(app: FastifyInstance): void {
         // station can be deleted between that check and this INSERT. Map
         // the FK violation back to the same 404 the pre-check would have
         // produced.
-        if (
-          typeof err === 'object' &&
-          err !== null &&
-          (err as { code?: string }).code === '23503'
-        ) {
+        if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
           await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
           return;
         }

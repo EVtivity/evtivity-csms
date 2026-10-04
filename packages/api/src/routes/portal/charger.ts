@@ -1596,7 +1596,10 @@ export function portalChargerRoutes(app: FastifyInstance): void {
             ERROR_CODES.MAINTENANCE_ACTIVE,
             ERROR_CODES.STATION_UNAVAILABLE,
           ]),
-          500: errorWith('Internal server error', [ERROR_CODES.INTERNAL_ERROR]),
+          500: errorWith('Internal server error', [
+            ERROR_CODES.INTERNAL_ERROR,
+            ERROR_CODES.SESSION_CREATE_FAILED,
+          ]),
           502: errorWith('Start rejected', [ERROR_CODES.START_REJECTED]),
           504: errorWith('Station timeout', [ERROR_CODES.STATION_TIMEOUT]),
         },
@@ -1826,14 +1829,29 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       const remoteStartId = Math.floor(Math.random() * 2_147_483_647);
       let transactionId: string;
       if (station.ocppProtocol === 'ocpp1.6') {
+        // The sequence is the only source of 1.6 transaction ids: a made-up id
+        // could collide with another session, so a failed read fails the start
+        // before any session or hold exists.
+        let nextval: string | undefined;
         try {
           const [row] = await db.execute<{ nextval: string }>(
             sql`SELECT nextval('ocpp16_transaction_id_seq')`,
           );
-          transactionId = row?.nextval ?? String(Math.floor(Date.now() / 1000) % 2_147_483_647);
-        } catch {
-          transactionId = String(Math.floor(Date.now() / 1000) % 2_147_483_647);
+          nextval = row?.nextval;
+          if (nextval == null) throw new Error('ocpp16_transaction_id_seq returned no value');
+        } catch (err) {
+          request.log.error(
+            { err, stationId: station.stationId },
+            'Portal start: could not allocate an OCPP 1.6 transaction id',
+          );
         }
+        if (nextval == null) {
+          await reply
+            .status(500)
+            .send({ error: 'Failed to create session', code: 'SESSION_CREATE_FAILED' });
+          return;
+        }
+        transactionId = nextval;
       } else {
         transactionId = crypto.randomUUID();
       }

@@ -118,7 +118,11 @@ function registerPaymentWebhookRoute(app: FastifyInstance, doc: WebhookRouteDoc)
         }
         if (err instanceof WebhookSignatureError) {
           request.log.warn(
-            { provider: doc.providerId, error: err.message },
+            {
+              provider: doc.providerId,
+              error: err.message,
+              ...(err.unverified != null ? { unverified: err.unverified } : {}),
+            },
             'Payment webhook verification failed',
           );
           const status = err.kind === 'auth' ? 401 : 400;

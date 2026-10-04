@@ -158,6 +158,7 @@ const {
     constructor(
       readonly providerId: string,
       readonly endpoints: unknown[],
+      readonly otherEndpoints: unknown[] = [],
     ) {
       super(`An EVtivity webhook already exists for ${providerId}`);
     }
@@ -193,7 +194,10 @@ const {
   };
 });
 
-vi.mock('@evtivity/payments', () => ({
+vi.mock('@evtivity/payments', async () => ({
+  // Pure URL matching: the real implementation.
+  partitionWebhookEndpoints: (await import('../../../payments/src/webhook-endpoint-url.js'))
+    .partitionWebhookEndpoints,
   authorizeSessionHold: mockAuthorizeSessionHold,
   captureSessionHold: mockCaptureSessionHold,
   refundPaymentRecord: mockRefundPaymentRecord,
@@ -232,6 +236,11 @@ vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn().mockResolvedValue(null),
   invalidateSiteAccessCache: vi.fn(),
 }));
+
+const { mockHoldFeeCheck } = vi.hoisted(() => ({
+  mockHoldFeeCheck: vi.fn(async () => ({ sessionFeeCents: 0, holdBelowSessionFee: false })),
+}));
+vi.mock('../lib/hold-fee-check.js', () => ({ holdFeeCheck: mockHoldFeeCheck }));
 
 import { registerAuth } from '../plugins/auth.js';
 import { paymentRoutes } from '../routes/payments.js';
@@ -636,6 +645,40 @@ describe('Payment routes - handler logic', () => {
       );
     });
 
+    it('warns when the saved hold is below the session fee at the site', async () => {
+      const created = {
+        id: 'pc-low',
+        siteId: VALID_SITE_ID,
+        payoutAccountId: null,
+        stripeConnectedAccountId: null,
+        preAuthAmountCents: 50,
+        platformFeePercent: null,
+        isEnabled: true,
+        payoutAccountStatus: null,
+        payoutAccountDetails: null,
+        payoutAccountCheckedAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setupDbResults([{ id: VALID_SITE_ID }], [], [created]);
+      mockHoldFeeCheck.mockResolvedValueOnce({ sessionFeeCents: 217, holdBelowSessionFee: true });
+
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/sites/${VALID_SITE_ID}/payment-config`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { preAuthAmountCents: 50 },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockHoldFeeCheck).toHaveBeenCalledWith(VALID_SITE_ID, 50);
+      expect(response.json()).toMatchObject({
+        id: 'pc-low',
+        sessionFeeCents: 217,
+        holdBelowSessionFee: true,
+      });
+    });
+
     it('returns 404 without writing when the site does not exist', async () => {
       setupDbResults([]); // site existence pre-check
 
@@ -711,12 +754,12 @@ describe('Payment routes - handler logic', () => {
       // Moved to GET /v1/settings/payments (P5 A2).
       expect(body).not.toHaveProperty('preAuthAmountCents');
       expect(body).not.toHaveProperty('platformFeePercent');
-      expect(body.secretKeyConfigured).toBe(false);
-      expect(body.webhookSecretConfigured).toBe(false);
-      expect(body.connectWebhookSecretConfigured).toBe(false);
+      expect(body.secretKey).toBeNull();
+      expect(body.webhookSecret).toBeNull();
+      expect(body.connectWebhookSecret).toBeNull();
     });
 
-    it('returns whether each secret is stored, never the secret (D-P6)', async () => {
+    it('returns the secrets decrypted, like the generic settings GET (P12)', async () => {
       setupDbResults([
         { key: 'stripe.secretKeyEnc', value: 'enc_sk' },
         { key: 'stripe.webhookSecretEnc', value: 'enc_whsec' },
@@ -731,14 +774,10 @@ describe('Payment routes - handler logic', () => {
 
       expect(response.statusCode).toBe(200);
       const body = response.json();
-      expect(body.secretKeyConfigured).toBe(true);
-      expect(body.webhookSecretConfigured).toBe(true);
-      expect(body.connectWebhookSecretConfigured).toBe(false);
-      expect(body).not.toHaveProperty('secretKey');
-      expect(body).not.toHaveProperty('webhookSecret');
-      expect(body).not.toHaveProperty('connectWebhookSecret');
-      expect(response.body).not.toContain('enc_');
-      expect(response.body).not.toContain('decrypted:');
+      expect(body.secretKey).toBe('decrypted:enc_sk');
+      expect(body.webhookSecret).toBe('decrypted:enc_whsec');
+      expect(body.connectWebhookSecret).toBeNull();
+      expect(body).not.toHaveProperty('secretKeyConfigured');
     });
   });
 
@@ -2023,10 +2062,10 @@ describe('Payment routes - handler logic', () => {
         .map(([row]) => row as { key?: string; value?: unknown });
     }
 
-    function getWebhook() {
+    function getWebhook(query = '') {
       return app.inject({
         method: 'GET',
-        url: '/settings/stripe/webhook',
+        url: `/settings/stripe/webhook${query}`,
         headers: { authorization: 'Bearer ' + token },
       });
     }
@@ -2054,6 +2093,7 @@ describe('Payment routes - handler logic', () => {
         expect(response.statusCode).toBe(200);
         expect(response.json()).toEqual({
           endpoints: ENDPOINTS,
+          otherEndpoints: [],
           platformSecretConfigured: true,
           connectSecretConfigured: false,
           events: {
@@ -2067,6 +2107,35 @@ describe('Payment routes - handler logic', () => {
           apiVersion: '2026-09-30.endive',
         });
         expect(mockGetPaymentProvider).toHaveBeenCalledWith('stripe');
+      });
+
+      it("with url, lists other deployments' EVtivity endpoints apart", async () => {
+        const other = {
+          ...ENDPOINTS[0],
+          id: 'we_other',
+          url: 'https://dev.example.com/v1/webhooks/payments/stripe',
+        };
+        mockGetPaymentProvider.mockResolvedValueOnce({
+          listWebhooks: vi.fn().mockResolvedValue([other, ...ENDPOINTS]),
+        });
+        setupDbResults([]);
+
+        const response = await getWebhook(`?url=${encodeURIComponent(URL)}`);
+
+        expect(response.statusCode).toBe(200);
+        const body = response.json<{ endpoints: unknown[]; otherEndpoints: unknown[] }>();
+        expect(body.endpoints).toEqual(ENDPOINTS);
+        expect(body.otherEndpoints).toEqual([other]);
+      });
+
+      it('returns 400 VALIDATION_ERROR for an invalid url query', async () => {
+        const response = await getWebhook(
+          `?url=${encodeURIComponent('https://csms.example.com/v1/webhooks/payments/adyen')}`,
+        );
+
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+        expect(mockGetPaymentProvider).not.toHaveBeenCalled();
       });
 
       it('returns 400 PAYMENT_PROVIDER_NOT_CONFIGURED without Stripe keys', async () => {
@@ -2183,11 +2252,16 @@ describe('Payment routes - handler logic', () => {
         expect(mockGetPaymentProvider).not.toHaveBeenCalled();
       });
 
-      it('returns 409 PAYMENT_WEBHOOK_EXISTS with the existing endpoints', async () => {
+      it('returns 409 PAYMENT_WEBHOOK_EXISTS with the endpoints at the URL and the others', async () => {
+        const other = {
+          ...ENDPOINTS[0],
+          id: 'we_other',
+          url: 'https://dev.example.com/v1/webhooks/payments/stripe',
+        };
         mockGetPaymentProvider.mockResolvedValueOnce({
           registerWebhook: vi
             .fn()
-            .mockRejectedValue(new MockWebhookExistsError('stripe', ENDPOINTS)),
+            .mockRejectedValue(new MockWebhookExistsError('stripe', ENDPOINTS, [other])),
         });
 
         const response = await postWebhook({ url: URL, replace: false });
@@ -2197,6 +2271,7 @@ describe('Payment routes - handler logic', () => {
           error: 'An EVtivity webhook already exists for this provider',
           code: 'PAYMENT_WEBHOOK_EXISTS',
           endpoints: ENDPOINTS,
+          otherEndpoints: [other],
         });
       });
 

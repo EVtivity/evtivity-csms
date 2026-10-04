@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
-import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
 
 // Helper: boot station
 async function boot(ctx: {
@@ -121,7 +121,7 @@ export const TC_F_02_CSMS: TestCase = {
       });
 
       // Step 5: Send TransactionEvent Started
-      const txId = `OCTT-TX-${String(Date.now())}`;
+      const txId = newTransactionId('OCTT-TX');
       const remoteStartId = Math.floor(Math.random() * 100000);
       const txRes = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Started',
@@ -233,7 +233,7 @@ export const TC_F_03_CSMS: TestCase = {
 
     if (receivedRequestStart) {
       // Step 3: Send TransactionEvent Started (no Authorize call)
-      const txId = `OCTT-TX-${String(Date.now())}`;
+      const txId = newTransactionId('OCTT-TX');
       const remoteStartId = Math.floor(Math.random() * 100000);
       const txRes = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Started',
@@ -336,7 +336,7 @@ export const TC_F_04_CSMS: TestCase = {
     });
 
     if (receivedRequestStart) {
-      const txId = `OCTT-TX-${String(Date.now())}`;
+      const txId = newTransactionId('OCTT-TX');
       const remoteStartId = Math.floor(Math.random() * 100000);
 
       // Step 3: TransactionEvent Started

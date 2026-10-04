@@ -11,6 +11,8 @@ import {
   loadStationPricing,
   pickTariff,
   resolveGroupTariffs,
+  pgErrorCode,
+  PG_FOREIGN_KEY_VIOLATION,
 } from '@evtivity/database';
 import {
   pricingGroups,
@@ -449,11 +451,7 @@ export function pricingRoutes(app: FastifyInstance): void {
         // Race window: a session could start between the check above and the
         // delete here. Map FK violation back to 409 so the operator sees the
         // same code regardless of which path tripped it.
-        if (
-          typeof err === 'object' &&
-          err !== null &&
-          (err as { code?: string }).code === '23503'
-        ) {
+        if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
           await reply.status(409).send({
             error: 'Pricing group has tariffs referenced by charging sessions',
             code: 'PRICING_GROUP_TARIFFS_IN_USE',

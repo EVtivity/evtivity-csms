@@ -67,6 +67,8 @@ interface SessionDetailData {
   siteState: string | null;
   updatedAt: string | null;
   idleStartedAt: string | null;
+  /** Transaction limit the station reported reaching (it then suspends charging). */
+  limitReached?: 'cost' | 'energy' | 'time' | null;
   currentPowerW: number | null;
   batteryPercent: number | null;
   co2AvoidedKg: number | null;
@@ -324,6 +326,11 @@ export function SessionDetail(): React.JSX.Element {
           <StatusIcon className="h-5 w-5" />
           {statusLabel}
         </div>
+        {session.limitReached != null && (
+          <p role="status" className="text-sm text-muted-foreground">
+            {t(`sessionDetail.limitReached.${session.limitReached}`)}
+          </p>
+        )}
         {session.energyDeliveredWh != null && (
           <button
             type="button"

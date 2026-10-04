@@ -11,6 +11,7 @@ import {
   getCompanyCurrency,
   getPlatformFeePercent,
   guestSessions,
+  sessionFeeGrossCents,
 } from '@evtivity/database';
 import {
   costIncludesTax,
@@ -33,6 +34,7 @@ import {
 } from './payment-records.js';
 import { PAYOUT_NOT_READY_REASON } from './payout-accounts.js';
 import { holdTerms } from './session-payments.js';
+import type { HoldTerms } from './session-payments.js';
 import type {
   BrowserContext,
   ClientAction,
@@ -84,6 +86,40 @@ export type GuestHoldOutcome =
   | { outcome: 'not_configured' };
 
 /**
+ * The guest's hold terms: the site (or global) hold, raised to the session
+ * fee with tax of the tariff a guest pays at the station. The guest hold is
+ * the station's maxCost (no saved card for a top-up), so a hold below the fee
+ * would stop the session at once with CostLimitReached. The site config save
+ * warns about such a hold; this is the layer that holds at every start (P11),
+ * also for a tariff changed after the config was saved.
+ */
+export async function guestHoldTerms(
+  ctx: PaymentContext,
+  siteId: string | null,
+  stationOcppId: string,
+): Promise<HoldTerms & { sessionFeeCents: number }> {
+  const [terms, [station]] = await Promise.all([
+    holdTerms(ctx, siteId),
+    db
+      .select({ id: chargingStations.id })
+      .from(chargingStations)
+      .where(eq(chargingStations.stationId, stationOcppId)),
+  ]);
+  const sessionFeeCents =
+    station == null
+      ? 0
+      : await sessionFeeGrossCents({ stationUuid: station.id, driverUuid: null }, client);
+  if (sessionFeeCents > terms.preAuthAmountCents) {
+    ctx.logger.warn(
+      { siteId, stationOcppId, preAuthAmountCents: terms.preAuthAmountCents, sessionFeeCents },
+      'Guest hold raised to the session fee: the configured hold cannot cover one session',
+    );
+    return { ...terms, preAuthAmountCents: sessionFeeCents, sessionFeeCents };
+  }
+  return { ...terms, sessionFeeCents };
+}
+
+/**
  * Places the guest's hold (the shopper is present) and stores the guest
  * session with it. The authorized amount is the cost ceiling (OCPP 2.1 C25
  * step 9): a capture cannot exceed it. A card that needs a 3DS step returns
@@ -105,7 +141,10 @@ export async function authorizeGuestHold(
     throw err;
   }
   if (provider == null) return { outcome: 'not_configured' };
-  const [terms, currency] = await Promise.all([holdTerms(ctx, input.siteId), getCompanyCurrency()]);
+  const [terms, currency] = await Promise.all([
+    guestHoldTerms(ctx, input.siteId, input.stationOcppId),
+    getCompanyCurrency(),
+  ]);
   if (terms.payoutBlocked) {
     // O5, fail closed: no hold on the platform instead of the site host.
     ctx.logger.warn(

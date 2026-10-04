@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { TestCase, StepResult } from '../../../../types.js';
+import { newTransactionId } from '../../../../csms-test-helpers.js';
 
 /** cacheExpiryDateTime must be the current date/time: the token must not stay cached. */
 function isCurrentTime(value: string | undefined): boolean {
@@ -61,7 +62,7 @@ export const TC_C_103_CSMS: TestCase = {
     });
 
     // Step 3: Send TransactionEvent Started with prepaid card
-    const txId = `OCTT-TX-${String(Date.now())}`;
+    const txId = newTransactionId('OCTT-TX');
     const txRes = await ctx.client.sendCall('TransactionEvent', {
       eventType: 'Started',
       timestamp: new Date().toISOString(),

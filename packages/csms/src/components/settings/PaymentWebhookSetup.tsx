@@ -38,6 +38,15 @@ export function defaultWebhookUrl(path: string): string {
   return `${API_BASE_URL || window.location.origin}${path}`;
 }
 
+/**
+ * The webhook setup GET route of a provider, scoped to this deployment's
+ * webhook URL: the answer splits the EVtivity webhooks at that URL from the
+ * ones of other deployments sharing the provider account.
+ */
+export function webhookSetupPath(route: string, path: string): string {
+  return `${route}?url=${encodeURIComponent(defaultWebhookUrl(path))}`;
+}
+
 /** Same rule as the API: https, the exact path, no query or fragment. */
 export function isValidWebhookUrl(raw: string, path: string): boolean {
   let url: URL;
@@ -105,6 +114,26 @@ export function WebhookEndpointsTable({
   );
 }
 
+/**
+ * EVtivity webhooks of other deployments sharing the provider account. The
+ * API never changes them; the operator deletes an unused one at the provider.
+ */
+export function OtherWebhookEndpoints({
+  endpoints,
+}: {
+  endpoints: WebhookEndpoint[] | undefined;
+}): React.JSX.Element | null {
+  const { t } = useTranslation();
+  if (endpoints == null || endpoints.length === 0) return null;
+  return (
+    <div className="space-y-2" data-testid="other-webhook-endpoints">
+      <h4 className="text-sm font-medium">{t('settings.webhookOtherEndpoints')}</h4>
+      <p className="text-xs text-muted-foreground">{t('settings.webhookOtherEndpointsHint')}</p>
+      <WebhookEndpointsTable endpoints={endpoints} emptyText="" />
+    </div>
+  );
+}
+
 interface PaymentWebhookSetupProps<T> {
   idPrefix: string;
   /** Path the URL must end in, for example /v1/webhooks/payments/stripe. */
@@ -122,9 +151,10 @@ interface PaymentWebhookSetupProps<T> {
 
 /**
  * The editable webhook URL and the Create webhook button (plan P3.5 O1 a).
- * When EVtivity endpoints already exist the API answers 409
+ * When webhooks already exist at the URL the API answers 409
  * PAYMENT_WEBHOOK_EXISTS with them; the operator confirms the replacement and
- * the call is repeated with replace: true.
+ * the call is repeated with replace: true. Webhooks of other EVtivity
+ * deployments at other URLs are never replaced.
  */
 export function PaymentWebhookSetup<T>({
   idPrefix,

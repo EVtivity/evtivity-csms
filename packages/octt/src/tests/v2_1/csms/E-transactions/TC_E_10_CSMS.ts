@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
-import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
 
 /** TC_E_10_CSMS: Start transaction options - Authorized - Local */
 export const TC_E_10_CSMS: TestCase = {
@@ -37,7 +37,7 @@ export const TC_E_10_CSMS: TestCase = {
     });
 
     // Step 2: TransactionEvent Started
-    const txId = `OCTT-TX-${String(Date.now())}`;
+    const txId = newTransactionId('OCTT-TX');
     const txRes = await ctx.client.sendCall('TransactionEvent', {
       eventType: 'Started',
       timestamp: new Date().toISOString(),
@@ -105,7 +105,7 @@ export const TC_E_26_CSMS: TestCase = {
     });
 
     // Start transaction (EnergyTransferStarted)
-    const txId = `OCTT-TX-${String(Date.now())}`;
+    const txId = newTransactionId('OCTT-TX');
     await ctx.client.sendCall('TransactionEvent', {
       eventType: 'Started',
       timestamp: new Date().toISOString(),

@@ -14,6 +14,9 @@ import {
   vendors,
   writeAudit,
   smartChargingTemplateAuditLog,
+  pgErrorCode,
+  pgConstraintName,
+  PG_UNIQUE_VIOLATION,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { assertZodRefinements, zodSchema } from '../lib/zod-schema.js';
@@ -162,11 +165,10 @@ const pushDetailItem = z
 // Postgres unique-violation (23505) on the profile_id constraint. Used as a
 // race-safe backstop for the JS-side pre-check on concurrent inserts.
 function isProfileIdUniqueViolation(err: unknown): boolean {
-  if (err == null || typeof err !== 'object') return false;
-  const e = err as { code?: string; constraint_name?: string; constraint?: string };
-  if (e.code !== '23505') return false;
-  const constraint = e.constraint_name ?? e.constraint ?? '';
-  return constraint === 'charging_profile_templates_profile_id_unique';
+  return (
+    pgErrorCode(err) === PG_UNIQUE_VIOLATION &&
+    pgConstraintName(err) === 'charging_profile_templates_profile_id_unique'
+  );
 }
 
 const targetFilterSchema = z

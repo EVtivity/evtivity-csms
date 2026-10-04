@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase, TestContext } from '../../../../types.js';
-import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
 import { setTokenCostLimit } from '../../../../payment-test-helpers.js';
 
 /** TC_E_109: the cost limit the CSMS is configured with for the token (10.00). */
@@ -24,7 +24,7 @@ async function bootAndStatus(ctx: TestContext) {
 
 // Helper: start a charging transaction and return the txId
 async function startChargingTransaction(ctx: TestContext) {
-  const txId = `OCTT-TX-${String(Date.now())}`;
+  const txId = newTransactionId('OCTT-TX');
   await ctx.client.sendCall('TransactionEvent', {
     eventType: 'Started',
     timestamp: new Date().toISOString(),
@@ -543,7 +543,7 @@ export const TC_E_109_CSMS: TestCase = {
     });
 
     // Step 3-4: TransactionEvent Started
-    const txId = `OCTT-TX-${String(Date.now())}`;
+    const txId = newTransactionId('OCTT-TX');
     const startRes = await ctx.client.sendCall('TransactionEvent', {
       eventType: 'Started',
       timestamp: new Date().toISOString(),
@@ -638,7 +638,7 @@ export const TC_E_110_CSMS: TestCase = {
     await bootAndStatus(ctx);
 
     // Step 1: TransactionEvent Started
-    const txId = `OCTT-TX-${String(Date.now())}`;
+    const txId = newTransactionId('OCTT-TX');
     const startRes = await ctx.client.sendCall('TransactionEvent', {
       eventType: 'Started',
       timestamp: new Date().toISOString(),
@@ -735,7 +735,7 @@ export const TC_E_111_CSMS: TestCase = {
     await bootAndStatus(ctx);
 
     // Step 1: TransactionEvent Started
-    const txId = `OCTT-TX-${String(Date.now())}`;
+    const txId = newTransactionId('OCTT-TX');
     const startRes = await ctx.client.sendCall('TransactionEvent', {
       eventType: 'Started',
       timestamp: new Date().toISOString(),

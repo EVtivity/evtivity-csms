@@ -8,10 +8,13 @@
 // STRIPE_CLI with its path) and is skipped without it. Never log or commit
 // the key or a signing secret.
 //
-// Registration: the account must hold no EVtivity endpoint (metadata
-// `evtivity_scope`) before the test starts. A registration with `replace`
-// deletes every EVtivity endpoint, so the test refuses to run on an account
-// that already has one, and deletes only the endpoints it created.
+// Registration: a registration acts only on the EVtivity endpoints (metadata
+// `evtivity_scope`) at its own URL (origin and path). The test refuses to run
+// when the account already has one at the test URL, creates an EVtivity
+// endpoint pair at another URL to stand for another deployment sharing the
+// account, proves registration and replace never touch it, and deletes only
+// the endpoints it created. Endpoints of real deployments on the account are
+// left alone.
 //
 // Delivery: `stripe listen` forwards the account's own events and its
 // connected accounts' events to a local HTTP server, signed with the CLI's
@@ -36,6 +39,7 @@ import {
 } from '../providers/stripe/webhook-endpoints.js';
 import { WebhookExistsError, WebhookSignatureError } from '../errors.js';
 import type { NormalizedPaymentEvent, WebhookRegistration } from '../types.js';
+import { partitionWebhookEndpoints } from '../webhook-endpoint-url.js';
 
 const secretKey = process.env['STRIPE_TEST_SECRET_KEY'] ?? '';
 const isTestKey = /^(sk|rk)_test_/.test(secretKey);
@@ -45,6 +49,8 @@ const hasCli =
 
 /** Resolvable host: Stripe validates the URL, it never reaches this path during the test. */
 const TEST_URL = `https://example.com/v1/webhooks/payments/stripe?evtivity_live_test=${crypto.randomBytes(4).toString('hex')}`;
+/** Another EVtivity deployment on the same Stripe account. */
+const OTHER_DEPLOYMENT_URL = `https://example.org/v1/webhooks/payments/stripe?evtivity_live_test=${crypto.randomBytes(4).toString('hex')}`;
 const METADATA_PURPOSE = 'evtivity-p3.5-webhook-live-test';
 
 function provider(
@@ -69,30 +75,54 @@ describe.skipIf(!isTestKey)('Stripe webhook registration against Stripe test mod
     for (const endpoint of registration.endpoints) createdIds.add(endpoint.id);
   }
 
+  /** The EVtivity endpoints at the test URL. */
+  async function atTestUrl(): Promise<string[]> {
+    const { matching } = partitionWebhookEndpoints(await stripe.listWebhooks(), TEST_URL);
+    return matching.map((e) => e.id).sort();
+  }
+
   beforeAll(async () => {
     client = new Stripe(secretKey, { maxNetworkRetries: 3 });
     stripe = provider(client, null, null);
-    const existing = await stripe.listWebhooks();
+    const existing = await atTestUrl();
     if (existing.length > 0) {
       throw new Error(
-        `The Stripe account already has ${String(existing.length)} EVtivity webhook endpoint(s). ` +
+        `The Stripe account already has ${String(existing.length)} EVtivity webhook endpoint(s) at the test URL. ` +
           'A registration with replace deletes them, so this test does not run here.',
       );
     }
   }, 60_000);
 
   afterAll(async () => {
-    // Only endpoints this run created: marked by EVtivity and on the test URL.
+    // Only endpoints this run created: marked by EVtivity and on a test URL.
     const page = await client.webhookEndpoints.list({ limit: 100 });
     for (const endpoint of page.data) {
       const ours =
         createdIds.has(endpoint.id) ||
-        ((endpoint.metadata['evtivity_scope'] ?? '') !== '' && endpoint.url === TEST_URL);
+        ((endpoint.metadata['evtivity_scope'] ?? '') !== '' &&
+          (endpoint.url === TEST_URL || endpoint.url === OTHER_DEPLOYMENT_URL));
       if (ours) await client.webhookEndpoints.del(endpoint.id);
     }
   }, 60_000);
 
   it('creates the platform and Connect endpoints, refuses a second registration, and replaces them', async () => {
+    // Another deployment's EVtivity endpoints on the same account.
+    const otherIds: string[] = [];
+    for (const scope of ['platform', 'connect'] as const) {
+      const other = await client.webhookEndpoints.create({
+        url: OTHER_DEPLOYMENT_URL,
+        enabled_events:
+          scope === 'platform' ? [...STRIPE_PLATFORM_EVENTS] : [...STRIPE_CONNECT_EVENTS],
+        ...(scope === 'connect' ? { connect: true } : {}),
+        description: 'EVtivity webhook live test (other deployment)',
+        metadata: { evtivity_scope: scope },
+      });
+      createdIds.add(other.id);
+      otherIds.push(other.id);
+    }
+    otherIds.sort();
+
+    // The other deployment's endpoints do not block this deployment's registration.
     const first = await stripe.registerWebhook({ url: TEST_URL, replace: false });
     remember(first);
     expect(first.endpoints).toHaveLength(2);
@@ -128,18 +158,20 @@ describe.skipIf(!isTestKey)('Stripe webhook registration against Stripe test mod
     expect(String(connectSecret?.value).startsWith('whsec_')).toBe(true);
     expect(platformSecret?.value).not.toBe(connectSecret?.value);
 
-    const listed = await stripe.listWebhooks();
-    expect(listed.map((e) => e.id).sort()).toEqual(first.endpoints.map((e) => e.id).sort());
+    expect(await atTestUrl()).toEqual(first.endpoints.map((e) => e.id).sort());
 
-    // Without replace, an existing registration is reported, not touched.
+    // Without replace, an existing registration at the URL is reported, not touched.
     const refused = await stripe.registerWebhook({ url: TEST_URL, replace: false }).then(
       () => null,
       (err: unknown) => err,
     );
     expect(refused).toBeInstanceOf(WebhookExistsError);
-    expect((await stripe.listWebhooks()).map((e) => e.id).sort()).toEqual(
+    expect((refused as WebhookExistsError).endpoints.map((e) => e.id).sort()).toEqual(
       first.endpoints.map((e) => e.id).sort(),
     );
+    const otherListed = (refused as WebhookExistsError).otherEndpoints.map((e) => e.id);
+    for (const id of otherIds) expect(otherListed).toContain(id);
+    expect(await atTestUrl()).toEqual(first.endpoints.map((e) => e.id).sort());
 
     // With replace: two new endpoints, the old ones deleted after both exist.
     const second = await stripe.registerWebhook({ url: TEST_URL, replace: true });
@@ -147,8 +179,10 @@ describe.skipIf(!isTestKey)('Stripe webhook registration against Stripe test mod
     expect(second.endpoints).toHaveLength(2);
     expect(second.endpoints.map((e) => e.scope)).toEqual(['platform', 'connect']);
     const after = await stripe.listWebhooks();
-    expect(after.map((e) => e.id).sort()).toEqual(second.endpoints.map((e) => e.id).sort());
+    expect(await atTestUrl()).toEqual(second.endpoints.map((e) => e.id).sort());
     for (const old of first.endpoints) expect(after.some((e) => e.id === old.id)).toBe(false);
+    // The other deployment's endpoints survive the replace.
+    for (const id of otherIds) expect(after.some((e) => e.id === id)).toBe(true);
     const newSecret = second.settings.find((s) => s.key === 'stripe.webhookSecretEnc')?.value;
     expect(newSecret).not.toBe(platformSecret?.value);
   }, 120_000);

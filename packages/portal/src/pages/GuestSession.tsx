@@ -40,6 +40,8 @@ interface GuestSessionStatus {
   startedAt?: string | null;
   endedAt?: string | null;
   idleStartedAt?: string | null;
+  /** Transaction limit the station reported reaching (cost: the hold amount). */
+  limitReached?: 'cost' | 'energy' | 'time' | null;
 }
 
 function statusLabel(status: string, t: (key: string) => string): string {
@@ -277,6 +279,11 @@ export function GuestSession(): React.JSX.Element {
           <p className="text-sm text-muted-foreground">
             {t('guest.stationPort', { stationId: session.stationOcppId, evseId: session.evseId })}
           </p>
+          {session.limitReached != null && (
+            <p role="status" className="text-sm text-muted-foreground">
+              {t(`sessionDetail.limitReached.${session.limitReached}`)}
+            </p>
+          )}
         </div>
 
         {/* Stats grid */}

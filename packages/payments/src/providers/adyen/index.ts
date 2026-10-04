@@ -43,6 +43,7 @@ import type {
   WebhookRegistration,
   WebhookRegistrationInput,
 } from '../../types.js';
+import { partitionWebhookEndpoints } from '../../webhook-endpoint-url.js';
 import { ADYEN_CURRENCIES, fromAdyenAmount, toAdyenAmount } from './amounts.js';
 import type { AdyenAmount } from './amounts.js';
 import {
@@ -853,18 +854,30 @@ export class AdyenPaymentProvider implements PaymentProvider {
       throw new WebhookSignatureError('invalid', 'Adyen notification for the other environment');
     }
     for (const item of notification.items) {
+      // Logged with a refusal so the source of a bad delivery can be found
+      // (another deployment's webhook, a rotated key). Never secrets.
+      const unverified = {
+        eventCode: item.eventCode ?? '',
+        pspReference: item.pspReference ?? '',
+        merchantAccountCode: item.merchantAccountCode ?? '',
+      };
       if (item.merchantAccountCode !== this.merchantAccount) {
         throw new WebhookSignatureError(
           'invalid',
           'Adyen notification for another merchant account',
+          { unverified },
         );
       }
       const signature = item.additionalData?.['hmacSignature'];
       if (signature == null || signature === '') {
-        throw new WebhookSignatureError('missing', 'Missing Adyen HMAC signature');
+        throw new WebhookSignatureError('missing', 'Missing Adyen HMAC signature', {
+          unverified,
+        });
       }
       if (!isValidAdyenHmac(item, signature, this.hmacKeys)) {
-        throw new WebhookSignatureError('invalid', 'Invalid Adyen HMAC signature');
+        throw new WebhookSignatureError('invalid', 'Invalid Adyen HMAC signature', {
+          unverified,
+        });
       }
     }
     return notification.items.map(normalizeAdyenItem);
@@ -887,25 +900,31 @@ export class AdyenPaymentProvider implements PaymentProvider {
   }
 
   /**
-   * Creates EVtivity's standard webhook, or updates the existing one when
-   * `replace` is set, with new Basic auth credentials and a new HMAC key
-   * (plan Task B2). A new webhook is created inactive; the caller stores the
-   * returned settings, then calls `activate()`, so no event arrives before
-   * EVtivity can verify it. An existing webhook keeps its active flag: events
-   * that arrive before the new credentials are stored fail verification and
-   * Adyen retries them, while an inactive webhook would drop them. The
-   * current HMAC key becomes the previous key, so events signed with it still
-   * verify. `activate()` also deletes other EVtivity webhooks (duplicates).
+   * Creates EVtivity's standard webhook, or updates the existing one at the
+   * same URL (same origin and path) when `replace` is set, with new Basic
+   * auth credentials and a new HMAC key (plan Task B2). Only webhooks at the
+   * requested URL count as existing: EVtivity webhooks of other deployments
+   * on the same merchant account are never updated or deleted. A new webhook
+   * is created inactive; the caller stores the returned settings, then calls
+   * `activate()`, so no event arrives before EVtivity can verify it. An
+   * existing webhook keeps its active flag: events that arrive before the new
+   * credentials are stored fail verification and Adyen retries them, while
+   * an inactive webhook would drop them. The current HMAC key becomes the
+   * previous key, so events signed with it still verify. `activate()` also
+   * deletes other webhooks at the same URL (duplicates).
    */
   async registerWebhook(input: WebhookRegistrationInput): Promise<WebhookRegistration> {
     const all = await this.management.listWebhooks();
-    const ours = all.filter(
-      (w) => w.url === input.url || w.description === ADYEN_WEBHOOK_DESCRIPTION,
-    );
+    // Any webhook at this URL posts to this deployment, EVtivity-marked or set up by hand.
+    const { matching: ours } = partitionWebhookEndpoints(all, input.url);
     if (ours.length > 0 && !input.replace) {
-      throw new WebhookExistsError(this.id, ours.map(webhookInfo));
+      const others = partitionWebhookEndpoints(
+        all.filter((w) => w.description === ADYEN_WEBHOOK_DESCRIPTION),
+        input.url,
+      ).other;
+      throw new WebhookExistsError(this.id, ours.map(webhookInfo), others.map(webhookInfo));
     }
-    const existing = ours.find((w) => w.url === input.url) ?? ours[0];
+    const existing = ours.find((w) => w.description === ADYEN_WEBHOOK_DESCRIPTION) ?? ours[0];
     const username = `evtivity-${crypto.randomBytes(6).toString('hex')}`;
     const password = crypto.randomBytes(24).toString('base64url');
     const config: AdyenWebhookWrite = {

@@ -4,7 +4,15 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, sql, and, isNull } from 'drizzle-orm';
-import { db, ocpiTariffMappings, tariffs, pricingGroups, ocpiPartners } from '@evtivity/database';
+import {
+  db,
+  ocpiTariffMappings,
+  tariffs,
+  pricingGroups,
+  ocpiPartners,
+  pgErrorCode,
+  PG_UNIQUE_VIOLATION,
+} from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -216,10 +224,7 @@ const SOURCE_REQUIRED = 'Select exactly one internal tariff or pricing group';
 
 /** Postgres unique violation (a concurrent mapping with the same id won the race). */
 function isUniqueViolation(err: unknown): boolean {
-  const pgErr = err != null && typeof err === 'object' && 'cause' in err ? err.cause : err;
-  return (
-    pgErr != null && typeof pgErr === 'object' && 'code' in pgErr && String(pgErr.code) === '23505'
-  );
+  return pgErrorCode(err) === PG_UNIQUE_VIOLATION;
 }
 
 export function ocpiTariffRoutes(app: FastifyInstance): void {

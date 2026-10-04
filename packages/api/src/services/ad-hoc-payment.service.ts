@@ -3,7 +3,15 @@
 
 import crypto from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import { db, chargingSessions, chargingStations, evses, guestSessions } from '@evtivity/database';
+import {
+  db,
+  chargingSessions,
+  chargingStations,
+  evses,
+  guestSessions,
+  pgErrorCode,
+  PG_UNIQUE_VIOLATION,
+} from '@evtivity/database';
 import type { FastifyBaseLogger } from 'fastify';
 import { sendOcppCommandAndWait } from '../lib/ocpp-command.js';
 import { getUserSiteIds } from '../lib/site-access.js';
@@ -33,7 +41,7 @@ export type AdHocPaymentResult =
   | { ok: false; status: 400 | 404 | 409 | 502 | 504; code: string; error: string };
 
 function isUniqueViolation(err: unknown): boolean {
-  return err != null && typeof err === 'object' && 'code' in err && err.code === '23505';
+  return pgErrorCode(err) === PG_UNIQUE_VIOLATION;
 }
 
 /**

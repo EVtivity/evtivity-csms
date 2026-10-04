@@ -76,6 +76,35 @@ release_previous_tag() {
   '
 }
 
+# release_version_files: print the files release.sh changes before its release
+# commit (the version bumps and the regenerated AI tools), relative to the repo root.
+release_version_files() {
+  local f
+  for f in package.json packages/*/package.json packages/api/src/services/ai/tools.ts; do
+    if [ -f "$f" ]; then printf '%s\n' "$f"; fi
+  done
+}
+
+# release_backup_version_files <dir>: copy the files of release_version_files into <dir>.
+release_backup_version_files() {
+  local dir="${1:?release_backup_version_files needs a directory}" f
+  while IFS= read -r f; do
+    mkdir -p "$dir/$(dirname "$f")"
+    cp -p "$f" "$dir/$f"
+  done < <(release_version_files)
+}
+
+# release_restore_version_files <dir>: put back every file saved by
+# release_backup_version_files, so a failed release leaves no version bump behind.
+release_restore_version_files() {
+  local dir="${1:?release_restore_version_files needs a directory}" f
+  while IFS= read -r f; do
+    f="${f#"$dir"/}"
+    mkdir -p "$(dirname "$f")"
+    cp -p "$dir/$f" "$f"
+  done < <(find "$dir" -type f)
+}
+
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   set -euo pipefail
   fn="${1:?Usage: release-version.sh <function> [args...]}"

@@ -4,6 +4,12 @@
 export * from './schema/index.js';
 export { db, client } from './config.js';
 export { PgEventPersistence } from './event-persistence.js';
+export {
+  pgErrorCode,
+  pgConstraintName,
+  PG_UNIQUE_VIOLATION,
+  PG_FOREIGN_KEY_VIOLATION,
+} from './lib/pg-errors.js';
 export { isRoamingEnabled, clearRoamingCache } from './lib/roaming-setting.js';
 export {
   isPncEnabled,
@@ -56,6 +62,7 @@ export {
   getPricingHolidays,
   clearTariffResolutionCache,
 } from './lib/tariff-resolution.js';
+export { sessionFeeGrossCents, siteMaxSessionFeeGrossCents } from './lib/session-fee-floor.js';
 export type {
   PricingGroupSource,
   ResolvedPricingGroup,

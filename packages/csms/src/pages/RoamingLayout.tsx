@@ -4,7 +4,10 @@
 import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate, useOutletContext } from 'react-router';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent } from '@/components/ui/card';
+import { api } from '@/lib/api';
 
 const TABS = [
   { value: 'partners', path: '/roaming/partners', labelKey: 'nav.roamingPartners' as const },
@@ -35,7 +38,39 @@ export function RoamingLayout(): React.JSX.Element {
   const navigate = useNavigate();
   const [tabAction, setTabAction] = useState<React.ReactNode>(null);
 
+  // Same query as the navigation (Layout), which hides Roaming while it is off.
+  const { data: settings, isLoading: settingsLoading } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => api.get<Record<string, unknown>>('/v1/settings'),
+  });
+  // Off only when the settings say so; a user who cannot read settings sees the
+  // pages, which answer for themselves.
+  const roamingDisabled = settings != null && settings['roaming.enabled'] !== true;
+
   const activeTab = TABS.find((tab) => location.pathname.startsWith(tab.path))?.value ?? 'partners';
+
+  if (settingsLoading) {
+    return <div />;
+  }
+
+  if (roamingDisabled) {
+    return (
+      <div>
+        <div className="mb-6">
+          <h1 className="text-2xl md:text-3xl font-bold">{t('nav.roaming')}</h1>
+          <p className="text-sm text-muted-foreground">{t('roaming.subtitle')}</p>
+        </div>
+        <Card>
+          <CardContent className="p-6">
+            <h2 className="text-lg font-semibold">{t('roaming.disabled.title')}</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {t('roaming.disabled.description')}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div>

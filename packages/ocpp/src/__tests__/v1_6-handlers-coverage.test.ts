@@ -421,7 +421,7 @@ describe('v1_6 StartTransaction handler - session claim branches', () => {
     expect(response.transactionId).toBe(55);
   });
 
-  it('uses default value 1 when sequence returns no row', async () => {
+  it('fails the message instead of making up an id when the sequence returns no row', async () => {
     // stationDbId is null so it skips the UPDATE
     // Sequence returns empty
     executeFn.mockResolvedValueOnce([]);
@@ -434,10 +434,10 @@ describe('v1_6 StartTransaction handler - session claim branches', () => {
       meterStart: 0,
       timestamp: '2026-02-15T10:00:00Z',
     });
-    const response = await handleStartTransaction(ctx);
 
-    // Number(undefined ?? 1) = Number(1) = 1
-    expect(response.transactionId).toBe(1);
+    await expect(handleStartTransaction(ctx)).rejects.toThrow(
+      'ocpp16_transaction_id_seq returned no value',
+    );
   });
 
   it('publishes event with reservationId when present in request', async () => {

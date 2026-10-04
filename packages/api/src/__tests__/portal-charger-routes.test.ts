@@ -717,6 +717,83 @@ describe('Portal charger routes - handler logic', () => {
       expect(isStationChargingFree).not.toHaveBeenCalled();
       expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
     });
+
+    describe('OCPP 1.6 transaction id', () => {
+      const station16 = {
+        id: VALID_STATION_ID,
+        stationId: 'CS-016',
+        siteId: null,
+        isOnline: true,
+        onboardingStatus: 'accepted',
+        ocppProtocol: 'ocpp1.6',
+      };
+
+      function setupStart16(): void {
+        setupDbResults(
+          [station16],
+          [{ id: 'evs_000000000001' }],
+          [{ status: 'available' }],
+          [], // active reservation gate
+          [], // EVSE active-session check
+          [], // driver active-session check
+          [{ id: VALID_SESSION_ID }],
+        );
+      }
+
+      function insertedValues(): unknown[] {
+        return vi
+          .mocked(db.insert)
+          .mock.results.flatMap(
+            (res) =>
+              (res.value as { values: ReturnType<typeof vi.fn> }).values.mock.calls as unknown[][],
+          )
+          .map(([values]) => values);
+      }
+
+      async function start16() {
+        return app.inject({
+          method: 'POST',
+          url: '/portal/chargers/CS-016/evse/1/start',
+          headers: { authorization: `Bearer ${driverToken}` },
+          payload: {},
+        });
+      }
+
+      it('stamps the session with the next value of the 1.6 sequence', async () => {
+        vi.mocked(db.insert).mockClear();
+        setupStart16();
+
+        const response = await start16();
+
+        expect(response.statusCode).toBe(200);
+        expect(insertedValues()).toContainEqual(expect.objectContaining({ transactionId: '42' }));
+      });
+
+      it('answers 500 SESSION_CREATE_FAILED and creates nothing when the sequence read fails', async () => {
+        vi.mocked(db.insert).mockClear();
+        vi.mocked(db.execute).mockRejectedValueOnce(new Error('db down'));
+        setupStart16();
+
+        const response = await start16();
+
+        expect(response.statusCode).toBe(500);
+        expect(response.json().code).toBe('SESSION_CREATE_FAILED');
+        expect(db.insert).not.toHaveBeenCalled();
+        expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
+      });
+
+      it('answers 500 SESSION_CREATE_FAILED when the sequence returns no row', async () => {
+        vi.mocked(db.insert).mockClear();
+        vi.mocked(db.execute).mockResolvedValueOnce([] as never);
+        setupStart16();
+
+        const response = await start16();
+
+        expect(response.statusCode).toBe(500);
+        expect(response.json().code).toBe('SESSION_CREATE_FAILED');
+        expect(db.insert).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe('POST /v1/portal/chargers/:stationId/evse/:evseId/start - pre-authorization', () => {

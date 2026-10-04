@@ -10,6 +10,7 @@ import {
   stationTotp,
   visitQrUrl,
 } from '../../../../qr-test-helpers.js';
+import { newTransactionId } from '../../../../csms-test-helpers.js';
 
 /** maxenergy the EV driver entered before the QR code was shown (Wh). */
 const MAX_ENERGY_WH = 20000;
@@ -120,7 +121,7 @@ export const TC_C_131_CSMS: TestCase = {
       return { status: 'failed', durationMs: 0, steps };
     }
 
-    const txId = `OCTT-TX-${String(Date.now())}`;
+    const txId = newTransactionId('OCTT-TX');
     const remoteStartId = requestStartPayload['remoteStartId'] as number | undefined;
 
     // Step 3: Send TransactionEvent Started

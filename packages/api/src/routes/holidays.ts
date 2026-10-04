@@ -4,7 +4,12 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
-import { db, clearTariffResolutionCache } from '@evtivity/database';
+import {
+  db,
+  clearTariffResolutionCache,
+  pgErrorCode,
+  PG_UNIQUE_VIOLATION,
+} from '@evtivity/database';
 import { pricingHolidays, holidayAuditLog, writeAudit } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
@@ -132,13 +137,7 @@ export function holidayRoutes(app: FastifyInstance): void {
         await publishHolidayChanged();
         await reply.status(201).send(holiday);
       } catch (err: unknown) {
-        const pgErr = err != null && typeof err === 'object' && 'cause' in err ? err.cause : err;
-        if (
-          pgErr != null &&
-          typeof pgErr === 'object' &&
-          'code' in pgErr &&
-          String(pgErr.code) === '23505'
-        ) {
+        if (pgErrorCode(err) === PG_UNIQUE_VIOLATION) {
           await reply.status(409).send({
             error: 'A holiday already exists for this date',
             code: 'DUPLICATE_HOLIDAY',

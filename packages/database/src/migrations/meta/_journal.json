@@ -911,6 +911,13 @@
       "when": 1791000010021,
       "tag": "0129_seed_ev_connection_timeout",
       "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1791000010022,
+      "tag": "0130_session_idle_notified_at",
+      "breakpoints": true
     }
   ]
 }

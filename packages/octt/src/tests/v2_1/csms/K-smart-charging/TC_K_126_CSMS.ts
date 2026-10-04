@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { newTransactionId } from '../../../../csms-test-helpers.js';
 
 /**
  * TC_K_126_CSMS: ISO 15118-20 Dynamic Control Mode - Sets no charging profile
@@ -30,7 +31,7 @@ export const TC_K_126_CSMS: TestCase = {
       connectorId: 1,
     });
 
-    const txId = `OCTT-TX-${String(Date.now())}`;
+    const txId = newTransactionId('OCTT-TX');
     await ctx.client.sendCall('TransactionEvent', {
       eventType: 'Started',
       timestamp: new Date().toISOString(),

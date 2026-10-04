@@ -12,6 +12,8 @@ import {
   clearFreeVendCache,
   clearElectricityRateCache,
   getCompanyCurrency,
+  pgErrorCode,
+  PG_FOREIGN_KEY_VIOLATION,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { inCompanyCurrency, sessionCurrencySql } from '../lib/company-currency.js';
@@ -2067,11 +2069,7 @@ export function siteRoutes(app: FastifyInstance): void {
         // The pre-checks are non-transactional, so the pricing group can be
         // deleted between the check and this INSERT. Map the FK violation
         // to the same 404 the pre-check would have produced.
-        if (
-          typeof err === 'object' &&
-          err !== null &&
-          (err as { code?: string }).code === '23503'
-        ) {
+        if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
           await reply
             .status(404)
             .send({ error: 'Pricing group not found', code: 'PRICING_GROUP_NOT_FOUND' });

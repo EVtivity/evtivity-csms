@@ -143,6 +143,11 @@
     "captured": "Eingezogen",
     "charging": "Lädt",
     "idle": "Inaktiv",
+    "limitReached": {
+      "cost": "Laden pausiert: Die Sitzung hat ihr Kostenlimit erreicht (den auf Ihrer Karte reservierten Betrag).",
+      "energy": "Laden pausiert: Die Sitzung hat ihr Energielimit erreicht.",
+      "time": "Laden pausiert: Die Sitzung hat ihr Zeitlimit erreicht."
+    },
     "timeElapsed": "Dauer",
     "power": "Leistung",
     "details": "Details",
@@ -679,6 +684,7 @@
     "SETTING_NOT_FOUND": "Einstellung nicht gefunden",
     "SITE_HAS_STATIONS": "Standort mit Ladestationen kann nicht gelöscht werden. Entfernen oder verschieben Sie zunächst die Ladestationen.",
     "SITE_NOT_FOUND": "Standort nicht gefunden",
+    "SITE_PAYMENT_CONFIG_IN_USE": "Die Zahlungskonfiguration dieses Standorts hat Zahlungen und kann nicht gelöscht werden. Deaktivieren Sie sie stattdessen.",
     "SMS_NOT_CONFIGURED": "SMS-Anbieter nicht konfiguriert",
     "SMS_SEND_FAILED": "SMS konnte nicht gesendet werden",
     "SSO_DISABLED": "SSO ist nicht konfiguriert",

@@ -325,6 +325,11 @@
     "description": "Rebrand the EVtivity CSMS and driver portal with your network's identity - logo, colors, domain, content, and notifications."
   },
   {
+    "path": "/docs/integrations/adyen",
+    "title": "Adyen",
+    "description": "Set up and use Adyen step by step. Merchant account, API credential roles, client key and allowed origins, the Adyen settings, the webhook, Adyen Support enablements, local testing, selecting Adyen after the upgrade, 3D Secure, guest checkout, captures and refunds confirmed by webhook, the mobile app, and the Content Security Policy."
+  },
+  {
     "path": "/docs/integrations/energy-management",
     "title": "Energy Management",
     "description": "Load management, smart charging profiles, and carbon footprint tracking."
@@ -332,12 +337,22 @@
   {
     "path": "/docs/integrations/payment-providers",
     "title": "Payment Providers",
-    "description": "Stripe, Adyen (preview), and the test provider. How the active provider is chosen, Stripe setup and webhooks, pre-authorization, refunds, and testing."
+    "description": "Overview of the payment providers. Stripe, Adyen, and the test provider, how the active provider is chosen, provider pinning, the payment lifecycle, webhooks, statuses, and reconciliation."
+  },
+  {
+    "path": "/docs/integrations/stripe",
+    "title": "Stripe",
+    "description": "Set up Stripe step by step. API keys, the two webhook endpoints created from the dashboard or by hand, local testing with the Stripe CLI, Stripe Connect payouts, and site host onboarding."
+  },
+  {
+    "path": "/docs/integrations/test-payment-provider",
+    "title": "Test Payment Provider",
+    "description": "The simulated payment provider for development, demos, and automated tests. How to enable it with PAYMENTS_ALLOW_SIMULATED, its test cards, sync and async modes, and how its events reach the webhook pipeline."
   },
   {
     "path": "/docs/integrations/webhooks",
     "title": "Webhooks and Events",
-    "description": "Outgoing webhooks, incoming Stripe webhooks, SSE real-time streams, and internal pub/sub channels."
+    "description": "Outgoing webhooks, incoming Stripe and Adyen payment webhooks, SSE real-time streams, and internal pub/sub channels."
   },
   {
     "path": "/docs/mobile-app/api-reference",
@@ -397,7 +412,7 @@
   {
     "path": "/docs/mobile-app/guide/payments",
     "title": "Payments",
-    "description": "Add a card, set a default, and manage your saved payment methods."
+    "description": "Add a card with Stripe, Adyen, or the test provider, confirm it with your bank, set a default, and manage your saved payment methods."
   },
   {
     "path": "/docs/mobile-app/guide/reservations",
@@ -482,7 +497,7 @@
   {
     "path": "/docs/portal/guest-charging",
     "title": "Guest Charging",
-    "description": "Charge without an account using a QR code, pay with a credit card via Stripe, and track your session."
+    "description": "Charge without an account using a QR code, pay with a credit card through the operator's payment provider, and track your session."
   },
   {
     "path": "/docs/portal/location-detail",
@@ -492,7 +507,7 @@
   {
     "path": "/docs/portal/payment-methods",
     "title": "Payment Methods",
-    "description": "Add, manage, and remove credit or debit cards for EV charging payments."
+    "description": "Add, verify, manage, and remove credit or debit cards for EV charging payments, with Stripe, Adyen, or the test provider."
   },
   {
     "path": "/docs/portal/registration",

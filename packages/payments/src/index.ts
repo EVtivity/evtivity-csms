@@ -198,6 +198,7 @@ export type { ChargeRefund, RefundOutcome, RefundRequest } from './refunds.js';
 export { applyPaymentEvent, ingestPaymentWebhook } from './webhooks.js';
 export type { PaymentWebhookNotice, WebhookResult } from './webhooks.js';
 export { dispatchPaymentWebhookNotices } from './webhook-notices.js';
+export { isSameWebhookUrl, partitionWebhookEndpoints } from './webhook-endpoint-url.js';
 export type { WebhookNoticeDeps } from './webhook-notices.js';
 export {
   PENDING_CONFIRMATION_HOURS,
@@ -229,6 +230,7 @@ export {
   expireGuestSessions,
   failExhaustedGuestCapture,
   GUEST_REFERENCE_PREFIX,
+  guestHoldTerms,
   handleGuestSessionEvent,
   rollbackGuestStart,
 } from './guest-payments.js';

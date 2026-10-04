@@ -12,9 +12,11 @@ import { useToast } from '@/components/ui/toast';
 import { LoadingLogo } from '@/components/loading-logo';
 import { api, getApiErrorCode } from '@/lib/api';
 import {
+  OtherWebhookEndpoints,
   PaymentWebhookSetup,
   WebhookEndpointsTable,
   defaultWebhookUrl,
+  webhookSetupPath,
   type WebhookEndpoint,
 } from './PaymentWebhookSetup';
 import { providerErrorMessage } from './payment-provider-errors';
@@ -23,7 +25,10 @@ export const STRIPE_WEBHOOK_PATH = '/v1/webhooks/payments/stripe';
 
 /** `GET /v1/settings/stripe/webhook`. */
 export interface StripeWebhookSetup {
+  /** Endpoints at this deployment's webhook URL. */
   endpoints: WebhookEndpoint[];
+  /** EVtivity endpoints of other deployments sharing the Stripe account. */
+  otherEndpoints?: WebhookEndpoint[];
   platformSecretConfigured: boolean;
   connectSecretConfigured: boolean;
   events: { platform: string[]; connect: string[] };
@@ -56,7 +61,10 @@ export function StripeWebhookCard({ canWrite }: { canWrite: boolean }): React.JS
 
   const setup = useQuery({
     queryKey: ['stripe-webhook'],
-    queryFn: () => api.get<StripeWebhookSetup>('/v1/settings/stripe/webhook'),
+    queryFn: () =>
+      api.get<StripeWebhookSetup>(
+        webhookSetupPath('/v1/settings/stripe/webhook', STRIPE_WEBHOOK_PATH),
+      ),
     staleTime: 30_000,
     retry: false,
   });
@@ -120,6 +128,7 @@ export function StripeWebhookCard({ canWrite }: { canWrite: boolean }): React.JS
                 endpoints={setup.data.endpoints}
                 emptyText={t('settings.stripeWebhookNoEndpoints')}
               />
+              <OtherWebhookEndpoints endpoints={setup.data.otherEndpoints} />
             </>
           ) : null}
         </div>

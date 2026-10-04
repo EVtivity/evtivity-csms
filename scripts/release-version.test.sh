@@ -78,6 +78,30 @@ check "minor rc prev is previous prerelease" v0.1.39-nightly.1 \
 # Hotfix: an older stable release compares against its own predecessor, not the newest tag.
 check "hotfix prev ignores newer tags" v0.1.10 "$(release_previous_tag v0.1.37)"
 
+# Version file backup and restore (a failed release leaves no bump behind)
+TREE=$(mktemp -d)
+BACKUP=$(mktemp -d)
+trap 'rm -rf "$REPO" "$TREE" "$BACKUP"' EXIT
+mkdir -p "$TREE/packages/api/src/services/ai" "$TREE/packages/lib" "$TREE/packages/empty"
+echo '{"version":"0.1.37"}' > "$TREE/package.json"
+echo '{"version":"0.1.37"}' > "$TREE/packages/lib/package.json"
+echo '{"version":"0.1.37"}' > "$TREE/packages/api/package.json"
+echo 'old tools' > "$TREE/packages/api/src/services/ai/tools.ts"
+cd "$TREE"
+check "version files listed" \
+  "package.json packages/api/package.json packages/lib/package.json packages/api/src/services/ai/tools.ts" \
+  "$(release_version_files | tr '\n' ' ' | sed 's/ $//')"
+release_backup_version_files "$BACKUP"
+echo '{"version":"0.1.38"}' > package.json
+echo '{"version":"0.1.38"}' > packages/lib/package.json
+echo 'new tools' > packages/api/src/services/ai/tools.ts
+release_restore_version_files "$BACKUP"
+check "root version restored" '{"version":"0.1.37"}' "$(cat package.json)"
+check "package version restored" '{"version":"0.1.37"}' "$(cat packages/lib/package.json)"
+check "untouched package kept" '{"version":"0.1.37"}' "$(cat packages/api/package.json)"
+check "ai tools restored" 'old tools' "$(cat packages/api/src/services/ai/tools.ts)"
+cd "$REPO"
+
 # Command-line entry point
 check "cli valid" yes "$(status_of bash "$SCRIPT_DIR/release-version.sh" release_tag_is_valid v1.2.3-rc.1)"
 check "cli prerelease" no \

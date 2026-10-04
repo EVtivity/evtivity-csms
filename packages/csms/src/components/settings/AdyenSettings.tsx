@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Select } from '@/components/ui/select';
 import { Toggle } from '@/components/ui/toggle';
 import { useToast } from '@/components/ui/toast';
@@ -18,15 +19,10 @@ import { LoadingLogo } from '@/components/loading-logo';
 import { api, getApiErrorCode } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import {
-  EMPTY_SECRET,
-  SecretSettingInput,
-  isSecretChanged,
-  secretPayload,
-  type SecretFieldState,
-} from './SecretSettingInput';
-import {
+  OtherWebhookEndpoints,
   PaymentWebhookSetup,
   WebhookEndpointsTable,
+  webhookSetupPath,
   type WebhookEndpoint,
 } from './PaymentWebhookSetup';
 import { providerErrorMessage } from './payment-provider-errors';
@@ -38,7 +34,7 @@ type LiveRegion = (typeof LIVE_REGIONS)[number];
 const LIVE_URL_PREFIX = /^[a-z0-9]+-[A-Za-z0-9]+$/;
 const HEX = /^[0-9A-Fa-f]+$/;
 
-/** `GET /v1/settings/adyen`: secrets are never returned, only whether each is stored. */
+/** `GET /v1/settings/adyen`: secrets are returned decrypted, like the generic settings GET. */
 export interface AdyenSettingsResponse {
   merchantAccount: string | null;
   environment: 'test' | 'live';
@@ -47,15 +43,18 @@ export interface AdyenSettingsResponse {
   clientKey: string | null;
   webhookUsername: string | null;
   authorisationAdjustment: boolean;
-  apiKeyConfigured: boolean;
-  hmacKeyConfigured: boolean;
+  apiKey: string | null;
+  hmacKey: string | null;
   hmacKeyPreviousConfigured: boolean;
-  webhookPasswordConfigured: boolean;
+  webhookPassword: string | null;
   webhookUrlPath: string;
 }
 
 interface AdyenWebhookResponse {
+  /** The webhook at this deployment's webhook URL. */
   endpoints: WebhookEndpoint[];
+  /** EVtivity webhooks of other deployments sharing the merchant account. */
+  otherEndpoints?: WebhookEndpoint[];
   hmacKeyConfigured: boolean;
   webhookPasswordConfigured: boolean;
   events: string[];
@@ -88,7 +87,13 @@ interface AdyenForm {
   clientKey: string;
   webhookUsername: string;
   authorisationAdjustment: boolean;
+  apiKey: string;
+  hmacKey: string;
+  webhookPassword: string;
 }
+
+/** The secret fields of the form, sent only when changed (an emptied field clears). */
+const SECRET_FIELDS = ['apiKey', 'hmacKey', 'webhookPassword'] as const;
 
 function formFrom(data: AdyenSettingsResponse): AdyenForm {
   return {
@@ -99,6 +104,9 @@ function formFrom(data: AdyenSettingsResponse): AdyenForm {
     clientKey: data.clientKey ?? '',
     webhookUsername: data.webhookUsername ?? '',
     authorisationAdjustment: data.authorisationAdjustment,
+    apiKey: data.apiKey ?? '',
+    hmacKey: data.hmacKey ?? '',
+    webhookPassword: data.webhookPassword ?? '',
   };
 }
 
@@ -132,7 +140,10 @@ function AdyenWebhookCard({ canWrite }: { canWrite: boolean }): React.JSX.Elemen
 
   const webhook = useQuery({
     queryKey: ['adyen-webhook'],
-    queryFn: () => api.get<AdyenWebhookResponse>('/v1/settings/adyen/webhook'),
+    queryFn: () =>
+      api.get<AdyenWebhookResponse>(
+        webhookSetupPath('/v1/settings/adyen/webhook', ADYEN_WEBHOOK_PATH),
+      ),
     staleTime: 30_000,
     retry: false,
   });
@@ -185,10 +196,13 @@ function AdyenWebhookCard({ canWrite }: { canWrite: boolean }): React.JSX.Elemen
               {t('settings.adyenWebhookLoadFailed')} {providerErrorMessage(webhook.error, t)}
             </p>
           ) : webhook.data != null ? (
-            <WebhookEndpointsTable
-              endpoints={webhook.data.endpoints}
-              emptyText={t('settings.adyenWebhookNoEndpoints')}
-            />
+            <>
+              <WebhookEndpointsTable
+                endpoints={webhook.data.endpoints}
+                emptyText={t('settings.adyenWebhookNoEndpoints')}
+              />
+              <OtherWebhookEndpoints endpoints={webhook.data.otherEndpoints} />
+            </>
           ) : null}
         </div>
       </CardContent>
@@ -208,18 +222,12 @@ export function AdyenSettings(): React.JSX.Element {
   });
 
   const [form, setForm] = useState<AdyenForm | null>(null);
-  const [apiKey, setApiKey] = useState<SecretFieldState>(EMPTY_SECRET);
-  const [hmacKey, setHmacKey] = useState<SecretFieldState>(EMPTY_SECRET);
-  const [webhookPassword, setWebhookPassword] = useState<SecretFieldState>(EMPTY_SECRET);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   useEffect(() => {
     if (data == null) return;
     setForm(formFrom(data));
-    setApiKey(EMPTY_SECRET);
-    setHmacKey(EMPTY_SECRET);
-    setWebhookPassword(EMPTY_SECRET);
     setHasSubmitted(false);
     setHasUnsavedChanges(false);
   }, [data]);
@@ -263,7 +271,7 @@ export function AdyenSettings(): React.JSX.Element {
     ) {
       errors.liveUrlPrefix = t('settings.adyenLiveUrlPrefixInvalid');
     }
-    if (hmacKey.value !== '' && !hmacKey.clear && !HEX.test(hmacKey.value.trim())) {
+    if (values.hmacKey.trim() !== '' && !HEX.test(values.hmacKey.trim())) {
       errors.hmacKey = t('settings.adyenHmacKeyInvalid');
     }
     return errors;
@@ -286,21 +294,16 @@ export function AdyenSettings(): React.JSX.Element {
     };
     if (current.merchantAccount.trim() !== '')
       body.merchantAccount = current.merchantAccount.trim();
-    const secrets: Array<[string, SecretFieldState]> = [
-      ['apiKey', apiKey],
-      ['hmacKey', hmacKey],
-      ['webhookPassword', webhookPassword],
-    ];
-    for (const [key, state] of secrets) {
-      const value = secretPayload(state);
-      if (value !== undefined) body[key] = value.trim();
+    // Send only the secrets that changed, so an unchanged secret is not
+    // re-encrypted and audited.
+    for (const key of SECRET_FIELDS) {
+      const value = current[key].trim();
+      if (value !== (data?.[key] ?? '')) body[key] = value;
     }
     saveMutation.mutate(body);
   }
 
-  const secretsChanged =
-    isSecretChanged(apiKey) || isSecretChanged(hmacKey) || isSecretChanged(webhookPassword);
-  const dirty = hasUnsavedChanges || secretsChanged;
+  const dirty = hasUnsavedChanges;
 
   return (
     <div className="space-y-6">
@@ -407,37 +410,40 @@ export function AdyenSettings(): React.JSX.Element {
                 <p className="text-xs text-muted-foreground">{t('settings.adyenClientKeyHint')}</p>
               </div>
 
-              <SecretSettingInput
-                id="adyen-api-key"
-                label={t('settings.adyenApiKey')}
-                hint={t('settings.adyenApiKeyHint')}
-                configured={data.apiKeyConfigured}
-                state={apiKey}
-                onChange={(state) => {
-                  setApiKey(state);
-                  saveMutation.reset();
-                  testMutation.reset();
-                }}
-                canWrite={canWrite}
-              />
-
-              <div>
-                <SecretSettingInput
-                  id="adyen-hmac-key"
-                  label={t('settings.adyenHmacKey')}
-                  hint={t('settings.adyenHmacKeyHint')}
-                  configured={data.hmacKeyConfigured}
-                  state={hmacKey}
-                  onChange={(state) => {
-                    setHmacKey(state);
-                    saveMutation.reset();
+              <div className="space-y-2">
+                <Label htmlFor="adyen-api-key" className="leading-6">
+                  {t('settings.adyenApiKey')}
+                </Label>
+                <PasswordInput
+                  id="adyen-api-key"
+                  value={current.apiKey}
+                  disabled={!canWrite}
+                  autoComplete="off"
+                  onChange={(e) => {
+                    update({ apiKey: e.target.value });
                   }}
-                  canWrite={canWrite}
-                  invalid={hasSubmitted && errors.hmacKey != null}
+                />
+                <p className="text-xs text-muted-foreground">{t('settings.adyenApiKeyHint')}</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="adyen-hmac-key" className="leading-6">
+                  {t('settings.adyenHmacKey')}
+                </Label>
+                <PasswordInput
+                  id="adyen-hmac-key"
+                  value={current.hmacKey}
+                  disabled={!canWrite}
+                  autoComplete="off"
+                  className={hasSubmitted && errors.hmacKey != null ? 'border-destructive' : ''}
+                  onChange={(e) => {
+                    update({ hmacKey: e.target.value });
+                  }}
                 />
                 {hasSubmitted && errors.hmacKey != null && (
-                  <p className="mt-2 text-sm text-destructive">{errors.hmacKey}</p>
+                  <p className="text-sm text-destructive">{errors.hmacKey}</p>
                 )}
+                <p className="text-xs text-muted-foreground">{t('settings.adyenHmacKeyHint')}</p>
               </div>
 
               <div className="space-y-2">
@@ -458,18 +464,23 @@ export function AdyenSettings(): React.JSX.Element {
                 </p>
               </div>
 
-              <SecretSettingInput
-                id="adyen-webhook-password"
-                label={t('settings.adyenWebhookPassword')}
-                hint={t('settings.adyenWebhookCredentialHint')}
-                configured={data.webhookPasswordConfigured}
-                state={webhookPassword}
-                onChange={(state) => {
-                  setWebhookPassword(state);
-                  saveMutation.reset();
-                }}
-                canWrite={canWrite}
-              />
+              <div className="space-y-2">
+                <Label htmlFor="adyen-webhook-password" className="leading-6">
+                  {t('settings.adyenWebhookPassword')}
+                </Label>
+                <PasswordInput
+                  id="adyen-webhook-password"
+                  value={current.webhookPassword}
+                  disabled={!canWrite}
+                  autoComplete="off"
+                  onChange={(e) => {
+                    update({ webhookPassword: e.target.value });
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('settings.adyenWebhookCredentialHint')}
+                </p>
+              </div>
 
               <div className="space-y-2 sm:col-span-2">
                 <div className="flex items-center gap-3">

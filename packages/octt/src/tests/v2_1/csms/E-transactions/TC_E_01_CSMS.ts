@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
-import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
 
 export const TC_E_01_CSMS: TestCase = {
   id: 'TC_E_01_CSMS',
@@ -46,7 +46,7 @@ export const TC_E_01_CSMS: TestCase = {
     pushSendAckStep(steps, 2, 'Send StatusNotification (Occupied)', resp2);
 
     // Step 3: TransactionEvent Started with SuspendedEVSE
-    const txId = `OCTT-TX-${String(Date.now())}`;
+    const txId = newTransactionId('OCTT-TX');
     const txStartRes = await ctx.client.sendCall('TransactionEvent', {
       eventType: 'Started',
       timestamp: new Date().toISOString(),

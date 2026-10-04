@@ -49,6 +49,8 @@ function makeChain() {
   return chain;
 }
 
+vi.mock('../lib/session-limit.js', () => ({ sessionLimitReached: vi.fn(async () => null) }));
+
 vi.mock('@evtivity/database', () => ({
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {

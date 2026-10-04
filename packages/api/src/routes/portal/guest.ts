@@ -49,10 +49,11 @@ import {
   authorizeGuestHold,
   claimGuestStart,
   continueGuestHold,
-  holdTerms,
+  guestHoldTerms,
   rollbackGuestStart,
 } from '@evtivity/payments';
 import { activePaymentProvider, paymentContext } from '../../lib/payments.js';
+import { sessionLimitReached } from '../../lib/session-limit.js';
 import { config as apiConfig } from '../../lib/config.js';
 import {
   originMismatchError,
@@ -163,8 +164,17 @@ const guestDetailsBody = z.object({
     ),
 });
 
+const limitReachedField = z
+  .enum(['cost', 'energy', 'time'])
+  .nullable()
+  .optional()
+  .describe(
+    'Transaction limit the station reported reaching (cost: the hold amount, energy, time); it then suspends charging. Null when none',
+  );
+
 const guestStatusResponse = z
   .object({
+    limitReached: limitReachedField,
     status: z
       .enum(['pending_payment', 'payment_authorized', 'charging', 'completed', 'failed', 'expired'])
       .describe('Guest session lifecycle state'),
@@ -616,7 +626,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         };
       }
       const [terms, countryCode] = await Promise.all([
-        holdTerms(paymentContext(request.log), station.siteId ?? null),
+        guestHoldTerms(paymentContext(request.log), station.siteId ?? null, params.stationId),
         getCompanyCountry(),
       ]);
       const clientConfig = provider.clientConfig();
@@ -1121,6 +1131,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           result['startedAt'] = session.startedAt;
           result['endedAt'] = session.endedAt;
           result['idleStartedAt'] = session.idleStartedAt;
+          result['limitReached'] = await sessionLimitReached(guest.chargingSessionId);
         }
 
         // Include failure reason from payment record if present

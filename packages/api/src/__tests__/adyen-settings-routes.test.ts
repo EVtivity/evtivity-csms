@@ -49,7 +49,7 @@ vi.mock('../lib/payment-settings-writes.js', () => ({
   writePaymentSettings: mockWritePaymentSettings,
 }));
 
-import { decryptString } from '@evtivity/lib';
+import { decryptString, encryptString } from '@evtivity/lib';
 import {
   AdyenApiError,
   AdyenPaymentProvider,
@@ -151,18 +151,18 @@ describe('Adyen settings routes', () => {
   });
 
   describe('GET /settings/adyen', () => {
-    it('returns plain settings and only flags for secrets', async () => {
+    it('returns plain settings and the secrets decrypted, like the generic settings GET', async () => {
       mockSettingsRows.rows = [
-        { key: 'adyen.apiKeyEnc', value: 'cipher-api' },
+        { key: 'adyen.apiKeyEnc', value: encryptString('AQE_key', ENCRYPTION_KEY) },
         { key: 'adyen.merchantAccount', value: 'EVtivityECOM' },
         { key: 'adyen.clientKey', value: 'test_CLIENT' },
         { key: 'adyen.environment', value: 'live' },
         { key: 'adyen.liveUrlPrefix', value: '1797a841fbb37ca7-AdyenDemo' },
         { key: 'adyen.liveRegion', value: 'us' },
-        { key: 'adyen.hmacKeyEnc', value: 'cipher-hmac' },
+        { key: 'adyen.hmacKeyEnc', value: encryptString('ABCDEF0123', ENCRYPTION_KEY) },
         { key: 'adyen.hmacKeyPreviousEnc', value: '' },
         { key: 'adyen.webhookUsername', value: 'evtivity-abc' },
-        { key: 'adyen.webhookPasswordEnc', value: 'cipher-pw' },
+        { key: 'adyen.webhookPasswordEnc', value: encryptString('pw-1', ENCRYPTION_KEY) },
         { key: 'adyen.authorisationAdjustment', value: true },
       ];
       const response = await call('GET', '/settings/adyen');
@@ -175,13 +175,12 @@ describe('Adyen settings routes', () => {
         clientKey: 'test_CLIENT',
         webhookUsername: 'evtivity-abc',
         authorisationAdjustment: true,
-        apiKeyConfigured: true,
-        hmacKeyConfigured: true,
+        apiKey: 'AQE_key',
+        hmacKey: 'ABCDEF0123',
         hmacKeyPreviousConfigured: false,
-        webhookPasswordConfigured: true,
+        webhookPassword: 'pw-1',
         webhookUrlPath: '/v1/webhooks/payments/adyen',
       });
-      expect(response.body).not.toContain('cipher');
     });
 
     it('returns the defaults when nothing is stored', async () => {
@@ -190,7 +189,9 @@ describe('Adyen settings routes', () => {
         merchantAccount: null,
         environment: 'test',
         liveRegion: 'eu',
-        apiKeyConfigured: false,
+        apiKey: null,
+        hmacKey: null,
+        webhookPassword: null,
         authorisationAdjustment: false,
       });
     });
@@ -320,10 +321,41 @@ describe('Adyen settings routes', () => {
       const body = response.json();
       expect(body).toMatchObject({
         endpoints: [endpoint(true)],
+        otherEndpoints: [],
         hmacKeyConfigured: true,
         webhookPasswordConfigured: false,
       });
       expect(body.events).toContain('EXPIRE');
+    });
+
+    it("with url, lists other deployments' EVtivity webhooks apart", async () => {
+      const provider = fakeProvider();
+      const other = {
+        ...endpoint(true),
+        id: 'WBHK_OTHER',
+        url: 'https://dev.example.com/v1/webhooks/payments/adyen',
+      };
+      provider.listWebhooks.mockResolvedValue([other, endpoint(true)]);
+      const response = await call(
+        'GET',
+        `/settings/adyen/webhook?url=${encodeURIComponent(WEBHOOK_URL)}`,
+      );
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        endpoints: [endpoint(true)],
+        otherEndpoints: [other],
+      });
+    });
+
+    it('answers 400 VALIDATION_ERROR for an invalid url query', async () => {
+      const provider = fakeProvider();
+      const response = await call(
+        'GET',
+        `/settings/adyen/webhook?url=${encodeURIComponent('http://csms.example.com/v1/webhooks/payments/adyen')}`,
+      );
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+      expect(provider.listWebhooks).not.toHaveBeenCalled();
     });
 
     it('answers 400 PAYMENT_PROVIDER_PERMISSION_MISSING for a credential without the role', async () => {
@@ -440,13 +472,18 @@ describe('Adyen settings routes', () => {
     it('answers 409 PAYMENT_WEBHOOK_EXISTS with the existing endpoints', async () => {
       const provider = fakeProvider();
       provider.registerWebhook.mockRejectedValue(
-        new WebhookExistsError('adyen', [endpoint(true) as never]),
+        new WebhookExistsError(
+          'adyen',
+          [endpoint(true) as never],
+          [{ ...endpoint(false), id: 'WBHK_OTHER' } as never],
+        ),
       );
       const response = await call('POST', '/settings/adyen/webhook', { url: WEBHOOK_URL });
       expect(response.statusCode).toBe(409);
       expect(response.json()).toMatchObject({
         code: 'PAYMENT_WEBHOOK_EXISTS',
         endpoints: [endpoint(true)],
+        otherEndpoints: [{ ...endpoint(false), id: 'WBHK_OTHER' }],
       });
       expect(mockWritePaymentSettings).not.toHaveBeenCalled();
     });

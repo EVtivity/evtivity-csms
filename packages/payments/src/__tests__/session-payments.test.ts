@@ -153,6 +153,7 @@ interface FakeProvider {
   id: string;
   capabilities: { shortfall: 'top_up' | 'adjust_hold' };
   adjustHold?: Mock<(input: unknown) => Promise<unknown>>;
+  minimumChargeCents?: Mock<(currency: string) => number | null>;
   authorizeHold: Mock<(input: unknown) => Promise<unknown>>;
   cancelHold: Mock<(input: unknown) => Promise<unknown>>;
   capture: Mock<(input: unknown) => Promise<unknown>>;
@@ -899,6 +900,26 @@ describe('retryShortfallForRecord', () => {
     expect(h.markShortfallRecovered).not.toHaveBeenCalled();
   });
 
+  it('answers not_recoverable for a shortfall below the provider minimum', async () => {
+    h.findRecord.mockResolvedValue(shortRecord());
+    h.results.push([CHARGE]);
+    stripe.minimumChargeCents = vi.fn(() => 2001);
+    expect(await retryShortfallForRecord(input, ctx)).toEqual({
+      status: 'not_recoverable',
+      reason:
+        'Top-up below the provider minimum charge (2001c EUR); shortfall 2000c not collectable',
+    });
+    expect(stripe.minimumChargeCents).toHaveBeenCalledWith('EUR');
+    expect(stripe.chargeShortfall).not.toHaveBeenCalled();
+  });
+
+  it('charges a shortfall at exactly the provider minimum', async () => {
+    h.findRecord.mockResolvedValue(shortRecord());
+    h.results.push([CHARGE]);
+    stripe.minimumChargeCents = vi.fn(() => 2000);
+    expect(await retryShortfallForRecord(input, ctx)).toMatchObject({ status: 'recovered' });
+  });
+
   it('recovers the shortfall on the same method and records the action', async () => {
     h.findRecord.mockResolvedValue(shortRecord());
     h.results.push([CHARGE]);
@@ -1001,7 +1022,12 @@ describe('retryShortfalls', () => {
     const updateErr = new Error('db down');
     h.markShortfallRetryFailed.mockResolvedValueOnce(true).mockRejectedValueOnce(updateErr);
 
-    expect(await retryShortfalls(ctx)).toEqual({ total: 8, recovered: 1, stillFailed: 2 });
+    expect(await retryShortfalls(ctx)).toEqual({
+      total: 8,
+      recovered: 1,
+      stillFailed: 2,
+      notCollectable: 0,
+    });
 
     expect(stripe.chargeShortfall).toHaveBeenCalledTimes(3);
     expect(stripe.chargeShortfall).toHaveBeenNthCalledWith(
@@ -1049,15 +1075,45 @@ describe('retryShortfalls', () => {
     h.findRecord.mockResolvedValue(record({ id: 1 }));
     h.results.push([CHARGE]);
     stripe.chargeShortfall.mockRejectedValue(new Error('m'.repeat(400)));
-    expect(await retryShortfalls(ctx)).toEqual({ total: 1, recovered: 0, stillFailed: 1 });
+    expect(await retryShortfalls(ctx)).toEqual({
+      total: 1,
+      recovered: 0,
+      stillFailed: 1,
+      notCollectable: 0,
+    });
     expect(h.markShortfallRetryFailed.mock.calls[0]?.[1]).toContain(
       `Top-up declined: ${'m'.repeat(350)}; shortfall`,
     );
   });
 
+  it('closes a shortfall below the provider minimum without charging it', async () => {
+    h.execute.mockResolvedValue([{ pr_id: 1, session_id: 's1' }]);
+    h.findRecord.mockResolvedValue(record({ id: 1 }));
+    h.results.push([CHARGE]);
+    stripe.minimumChargeCents = vi.fn(() => 5000);
+    expect(await retryShortfalls(ctx)).toEqual({
+      total: 1,
+      recovered: 0,
+      stillFailed: 0,
+      notCollectable: 1,
+    });
+    expect(stripe.chargeShortfall).not.toHaveBeenCalled();
+    const reason = h.markShortfallRetryFailed.mock.calls[0]?.[1] as string;
+    expect(reason).toBe(
+      'Top-up below the provider minimum charge (5000c EUR); shortfall 2000c not collectable',
+    );
+    // Not a "Top-up declined:" reason, so the daily query no longer selects it.
+    expect(reason.startsWith('Top-up declined:')).toBe(false);
+  });
+
   it('returns zeros when nothing is due', async () => {
     h.execute.mockResolvedValue([]);
-    expect(await retryShortfalls(ctx)).toEqual({ total: 0, recovered: 0, stillFailed: 0 });
+    expect(await retryShortfalls(ctx)).toEqual({
+      total: 0,
+      recovered: 0,
+      stillFailed: 0,
+      notCollectable: 0,
+    });
   });
 });
 
@@ -1315,6 +1371,26 @@ describe('settleSessionPayment', () => {
     expect(logger.warn).toHaveBeenCalledWith(
       { err, paymentRecordId: 42, deltaCents: 2000 },
       'Top-up failed; the hold was captured but the rest is uncollected',
+    );
+  });
+
+  it('captures the hold and leaves a shortfall below the provider minimum uncharged', async () => {
+    h.results.push([{ ...SESSION, finalCostCents: 7000 }]);
+    stripe.minimumChargeCents = vi.fn(() => 2500);
+    expect(await settleSessionPayment('s1', ctx)).toMatchObject({
+      status: 'captured',
+      capturedCents: 5000,
+      shortfallCents: 2000,
+    });
+    expect(stripe.chargeShortfall).not.toHaveBeenCalled();
+    expect(h.markCaptured).toHaveBeenCalledWith(
+      42,
+      expect.objectContaining({
+        capturedCents: 5000,
+        failureReason:
+          'Top-up below the provider minimum charge (2500c EUR); shortfall 2000c not collectable',
+        topUp: null,
+      }),
     );
   });
 

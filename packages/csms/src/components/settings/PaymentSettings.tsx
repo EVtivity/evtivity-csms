@@ -12,30 +12,29 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Toggle } from '@/components/ui/toggle';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
-import { centsToMajorInput, parseMajorInputToCents } from '@evtivity/lib/currency';
+import {
+  centsToMajorInput,
+  formatCurrencyAmount,
+  parseMajorInputToCents,
+} from '@evtivity/lib/currency';
 import { AdyenSettings } from './AdyenSettings';
 import { percentError, preAuthAmountError } from './payment-amount-validation';
 import { PaymentProviderSettings } from './PaymentProviderSettings';
-import {
-  EMPTY_SECRET,
-  SecretSettingInput,
-  secretPayload,
-  type SecretFieldState,
-} from './SecretSettingInput';
 import { SitePayoutAccountCard } from './SitePayoutAccountCard';
 import { StripeWebhookCard } from './StripeWebhookCard';
 
-/** `GET /v1/settings/stripe`: secrets are never returned, only whether each is stored. */
+/** `GET /v1/settings/stripe`: secrets are returned decrypted, like the generic settings GET. */
 interface StripeSettings {
   publishableKey: string | null;
-  secretKeyConfigured: boolean;
-  webhookSecretConfigured: boolean;
-  connectWebhookSecretConfigured: boolean;
+  secretKey: string | null;
+  webhookSecret: string | null;
+  connectWebhookSecret: string | null;
 }
 
 interface StripeSettingsBody {
@@ -66,11 +65,10 @@ export function PaymentSettings(): React.JSX.Element {
 
   const [paymentSubTab, setPaymentSubTab] = useTab('general', 'sub');
 
-  const [stripeSecretKey, setStripeSecretKey] = useState<SecretFieldState>(EMPTY_SECRET);
+  const [stripeSecretKey, setStripeSecretKey] = useState('');
   const [stripePublishableKey, setStripePublishableKey] = useState('');
-  const [stripeWebhookSecret, setStripeWebhookSecret] = useState<SecretFieldState>(EMPTY_SECRET);
-  const [stripeConnectWebhookSecret, setStripeConnectWebhookSecret] =
-    useState<SecretFieldState>(EMPTY_SECRET);
+  const [stripeWebhookSecret, setStripeWebhookSecret] = useState('');
+  const [stripeConnectWebhookSecret, setStripeConnectWebhookSecret] = useState('');
   const { currency } = useCompanyCurrency();
   const [stripeHasUnsavedChanges, setStripeHasUnsavedChanges] = useState(false);
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
@@ -152,9 +150,9 @@ export function PaymentSettings(): React.JSX.Element {
     setStripePublishableKey(
       typeof stripeSettings.publishableKey === 'string' ? stripeSettings.publishableKey : '',
     );
-    setStripeSecretKey(EMPTY_SECRET);
-    setStripeWebhookSecret(EMPTY_SECRET);
-    setStripeConnectWebhookSecret(EMPTY_SECRET);
+    setStripeSecretKey(stripeSettings.secretKey ?? '');
+    setStripeWebhookSecret(stripeSettings.webhookSecret ?? '');
+    setStripeConnectWebhookSecret(stripeSettings.connectWebhookSecret ?? '');
     setStripeHasUnsavedChanges(false);
   }, [stripeSettings]);
 
@@ -180,12 +178,15 @@ export function PaymentSettings(): React.JSX.Element {
       platformFeePercent: number | null;
       isEnabled: boolean;
     }) =>
-      api.put(`/v1/sites/${vals.siteId}/payment-config`, {
-        payoutAccountId: vals.payoutAccountId,
-        preAuthAmountCents: vals.preAuthAmountCents,
-        platformFeePercent: vals.platformFeePercent,
-        isEnabled: vals.isEnabled,
-      }),
+      api.put<{ holdBelowSessionFee?: boolean; sessionFeeCents?: number }>(
+        `/v1/sites/${vals.siteId}/payment-config`,
+        {
+          payoutAccountId: vals.payoutAccountId,
+          preAuthAmountCents: vals.preAuthAmountCents,
+          platformFeePercent: vals.platformFeePercent,
+          isEnabled: vals.isEnabled,
+        },
+      ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['all-payment-configs'] });
       void refetchSiteConfig();
@@ -217,13 +218,16 @@ export function PaymentSettings(): React.JSX.Element {
   function handleStripeSubmit(e: React.SyntheticEvent): void {
     e.preventDefault();
     const vals: StripeSettingsBody = {};
-    // Secrets are write-only: a typed value replaces, Clear sends '', else kept.
-    const secretKey = secretPayload(stripeSecretKey);
-    if (secretKey !== undefined) vals.secretKey = secretKey.trim();
-    const webhookSecret = secretPayload(stripeWebhookSecret);
-    if (webhookSecret !== undefined) vals.webhookSecret = webhookSecret.trim();
-    const connectWebhookSecret = secretPayload(stripeConnectWebhookSecret);
-    if (connectWebhookSecret !== undefined) vals.connectWebhookSecret = connectWebhookSecret.trim();
+    // Send only the secrets that changed (an emptied field clears), so an
+    // unchanged secret is not re-encrypted and audited.
+    const secrets: Array<[keyof StripeSettingsBody, string, string | null | undefined]> = [
+      ['secretKey', stripeSecretKey, stripeSettings?.secretKey],
+      ['webhookSecret', stripeWebhookSecret, stripeSettings?.webhookSecret],
+      ['connectWebhookSecret', stripeConnectWebhookSecret, stripeSettings?.connectWebhookSecret],
+    ];
+    for (const [key, value, stored] of secrets) {
+      if (value.trim() !== (stored ?? '')) vals[key] = value.trim();
+    }
     if (stripePublishableKey.trim() !== '') vals.publishableKey = stripePublishableKey.trim();
     stripeSaveMutation.mutate(vals);
   }
@@ -272,18 +276,24 @@ export function PaymentSettings(): React.JSX.Element {
               <p className="text-sm text-muted-foreground">{t('settings.stripeDescription')}</p>
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <SecretSettingInput
-                  id="stripe-secret-key"
-                  label={t('settings.stripeSecretKey')}
-                  hint={t('settings.stripeSecretKeyHint')}
-                  configured={stripeSettings?.secretKeyConfigured ?? false}
-                  state={stripeSecretKey}
-                  onChange={(state) => {
-                    setStripeSecretKey(state);
-                    markStripeChanged();
-                  }}
-                  canWrite={canWrite}
-                />
+                <div className="space-y-2">
+                  <Label htmlFor="stripe-secret-key" className="leading-6">
+                    {t('settings.stripeSecretKey')}
+                  </Label>
+                  <PasswordInput
+                    id="stripe-secret-key"
+                    value={stripeSecretKey}
+                    disabled={!canWrite}
+                    autoComplete="off"
+                    onChange={(e) => {
+                      setStripeSecretKey(e.target.value);
+                      markStripeChanged();
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings.stripeSecretKeyHint')}
+                  </p>
+                </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="stripe-publishable-key" className="leading-6">
@@ -300,31 +310,43 @@ export function PaymentSettings(): React.JSX.Element {
                   />
                 </div>
 
-                <SecretSettingInput
-                  id="stripe-webhook-secret"
-                  label={t('settings.stripeWebhookSecret')}
-                  hint={t('settings.stripeWebhookSecretHint')}
-                  configured={stripeSettings?.webhookSecretConfigured ?? false}
-                  state={stripeWebhookSecret}
-                  onChange={(state) => {
-                    setStripeWebhookSecret(state);
-                    markStripeChanged();
-                  }}
-                  canWrite={canWrite}
-                />
+                <div className="space-y-2">
+                  <Label htmlFor="stripe-webhook-secret" className="leading-6">
+                    {t('settings.stripeWebhookSecret')}
+                  </Label>
+                  <PasswordInput
+                    id="stripe-webhook-secret"
+                    value={stripeWebhookSecret}
+                    disabled={!canWrite}
+                    autoComplete="off"
+                    onChange={(e) => {
+                      setStripeWebhookSecret(e.target.value);
+                      markStripeChanged();
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings.stripeWebhookSecretHint')}
+                  </p>
+                </div>
 
-                <SecretSettingInput
-                  id="stripe-connect-webhook-secret"
-                  label={t('settings.stripeConnectWebhookSecret')}
-                  hint={t('settings.stripeConnectWebhookSecretHint')}
-                  configured={stripeSettings?.connectWebhookSecretConfigured ?? false}
-                  state={stripeConnectWebhookSecret}
-                  onChange={(state) => {
-                    setStripeConnectWebhookSecret(state);
-                    markStripeChanged();
-                  }}
-                  canWrite={canWrite}
-                />
+                <div className="space-y-2">
+                  <Label htmlFor="stripe-connect-webhook-secret" className="leading-6">
+                    {t('settings.stripeConnectWebhookSecret')}
+                  </Label>
+                  <PasswordInput
+                    id="stripe-connect-webhook-secret"
+                    value={stripeConnectWebhookSecret}
+                    disabled={!canWrite}
+                    autoComplete="off"
+                    onChange={(e) => {
+                      setStripeConnectWebhookSecret(e.target.value);
+                      markStripeChanged();
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings.stripeConnectWebhookSecretHint')}
+                  </p>
+                </div>
               </div>
 
               {canWrite && (
@@ -550,6 +572,18 @@ export function PaymentSettings(): React.JSX.Element {
                       {sitePaymentSaveMutation.isSuccess && !siteHasUnsavedChanges && (
                         <p className="text-sm text-success">{t('settings.stripeSaved')}</p>
                       )}
+                      {sitePaymentSaveMutation.data?.holdBelowSessionFee === true &&
+                        currency != null &&
+                        !siteHasUnsavedChanges && (
+                          <p role="alert" className="text-sm text-warning">
+                            {t('settings.holdBelowSessionFee', {
+                              fee: formatCurrencyAmount(
+                                sitePaymentSaveMutation.data.sessionFeeCents ?? 0,
+                                currency,
+                              ),
+                            })}
+                          </p>
+                        )}
                       {sitePaymentSaveMutation.isError && (
                         <p className="text-sm text-destructive">{t('settings.stripeSaveFailed')}</p>
                       )}

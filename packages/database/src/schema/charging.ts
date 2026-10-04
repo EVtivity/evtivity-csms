@@ -84,6 +84,8 @@ export const chargingSessions = pgTable(
     costBreakdown: jsonb('cost_breakdown'),
     idleStartedAt: timestamp('idle_started_at', { withTimezone: true }),
     idleMinutes: numeric('idle_minutes').notNull().default('0'),
+    // The idle_started_at the idle notification was sent for (one per idle period).
+    idleNotifiedAt: timestamp('idle_notified_at', { withTimezone: true }),
     lastUpdateNotifiedAt: timestamp('last_update_notified_at', { withTimezone: true }),
     metadata: jsonb('metadata'),
     freeVend: boolean('free_vend').notNull().default(false),

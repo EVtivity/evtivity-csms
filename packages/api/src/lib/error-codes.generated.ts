@@ -216,6 +216,7 @@ export const ERROR_CODES = {
   SETTING_NOT_FOUND: 'SETTING_NOT_FOUND',
   SITE_HAS_STATIONS: 'SITE_HAS_STATIONS',
   SITE_NOT_FOUND: 'SITE_NOT_FOUND',
+  SITE_PAYMENT_CONFIG_IN_USE: 'SITE_PAYMENT_CONFIG_IN_USE',
   SMS_NOT_CONFIGURED: 'SMS_NOT_CONFIGURED',
   SMS_SEND_FAILED: 'SMS_SEND_FAILED',
   SSO_DISABLED: 'SSO_DISABLED',
@@ -467,6 +468,7 @@ export type ErrorCode =
   | 'SETTING_NOT_FOUND'
   | 'SITE_HAS_STATIONS'
   | 'SITE_NOT_FOUND'
+  | 'SITE_PAYMENT_CONFIG_IN_USE'
   | 'SMS_NOT_CONFIGURED'
   | 'SMS_SEND_FAILED'
   | 'SSO_DISABLED'
@@ -733,6 +735,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   SETTING_NOT_FOUND: 'Setting not found',
   SITE_HAS_STATIONS: 'Cannot delete site with stations. Remove or reassign stations first.',
   SITE_NOT_FOUND: 'Site not found',
+  SITE_PAYMENT_CONFIG_IN_USE:
+    "This site's payment configuration has payments and cannot be deleted. Disable it instead.",
   SMS_NOT_CONFIGURED: 'SMS provider not configured',
   SMS_SEND_FAILED: 'Failed to send SMS',
   SSO_DISABLED: 'SSO is not configured',

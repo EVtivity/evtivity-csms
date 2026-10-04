@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase, TestContext } from '../../../../types.js';
-import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
 
 async function boot(ctx: TestContext) {
   await ctx.client.sendCall('BootNotification', {
@@ -18,7 +18,7 @@ async function boot(ctx: TestContext) {
 }
 
 async function startTx(ctx: TestContext) {
-  const txId = `OCTT-TX-${String(Date.now())}`;
+  const txId = newTransactionId('OCTT-TX');
   await ctx.client.sendCall('TransactionEvent', {
     eventType: 'Started',
     timestamp: new Date().toISOString(),

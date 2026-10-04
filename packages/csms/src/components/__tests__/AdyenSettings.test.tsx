@@ -70,10 +70,10 @@ const SETTINGS: AdyenSettingsResponse = {
   clientKey: 'test_CLIENT',
   webhookUsername: 'evtivity-abc',
   authorisationAdjustment: false,
-  apiKeyConfigured: true,
-  hmacKeyConfigured: true,
+  apiKey: 'AQE_stored_key',
+  hmacKey: 'ABCDEF0123',
   hmacKeyPreviousConfigured: false,
-  webhookPasswordConfigured: false,
+  webhookPassword: null,
   webhookUrlPath: '/v1/webhooks/payments/adyen',
 };
 
@@ -94,7 +94,7 @@ function mockGets(
 ): void {
   getMock.mockImplementation((url: string) => {
     if (url === '/v1/settings/adyen') return Promise.resolve(SETTINGS);
-    if (url === '/v1/settings/adyen/webhook') {
+    if (url === `/v1/settings/adyen/webhook?url=${encodeURIComponent(ENDPOINT.url)}`) {
       return (
         options.webhook?.() ??
         Promise.resolve({
@@ -142,16 +142,17 @@ afterEach(() => {
 });
 
 describe('AdyenSettings', () => {
-  it('shows the stored values and which secrets are set, never their values', async () => {
+  it('shows the stored values with the secrets hidden behind the eye toggle', async () => {
     mockGets();
     renderSettings();
     expect(asInput(await screen.findByLabelText('settings.adyenMerchantAccount')).value).toBe(
       'EVtivityECOM',
     );
     const apiKey = asInput(screen.getByLabelText('settings.adyenApiKey'));
-    expect(apiKey.value).toBe('');
-    expect(apiKey.placeholder).toBe('settings.secretReplacePlaceholder');
-    expect(asInput(screen.getByLabelText('settings.adyenWebhookPassword')).placeholder).toBe('');
+    expect(apiKey.value).toBe('AQE_stored_key');
+    expect(apiKey.type).toBe('password');
+    expect(asInput(screen.getByLabelText('settings.adyenHmacKey')).value).toBe('ABCDEF0123');
+    expect(asInput(screen.getByLabelText('settings.adyenWebhookPassword')).value).toBe('');
   });
 
   it('says Adyen cannot be selected when the API reports requires_upgrade', async () => {
@@ -173,7 +174,7 @@ describe('AdyenSettings', () => {
     expect(screen.queryByText('settings.adyenNotConfiguredForPayments')).toBeNull();
   });
 
-  it('sends a typed secret, an empty string for a cleared one, and omits untouched ones', async () => {
+  it('sends a changed secret, an empty string for an emptied one, and omits unchanged ones', async () => {
     mockGets();
     putMock.mockResolvedValue({ success: true });
     renderSettings();
@@ -181,12 +182,7 @@ describe('AdyenSettings', () => {
     fireEvent.change(screen.getByLabelText('settings.adyenWebhookPassword'), {
       target: { value: 'new-password' },
     });
-    // The HMAC key is set, so it has a Clear button.
-    const clearButtons = screen.getAllByRole('button', { name: 'settings.secretClear' });
-    expect(clearButtons).toHaveLength(2);
-    const hmacClear = clearButtons[1];
-    if (hmacClear == null) throw new Error('clear button not found');
-    fireEvent.click(hmacClear);
+    fireEvent.change(screen.getByLabelText('settings.adyenHmacKey'), { target: { value: '' } });
     fireEvent.submit(await form());
 
     await waitFor(() => {
@@ -259,6 +255,24 @@ describe('AdyenSettings', () => {
     });
   });
 
+  it("lists other EVtivity deployments' webhooks apart", async () => {
+    const otherUrl = 'https://dev.example.com/v1/webhooks/payments/adyen';
+    mockGets({
+      webhook: () =>
+        Promise.resolve({
+          endpoints: [ENDPOINT],
+          otherEndpoints: [{ ...ENDPOINT, id: 'WBHK_OTHER', url: otherUrl }],
+          hmacKeyConfigured: true,
+          webhookPasswordConfigured: true,
+          events: ['AUTHORISATION'],
+        }),
+    });
+    renderSettings();
+    const other = await screen.findByTestId('other-webhook-endpoints');
+    expect(other.textContent).toContain('settings.webhookOtherEndpoints');
+    expect(other.textContent).toContain(otherUrl);
+  });
+
   it('refuses a webhook URL that is not https before calling the API', async () => {
     mockGets();
     renderSettings();
@@ -286,7 +300,7 @@ describe('AdyenSettings', () => {
     await form();
     expect(screen.queryByRole('button', { name: 'settings.adyenTestConnection' })).toBeNull();
     expect(screen.queryByRole('button', { name: /settings\.stripeWebhookCreate/ })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'settings.secretClear' })).toBeNull();
     expect(asInput(screen.getByLabelText('settings.adyenMerchantAccount')).disabled).toBe(true);
+    expect(asInput(screen.getByLabelText('settings.adyenApiKey')).disabled).toBe(true);
   });
 });

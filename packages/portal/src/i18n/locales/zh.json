@@ -143,6 +143,11 @@
     "captured": "已扣款",
     "charging": "充电中",
     "idle": "空闲",
+    "limitReached": {
+      "cost": "充电已暂停：会话已达到费用上限（您卡上预授权的金额）。",
+      "energy": "充电已暂停：会话已达到电量上限。",
+      "time": "充电已暂停：会话已达到时间上限。"
+    },
     "timeElapsed": "时长",
     "power": "功率",
     "details": "详情",
@@ -679,6 +684,7 @@
     "SETTING_NOT_FOUND": "未找到设置",
     "SITE_HAS_STATIONS": "无法删除存在充电站的站点。请先移除或重新分配充电站。",
     "SITE_NOT_FOUND": "未找到站点",
+    "SITE_PAYMENT_CONFIG_IN_USE": "该站点的支付配置已有付款记录，无法删除。请改为停用。",
     "SMS_NOT_CONFIGURED": "短信提供商未配置",
     "SMS_SEND_FAILED": "发送短信失败",
     "SSO_DISABLED": "SSO 未配置",

@@ -143,6 +143,11 @@
     "captured": "결제 완료",
     "charging": "충전 중",
     "idle": "유휴",
+    "limitReached": {
+      "cost": "충전 일시 중지: 세션이 비용 한도(카드에 보류된 금액)에 도달했습니다.",
+      "energy": "충전 일시 중지: 세션이 에너지 한도에 도달했습니다.",
+      "time": "충전 일시 중지: 세션이 시간 한도에 도달했습니다."
+    },
     "timeElapsed": "소요 시간",
     "power": "전력",
     "details": "상세 정보",
@@ -679,6 +684,7 @@
     "SETTING_NOT_FOUND": "설정을 찾을 수 없습니다",
     "SITE_HAS_STATIONS": "충전소가 있는 사이트는 삭제할 수 없습니다. 먼저 충전소를 제거하거나 재할당하세요.",
     "SITE_NOT_FOUND": "사이트를 찾을 수 없습니다",
+    "SITE_PAYMENT_CONFIG_IN_USE": "이 사이트의 결제 구성에는 결제 내역이 있어 삭제할 수 없습니다. 대신 비활성화하세요.",
     "SMS_NOT_CONFIGURED": "SMS 제공업체가 구성되지 않았습니다",
     "SMS_SEND_FAILED": "SMS 전송에 실패했습니다",
     "SSO_DISABLED": "SSO가 구성되지 않았습니다",

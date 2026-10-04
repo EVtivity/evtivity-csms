@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase, TestContext } from '../../../../types.js';
-import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
 
 // Helper: boot station and send initial StatusNotification
 async function bootAndStatus(ctx: TestContext) {
@@ -20,7 +20,7 @@ async function bootAndStatus(ctx: TestContext) {
 
 // Helper: start a charging transaction and return the txId
 async function startChargingTransaction(ctx: TestContext) {
-  const txId = `OCTT-TX-${String(Date.now())}`;
+  const txId = newTransactionId('OCTT-TX');
   await ctx.client.sendCall('TransactionEvent', {
     eventType: 'Started',
     timestamp: new Date().toISOString(),
@@ -445,7 +445,7 @@ export const TC_E_16_CSMS: TestCase = {
 
     await bootAndStatus(ctx);
 
-    const txId = `OCTT-TX-${String(Date.now())}`;
+    const txId = newTransactionId('OCTT-TX');
 
     // Step 1: TransactionEvent Started with invalid idToken
     const startRes = await ctx.client.sendCall('TransactionEvent', {

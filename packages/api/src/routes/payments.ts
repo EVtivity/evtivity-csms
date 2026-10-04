@@ -4,7 +4,14 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, sql, and, inArray, like } from 'drizzle-orm';
-import { db, client, writeAudit, siteAuditLog } from '@evtivity/database';
+import {
+  db,
+  client,
+  writeAudit,
+  siteAuditLog,
+  pgErrorCode,
+  PG_FOREIGN_KEY_VIOLATION,
+} from '@evtivity/database';
 import {
   sitePaymentConfigs,
   driverPaymentMethods,
@@ -49,6 +56,7 @@ import type {
   WebhookRegistrationInput,
 } from '@evtivity/payments';
 import { zodSchema } from '../lib/zod-schema.js';
+import { holdFeeCheck } from '../lib/hold-fee-check.js';
 import {
   sendSetupStepOutcome,
   setupDetailsBody,
@@ -127,23 +135,26 @@ const stripeSettingsResponse = z
       .unknown()
       .nullable()
       .describe('Stripe publishable API key for client-side Stripe.js'),
-    secretKeyConfigured: z
-      .boolean()
-      .describe('A Stripe secret API key is stored (the key is never returned)'),
-    webhookSecretConfigured: z
-      .boolean()
+    secretKey: z
+      .string()
+      .nullable()
+      .describe('Stripe secret API key (decrypted from storage; null when unset)'),
+    webhookSecret: z
+      .string()
+      .nullable()
       .describe(
-        'A signing secret of the platform webhook endpoint at /v1/webhooks/payments/stripe is stored',
+        'Signing secret of the platform webhook endpoint at /v1/webhooks/payments/stripe (decrypted from storage; null when unset)',
       ),
-    connectWebhookSecretConfigured: z
-      .boolean()
+    connectWebhookSecret: z
+      .string()
+      .nullable()
       .describe(
-        'A signing secret of the Connect webhook endpoint (connected account events) is stored',
+        'Signing secret of the Connect webhook endpoint (connected account events) at /v1/webhooks/payments/stripe (decrypted from storage; null when unset)',
       ),
   })
   .passthrough()
   .describe(
-    'Stripe settings. Secret values are never returned. The pre-authorization amount and platform fee are in GET /v1/settings/payments.',
+    'Stripe settings. Secrets are returned decrypted, like the generic settings GET. The pre-authorization amount and platform fee are in GET /v1/settings/payments.',
   );
 
 const driverPaymentMethodItem = z
@@ -390,7 +401,8 @@ import {
   pendingOperationSchema,
   providerRefundsSchema,
 } from '../lib/payment-provider-schemas.js';
-import { checkPaymentWebhookUrl } from '../lib/payment-webhook-url.js';
+import { checkPaymentWebhookUrl, splitWebhookEndpoints } from '../lib/payment-webhook-url.js';
+import { decryptForRead } from '../lib/settings-crypto.js';
 
 const siteIdParams = z.object({ id: ID_PARAMS.siteId.describe('Site ID') });
 const driverIdParams = z.object({ id: ID_PARAMS.driverId.describe('Driver ID') });
@@ -495,6 +507,20 @@ const upsertSitePaymentConfigBody = z.object({
     ),
 });
 
+const sitePaymentConfigSaveItem = sitePaymentConfigItem.extend({
+  sessionFeeCents: z
+    .number()
+    .int()
+    .describe(
+      'Highest session fee, tax included, in cents, among the tariffs that apply at the site to a driver without a pricing group (0 for a free vend site)',
+    ),
+  holdBelowSessionFee: z
+    .boolean()
+    .describe(
+      'True when preAuthAmountCents is below sessionFeeCents: a guest hold is raised to the session fee at start, so raise the hold to cover it',
+    ),
+});
+
 // --- Driver payment methods ---
 
 const savePaymentMethodBody = z.object({
@@ -540,19 +566,19 @@ const updateStripeSettingsBody = z.object({
   secretKey: z
     .string()
     .optional()
-    .describe('Stripe secret API key (stored encrypted, write-only). An empty string clears it.'),
+    .describe('Stripe secret API key (stored encrypted). An empty string clears it.'),
   publishableKey: z.string().min(1).optional().describe('Stripe publishable API key'),
   webhookSecret: z
     .string()
     .optional()
     .describe(
-      'Signing secret (whsec_...) of the platform webhook endpoint at /v1/webhooks/payments/stripe (stored encrypted, write-only). An empty string clears it.',
+      'Signing secret (whsec_...) of the platform webhook endpoint at /v1/webhooks/payments/stripe (stored encrypted). An empty string clears it.',
     ),
   connectWebhookSecret: z
     .string()
     .optional()
     .describe(
-      'Signing secret (whsec_...) of the Connect webhook endpoint at /v1/webhooks/payments/stripe (stored encrypted, write-only). An empty string clears it.',
+      'Signing secret (whsec_...) of the Connect webhook endpoint at /v1/webhooks/payments/stripe (stored encrypted). An empty string clears it.',
     ),
 });
 
@@ -574,11 +600,20 @@ const webhookEndpointItem = z
   })
   .passthrough();
 
+const otherWebhookEndpoints = z
+  .array(webhookEndpointItem)
+  .describe(
+    'EVtivity endpoints of other deployments sharing the provider account (another URL). Creating or replacing the webhook never changes them.',
+  );
+
 const stripeWebhookSetupResponse = z
   .object({
     endpoints: z
       .array(webhookEndpointItem)
-      .describe('Webhook endpoints EVtivity created in the Stripe account'),
+      .describe(
+        'Webhook endpoints EVtivity created in the Stripe account at the url query (every EVtivity endpoint without url)',
+      ),
+    otherEndpoints: otherWebhookEndpoints,
     platformSecretConfigured: z
       .boolean()
       .describe('Whether the platform signing secret (stripe.webhookSecretEnc) is stored'),
@@ -601,7 +636,7 @@ const stripeWebhookRegistrationResponse = z
     endpoints: z
       .array(webhookEndpointItem)
       .describe(
-        'The endpoints created, followed by any earlier EVtivity endpoint Stripe did not delete',
+        'The endpoints created, followed by any earlier endpoint at this URL Stripe did not delete',
       ),
   })
   .passthrough();
@@ -612,7 +647,8 @@ const webhookExistsResponse = z
     code: z.literal('PAYMENT_WEBHOOK_EXISTS').describe('Error code returned at this status'),
     endpoints: z
       .array(webhookEndpointItem)
-      .describe('The EVtivity endpoints that exist; send replace: true to replace them'),
+      .describe('The endpoints at the requested URL; send replace: true to replace them'),
+    otherEndpoints: otherWebhookEndpoints,
   })
   .passthrough()
   .describe('An EVtivity webhook already exists');
@@ -627,7 +663,20 @@ const createStripeWebhookBody = z.object({
     ),
   replace: z
     .boolean()
-    .describe('Replace the EVtivity endpoints that already exist (after the operator confirms)'),
+    .describe(
+      'Replace the endpoints that already exist at this URL (after the operator confirms). Endpoints of other EVtivity deployments at other URLs are never changed.',
+    ),
+});
+
+const stripeWebhookSetupQuery = z.object({
+  url: z
+    .string()
+    .min(1)
+    .max(2048)
+    .optional()
+    .describe(
+      'Webhook URL of this deployment (https, ending in /v1/webhooks/payments/stripe). Splits the EVtivity endpoints into the ones at this URL and the ones of other deployments.',
+    ),
 });
 
 export function paymentRoutes(app: FastifyInstance): void {
@@ -743,7 +792,7 @@ export function paymentRoutes(app: FastifyInstance): void {
         params: zodSchema(siteIdParams),
         body: zodSchema(upsertSitePaymentConfigBody),
         response: {
-          200: itemResponse(sitePaymentConfigItem),
+          200: itemResponse(sitePaymentConfigSaveItem),
           400: errorWith('payoutAccountId and stripeConnectedAccountId differ', [
             ERROR_CODES.VALIDATION_ERROR,
           ]),
@@ -834,7 +883,7 @@ export function paymentRoutes(app: FastifyInstance): void {
           .from(sitePaymentConfigs)
           .where(eq(sitePaymentConfigs.siteId, id));
         await writeSitePaymentConfigAudit(request, id, existing, updated);
-        return updated;
+        return { ...updated, ...(await holdFeeCheck(id, updated?.preAuthAmountCents ?? 0)) };
       }
 
       let created;
@@ -852,11 +901,7 @@ export function paymentRoutes(app: FastifyInstance): void {
       } catch (err) {
         // Pre-check is non-transactional, so the site can be deleted between
         // the check and this INSERT. Map the FK violation back to 404.
-        if (
-          typeof err === 'object' &&
-          err !== null &&
-          (err as { code?: string }).code === '23503'
-        ) {
+        if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
           await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
           return;
         }
@@ -872,7 +917,7 @@ export function paymentRoutes(app: FastifyInstance): void {
       }
       clearPaymentCaches();
       await writeSitePaymentConfigAudit(request, id, null, created);
-      return created;
+      return { ...created, ...(await holdFeeCheck(id, created?.preAuthAmountCents ?? 0)) };
     },
   );
 
@@ -884,13 +929,16 @@ export function paymentRoutes(app: FastifyInstance): void {
         tags: ['Payments'],
         summary: 'Delete payment configuration for a site',
         description:
-          'Deletes the site payment configuration with its connected account, and revokes the open payout onboarding links of the site.',
+          'Deletes the site payment configuration with its connected account, and revokes the open payout onboarding links of the site. A configuration that payments were made with cannot be deleted (409 SITE_PAYMENT_CONFIG_IN_USE): disable it instead (isEnabled false).',
         operationId: 'deleteSitePaymentConfig',
         security: [{ bearerAuth: [] }],
         params: zodSchema(siteIdParams),
         response: {
           200: successResponse,
           404: errorWith('Payment config not found', [ERROR_CODES.PAYMENT_CONFIG_NOT_FOUND]),
+          409: errorWith('Payments were made with this config', [
+            ERROR_CODES.SITE_PAYMENT_CONFIG_IN_USE,
+          ]),
         },
       },
     },
@@ -915,18 +963,14 @@ export function paymentRoutes(app: FastifyInstance): void {
           .returning();
       } catch (err) {
         // payment_records.site_payment_config_id references this row with no
-        // cascade. Log the FK violation distinctly so operators can find it
-        // in logs; the global handler turns it into a 500 (a dedicated 409
-        // code would need updates across error-codes + 6 locales + docs).
-        if (
-          typeof err === 'object' &&
-          err !== null &&
-          (err as { code?: string }).code === '23503'
-        ) {
-          request.log.warn(
-            { sitePaymentConfigSiteId: id },
-            'Cannot delete site_payment_config: referenced by existing payment_records',
-          );
+        // cascade: a config payments were made with is kept for their history.
+        if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
+          await reply.status(409).send({
+            error:
+              "This site's payment configuration has payments and cannot be deleted. Disable it instead.",
+            code: 'SITE_PAYMENT_CONFIG_IN_USE',
+          });
+          return;
         }
         throw err;
       }
@@ -957,7 +1001,7 @@ export function paymentRoutes(app: FastifyInstance): void {
         tags: ['Payments'],
         summary: 'Get system Stripe settings',
         description:
-          'Returns the Stripe settings. The secret key and the webhook signing secrets are never returned, only whether each is stored.',
+          'Returns the Stripe settings. The secret key and the webhook signing secrets are decrypted, like the generic settings GET.',
         operationId: 'getStripeSettings',
         security: [{ bearerAuth: [] }],
         response: { 200: itemResponse(stripeSettingsResponse) },
@@ -966,21 +1010,21 @@ export function paymentRoutes(app: FastifyInstance): void {
     async () => {
       // Push the stripe.* prefix filter to Postgres so the admin Settings
       // page doesn't drag the entire settings table over the wire just to
-      // pick a few keys. Secrets are never decrypted or returned (D-P6).
+      // pick a few keys. *Enc keys are decrypted like the generic settings GET (P12).
       const rows = await db.select().from(settings).where(like(settings.key, 'stripe.%'));
       const map = new Map<string, unknown>();
       for (const row of rows) {
         map.set(row.key, row.value);
       }
-      const stored = (key: string): boolean => {
-        const raw = map.get(key);
-        return typeof raw === 'string' && raw !== '';
+      const secret = (key: string): string | null => {
+        const value = decryptForRead(key, map.get(key));
+        return typeof value === 'string' && value !== '' ? value : null;
       };
       return {
         publishableKey: map.get('stripe.publishableKey') ?? null,
-        secretKeyConfigured: stored('stripe.secretKeyEnc'),
-        webhookSecretConfigured: stored('stripe.webhookSecretEnc'),
-        connectWebhookSecretConfigured: stored('stripe.connectWebhookSecretEnc'),
+        secretKey: secret('stripe.secretKeyEnc'),
+        webhookSecret: secret('stripe.webhookSecretEnc'),
+        connectWebhookSecret: secret('stripe.connectWebhookSecretEnc'),
       };
     },
   );
@@ -993,7 +1037,7 @@ export function paymentRoutes(app: FastifyInstance): void {
         tags: ['Payments'],
         summary: 'Update system Stripe settings',
         description:
-          'Updates the given Stripe settings. Secrets (secretKey, webhookSecret, connectWebhookSecret) are write-only and stored encrypted; an omitted field keeps its value and an empty string clears it. Saving does not select Stripe for new payments, and the pre-authorization amount and platform fee are set with PUT /v1/settings/payments.',
+          'Updates the given Stripe settings. Secrets (secretKey, webhookSecret, connectWebhookSecret) are stored encrypted; an omitted field keeps its value and an empty string clears it. Saving does not select Stripe for new payments, and the pre-authorization amount and platform fee are set with PUT /v1/settings/payments.',
         operationId: 'updateStripeSettings',
         security: [{ bearerAuth: [] }],
         body: zodSchema(updateStripeSettingsBody),
@@ -1005,7 +1049,7 @@ export function paymentRoutes(app: FastifyInstance): void {
       const encryptionKey = getEncryptionKey();
 
       const pairs: Array<{ key: string; value: unknown }> = [];
-      // Write-only secrets: omitted keeps the stored value, empty clears it.
+      // Secrets: omitted keeps the stored value, empty clears it.
       const secret = (value: string): string =>
         value === '' ? '' : encryptString(value, encryptionKey);
 
@@ -1083,12 +1127,14 @@ export function paymentRoutes(app: FastifyInstance): void {
         tags: ['Payments'],
         summary: 'Get the Stripe webhook setup',
         description:
-          'Lists the webhook endpoints EVtivity created in the Stripe account (marked with metadata evtivity_scope), whether the platform and Connect signing secrets are stored, and the events and API version a new registration uses.',
+          'Lists the webhook endpoints EVtivity created in the Stripe account (marked with metadata evtivity_scope), whether the platform and Connect signing secrets are stored, and the events and API version a new registration uses. With url, endpoints holds the ones at that URL and otherEndpoints the ones of other EVtivity deployments sharing the Stripe account.',
         operationId: 'getStripeWebhookSetup',
         security: [{ bearerAuth: [] }],
+        querystring: zodSchema(stripeWebhookSetupQuery),
         response: {
           200: itemResponse(stripeWebhookSetupResponse),
-          400: errorWith('Stripe is not configured or refused the call', [
+          400: errorWith('Invalid URL, or Stripe is not configured or refused the call', [
+            ERROR_CODES.VALIDATION_ERROR,
             ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
             ERROR_CODES.PAYMENT_PROVIDER_PERMISSION_MISSING,
             ERROR_CODES.PAYMENT_PROVIDER_CONNECTION_FAILED,
@@ -1097,6 +1143,20 @@ export function paymentRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      const query = request.query as z.infer<typeof stripeWebhookSetupQuery>;
+      let url: string | undefined;
+      if (query.url !== undefined) {
+        const checked = checkPaymentWebhookUrl(query.url, 'stripe');
+        if (!checked.ok) {
+          await reply.status(400).send({
+            error: 'Invalid webhook URL',
+            code: 'VALIDATION_ERROR',
+            details: { url: checked.problem },
+          });
+          return;
+        }
+        url = checked.url;
+      }
       let endpoints: WebhookEndpointInfo[];
       try {
         const provider = await paymentRegistry.getPaymentProvider('stripe');
@@ -1114,7 +1174,7 @@ export function paymentRoutes(app: FastifyInstance): void {
       const stored = (key: string): boolean =>
         rows.some((row) => row.key === key && typeof row.value === 'string' && row.value !== '');
       return {
-        endpoints,
+        ...splitWebhookEndpoints(endpoints, url),
         platformSecretConfigured: stored('stripe.webhookSecretEnc'),
         connectSecretConfigured: stored('stripe.connectWebhookSecretEnc'),
         events: { platform: [...STRIPE_PLATFORM_EVENTS], connect: [...STRIPE_CONNECT_EVENTS] },
@@ -1131,7 +1191,7 @@ export function paymentRoutes(app: FastifyInstance): void {
         tags: ['Payments'],
         summary: 'Create the Stripe webhooks',
         description:
-          'Creates two webhook endpoints in the Stripe account at the given URL: the platform endpoint (payment_intent.payment_failed, charge.refunded, charge.dispute.created) and the Connect endpoint (account.updated of connected accounts), and stores their signing secrets encrypted (stripe.webhookSecretEnc, stripe.connectWebhookSecretEnc). The URL must be https and end in exactly /v1/webhooks/payments/stripe. Existing EVtivity endpoints are replaced only with replace: true (deleted after the new ones exist). The secrets are never returned.',
+          'Creates two webhook endpoints in the Stripe account at the given URL: the platform endpoint (payment_intent.payment_failed, charge.refunded, charge.dispute.created) and the Connect endpoint (account.updated of connected accounts), and stores their signing secrets encrypted (stripe.webhookSecretEnc, stripe.connectWebhookSecretEnc). The URL must be https and end in exactly /v1/webhooks/payments/stripe. Existing EVtivity endpoints at the same URL (same origin and path) are replaced only with replace: true (deleted after the new ones exist). EVtivity endpoints of other deployments sharing the Stripe account (another URL) are never deleted; the 409 lists them in otherEndpoints. The response carries no secrets (GET /v1/settings/stripe returns them).',
         operationId: 'createStripeWebhook',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createStripeWebhookBody),
@@ -1172,6 +1232,7 @@ export function paymentRoutes(app: FastifyInstance): void {
             error: 'An EVtivity webhook already exists for this provider',
             code: 'PAYMENT_WEBHOOK_EXISTS',
             endpoints: err.endpoints,
+            otherEndpoints: err.otherEndpoints,
           });
           return;
         }

@@ -26,6 +26,9 @@ import {
   stationAuditLog,
   getCompanyCurrency,
   setStationDisabled,
+  pgErrorCode,
+  PG_UNIQUE_VIOLATION,
+  PG_FOREIGN_KEY_VIOLATION,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
@@ -1259,12 +1262,7 @@ export function stationRoutes(app: FastifyInstance): void {
           return created;
         });
       } catch (err) {
-        if (
-          err != null &&
-          typeof err === 'object' &&
-          'code' in err &&
-          (err as { code?: string }).code === '23505'
-        ) {
+        if (pgErrorCode(err) === PG_UNIQUE_VIOLATION) {
           await reply.status(409).send({
             error: 'A station with this ID already exists',
             code: 'STATION_ID_EXISTS',
@@ -1775,12 +1773,7 @@ export function stationRoutes(app: FastifyInstance): void {
       try {
         [evse] = await db.insert(evses).values({ stationId: id, evseId: body.evseId }).returning();
       } catch (err) {
-        if (
-          err != null &&
-          typeof err === 'object' &&
-          'code' in err &&
-          (err as { code?: string }).code === '23505'
-        ) {
+        if (pgErrorCode(err) === PG_UNIQUE_VIOLATION) {
           await reply.status(409).send({
             error: `EVSE ID ${String(body.evseId)} already exists on this station`,
             code: 'DUPLICATE_EVSE_ID',
@@ -2286,12 +2279,7 @@ export function stationRoutes(app: FastifyInstance): void {
           })
           .returning();
       } catch (err) {
-        if (
-          err != null &&
-          typeof err === 'object' &&
-          'code' in err &&
-          (err as { code?: string }).code === '23505'
-        ) {
+        if (pgErrorCode(err) === PG_UNIQUE_VIOLATION) {
           await reply.status(409).send({
             error: `Connector ID ${String(body.connectorId)} already exists on this EVSE`,
             code: 'DUPLICATE_CONNECTOR_ID',
@@ -3881,11 +3869,7 @@ export function stationRoutes(app: FastifyInstance): void {
         // The pre-check is non-transactional, so the pricing group can be
         // deleted between the lookup and this INSERT. Map the FK violation
         // back to 404 instead of leaking a 500.
-        if (
-          typeof err === 'object' &&
-          err !== null &&
-          (err as { code?: string }).code === '23503'
-        ) {
+        if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
           await reply
             .status(404)
             .send({ error: 'Pricing group not found', code: 'PRICING_GROUP_NOT_FOUND' });

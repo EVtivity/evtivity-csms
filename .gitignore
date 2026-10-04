@@ -22,3 +22,4 @@ test-results/
 packages/csms/e2e/.auth/
 packages/portal/e2e/.auth/
 packages/css/test-certs/
+e2e/.state/

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
-import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
 
 // Helper: boot station and send StatusNotification
 async function bootAndStatus(ctx: {
@@ -63,7 +63,7 @@ export const TC_F_01_CSMS: TestCase = {
           if (idToken != null && idToken['idToken'] != null && idToken['type'] != null) {
             hasValidIdToken = true;
           }
-          const txId = `OCTT-TX-${String(Date.now())}`;
+          const txId = newTransactionId('OCTT-TX');
           return { status: 'Accepted', transactionId: txId };
         }
         return { status: 'NotSupported' };
@@ -102,7 +102,7 @@ export const TC_F_01_CSMS: TestCase = {
 
     // Step 3: Send TransactionEvent Updated with RemoteStart
     if (receivedRequestStart) {
-      const txId = `OCTT-TX-${String(Date.now())}`;
+      const txId = newTransactionId('OCTT-TX');
       const txRes = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Updated',
         timestamp: new Date().toISOString(),

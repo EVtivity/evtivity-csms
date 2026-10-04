@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { eq, and, or, ilike, sql, desc, inArray } from 'drizzle-orm';
-import { db, client } from '@evtivity/database';
+import { db, client, pgErrorCode, PG_UNIQUE_VIOLATION } from '@evtivity/database';
 import {
   driverTokens,
   drivers,
@@ -112,10 +112,8 @@ export class DuplicateTokenError extends Error {
 }
 
 function isUniqueViolation(err: unknown): boolean {
-  // postgres-js + drizzle surface PG errors with `code` on the error object.
-  // 23505 is unique_violation. Some test mocks throw plain Error so we
-  // tolerate the field being absent.
-  return err != null && typeof err === 'object' && 'code' in err && err.code === '23505';
+  // drizzle wraps the postgres.js error (SQLSTATE on cause); pgErrorCode reads both.
+  return pgErrorCode(err) === PG_UNIQUE_VIOLATION;
 }
 
 async function tokenExists(

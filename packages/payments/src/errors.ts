@@ -78,29 +78,50 @@ export class WebhookNotConfiguredError extends Error {
 export class WebhookSignatureError extends Error {
   readonly reason: 'missing' | 'invalid';
   readonly kind: 'auth' | 'signature';
+  /**
+   * Non-secret identifiers of the refused event as the sender claimed them
+   * (not verified), for the log: which event and payment a refused delivery is.
+   */
+  readonly unverified: Record<string, string> | undefined;
 
   constructor(
     reason: 'missing' | 'invalid',
     message: string,
-    options: { cause?: unknown; kind?: 'auth' | 'signature' } = {},
+    options: {
+      cause?: unknown;
+      kind?: 'auth' | 'signature';
+      unverified?: Record<string, string>;
+    } = {},
   ) {
     super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
     this.name = 'WebhookSignatureError';
     this.reason = reason;
     this.kind = options.kind ?? 'signature';
+    this.unverified = options.unverified;
   }
 }
 
-/** registerWebhook without `replace` found EVtivity endpoints at the provider. */
+/**
+ * registerWebhook without `replace` found webhooks at the requested URL.
+ * `endpoints` are the ones at that URL (replace acts on them only);
+ * `otherEndpoints` are EVtivity webhooks of other deployments on the same
+ * provider account, which registration never changes.
+ */
 export class WebhookExistsError extends Error {
   readonly providerId: string;
   readonly endpoints: WebhookEndpointInfo[];
+  readonly otherEndpoints: WebhookEndpointInfo[];
 
-  constructor(providerId: string, endpoints: WebhookEndpointInfo[]) {
+  constructor(
+    providerId: string,
+    endpoints: WebhookEndpointInfo[],
+    otherEndpoints: WebhookEndpointInfo[] = [],
+  ) {
     super(`An EVtivity webhook already exists for ${providerId}`);
     this.name = 'WebhookExistsError';
     this.providerId = providerId;
     this.endpoints = endpoints;
+    this.otherEndpoints = otherEndpoints;
   }
 }
 

@@ -136,6 +136,7 @@ vi.mock('@evtivity/payments', () => ({
   claimGuestStart: mockClaimGuestStart,
   continueGuestHold: mockContinueGuestHold,
   holdTerms: mockHoldTerms,
+  guestHoldTerms: mockHoldTerms,
   rollbackGuestStart: mockRollbackGuestStart,
 }));
 
@@ -160,6 +161,8 @@ vi.mock('../lib/ocpp-command.js', async (importOriginal) => ({
   }),
   triggerAndWaitForStatus: vi.fn().mockResolvedValue({ status: 'available' }),
 }));
+
+vi.mock('../lib/session-limit.js', () => ({ sessionLimitReached: vi.fn(async () => null) }));
 
 vi.mock('../lib/reservation-buffer.js', () => ({
   isEvseInReservationBuffer: vi.fn().mockResolvedValue(false),
@@ -304,7 +307,7 @@ describe('Portal guest routes - handler logic', () => {
       expect(body.paymentProvider).toEqual({ provider: 'stripe', publishableKey: 'pk_test_abc' });
       expect(body.currency).toBe('EUR');
       expect(body.preAuthAmountCents).toBe(7500);
-      expect(mockHoldTerms).toHaveBeenCalledWith(CTX, 'site-1');
+      expect(mockHoldTerms).toHaveBeenCalledWith(CTX, 'site-1', 'CS-001');
     });
 
     it('returns the provider client config and no publishable key for a provider other than Stripe', async () => {
@@ -333,7 +336,7 @@ describe('Portal guest routes - handler logic', () => {
       expect(body.preAuthAmountCents).toBe(5000);
       // Adyen Web needs the shopper country to start.
       expect(body.countryCode).toBe('NL');
-      expect(mockHoldTerms).toHaveBeenCalledWith(CTX, null);
+      expect(mockHoldTerms).toHaveBeenCalledWith(CTX, null, 'CS-001');
     });
 
     it('returns tariff pricing in the company currency', async () => {

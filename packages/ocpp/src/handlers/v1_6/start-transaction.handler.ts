@@ -15,6 +15,25 @@ import type { StartTransaction } from '../../generated/v1_6/types/messages/Start
 import { logAuthorizeAttempt } from '../authorize-log.js';
 import { prepaidCredit } from '../prepaid.js';
 
+async function nextOcpp16TransactionId(ctx: HandlerContext): Promise<number> {
+  try {
+    const [row] = await db.execute<{ nextval: string }>(
+      dsql`SELECT nextval('ocpp16_transaction_id_seq')`,
+    );
+    const id = Number(row?.nextval);
+    if (!Number.isSafeInteger(id)) {
+      throw new Error('ocpp16_transaction_id_seq returned no value');
+    }
+    return id;
+  } catch (err) {
+    ctx.logger.error(
+      { stationId: ctx.stationId, err },
+      'StartTransaction (1.6): could not allocate a transaction id',
+    );
+    throw err;
+  }
+}
+
 export async function handleStartTransaction(
   ctx: HandlerContext,
 ): Promise<Record<string, unknown>> {
@@ -58,17 +77,12 @@ export async function handleStartTransaction(
     }
   }
 
-  // If no pending session found, allocate a new ID from the sequence.
-  // Falls back to a timestamp-based ID when the database is unavailable (e.g. tests).
+  // If no pending session found, allocate a new ID from the sequence. The
+  // sequence is the only source of 1.6 transaction ids: an id made up here
+  // could collide with another session, so a failed read fails the message and
+  // the station answers it with a CALLERROR InternalError and retries it.
   if (transactionId == null) {
-    try {
-      const [row] = await db.execute<{ nextval: string }>(
-        dsql`SELECT nextval('ocpp16_transaction_id_seq')`,
-      );
-      transactionId = Number(row?.nextval ?? 1);
-    } catch {
-      transactionId = Math.floor(Date.now() / 1000) % 2_147_483_647;
-    }
+    transactionId = await nextOcpp16TransactionId(ctx);
   }
 
   await ctx.eventBus.publish({

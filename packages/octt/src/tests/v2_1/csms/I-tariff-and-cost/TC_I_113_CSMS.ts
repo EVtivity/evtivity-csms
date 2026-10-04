@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase, TestContext } from '../../../../types.js';
+import { newTransactionId } from '../../../../csms-test-helpers.js';
 
 // Helper: boot and start energy transfer
 async function bootAndStartTransaction(ctx: TestContext) {
@@ -15,7 +16,7 @@ async function bootAndStartTransaction(ctx: TestContext) {
     evseId: 1,
     connectorId: 1,
   });
-  const txId = `OCTT-TX-${String(Date.now())}`;
+  const txId = newTransactionId('OCTT-TX');
   await ctx.client.sendCall('TransactionEvent', {
     eventType: 'Started',
     timestamp: new Date().toISOString(),

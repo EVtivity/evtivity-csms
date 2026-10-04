@@ -143,6 +143,11 @@
     "captured": "Captured",
     "charging": "Charging",
     "idle": "Idle",
+    "limitReached": {
+      "cost": "Charging paused: the session reached its cost limit (the amount held on your card).",
+      "energy": "Charging paused: the session reached its energy limit.",
+      "time": "Charging paused: the session reached its time limit."
+    },
     "timeElapsed": "Duration",
     "power": "Power",
     "details": "Details",
@@ -679,6 +684,7 @@
     "SETTING_NOT_FOUND": "Setting not found",
     "SITE_HAS_STATIONS": "Cannot delete site with stations. Remove or reassign stations first.",
     "SITE_NOT_FOUND": "Site not found",
+    "SITE_PAYMENT_CONFIG_IN_USE": "This site's payment configuration has payments and cannot be deleted. Disable it instead.",
     "SMS_NOT_CONFIGURED": "SMS provider not configured",
     "SMS_SEND_FAILED": "Failed to send SMS",
     "SSO_DISABLED": "SSO is not configured",

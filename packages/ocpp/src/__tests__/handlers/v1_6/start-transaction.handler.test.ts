@@ -209,24 +209,32 @@ describe('OCPP 1.6 StartTransaction handler', () => {
       expect(response.transactionId).toBe(111);
     });
 
-    it('defaults to 1 when the sequence query returns no row', async () => {
+    it('fails the message when the sequence query returns no row', async () => {
       executeFn.mockResolvedValueOnce([]);
-      const { ctx } = makeCtx(basePayload('TAG-DEFAULT'));
+      const errorSpy = vi.spyOn(logger, 'error');
+      const { ctx, publishMock } = makeCtx(basePayload('TAG-DEFAULT'));
 
-      const response = await handleStartTransaction(ctx);
-
-      expect(response.transactionId).toBe(1);
+      await expect(handleStartTransaction(ctx)).rejects.toThrow(
+        'ocpp16_transaction_id_seq returned no value',
+      );
+      expect(publishMock).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalled();
+      errorSpy.mockRestore();
     });
 
-    it('uses a timestamp-based id when the sequence query throws', async () => {
+    it('fails the message, without a made-up id, when the sequence query throws', async () => {
       executeFn.mockRejectedValueOnce(new Error('db down'));
-      const { ctx } = makeCtx(basePayload('TAG-TS'));
+      const errorSpy = vi.spyOn(logger, 'error');
+      const { ctx, publishMock } = makeCtx(basePayload('TAG-TS'));
 
-      const response = await handleStartTransaction(ctx);
-
-      expect(typeof response.transactionId).toBe('number');
-      expect(Number.isInteger(response.transactionId)).toBe(true);
-      expect(response.transactionId as number).toBeGreaterThan(0);
+      await expect(handleStartTransaction(ctx)).rejects.toThrow('db down');
+      expect(publishMock).not.toHaveBeenCalled();
+      expect(insertFn).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ stationId: 'CS-001' }),
+        'StartTransaction (1.6): could not allocate a transaction id',
+      );
+      errorSpy.mockRestore();
     });
 
     it('forwards reservationId into the emitted event', async () => {

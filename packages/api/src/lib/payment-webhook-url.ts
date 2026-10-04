@@ -1,6 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { partitionWebhookEndpoints } from '@evtivity/payments';
+
 /** The path of a provider's webhook route, e.g. `/v1/webhooks/payments/stripe`. */
 export function paymentWebhookPath(providerId: 'stripe' | 'adyen'): string {
   return `/v1/webhooks/payments/${providerId}`;
@@ -31,4 +33,19 @@ export function checkPaymentWebhookUrl(
   }
   if (url.pathname !== path) return { ok: false, problem: `Path must be exactly ${path}` };
   return { ok: true, url: url.href };
+}
+
+/**
+ * The provider's EVtivity webhooks as the setup routes return them: the ones
+ * at this deployment's webhook URL (`endpoints`) and the ones of other
+ * EVtivity deployments sharing the provider account (`otherEndpoints`).
+ * Without a URL every EVtivity webhook is in `endpoints`.
+ */
+export function splitWebhookEndpoints<T extends { url: string }>(
+  endpoints: T[],
+  url: string | undefined,
+): { endpoints: T[]; otherEndpoints: T[] } {
+  if (url == null) return { endpoints, otherEndpoints: [] };
+  const { matching, other } = partitionWebhookEndpoints(endpoints, url);
+  return { endpoints: matching, otherEndpoints: other };
 }

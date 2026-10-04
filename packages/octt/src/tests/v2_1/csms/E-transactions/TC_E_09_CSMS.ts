@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
-import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
 
 // E01(S2): Start transaction options - EVConnected
 export const TC_E_09_CSMS: TestCase = {
@@ -43,7 +43,7 @@ export const TC_E_09_CSMS: TestCase = {
     }
 
     // Step 2: Send TransactionEvent Started with EVConnected chargingState
-    const txId = `OCTT-TX-${String(Date.now())}`;
+    const txId = newTransactionId('OCTT-TX');
     try {
       const txRes = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Started',
@@ -135,7 +135,7 @@ export const TC_E_11_CSMS: TestCase = {
     });
 
     // Step 3: Send TransactionEvent Started with SignedDataReceived trigger
-    const txId = `OCTT-TX-${String(Date.now())}`;
+    const txId = newTransactionId('OCTT-TX');
     try {
       const txRes = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Started',
@@ -243,7 +243,7 @@ export const TC_E_12_CSMS: TestCase = {
     });
 
     // Send TransactionEvent Started with EVDetected trigger
-    const txId = `OCTT-TX-${String(Date.now())}`;
+    const txId = newTransactionId('OCTT-TX');
     try {
       const txRes = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Started',
@@ -307,7 +307,7 @@ export const TC_E_53_CSMS: TestCase = {
     });
 
     // Transaction 1: start with seqNo = 0
-    const txId1 = `OCTT-TX-${String(Date.now())}-1`;
+    const txId1 = newTransactionId('OCTT-TX-1');
     try {
       const resp1 = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Started',
@@ -363,7 +363,7 @@ export const TC_E_53_CSMS: TestCase = {
     }
 
     // Transaction 2: also start with seqNo = 0 (reset per transaction)
-    const txId2 = `OCTT-TX-${String(Date.now())}-2`;
+    const txId2 = newTransactionId('OCTT-TX-2');
     try {
       const resp3 = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Started',

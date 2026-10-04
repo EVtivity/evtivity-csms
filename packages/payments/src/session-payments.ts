@@ -458,6 +458,40 @@ interface ShortfallTarget {
   charge: SessionCharge;
 }
 
+/**
+ * The provider's minimum charge when `amountCents` is below it (the provider
+ * would refuse that charge), else null. Providers without a known minimum
+ * never block.
+ */
+function belowMinimumCharge(
+  provider: PaymentProvider,
+  currency: string,
+  amountCents: number,
+): number | null {
+  const minimum = provider.minimumChargeCents?.(currency) ?? null;
+  return minimum != null && amountCents > 0 && amountCents < minimum ? minimum : null;
+}
+
+/** Failure reason of a shortfall too small to charge. Not `Top-up declined:`, so never retried. */
+function belowMinimumReason(
+  shortfallCents: number,
+  minimumCents: number,
+  currency: string,
+): string {
+  return `Top-up below the provider minimum charge (${String(minimumCents)}c ${currency.toUpperCase()}); shortfall ${String(shortfallCents)}c not collectable`;
+}
+
+class ShortfallBelowMinimumError extends Error {
+  constructor(
+    readonly shortfallCents: number,
+    readonly minimumCents: number,
+    readonly currency: string,
+  ) {
+    super(belowMinimumReason(shortfallCents, minimumCents, currency));
+    this.name = 'ShortfallBelowMinimumError';
+  }
+}
+
 async function chargeShortfall(
   target: ShortfallTarget,
   description: string,
@@ -467,6 +501,10 @@ async function chargeShortfall(
   const captured = record.capturedAmountCents ?? 0;
   const paymentId = record.providerPaymentId as string;
   const provider = await pinnedProvider(ctx.registry, record.provider);
+  const minimumCents = belowMinimumCharge(provider, record.currency, finalCostCents - captured);
+  if (minimumCents != null) {
+    throw new ShortfallBelowMinimumError(finalCostCents - captured, minimumCents, record.currency);
+  }
   // Same card and payout account, with the platform fee of the increment on
   // its net amount, so capture and top-ups add up to the fee of the final cost.
   const topUp = await provider.chargeShortfall({
@@ -533,6 +571,9 @@ export async function retryShortfallForRecord(
     if (err instanceof PaymentProviderNotConfiguredError) {
       return { status: 'not_configured', providerId: err.providerId };
     }
+    if (err instanceof ShortfallBelowMinimumError) {
+      return { status: 'not_recoverable', reason: err.message };
+    }
     return { status: 'failed', reason: errorMessage(err, 'Top-up failed', 400) };
   }
   const updated = await markShortfallRecovered(record.id, {
@@ -561,7 +602,7 @@ interface ShortfallRow extends Record<string, unknown> {
  */
 export async function retryShortfalls(
   ctx: PaymentContext,
-): Promise<{ total: number; recovered: number; stillFailed: number }> {
+): Promise<{ total: number; recovered: number; stillFailed: number; notCollectable: number }> {
   const rows = await db.execute<ShortfallRow>(sql`
     SELECT pr.id AS pr_id, cs.id AS session_id
     FROM payment_records pr
@@ -578,6 +619,7 @@ export async function retryShortfalls(
   `);
   let recovered = 0;
   let stillFailed = 0;
+  let notCollectable = 0;
   for (const row of rows) {
     const record = await findRecord(row.pr_id);
     const charge = await sessionCharge(row.session_id);
@@ -610,6 +652,24 @@ export async function retryShortfalls(
         );
         continue;
       }
+      if (err instanceof ShortfallBelowMinimumError) {
+        // A record declined before the minimum check (or under a lower
+        // minimum): give it the non-retryable reason so later runs skip it.
+        notCollectable++;
+        ctx.logger.warn(
+          { paymentRecordId: record.id, shortfall, minimumCents: err.minimumCents },
+          'Shortfall below the provider minimum charge; no further retries',
+        );
+        try {
+          await markShortfallRetryFailed(record.id, err.message);
+        } catch (updateErr) {
+          ctx.logger.warn(
+            { err: updateErr, paymentRecordId: record.id },
+            'Failed to record the not collectable shortfall',
+          );
+        }
+        continue;
+      }
       stillFailed++;
       const message = errorMessage(err, 'Unknown error', 350);
       ctx.logger.warn(
@@ -630,7 +690,7 @@ export async function retryShortfalls(
       }
     }
   }
-  return { total: rows.length, recovered, stillFailed };
+  return { total: rows.length, recovered, stillFailed, notCollectable };
 }
 
 export type SettlementOutcome =
@@ -908,8 +968,18 @@ async function settleHold(
         }),
       );
       capturedCents = captureCents;
-      if (finalCostCents > captureCents) {
-        const deltaCents = finalCostCents - captureCents;
+      const deltaCents = finalCostCents - captureCents;
+      const minimumCents = belowMinimumCharge(provider, record.currency, deltaCents);
+      if (deltaCents > 0 && minimumCents != null) {
+        // The provider refuses a charge this small: the shortfall can never be
+        // collected, so no top-up is tried and the daily retry skips it.
+        shortfallCents = deltaCents;
+        topUpFailureReason = belowMinimumReason(deltaCents, minimumCents, record.currency);
+        ctx.logger.warn(
+          { paymentRecordId: record.id, deltaCents, minimumCents },
+          'Top-up below the provider minimum charge; the rest is uncollected',
+        );
+      } else if (deltaCents > 0) {
         try {
           const charged = await provider.chargeShortfall({
             originalPaymentId: paymentId,

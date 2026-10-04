@@ -143,6 +143,11 @@
     "captured": "已扣款",
     "charging": "充電中",
     "idle": "閒置",
+    "limitReached": {
+      "cost": "充電已暫停：工作階段已達到費用上限（您卡上預授權的金額）。",
+      "energy": "充電已暫停：工作階段已達到電量上限。",
+      "time": "充電已暫停：工作階段已達到時間上限。"
+    },
     "timeElapsed": "時長",
     "power": "功率",
     "details": "詳情",
@@ -679,6 +684,7 @@
     "SETTING_NOT_FOUND": "找不到設定",
     "SITE_HAS_STATIONS": "無法刪除仍有充電站的站點。請先移除或重新指派充電站。",
     "SITE_NOT_FOUND": "找不到站點",
+    "SITE_PAYMENT_CONFIG_IN_USE": "此站點的付款設定已有付款紀錄，無法刪除。請改為停用。",
     "SMS_NOT_CONFIGURED": "尚未設定簡訊服務提供者",
     "SMS_SEND_FAILED": "傳送 SMS 失敗",
     "SSO_DISABLED": "尚未設定 SSO",

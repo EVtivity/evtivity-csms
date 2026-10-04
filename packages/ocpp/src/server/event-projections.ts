@@ -374,17 +374,36 @@ export function registerProjections(
     sessionId: string,
     stationId: string,
     transactionId: string,
+    idleAt: string,
   ): Promise<void> {
+    // The station reported the vehicle idle (2.1 chargingState, 1.6 status).
+    // One statement marks the session idle (keeping a period already open) and
+    // claims the period by copying its start into idle_notified_at; only the
+    // claiming call gets a row and notifies. So two events of one period
+    // (ChargingStateChanged then CostLimitReached, repeated SuspendedEV) notify
+    // once, a meter reading cannot end the period between the mark and the
+    // claim (the meter fallbacks never clear a claimed period), and a later
+    // period has a new idle_started_at and notifies again.
     // The idle fee and tax rate that apply now: the open tariff segment's
     // snapshot (split billing), else the session's.
     const idleSession = await sql`
-      SELECT cs.driver_id, cs.idle_started_at,
+      WITH claimed AS (
+        UPDATE charging_sessions
+        SET idle_started_at = COALESCE(idle_started_at, ${idleAt}::timestamptz),
+            idle_notified_at = COALESCE(idle_started_at, ${idleAt}::timestamptz),
+            updated_at = now()
+        WHERE id = ${sessionId} AND status = 'active'
+          AND idle_notified_at IS DISTINCT FROM COALESCE(idle_started_at, ${idleAt}::timestamptz)
+        RETURNING id, idle_started_at
+      )
+      SELECT cs.driver_id, claimed.idle_started_at,
              CASE WHEN seg.price_snapshot THEN seg.idle_fee_price_per_minute
                   ELSE cs.tariff_idle_fee_price_per_minute END AS idle_fee_price_per_minute,
              CASE WHEN seg.price_snapshot THEN seg.tax_rate
                   ELSE cs.tariff_tax_rate END AS tax_rate,
              cs.tax_basis, d.price_display, UPPER(cs.currency) AS currency
       FROM charging_sessions cs
+      JOIN claimed ON claimed.id = cs.id
       LEFT JOIN drivers d ON d.id = cs.driver_id
       LEFT JOIN LATERAL (
         SELECT price_snapshot, idle_fee_price_per_minute, tax_rate
@@ -393,7 +412,7 @@ export function registerProjections(
         ORDER BY started_at DESC
         LIMIT 1
       ) seg ON true
-      WHERE cs.id = ${sessionId} AND cs.idle_started_at IS NOT NULL
+      WHERE cs.id = ${sessionId}
     `;
     const idleRow = idleSession[0];
     if (idleRow == null) return;
@@ -1379,9 +1398,10 @@ export function registerProjections(
       `;
 
       // Dispatch idling notification for the active session on this EVSE
+      // (it re-marks the period if a meter reading ended it in between).
       const activeSession = await sql`
         SELECT id, transaction_id FROM charging_sessions
-        WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NOT NULL
+        WHERE station_id = ${stationUuid} AND status = 'active'
           AND evse_id = ${resolvedEvseUuid}
       `;
       const sess = activeSession[0];
@@ -1390,6 +1410,7 @@ export function registerProjections(
           sess.id as string,
           event.aggregateId,
           sess.transaction_id as string,
+          statusTimestamp,
         );
       }
     } else if (RESUME_STATUSES_1_6.has(ocppStatus)) {
@@ -2025,8 +2046,8 @@ export function registerProjections(
               WHERE id = ${sessionId} AND idle_started_at IS NULL
             `;
 
-            // Dispatch idling notification to driver or guest
-            await dispatchIdlingNotification(sessionId, stationId, transactionId);
+            // Dispatch idling notification to driver or guest (claims the period)
+            await dispatchIdlingNotification(sessionId, stationId, transactionId, timestamp);
           } else {
             // Charging resumed: accumulate idle time and clear idle_started_at
             await sql`
@@ -2674,13 +2695,15 @@ export function registerProjections(
                 AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
             `;
           } else {
-            // Energy increased: accumulate idle time and clear idle_started_at
+            // Energy increased: accumulate idle time and clear idle_started_at,
+            // unless a station signal confirmed this idle period (see below).
             await sql`
               UPDATE charging_sessions
               SET idle_minutes = idle_minutes + EXTRACT(EPOCH FROM (${mvTimestamp}::timestamptz - idle_started_at)) / 60,
                   idle_started_at = NULL,
                   updated_at = now()
               WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NOT NULL
+                AND idle_notified_at IS DISTINCT FROM idle_started_at
                 AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
             `;
           }
@@ -2700,13 +2723,21 @@ export function registerProjections(
               AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
           `;
         } else {
-          // Power resumed: accumulate idle time and clear idle_started_at
+          // Power resumed: accumulate idle time and clear idle_started_at.
+          // The meter fallbacks only end an idle period they started: once the
+          // station itself reported it (2.1 chargingState, 1.6 SuspendedEV
+          // status), dispatchIdlingNotification claimed it (idle_notified_at =
+          // idle_started_at), and only the station's own Charging ends it. A
+          // reading carried by the same TransactionEvent as a SuspendedEVSE would
+          // otherwise end the period and the next event would open a second one
+          // with a second notification.
           await sql`
             UPDATE charging_sessions
             SET idle_minutes = idle_minutes + EXTRACT(EPOCH FROM (${mvTimestamp}::timestamptz - idle_started_at)) / 60,
                 idle_started_at = NULL,
                 updated_at = now()
             WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NOT NULL
+              AND idle_notified_at IS DISTINCT FROM idle_started_at
               AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
           `;
         }

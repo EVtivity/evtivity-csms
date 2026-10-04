@@ -19,7 +19,12 @@ export async function paymentCaptureRetryHandler(log: Logger): Promise<void> {
     return;
   }
   log.info(
-    { recovered: result.recovered, stillFailed: result.stillFailed, total: result.total },
+    {
+      recovered: result.recovered,
+      stillFailed: result.stillFailed,
+      notCollectable: result.notCollectable,
+      total: result.total,
+    },
     'Capture retry pass complete',
   );
 }

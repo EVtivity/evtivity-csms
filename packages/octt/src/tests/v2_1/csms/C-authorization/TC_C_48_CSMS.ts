@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { TestCase, StepResult } from '../../../../types.js';
+import { newTransactionId } from '../../../../csms-test-helpers.js';
 
 export const TC_C_48_CSMS: TestCase = {
   id: 'TC_C_48_CSMS',
@@ -37,7 +38,7 @@ export const TC_C_48_CSMS: TestCase = {
       connectorId: 1,
     });
 
-    const txId = `OCTT-TX-${String(Date.now())}`;
+    const txId = newTransactionId('OCTT-TX');
     await ctx.client.sendCall('TransactionEvent', {
       eventType: 'Started',
       timestamp: new Date().toISOString(),

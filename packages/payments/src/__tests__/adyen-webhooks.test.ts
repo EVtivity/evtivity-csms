@@ -119,6 +119,8 @@ describe('AdyenPaymentProvider.verifyWebhook', () => {
     const tampered = DOC_BODY.replace('1130', '9999');
     expect(errorOf(() => provider.verifyWebhook(tampered, AUTH))).toMatchObject({
       reason: 'invalid',
+      // The claimed event and payment, for the refusal log (no secrets).
+      unverified: { eventCode: 'AUTHORISATION', pspReference: '7914073381342284' },
     });
     const unsigned = JSON.stringify({
       live: 'false',

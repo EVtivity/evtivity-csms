@@ -3,6 +3,7 @@
 
 import type { TestCase, StepResult } from '../../../../types.js';
 import { newPspRef, requestAdHocPayment } from '../../../../payment-test-helpers.js';
+import { newTransactionId } from '../../../../csms-test-helpers.js';
 
 /** Configured CardLast4Digits of the payment card presented to the terminal. */
 const CARD_LAST4 = '1234';
@@ -88,7 +89,7 @@ export const TC_C_125_CSMS: TestCase = {
       return { status: 'failed', durationMs: 0, steps };
     }
 
-    const txId = `OCTT-TX-${String(Date.now())}`;
+    const txId = newTransactionId('OCTT-TX');
     const txStartRes = await ctx.client.sendCall('TransactionEvent', {
       eventType: 'Started',
       timestamp: new Date().toISOString(),

@@ -26,7 +26,8 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { config } from '../lib/config.js';
 import { paymentRegistry } from '../lib/payments.js';
 import { writePaymentSettings } from '../lib/payment-settings-writes.js';
-import { checkPaymentWebhookUrl } from '../lib/payment-webhook-url.js';
+import { checkPaymentWebhookUrl, splitWebhookEndpoints } from '../lib/payment-webhook-url.js';
+import { decryptForRead } from '../lib/settings-crypto.js';
 
 /** The path Adyen posts to; the operator's webhook URL must end in it exactly. */
 export const ADYEN_WEBHOOK_URL_PATH = '/v1/webhooks/payments/adyen';
@@ -51,23 +52,34 @@ const adyenSettingsResponse = z
     authorisationAdjustment: z
       .boolean()
       .describe('Raise holds with an authorization adjustment instead of a top-up charge'),
-    apiKeyConfigured: z.boolean().describe('An API key is stored (the key is never returned)'),
-    hmacKeyConfigured: z.boolean().describe('A webhook HMAC key is stored'),
+    apiKey: z
+      .string()
+      .nullable()
+      .describe('Adyen API key (decrypted from storage; null when unset)'),
+    hmacKey: z
+      .string()
+      .nullable()
+      .describe('Webhook HMAC key in hex (decrypted from storage; null when unset)'),
     hmacKeyPreviousConfigured: z
       .boolean()
       .describe('A previous HMAC key is stored and still accepted (key rotation)'),
-    webhookPasswordConfigured: z.boolean().describe('A webhook Basic auth password is stored'),
+    webhookPassword: z
+      .string()
+      .nullable()
+      .describe('Webhook Basic auth password (decrypted from storage; null when unset)'),
     webhookUrlPath: z
       .literal(ADYEN_WEBHOOK_URL_PATH)
       .describe('Path of the Adyen webhook on this API; prefix it with the public API URL'),
   })
-  .describe('Adyen settings. Secret values are never returned.');
+  .describe(
+    'Adyen settings. Secrets are returned decrypted, like the generic settings GET. The previous HMAC key is reported as stored or not.',
+  );
 
 const updateAdyenSettingsBody = z.object({
   apiKey: z
     .string()
     .optional()
-    .describe('Adyen API key (stored encrypted, write-only). An empty string clears it.'),
+    .describe('Adyen API key (stored encrypted). An empty string clears it.'),
   merchantAccount: z.string().min(1).optional().describe('Adyen merchant account code'),
   clientKey: z.string().optional().describe('Public client key. An empty string clears it.'),
   environment: z.enum(['test', 'live']).optional().describe('Adyen environment'),
@@ -81,7 +93,7 @@ const updateAdyenSettingsBody = z.object({
   hmacKey: z
     .union([z.literal(''), z.string().regex(/^[0-9A-Fa-f]+$/)])
     .optional()
-    .describe('Webhook HMAC key in hex (stored encrypted, write-only). Empty clears it.'),
+    .describe('Webhook HMAC key in hex (stored encrypted). Empty clears it.'),
   webhookUsername: z
     .string()
     .optional()
@@ -89,7 +101,7 @@ const updateAdyenSettingsBody = z.object({
   webhookPassword: z
     .string()
     .optional()
-    .describe('Webhook Basic auth password (stored encrypted, write-only). Empty clears it.'),
+    .describe('Webhook Basic auth password (stored encrypted). Empty clears it.'),
   authorisationAdjustment: z
     .boolean()
     .optional()
@@ -118,9 +130,18 @@ const webhookEndpointSchema = z
   .passthrough()
   .describe('An EVtivity webhook on the Adyen merchant account');
 
+const otherWebhookEndpoints = z
+  .array(webhookEndpointSchema)
+  .describe(
+    'EVtivity webhooks of other deployments sharing the merchant account (another URL). Creating or updating the webhook never changes them.',
+  );
+
 const adyenWebhookResponse = z
   .object({
-    endpoints: z.array(webhookEndpointSchema),
+    endpoints: z
+      .array(webhookEndpointSchema)
+      .describe('EVtivity webhooks at the url query (every EVtivity webhook without url)'),
+    otherEndpoints: otherWebhookEndpoints,
     hmacKeyConfigured: z.boolean().describe('A webhook HMAC key is stored'),
     webhookPasswordConfigured: z.boolean().describe('A webhook Basic auth password is stored'),
     events: z.array(z.string()).describe('Event codes EVtivity enables on its webhook'),
@@ -135,8 +156,33 @@ const createAdyenWebhookBody = z.object({
   replace: z
     .boolean()
     .default(false)
-    .describe('Update the existing EVtivity webhook with new credentials and a new HMAC key'),
+    .describe(
+      'Update the existing webhook at this URL with new credentials and a new HMAC key. Webhooks of other EVtivity deployments at other URLs are never changed.',
+    ),
 });
+
+const adyenWebhookQuery = z.object({
+  url: z
+    .string()
+    .min(1)
+    .max(2048)
+    .optional()
+    .describe(
+      `Webhook URL of this deployment (https, ending in ${ADYEN_WEBHOOK_URL_PATH}). Splits the EVtivity webhooks into the one at this URL and the ones of other deployments.`,
+    ),
+});
+
+const adyenWebhookExistsResponse = z
+  .object({
+    error: z.string().describe('Default: "An EVtivity webhook already exists for adyen"'),
+    code: z.literal('PAYMENT_WEBHOOK_EXISTS').describe('Error code returned at this status'),
+    endpoints: z
+      .array(webhookEndpointSchema)
+      .describe('The webhooks at the requested URL; send replace: true to update it'),
+    otherEndpoints: otherWebhookEndpoints,
+  })
+  .passthrough()
+  .describe('A webhook already exists at this URL');
 
 const createAdyenWebhookResponse = z
   .object({
@@ -150,17 +196,17 @@ const createAdyenWebhookResponse = z
   })
   .describe('The created or updated Adyen webhook');
 
-const notConfiguredErrors = errorWith('Adyen is not configured or cannot be reached', [
-  ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
-  ERROR_CODES.PAYMENT_PROVIDER_CONNECTION_FAILED,
-  ERROR_CODES.PAYMENT_PROVIDER_PERMISSION_MISSING,
-]);
-
 function configured(value: unknown): boolean {
   return typeof value === 'string' && value !== '';
 }
 
 function plainString(value: unknown): string | null {
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/** The plaintext of an `*Enc` setting, decrypted like the generic settings GET (P12). */
+function decryptedSecret(map: Map<string, unknown>, key: string): string | null {
+  const value = decryptForRead(key, map.get(key));
   return typeof value === 'string' && value !== '' ? value : null;
 }
 
@@ -206,6 +252,7 @@ async function sendProviderError(err: unknown, reply: FastifyReply): Promise<boo
       error: err.message,
       code: ERROR_CODES.PAYMENT_WEBHOOK_EXISTS,
       endpoints: err.endpoints,
+      otherEndpoints: err.otherEndpoints,
     });
     return true;
   }
@@ -228,7 +275,7 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
         tags: ['Payments'],
         summary: 'Get Adyen settings',
         description:
-          'Returns the Adyen settings. The API key, HMAC keys and webhook password are never returned, only whether each is stored.',
+          'Returns the Adyen settings. The API key, HMAC key and webhook password are decrypted, like the generic settings GET. The previous HMAC key is reported only as stored or not.',
         operationId: 'getAdyenSettings',
         security: [{ bearerAuth: [] }],
         response: { 200: itemResponse(adyenSettingsResponse) },
@@ -245,10 +292,10 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
         clientKey: plainString(map.get('adyen.clientKey')),
         webhookUsername: plainString(map.get('adyen.webhookUsername')),
         authorisationAdjustment: map.get('adyen.authorisationAdjustment') === true,
-        apiKeyConfigured: configured(map.get('adyen.apiKeyEnc')),
-        hmacKeyConfigured: configured(map.get('adyen.hmacKeyEnc')),
+        apiKey: decryptedSecret(map, 'adyen.apiKeyEnc'),
+        hmacKey: decryptedSecret(map, 'adyen.hmacKeyEnc'),
         hmacKeyPreviousConfigured: configured(map.get('adyen.hmacKeyPreviousEnc')),
-        webhookPasswordConfigured: configured(map.get('adyen.webhookPasswordEnc')),
+        webhookPassword: decryptedSecret(map, 'adyen.webhookPasswordEnc'),
         webhookUrlPath: ADYEN_WEBHOOK_URL_PATH,
       };
     },
@@ -262,7 +309,7 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
         tags: ['Payments'],
         summary: 'Update Adyen settings',
         description:
-          'Updates the given Adyen settings. Secrets (apiKey, hmacKey, webhookPassword) are write-only and stored encrypted; an empty string clears a field. A live environment needs a live URL prefix. Saving does not select Adyen for new payments.',
+          'Updates the given Adyen settings. Secrets (apiKey, hmacKey, webhookPassword) are stored encrypted; an omitted field keeps its value and an empty string clears it. A live environment needs a live URL prefix. Saving does not select Adyen for new payments.',
         operationId: 'updateAdyenSettings',
         security: [{ bearerAuth: [] }],
         body: zodSchema(updateAdyenSettingsBody),
@@ -388,13 +435,36 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
         tags: ['Payments'],
         summary: 'Get the Adyen webhook',
         description:
-          'Lists the EVtivity webhooks on the Adyen merchant account (Management API) and whether the HMAC key and Basic auth password are stored.',
+          'Lists the EVtivity webhooks on the Adyen merchant account (Management API) and whether the HMAC key and Basic auth password are stored. With url, endpoints holds the webhook at that URL and otherEndpoints the ones of other EVtivity deployments sharing the merchant account.',
         operationId: 'getAdyenWebhook',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(adyenWebhookResponse), 400: notConfiguredErrors },
+        querystring: zodSchema(adyenWebhookQuery),
+        response: {
+          200: itemResponse(adyenWebhookResponse),
+          400: errorWith('Invalid URL, or Adyen is not configured or cannot be reached', [
+            ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
+            ERROR_CODES.PAYMENT_PROVIDER_CONNECTION_FAILED,
+            ERROR_CODES.PAYMENT_PROVIDER_PERMISSION_MISSING,
+          ]),
+        },
       },
     },
-    async (_request, reply) => {
+    async (request, reply) => {
+      const query = request.query as z.infer<typeof adyenWebhookQuery>;
+      let url: string | undefined;
+      if (query.url !== undefined) {
+        const checked = checkPaymentWebhookUrl(query.url, 'adyen');
+        if (!checked.ok) {
+          await reply.status(400).send({
+            error: 'Invalid webhook URL',
+            code: ERROR_CODES.VALIDATION_ERROR,
+            details: { url: checked.problem },
+          });
+          return;
+        }
+        url = checked.url;
+      }
       let endpoints: WebhookEndpointInfo[];
       try {
         endpoints = await (await adyenProvider()).listWebhooks();
@@ -404,7 +474,7 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
       }
       const map = await readAdyenSettings();
       return {
-        endpoints,
+        ...splitWebhookEndpoints(endpoints, url),
         hmacKeyConfigured: configured(map.get('adyen.hmacKeyEnc')),
         webhookPasswordConfigured: configured(map.get('adyen.webhookPasswordEnc')),
         events: [...ADYEN_WEBHOOK_EVENT_CODES],
@@ -419,7 +489,7 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Payments'],
         summary: 'Create the Adyen webhook',
-        description: `Creates the standard webhook on the Adyen merchant account (or, with replace, updates the existing EVtivity webhook) with new Basic auth credentials and a new HMAC key, stores them encrypted, activates the webhook, and asks Adyen to send a test event. The URL must be https and end in ${ADYEN_WEBHOOK_URL_PATH}. The previous HMAC key stays accepted. Secrets are never returned.`,
+        description: `Creates the standard webhook on the Adyen merchant account (or, with replace, updates the existing webhook at the same URL, same origin and path) with new Basic auth credentials and a new HMAC key, stores them encrypted, activates the webhook, and asks Adyen to send a test event. The URL must be https and end in ${ADYEN_WEBHOOK_URL_PATH}. EVtivity webhooks of other deployments sharing the merchant account (another URL) are never updated or deleted; the 409 lists them in otherEndpoints. The previous HMAC key stays accepted. The response carries no secrets (GET /v1/settings/adyen returns them).`,
         operationId: 'createAdyenWebhook',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createAdyenWebhookBody),
@@ -431,9 +501,7 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
             ERROR_CODES.PAYMENT_PROVIDER_CONNECTION_FAILED,
             ERROR_CODES.PAYMENT_PROVIDER_PERMISSION_MISSING,
           ]),
-          409: errorWith('An EVtivity webhook already exists', [
-            ERROR_CODES.PAYMENT_WEBHOOK_EXISTS,
-          ]),
+          409: itemResponse(adyenWebhookExistsResponse),
         },
       },
     },

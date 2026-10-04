@@ -102,12 +102,14 @@ function mockGets(webhook: () => Promise<unknown> = () => Promise.resolve(webhoo
     if (url === '/v1/settings/stripe') {
       return Promise.resolve({
         publishableKey: 'pk_test_1',
-        secretKeyConfigured: true,
-        webhookSecretConfigured: true,
-        connectWebhookSecretConfigured: false,
+        secretKey: 'sk_test_stored',
+        webhookSecret: 'whsec_stored',
+        connectWebhookSecret: null,
       });
     }
-    if (url === '/v1/settings/stripe/webhook') return webhook();
+    if (url === `/v1/settings/stripe/webhook?url=${encodeURIComponent(STRIPE_URL)}`) {
+      return webhook();
+    }
     if (url.startsWith('/v1/sites?')) {
       return Promise.resolve({ data: [{ id: 'sit_1', name: 'Main Street' }], total: 1 });
     }
@@ -208,6 +210,23 @@ describe('PaymentSettings Stripe tab', () => {
     expect(url.value).toBe(STRIPE_URL);
     expect(await screen.findByText('settings.webhookScopes.connect')).toBeTruthy();
     expect(screen.getByText('account.updated')).toBeTruthy();
+    expect(screen.queryByTestId('other-webhook-endpoints')).toBeNull();
+  });
+
+  it("lists other EVtivity deployments' endpoints apart", async () => {
+    const otherUrl = 'https://dev.example.com/v1/webhooks/payments/stripe';
+    mockGets(() =>
+      Promise.resolve({
+        ...webhookSetup([]),
+        otherEndpoints: [{ ...ENDPOINTS[0], id: 'we_other', url: otherUrl }],
+      }),
+    );
+    renderSettings();
+    const other = await screen.findByTestId('other-webhook-endpoints');
+    expect(other.textContent).toContain('settings.webhookOtherEndpoints');
+    expect(other.textContent).toContain('settings.webhookOtherEndpointsHint');
+    expect(other.textContent).toContain(otherUrl);
+    expect(screen.getByText('settings.stripeWebhookNoEndpoints')).toBeTruthy();
   });
 
   it('opens the replace dialog on 409 and retries with replace: true', async () => {
@@ -290,19 +309,29 @@ describe('PaymentSettings Stripe tab', () => {
     );
   });
 
-  it('saves a typed Connect secret, clears a set secret, and omits untouched ones', async () => {
+  it('shows the stored secrets behind the eye toggle', async () => {
+    mockGets();
+    renderSettings();
+    const secretKey = await screen.findByLabelText('settings.stripeSecretKey');
+    if (!(secretKey instanceof HTMLInputElement)) throw new Error('not an input');
+    await waitFor(() => {
+      expect(secretKey.value).toBe('sk_test_stored');
+    });
+    expect(secretKey.type).toBe('password');
+  });
+
+  it('saves a changed Connect secret, clears an emptied secret, and omits unchanged ones', async () => {
     mockGets();
     putMock.mockResolvedValue({ success: true });
     renderSettings();
-    // Secret key and platform webhook secret are set, so each has a Clear button.
-    const clearButtons = await screen.findAllByRole('button', { name: 'settings.secretClear' });
+    const webhookSecret = await screen.findByLabelText('settings.stripeWebhookSecret');
+    await waitFor(() => {
+      expect((webhookSecret as HTMLInputElement).value).toBe('whsec_stored');
+    });
     fireEvent.change(screen.getByLabelText('settings.stripeConnectWebhookSecret'), {
       target: { value: 'whsec_connect' },
     });
-    expect(clearButtons).toHaveLength(2);
-    const webhookClear = clearButtons[1];
-    if (webhookClear == null) throw new Error('clear button not found');
-    fireEvent.click(webhookClear);
+    fireEvent.change(webhookSecret, { target: { value: '' } });
     fireEvent.submit(await stripeForm());
 
     await waitFor(() => {
@@ -320,7 +349,6 @@ describe('PaymentSettings Stripe tab', () => {
     await stripeForm();
     expect(screen.queryByRole('button', { name: /settings\.stripeWebhookCreate/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'settings.stripeTestConnection' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'settings.secretClear' })).toBeNull();
     expect(screen.queryByRole('button', { name: /common\.save/ })).toBeNull();
   });
 

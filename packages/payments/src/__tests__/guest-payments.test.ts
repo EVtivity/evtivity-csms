@@ -71,6 +71,7 @@ const m = vi.hoisted(() => {
     markHoldFailed: vi.fn(),
     recordGuestHold: vi.fn(),
     holdTerms: vi.fn(),
+    sessionFeeGrossCents: vi.fn(),
   };
 });
 
@@ -82,6 +83,7 @@ vi.mock('@evtivity/database', () => ({
   guestSessions: { __table: 'guest_sessions', provider: 'gs.provider' },
   chargingSessions: { __table: 'charging_sessions' },
   chargingStations: { __table: 'charging_stations' },
+  sessionFeeGrossCents: m.sessionFeeGrossCents,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -116,6 +118,7 @@ import {
   continueGuestHold,
   expireGuestSessions,
   failExhaustedGuestCapture,
+  guestHoldTerms,
   handleGuestSessionEvent,
   rollbackGuestStart,
 } from '../guest-payments.js';
@@ -618,6 +621,38 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
     await handleGuestSessionEvent({ type: 'StatusNotification', sessionId: 'ses_1' }, deps);
 
     expect(m.db.select).not.toHaveBeenCalled();
+  });
+});
+
+describe('guestHoldTerms', () => {
+  it('raises a hold below the session fee of the tariff a guest pays to that fee', async () => {
+    m.holdTerms.mockResolvedValue({ ...TERMS, preAuthAmountCents: 50 });
+    m.selectQueue.push([{ id: 'sta_1' }]);
+    m.sessionFeeGrossCents.mockResolvedValue(217);
+    expect(await guestHoldTerms(deps, 'site_1', 'CS-1')).toEqual({
+      ...TERMS,
+      preAuthAmountCents: 217,
+      sessionFeeCents: 217,
+    });
+    expect(m.sessionFeeGrossCents).toHaveBeenCalledWith(
+      { stationUuid: 'sta_1', driverUuid: null },
+      { __client: true },
+    );
+  });
+
+  it('keeps a hold that covers the session fee', async () => {
+    m.selectQueue.push([{ id: 'sta_1' }]);
+    m.sessionFeeGrossCents.mockResolvedValue(217);
+    expect(await guestHoldTerms(deps, 'site_1', 'CS-1')).toEqual({
+      ...TERMS,
+      sessionFeeCents: 217,
+    });
+  });
+
+  it('keeps the hold for an unknown station', async () => {
+    m.selectQueue.push([]);
+    expect(await guestHoldTerms(deps, 'site_1', 'CS-X')).toEqual({ ...TERMS, sessionFeeCents: 0 });
+    expect(m.sessionFeeGrossCents).not.toHaveBeenCalled();
   });
 });
 

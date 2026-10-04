@@ -31,6 +31,7 @@ import {
 const TEST_BASE = 'https://management-test.adyen.com/v3';
 const HOOKS = `/v3/merchants/${MERCHANT}/webhooks`;
 const URL_ADYEN = 'https://csms.example.com/v1/webhooks/payments/adyen';
+const OTHER_DEPLOYMENT_URL = 'https://other.example.com/v1/webhooks/payments/adyen';
 
 function existingWebhook(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -258,13 +259,41 @@ describe('AdyenPaymentProvider webhook registration', () => {
     expect(value(a, 'adyen.webhookPasswordEnc')).not.toBe(value(b, 'adyen.webhookPasswordEnc'));
   });
 
-  it('refuses when an EVtivity webhook exists and replace is false', async () => {
+  it('refuses when a webhook exists at the URL and replace is false', async () => {
     const { provider, adyen } = fakeAdyenProvider();
-    adyen.next({ body: { data: [existingWebhook({ url: 'https://old.example.com/x' })] } });
+    adyen.next({
+      body: {
+        data: [
+          existingWebhook(),
+          existingWebhook({ id: 'OTHER_DEPLOYMENT', url: OTHER_DEPLOYMENT_URL }),
+          existingWebhook({ id: 'FOREIGN', description: 'ERP', url: 'https://erp.example.com' }),
+        ],
+      },
+    });
     const err = await rejection(provider.registerWebhook({ url: URL_ADYEN, replace: false }));
     expect(err).toBeInstanceOf(WebhookExistsError);
     expect((err as WebhookExistsError).endpoints.map((e) => e.id)).toEqual(['WBHK_OLD']);
+    // Another deployment's EVtivity webhook is listed apart; a foreign one not at all.
+    expect((err as WebhookExistsError).otherEndpoints.map((e) => e.id)).toEqual([
+      'OTHER_DEPLOYMENT',
+    ]);
     expect(adyen.calls).toHaveLength(1);
+  });
+
+  it("creates a new webhook next to another deployment's EVtivity webhook without touching it", async () => {
+    const { provider, adyen } = fakeAdyenProvider();
+    adyen.next({
+      body: { data: [existingWebhook({ id: 'OTHER_DEPLOYMENT', url: OTHER_DEPLOYMENT_URL })] },
+    });
+    const registration = await provider.registerWebhook({ url: URL_ADYEN, replace: true });
+    await registration.activate?.();
+    expect(adyen.calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      `GET ${HOOKS}`,
+      `POST ${HOOKS}`,
+      `POST ${HOOKS}/${WEBHOOK_ID}/generateHmac`,
+      `PATCH ${HOOKS}/${WEBHOOK_ID}`,
+    ]);
+    expect(registration.endpoints.map((e) => e.id)).toEqual([WEBHOOK_ID]);
   });
 
   it('also treats a webhook with the same URL as EVtivity webhook', async () => {
@@ -308,13 +337,18 @@ describe('AdyenPaymentProvider webhook registration', () => {
     ]);
   });
 
-  it('with replace, prefers the webhook at the same URL and deletes other EVtivity webhooks on activate', async () => {
+  it('with replace, prefers the EVtivity webhook at the URL and deletes only duplicates at the URL on activate', async () => {
     const { provider, adyen } = fakeAdyenProvider();
     adyen.next({
       body: {
         data: [
-          existingWebhook({ id: 'DUP', url: 'https://old.example.com/v1/webhooks/payments/adyen' }),
+          existingWebhook({ id: 'BY_HAND', description: 'set up by hand' }),
           existingWebhook({ id: 'SAME' }),
+          existingWebhook({
+            id: 'DUP',
+            url: 'https://CSMS.example.com:443/v1/webhooks/payments/adyen',
+          }),
+          existingWebhook({ id: 'OTHER_DEPLOYMENT', url: OTHER_DEPLOYMENT_URL }),
           existingWebhook({ id: 'FOREIGN', description: 'ERP', url: 'https://erp.example.com' }),
         ],
         pagesTotal: 1,
@@ -325,6 +359,7 @@ describe('AdyenPaymentProvider webhook registration', () => {
     await registration.activate?.();
     expect(adyen.calls.slice(3).map((c) => `${c.method} ${c.path}`)).toEqual([
       `PATCH ${HOOKS}/SAME`,
+      `DELETE ${HOOKS}/BY_HAND`,
       `DELETE ${HOOKS}/DUP`,
     ]);
   });

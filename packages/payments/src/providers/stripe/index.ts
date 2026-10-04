@@ -4,6 +4,7 @@
 import Stripe from 'stripe';
 import { platformFeeCents } from '@evtivity/lib';
 import { captureHoldWithFee, chargeShortfallTopUp } from './charges.js';
+import { stripeMinimumChargeCents } from './minimum-charge.js';
 import type { StripeChargeClient } from './charges.js';
 import {
   PaymentDeclinedError,
@@ -339,6 +340,11 @@ export class StripePaymentProvider implements PaymentProvider {
       }),
     );
     return { state: 'succeeded', capturedCents: input.amountCents, applicationFeeCents };
+  }
+
+  /** Stripe refuses a charge below its per-currency minimum (amount_too_small). */
+  minimumChargeCents(currency: string): number | null {
+    return stripeMinimumChargeCents(currency);
   }
 
   /** chargeShortfallTopUp: final minus captured on the original card and destination. */

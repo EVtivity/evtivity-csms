@@ -19,6 +19,7 @@ import {
 import { zodSchema } from '../../lib/zod-schema.js';
 import { inCompanyCurrency, sessionCurrencySql } from '../../lib/company-currency.js';
 import { storedSessionCostTax } from '../../lib/session-tax.js';
+import { sessionLimitReached } from '../../lib/session-limit.js';
 import { ID_PARAMS } from '../../lib/id-validation.js';
 import { paginatedResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
@@ -137,6 +138,13 @@ const portalSessionDetail = portalSessionListItem
       .date()
       .nullable()
       .describe('Timestamp the EV stopped drawing power, used to bill idle fees'),
+    limitReached: z
+      .enum(['cost', 'energy', 'time'])
+      .nullable()
+      .optional()
+      .describe(
+        'Transaction limit the station reported reaching (cost: the hold or prepaid amount, energy, time); it then suspends charging. Null when none',
+      ),
     currentPowerW: z
       .number()
       .min(0)
@@ -594,6 +602,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
       });
       return {
         ...sessionRest,
+        limitReached: await sessionLimitReached(id),
         currentPowerW: latestPower != null ? parseFloat(latestPower.value) : null,
         batteryPercent: latestSoc != null ? parseFloat(latestSoc.value) : null,
         payment: payment ?? null,
