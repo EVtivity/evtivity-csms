@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 /**
  * TC_K_05_CSMS: Clear Charging Profile - With chargingProfileId
@@ -34,7 +35,7 @@ export const TC_K_05_CSMS: TestCase = {
           reqPayload = payload;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -91,12 +92,12 @@ export const TC_K_06_CSMS: TestCase = {
 
     let received = false;
     ctx.client.setIncomingCallHandler(
-      async (_messageId: string, action: string, _payload: Record<string, unknown>) => {
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'ClearChargingProfile') {
           received = true;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -152,12 +153,12 @@ export const TC_K_08_CSMS: TestCase = {
 
     let received = false;
     ctx.client.setIncomingCallHandler(
-      async (_messageId: string, action: string, _payload: Record<string, unknown>) => {
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'ClearChargingProfile') {
           received = true;
           return { status: 'Unknown' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

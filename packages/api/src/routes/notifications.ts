@@ -21,12 +21,13 @@ import {
   compileAllowedTemplate,
   decryptString,
   formatLocalizedVariables,
+  loadSubjectTemplate,
   notificationMoney,
   notificationTaxRate,
   notificationUnitPrice,
   wrapEmailHtml,
 } from '@evtivity/lib';
-import { getPubSub } from '../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 const OCPP_CACHE_INVALIDATE_CHANNEL = 'cache_invalidate';
 async function invalidateOcppEventSettingsCache(log: FastifyBaseLogger): Promise<void> {
@@ -494,60 +495,22 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
   ],
 };
 
-const FRIENDLY_SUBJECTS: Record<string, string> = {
-  // Driver session events
-  'session.Started': '{{companyName}} - Your charging session has started',
-  'session.Updated': '{{companyName}} - Charging session update',
-  'session.Completed': '{{companyName}} - Your charging session is complete',
-  'session.Faulted': '{{companyName}} - Charging session failed to start',
-  'session.PaymentReceived': '{{companyName}} - Payment received',
-  'session.IdlingStarted': '{{companyName}} - Your vehicle has stopped charging',
-  'session.Receipt': '{{companyName}} - Charging session receipt',
-  // Driver account events
-  'driver.Welcome': '{{companyName}} - Welcome',
-  'driver.ForgotPassword': '{{companyName}} - Reset your password',
-  'driver.PortalInvite': '{{companyName}} - Set up your driver account',
-  'driver.PasswordChanged': '{{companyName}} - Password changed',
-  'driver.AccountVerification': '{{companyName}} - Verify your account',
-  // Payment events
-  'payment.Complete': '{{companyName}} - Payment confirmation',
-  'payment.Refunded': '{{companyName}} - Refund processed',
-  'payment.PreAuthFailed': '{{companyName}} - Payment authorization failed',
-  'payment.CaptureFailed': '{{companyName}} - Payment capture failed',
-  'payment.MissingPaymentMethod': '{{companyName}} - Payment method required',
-  // Reservation events
-  'reservation.Created': '{{companyName}} - Reservation confirmed',
-  'reservation.Cancelled': '{{companyName}} - Reservation cancelled',
-  'reservation.Expiring': '{{companyName}} - Your reservation is expiring soon',
-  'reservation.Expired': '{{companyName}} - Your reservation has expired',
-  'reservation.StationFaulted': '{{companyName}} - Reserved station is unavailable',
-  // Token (RFID card) events
-  'token.Added': '{{companyName}} - New RFID card added to your account',
-  'token.Removed': '{{companyName}} - RFID card removed from your account',
-  'token.Deactivated': '{{companyName}} - RFID card deactivated',
-  'token.Reactivated': '{{companyName}} - RFID card reactivated',
-  // Support case events (driver-facing)
-  'supportCase.Created': '{{companyName}} - Your support case has been opened',
-  'supportCase.OperatorReply': '{{companyName}} - New reply on your support case',
-  'supportCase.Resolved': '{{companyName}} - Your support case has been resolved',
-  // MFA
-  'mfa.VerificationCode': '{{companyName}} - Verification code',
-  // Operator events
-  'operator.UserCreated': '{{companyName}} - New operator account created',
-  'operator.ForgotPassword': '{{companyName}} - Reset your operator password',
-  'operator.PasswordChanged': '{{companyName}} - Operator password changed',
-  // Operator support events
-  'supportCase.NewCaseFromDriver': '{{companyName}} - New support case from driver',
-  'supportCase.DriverReply': '{{companyName}} - Driver replied to support case',
-  // Site host events
-  'site.PayoutOnboarding': '{{companyName}} - Set up payouts for {{siteName}}',
-};
-
-function getDefaultSubject(eventType: string, channel: string): string | null {
+// The default email subject is the event's `subject.hbs` in the template
+// folders (same lookup as the dispatcher), else the generic subject.
+async function getDefaultSubject(
+  eventType: string,
+  channel: string,
+  language: string,
+  templatesDirs: string[],
+): Promise<string | null> {
   if (channel !== 'email') return null;
-  const friendly = FRIENDLY_SUBJECTS[eventType];
-  if (friendly != null) return friendly;
-  return `{{companyName}} - ${eventType} Notification`;
+  // Same checks as the body path: no path segments from the query reach the file system.
+  const valid = templatesDirs.every(
+    (dir) => safeTemplatePath(dir, language, eventType, channel) != null,
+  );
+  const lang = TEMPLATE_LANGUAGES.has(language) ? language : 'en';
+  const source = valid ? await loadSubjectTemplate(eventType, lang, templatesDirs) : null;
+  return source ?? `{{{companyName}}} - ${eventType} Notification`;
 }
 
 function generateDefaultTemplate(eventType: string, channel: string): string {
@@ -1140,7 +1103,10 @@ export function notificationRoutes(app: FastifyInstance): void {
       const apiTemplatesDir =
         process.env['API_TEMPLATES_DIR'] ?? resolve(currentDir, '..', 'templates');
 
-      const defaultSubject = getDefaultSubject(eventType, channel);
+      const defaultSubject = await getDefaultSubject(eventType, channel, language, [
+        ocppTemplatesDir,
+        apiTemplatesDir,
+      ]);
 
       const candidates = [
         safeTemplatePath(ocppTemplatesDir, language, eventType, channel),
@@ -1376,6 +1342,10 @@ export function notificationRoutes(app: FastifyInstance): void {
         startedAt: new Date(Date.now() - 3600000).toISOString(),
         endedAt: new Date().toISOString(),
         amountCents: 1250,
+        reservationId: 1042,
+        feeType: 'cancellation',
+        isNoShowFee: false,
+        refundedAt: new Date().toISOString(),
         // Money and rates as the dispatcher formats them, in the template language.
         ...formatLocalizedVariables(
           {

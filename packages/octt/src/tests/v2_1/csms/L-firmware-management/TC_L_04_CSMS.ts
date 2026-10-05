@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_L_21_CSMS: TestCase = {
   id: 'TC_L_21_CSMS',
@@ -18,13 +19,15 @@ export const TC_L_21_CSMS: TestCase = {
       reason: 'PowerUp',
     });
     let received = false;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'UnpublishFirmware') {
-        received = true;
-        return { status: 'Unpublished' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'UnpublishFirmware') {
+          received = true;
+          return { status: 'Unpublished' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'UnpublishFirmware', {
         stationId: ctx.stationId,
@@ -70,13 +73,15 @@ export const TC_L_22_CSMS: TestCase = {
       reason: 'PowerUp',
     });
     let received = false;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'UnpublishFirmware') {
-        received = true;
-        return { status: 'NoFirmware' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'UnpublishFirmware') {
+          received = true;
+          return { status: 'NoFirmware' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'UnpublishFirmware', {
         stationId: ctx.stationId,
@@ -115,13 +120,15 @@ export const TC_L_23_CSMS: TestCase = {
       reason: 'PowerUp',
     });
     let received = false;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'UnpublishFirmware') {
-        received = true;
-        return { status: 'NoFirmware' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'UnpublishFirmware') {
+          received = true;
+          return { status: 'NoFirmware' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'UnpublishFirmware', {
         stationId: ctx.stationId,

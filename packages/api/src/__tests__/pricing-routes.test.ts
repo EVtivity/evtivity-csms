@@ -100,6 +100,9 @@ vi.mock('@evtivity/database', () => ({
   holidayAuditLog: {},
   pricingAssignmentAuditLog: {},
   writeAudit: vi.fn().mockResolvedValue(undefined),
+  resolveGroupTariffs: vi.fn(() => Promise.resolve({ tariffs: [], current: null })),
+  getSystemTimezone: vi.fn(() => Promise.resolve('Europe/Berlin')),
+  isRoamingEnabled: vi.fn(() => Promise.resolve(false)),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -116,6 +119,7 @@ vi.mock('drizzle-orm', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { pricingRoutes } from '../routes/pricing.js';
+import { resolveGroupTariffs } from '@evtivity/database';
 import { db } from '@evtivity/database';
 
 const VALID_GROUP_ID = 'pgr_000000000001';
@@ -244,6 +248,46 @@ describe('Pricing routes', () => {
   });
 
   // ---------- POST /v1/pricing-groups ----------
+
+  describe('GET /v1/pricing-groups/:id/schedule', () => {
+    const group = { id: VALID_GROUP_ID, name: 'Default' };
+
+    it('resolves the current tariff in the timezone given', async () => {
+      setupDbResults([group]);
+      const res = await app.inject({
+        method: 'GET',
+        url: `/pricing-groups/${VALID_GROUP_ID}/schedule?timezone=Asia/Tokyo`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(vi.mocked(resolveGroupTariffs).mock.calls.at(-1)?.[1]).toMatchObject({
+        timezone: 'Asia/Tokyo',
+      });
+    });
+
+    it('defaults to the system timezone setting', async () => {
+      setupDbResults([group]);
+      const res = await app.inject({
+        method: 'GET',
+        url: `/pricing-groups/${VALID_GROUP_ID}/schedule`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(vi.mocked(resolveGroupTariffs).mock.calls.at(-1)?.[1]).toMatchObject({
+        timezone: 'Europe/Berlin',
+      });
+    });
+
+    it('returns 400 for an invalid timezone', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/pricing-groups/${VALID_GROUP_ID}/schedule?timezone=Not/AZone`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
+    });
+  });
 
   describe('POST /v1/pricing-groups', () => {
     it('returns 401 without token', async () => {

@@ -1,7 +1,6 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { readFileSync } from 'node:fs';
 import PDFDocument from 'pdfkit';
 import { Resvg } from '@resvg/resvg-js';
 import { client } from '@evtivity/database';
@@ -9,7 +8,7 @@ import { createLogger, formatCurrencyAmount, formatTaxRatePercent } from '@evtiv
 import type { InvoiceDetail } from './invoice.service.js';
 import { INVOICE_LABELS, describeLineItem, isInvoiceLanguage } from './invoice-labels.js';
 import type { InvoiceLabels, InvoiceLanguage } from './invoice-labels.js';
-import { CJK_FONT_FACES, CJK_FONT_FILES } from './invoice-pdf-fonts.js';
+import { pdfCanRender, registerPdfFonts } from '@evtivity/services/cjk-fonts';
 
 const logger = createLogger('invoice-pdf');
 
@@ -24,71 +23,17 @@ const COLOR_TEXT = '#0f172a';
 const COLOR_MUTED = '#64748b';
 const COLOR_LINE = '#cbd5e1';
 
-interface PdfFonts {
-  regular: string;
-  bold: string;
-}
-
-/** Latin languages use the standard Helvetica fonts built into pdfkit. */
-const LATIN_FONTS: PdfFonts = { regular: 'Helvetica', bold: 'Helvetica-Bold' };
-
-type CjkLanguage = keyof typeof CJK_FONT_FACES;
-
-function isCjkLanguage(language: InvoiceLanguage): language is CjkLanguage {
-  return Object.hasOwn(CJK_FONT_FACES, language);
-}
-
-interface CjkFontData {
-  regular: Buffer;
-  bold: Buffer;
-}
-
-/** undefined: not read yet. null: a file is missing (warned once). */
-let cjkFontData: CjkFontData | null | undefined;
-
-/**
- * The CJK font collections, read once per process. Returns null and logs one
- * warn when a file is missing (local dev outside the API image).
- */
-function loadCjkFonts(): CjkFontData | null {
-  if (cjkFontData !== undefined) return cjkFontData;
-  try {
-    cjkFontData = {
-      regular: readFileSync(CJK_FONT_FILES.regular),
-      bold: readFileSync(CJK_FONT_FILES.bold),
-    };
-  } catch (err) {
-    logger.warn(
-      { err, files: CJK_FONT_FILES },
-      'CJK fonts not found, Korean and Chinese invoice PDFs render in English',
-    );
-    cjkFontData = null;
-  }
-  return cjkFontData;
-}
-
 /**
  * The PDF language: the driver's language when the PDF can render it, else
  * English. Korean and Chinese need the Noto Sans CJK fonts of the API image
- * and fall back to English without them.
+ * (`@evtivity/services/cjk-fonts`) and fall back to English without them.
  */
 export function resolveInvoicePdfLanguage(
   driverLanguage: string | null | undefined,
 ): InvoiceLanguage {
   if (!isInvoiceLanguage(driverLanguage)) return 'en';
-  if (isCjkLanguage(driverLanguage) && loadCjkFonts() == null) return 'en';
+  if (!pdfCanRender(driverLanguage)) return 'en';
   return driverLanguage;
-}
-
-/** Registers the fonts of the language on the document and returns their names. */
-function registerFonts(doc: PDFKit.PDFDocument, language: InvoiceLanguage): PdfFonts {
-  if (!isCjkLanguage(language)) return LATIN_FONTS;
-  const data = loadCjkFonts();
-  if (data == null) return LATIN_FONTS;
-  const faces = CJK_FONT_FACES[language];
-  doc.registerFont('InvoiceCjk', data.regular, faces.regular);
-  doc.registerFont('InvoiceCjk-Bold', data.bold, faces.bold);
-  return { regular: 'InvoiceCjk', bold: 'InvoiceCjk-Bold' };
 }
 
 interface CompanyBranding {
@@ -203,7 +148,7 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
   const logoBuffer = decodeLogo(branding.logo);
 
   const doc = new PDFDocument({ margin: MARGIN, size: 'A4', layout: 'portrait' });
-  const fonts = registerFonts(doc, language);
+  const fonts = registerPdfFonts(doc, language);
   const chunks: Buffer[] = [];
 
   const built = new Promise<Buffer>((resolve, reject) => {

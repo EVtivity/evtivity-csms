@@ -194,10 +194,12 @@ export type { SessionPaymentFacts, SessionPaymentMode } from './payment-mode.js'
 export { recordTerminalSettlement } from './payment-records.js';
 export type { PrepaidSettlement } from './payment-records.js';
 export { refundPaymentRecord } from './refunds.js';
-export type { ChargeRefund, RefundOutcome, RefundRequest } from './refunds.js';
+export type { ChargeRefund, RefundOutcome, RefundRequest, RefundTarget } from './refunds.js';
 export { applyPaymentEvent, ingestPaymentWebhook } from './webhooks.js';
 export type { PaymentWebhookNotice, WebhookResult } from './webhooks.js';
 export { dispatchPaymentWebhookNotices } from './webhook-notices.js';
+export { dispatchFeeRefundNotification, FEE_REFUNDED_EVENT } from './fee-refund-notice.js';
+export type { FeeRefundNoticeDeps } from './fee-refund-notice.js';
 export { isSameWebhookUrl, partitionWebhookEndpoints } from './webhook-endpoint-url.js';
 export type { WebhookNoticeDeps } from './webhook-notices.js';
 export {

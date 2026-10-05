@@ -23,7 +23,7 @@ vi.mock('@evtivity/database', () => ({
 vi.mock('drizzle-orm', () => ({ eq: vi.fn() }));
 
 const publish = vi.fn(() => Promise.resolve());
-vi.mock('@evtivity/api/src/lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: () => ({ publish }),
 }));
 

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 const makeTransactionDisplayTest = (
   id: string,
@@ -23,17 +24,19 @@ const makeTransactionDisplayTest = (
       reason: 'PowerUp',
     });
     let received = false;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'SetDisplayMessage') {
-        received = true;
-        return { status: respondStatus };
-      }
-      if (action === 'ClearDisplayMessage') {
-        received = true;
-        return { status: respondStatus };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'SetDisplayMessage') {
+          received = true;
+          return { status: respondStatus };
+        }
+        if (action === 'ClearDisplayMessage') {
+          received = true;
+          return { status: respondStatus };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'SetDisplayMessage', {
         stationId: ctx.stationId,

@@ -65,15 +65,17 @@ export async function enableCssPair(opts: PairOptions, tx?: Executor): Promise<v
 
   // Parent station metadata feeds the device-identity keys in the config
   // defaults (ChargingStation.VendorName, ChargePointModel, etc.).
+  // opts.stationId is the OCPP identity (charging_stations.station_id).
   const [parent] = await exec
     .select({
+      id: chargingStations.id,
       model: chargingStations.model,
       serialNumber: chargingStations.serialNumber,
       firmwareVersion: chargingStations.firmwareVersion,
       vendorId: chargingStations.vendorId,
     })
     .from(chargingStations)
-    .where(eq(chargingStations.id, opts.stationId));
+    .where(eq(chargingStations.stationId, opts.stationId));
 
   let vendorName = 'EVtivity';
   if (parent?.vendorId != null) {
@@ -105,16 +107,19 @@ export async function enableCssPair(opts: PairOptions, tx?: Executor): Promise<v
     // station already has evses/connectors, mirror them. Otherwise create
     // a single default EVSE with a randomly-picked plug type so the
     // freshly-provisioned fleet has variety.
-    const existingEvses = await innerTx
-      .select({
-        evseId: evses.evseId,
-        connectorId: connectors.connectorId,
-        connectorType: connectors.connectorType,
-        maxPowerKw: connectors.maxPowerKw,
-      })
-      .from(evses)
-      .innerJoin(connectors, eq(connectors.evseId, evses.id))
-      .where(eq(evses.stationId, opts.stationId));
+    const existingEvses =
+      parent == null
+        ? []
+        : await innerTx
+            .select({
+              evseId: evses.evseId,
+              connectorId: connectors.connectorId,
+              connectorType: connectors.connectorType,
+              maxPowerKw: connectors.maxPowerKw,
+            })
+            .from(evses)
+            .innerJoin(connectors, eq(connectors.evseId, evses.id))
+            .where(eq(evses.stationId, parent.id));
 
     let pairedEvses: PairCssEvse[];
     if (existingEvses.length > 0) {

@@ -6,8 +6,10 @@ COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
 COPY packages/database/package.json packages/database/
 COPY packages/payments/package.json packages/payments/
+COPY packages/services/package.json packages/services/
 COPY packages/api/package.json packages/api/
 COPY packages/ocpp/package.json packages/ocpp/
+COPY packages/v2g-exi/package.json packages/v2g-exi/
 COPY packages/ocpi/package.json packages/ocpi/
 COPY packages/csms/package.json packages/csms/
 COPY packages/portal/package.json packages/portal/
@@ -35,8 +37,10 @@ COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
 COPY packages/database/package.json packages/database/
 COPY packages/payments/package.json packages/payments/
+COPY packages/services/package.json packages/services/
 COPY packages/api/package.json packages/api/
 COPY packages/ocpp/package.json packages/ocpp/
+COPY packages/v2g-exi/package.json packages/v2g-exi/
 COPY packages/ocpi/package.json packages/ocpi/
 COPY packages/csms/package.json packages/csms/
 COPY packages/portal/package.json packages/portal/
@@ -50,7 +54,7 @@ COPY --from=build /app/dist/ocpi.mjs dist/ocpi.mjs
 COPY --from=build /app/dist/ocpi.mjs.map dist/ocpi.mjs.map
 
 LABEL org.opencontainers.image.source="https://github.com/EVtivity/evtivity-csms-helm"
-LABEL org.opencontainers.image.license="LicenseRef-EVtivity-EULA"
+LABEL org.opencontainers.image.licenses="BUSL-1.1"
 LABEL org.opencontainers.image.vendor="EVtivity"
 
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/evtivity-entrypoint

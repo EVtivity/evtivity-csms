@@ -184,7 +184,7 @@ const { mockPublish, mockSubscribe } = vi.hoisted(() => {
   return { mockPublish: pub, mockSubscribe: sub };
 });
 
-vi.mock('../lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn(() => ({ publish: mockPublish, subscribe: mockSubscribe })),
   setPubSub: vi.fn(),
 }));

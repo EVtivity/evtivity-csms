@@ -29,7 +29,7 @@ const dispatchDriverNotification = vi.fn(() => Promise.resolve());
 
 vi.mock('@evtivity/database', () => ({ client: mockClient }));
 vi.mock('@evtivity/lib', () => ({ dispatchDriverNotification }));
-vi.mock('@evtivity/api/src/lib/pubsub.js', () => ({ getPubSub: () => ({ publish: vi.fn() }) }));
+vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: () => ({ publish: vi.fn() }) }));
 
 function makeLog(): Logger {
   return {

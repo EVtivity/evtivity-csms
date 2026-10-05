@@ -14,6 +14,7 @@ import { OcpiPushListener } from './services/push.service.js';
 import { OcpiPullListener } from './services/pull.service.js';
 import { OcpiRegisterListener } from './services/register-listener.service.js';
 import { initCommandCallbackService } from './services/command-callback.service.js';
+import { startOcpiCdrJobs } from './services/cdr-jobs.js';
 import { setPubSub } from './lib/pubsub.js';
 import { config } from './lib/config.js';
 
@@ -53,8 +54,13 @@ async function start(): Promise<void> {
   // run SET NX / EVAL). Serializes overlapping pulls across OCPI replicas.
   const lockRedis = createBullMQConnection(config.REDIS_URL);
 
-  // Start push listener for data change notifications
-  const pushListener = new OcpiPushListener(pubsub);
+  // CDR issue and push, and the one-time legacy EVSE removal (BullMQ, so a
+  // job runs once across replicas and survives a restart).
+  const cdrJobs = await startOcpiCdrJobs(config.REDIS_URL);
+
+  // Start push listener for data change notifications. A pushed completed
+  // session schedules its CDR.
+  const pushListener = new OcpiPushListener(pubsub, cdrJobs.scheduleSessionCdr);
   await pushListener.start();
 
   // Start pull listener for sync requests
@@ -81,6 +87,7 @@ async function start(): Promise<void> {
       pullListener.stop(),
       pushListener.stop(),
     ]);
+    await cdrJobs.stop();
     await pubsub.close();
     await lockRedis.quit();
   };

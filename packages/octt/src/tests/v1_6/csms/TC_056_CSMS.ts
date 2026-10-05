@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../types.js';
+import { defaultReply } from '../../../default-replies.js';
 
 export const TC_056_CSMS: TestCase = {
   id: 'TC_056_CSMS',
@@ -28,7 +29,7 @@ export const TC_056_CSMS: TestCase = {
         purpose = (profile?.['chargingProfilePurpose'] as string) || '';
         return { status: 'Accepted' };
       }
-      return {};
+      return defaultReply('ocpp1.6', action, payload);
     });
 
     if (ctx.triggerCommand != null) {

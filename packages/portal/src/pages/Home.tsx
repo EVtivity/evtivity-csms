@@ -9,7 +9,7 @@ import { Zap } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
-import { costIncludesTax } from '@evtivity/lib/price-display';
+import { costContainsTax } from '@evtivity/lib/price-display';
 import { formatCents, formatEnergy, formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
 import { useHomeCards } from '@/lib/home-cards-store';
@@ -21,7 +21,7 @@ interface Session {
   startedAt: string | null;
   energyDeliveredWh: string | null;
   finalCostCents: number | null;
-  tariffTaxRate: string | null;
+  taxCents: number | null;
   currency: string;
   stationName: string | null;
   siteName: string | null;
@@ -187,7 +187,7 @@ export function Home(): React.JSX.Element {
                   <div className="text-right">
                     <p className="text-sm font-medium">{formatEnergy(session.energyDeliveredWh)}</p>
                     <p className="text-xs text-muted-foreground">
-                      {costIncludesTax(session.finalCostCents, session.tariffTaxRate)
+                      {costContainsTax(session.finalCostCents, session.taxCents)
                         ? t('common.amountInclTax', {
                             amount: formatCents(session.finalCostCents, session.currency),
                           })

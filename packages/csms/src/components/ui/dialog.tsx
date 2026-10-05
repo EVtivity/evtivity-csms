@@ -5,7 +5,16 @@ import * as React from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const DialogContext = React.createContext<{ onClose: () => void }>({ onClose: () => {} });
+interface DialogContextValue {
+  onClose: () => void;
+  /** Id of the DialogTitle, which names the dialog (aria-labelledby). */
+  titleId?: string;
+  /** Id of the DialogDescription, set while one is rendered (aria-describedby). */
+  descriptionId?: string;
+  registerDescription?: () => () => void;
+}
+
+const DialogContext = React.createContext<DialogContextValue>({ onClose: () => {} });
 
 interface DialogProps {
   open: boolean;
@@ -14,6 +23,16 @@ interface DialogProps {
 }
 
 function Dialog({ open, onOpenChange, children }: DialogProps): React.JSX.Element | null {
+  const titleId = React.useId();
+  const descriptionId = React.useId();
+  const [descriptionCount, setDescriptionCount] = React.useState(0);
+  const registerDescription = React.useCallback(() => {
+    setDescriptionCount((n) => n + 1);
+    return () => {
+      setDescriptionCount((n) => n - 1);
+    };
+  }, []);
+
   if (!open) return null;
 
   return (
@@ -22,6 +41,9 @@ function Dialog({ open, onOpenChange, children }: DialogProps): React.JSX.Elemen
         onClose: () => {
           onOpenChange(false);
         },
+        titleId,
+        ...(descriptionCount > 0 ? { descriptionId } : {}),
+        registerDescription,
       }}
     >
       <div className="fixed inset-0 z-50">
@@ -42,10 +64,14 @@ function DialogContent({
   children,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>): React.JSX.Element {
-  const { onClose } = React.useContext(DialogContext);
+  const { onClose, titleId, descriptionId } = React.useContext(DialogContext);
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
       className={cn(
         'relative z-50 w-full max-w-lg rounded-lg border bg-background p-6 shadow-lg grid gap-4',
         className,
@@ -84,8 +110,13 @@ function DialogTitle({
   className,
   ...props
 }: React.HTMLAttributes<HTMLHeadingElement>): React.JSX.Element {
+  const { titleId } = React.useContext(DialogContext);
   return (
-    <h2 className={cn('text-lg font-semibold leading-none tracking-tight', className)} {...props} />
+    <h2
+      className={cn('text-lg font-semibold leading-none tracking-tight', className)}
+      {...props}
+      id={titleId}
+    />
   );
 }
 
@@ -93,7 +124,11 @@ function DialogDescription({
   className,
   ...props
 }: React.HTMLAttributes<HTMLParagraphElement>): React.JSX.Element {
-  return <p className={cn('text-sm text-muted-foreground', className)} {...props} />;
+  const { descriptionId, registerDescription } = React.useContext(DialogContext);
+  React.useEffect(() => registerDescription?.(), [registerDescription]);
+  return (
+    <p className={cn('text-sm text-muted-foreground', className)} {...props} id={descriptionId} />
+  );
 }
 
 function DialogFooter({

@@ -125,9 +125,9 @@ for (const def of stationDefs) {
     .onConflictDoNothing({ target: chargingStations.stationId })
     .returning({ id: chargingStations.id });
 
-  // If the station already exists, fetch its id so we can still refresh the
-  // owned config template below. Station fields themselves are preserved
-  // (an operator may have edited them).
+  // If the station already exists, fetch its id so a missing owned config
+  // template is still created below. Station fields and an existing template
+  // are preserved (an operator may have edited them).
   let inserted: { id: string } | undefined = insertedRow;
   if (inserted == null) {
     const [existing] = await db
@@ -158,16 +158,8 @@ for (const def of stationDefs) {
         stationId: inserted.id,
         targetFilter: tplFilter,
       })
-      .onConflictDoUpdate({
-        target: configTemplates.stationId,
-        set: {
-          name: tplName,
-          description: `Auto generated. ${def.stationId} configurations (OCPP ${tplOcppVersion})`,
-          ocppVersion: tplOcppVersion,
-          targetFilter: tplFilter,
-          updatedAt: new Date(),
-        },
-      });
+      // Insert when missing. An existing template is the operator's to edit.
+      .onConflictDoNothing({ target: configTemplates.stationId });
   }
 
   // EVSE / connector / CSS rows only get created on first insert. The unique
@@ -436,18 +428,8 @@ for (const def of blockAllDefs) {
     await db
       .insert(configTemplates)
       .values({ ...ioConfigTemplateValues, stationId: io2Station.id, targetFilter: ioFilter })
-      .onConflictDoUpdate({
-        target: configTemplates.stationId,
-        set: {
-          name: ioConfigTemplateValues.name,
-          description: ioConfigTemplateValues.description,
-          ocppVersion: ioConfigTemplateValues.ocppVersion,
-          variables: ioConfigTemplateValues.variables,
-          targetFilter: ioFilter,
-          updatedAt: new Date(),
-        },
-      });
-    console.log(`  Upserted config template: ${ioConfigTemplateName}`);
+      .onConflictDoNothing({ target: configTemplates.stationId });
+    console.log(`  Ensured config template: ${ioConfigTemplateName}`);
   }
 
   // OCPP 1.6 variant for IOCHARGER-001 (vendor-specific keys with empty
@@ -488,18 +470,8 @@ for (const def of blockAllDefs) {
     await db
       .insert(configTemplates)
       .values({ ...io16ConfigTemplateValues, stationId: io1Station.id, targetFilter: io16Filter })
-      .onConflictDoUpdate({
-        target: configTemplates.stationId,
-        set: {
-          name: io16ConfigTemplateValues.name,
-          description: io16ConfigTemplateValues.description,
-          ocppVersion: io16ConfigTemplateValues.ocppVersion,
-          variables: io16ConfigTemplateValues.variables,
-          targetFilter: io16Filter,
-          updatedAt: new Date(),
-        },
-      });
-    console.log(`  Upserted config template: ${io16ConfigTemplateName}`);
+      .onConflictDoNothing({ target: configTemplates.stationId });
+    console.log(`  Ensured config template: ${io16ConfigTemplateName}`);
   }
 }
 

@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../types.js';
 import { pushSendAckStep } from '../../../csms-test-helpers.js';
+import { defaultReply } from '../../../default-replies.js';
 
 export const TC_079_CSMS: TestCase = {
   id: 'TC_079_CSMS',
@@ -28,7 +29,7 @@ export const TC_079_CSMS: TestCase = {
         logType = (payload['logType'] as string) || '';
         return { status: 'Accepted' };
       }
-      return {};
+      return defaultReply('ocpp1.6', action, payload);
     });
 
     if (ctx.triggerCommand != null) {

@@ -7,11 +7,12 @@ import { settings } from '../schema/settings.js';
 
 let cachedValue: boolean | undefined;
 let cachedAt = 0;
-const TTL_MS = 60_000;
+/** How long each process caches the pnc.* settings it reads (pnc.enabled, the OCSP host allowlist). */
+export const PNC_SETTINGS_CACHE_TTL_MS = 60_000;
 
 export async function isPncEnabled(): Promise<boolean> {
   const now = Date.now();
-  if (cachedValue !== undefined && now - cachedAt < TTL_MS) {
+  if (cachedValue !== undefined && now - cachedAt < PNC_SETTINGS_CACHE_TTL_MS) {
     return cachedValue;
   }
 
@@ -38,7 +39,7 @@ let allowedHostsCachedAt = 0;
  */
 export async function getOcspAllowedPrivateHosts(): Promise<string[]> {
   const now = Date.now();
-  if (cachedAllowedHosts !== undefined && now - allowedHostsCachedAt < TTL_MS) {
+  if (cachedAllowedHosts !== undefined && now - allowedHostsCachedAt < PNC_SETTINGS_CACHE_TTL_MS) {
     return cachedAllowedHosts;
   }
 

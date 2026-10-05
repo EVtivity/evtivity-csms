@@ -56,6 +56,7 @@ export const ERROR_CODES = {
   DUPLICATE_SITE_NAME: 'DUPLICATE_SITE_NAME',
   DUPLICATE_STATION_ID: 'DUPLICATE_STATION_ID',
   ELECTRICITY_RATE_NOT_FOUND: 'ELECTRICITY_RATE_NOT_FOUND',
+  EMAID_PREFIX_NOT_CONFIGURED: 'EMAID_PREFIX_NOT_CONFIGURED',
   EMAIL_EXISTS: 'EMAIL_EXISTS',
   EMAIL_NOT_CONFIGURED: 'EMAIL_NOT_CONFIGURED',
   EMAIL_NOT_VERIFIED: 'EMAIL_NOT_VERIFIED',
@@ -96,6 +97,8 @@ export const ERROR_CODES = {
   INVOICE_NO_SESSIONS: 'INVOICE_NO_SESSIONS',
   INVOICE_NOT_FOUND: 'INVOICE_NOT_FOUND',
   LOAD_NOT_FOUND: 'LOAD_NOT_FOUND',
+  LOCAL_CA_EXISTS: 'LOCAL_CA_EXISTS',
+  LOCAL_CA_NOT_CONFIGURED: 'LOCAL_CA_NOT_CONFIGURED',
   LOCATION_NOT_FOUND: 'LOCATION_NOT_FOUND',
   MAINTENANCE_ACTIVE: 'MAINTENANCE_ACTIVE',
   MAINTENANCE_ALREADY_ACTIVE: 'MAINTENANCE_ALREADY_ACTIVE',
@@ -166,6 +169,8 @@ export const ERROR_CODES = {
   PAYOUT_ACCOUNT_EXISTS: 'PAYOUT_ACCOUNT_EXISTS',
   PAYOUT_ACCOUNT_NOT_READY: 'PAYOUT_ACCOUNT_NOT_READY',
   PERMISSIONS_EXCEED_OWN: 'PERMISSIONS_EXCEED_OWN',
+  PKI_ROOT_REFRESH_FAILED: 'PKI_ROOT_REFRESH_FAILED',
+  PNC_CONTRACT_NOT_FOUND: 'PNC_CONTRACT_NOT_FOUND',
   PNC_DISABLED: 'PNC_DISABLED',
   PORTAL_ALREADY_ACTIVE: 'PORTAL_ALREADY_ACTIVE',
   PORTAL_REGISTRATION_DISABLED: 'PORTAL_REGISTRATION_DISABLED',
@@ -308,6 +313,7 @@ export type ErrorCode =
   | 'DUPLICATE_SITE_NAME'
   | 'DUPLICATE_STATION_ID'
   | 'ELECTRICITY_RATE_NOT_FOUND'
+  | 'EMAID_PREFIX_NOT_CONFIGURED'
   | 'EMAIL_EXISTS'
   | 'EMAIL_NOT_CONFIGURED'
   | 'EMAIL_NOT_VERIFIED'
@@ -348,6 +354,8 @@ export type ErrorCode =
   | 'INVOICE_NO_SESSIONS'
   | 'INVOICE_NOT_FOUND'
   | 'LOAD_NOT_FOUND'
+  | 'LOCAL_CA_EXISTS'
+  | 'LOCAL_CA_NOT_CONFIGURED'
   | 'LOCATION_NOT_FOUND'
   | 'MAINTENANCE_ACTIVE'
   | 'MAINTENANCE_ALREADY_ACTIVE'
@@ -418,6 +426,8 @@ export type ErrorCode =
   | 'PAYOUT_ACCOUNT_EXISTS'
   | 'PAYOUT_ACCOUNT_NOT_READY'
   | 'PERMISSIONS_EXCEED_OWN'
+  | 'PKI_ROOT_REFRESH_FAILED'
+  | 'PNC_CONTRACT_NOT_FOUND'
   | 'PNC_DISABLED'
   | 'PORTAL_ALREADY_ACTIVE'
   | 'PORTAL_REGISTRATION_DISABLED'
@@ -552,7 +562,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   CREATE_FAILED: 'Failed to create circuit',
   CSR_NOT_FOUND: 'Pending CSR not found',
   CSRF_INVALID: 'Invalid CSRF token',
-  CSS_ACTION_REJECTED: 'Charging station simulator rejected the action',
+  CSS_ACTION_REJECTED: 'Charging Station Simulator rejected the action',
   CSS_ACTION_TIMEOUT: 'Simulator did not respond within 5s',
   DOWNTIME_NOT_FOUND: 'Excluded downtime record not found',
   DRIVER_ALREADY_IN_FLEET: 'Driver is already in this fleet',
@@ -568,6 +578,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   DUPLICATE_SITE_NAME: 'A site with this name already exists',
   DUPLICATE_STATION_ID: 'Station ID already exists',
   ELECTRICITY_RATE_NOT_FOUND: 'Electricity rate not found',
+  EMAID_PREFIX_NOT_CONFIGURED: 'Set the eMAID country code and provider ID first',
   EMAIL_EXISTS: 'Email already registered',
   EMAIL_NOT_CONFIGURED: 'Email provider not configured',
   EMAIL_NOT_VERIFIED: 'Email not verified',
@@ -608,6 +619,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   INVOICE_NO_SESSIONS: 'No uninvoiced sessions found for this driver in the selected date range',
   INVOICE_NOT_FOUND: 'Invoice not found',
   LOAD_NOT_FOUND: 'Load not found',
+  LOCAL_CA_EXISTS: 'A local contract CA already exists',
+  LOCAL_CA_NOT_CONFIGURED: 'Create the local contract CA first',
   LOCATION_NOT_FOUND: 'Location not found',
   MAINTENANCE_ACTIVE: 'Site is currently under maintenance',
   MAINTENANCE_ALREADY_ACTIVE: 'Maintenance event is already active',
@@ -682,6 +695,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   PAYOUT_ACCOUNT_EXISTS: 'The site already has a payout account',
   PAYOUT_ACCOUNT_NOT_READY: "The site's payout account cannot receive payments yet",
   PERMISSIONS_EXCEED_OWN: 'API key permissions must be a subset of your own permissions',
+  PKI_ROOT_REFRESH_FAILED: 'Root certificate refresh from the PKI provider failed',
+  PNC_CONTRACT_NOT_FOUND: 'Plug & Charge contract not found',
   PNC_DISABLED: 'Plug & Charge is disabled',
   PORTAL_ALREADY_ACTIVE: 'Driver already has portal access',
   PORTAL_REGISTRATION_DISABLED:

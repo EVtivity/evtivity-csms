@@ -57,14 +57,18 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
-async function getPartnerInfo(
-  partnerId: string,
-): Promise<{ countryCode: string; partyId: string; version: string | null } | null> {
+async function getPartnerInfo(partnerId: string): Promise<{
+  countryCode: string;
+  partyId: string;
+  version: string | null;
+  allowPrivateNetwork: boolean;
+} | null> {
   const [partner] = await db
     .select({
       countryCode: ocpiPartners.countryCode,
       partyId: ocpiPartners.partyId,
       version: ocpiPartners.version,
+      allowPrivateNetwork: ocpiPartners.allowPrivateNetwork,
     })
     .from(ocpiPartners)
     .where(eq(ocpiPartners.id, partnerId))
@@ -95,13 +99,17 @@ async function getPartnerToken(partnerId: string): Promise<string | null> {
   return getOutboundToken(partnerId);
 }
 
-function createOcpiClient(token: string, toCountryCode: string, toPartyId: string): OcpiClient {
+function createOcpiClient(
+  token: string,
+  partner: { countryCode: string; partyId: string; allowPrivateNetwork: boolean },
+): OcpiClient {
   return new OcpiClient({
     token,
     fromCountryCode: getCountryCode(),
     fromPartyId: getPartyId(),
-    toCountryCode,
-    toPartyId,
+    toCountryCode: partner.countryCode,
+    toPartyId: partner.partyId,
+    allowPrivateNetwork: partner.allowPrivateNetwork,
   });
 }
 
@@ -219,7 +227,7 @@ async function pullLocationsInner(partnerId: string): Promise<SyncResult> {
       throw new Error('Partner not found');
     }
 
-    const client = createOcpiClient(token, partner.countryCode, partner.partyId);
+    const client = createOcpiClient(token, partner);
 
     // Stream page-by-page and flush each page as batched upserts so memory is
     // bounded by one page, not the whole catalog.
@@ -340,7 +348,7 @@ async function pullTariffsInner(partnerId: string): Promise<SyncResult> {
       throw new Error('Partner not found');
     }
 
-    const client = createOcpiClient(token, partner.countryCode, partner.partyId);
+    const client = createOcpiClient(token, partner);
 
     let count = 0;
     let skipped = 0;
@@ -429,7 +437,7 @@ async function pullCdrsInner(partnerId: string): Promise<SyncResult> {
       throw new Error('Partner not found');
     }
 
-    const client = createOcpiClient(token, partner.countryCode, partner.partyId);
+    const client = createOcpiClient(token, partner);
     // total_cost is a Price of the partner's version: excl_vat in 2.2.1,
     // before_taxes in 2.3.0. ocpi_cdrs.total_cost holds that amount.
     const version = resolvePartnerVersion(partner.version);

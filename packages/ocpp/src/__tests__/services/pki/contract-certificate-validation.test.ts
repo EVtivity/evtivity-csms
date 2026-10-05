@@ -32,6 +32,15 @@ vi.mock('../../../services/pki/provider-factory.js', () => ({
   getPkiProvider: () => Promise.resolve({ getOcspStatus }),
 }));
 
+// The local contract CA (none by default): its MO certificates and the
+// status of certificates it issued.
+let localMo: { roots: unknown[]; contractIssuers: unknown[]; all: unknown[] } | null = null;
+const localCertificateStatus = vi.fn<(d: { serialNumber: string }) => Promise<string | null>>();
+vi.mock('../../../services/pki/local-contract-status.js', () => ({
+  getLocalMoCertificates: () => Promise.resolve(localMo),
+  localCertificateStatus: (d: { serialNumber: string }) => localCertificateStatus(d),
+}));
+
 import { buildOcspRequest } from '../../../services/pki/ocsp.js';
 import {
   applyContractCertificateVerdict,
@@ -79,6 +88,9 @@ function respondWith(revokedSerials: string[] = [], unreachable: string[] = []):
 
 beforeEach(() => {
   caRows = [];
+  localMo = null;
+  localCertificateStatus.mockReset();
+  localCertificateStatus.mockResolvedValue(null);
   clearContractValidationCaCache();
   getOcspStatus.mockReset();
 });
@@ -191,6 +203,50 @@ describe('validateContractCertificate with a PEM certificate chain', () => {
     expect(await validateContractCertificate({ certificate: 'not a pem' }, logger)).toBe(
       'CertChainError',
     );
+  });
+});
+
+describe('validateContractCertificate for the local contract CA', () => {
+  it('answers hash data from the local records instead of OCSP', async () => {
+    localCertificateStatus.mockResolvedValue('good');
+    const hashData = [contract, moSub2].map((c) => requestDataFor(c, ''));
+    expect(
+      await validateContractCertificate({ iso15118CertificateHashData: hashData }, logger),
+    ).toBe('Accepted');
+    expect(getOcspStatus).not.toHaveBeenCalled();
+    localCertificateStatus.mockResolvedValue('revoked');
+    expect(
+      await validateContractCertificate({ iso15118CertificateHashData: hashData }, logger),
+    ).toBe('CertificateRevoked');
+  });
+
+  it('fails a certificate without a responder URL that the local CA did not issue', async () => {
+    const hashData = [requestDataFor(contract, '')];
+    expect(
+      await validateContractCertificate({ iso15118CertificateHashData: hashData }, logger),
+    ).toBe('CertChainError');
+    expect(getOcspStatus).not.toHaveBeenCalled();
+  });
+
+  it('trusts the local MO root for a PEM chain without OCSP URLs', async () => {
+    const root = await issueCert('CN=Local MO Root', null, { ca: true });
+    const sub1 = await issueCert('CN=Local MO Sub1', root, { ca: true });
+    const sub2 = await issueCert('CN=Local MO Sub2', sub1, { ca: true });
+    const leaf = await issueCert('CN=USEVTC000000001', sub2);
+    localMo = {
+      roots: [root.asn],
+      contractIssuers: [sub2.asn],
+      all: [root.asn, sub1.asn, sub2.asn],
+    };
+    localCertificateStatus.mockResolvedValue('good');
+    expect(
+      await validateContractCertificate(
+        { certificate: [leaf.pem, sub2.pem, sub1.pem].join('\n') },
+        logger,
+      ),
+    ).toBe('Accepted');
+    expect(localCertificateStatus).toHaveBeenCalledTimes(3);
+    expect(getOcspStatus).not.toHaveBeenCalled();
   });
 });
 

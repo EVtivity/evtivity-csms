@@ -5,6 +5,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
 import {
   buildCssConfigDefaults,
+  CSS_RETRY_BACK_OFF_DEFAULTS,
   CSS_STATUS_REPORTING_DEFAULT,
   CSS_STATUS_REPORTING_KEY,
   CSS_STATUS_REPORTING_VALUES,
@@ -872,9 +873,11 @@ export class StationSimulator {
           return Number.isFinite(n) && n >= 0 ? n : fallback;
         };
         return {
-          waitMinimumMs: seconds('RetryBackOffWaitMinimum', 10) * 1000,
-          randomRangeMs: seconds('RetryBackOffRandomRange', 5) * 1000,
-          repeatTimes: seconds('RetryBackOffRepeatTimes', 3),
+          waitMinimumMs:
+            seconds('RetryBackOffWaitMinimum', CSS_RETRY_BACK_OFF_DEFAULTS.waitMinimumS) * 1000,
+          randomRangeMs:
+            seconds('RetryBackOffRandomRange', CSS_RETRY_BACK_OFF_DEFAULTS.randomRangeS) * 1000,
+          repeatTimes: seconds('RetryBackOffRepeatTimes', CSS_RETRY_BACK_OFF_DEFAULTS.repeatTimes),
         };
       });
     }

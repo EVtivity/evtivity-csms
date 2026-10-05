@@ -7,6 +7,7 @@ import { db, octtRuns, octtTestResults } from '@evtivity/database';
 import { runTests } from '@evtivity/octt';
 import type { OcppVersion, SutType } from '@evtivity/octt';
 import type { RedisPubSubClient } from '@evtivity/lib';
+import { config } from '../lib/config.js';
 
 export interface OcttJobData {
   runId: number;
@@ -27,8 +28,8 @@ export async function octtRunnerHandler(
     .set({ status: 'running', startedAt: new Date() })
     .where(eq(octtRuns.id, runId));
 
-  const serverUrl = process.env['OCPP_SERVER_URL'] ?? 'ws://localhost:7103';
-  const apiUrl = process.env['API_BASE_URL'] ?? 'http://localhost:7102';
+  const serverUrl = config.OCPP_SERVER_URL;
+  const apiUrl = config.API_BASE_URL;
 
   try {
     const summary = await runTests(
@@ -38,6 +39,7 @@ export async function octtRunnerHandler(
         version: ocppVersion === 'all' ? undefined : (ocppVersion as OcppVersion),
         sut: sutType as SutType,
         concurrency: 3,
+        ocspResponderUrl: config.OCTT_OCSP_RESPONDER_URL,
       },
       (result) => {
         // Insert each test result as it completes. Wrapped to surface errors;

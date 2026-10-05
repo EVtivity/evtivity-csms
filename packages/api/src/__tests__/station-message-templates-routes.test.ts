@@ -86,6 +86,11 @@ vi.mock('@evtivity/database', () => ({
   getCompanyPriceDisplay: mockGetCompanyPriceDisplay,
   getCompanyTaxBasis: vi.fn().mockResolvedValue('net'),
   getStationMessagePricingFormat: vi.fn(() => Promise.resolve('compact')),
+  getStationMessageBrandLine: vi.fn(() => Promise.resolve('')),
+}));
+
+vi.mock('@evtivity/services/station-message.service', () => ({
+  requestStationMessageRepush: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@evtivity/lib', async () => {
@@ -104,6 +109,7 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 import { registerAuth } from '../plugins/auth.js';
+import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
 import { stationMessageTemplateRoutes } from '../routes/station-message-templates.js';
 import {
   STATION_MESSAGE_DEFAULTS,
@@ -138,6 +144,7 @@ describe('Station message template routes', () => {
   beforeEach(() => {
     setupDbResults();
     clearStationMessageCache.mockClear();
+    vi.mocked(requestStationMessageRepush).mockClear();
     mockGetCompanyPriceDisplay.mockResolvedValue('gross');
   });
 
@@ -235,6 +242,27 @@ describe('Station message template routes', () => {
       expect(body.state).toBe('available');
       expect(body.language).toBe('de');
       expect(clearStationMessageCache).toHaveBeenCalledTimes(1);
+      expect(requestStationMessageRepush).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not re-render station screens for a one-shot template', async () => {
+      setupDbResults([
+        {
+          state: 'payment_failed',
+          language: 'en',
+          body: 'Declined',
+          updatedAt: '2026-01-01T00:00:00Z',
+          updatedBy: 'usr_test',
+        },
+      ]);
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/station-message-templates/payment_failed?language=en',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { body: 'Declined' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(requestStationMessageRepush).not.toHaveBeenCalled();
     });
   });
 

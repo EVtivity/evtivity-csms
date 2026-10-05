@@ -117,7 +117,7 @@ jobs:
             org.opencontainers.image.title=evtivity-${{ matrix.image }}
             org.opencontainers.image.description=${{ matrix.description }}
             org.opencontainers.image.source=https://github.com/EVtivity/evtivity-csms
-            org.opencontainers.image.licenses=LicenseRef-EVtivity-EULA
+            org.opencontainers.image.licenses=BUSL-1.1
             org.opencontainers.image.vendor=EVtivity
 
       - uses: docker/build-push-action@v7

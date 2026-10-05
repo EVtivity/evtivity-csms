@@ -89,3 +89,14 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: node scripts/build.mjs all
+
+  wasm:
+    name: EXI codec reproducible build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      # Rebuilds packages/v2g-exi/wasm/v2g_exi.wasm from the pinned libcbv2g
+      # release with the pinned Emscripten image and fails when it differs
+      # from the committed module.
+      - run: bash packages/v2g-exi/scripts/build-wasm.sh --check

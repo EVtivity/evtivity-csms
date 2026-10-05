@@ -2,7 +2,15 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase, TestContext } from '../../../../types.js';
-import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
+import {
+  pushSendAckStep,
+  newTransactionId,
+  startStationSequence,
+  waitForStationSequence,
+  type StationSequence,
+} from '../../../../csms-test-helpers.js';
+import { CSMS_STATE_TIMEOUT_MS, waitFor } from '../../../../security-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 // Helper: boot station
 async function boot(ctx: TestContext) {
@@ -53,12 +61,12 @@ export const TC_K_01_CSMS: TestCase = {
 
     let received = false;
     ctx.client.setIncomingCallHandler(
-      async (_messageId: string, action: string, _payload: Record<string, unknown>) => {
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'SetChargingProfile') {
           received = true;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -128,7 +136,7 @@ export const TC_K_02_CSMS: TestCase = {
           profilePayload = payload;
           return { status: 'Rejected' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -202,7 +210,7 @@ export const TC_K_03_CSMS: TestCase = {
           profilePayload = payload;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -271,12 +279,12 @@ export const TC_K_10_CSMS: TestCase = {
 
     let received = false;
     ctx.client.setIncomingCallHandler(
-      async (_messageId: string, action: string, _payload: Record<string, unknown>) => {
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'SetChargingProfile') {
           received = true;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -338,12 +346,12 @@ export const TC_K_15_CSMS: TestCase = {
 
     let received = false;
     ctx.client.setIncomingCallHandler(
-      async (_messageId: string, action: string, _payload: Record<string, unknown>) => {
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'SetChargingProfile') {
           received = true;
           throw new Error('NotSupported');
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -411,7 +419,7 @@ export const TC_K_19_CSMS: TestCase = {
           profilePayload = payload;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -489,7 +497,7 @@ export const TC_K_60_CSMS: TestCase = {
           profilePayload = payload;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -561,7 +569,7 @@ export const TC_K_100_CSMS: TestCase = {
           profilePayload = payload;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -629,12 +637,12 @@ export const TC_K_101_CSMS: TestCase = {
 
     let receivedProfile = false;
     ctx.client.setIncomingCallHandler(
-      async (_messageId: string, action: string, _payload: Record<string, unknown>) => {
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'SetChargingProfile') {
           receivedProfile = true;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -724,7 +732,7 @@ export const TC_K_102_CSMS: TestCase = {
           profilePayload = payload;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -797,7 +805,7 @@ export const TC_K_104_CSMS: TestCase = {
           profilePayload = payload;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -869,7 +877,7 @@ export const TC_K_106_CSMS: TestCase = {
           profilePayload = payload;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -940,6 +948,7 @@ export const TC_K_109_CSMS: TestCase = {
 
     let receivedGetBase = false;
     let receivedSetProfile = false;
+    let reportSequence: StationSequence | null = null;
 
     ctx.client.setIncomingCallHandler(
       async (_messageId: string, action: string, payload: Record<string, unknown>) => {
@@ -947,32 +956,28 @@ export const TC_K_109_CSMS: TestCase = {
           receivedGetBase = true;
           const requestId = payload['requestId'] as number;
           // Send NotifyReport with MaxExternalConstraintsId
-          setTimeout(async () => {
-            try {
-              await ctx.client.sendCall('NotifyReport', {
-                requestId,
-                generatedAt: new Date().toISOString(),
-                seqNo: 0,
-                tbc: false,
-                reportData: [
-                  {
-                    component: { name: 'SmartChargingCtrlr' },
-                    variable: { name: 'MaxExternalConstraintsId' },
-                    variableAttribute: [{ value: '2147400000' }],
-                  },
-                ],
-              });
-            } catch {
-              // Ignore errors
-            }
-          }, 500);
+          reportSequence = startStationSequence(async () => {
+            await ctx.client.sendCall('NotifyReport', {
+              requestId,
+              generatedAt: new Date().toISOString(),
+              seqNo: 0,
+              tbc: false,
+              reportData: [
+                {
+                  component: { name: 'SmartChargingCtrlr' },
+                  variable: { name: 'MaxExternalConstraintsId' },
+                  variableAttribute: [{ value: '2147400000' }],
+                },
+              ],
+            });
+          });
           return { status: 'Accepted' };
         }
         if (action === 'SetChargingProfile') {
           receivedSetProfile = true;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -982,12 +987,13 @@ export const TC_K_109_CSMS: TestCase = {
         requestId: 1,
         reportBase: 'FullInventory',
       });
-      // Wait for the NotifyReport callback (500ms setTimeout) to fire,
-      // the CSMS to process it, and SetChargingProfile to be dispatched
-      await new Promise((resolve) => setTimeout(resolve, 3000));
     } else {
-      await new Promise((resolve) => setTimeout(resolve, 20000));
+      // Without the API, wait for a GetBaseReport the CSMS sends on its own.
+      await waitFor(() => reportSequence != null, 20_000);
     }
+    // The CSMS sends SetChargingProfile after it processed the NotifyReport.
+    const reportError = await waitForStationSequence(reportSequence);
+    if (reportError == null) await waitFor(() => receivedSetProfile, CSMS_STATE_TIMEOUT_MS);
 
     steps.push({
       step: 1,
@@ -1002,7 +1008,10 @@ export const TC_K_109_CSMS: TestCase = {
       description: 'CSMS sends SetChargingProfileRequest after receiving MaxExternalConstraintsId',
       status: receivedSetProfile ? 'passed' : 'failed',
       expected: 'SetChargingProfileRequest received',
-      actual: receivedSetProfile ? 'Received' : 'Not received',
+      actual: receivedSetProfile
+        ? 'Received'
+        : (reportError ??
+          `Not received within ${String(CSMS_STATE_TIMEOUT_MS / 1000)} s after NotifyReport`),
     });
 
     return {

@@ -10,6 +10,7 @@ const workspaceAliases = Object.entries({
   '@evtivity/configs': 'packages/configs/src/index.ts',
   '@evtivity/ocpp': 'packages/ocpp/src/index.ts',
   '@evtivity/octt': 'packages/octt/src/index.ts',
+  '@evtivity/v2g-exi': 'packages/v2g-exi/src/index.ts',
 }).map(([pkg, file]) => ({
   find: new RegExp(`^${pkg.replace('/', '\\/')}$`),
   replacement: path.resolve(import.meta.dirname, file),
@@ -61,6 +62,22 @@ export default defineConfig({
         test: {
           name: '@evtivity/payments',
           root: 'packages/payments',
+          include: ['src/**/*.test.ts'],
+        },
+      },
+      {
+        resolve: { alias: workspaceAliases },
+        test: {
+          name: '@evtivity/services',
+          root: 'packages/services',
+          include: ['src/**/*.test.ts'],
+        },
+      },
+      {
+        resolve: { alias: workspaceAliases },
+        test: {
+          name: '@evtivity/v2g-exi',
+          root: 'packages/v2g-exi',
           include: ['src/**/*.test.ts'],
         },
       },
@@ -155,7 +172,6 @@ export default defineConfig({
           name: '@evtivity/octt',
           root: 'packages/octt',
           include: ['src/**/*.test.ts'],
-          exclude: ['src/__tests__/runner.test.ts'],
         },
       },
       {

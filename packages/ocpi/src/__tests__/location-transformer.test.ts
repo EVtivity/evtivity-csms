@@ -6,6 +6,7 @@ import {
   transformLocation,
   transformEvseStandalone,
 } from '../transformers/location.transformer.js';
+import type { EvseRow } from '../transformers/location.transformer.js';
 
 const updatedAt = new Date('2026-09-01T00:00:00Z');
 
@@ -48,7 +49,7 @@ function evse(id: string, stationId: string, status: string, stationLevelUnavail
   };
 }
 
-function location(evses: ReturnType<typeof evse>[], stationIds: string[] = []) {
+function location(evses: EvseRow[], stationIds: string[] = []) {
   return transformLocation(
     {
       site,
@@ -88,6 +89,41 @@ describe('transformLocation EVSE status', () => {
     expect(result.evses?.[0]?.status).toBe('INOPERATIVE');
   });
 
+  it('reports every EVSE of a deleted station as REMOVED, over any mask', () => {
+    const result = location(
+      [
+        { ...evse('evs_a', 'sta_a', 'faulted', true), removed: true },
+        evse('evs_b', 'sta_b', 'available', false),
+      ],
+      ['sta_a'],
+    );
+    expect(result.evses?.map((e) => e.status)).toEqual(['REMOVED', 'AVAILABLE']);
+  });
+
+  it('reports every EVSE as REMOVED for an unpublished location', () => {
+    const result = transformLocation(
+      {
+        site,
+        evses: [evse('evs_a', 'sta_a', 'available', false)],
+        ocpiLocationId: 'LOC-1',
+        countryCode: 'US',
+        partyId: 'EVT',
+        allRemoved: true,
+      },
+      '2.3.0',
+    );
+    expect(result.evses?.map((e) => e.status)).toEqual(['REMOVED']);
+  });
+
+  it('puts each EVSE tariff ids on its connectors, and none when it has none', () => {
+    const result = location([
+      { ...evse('evs_a', 'sta_a', 'available', false), tariffIds: ['T-1'] },
+      evse('evs_b', 'sta_b', 'available', false),
+    ]);
+    expect(result.evses?.[0]?.connectors[0]?.tariff_ids).toEqual(['T-1']);
+    expect(result.evses?.[1]?.connectors[0]).not.toHaveProperty('tariff_ids');
+  });
+
   it('uses the internal EVSE id as the uid', () => {
     const result = location([evse('evs_a', 'sta_a', 'available', false)]);
     expect(result.evses?.[0]?.uid).toBe('evs_a');
@@ -104,8 +140,7 @@ describe('transformEvseStandalone', () => {
 
   it('masks an EVSE under maintenance as INOPERATIVE', () => {
     expect(
-      transformEvseStandalone(evse('evs_a', 'sta_a', 'available', false), '2.2.1', undefined, true)
-        .status,
+      transformEvseStandalone(evse('evs_a', 'sta_a', 'available', false), '2.2.1', true).status,
     ).toBe('INOPERATIVE');
   });
 });

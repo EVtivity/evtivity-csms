@@ -67,7 +67,7 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 const sendOcppCommandAndWait = vi.fn();
-vi.mock('../lib/ocpp-command.js', () => ({
+vi.mock('@evtivity/services/ocpp-command', () => ({
   sendOcppCommandAndWait: (...args: unknown[]) => sendOcppCommandAndWait(...args),
 }));
 
@@ -77,7 +77,7 @@ vi.mock('../lib/site-access.js', () => ({
 }));
 
 const getActiveMaintenanceForStation = vi.fn();
-vi.mock('../services/maintenance.service.js', () => ({
+vi.mock('@evtivity/services/maintenance.service', () => ({
   getActiveMaintenanceForStation: (...args: unknown[]) => getActiveMaintenanceForStation(...args),
 }));
 

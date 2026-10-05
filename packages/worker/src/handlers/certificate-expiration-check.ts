@@ -1,10 +1,10 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { randomUUID } from 'node:crypto';
 import { client } from '@evtivity/database';
 import type { Logger } from 'pino';
-import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
+import { publishOcppCommand } from '@evtivity/lib';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 export async function certificateExpirationCheckHandler(log: Logger): Promise<void> {
   const sql = client;
@@ -86,17 +86,13 @@ export async function certificateExpirationCheckHandler(log: Logger): Promise<vo
     // listener rejected it as malformed and silently dropped the renewal —
     // certificates in the critical window never got their TriggerMessage,
     // and auto-renewal effectively didn't work.
-    await pubsub.publish(
-      'ocpp_commands',
-      JSON.stringify({
-        commandId: randomUUID(),
-        stationId: stationOcppId,
-        action: 'TriggerMessage',
-        payload: {
-          requestedMessage: 'SignChargingStationCertificate',
-        },
-      }),
-    );
+    await publishOcppCommand(pubsub, {
+      stationId: stationOcppId,
+      action: 'TriggerMessage',
+      payload: {
+        requestedMessage: 'SignChargingStationCertificate',
+      },
+    });
   }
 
   // SSE notify on certs in the warning window (between warning and critical)

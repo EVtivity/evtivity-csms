@@ -4,6 +4,7 @@
 export type {
   PkiProvider,
   SignCsrResult,
+  ContractCertRequest,
   ContractCertResult,
   OcspRequestData,
   OcspResult,
@@ -11,3 +12,10 @@ export type {
 export { HubjectProvider } from './hubject-provider.js';
 export { ManualProvider } from './manual-provider.js';
 export { getPkiProvider } from './provider-factory.js';
+export { LocalContractProvider } from './local-contract-provider.js';
+export {
+  createLocalContractCa,
+  describeLocalContractCa,
+  parseLocalContractCa,
+  type LocalContractCa,
+} from './local-contract-ca.js';

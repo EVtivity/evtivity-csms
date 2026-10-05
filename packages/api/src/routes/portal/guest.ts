@@ -15,7 +15,7 @@ import {
   isStationChargingFree,
   resolveStationTariff,
 } from '@evtivity/database';
-import { isTariffFree, TAX_BASES } from '@evtivity/lib';
+import { isTariffFree, publishOcppCommand, TAX_BASES } from '@evtivity/lib';
 import {
   chargingStations,
   connectors,
@@ -29,16 +29,13 @@ import {
 } from '@evtivity/database';
 import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
 import { zodSchema } from '../../lib/zod-schema.js';
-import { sessionCurrencySql } from '../../lib/company-currency.js';
-import { getPubSub } from '../../lib/pubsub.js';
+import { sessionCurrencySql } from '@evtivity/services/company-currency';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { scheduleGuestStartTimeout } from '../../lib/remote-start-timeout.js';
 import { successResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
-import {
-  sendOcppCommandAndWait,
-  sendStatusCheckError,
-  triggerAndWaitForStatus,
-} from '../../lib/ocpp-command.js';
+import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
+import { sendStatusCheckError, triggerAndWaitForStatus } from '../../lib/station-status-check.js';
 import {
   isStationCheckRateLimited,
   isGuestSessionRateLimited,
@@ -61,7 +58,7 @@ import {
   shopperBrowserContext,
 } from '../../lib/shopper-browser.js';
 import { isEvseInReservationBuffer } from '../../lib/reservation-buffer.js';
-import { getActiveMaintenanceForStation } from '../../services/maintenance.service.js';
+import { getActiveMaintenanceForStation } from '@evtivity/services/maintenance.service';
 import { validateQrCodeUrl } from '../../services/web-payment.service.js';
 
 const guestPricingInfo = z
@@ -210,6 +207,15 @@ const guestStatusResponse = z
       .optional()
       .describe(
         'Tax rate of the session tariff as a decimal (e.g. 0.19), null without tax. Costs include it',
+      ),
+    taxCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .optional()
+      .describe(
+        'Tax contained in the cost (finalCostCents, else currentCostCents) in cents, as stored with it. Above 0 when the cost includes tax',
       ),
     currency: z
       .string()
@@ -1114,6 +1120,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
             currentCostCents: chargingSessions.currentCostCents,
             finalCostCents: chargingSessions.finalCostCents,
             tariffTaxRate: chargingSessions.tariffTaxRate,
+            taxCents: chargingSessions.taxCents,
             currency: sessionCurrencySql(),
             startedAt: chargingSessions.startedAt,
             endedAt: chargingSessions.endedAt,
@@ -1127,6 +1134,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           result['currentCostCents'] = session.currentCostCents;
           result['finalCostCents'] = session.finalCostCents;
           result['tariffTaxRate'] = session.tariffTaxRate;
+          result['taxCents'] = session.taxCents;
           result['currency'] = session.currency;
           result['startedAt'] = session.startedAt;
           result['endedAt'] = session.endedAt;
@@ -1216,18 +1224,13 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Send RequestStopTransaction via pg_notify
-      const commandId = crypto.randomUUID();
-      const notification = JSON.stringify({
-        commandId,
+      await publishOcppCommand(getPubSub(), {
         stationId: guest.stationOcppId,
         action: 'RequestStopTransaction',
         payload: {
           transactionId: session.transactionId,
         },
       });
-
-      await getPubSub().publish('ocpp_commands', notification);
 
       return { success: true };
     },

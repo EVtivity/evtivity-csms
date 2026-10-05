@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { getPubSub } from './pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 // Real-time fan-out for support-case state changes. Operators receive every
 // event on csms_events; the owning driver also receives it on portal_events

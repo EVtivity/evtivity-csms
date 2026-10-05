@@ -3,11 +3,10 @@
 >Hola,</p>
 <h2
   style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
->Su vehiculo ha dejado de cargar</h2>
+>Su vehículo ha dejado de cargar</h2>
 <p
   style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
->Su vehiculo ya no esta cargando activamente pero sigue conectado a la estacion. Por favor mueva su
-  vehiculo para liberar el cargador.</p>
+>Su vehículo ya no está cargando, pero sigue conectado a la estación. Mueva su vehículo para liberar el cargador.</p>
 <table
   cellpadding='0'
   cellspacing='0'
@@ -26,7 +25,7 @@
   <tr>
     <td
       style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
-    >ID de estacion</td>
+    >ID de estación</td>
     <td
       style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
     >{{stationId}}</td>
@@ -34,7 +33,7 @@
   <tr>
     <td
       style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
-    >ID de transaccion</td>
+    >ID de transacción</td>
     <td
       style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
     >{{transactionId}}</td>
@@ -52,14 +51,10 @@
   {{#if gracePeriodMinutes}}
     <p
       style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
-    >Las tarifas por inactividad de
-      {{idleFeeFormatted}}/min {{#if taxRatePercent}}({{#if idleFeeIncludesTax}}impuestos del {{taxRatePercent}} % incluidos{{else}}más impuestos del {{taxRatePercent}} %{{/if}}){{/if}} comenzaran despues de
-      {{gracePeriodMinutes}}
-      minutos.</p>
+    >Las tarifas por inactividad de {{idleFeeFormatted}}/min {{#if taxRatePercent}}({{#if idleFeeIncludesTax}}impuestos del {{taxRatePercent}} % incluidos{{else}}más impuestos del {{taxRatePercent}} %{{/if}}){{/if}} comenzarán después de {{gracePeriodMinutes}} minutos.</p>
   {{else}}
     <p
       style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
-    >Las tarifas por inactividad de
-      {{idleFeeFormatted}}/min {{#if taxRatePercent}}({{#if idleFeeIncludesTax}}impuestos del {{taxRatePercent}} % incluidos{{else}}más impuestos del {{taxRatePercent}} %{{/if}}){{/if}} se estan acumulando.</p>
+    >Las tarifas por inactividad de {{idleFeeFormatted}}/min {{#if taxRatePercent}}({{#if idleFeeIncludesTax}}impuestos del {{taxRatePercent}} % incluidos{{else}}más impuestos del {{taxRatePercent}} %{{/if}}){{/if}} se están acumulando.</p>
   {{/if}}
 {{/if}}

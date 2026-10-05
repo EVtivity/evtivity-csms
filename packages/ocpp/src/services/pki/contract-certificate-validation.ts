@@ -22,6 +22,7 @@ import type { OCSPRequestDataType } from '../../generated/v2_1/types/common/OCSP
 import { getPkiProvider } from './provider-factory.js';
 import type { OcspRequestData } from './pki-provider.js';
 import { certIdFor, parseCertificate, isIssuerOf, verifyOcspResponse } from './ocsp.js';
+import { getLocalMoCertificates, localCertificateStatus } from './local-contract-status.js';
 
 /** The certificateStatus values this validation produces. */
 export type ContractCertificateVerdict =
@@ -138,6 +139,10 @@ async function checkRevocation(
   const provider = await getPkiProvider();
   const statuses = await Promise.all(
     entries.map(async (entry) => {
+      // Certificates of the local contract CA: status from the CSMS records.
+      const local = await localCertificateStatus(entry);
+      if (local != null) return local;
+      if (entry.responderURL === '') return 'error' as const;
       const result = await provider.getOcspStatus(entry);
       if (result.status !== 'Accepted') return 'error' as const;
       try {
@@ -167,7 +172,12 @@ export async function validateContractCertificate(
   input: { iso15118CertificateHashData?: OCSPRequestDataType[]; certificate?: string },
   logger: Logger,
 ): Promise<ContractCertificateVerdict> {
-  const cas = await loadCaCertificates(logger);
+  const operatorCas = await loadCaCertificates(logger);
+  const local = await getLocalMoCertificates();
+  const cas = {
+    issuers: [...operatorCas.issuers, ...(local?.all ?? [])],
+    roots: [...operatorCas.roots, ...(local?.roots ?? [])],
+  };
 
   if (input.iso15118CertificateHashData != null && input.iso15118CertificateHashData.length > 0) {
     return checkRevocation(input.iso15118CertificateHashData, cas.issuers, logger);
@@ -204,14 +214,11 @@ export async function validateContractCertificate(
     const cert = chain[i];
     const issuer = i + 1 < chain.length ? chain[i + 1] : root;
     if (cert == null || issuer == null) return 'CertChainError';
-    const responderURL = ocspResponderUrl(cert);
-    if (responderURL == null) {
-      logger.warn('Contract certificate chain has a certificate without an OCSP responder URL');
-      return 'CertChainError';
-    }
     const certId = certIdFor(cert, issuer, 'SHA256');
     if (!isIssuerOf(issuer, certId)) return 'CertChainError';
-    entries.push({ ...certId, responderURL });
+    // A certificate without an OCSP responder URL can only be checked when
+    // the local contract CA issued it (checkRevocation fails it otherwise).
+    entries.push({ ...certId, responderURL: ocspResponderUrl(cert) ?? '' });
   }
   return checkRevocation(entries, [...chain, root], logger);
 }

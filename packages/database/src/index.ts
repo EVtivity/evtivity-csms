@@ -15,7 +15,13 @@ export {
   isPncEnabled,
   getOcspAllowedPrivateHosts,
   clearPncSettingsCache,
+  PNC_SETTINGS_CACHE_TTL_MS,
 } from './lib/pnc-setting.js';
+export {
+  getWebhookAllowedPrivateHosts,
+  clearWebhookSettingsCache,
+  WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY,
+} from './lib/webhook-settings.js';
 export { isSiteFreeVendEnabledByStation, clearFreeVendCache } from './lib/free-vend-setting.js';
 export {
   getElectricityRatePeriodsForSite,
@@ -38,6 +44,15 @@ export type {
 export { writeAudit, redactAuditPayload } from './lib/audit.js';
 export { createCreditCdr, creditCdrData, negateOcpiPrice } from './lib/ocpi-credit-cdr.js';
 export type { CreditCdrResult } from './lib/ocpi-credit-cdr.js';
+export { ocpiLocationAudience } from './lib/ocpi-location-audience.js';
+export type { OcpiLocationAudience } from './lib/ocpi-location-audience.js';
+export {
+  OCPI_REMOVED_EVSE_RETENTION_DAYS,
+  recordRemovedOcpiEvses,
+  removedOcpiEvses,
+  pruneRemovedOcpiEvses,
+} from './lib/ocpi-removed-evses.js';
+export type { RemovedOcpiEvse, RemovedEvseConnector } from './lib/ocpi-removed-evses.js';
 export {
   loadSessionPricing,
   sessionIdleMinutesAt,
@@ -45,6 +60,7 @@ export {
   priceSession,
   priceSessionAt,
   zeroCostBreakdown,
+  faultUnbilledSession,
   storeRunningCost,
   storeFinalCost,
   snapshotSessionTariff,
@@ -77,6 +93,7 @@ export {
   setStationFirmwareState,
   clearStationFirmwareInstalling,
   setStationReportedStatus,
+  startStatusOrderingEpoch,
   applyConnectorStatus,
   applyEvseChargingState,
   stationAvailabilitySql,
@@ -89,6 +106,7 @@ export type {
   StationFirmwareState,
   StationStatusReason,
   AvailabilityChange,
+  StationReportedStatusChange,
   ConnectorStatusInput,
   ConnectorStatusResult,
   StationLevelState,
@@ -117,6 +135,12 @@ export type {
   UnstartedSession,
   UnstartedSessionOutcome,
 } from './lib/remote-start-timeout.js';
+export {
+  SESSION_END_REQUEST_CHANNEL,
+  CSMS_SESSION_END_REASONS,
+  recordSessionEndRequest,
+} from './lib/session-end-request.js';
+export type { CsmsSessionEndReason, SessionEndRequestMessage } from './lib/session-end-request.js';
 export {
   getSystemTimezone,
   getCompanyCurrency,

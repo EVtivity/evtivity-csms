@@ -32,44 +32,67 @@ describe('TransactionBuffer', () => {
     const e1 = makeEvent('ocpp.MeterValues', 'tx-1');
     const e2 = makeEvent('ocpp.MeterValues', 'tx-1');
 
-    buffer.add('tx-1', e1);
-    buffer.add('tx-1', e2);
+    buffer.add('STATION-001', 'tx-1', e1);
+    buffer.add('STATION-001', 'tx-1', e2);
 
-    const drained = buffer.drain('tx-1');
+    const drained = buffer.drain('STATION-001', 'tx-1');
     expect(drained).toHaveLength(2);
     expect(drained[0]).toBe(e1);
     expect(drained[1]).toBe(e2);
   });
 
+  it('keeps the same transactionId of two stations apart', () => {
+    const a = makeEvent('ocpp.MeterValues', 'tx-1');
+    const b = makeEvent('ocpp.MeterValues', 'tx-1');
+    buffer.add('STATION-001', 'tx-1', a);
+    buffer.add('STATION-002', 'tx-1', b);
+
+    expect(buffer.drain('STATION-002', 'tx-1')).toEqual([b]);
+    expect(buffer.drain('STATION-001', 'tx-1')).toEqual([a]);
+    expect(buffer.size).toBe(0);
+  });
+
+  it('does not confuse station and transaction ids that contain the separator', () => {
+    buffer.add('A:B', 'C', makeEvent('ocpp.MeterValues', 'C'));
+    expect(buffer.drain('A', 'B:C')).toEqual([]);
+    expect(buffer.drain('A:B', 'C')).toHaveLength(1);
+  });
+
   it('returns empty array when draining unknown transactionId', () => {
-    expect(buffer.drain('unknown')).toEqual([]);
+    expect(buffer.drain('STATION-001', 'unknown')).toEqual([]);
   });
 
   it('removes drained events from the buffer', () => {
-    buffer.add('tx-1', makeEvent('ocpp.MeterValues', 'tx-1'));
-    buffer.drain('tx-1');
-    expect(buffer.drain('tx-1')).toEqual([]);
+    buffer.add('STATION-001', 'tx-1', makeEvent('ocpp.MeterValues', 'tx-1'));
+    buffer.drain('STATION-001', 'tx-1');
+    expect(buffer.drain('STATION-001', 'tx-1')).toEqual([]);
   });
 
   it('expires events older than TTL', () => {
-    buffer.add('tx-1', makeEvent('ocpp.MeterValues', 'tx-1'));
+    buffer.add('STATION-001', 'tx-1', makeEvent('ocpp.MeterValues', 'tx-1'));
     vi.advanceTimersByTime(1100);
-    expect(buffer.drain('tx-1')).toEqual([]);
+    expect(buffer.drain('STATION-001', 'tx-1')).toEqual([]);
   });
 
   it('rejects events when buffer is full', () => {
     for (let i = 0; i < 5; i++) {
-      expect(buffer.add(`tx-${String(i)}`, makeEvent('ocpp.MeterValues', `tx-${String(i)}`))).toBe(
-        true,
-      );
+      expect(
+        buffer.add(
+          'STATION-001',
+          `tx-${String(i)}`,
+          makeEvent('ocpp.MeterValues', `tx-${String(i)}`),
+        ),
+      ).toBe(true);
     }
-    expect(buffer.add('tx-overflow', makeEvent('ocpp.MeterValues', 'tx-overflow'))).toBe(false);
+    expect(
+      buffer.add('STATION-001', 'tx-overflow', makeEvent('ocpp.MeterValues', 'tx-overflow')),
+    ).toBe(false);
   });
 
   it('counts total buffered events', () => {
-    buffer.add('tx-1', makeEvent('ocpp.MeterValues', 'tx-1'));
-    buffer.add('tx-1', makeEvent('ocpp.MeterValues', 'tx-1'));
-    buffer.add('tx-2', makeEvent('ocpp.MeterValues', 'tx-2'));
+    buffer.add('STATION-001', 'tx-1', makeEvent('ocpp.MeterValues', 'tx-1'));
+    buffer.add('STATION-001', 'tx-1', makeEvent('ocpp.MeterValues', 'tx-1'));
+    buffer.add('STATION-001', 'tx-2', makeEvent('ocpp.MeterValues', 'tx-2'));
     expect(buffer.size).toBe(3);
   });
 
@@ -80,7 +103,11 @@ describe('TransactionBuffer', () => {
       // (maxSize 5) would reject the 6th.
       for (let i = 0; i < 6; i++) {
         expect(
-          defaultBuffer.add(`tx-${String(i)}`, makeEvent('ocpp.MeterValues', `tx-${String(i)}`)),
+          defaultBuffer.add(
+            'STATION-001',
+            `tx-${String(i)}`,
+            makeEvent('ocpp.MeterValues', `tx-${String(i)}`),
+          ),
         ).toBe(true);
       }
       expect(defaultBuffer.size).toBe(6);
@@ -121,26 +148,32 @@ describe('TransactionBuffer', () => {
       });
       warn = warnLocal;
 
-      loggedBuffer.add('tx-1', makeEvent('ocpp.MeterValues', 'tx-1'));
+      loggedBuffer.add('STATION-001', 'tx-1', makeEvent('ocpp.MeterValues', 'tx-1'));
       vi.advanceTimersByTime(1100);
 
-      const drained = loggedBuffer.drain('tx-1');
+      const drained = loggedBuffer.drain('STATION-001', 'tx-1');
 
       expect(drained).toEqual([]);
       expect(warn).toHaveBeenCalledWith(
-        expect.objectContaining({ transactionId: 'tx-1', expired: 1, ttlMs: 1000 }),
+        expect.objectContaining({
+          stationId: 'STATION-001',
+          transactionId: 'tx-1',
+          expired: 1,
+          ttlMs: 1000,
+        }),
         expect.stringContaining('expired before Started arrived'),
       );
       expect(loggedBuffer.size).toBe(0);
     });
 
     it('logs expired events during the cleanup sweep', () => {
-      loggedBuffer.add('tx-1', makeEvent('ocpp.TransactionEvent', 'tx-1'));
+      loggedBuffer.add('STATION-001', 'tx-1', makeEvent('ocpp.TransactionEvent', 'tx-1'));
       // Advance past TTL so the next cleanup interval evicts the entry.
       vi.advanceTimersByTime(1100);
 
       expect(warn).toHaveBeenCalledWith(
         expect.objectContaining({
+          stationId: 'STATION-001',
           transactionId: 'tx-1',
           expired: 1,
           firstEventType: 'ocpp.TransactionEvent',
@@ -152,12 +185,12 @@ describe('TransactionBuffer', () => {
     });
 
     it('keeps non-expired events across a cleanup sweep', () => {
-      loggedBuffer.add('tx-1', makeEvent('ocpp.MeterValues', 'tx-1'));
+      loggedBuffer.add('STATION-001', 'tx-1', makeEvent('ocpp.MeterValues', 'tx-1'));
       // 600ms < ttl 1000ms: the cleanup at 500ms should not evict.
       vi.advanceTimersByTime(600);
 
       expect(loggedBuffer.size).toBe(1);
-      expect(loggedBuffer.drain('tx-1')).toHaveLength(1);
+      expect(loggedBuffer.drain('STATION-001', 'tx-1')).toHaveLength(1);
     });
   });
 });

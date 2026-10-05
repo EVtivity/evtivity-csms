@@ -10,7 +10,7 @@
     "esbuild": "^0.28.1",
     "uuid": "^11.1.1",
     "ioredis": "^5.11.0",
-    "undici": "^7.30.0"
+    "undici": "^8.11.2"
   },
   "scripts": {
     "codegen:2.1": "npm run build --workspace=@evtivity/codegen && node packages/codegen/dist/index.js --version 2.1",
@@ -41,7 +41,7 @@
     "test:integration": "vitest run --config vitest.integration.ts",
     "test:release": "bash scripts/release-version.test.sh",
     "lint": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js .",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && node scripts/typecheck-e2e.mjs",
     "build:prod": "node scripts/build.mjs all",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

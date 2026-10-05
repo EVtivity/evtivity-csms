@@ -17,7 +17,14 @@ import {
 import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
-import { getPubSub } from '../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import {
+  awaitPubSubReply,
+  PNC_COMMANDS_CHANNEL,
+  PNC_COMMAND_RESULTS_CHANNEL,
+  publishOcppCommand,
+} from '@evtivity/lib';
+import type { PncCommand, PncCommandResult } from '@evtivity/lib';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
@@ -184,6 +191,36 @@ const idParams = z.object({ id: z.coerce.number().int().min(1).describe('Resourc
  * certificate validation) after an upload or delete. Non-critical: the
  * cache expires within 60 s anyway.
  */
+// The OCPP server fetches the roots from the provider (Hubject's EST endpoint
+// has its own request timeout) and stores them before replying.
+const ROOT_REFRESH_TIMEOUT_MS = 30_000;
+
+const rootRefreshResult = z
+  .object({
+    success: z.literal(true),
+    fetched: z.number().int().describe('Certificates the PKI provider returned'),
+    added: z
+      .number()
+      .int()
+      .describe('Root certificates stored by this refresh (already stored roots are skipped)'),
+  })
+  .passthrough();
+
+/**
+ * Asks the OCPP server, which holds the PKI providers, to refresh the root
+ * certificates, and waits for its reply. Null when no OCPP server replied.
+ */
+async function requestRootCertificateRefresh(): Promise<PncCommandResult | null> {
+  const pubsub = getPubSub();
+  const command: PncCommand = { commandId: crypto.randomUUID(), action: 'refreshRootCertificates' };
+  return awaitPubSubReply<PncCommandResult>(pubsub, {
+    replyChannel: PNC_COMMAND_RESULTS_CHANNEL,
+    commandId: command.commandId,
+    timeoutMs: ROOT_REFRESH_TIMEOUT_MS,
+    send: () => pubsub.publish(PNC_COMMANDS_CHANNEL, JSON.stringify(command)),
+  });
+}
+
 async function invalidateCaCertificateCache(log: FastifyBaseLogger): Promise<void> {
   try {
     await getPubSub().publish('cache_invalidate', JSON.stringify({ cache: 'pkiCaCertificates' }));
@@ -503,8 +540,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         );
         const stationRow = stationRows[0];
         if (stationRow != null) {
-          const commandPayload = JSON.stringify({
-            commandId: crypto.randomUUID(),
+          await publishOcppCommand(getPubSub(), {
             stationId: stationRow.station_id as string,
             action: 'CertificateSigned',
             payload: {
@@ -512,8 +548,6 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
               certificateType: csrRow.certificateType,
             },
           });
-
-          await getPubSub().publish('ocpp_commands', commandPayload);
         }
       }
 
@@ -644,10 +678,15 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         tags: ['PnC'],
         summary: 'Refresh root certificates from provider',
         description:
-          'Fetches the current root certificate set from the configured PKI provider (Hubject or manual) and upserts each into pki_ca_certificates. Used to pick up newly issued or rotated roots without manual upload. Returns 502 if the provider call fails.',
+          'The OCPP server fetches the V2G root certificates from the configured PKI provider (Hubject or manual) and stores the self-signed roots not yet in pki_ca_certificates, in any status, so a revoked root is not re-added. Used to pick up newly issued or rotated roots without manual upload. Returns the number fetched and added, or 502 when the provider call fails or no OCPP server replies within 30 seconds.',
         operationId: 'refreshPncRootCertificates',
         security: [{ bearerAuth: [] }],
-        response: { 200: successResponse },
+        response: {
+          200: itemResponse(rootRefreshResult),
+          502: errorWith('The PKI provider refresh failed or no OCPP server replied', [
+            ERROR_CODES.PKI_ROOT_REFRESH_FAILED,
+          ]),
+        },
       },
       // Each refresh fans out to the configured PKI provider (e.g., a
       // metered Hubject endpoint). Without a per-user rate limit a stuck
@@ -666,10 +705,24 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         },
       },
     },
-    async (request) => {
-      // Dispatch a command to the OCPP server to refresh root certificates
-      const payload = JSON.stringify({ action: 'refreshRootCertificates' });
-      await getPubSub().publish('pnc_commands', payload);
+    async (request, reply) => {
+      let result: PncCommandResult | null;
+      try {
+        result = await requestRootCertificateRefresh();
+      } catch (err: unknown) {
+        request.log.error({ err }, 'Root certificate refresh request failed');
+        result = null;
+      }
+      if (result == null || result.error != null) {
+        if (result?.error != null) {
+          request.log.warn({ error: result.error }, 'Root certificate refresh failed');
+        }
+        await reply.status(502).send({
+          error: 'Root certificate refresh from the PKI provider failed',
+          code: 'PKI_ROOT_REFRESH_FAILED',
+        });
+        return;
+      }
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -679,12 +732,16 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
           entityIdSnapshot: 'root_refresh',
           action: 'root_certificates_refreshed',
           ...actor,
+          after: { fetched: result.fetched, added: result.added },
         },
         db,
         request.log,
       );
+      if (result.added > 0) {
+        await invalidateCaCertificateCache(request.log);
+      }
 
-      return { success: true };
+      return { success: true, fetched: result.fetched, added: result.added };
     },
   );
 }

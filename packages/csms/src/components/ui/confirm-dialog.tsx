@@ -3,7 +3,14 @@
 
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from './dialog';
 import { Button } from './button';
 import { Spinner } from '@/components/ui/spinner';
 
@@ -43,7 +50,7 @@ export function ConfirmDialog({
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">{description}</p>
+          <DialogDescription>{description}</DialogDescription>
           {children}
         </div>
         <DialogFooter className="flex-col-reverse md:flex-row">

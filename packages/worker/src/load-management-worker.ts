@@ -7,7 +7,7 @@ import { db, siteLoadManagement } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import { QUEUE_NAMES } from './queues.js';
 import { logJobStarted, logJobCompleted, logJobFailed } from './job-logger.js';
-import { runLoadManagementCycle } from '@evtivity/api/src/services/load-management.service.js';
+import { runLoadManagementCycle } from '@evtivity/services/load-management.service';
 
 const log = createLogger('load-management-worker');
 

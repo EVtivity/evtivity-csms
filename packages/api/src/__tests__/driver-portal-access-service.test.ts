@@ -19,7 +19,7 @@ vi.mock('argon2', () => ({
   default: { hash: vi.fn((pw: string) => Promise.resolve(`hash(${pw})`)) },
 }));
 vi.mock('../lib/config.js', () => ({ config: { PORTAL_URL: 'https://portal.test' } }));
-vi.mock('../lib/template-dirs.js', () => ({ ALL_TEMPLATES_DIRS: ['templates'] }));
+vi.mock('@evtivity/services/template-dirs', () => ({ ALL_TEMPLATES_DIRS: ['templates'] }));
 vi.mock('../services/refresh-token.service.js', () => ({
   revokeAllDriverRefreshTokens: revokeRefreshMock,
 }));

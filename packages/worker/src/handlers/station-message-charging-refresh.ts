@@ -10,7 +10,7 @@ import {
   isStationMessageEnabled,
   getStationMessageRefreshSeconds,
 } from '@evtivity/database';
-import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import type { Logger } from 'pino';
 
 const STATION_MESSAGE_TRANSACTION_CHANNEL = 'station_message_transaction';

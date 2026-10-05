@@ -2,7 +2,28 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { isPrivateUrl } from '../url-validation.js';
+import { isPrivateUrl, parseAllowedPrivateHosts } from '../url-validation.js';
+
+describe('parseAllowedPrivateHosts', () => {
+  it('trims, lowercases and de-duplicates hostnames and IP addresses', () => {
+    expect(
+      parseAllowedPrivateHosts([' N8N ', 'n8n', 'Host.Docker.Internal', '10.0.0.7', '::1']),
+    ).toEqual(['n8n', 'host.docker.internal', '10.0.0.7', '::1']);
+    expect(parseAllowedPrivateHosts([])).toEqual([]);
+  });
+
+  it.each([
+    ['not an array', 'n8n'],
+    ['a scheme', ['http://n8n']],
+    ['a port', ['n8n:5678']],
+    ['spaces', ['bad host']],
+    ['an empty entry', ['']],
+    ['a non-string', [7]],
+    ['too many hosts', Array.from({ length: 21 }, (_, i) => `h${String(i)}`)],
+  ])('rejects %s', (_label, value) => {
+    expect(parseAllowedPrivateHosts(value)).toBeNull();
+  });
+});
 
 // These tests assert the real, observable behavior of isPrivateUrl. They are
 // written against Node's WHATWG URL parser, which is what the function uses.
@@ -117,6 +138,19 @@ describe('isPrivateUrl', () => {
       expect(isPrivateUrl('http://myhost.local')).toBe(true);
       expect(isPrivateUrl('http://service.internal')).toBe(true);
       expect(isPrivateUrl('https://db.internal:5432')).toBe(true);
+    });
+
+    it('treats .localhost names and a trailing root dot as private', () => {
+      expect(isPrivateUrl('http://localhost.')).toBe(true);
+      expect(isPrivateUrl('http://app.localhost')).toBe(true);
+      expect(isPrivateUrl('http://service.internal.')).toBe(true);
+    });
+
+    it('treats multicast, NAT64 and 6to4 forms of private addresses as private', () => {
+      expect(isPrivateUrl('http://224.0.0.1')).toBe(true);
+      expect(isPrivateUrl('http://[ff02::1]')).toBe(true);
+      expect(isPrivateUrl('http://[64:ff9b::7f00:1]')).toBe(true);
+      expect(isPrivateUrl('http://[2002:c0a8:101::1]')).toBe(true);
     });
 
     it('treats ordinary public hostnames as public', () => {

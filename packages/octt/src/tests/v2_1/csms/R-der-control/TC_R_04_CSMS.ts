@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 const ENTER_SERVICE_ID = 'enterservice_1';
 const FREQ_DROOP_ID = 'freqdroop_1';
@@ -61,7 +62,7 @@ export const TC_R_107_CSMS: TestCase = {
         received.push({ action, payload });
         return { status: 'Accepted' };
       }
-      return { status: 'NotSupported' };
+      return defaultReply('ocpp2.1', action, payload);
     });
 
     /**

@@ -87,11 +87,11 @@ vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock('../lib/station-derived-status.js', () => ({
+vi.mock('@evtivity/services/station-derived-status', () => ({
   buildDerivedStatusSubquery: vi.fn(() => 'DERIVED_STATUS_SQL'),
 }));
 
-vi.mock('../services/maintenance.service.js', () => ({
+vi.mock('@evtivity/services/maintenance.service', () => ({
   createEvent: vi.fn(),
   cancelEvent: vi.fn(),
   updateEvent: vi.fn(),

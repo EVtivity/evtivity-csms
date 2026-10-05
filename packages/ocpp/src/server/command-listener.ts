@@ -9,6 +9,7 @@ import type {
   Subscription,
   ConnectionRegistry,
 } from '@evtivity/lib';
+import { OCPP_COMMANDS_CHANNEL, OCPP_COMMAND_RESULTS_CHANNEL } from '@evtivity/lib';
 import type { CommandDispatcher } from './command-dispatcher.js';
 import { RetryPolicy } from './retry-policy.js';
 import {
@@ -17,9 +18,9 @@ import {
   MESSAGE_TYPE_CALLERROR,
 } from '../protocol/message-types.js';
 
-const CHANNEL = 'ocpp_commands';
+const CHANNEL = OCPP_COMMANDS_CHANNEL;
 
-const RESULTS_CHANNEL = 'ocpp_command_results';
+const RESULTS_CHANNEL = OCPP_COMMAND_RESULTS_CHANNEL;
 
 const NON_RETRYABLE_ACTIONS = new Set([
   'RequestStartTransaction',

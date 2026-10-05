@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 const makeExternalV2XTest = (id: string, name: string, desc: string): TestCase => ({
   id,
@@ -18,13 +19,15 @@ const makeExternalV2XTest = (id: string, name: string, desc: string): TestCase =
       reason: 'PowerUp',
     });
     let profileCount = 0;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'SetChargingProfile') {
-        profileCount++;
-        return { status: 'Accepted' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'SetChargingProfile') {
+          profileCount++;
+          return { status: 'Accepted' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'SetChargingProfile', {
         stationId: ctx.stationId,

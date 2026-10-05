@@ -25,8 +25,8 @@ import { setAuthCookies, clearAuthCookies, isSecureRequest } from '../../lib/aut
 import { zodSchema } from '../../lib/zod-schema.js';
 import { generateUserToken, hashUserToken } from '../../lib/user-token.js';
 import { validatePasswordComplexity } from '../../lib/password-validation.js';
-import { ALL_TEMPLATES_DIRS } from '../../lib/template-dirs.js';
-import { getPubSub } from '../../lib/pubsub.js';
+import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { itemResponse, successResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import { checkRecaptcha } from '../../lib/recaptcha-check.js';

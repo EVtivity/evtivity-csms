@@ -8,7 +8,7 @@ let selectResults: unknown[][] = [];
 let inserted: Record<string, unknown>[] = [];
 function makeChain(): Record<string, unknown> {
   const chain: Record<string, unknown> = {};
-  for (const m of ['from', 'where', 'limit']) chain[m] = vi.fn(() => chain);
+  for (const m of ['from', 'where', 'limit', 'for']) chain[m] = vi.fn(() => chain);
   chain['then'] = (resolve: (v: unknown) => unknown) =>
     Promise.resolve(selectResults.shift() ?? []).then(resolve);
   return chain;
@@ -24,7 +24,23 @@ function makeInsertChain(): Record<string, unknown> {
   return chain;
 }
 
+let updates: Record<string, unknown>[] = [];
+function makeUpdateChain(): Record<string, unknown> {
+  const chain: Record<string, unknown> = {
+    set: vi.fn((v: Record<string, unknown>) => {
+      updates.push(v);
+      return chain;
+    }),
+    where: vi.fn(() => chain),
+  };
+  chain['then'] = (resolve: (v: unknown) => unknown) => Promise.resolve(undefined).then(resolve);
+  return chain;
+}
+
 const mocks = vi.hoisted(() => ({
+  cpoSessionLink: vi.fn(),
+  getOutboundToken: vi.fn(),
+  post: vi.fn(),
   ocpiCdrCost: vi.fn(),
   sessionTariffMapping: vi.fn(),
   renderTariffMapping: vi.fn(),
@@ -32,23 +48,37 @@ const mocks = vi.hoisted(() => ({
   notifyRoamingCdrChanged: vi.fn(),
 }));
 
-vi.mock('@evtivity/database', () => ({
-  db: { select: vi.fn(() => makeChain()), insert: vi.fn(() => makeInsertChain()) },
-  chargingSessions: { id: {} },
-  ocpiCdrs: { ocpiCdrId: {}, id: {} },
-  ocpiRoamingSessions: { chargingSessionId: {}, tokenUid: {} },
-  ocpiPartnerEndpoints: {},
-  ocpiPartners: { id: {}, version: {} },
-  ocpiSyncLog: {},
-  createCreditCdr: mocks.createCreditCdr,
-}));
+vi.mock('@evtivity/database', () => {
+  const db = {
+    select: vi.fn(() => makeChain()),
+    insert: vi.fn(() => makeInsertChain()),
+    update: vi.fn(() => makeUpdateChain()),
+    transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(db)),
+  };
+  return {
+    db,
+    chargingSessions: { id: {} },
+    ocpiCdrs: { ocpiCdrId: {}, id: {}, chargingSessionId: {}, isCredit: {} },
+    ocpiRoamingSessions: { id: {}, chargingSessionId: {}, tokenUid: {} },
+    ocpiPartnerEndpoints: {},
+    ocpiPartners: { id: {}, version: {} },
+    ocpiSyncLog: {},
+    createCreditCdr: mocks.createCreditCdr,
+  };
+});
 vi.mock('../lib/pubsub.js', () => ({ notifyRoamingCdrChanged: mocks.notifyRoamingCdrChanged }));
-vi.mock('../lib/outbound-token.js', () => ({ getOutboundToken: vi.fn() }));
+vi.mock('../lib/outbound-token.js', () => ({ getOutboundToken: mocks.getOutboundToken }));
+vi.mock('../lib/ocpi-client.js', () => ({
+  OcpiClient: vi.fn(function OcpiClient() {
+    return { post: mocks.post };
+  }),
+}));
 vi.mock('../services/session-cost-split.js', () => ({
   ocpiCdrCost: mocks.ocpiCdrCost,
   idleMinutesAt: () => 0,
 }));
 vi.mock('../services/cpo-sessions.js', () => ({
+  cpoSessionLink: mocks.cpoSessionLink,
   sessionPlace: vi.fn(async () => ({
     siteId: 'sit_1',
     site: null,
@@ -69,12 +99,14 @@ vi.mock('../services/published-tariffs.js', () => ({
   renderTariffMapping: mocks.renderTariffMapping,
 }));
 
-const { generateCdr, generateCreditCdr } = await import('../services/cdr.service.js');
+const { buildSessionCdr, issueSessionCdr, pushCdr, generateCreditCdr } =
+  await import('../services/cdr.service.js');
 
 const startedAt = new Date('2026-09-01T10:00:00Z');
 const endedAt = new Date('2026-09-01T11:00:00Z');
 const SESSION = {
   id: 'ses_1',
+  status: 'completed',
   transactionId: 'tx-1',
   stationId: 'sta_1',
   evseId: null,
@@ -88,12 +120,32 @@ const SESSION = {
 };
 
 function primeGenerate(version: string): void {
-  selectResults = [[SESSION], [{ tokenUid: 'TOKEN-1' }], [{ version }]];
+  selectResults = [[{ version }]];
+}
+
+const LINK = {
+  id: 7,
+  partnerId: 'opr_1',
+  ocpiSessionId: 'ses_1',
+  chargingSessionId: 'ses_1',
+  tokenUid: 'TOKEN-1',
+};
+
+async function generateCdr(sessionId: string, partnerId: string, ocpiSessionId = sessionId) {
+  const built = await buildSessionCdr({ ...SESSION, id: sessionId } as never, {
+    ...LINK,
+    partnerId,
+    chargingSessionId: sessionId,
+    ocpiSessionId,
+  });
+  if (built != null) inserted.push(built.row);
+  return built?.cdr ?? null;
 }
 
 beforeEach(() => {
   selectResults = [];
   inserted = [];
+  updates = [];
   vi.clearAllMocks();
   mocks.ocpiCdrCost.mockReturnValue({
     total: [{ taxRate: 0.19, netCents: 400, taxCents: 76 }],
@@ -101,7 +153,7 @@ beforeEach(() => {
   mocks.sessionTariffMapping.mockResolvedValue(null);
 });
 
-describe('generateCdr', () => {
+describe('buildSessionCdr', () => {
   it('sends the net as excl_vat and the amount charged as incl_vat to a 2.2.1 partner', async () => {
     primeGenerate('2.2.1');
     const cdr = await generateCdr('ses_1', 'opr_1');
@@ -119,6 +171,12 @@ describe('generateCdr', () => {
       taxes: [{ name: 'VAT', percentage: 19, amount: 0.76 }],
     });
     expect(inserted[0]).toMatchObject({ totalCost: '4' });
+  });
+
+  it('names the Session by the id stored on the CPO session link', async () => {
+    primeGenerate('2.2.1');
+    const cdr = await generateCdr('ses_1', 'opr_1', 'tx-legacy-1');
+    expect(cdr?.session_id).toBe('tx-legacy-1');
   });
 
   it('uses the published location id and the partner token', async () => {
@@ -144,6 +202,106 @@ describe('generateCdr', () => {
     primeGenerate('2.2.1');
     const cdr = await generateCdr('ses_1', 'opr_1');
     expect(cdr).not.toHaveProperty('tariffs');
+  });
+});
+
+describe('issueSessionCdr', () => {
+  it('stores one CDR for a completed session of a partner token', async () => {
+    mocks.cpoSessionLink.mockResolvedValue(LINK);
+    // session, existing CDR (none), partner version, link lock, existing in tx (none)
+    selectResults = [[SESSION], [], [{ version: '2.2.1' }], [{ id: 7 }], []];
+    const result = await issueSessionCdr('ses_1');
+    expect(result.status).toBe('created');
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]).toMatchObject({
+      partnerId: 'opr_1',
+      chargingSessionId: 'ses_1',
+      isCredit: false,
+      pushStatus: 'pending',
+    });
+    expect(mocks.notifyRoamingCdrChanged).toHaveBeenCalled();
+  });
+
+  it('returns the stored CDR instead of issuing a second one', async () => {
+    mocks.cpoSessionLink.mockResolvedValue(LINK);
+    selectResults = [[SESSION], [{ ocpiCdrId: 'cdr-1' }]];
+    expect(await issueSessionCdr('ses_1')).toEqual({ status: 'existing', cdrId: 'cdr-1' });
+    expect(inserted).toHaveLength(0);
+  });
+
+  it('returns the CDR another run stored while this one built it', async () => {
+    mocks.cpoSessionLink.mockResolvedValue(LINK);
+    selectResults = [[SESSION], [], [{ version: '2.2.1' }], [{ id: 7 }], [{ ocpiCdrId: 'cdr-9' }]];
+    expect(await issueSessionCdr('ses_1')).toEqual({ status: 'existing', cdrId: 'cdr-9' });
+    expect(inserted).toHaveLength(0);
+    expect(mocks.notifyRoamingCdrChanged).not.toHaveBeenCalled();
+  });
+
+  it.each(['faulted', 'failed', 'invalid', 'active'])(
+    'issues no CDR for a %s session (OCPI INVALID is not billed)',
+    async (status) => {
+      selectResults = [[{ ...SESSION, status }]];
+      expect(await issueSessionCdr('ses_1')).toEqual({ status: 'not_billable' });
+      expect(mocks.cpoSessionLink).not.toHaveBeenCalled();
+    },
+  );
+
+  it('issues no CDR for a session no partner token started', async () => {
+    mocks.cpoSessionLink.mockResolvedValue(null);
+    selectResults = [[SESSION]];
+    expect(await issueSessionCdr('ses_1')).toEqual({ status: 'not_roaming' });
+  });
+
+  it('reports an unknown session', async () => {
+    selectResults = [[]];
+    expect(await issueSessionCdr('ses_x')).toEqual({ status: 'not_found' });
+  });
+});
+
+describe('pushCdr', () => {
+  const ROW = {
+    id: 1,
+    ocpiCdrId: 'cdr-1',
+    partnerId: 'opr_1',
+    pushStatus: 'pending',
+    cdrData: { id: 'cdr-1' },
+  };
+
+  it('POSTs the stored CDR and marks it sent', async () => {
+    mocks.getOutboundToken.mockResolvedValue('token');
+    mocks.post.mockResolvedValue({ status_code: 1000, status_message: 'OK' });
+    selectResults = [
+      [ROW],
+      [{ url: 'https://emsp/cdrs' }],
+      [{ countryCode: 'NL', partyId: 'MSP' }],
+    ];
+    expect(await pushCdr('cdr-1')).toBe('sent');
+    expect(mocks.post).toHaveBeenCalledWith('https://emsp/cdrs', { id: 'cdr-1' });
+    expect(updates[0]).toMatchObject({ pushStatus: 'sent' });
+  });
+
+  it('does not send a CDR twice', async () => {
+    selectResults = [[{ ...ROW, pushStatus: 'sent' }]];
+    expect(await pushCdr('cdr-1')).toBe('already_sent');
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+
+  it('leaves the CDR pending for a partner without a CDRs receiver', async () => {
+    selectResults = [[ROW], []];
+    expect(await pushCdr('cdr-1')).toBe('no_receiver');
+    expect(updates).toHaveLength(0);
+  });
+
+  it('marks the CDR failed when the partner rejects it', async () => {
+    mocks.getOutboundToken.mockResolvedValue('token');
+    mocks.post.mockResolvedValue({ status_code: 3000, status_message: 'down' });
+    selectResults = [
+      [ROW],
+      [{ url: 'https://emsp/cdrs' }],
+      [{ countryCode: 'NL', partyId: 'MSP' }],
+    ];
+    expect(await pushCdr('cdr-1')).toBe('failed');
+    expect(updates[0]).toMatchObject({ pushStatus: 'failed' });
   });
 });
 

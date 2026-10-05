@@ -21,3 +21,10 @@ export * from './generated/v2_1/index.js';
 
 export { ActionRegistry as ActionRegistry16 } from './generated/v1_6/registry.js';
 export type { ActionName as ActionName16 } from './generated/v1_6/registry.js';
+
+export {
+  createLocalContractCa,
+  describeLocalContractCa,
+  parseLocalContractCa,
+  type LocalContractCa,
+} from './services/pki/local-contract-ca.js';

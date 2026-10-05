@@ -14,6 +14,9 @@
     },
     {
       "path": "../payments"
+    },
+    {
+      "path": "../v2g-exi"
     }
   ]
 }

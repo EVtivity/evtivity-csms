@@ -11,6 +11,8 @@ import {
   visitQrUrl,
 } from '../../../../qr-test-helpers.js';
 import { newTransactionId } from '../../../../csms-test-helpers.js';
+import { waitForEvse } from '../../../../security-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 /** maxenergy the EV driver entered before the QR code was shown (Wh). */
 const MAX_ENERGY_WH = 20000;
@@ -60,12 +62,14 @@ export const TC_C_131_CSMS: TestCase = {
         requestStartPayload = payload;
         return { status: 'Accepted' };
       }
-      return { status: 'NotSupported' };
+      return defaultReply('ocpp2.1', action, payload);
     });
 
     // Prerequisite: the CSMS configures the station's dynamic QR code
     // (WebPaymentsCtrlr URLTemplate, TOTP parameters, shared secret).
-    const configError = await enableDynamicQr(ctx, capture);
+    // The StatusNotification projection creates EVSE 1 asynchronously: the QR
+    // code URL names it, so the CSMS must know it first.
+    const configError = (await enableDynamicQr(ctx, capture)) ?? (await waitForEvse(ctx, 1));
 
     // Manual Action: the EV driver scans the QR code (maxenergy 20000) and opens
     // the CSMS web page, which checks the URL and its one-time password.

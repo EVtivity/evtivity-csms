@@ -2,11 +2,17 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { OcpiClient } from '../lib/ocpi-client.js';
 
-// 127.0.0.1 is a literal IP, so the client's SSRF guard skips DNS and allows it
-// (loopback is permitted), keeping these tests offline and deterministic.
-const BASE = 'http://127.0.0.1';
+// safeFetch (the connect-time SSRF guard, tested in @evtivity/lib) is routed to
+// the stubbed global fetch so these tests stay offline and deterministic.
+vi.mock('@evtivity/lib', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/lib')>()),
+  safeFetch: (...args: unknown[]) => (globalThis.fetch as (...a: unknown[]) => unknown)(...args),
+}));
+
+const { OcpiClient } = await import('../lib/ocpi-client.js');
+
+const BASE = 'https://partner.example.com';
 
 function makeResponse(data: unknown[], nextUrl: string | null): Response {
   const link = nextUrl != null ? `<${nextUrl}>; rel="next"` : null;
@@ -32,6 +38,7 @@ const client = new OcpiClient({
   fromPartyId: 'EVT',
   toCountryCode: 'DE',
   toPartyId: 'ABC',
+  allowPrivateNetwork: false,
 });
 
 describe('OcpiClient.getPaginatedEach', () => {
@@ -98,5 +105,53 @@ describe('OcpiClient.getPaginatedEach', () => {
     const all = await client.getPaginated<{ id: string }>(`${BASE}/p1`);
 
     expect(all).toEqual([{ id: 'a' }, { id: 'b' }]);
+  });
+});
+
+describe('OcpiClient SSRF policy', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('sends every request through safeFetch with the partner private-network flag', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(makeResponse([], null));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await client.get(`${BASE}/a`);
+    const privatePeer = new OcpiClient({
+      token: 'tok',
+      fromCountryCode: 'US',
+      fromPartyId: 'EVT',
+      toCountryCode: 'NL',
+      toPartyId: 'SIM',
+      allowPrivateNetwork: true,
+    });
+    await privatePeer.get('http://ocpi-simulator:7105/b');
+
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      redirect: 'manual',
+      allowPrivateNetworks: false,
+    });
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ allowPrivateNetworks: true });
+  });
+
+  it('follows a redirect manually, keeping the method and body for the next hop', async () => {
+    const redirect = {
+      status: 307,
+      ok: false,
+      headers: { get: (h: string) => (h.toLowerCase() === 'location' ? '/moved' : null) },
+      body: null,
+    } as unknown as Response;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(redirect)
+      .mockResolvedValueOnce(makeResponse([], null));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await client.post(`${BASE}/cmd`, { a: 1 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(`${BASE}/moved`);
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: 'POST', body: '{"a":1}' });
   });
 });

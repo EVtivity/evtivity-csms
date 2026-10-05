@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { EventEmitter } from 'node:events';
-import { Redis } from 'ioredis';
+import type { Redis } from 'ioredis';
 import { createLogger } from './logger.js';
-import { logRedisErrors } from './redis-errors.js';
+import { createRedisClient } from './redis-client.js';
 
 const logger = createLogger('bullmq');
 
@@ -26,13 +26,10 @@ const CONNECTION_ERROR_CODES = new Set([
  */
 export function createBullMQConnection(redisUrl?: string): Redis {
   const url = redisUrl ?? process.env['REDIS_URL'] ?? 'redis://localhost:6379';
-  return logRedisErrors(
-    new Redis(url, {
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-    }),
-    'bullmq',
-  );
+  return createRedisClient(url, 'bullmq', {
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+  });
 }
 
 /**

@@ -1,9 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import crypto from 'node:crypto';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import type { Job } from 'bullmq';
 import { eq, and, desc, isNull } from 'drizzle-orm';
 import {
@@ -16,8 +14,8 @@ import {
   evses,
   writeReservationAudit,
 } from '@evtivity/database';
-import type { PubSubClient } from '@evtivity/lib';
-import { createLogger, dispatchDriverNotification } from '@evtivity/lib';
+import type { OcppCommand, PubSubClient } from '@evtivity/lib';
+import { createLogger, dispatchDriverNotification, publishOcppCommand } from '@evtivity/lib';
 
 const log = createLogger('reservation-activate');
 
@@ -49,15 +47,6 @@ async function notifyDriverCancelled(
     );
   }
 }
-
-const currentDir = dirname(fileURLToPath(import.meta.url));
-const API_TEMPLATES_DIR =
-  process.env['API_TEMPLATES_DIR'] ??
-  resolve(currentDir, '..', '..', '..', 'api', 'src', 'templates');
-const OCPP_TEMPLATES_DIR =
-  process.env['OCPP_TEMPLATES_DIR'] ??
-  resolve(currentDir, '..', '..', '..', 'ocpp', 'src', 'templates');
-const ALL_TEMPLATES_DIRS = [OCPP_TEMPLATES_DIR, API_TEMPLATES_DIR];
 
 export async function handleReservationActivate(job: Job, pubsub: PubSubClient): Promise<void> {
   const { reservationDbId } = job.data as { reservationDbId: string };
@@ -337,7 +326,6 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
   }
 
   // Build and send ReserveNow command
-  const commandId = crypto.randomUUID();
   const ocppPayload: Record<string, unknown> = {
     id: reservation.reservationId,
     expiryDateTime: reservation.expiresAt.toISOString(),
@@ -357,12 +345,11 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
   // to reservationId/connectorId/idTag/expiryDate. Omitting `version` routes
   // through `sendVersionAwareCommand`, which looks up the station's actual
   // protocol from the open connection and applies the right mapper.
-  const notification = JSON.stringify({
-    commandId,
+  const command: OcppCommand = {
     stationId: reservation.stationOcppId,
     action: 'ReserveNow',
     payload: ocppPayload,
-  });
+  };
 
   // Flip status BEFORE publish so retries can't double-send. The guarded
   // update only succeeds when the row is still 'scheduled'; on retry after a
@@ -397,7 +384,7 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
     notes: 'scheduled activation',
   });
 
-  await pubsub.publish('ocpp_commands', notification);
+  await publishOcppCommand(pubsub, command);
 
   log.info(
     {

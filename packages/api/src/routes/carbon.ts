@@ -10,7 +10,7 @@ import { arrayResponse, itemResponse, errorWith } from '../lib/response-schemas.
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
-import { buildCsv } from '../services/report-generators/csv-builder.js';
+import { buildCsv } from '@evtivity/lib';
 
 const carbonFactorItem = z
   .object({

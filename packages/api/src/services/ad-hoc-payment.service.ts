@@ -13,9 +13,9 @@ import {
   PG_UNIQUE_VIOLATION,
 } from '@evtivity/database';
 import type { FastifyBaseLogger } from 'fastify';
-import { sendOcppCommandAndWait } from '../lib/ocpp-command.js';
+import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import { getUserSiteIds } from '../lib/site-access.js';
-import { getActiveMaintenanceForStation } from './maintenance.service.js';
+import { getActiveMaintenanceForStation } from '@evtivity/services/maintenance.service';
 
 /** How long an authorized payment waits for the station to start the transaction. */
 const PAYMENT_TTL_MS = 15 * 60 * 1000;

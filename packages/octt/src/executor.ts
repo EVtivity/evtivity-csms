@@ -9,6 +9,7 @@ import type { TestCase, TestCaseResult, RunConfig, TriggerCommandFn, CallApiFn }
 import { createTestClient, generateStationId } from './client.js';
 import { generateTestTokens, provisionTestTokens } from './test-tokens.js';
 import { stopOpenTransactions } from './transaction-teardown.js';
+import { defaultReply } from './default-replies.js';
 import type { OcspTestService } from './ocsp-test-service.js';
 
 export async function executeTest(
@@ -71,52 +72,10 @@ export async function executeTest(
 
     await client.connect();
 
-    // Default handler accepts common CSMS-initiated calls (SetVariables, GetVariables, etc.)
-    // so they don't produce noisy "NotSupported" warnings. Tests override this when they
-    // need to validate specific incoming commands.
-    client.setIncomingCallHandler(
-      (
-        _messageId: string,
-        action: string,
-        payload: Record<string, unknown>,
-      ): Promise<Record<string, unknown>> => {
-        const items = (key: string): Record<string, unknown>[] =>
-          Array.isArray(payload[key]) ? (payload[key] as Record<string, unknown>[]) : [];
-        const responses: Record<string, Record<string, unknown>> = {
-          // OCPP 2.1: one result per request item, echoing its component and variable.
-          SetVariables: {
-            setVariableResult: items('setVariableData').map((item) => ({
-              ...(item['attributeType'] != null ? { attributeType: item['attributeType'] } : {}),
-              attributeStatus: 'Accepted',
-              component: item['component'],
-              variable: item['variable'],
-            })),
-          },
-          GetVariables: {
-            getVariableResult: items('getVariableData').map((item) => ({
-              ...(item['attributeType'] != null ? { attributeType: item['attributeType'] } : {}),
-              attributeStatus: 'UnknownComponent',
-              component: item['component'],
-              variable: item['variable'],
-            })),
-          },
-          RequestStartTransaction: { status: 'Rejected' },
-          RequestStopTransaction: { status: 'Accepted' },
-          SetNetworkProfile: { status: 'Accepted' },
-          SetMonitoringBase: { status: 'Accepted' },
-          ClearVariableMonitoring: {
-            clearMonitoringResult: (Array.isArray(payload['id']) ? payload['id'] : []).map(
-              (id: unknown) => ({ id, status: 'Accepted' }),
-            ),
-          },
-          // OCPP 1.6
-          ChangeConfiguration: { status: 'Accepted' },
-          GetConfiguration: { configurationKey: [], unknownKey: [] },
-          RemoteStartTransaction: { status: 'Rejected' },
-          RemoteStopTransaction: { status: 'Accepted' },
-        };
-        return Promise.resolve(responses[action] ?? { status: 'NotSupported' });
-      },
+    // CSMS calls the test does not handle get a schema-valid default reply.
+    // Tests that set their own handler fall back to the same replies.
+    client.setIncomingCallHandler((_messageId, action, payload) =>
+      defaultReply(testCase.version, action, payload),
     );
 
     log.debug('Connected, executing test');
@@ -131,6 +90,7 @@ export async function executeTest(
       triggerCommand,
       callApi,
       ocsp,
+      testDriverId: provisionStations ? testDriverId : undefined,
     });
 
     result.durationMs = Date.now() - start;

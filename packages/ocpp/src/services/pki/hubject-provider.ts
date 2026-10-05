@@ -5,6 +5,7 @@ import { createLogger } from '@evtivity/lib';
 import type {
   PkiProvider,
   SignCsrResult,
+  ContractCertRequest,
   ContractCertResult,
   OcspRequestData,
   OcspResult,
@@ -115,7 +116,7 @@ export class HubjectProvider implements PkiProvider {
     };
   }
 
-  async getContractCertificate(exiRequest: string): Promise<ContractCertResult> {
+  async getContractCertificate({ exiRequest }: ContractCertRequest): Promise<ContractCertResult> {
     const token = await this.getAccessToken();
     const url = `${this.config.baseUrl}/ccp/getSignedContractData`;
 

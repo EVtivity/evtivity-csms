@@ -8,7 +8,7 @@ import {
   revenueItem,
   sumRevenue,
   EMPTY_REVENUE,
-} from '@evtivity/api/src/lib/session-revenue.js';
+} from '@evtivity/services/session-revenue';
 import type { Logger } from 'pino';
 
 export async function dashboardSnapshotHandler(log: Logger): Promise<void> {

@@ -4,6 +4,7 @@
 import type { TestCase, StepResult } from '../../../../types.js';
 import { OCTT_CSR, OCTT_SIGNED_CERTIFICATE_CHAIN } from '../../../../certificate-fixtures.js';
 import { signPendingCsr, waitFor } from '../../../../security-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_A_11_CSMS: TestCase = {
   id: 'TC_A_11_CSMS',
@@ -48,7 +49,7 @@ export const TC_A_11_CSMS: TestCase = {
         certificateSignedReceived = true;
         return { status: 'Accepted' };
       }
-      return { status: 'NotSupported' };
+      return defaultReply('ocpp2.1', action, payload);
     });
 
     // Wait for the CSMS to send TriggerMessage

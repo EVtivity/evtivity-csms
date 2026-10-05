@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../types.js';
+import { defaultReply } from '../../../default-replies.js';
 
 export const TC_021_CSMS: TestCase = {
   id: 'TC_021_CSMS',
@@ -29,7 +30,7 @@ export const TC_021_CSMS: TestCase = {
         configValue = (payload['value'] as string) || '';
         return { status: 'Accepted' };
       }
-      return {};
+      return defaultReply('ocpp1.6', action, payload);
     });
 
     // Trigger the CSMS to send ChangeConfiguration via the REST API

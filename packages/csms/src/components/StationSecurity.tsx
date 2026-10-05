@@ -57,6 +57,8 @@ const CONNECTION_EVENT_OPTIONS = [
   'credentials_rotated',
   'security_profile_change_sent',
   'security_profile_upgraded',
+  'simulator_self_healed',
+  'simulator_conflict',
   'connected',
   'disconnected',
 ] as const;

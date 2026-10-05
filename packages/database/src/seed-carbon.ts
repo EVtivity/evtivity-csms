@@ -445,7 +445,9 @@ export async function seedCarbonIntensityFactors(): Promise<number> {
   // Single batched upsert. Previously this looped 60 sequential INSERTs
   // which costs ~600ms of round-trips during seed; one VALUES list cuts
   // that to a single round-trip while keeping the idempotent ON CONFLICT
-  // contract that lets seed reruns refresh the factors in place.
+  // contract that lets seed reruns refresh the factors in place. The factors
+  // are code-owned reference data (the API only reads them), so refreshing
+  // them overwrites no operator edit.
   await db
     .insert(carbonIntensityFactors)
     .values(ALL_FACTORS)

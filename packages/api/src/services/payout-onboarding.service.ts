@@ -6,7 +6,7 @@ import { AppError, dispatchSystemNotification } from '@evtivity/lib';
 import { client, db, siteAuditLog, sitePayoutInvites, sites, writeAudit } from '@evtivity/database';
 import { findSitePayoutAccount } from '@evtivity/payments';
 import { generateUserToken, hashUserToken } from '../lib/user-token.js';
-import { ALL_TEMPLATES_DIRS } from '../lib/template-dirs.js';
+import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { config } from '../lib/config.js';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
 

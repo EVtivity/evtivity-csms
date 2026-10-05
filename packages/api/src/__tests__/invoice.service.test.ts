@@ -101,7 +101,7 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(),
 }));
 
-vi.mock('../lib/company-currency.js', () => ({
+vi.mock('@evtivity/services/company-currency', () => ({
   inCompanyCurrency: vi.fn(),
   sessionCurrencySql: vi.fn(),
 }));
@@ -119,6 +119,8 @@ import {
   createAggregatedInvoice,
   getInvoice,
   voidInvoice,
+  isSessionCollected,
+  invoiceStatusFor,
 } from '../services/invoice.service.js';
 
 const ENDED = new Date('2026-06-04T11:00:00Z');
@@ -299,6 +301,34 @@ describe('createSessionInvoice', () => {
     expect(insertedInvoice()).toMatchObject({ subtotalCents: 450, taxCents: 68, totalCents: 518 });
   });
 
+  it('bills a split session with one rate at the tax the session charged for that rate', async () => {
+    // Three segments of 1 kWh at 0.33, 19%: 33 net each. Tax rounded once on
+    // 99: 18.81 -> 19 (per segment it was 6 + 6 + 6 = 18). The lines carry
+    // the session's shares of it: 6.27 each, so 7, 6, 6.
+    const segment = (first: boolean) => ({
+      tariff: tariff('0.33', '0.19'),
+      durationMinutes: 20,
+      energyDeliveredWh: 1_000,
+      idleMinutes: 0,
+      isFirstSegment: first,
+    });
+    const breakdown = toSessionCostBreakdown(
+      calculateSplitSessionCost([segment(true), segment(false), segment(false)], 0),
+    );
+    expect(breakdown.taxLines).toEqual([{ taxRate: 0.19, netCents: 99, taxCents: 19 }]);
+    queue('chargingSessions', [session({ costBreakdown: breakdown, finalCostCents: 118 })]);
+    queue('invoiceLineItems', []);
+
+    await createSessionInvoice('ses_1');
+
+    expect(insertedLines().map((l) => [l.metadata['segment'], l.totalCents, l.taxCents])).toEqual([
+      [1, 33, 7],
+      [2, 33, 6],
+      [3, 33, 6],
+    ]);
+    expect(insertedInvoice()).toMatchObject({ subtotalCents: 99, taxCents: 19, totalCents: 118 });
+  });
+
   it('prints gross-basis lines whose net plus tax is each gross amount charged', async () => {
     // Gross prices: 10 kWh at 0.357 = 357, session fee 1.19 = 119. 476 gross, 400 net.
     queue('chargingSessions', [
@@ -387,6 +417,24 @@ describe('createSessionInvoice', () => {
 
     expect(insertedLines()).toHaveLength(1);
     expect(insertedLines()[0]).toMatchObject({ totalCents: 0, taxCents: 0 });
+  });
+
+  it('is paid when the session was captured for its final cost', async () => {
+    queue('chargingSessions', [session({ paymentStatus: 'captured', paymentCapturedCents: 357 })]);
+    queue('invoiceLineItems', []);
+
+    await createSessionInvoice('ses_1');
+
+    expect(insertedInvoice()['status']).toBe('paid');
+  });
+
+  it('is issued when the session has no payment record', async () => {
+    queue('chargingSessions', [session({ paymentStatus: null, paymentCapturedCents: null })]);
+    queue('invoiceLineItems', []);
+
+    await createSessionInvoice('ses_1');
+
+    expect(insertedInvoice()['status']).toBe('issued');
   });
 
   it('throws when the session is not found', async () => {
@@ -535,6 +583,54 @@ describe('createAggregatedInvoice', () => {
     expect(insertedInvoice()).toMatchObject({ totalCents: 595, taxCents: 95 });
   });
 
+  it('is paid when every session was captured and fees are captured charges', async () => {
+    queue('chargingSessions', [
+      session({ id: 'ses_a', paymentStatus: 'captured', paymentCapturedCents: 357 }),
+      session({ id: 'ses_b', paymentStatus: 'partially_refunded', paymentCapturedCents: 400 }),
+    ]);
+    queue('paymentRecords', [
+      {
+        id: 7,
+        chargeType: 'reservation_cancellation',
+        capturedAmountCents: 595,
+        taxRate: '0.19',
+        createdAt: new Date('2026-06-05T08:00:00Z'),
+      },
+    ]);
+
+    await createAggregatedInvoice('drv_1', start, end);
+
+    expect(insertedInvoice()['status']).toBe('paid');
+  });
+
+  it('is issued when one session was not collected', async () => {
+    queue('chargingSessions', [
+      session({ id: 'ses_a', paymentStatus: 'captured', paymentCapturedCents: 357 }),
+      session({ id: 'ses_b', paymentStatus: null, paymentCapturedCents: null }),
+    ]);
+
+    await createAggregatedInvoice('drv_1', start, end);
+
+    expect(insertedInvoice()['status']).toBe('issued');
+  });
+
+  it('is paid for reservation fees alone', async () => {
+    queue('chargingSessions', []);
+    queue('paymentRecords', [
+      {
+        id: 9,
+        chargeType: 'reservation_no_show',
+        capturedAmountCents: 300,
+        taxRate: '0',
+        createdAt: new Date('2026-06-05T08:00:00Z'),
+      },
+    ]);
+
+    await createAggregatedInvoice('drv_1', start, end);
+
+    expect(insertedInvoice()['status']).toBe('paid');
+  });
+
   it('throws INVOICE_NO_SESSIONS when nothing is left to invoice', async () => {
     queue('chargingSessions', []);
     await expect(createAggregatedInvoice('drv_1', start, end)).rejects.toMatchObject({
@@ -549,6 +645,43 @@ describe('createAggregatedInvoice', () => {
     await expect(createAggregatedInvoice('drv_1', start, end)).rejects.toThrow(
       'Failed to create invoice',
     );
+  });
+});
+
+describe('invoiceStatusFor', () => {
+  it('counts a captured, partially refunded or refunded charge covering the cost as collected', () => {
+    for (const paymentStatus of ['captured', 'partially_refunded', 'refunded']) {
+      expect(
+        isSessionCollected({ finalCostCents: 500, paymentStatus, paymentCapturedCents: 500 }),
+      ).toBe(true);
+    }
+  });
+
+  it('does not count a shortfall, a failed or pending payment, or no payment record', () => {
+    expect(
+      isSessionCollected({
+        finalCostCents: 500,
+        paymentStatus: 'captured',
+        paymentCapturedCents: 400,
+      }),
+    ).toBe(false);
+    for (const paymentStatus of ['failed', 'pending', 'pre_authorized', 'cancelled']) {
+      expect(
+        isSessionCollected({ finalCostCents: 500, paymentStatus, paymentCapturedCents: 500 }),
+      ).toBe(false);
+    }
+    expect(isSessionCollected({ finalCostCents: 500 })).toBe(false);
+  });
+
+  it('counts a session that cost nothing as collected', () => {
+    expect(isSessionCollected({ finalCostCents: 0 })).toBe(true);
+  });
+
+  it('is paid only when every session was collected', () => {
+    const paid = { finalCostCents: 500, paymentStatus: 'captured', paymentCapturedCents: 500 };
+    expect(invoiceStatusFor([])).toBe('paid');
+    expect(invoiceStatusFor([paid, paid])).toBe('paid');
+    expect(invoiceStatusFor([paid, { finalCostCents: 500 }])).toBe('issued');
   });
 });
 

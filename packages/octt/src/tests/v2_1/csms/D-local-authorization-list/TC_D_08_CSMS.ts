@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 // Helper: boot station
 async function boot(ctx: {
@@ -43,7 +44,7 @@ export const TC_D_08_CSMS: TestCase = {
     let receivedGetVersion = false;
 
     ctx.client.setIncomingCallHandler(
-      async (_messageId: string, action: string, _payload: Record<string, unknown>) => {
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'GetLocalListVersion') {
           receivedGetVersion = true;
           return { versionNumber: 1 };
@@ -51,7 +52,7 @@ export const TC_D_08_CSMS: TestCase = {
         if (action === 'SendLocalList') {
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -106,7 +107,7 @@ export const TC_D_09_CSMS: TestCase = {
     let receivedGetVersion = false;
 
     ctx.client.setIncomingCallHandler(
-      async (_messageId: string, action: string, _payload: Record<string, unknown>) => {
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'GetLocalListVersion') {
           receivedGetVersion = true;
           return { versionNumber: 0 };
@@ -114,7 +115,7 @@ export const TC_D_09_CSMS: TestCase = {
         if (action === 'SendLocalList') {
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

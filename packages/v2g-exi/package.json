@@ -1,0 +1,26 @@
+{
+  "name": "@evtivity/v2g-exi",
+  "version": "0.1.38-beta.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./src/index.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "build:wasm": "bash scripts/build-wasm.sh",
+    "check:wasm": "bash scripts/build-wasm.sh --check",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "typescript": "^5.7.0",
+    "vitest": "^5.0.2"
+  }
+}

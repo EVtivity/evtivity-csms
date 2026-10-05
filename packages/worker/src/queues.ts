@@ -14,6 +14,7 @@ export const QUEUE_NAMES = {
   STATION_WATCH: 'station-watch',
   PAYMENT_WEBHOOKS: 'payment-webhooks',
   REMOTE_START_TIMEOUTS: 'remote-start-timeouts',
+  STATION_MESSAGES: 'station-messages',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -33,6 +34,7 @@ export function createQueues(redisUrl: string): {
   stationWatchQueue: Queue;
   paymentWebhookQueue: Queue;
   remoteStartTimeoutQueue: Queue;
+  stationMessageQueue: Queue;
 } {
   // Each queue needs its own connection for BullMQ blocking commands
   return {
@@ -119,6 +121,18 @@ export function createQueues(redisUrl: string): {
         removeOnComplete: 200,
         removeOnFail: { count: 500 },
         attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+      },
+    }),
+    // Station screen renders: station events, session events, and debounced
+    // repushes after a config change. Retrying is safe: the content hash skips
+    // screens already sent.
+    stationMessageQueue: new Queue(QUEUE_NAMES.STATION_MESSAGES, {
+      connection: createBullMQConnection(redisUrl),
+      defaultJobOptions: {
+        removeOnComplete: 50,
+        removeOnFail: { count: 100 },
+        attempts: 2,
         backoff: { type: 'exponential', delay: 5000 },
       },
     }),

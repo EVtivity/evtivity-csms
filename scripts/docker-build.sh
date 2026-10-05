@@ -5,10 +5,11 @@ set -euo pipefail
 # docker compose with a clean Postgres volume, then seeds the database.
 # Used to smoke-test the build images locally before tagging a release.
 #
-# Seed strategy: `npm run db:seed` (admin + roles + settings, honors SEED_DEMO
-# from .env) then `npm run db:seed:dev` (minimal dev fixture from
-# packages/database/src/seed-dev-stations.ts) for testing without the full demo
-# dataset.
+# Seed strategy: `npm run db:seed -- --apply-config` (admin + roles +
+# settings with seed.config.json applied, honors SEED_DEMO from .env) then
+# `npm run db:seed:dev` (minimal dev fixture from
+# packages/database/src/seed-dev-stations.ts) for testing without the full
+# demo dataset.
 
 unset DOCKER_HOST DOCKER_TLS_VERIFY DOCKER_CERT_PATH MINIKUBE_ACTIVE_DOCKERD
 
@@ -145,7 +146,10 @@ if [ "$RESTART_DATA" = "y" ]; then
 
   echo ""
   echo "Seeding database..."
-  npm run db:seed
+  # The database was just wiped, so seed.config.json (and REGISTRATION_POLICY)
+  # replace the migration defaults. A plain `npm run db:seed` only adds
+  # missing settings and never overwrites existing ones.
+  npm run db:seed -- --apply-config
   npm run db:seed:dev
 else
   echo ""

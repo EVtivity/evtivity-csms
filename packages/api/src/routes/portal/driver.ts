@@ -21,8 +21,8 @@ import {
 import QRCode from 'qrcode';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { validatePasswordComplexity } from '../../lib/password-validation.js';
-import { ALL_TEMPLATES_DIRS } from '../../lib/template-dirs.js';
-import { getPubSub } from '../../lib/pubsub.js';
+import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import {
   successResponse,
   itemResponse,

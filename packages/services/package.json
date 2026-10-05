@@ -1,0 +1,71 @@
+{
+  "name": "@evtivity/services",
+  "version": "0.1.38-beta.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./availability-command": {
+      "import": "./src/availability-command.ts"
+    },
+    "./cjk-fonts": {
+      "import": "./src/cjk-fonts.ts"
+    },
+    "./company-currency": {
+      "import": "./src/company-currency.ts"
+    },
+    "./load-management.service": {
+      "import": "./src/load-management.service.ts"
+    },
+    "./maintenance-check": {
+      "import": "./src/maintenance-check.ts"
+    },
+    "./maintenance.service": {
+      "import": "./src/maintenance.service.ts"
+    },
+    "./ocpp-command": {
+      "import": "./src/ocpp-command.ts"
+    },
+    "./pdf-fonts": {
+      "import": "./src/pdf-fonts.ts"
+    },
+    "./report-generators/*": {
+      "import": "./src/report-generators/*.ts"
+    },
+    "./report.service": {
+      "import": "./src/report.service.ts"
+    },
+    "./reservation-cancel": {
+      "import": "./src/reservation-cancel.ts"
+    },
+    "./session-revenue": {
+      "import": "./src/session-revenue.ts"
+    },
+    "./station-derived-status": {
+      "import": "./src/station-derived-status.ts"
+    },
+    "./station-message.service": {
+      "import": "./src/station-message.service.ts"
+    },
+    "./template-dirs": {
+      "import": "./src/template-dirs.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@evtivity/database": "*",
+    "@evtivity/lib": "*",
+    "@evtivity/payments": "*",
+    "drizzle-orm": "^0.45.2",
+    "exceljs": "^3.4.0",
+    "pdfkit": "^0.17.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/pdfkit": "^0.17.5",
+    "typescript": "^5.7.0",
+    "vitest": "^5.0.2"
+  }
+}

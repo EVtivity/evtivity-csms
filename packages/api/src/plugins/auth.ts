@@ -14,7 +14,7 @@ import {
 import { eq, and, isNull } from 'drizzle-orm';
 import { config } from '../lib/config.js';
 import { isApiKeyRateLimited } from '../lib/rate-limiters.js';
-import { getPubSub } from '../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { hashToken } from '../lib/token-hash.js';
 
 export interface JwtPayload {

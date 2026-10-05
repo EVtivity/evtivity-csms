@@ -13,7 +13,7 @@ vi.mock('@evtivity/database', () => ({
   accessLogs: {},
 }));
 
-vi.mock('../lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: () => ({ publish }),
 }));
 

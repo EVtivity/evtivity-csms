@@ -3,7 +3,7 @@
 
 import { eq } from 'drizzle-orm';
 import { db, users, userSiteAssignments, chargingStations } from '@evtivity/database';
-import { getPubSub } from './pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 interface SiteAccessCache {
   siteIds: string[] | null;

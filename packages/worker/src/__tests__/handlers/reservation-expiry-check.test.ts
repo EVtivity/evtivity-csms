@@ -22,7 +22,7 @@ vi.mock('@evtivity/database', () => ({
 }));
 
 const mockPublish = vi.fn().mockResolvedValue(undefined);
-vi.mock('@evtivity/api/src/lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: () => ({ publish: mockPublish }),
 }));
 
@@ -40,7 +40,8 @@ vi.mock('../../lib/payments.js', () => ({
 }));
 
 const mockDispatchDriver = vi.fn();
-vi.mock('@evtivity/lib', () => ({
+vi.mock('@evtivity/lib', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/lib')>()),
   dispatchDriverNotification: (...args: unknown[]) => mockDispatchDriver(...args),
 }));
 

@@ -1,8 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import crypto from 'node:crypto';
-import { eq, and, lte } from 'drizzle-orm';
+import { eq, and, lte, isNull } from 'drizzle-orm';
 import {
   db,
   client,
@@ -11,13 +10,13 @@ import {
   getStaleSessionTimeoutHours,
   writeReservationAudit,
   closeOpenSegment,
-  priceSessionAt,
+  faultUnbilledSession,
   sessionIdleMinutesAt,
 } from '@evtivity/database';
-import type { SessionCostBreakdown } from '@evtivity/lib';
+import { publishOcppCommand } from '@evtivity/lib';
 import { cancelOpenSessionHold } from '@evtivity/payments';
 import type { Logger } from 'pino';
-import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { paymentContext } from '../lib/payments.js';
 
 export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
@@ -39,7 +38,6 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
       startedAt: chargingSessions.startedAt,
       updatedAt: chargingSessions.updatedAt,
       energyDeliveredWh: chargingSessions.energyDeliveredWh,
-      currentCostCents: chargingSessions.currentCostCents,
       tariffId: chargingSessions.tariffId,
       idleStartedAt: chargingSessions.idleStartedAt,
       idleMinutes: chargingSessions.idleMinutes,
@@ -50,7 +48,15 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
     })
     .from(chargingSessions)
     .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-    .where(and(eq(chargingSessions.status, 'active'), lte(chargingSessions.updatedAt, cutoff)));
+    .where(
+      and(
+        eq(chargingSessions.status, 'active'),
+        lte(chargingSessions.updatedAt, cutoff),
+        // A session the operator asked to end billed (ghost, superseded) is
+        // ended by the OCPP server, never faulted here.
+        isNull(chargingSessions.endRequestReason),
+      ),
+    );
 
   if (staleSessions.length === 0) {
     return;
@@ -64,49 +70,32 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
       const endedAt = session.updatedAt;
       const energyWh = Number(session.energyDeliveredWh ?? 0);
 
-      // Close the open tariff segment and price the session at its last
-      // update with the one cost assembly the OCPP final cost uses (segments,
-      // idle grace, and the reservation holding fee).
-      let breakdown: SessionCostBreakdown | null = null;
+      // Close the open tariff segment at the last update, so the segment
+      // trail shows how long the session ran.
       if (session.tariffId != null && session.startedAt != null) {
         const idleMinutes = sessionIdleMinutesAt(
           { idleStartedAt: session.idleStartedAt, idleMinutes: Number(session.idleMinutes) },
           endedAt,
         );
         await closeOpenSegment(client, session.id, endedAt, energyWh, idleMinutes);
-        breakdown = await priceSessionAt(client, session.id, endedAt, energyWh);
       }
-      const finalCostCents = breakdown?.grossCents ?? session.currentCostCents;
 
-      // Mark session as faulted. Without a new price the last running cost
-      // (stored with its split) becomes the final cost.
-      const faulted = await db
-        .update(chargingSessions)
-        .set({
-          status: 'faulted',
-          stoppedReason: 'StaleSession',
-          endedAt,
-          finalCostCents,
-          currentCostCents: finalCostCents,
-          ...(breakdown != null
-            ? {
-                netCents: breakdown.netCents,
-                taxCents: breakdown.taxCents,
-                costBreakdown: breakdown,
-              }
-            : {}),
-          updatedAt: new Date(),
-        })
-        // A session that ended meanwhile keeps its own end and cost (P5).
-        .where(and(eq(chargingSessions.id, session.id), eq(chargingSessions.status, 'active')))
-        .returning({ id: chargingSessions.id });
+      // A stale session is faulted and not billed (owner decision, audit
+      // N6): its cost is zeroed with the status, like the payment gate's stop
+      // (P4). A session that ended meanwhile keeps its own end and cost (P5).
+      // No receipt or completion notification is sent.
+      const faulted = await faultUnbilledSession(client, {
+        sessionId: session.id,
+        reason: 'StaleSession',
+        endedAt,
+      });
 
-      // A faulted session is not billed: its open hold (a portal start whose
-      // 1.6 ConnectionTimeOut expired, a session the station lost) is
-      // cancelled now instead of staying held until the provider expires it
-      // (P4). Only when this run faulted it. Fail-open (P9): the record stays
-      // pre_authorized and the hold expires at the provider.
-      if (faulted.length > 0) {
+      // Its open hold (a portal start whose 1.6 ConnectionTimeOut expired, a
+      // session the station lost) is cancelled now instead of staying held
+      // until the provider expires it (P4). Only when this run faulted it.
+      // Fail-open (P9): the record stays pre_authorized and the hold expires
+      // at the provider.
+      if (faulted) {
         try {
           await cancelOpenSessionHold(session.id, 'Stale session faulted', paymentContext(log));
         } catch (holdErr: unknown) {
@@ -142,16 +131,12 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
       // Send RequestStopTransaction to online stations to clear the station-side transaction
       if (session.stationIsOnline) {
         try {
-          const commandId = crypto.randomUUID();
-          const pubsub = getPubSub();
-          const notification = JSON.stringify({
-            commandId,
+          await publishOcppCommand(getPubSub(), {
             stationId: session.stationOcppId,
             action: 'RequestStopTransaction',
             payload: { transactionId: session.transactionId },
-            ...(session.ocppProtocol != null ? { version: session.ocppProtocol } : {}),
+            version: session.ocppProtocol,
           });
-          await pubsub.publish('ocpp_commands', notification);
           log.info(
             { sessionId: session.id, transactionId: session.transactionId },
             'Sent RequestStopTransaction for stale session on online station',
@@ -171,7 +156,7 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
           transactionId: session.transactionId,
           stationOnline: session.stationIsOnline,
           lastUpdate: session.updatedAt.toISOString(),
-          finalCostCents,
+          faulted,
         },
         'Closed stale session',
       );

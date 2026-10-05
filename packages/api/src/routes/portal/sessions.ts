@@ -17,8 +17,8 @@ import {
   vehicleEfficiencyLookup,
 } from '@evtivity/database';
 import { zodSchema } from '../../lib/zod-schema.js';
-import { inCompanyCurrency, sessionCurrencySql } from '../../lib/company-currency.js';
-import { storedSessionCostTax } from '../../lib/session-tax.js';
+import { inCompanyCurrency, sessionCurrencySql } from '@evtivity/services/company-currency';
+import { storedSessionCostTax } from '@evtivity/lib';
 import { sessionLimitReached } from '../../lib/session-limit.js';
 import { ID_PARAMS } from '../../lib/id-validation.js';
 import { paginatedResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
@@ -54,6 +54,14 @@ const portalSessionListItem = z
       .nullable()
       .describe(
         'Tax rate of the session tariff as a decimal (e.g. 0.19), null without tax. Costs include it',
+      ),
+    taxCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe(
+        'Tax contained in the cost, in cents, as stored with it (exact per tariff segment). Above 0 when the cost includes tax; null for a session without a stored split',
       ),
     currency: z.string().length(3).describe('ISO 4217 currency code the session was billed in'),
     stationName: z.string().max(255).nullable().describe('OCPP station identity (display name)'),
@@ -117,7 +125,7 @@ const portalSessionDetail = portalSessionListItem
       .min(1)
       .nullable()
       .describe(
-        'Tax contained in the cost (finalCostCents, else currentCostCents) in cents, split per tariff segment as billed. Null when the cost contains no tax, or when tariffs with different tax rates applied and the split is not known yet',
+        'Tax contained in the cost (finalCostCents, else currentCostCents) in cents, split per tax rate as billed. Null when the cost contains no tax, or when tariffs with different tax rates applied and the split is not known yet',
       ),
     taxRate: z
       .string()
@@ -246,6 +254,14 @@ const monthlyStatementSessionItem = z
       .describe(
         'Tax rate of the session tariff as a decimal (e.g. 0.19), null without tax. Costs include it',
       ),
+    taxCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe(
+        'Tax contained in finalCostCents, in cents, as stored with it. Above 0 when the cost includes tax',
+      ),
     currency: z.string().length(3).describe('Currency code (ISO 4217) the session was billed in'),
     siteName: z.string().max(255).nullable().describe('Site name for the station'),
     siteCity: z.string().max(100).nullable().describe('Site city'),
@@ -324,6 +340,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
             co2AvoidedKg: chargingSessions.co2AvoidedKg,
             finalCostCents: chargingSessions.finalCostCents,
             tariffTaxRate: chargingSessions.tariffTaxRate,
+            taxCents: chargingSessions.taxCents,
             currency: sessionCurrencySql(),
             stationName: chargingStations.stationId,
             siteName: sites.name,
@@ -425,6 +442,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           co2AvoidedKg: chargingSessions.co2AvoidedKg,
           finalCostCents: chargingSessions.finalCostCents,
           tariffTaxRate: chargingSessions.tariffTaxRate,
+          taxCents: chargingSessions.taxCents,
           currency: sessionCurrencySql(),
           siteName: sites.name,
           siteCity: sites.city,

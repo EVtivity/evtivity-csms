@@ -38,6 +38,21 @@ export const CSS_STATUS_REPORTING_VALUES = ['Both', 'StatusNotification', 'Notif
 export type CssStatusReporting = (typeof CSS_STATUS_REPORTING_VALUES)[number];
 export const CSS_STATUS_REPORTING_DEFAULT: CssStatusReporting = 'Both';
 
+// A simulator fleet spreads its reconnects after a CSMS restart over this window
+// (seconds), so the server does not take every station at once. 1.6 stations add a
+// random delay up to it to their first attempt (OcppClient reconnectSpreadMs).
+export const CSS_RECONNECT_SPREAD_S = 15;
+
+// Factory reconnect back-off of a 2.1 simulator (OCPPCommCtrlr.RetryBackOff*, 2.1
+// Part 4 5.4): the first attempt after 2 s plus a random part up to 15 s, the wait
+// doubled after a failed attempt at most 3 times. The random range is the fleet
+// spread, so a 2.1 station spreads through its own device model, as the spec intends.
+export const CSS_RETRY_BACK_OFF_DEFAULTS = {
+  waitMinimumS: 2,
+  randomRangeS: CSS_RECONNECT_SPREAD_S,
+  repeatTimes: 3,
+} as const;
+
 // OCPP 2.1 SecurityCtrlr variables for certificate signing (A02, A00.FR.509).
 // Exported so a station provisioned before they existed gets them on boot.
 export function cssSecurityCtrlrDefaults(vendorName: string): CssConfigDefault[] {
@@ -109,9 +124,21 @@ export function buildCssConfigDefaults(input: CssConfigDefaultsInput): CssConfig
     t('OCPPCommCtrlr.NetworkConfigurationPriority', '1', false),
     t('OCPPCommCtrlr.OfflineThreshold', '60', false),
     t('OCPPCommCtrlr.MessageTimeout', '30', true),
-    t('OCPPCommCtrlr.RetryBackOffWaitMinimum', '10', false),
-    t('OCPPCommCtrlr.RetryBackOffRandomRange', '5', false),
-    t('OCPPCommCtrlr.RetryBackOffRepeatTimes', '3', false),
+    t(
+      'OCPPCommCtrlr.RetryBackOffWaitMinimum',
+      String(CSS_RETRY_BACK_OFF_DEFAULTS.waitMinimumS),
+      false,
+    ),
+    t(
+      'OCPPCommCtrlr.RetryBackOffRandomRange',
+      String(CSS_RETRY_BACK_OFF_DEFAULTS.randomRangeS),
+      false,
+    ),
+    t(
+      'OCPPCommCtrlr.RetryBackOffRepeatTimes',
+      String(CSS_RETRY_BACK_OFF_DEFAULTS.repeatTimes),
+      false,
+    ),
     t('OCPPCommCtrlr.NetworkProfileConnectionAttempts', '3', false),
     t('OCPPCommCtrlr.PublicKeyWithSignedMeterValue', 'Never', false),
     t('OCPPCommCtrlr.FileTransferProtocols', 'HTTP,HTTPS', true),

@@ -104,14 +104,14 @@ vi.mock('@evtivity/lib', () => ({
   verifyMfaChallenge: vi.fn().mockResolvedValue(true),
 }));
 
-vi.mock('../lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn(() => ({
     publish: vi.fn().mockResolvedValue(undefined),
     subscribe: vi.fn().mockResolvedValue({ unsubscribe: vi.fn() }),
   })),
 }));
 
-vi.mock('../lib/template-dirs.js', () => ({
+vi.mock('@evtivity/services/template-dirs', () => ({
   ALL_TEMPLATES_DIRS: ['/mock/templates'],
   API_TEMPLATES_DIR: '/mock/templates',
   OCPP_TEMPLATES_DIR: '/mock/templates',

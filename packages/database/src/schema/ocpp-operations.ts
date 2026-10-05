@@ -14,6 +14,7 @@ import {
   jsonb,
   index,
   uniqueIndex,
+  foreignKey,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { chargingStations } from './assets.js';
@@ -331,6 +332,8 @@ export const variableMonitoringRules = pgTable(
 
 // --- Offline Command Queue ---
 
+// Keyed by the OCPP station id (charging_stations.station_id): deleting a station
+// deletes its queued commands, and a station id change carries them along.
 export const offlineCommandQueue = pgTable(
   'offline_command_queue',
   {
@@ -347,6 +350,13 @@ export const offlineCommandQueue = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    foreignKey({
+      name: 'offline_command_queue_station_id_fk',
+      columns: [table.stationId],
+      foreignColumns: [chargingStations.stationId],
+    })
+      .onDelete('cascade')
+      .onUpdate('cascade'),
     index('idx_offline_cmd_queue_station_id').on(table.stationId),
     index('idx_offline_cmd_queue_status').on(table.status),
     index('idx_offline_cmd_queue_expires_at').on(table.expiresAt),

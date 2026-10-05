@@ -7,7 +7,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 let selectResults: unknown[][] = [];
 function makeChain(): Record<string, unknown> {
   const chain: Record<string, unknown> = {};
-  for (const m of ['from', 'where', 'limit']) chain[m] = vi.fn(() => chain);
+  for (const m of ['from', 'where', 'limit', 'innerJoin', 'leftJoin'])
+    chain[m] = vi.fn(() => chain);
   chain['then'] = (resolve: (v: unknown) => unknown) =>
     Promise.resolve(selectResults.shift() ?? []).then(resolve);
   return chain;
@@ -19,17 +20,23 @@ function makeInsertChain(): Record<string, unknown> {
 }
 
 const mocks = vi.hoisted(() => ({
-  client: { put: vi.fn(), delete: vi.fn() },
+  client: { put: vi.fn(), delete: vi.fn(), patch: vi.fn() },
   partnerTariffMappings: vi.fn(),
   renderTariffMapping: vi.fn(),
   mappingsForPricingChange: vi.fn(),
   cpoSessionLink: vi.fn(),
   renderCpoSession: vi.fn(),
   syncCpoSessionRow: vi.fn(),
+  loadSiteLocation: vi.fn(),
+  connectorTariffIds: vi.fn(),
 }));
 
 vi.mock('@evtivity/database', () => ({
-  db: { select: vi.fn(() => makeChain()), insert: vi.fn(() => makeInsertChain()) },
+  db: {
+    select: vi.fn(() => makeChain()),
+    selectDistinct: vi.fn(() => makeChain()),
+    insert: vi.fn(() => makeInsertChain()),
+  },
   sites: {},
   chargingStations: {},
   chargingSessions: { id: {} },
@@ -54,13 +61,20 @@ vi.mock('../services/published-tariffs.js', () => ({
   renderTariffMapping: mocks.renderTariffMapping,
   mappingsForPricingChange: mocks.mappingsForPricingChange,
 }));
+vi.mock('../services/location-render.js', () => ({
+  loadSiteLocation: mocks.loadSiteLocation,
+  withTariffIds: (input: unknown) => input,
+}));
+vi.mock('../services/connector-tariffs.js', () => ({
+  connectorTariffIds: mocks.connectorTariffIds,
+}));
 vi.mock('../services/cpo-sessions.js', () => ({
   cpoSessionLink: mocks.cpoSessionLink,
   renderCpoSession: mocks.renderCpoSession,
   syncCpoSessionRow: mocks.syncCpoSessionRow,
 }));
 
-const { OcpiPushListener } = await import('../services/push.service.js');
+const { OcpiPushListener, pushLegacyEvseRemoval } = await import('../services/push.service.js');
 
 type Handler = (payload: string) => void;
 let handler: Handler = () => undefined;
@@ -172,7 +186,13 @@ describe('tariff push', () => {
 });
 
 describe('session push', () => {
-  const link = { id: 7, partnerId: 'opr_1', chargingSessionId: 'ses_1', tokenUid: 'TOKEN-1' };
+  const link = {
+    id: 7,
+    partnerId: 'opr_1',
+    ocpiSessionId: 'ses_1',
+    chargingSessionId: 'ses_1',
+    tokenUid: 'TOKEN-1',
+  };
   const ocpiSession = { id: 'tx-1', status: 'ACTIVE' };
 
   it('renders our CPO session, updates the link row, and PUTs it', async () => {
@@ -194,5 +214,126 @@ describe('session push', () => {
     await settle();
     expect(mocks.renderCpoSession).not.toHaveBeenCalled();
     expect(mocks.client.put).not.toHaveBeenCalled();
+  });
+
+  it('schedules the CDR of a completed session', async () => {
+    const onCompleted = vi.fn(async () => undefined);
+    await new OcpiPushListener(pubsub as never, onCompleted).start();
+    mocks.cpoSessionLink.mockResolvedValue(link);
+    mocks.renderCpoSession.mockResolvedValue({ ...ocpiSession, status: 'COMPLETED' });
+    selectResults = [
+      [{ id: 'ses_1', status: 'completed', endedAt: new Date() }],
+      [PARTNER],
+      [{ url: 'https://p/sessions' }],
+    ];
+
+    handler(JSON.stringify({ type: 'session', sessionId: 'ses_1' }));
+    await settle();
+
+    expect(onCompleted).toHaveBeenCalledWith('ses_1');
+  });
+
+  it.each(['active', 'faulted', 'failed'])('schedules no CDR for a %s session', async (status) => {
+    const onCompleted = vi.fn(async () => undefined);
+    await new OcpiPushListener(pubsub as never, onCompleted).start();
+    mocks.cpoSessionLink.mockResolvedValue(link);
+    mocks.renderCpoSession.mockResolvedValue(ocpiSession);
+    selectResults = [
+      [{ id: 'ses_1', status, endedAt: new Date() }],
+      [PARTNER],
+      [{ url: 'https://p/sessions' }],
+    ];
+
+    handler(JSON.stringify({ type: 'session', sessionId: 'ses_1' }));
+    await settle();
+
+    expect(onCompleted).not.toHaveBeenCalled();
+  });
+});
+
+describe('pushLegacyEvseRemoval', () => {
+  const LOCATIONS = 'https://p/locations';
+
+  it('PUTs each current location, then PATCHes REMOVED for every pre-v0.1.32 uid', async () => {
+    mocks.client.patch.mockResolvedValue({ status_code: 1000 });
+    mocks.client.put.mockResolvedValue({ status_code: 1000 });
+    mocks.connectorTariffIds.mockResolvedValue(new Map());
+    mocks.loadSiteLocation.mockImplementation(async (siteId: string, locationId: string) => ({
+      input: {
+        site: {
+          id: siteId,
+          name: 'S',
+          address: null,
+          city: null,
+          state: null,
+          postalCode: null,
+          country: 'DE',
+          latitude: '52.5',
+          longitude: '13.4',
+          timezone: 'UTC',
+          contactName: null,
+          contactIsPublic: false,
+          hoursOfOperation: null,
+          updatedAt: new Date(),
+        },
+        evses: [],
+        ocpiLocationId: locationId,
+        countryCode: 'US',
+        partyId: 'EVT',
+      },
+      stations: [],
+    }));
+    selectResults = [
+      [{ url: LOCATIONS }],
+      [PARTNER],
+      [
+        { siteId: 'sit_1', ocpiLocationId: 'LOC-1', evseNumber: 1 },
+        { siteId: 'sit_1', ocpiLocationId: 'LOC-1', evseNumber: 2 },
+        { siteId: 'sit_2', ocpiLocationId: null, evseNumber: 1 },
+      ],
+    ];
+
+    expect(await pushLegacyEvseRemoval('opr_1')).toBe(3);
+
+    expect(mocks.client.put.mock.calls.map((c: unknown[]) => c[0])).toEqual([
+      `${LOCATIONS}/US/EVT/LOC-1`,
+      `${LOCATIONS}/US/EVT/sit_2`,
+    ]);
+    const urls = mocks.client.patch.mock.calls.map((c: unknown[]) => c[0]);
+    expect(urls).toEqual([
+      `${LOCATIONS}/US/EVT/LOC-1/sit_1-1`,
+      `${LOCATIONS}/US/EVT/LOC-1/sit_1-2`,
+      `${LOCATIONS}/US/EVT/sit_2/sit_2-1`,
+    ]);
+    expect(mocks.client.patch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ status: 'REMOVED' }),
+    );
+  });
+
+  it('counts an uid the partner does not know as done', async () => {
+    mocks.client.patch.mockResolvedValue({ status_code: 2003, status_message: 'Unknown' });
+    selectResults = [
+      [{ url: LOCATIONS }],
+      [PARTNER],
+      [{ siteId: 'sit_1', ocpiLocationId: null, evseNumber: 1 }],
+    ];
+    expect(await pushLegacyEvseRemoval('opr_1')).toBe(1);
+  });
+
+  it('throws on a partner server error so the job retries', async () => {
+    mocks.client.patch.mockResolvedValue({ status_code: 3000, status_message: 'down' });
+    selectResults = [
+      [{ url: LOCATIONS }],
+      [PARTNER],
+      [{ siteId: 'sit_1', ocpiLocationId: null, evseNumber: 1 }],
+    ];
+    await expect(pushLegacyEvseRemoval('opr_1')).rejects.toThrow('3000');
+  });
+
+  it('returns null for a partner without a locations receiver', async () => {
+    selectResults = [[], [PARTNER]];
+    expect(await pushLegacyEvseRemoval('opr_1')).toBeNull();
+    expect(mocks.client.patch).not.toHaveBeenCalled();
   });
 });

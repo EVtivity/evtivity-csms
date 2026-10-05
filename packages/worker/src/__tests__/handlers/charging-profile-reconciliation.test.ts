@@ -58,7 +58,7 @@ vi.mock('drizzle-orm', () => ({
 
 const mockPublish = vi.fn().mockResolvedValue(undefined);
 const mockGetPubSub = vi.fn(() => ({ publish: mockPublish }));
-vi.mock('@evtivity/api/src/lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: () => mockGetPubSub(),
 }));
 

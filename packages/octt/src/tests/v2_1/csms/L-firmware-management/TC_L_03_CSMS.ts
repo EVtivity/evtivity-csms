@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 // L03: Publish Firmware - Published
 export const TC_L_17_CSMS: TestCase = {
@@ -22,13 +23,15 @@ export const TC_L_17_CSMS: TestCase = {
 
     let receivedPublishFirmware = false;
 
-    ctx.client.setIncomingCallHandler(async (_messageId: string, action: string) => {
-      if (action === 'PublishFirmware') {
-        receivedPublishFirmware = true;
-        return { status: 'Accepted' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'PublishFirmware') {
+          receivedPublishFirmware = true;
+          return { status: 'Accepted' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
 
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'PublishFirmware', {
@@ -108,13 +111,15 @@ export const TC_L_24_CSMS: TestCase = {
 
     let receivedPublishFirmware = false;
 
-    ctx.client.setIncomingCallHandler(async (_messageId: string, action: string) => {
-      if (action === 'PublishFirmware') {
-        receivedPublishFirmware = true;
-        return { status: 'Accepted' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'PublishFirmware') {
+          receivedPublishFirmware = true;
+          return { status: 'Accepted' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
 
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'PublishFirmware', {
@@ -192,13 +197,15 @@ export const TC_L_19_CSMS: TestCase = {
 
     let receivedPublishFirmware = false;
 
-    ctx.client.setIncomingCallHandler(async (_messageId: string, action: string) => {
-      if (action === 'PublishFirmware') {
-        receivedPublishFirmware = true;
-        return { status: 'Accepted' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'PublishFirmware') {
+          receivedPublishFirmware = true;
+          return { status: 'Accepted' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
 
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'PublishFirmware', {
@@ -276,13 +283,15 @@ export const TC_L_20_CSMS: TestCase = {
 
     let receivedPublishFirmware = false;
 
-    ctx.client.setIncomingCallHandler(async (_messageId: string, action: string) => {
-      if (action === 'PublishFirmware') {
-        receivedPublishFirmware = true;
-        return { status: 'Accepted' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'PublishFirmware') {
+          receivedPublishFirmware = true;
+          return { status: 'Accepted' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
 
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'PublishFirmware', {

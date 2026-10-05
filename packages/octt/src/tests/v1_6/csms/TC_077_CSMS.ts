@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../types.js';
+import { defaultReply } from '../../../default-replies.js';
 
 export const TC_077_CSMS: TestCase = {
   id: 'TC_077_CSMS',
@@ -21,7 +22,7 @@ export const TC_077_CSMS: TestCase = {
 
     let extTriggerReceived = false;
     let certSignedReceived = false;
-    ctx.client.setIncomingCallHandler(async (_messageId, action, _payload) => {
+    ctx.client.setIncomingCallHandler(async (_messageId, action, payload) => {
       if (action === 'ExtendedTriggerMessage') {
         extTriggerReceived = true;
         return { status: 'Accepted' };
@@ -30,7 +31,7 @@ export const TC_077_CSMS: TestCase = {
         certSignedReceived = true;
         return { status: 'Rejected' };
       }
-      return {};
+      return defaultReply('ocpp1.6', action, payload);
     });
 
     // Step 1: Trigger ExtendedTriggerMessage

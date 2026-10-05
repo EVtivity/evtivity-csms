@@ -108,7 +108,8 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(),
 }));
 
-vi.mock('@evtivity/lib', () => ({
+vi.mock('@evtivity/lib', async (importOriginal) => ({
+  UI_LANGUAGES: (await importOriginal<typeof import('@evtivity/lib')>()).UI_LANGUAGES,
   AppError: class AppError extends Error {
     constructor(
       message: string,
@@ -127,7 +128,7 @@ vi.mock('@evtivity/lib', () => ({
   })),
 }));
 
-vi.mock('../lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn(() => ({
     publish: vi.fn().mockResolvedValue(undefined),
     subscribe: vi.fn().mockResolvedValue({ unsubscribe: vi.fn() }),
@@ -163,6 +164,7 @@ vi.mock('../services/driver-portal-access.service.js', () => ({
 }));
 
 import { AppError } from '@evtivity/lib';
+import { db } from '@evtivity/database';
 import { registerAuth } from '../plugins/auth.js';
 import { driverRoutes } from '../routes/drivers.js';
 
@@ -177,11 +179,21 @@ function makeDriver(overrides: Record<string, unknown> = {}) {
     lastName: 'Doe',
     email: 'john@example.com',
     phone: '+15551234567',
+    language: 'en',
     isActive: true,
     createdAt: now,
     updatedAt: now,
     ...overrides,
   };
+}
+
+/** The `values` or `set` argument of the last db.insert or db.update chain. */
+function lastWrite(kind: 'insert' | 'update'): unknown {
+  const chain = vi.mocked(db[kind]).mock.results.at(-1)?.value as
+    | Record<string, { mock: { calls: unknown[][] } }>
+    | undefined;
+  const method = kind === 'insert' ? 'values' : 'set';
+  return chain?.[method]?.mock.calls.at(-1)?.[0];
 }
 
 function makeToken(overrides: Record<string, unknown> = {}) {
@@ -460,6 +472,38 @@ describe('Driver routes (operator)', () => {
       expect(body.id).toBe(VALID_DRIVER_ID);
       expect(body.firstName).toBe('John');
     });
+
+    it('stores the language and returns it', async () => {
+      const driver = makeDriver({ language: 'zh-TW' });
+      setupDbResults([], [driver]);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/drivers',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          firstName: 'John',
+          lastName: 'Doe',
+          email: 'john@example.com',
+          language: 'zh-TW',
+        },
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json().language).toBe('zh-TW');
+      expect(lastWrite('insert')).toMatchObject({ language: 'zh-TW' });
+    });
+
+    it('returns 400 for an unsupported language', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/drivers',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { firstName: 'John', lastName: 'Doe', language: 'fr' },
+      });
+
+      expect(res.statusCode).toBe(400);
+    });
   });
 
   // -------------------------------------------------------
@@ -599,6 +643,33 @@ describe('Driver routes (operator)', () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.json().isActive).toBe(false);
+    });
+
+    it('returns 200 with only language', async () => {
+      const updated = makeDriver({ language: 'ko' });
+      setupDbResults([updated], [updated]);
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/drivers/${VALID_DRIVER_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { language: 'ko' },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().language).toBe('ko');
+      expect(lastWrite('update')).toMatchObject({ language: 'ko' });
+    });
+
+    it('returns 400 for an unsupported language', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/drivers/${VALID_DRIVER_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { language: 'EN' },
+      });
+
+      expect(res.statusCode).toBe(400);
     });
   });
 

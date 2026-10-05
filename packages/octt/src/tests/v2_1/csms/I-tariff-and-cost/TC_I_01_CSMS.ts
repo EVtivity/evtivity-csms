@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { newTransactionId } from '../../../../csms-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 // Helper: boot station and send initial StatusNotification
 async function bootAndStatus(ctx: {
@@ -135,7 +136,7 @@ export const TC_I_01_CSMS: TestCase = {
           costValue = payload['totalCost'];
           return {};
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

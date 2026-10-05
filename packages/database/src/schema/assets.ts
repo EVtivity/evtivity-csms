@@ -15,7 +15,9 @@ import {
   index,
   unique,
   uniqueIndex,
+  check,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { createId } from '../lib/id.js';
 
 export const chargingStationStatusEnum = pgEnum('charging_station_status', [
@@ -78,10 +80,18 @@ export const sites = pgTable(
     freeVendTemplateId21: text('free_vend_template_id_21'),
     freeVendTemplateId16: text('free_vend_template_id_16'),
     carbonRegionCode: varchar('carbon_region_code', { length: 20 }),
+    // Station display language of the site; null follows stationMessage.language.
+    stationMessageLanguage: varchar('station_message_language', { length: 10 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [unique('sites_name_unique').on(table.name)],
+  (table) => [
+    unique('sites_name_unique').on(table.name),
+    check(
+      'sites_station_message_language_check',
+      sql`${table.stationMessageLanguage} IN ('en', 'de', 'es', 'ko', 'zh', 'zh-TW')`,
+    ),
+  ],
 );
 
 export const vendors = pgTable('vendors', {
@@ -111,12 +121,19 @@ export const chargingStations = pgTable(
     // The status the station reports for itself as a whole: OCPP 1.6
     // connector 0, OCPP 2.x NotifyEvent ChargingStation AvailabilityState.
     reportedStatus: chargingStationStatusEnum('reported_status'),
+    // The station's own timestamp of reported_status. An older report does not
+    // overwrite it (station-status.ts).
+    reportedStatusAt: timestamp('reported_status_at', { withTimezone: true }),
     disabledReason: stationDisabledReasonEnum('disabled_reason'),
     firmwareState: stationFirmwareStateEnum('firmware_state'),
     onboardingStatus: onboardingStatusEnum('onboarding_status').notNull().default('pending'),
     lastHeartbeat: timestamp('last_heartbeat', { withTimezone: true }),
     isOnline: boolean('is_online').notNull().default(false),
     isSimulator: boolean('is_simulator').notNull().default(false),
+    // Last connection to this simulator-flagged station that the OCPP server
+    // could not attribute to the simulator. The station page asks the
+    // operator to confirm a real station. Cleared with the flag.
+    simulatorConflictAt: timestamp('simulator_conflict_at', { withTimezone: true }),
     loadPriority: integer('load_priority').notNull().default(5),
     circuitId: text('circuit_id'),
     securityProfile: integer('security_profile').notNull().default(1),
@@ -171,6 +188,9 @@ export const connectors = pgTable(
       .references(() => evses.id, { onDelete: 'cascade' }),
     connectorId: integer('connector_id').notNull(),
     status: connectorStatusEnum('status').notNull().default('unavailable'),
+    // The station's own timestamp of status. An older report does not
+    // overwrite it (station-status.ts).
+    statusReportedAt: timestamp('status_reported_at', { withTimezone: true }),
     connectorType: varchar('connector_type', { length: 50 }),
     maxPowerKw: numeric('max_power_kw'),
     maxCurrentAmps: integer('max_current_amps'),

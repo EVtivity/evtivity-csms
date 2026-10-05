@@ -121,6 +121,10 @@ vi.mock('../../../database/src/lib/pricing-settings.js', () => ({
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  // The session end request channel and reasons.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/session-end-request.js',
+  )),
   // The real status entry point, running on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/station-status.js',
@@ -650,7 +654,7 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'sta_000000000001' }], // resolveStationId
         [], // SELECT evses (not found, auto-create)
         [{ id: 'evs_000000000002' }], // INSERT evses
-        [], // INSERT connectors
+        [{ id: 'con_000000000002' }], // INSERT connectors RETURNING
         [], // INSERT port_status_log
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
@@ -680,10 +684,9 @@ describe('Event projections - coverage expansion', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationId
         [{ id: 'evs_000000000001' }], // SELECT evses (found but no status field)
+        [], // guarded UPDATE connectors (not found)
+        [{ id: 'con_000000000001' }], // INSERT connectors RETURNING
         [], // INSERT port_status_log (previousStatus will be null)
-        [], // UPDATE evses
-        [], // SELECT connectors (not found)
-        [], // INSERT connectors
         [{ site_id: null }], // resolveSiteId
       );
 

@@ -21,6 +21,7 @@ import {
   settings,
   chargingStations,
   sites,
+  reservations,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import {
@@ -33,6 +34,7 @@ import {
   authorizeSessionHold,
   captureSessionHold,
   continueDriverMethodSetup,
+  dispatchFeeRefundNotification,
   PaymentProviderNotConfiguredError,
   PaymentProviderPermissionError,
   refundPaymentRecord,
@@ -51,6 +53,7 @@ import {
 } from '@evtivity/payments';
 import type {
   PaymentProvider,
+  RefundOutcome,
   WebhookEndpointInfo,
   WebhookRegistration,
   WebhookRegistrationInput,
@@ -66,10 +69,11 @@ import {
 import { originMismatchError, shopperBrowserContext } from '../lib/shopper-browser.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
-import { ALL_TEMPLATES_DIRS } from '../lib/template-dirs.js';
+import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import type { JwtPayload } from '../plugins/auth.js';
-import { getPubSub } from '../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { paymentRecordsAtSites } from '../lib/payment-site-scope.js';
 import { revokePayoutInvites } from '../services/payout-onboarding.service.js';
 import { config as apiConfig } from '../lib/config.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -269,7 +273,14 @@ const paymentRecordItem = z
       .nullable()
       .describe('Origin of the payment (e.g. web_portal, guest_checkout)'),
     currency: z.string().length(3).describe('ISO 4217 currency code'),
-    preAuthAmountCents: z.number().int().min(0).describe('Pre-authorization hold amount in cents'),
+    preAuthAmountCents: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe(
+        'Pre-authorization hold amount in cents, null for a payment without a hold (a reservation fee)',
+      ),
     capturedAmountCents: z
       .number()
       .int()
@@ -324,6 +335,25 @@ const refundResponseItem = paymentRecordItem
         'succeeded: the refund is done and counted in refundedAmountCents. pending: an asynchronous provider (Adyen) accepted it and confirms it by webhook; providerRefunds lists it as pending until then.',
       ),
   })
+  .passthrough();
+
+const RESERVATION_FEE_CHARGE_TYPES = ['reservation_cancellation', 'reservation_no_show'] as const;
+
+const feePaymentItem = paymentRecordItem
+  .extend({
+    chargeType: z
+      .enum(RESERVATION_FEE_CHARGE_TYPES)
+      .describe('reservation_cancellation (cancellation fee) or reservation_no_show (no-show fee)'),
+    reservationId: z.string().nullable().describe('Reservation the fee was charged for'),
+    taxRate: z
+      .string()
+      .nullable()
+      .describe('Tax rate the fee was charged at, as a decimal (e.g. 0.19)'),
+  })
+  .passthrough();
+
+const feeRefundResponseItem = feePaymentItem
+  .extend({ refundStatus: refundResponseItem.shape.refundStatus })
   .passthrough();
 
 const preAuthFailedResponse = z
@@ -415,6 +445,68 @@ const paymentMethodParams = z.object({
   id: ID_PARAMS.driverId.describe('Driver ID'),
   pmId: z.coerce.number().int().min(1).describe('Payment method ID'),
 });
+const reservationIdParams = z.object({ id: ID_PARAMS.reservationId.describe('Reservation ID') });
+const feePaymentParams = reservationIdParams.extend({
+  paymentId: z.coerce.number().int().min(1).describe('Payment record ID of the fee'),
+});
+
+/**
+ * Answers a refund that was not made, for the session and the reservation
+ * fee refund routes alike.
+ */
+async function sendRefundRefusal(
+  reply: FastifyReply,
+  outcome: Exclude<RefundOutcome, { status: 'refunded' }>,
+): Promise<void> {
+  switch (outcome.status) {
+    case 'not_found':
+      await reply.status(404).send({ error: 'Payment not found', code: 'PAYMENT_NOT_FOUND' });
+      return;
+    case 'no_captured_payment':
+      await reply.status(400).send({
+        error: 'No captured payment to refund',
+        code: 'NO_CAPTURED_PAYMENT',
+      });
+      return;
+    case 'missing_payment_id':
+      await reply.status(400).send({
+        error: 'Payment intent missing',
+        code: 'MISSING_PAYMENT_INTENT',
+      });
+      return;
+    case 'not_configured':
+      await reply.status(400).send({
+        error: 'No payment provider configured',
+        code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+      });
+      return;
+    case 'nothing_refundable':
+    case 'exceeds_remaining': {
+      const requested = outcome.status === 'exceeds_remaining' ? outcome.requestedCents : 0;
+      await reply.status(409).send({
+        error: `Refund amount ${String(requested)} exceeds remaining refundable balance ${String(outcome.remainingCents)}`,
+        code: 'REFUND_EXCEEDS_REMAINING',
+      });
+      return;
+    }
+    case 'top_up_unknown':
+      // A retry top-up made before v0.1.37 has no stored payment id, so
+      // only the charges EVtivity knows can be refunded here.
+      await reply.status(409).send({
+        error: `This payment includes a top-up charge of ${formatCurrencyAmount(outcome.unlistedCents, outcome.currency)} with no recorded payment id. Refund up to ${formatCurrencyAmount(outcome.refundableCents, outcome.currency)} here and refund the top-up in the payment provider's dashboard.`,
+        code: 'REFUND_TOP_UP_UNKNOWN',
+      });
+      return;
+    case 'operation_pending':
+      // O3: a refund of a capture the provider may still fail is refused.
+      await reply.status(409).send({
+        error:
+          "The payment has an operation waiting for the provider's confirmation. Try again later.",
+        code: 'PAYMENT_OPERATION_PENDING',
+      });
+      return;
+  }
+}
 
 function getEncryptionKey(): string {
   const key = apiConfig.SETTINGS_ENCRYPTION_KEY;
@@ -1820,52 +1912,9 @@ export function paymentRoutes(app: FastifyInstance): void {
         },
         paymentContext(request.log),
       );
-      switch (outcome.status) {
-        case 'no_captured_payment':
-          await reply.status(400).send({
-            error: 'No captured payment to refund',
-            code: 'NO_CAPTURED_PAYMENT',
-          });
-          return;
-        case 'missing_payment_id':
-          await reply.status(400).send({
-            error: 'Payment intent missing',
-            code: 'MISSING_PAYMENT_INTENT',
-          });
-          return;
-        case 'not_configured':
-          await reply.status(400).send({
-            error: 'No payment provider configured',
-            code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
-          });
-          return;
-        case 'nothing_refundable':
-        case 'exceeds_remaining': {
-          const requested = outcome.status === 'exceeds_remaining' ? outcome.requestedCents : 0;
-          await reply.status(409).send({
-            error: `Refund amount ${String(requested)} exceeds remaining refundable balance ${String(outcome.remainingCents)}`,
-            code: 'REFUND_EXCEEDS_REMAINING',
-          });
-          return;
-        }
-        case 'top_up_unknown':
-          // A retry top-up made before v0.1.37 has no stored payment id, so
-          // only the charges EVtivity knows can be refunded here.
-          await reply.status(409).send({
-            error: `This payment includes a top-up charge of ${formatCurrencyAmount(outcome.unlistedCents, outcome.currency)} with no recorded payment id. Refund up to ${formatCurrencyAmount(outcome.refundableCents, outcome.currency)} here and refund the top-up in the payment provider's dashboard.`,
-            code: 'REFUND_TOP_UP_UNKNOWN',
-          });
-          return;
-        case 'operation_pending':
-          // O3: a refund of a capture the provider may still fail is refused.
-          await reply.status(409).send({
-            error:
-              "The payment has an operation waiting for the provider's confirmation. Try again later.",
-            code: 'PAYMENT_OPERATION_PENDING',
-          });
-          return;
-        case 'refunded':
-          break;
+      if (outcome.status !== 'refunded') {
+        await sendRefundRefusal(reply, outcome);
+        return;
       }
       const updated = outcome.record;
       const refundedNowCents = outcome.refundedNowCents;
@@ -1895,6 +1944,141 @@ export function paymentRoutes(app: FastifyInstance): void {
       }
 
       return { ...updated, refundStatus: outcome.refundStatus };
+    },
+  );
+
+  // ---- Reservation fee payments ----
+
+  /**
+   * Whether the operator may see the reservation's payments: the reservation
+   * exists and its station's site is one the operator has access to.
+   */
+  async function reservationAccessible(userId: string, reservationId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ siteId: chargingStations.siteId })
+      .from(reservations)
+      .innerJoin(chargingStations, eq(chargingStations.id, reservations.stationId))
+      .where(eq(reservations.id, reservationId));
+    if (row == null) return false;
+    const siteIds = await getUserSiteIds(userId);
+    return siteIds == null || row.siteId == null || siteIds.includes(row.siteId);
+  }
+
+  app.get(
+    '/reservations/:id/fee-payments',
+    {
+      onRequest: [authorize('payments:read')],
+      schema: {
+        tags: ['Payments'],
+        summary: 'List the fee payments of a reservation',
+        description:
+          'Returns the cancellation and no-show fee payment records of the reservation, oldest first, with their refund ledger. Empty when no fee was charged.',
+        operationId: 'listReservationFeePayments',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(reservationIdParams),
+        response: {
+          200: arrayResponse(feePaymentItem),
+          404: errorWith('Reservation not found', [ERROR_CODES.RESERVATION_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof reservationIdParams>;
+      const { userId } = request.user as JwtPayload;
+      if (!(await reservationAccessible(userId, id))) {
+        await reply
+          .status(404)
+          .send({ error: 'Reservation not found', code: 'RESERVATION_NOT_FOUND' });
+        return;
+      }
+      return db
+        .select()
+        .from(paymentRecords)
+        .where(
+          and(
+            eq(paymentRecords.reservationId, id),
+            inArray(paymentRecords.chargeType, [...RESERVATION_FEE_CHARGE_TYPES]),
+          ),
+        )
+        .orderBy(paymentRecords.createdAt, paymentRecords.id);
+    },
+  );
+
+  app.post(
+    '/reservations/:id/fee-payments/:paymentId/refund',
+    {
+      onRequest: [authorize('payments:write')],
+      schema: {
+        tags: ['Payments'],
+        summary: 'Refund a reservation fee payment',
+        description:
+          'Refunds a cancellation or no-show fee of the reservation through the provider it was charged with, with the rules of a session refund: partial refunds via amountCents (default: everything still refundable), refunds still pending at the provider count as refunded, the payment record row is locked, and the idempotency key refund_<paymentId>_<refundedSoFar>_<amount>_<ledgerEntries> makes a retry reuse the provider refund. refundStatus is pending when an asynchronous provider (Adyen) confirms the refund later by webhook; the driver is notified (payment.FeeRefunded) when it is done. Returns 404 PAYMENT_NOT_FOUND when the payment is not a fee of this reservation, 409 REFUND_EXCEEDS_REMAINING when the amount is greater than what is still refundable, and 409 PAYMENT_OPERATION_PENDING while the provider has not confirmed an operation.',
+        operationId: 'refundReservationFeePayment',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(feePaymentParams),
+        body: zodSchema(refundBody),
+        response: {
+          200: itemResponse(feeRefundResponseItem),
+          400: errorWith('Bad request', [
+            ERROR_CODES.MISSING_PAYMENT_INTENT,
+            ERROR_CODES.NO_CAPTURED_PAYMENT,
+            ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
+          ]),
+          404: errorWith('Payment not found', [ERROR_CODES.PAYMENT_NOT_FOUND]),
+          409: errorWith('Refund exceeds remaining, or an operation is not confirmed yet', [
+            ERROR_CODES.REFUND_EXCEEDS_REMAINING,
+            ERROR_CODES.REFUND_TOP_UP_UNKNOWN,
+            ERROR_CODES.PAYMENT_OPERATION_PENDING,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id, paymentId } = request.params as z.infer<typeof feePaymentParams>;
+      const body = request.body as z.infer<typeof refundBody>;
+      const { userId } = request.user as JwtPayload;
+
+      // Site access and ownership first, before any payment-state answer, so
+      // an operator cannot probe other sites' payments through the codes.
+      const [fee] = await db
+        .select({ id: paymentRecords.id })
+        .from(paymentRecords)
+        .where(and(eq(paymentRecords.id, paymentId), eq(paymentRecords.reservationId, id)));
+      if (fee == null || !(await reservationAccessible(userId, id))) {
+        await reply.status(404).send({ error: 'Payment not found', code: 'PAYMENT_NOT_FOUND' });
+        return;
+      }
+
+      // The session refund's path: record locked, key over the refunded total (P7).
+      const outcome = await refundPaymentRecord(
+        {
+          feeRecordId: paymentId,
+          ...(body.amountCents != null ? { amountCents: body.amountCents } : {}),
+          actorUserId: userId,
+          actionReason: (full) => body.reason ?? (full ? 'Full refund' : 'Partial refund'),
+        },
+        paymentContext(request.log),
+      );
+      if (outcome.status !== 'refunded') {
+        await sendRefundRefusal(reply, outcome);
+        return;
+      }
+      // Driver notification (payment.FeeRefunded), fire-and-forget like the
+      // session refund. A pending refund notifies when the provider confirms it
+      // (webhook notice), so each refund notifies once.
+      if (outcome.refundStatus === 'succeeded') {
+        const record = outcome.record;
+        dispatchFeeRefundNotification(record, outcome.refundedNowCents, {
+          templatesDirs: ALL_TEMPLATES_DIRS,
+          pubsub: getPubSub(),
+        }).catch((err: unknown) => {
+          request.log.warn(
+            { err, paymentRecordId: record.id, driverId: record.driverId },
+            'Failed to dispatch payment.FeeRefunded notification',
+          );
+        });
+      }
+      return { ...outcome.record, refundStatus: outcome.refundStatus };
     },
   );
 
@@ -2098,8 +2282,8 @@ export function paymentRoutes(app: FastifyInstance): void {
 
       // Site-access enforcement: payment records carry sensitive data
       // (Stripe PI IDs, customer IDs, captured amounts) and must be filtered
-      // to the operator's allowed sites. Walk the session->station join to
-      // derive each record's siteId.
+      // to the operator's allowed sites: a session record through its
+      // session's station, a reservation fee through its reservation's.
       const siteIds = await getUserSiteIds(userId);
       if (siteIds != null && siteIds.length === 0) {
         return { data: [], total: 0 } satisfies PaginatedResponse<
@@ -2107,20 +2291,7 @@ export function paymentRoutes(app: FastifyInstance): void {
         >;
       }
 
-      const conditions =
-        siteIds != null
-          ? [
-              inArray(
-                paymentRecords.sessionId,
-                db
-                  .select({ id: chargingSessions.id })
-                  .from(chargingSessions)
-                  .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
-                  .where(inArray(chargingStations.siteId, siteIds)),
-              ),
-            ]
-          : [];
-      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+      const whereClause = siteIds != null ? paymentRecordsAtSites(siteIds) : undefined;
 
       const [data, countRows] = await Promise.all([
         db

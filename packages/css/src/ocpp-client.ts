@@ -4,6 +4,7 @@
 import WebSocket from 'ws';
 import { randomUUID } from 'node:crypto';
 import { checkServerIdentity, type PeerCertificate } from 'node:tls';
+import { SIMULATOR_CONNECTION_HEADER, SIMULATOR_CONNECTION_HEADER_VALUE } from '@evtivity/lib';
 
 // Errors a TLS client raises when it does not accept the server certificate.
 const SERVER_CERTIFICATE_ERRORS = new Set([
@@ -112,7 +113,8 @@ export interface OcppClientOptions {
   /**
    * Extra random delay (ms) added to the first reconnect attempt after a
    * connection loss. A fleet sets it so thousands of stations do not
-   * reconnect at the same instant after a server restart. Default 0.
+   * reconnect at the same instant after a server restart. Default 0. Applies
+   * only without a 2.1 back-off (see reconnectWaitMs).
    */
   reconnectSpreadMs?: number | undefined;
 }
@@ -132,6 +134,39 @@ export interface ReconnectBackOff {
   waitMinimumMs: number;
   randomRangeMs: number;
   repeatTimes: number;
+}
+
+const BASE_RECONNECT_DELAY_MS = 2000;
+const MAX_RECONNECT_DELAY_MS = 300_000; // 5 minutes cap
+
+/**
+ * Wait (ms) before a reconnect attempt after a connection loss. backOffAttempt
+ * counts the back-off attempts made so far in this loss (0 for the first).
+ *
+ * - With a 2.1 back-off (Part 4 5.4): RetryBackOffWaitMinimum doubled per failed
+ *   attempt, at most RetryBackOffRepeatTimes times, plus a new random part up to
+ *   RetryBackOffRandomRange. The station's own random range spreads a fleet, so
+ *   spreadMs does not apply: an extra delay would break the spec's upper bound.
+ * - Without one (1.6, no back-off in the spec): 2 s doubling up to 5 minutes, plus
+ *   20% jitter, and a random part up to spreadMs on the first attempt.
+ */
+export function reconnectWaitMs(
+  backOff: ReconnectBackOff | null,
+  backOffAttempt: number,
+  spreadMs: number,
+  random: () => number = Math.random,
+): number {
+  if (backOff != null) {
+    const doublings = Math.min(backOffAttempt, Math.max(0, backOff.repeatTimes));
+    return backOff.waitMinimumMs * Math.pow(2, doublings) + random() * backOff.randomRangeMs;
+  }
+  const delay = Math.min(
+    BASE_RECONNECT_DELAY_MS * Math.pow(2, backOffAttempt),
+    MAX_RECONNECT_DELAY_MS,
+  );
+  const jitter = random() * delay * 0.2;
+  const spread = backOffAttempt === 0 ? random() * spreadMs : 0;
+  return delay + jitter + spread;
 }
 
 export class OcppClient {
@@ -163,8 +198,6 @@ export class OcppClient {
   // attempt, replacing the backoff.
   private firstReconnectDelayMs: number | null = null;
 
-  private static readonly BASE_RECONNECT_DELAY_MS = 2000;
-  private static readonly MAX_RECONNECT_DELAY_MS = 300_000; // 5 minutes cap
   private static readonly CALL_TIMEOUT_MS = 30_000;
 
   constructor(options: OcppClientOptions) {
@@ -195,8 +228,18 @@ export class OcppClient {
     this.trustAnchors = [...pems];
   }
 
+  /**
+   * True only while the socket is open. A socket that is closing (the server
+   * sent a close frame, or a close is under way) is not connected: the 'close'
+   * event that clears `connected` comes later, and a send in between would fail.
+   */
   get isConnected(): boolean {
-    return this.connected && this.ws != null;
+    return this.openSocket() != null;
+  }
+
+  private openSocket(): WebSocket | null {
+    const ws = this.ws;
+    return this.connected && ws != null && ws.readyState === WebSocket.OPEN ? ws : null;
   }
 
   get stationId(): string {
@@ -260,7 +303,11 @@ export class OcppClient {
     const url = `${this.serverUrl}/${this._stationId}`;
 
     // SP0: no auth headers. SP1/SP2: Basic Auth. SP3: client certificate (no password).
-    const headers: Record<string, string> = {};
+    // Every connection carries the simulator marker, so the CSMS can tell this
+    // simulator from a real station that connects with the same identity.
+    const headers: Record<string, string> = {
+      [SIMULATOR_CONNECTION_HEADER]: SIMULATOR_CONNECTION_HEADER_VALUE,
+    };
     if (this.securityProfile >= 1 && this.securityProfile < 3) {
       headers['authorization'] =
         'Basic ' + Buffer.from(`${this._stationId}:${this.password}`).toString('base64');
@@ -326,7 +373,8 @@ export class OcppClient {
 
   sendCall(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     return new Promise<Record<string, unknown>>((resolve, reject) => {
-      if (this.ws == null || !this.connected) {
+      const ws = this.openSocket();
+      if (ws == null) {
         reject(new Error('Not connected'));
         return;
       }
@@ -341,7 +389,7 @@ export class OcppClient {
 
       this.pending.set(messageId, { resolve, reject, timeout });
 
-      this.ws.send(JSON.stringify(call), (err) => {
+      ws.send(JSON.stringify(call), (err) => {
         if (err != null) {
           clearTimeout(timeout);
           this.pending.delete(messageId);
@@ -357,21 +405,24 @@ export class OcppClient {
    * not connected (nothing is sent).
    */
   sendSend(action: string, payload: Record<string, unknown>): boolean {
-    if (this.ws == null || !this.connected) return false;
-    this.ws.send(JSON.stringify([6, randomUUID(), action, payload]));
+    const ws = this.openSocket();
+    if (ws == null) return false;
+    ws.send(JSON.stringify([6, randomUUID(), action, payload]));
     return true;
   }
 
   sendCallResult(messageId: string, payload: Record<string, unknown>): void {
-    if (this.ws == null || !this.connected) return;
+    const ws = this.openSocket();
+    if (ws == null) return;
     const result: OcppCallResult = [3, messageId, payload];
-    this.ws.send(JSON.stringify(result));
+    ws.send(JSON.stringify(result));
   }
 
   sendCallError(messageId: string, errorCode: string, errorDescription?: string): void {
-    if (this.ws == null || !this.connected) return;
+    const ws = this.openSocket();
+    if (ws == null) return;
     const callError = [4, messageId, errorCode, errorDescription ?? '', {}];
-    this.ws.send(JSON.stringify(callError));
+    ws.send(JSON.stringify(callError));
   }
 
   disconnect(): void {
@@ -425,7 +476,6 @@ export class OcppClient {
       this.pending.delete(id);
     }
 
-    const { BASE_RECONNECT_DELAY_MS, MAX_RECONNECT_DELAY_MS } = OcppClient;
     const firstDelayMs = this.firstReconnectDelayMs;
     this.firstReconnectDelayMs = null;
     let attempt = 0;
@@ -436,26 +486,13 @@ export class OcppClient {
       attempt++;
 
       let waitMs: number;
-      const backOff = this.reconnectBackOff?.() ?? null;
       if (firstDelayMs != null && attempt === 1) {
         // reconnectNow(): the station comes back up after a reboot or power-off.
         waitMs = firstDelayMs;
-      } else if (backOff != null) {
-        // OCPP 2.1 Part 4 5.4: RetryBackOffWaitMinimum doubled RetryBackOffRepeatTimes
-        // times, plus a random part up to RetryBackOffRandomRange.
-        const doublings = Math.min(backOffAttempt, Math.max(0, backOff.repeatTimes));
-        waitMs =
-          backOff.waitMinimumMs * Math.pow(2, doublings) + Math.random() * backOff.randomRangeMs;
-        backOffAttempt++;
       } else {
+        const backOff = this.reconnectBackOff?.() ?? null;
+        waitMs = reconnectWaitMs(backOff, backOffAttempt, this.reconnectSpreadMs);
         backOffAttempt++;
-        const delay = Math.min(
-          BASE_RECONNECT_DELAY_MS * Math.pow(2, backOffAttempt - 1),
-          MAX_RECONNECT_DELAY_MS,
-        );
-        const jitter = Math.random() * delay * 0.2;
-        const spread = backOffAttempt === 1 ? Math.random() * this.reconnectSpreadMs : 0;
-        waitMs = delay + jitter + spread;
       }
 
       console.log(

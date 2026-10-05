@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_Q_120_CSMS: TestCase = {
   id: 'TC_Q_120_CSMS',
@@ -19,17 +20,19 @@ export const TC_Q_120_CSMS: TestCase = {
     });
     let setProfileReceived = false;
     let afrrReceived = false;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'SetChargingProfile') {
-        setProfileReceived = true;
-        return { status: 'Accepted' };
-      }
-      if (action === 'AFRRSignal') {
-        afrrReceived = true;
-        return { status: 'Accepted' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'SetChargingProfile') {
+          setProfileReceived = true;
+          return { status: 'Accepted' };
+        }
+        if (action === 'AFRRSignal') {
+          afrrReceived = true;
+          return { status: 'Accepted' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'SetChargingProfile', {
         stationId: ctx.stationId,
@@ -118,13 +121,15 @@ export const TC_Q_121_CSMS: TestCase = {
       actual: `status = ${status}`,
     });
     let profileCount = 0;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'SetChargingProfile') {
-        profileCount++;
-        return { status: 'Accepted' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'SetChargingProfile') {
+          profileCount++;
+          return { status: 'Accepted' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'SetChargingProfile', {
         stationId: ctx.stationId,

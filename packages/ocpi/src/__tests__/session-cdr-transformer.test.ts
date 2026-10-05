@@ -18,7 +18,6 @@ function sessionInput(cost: TaxLine[] | null): Parameters<typeof transformSessio
   return {
     session: {
       id: 'ses_1',
-      transactionId: 'tx-1',
       status: 'completed',
       startedAt,
       endedAt,
@@ -26,6 +25,7 @@ function sessionInput(cost: TaxLine[] | null): Parameters<typeof transformSessio
       energyDeliveredWh: '10000',
       currency: 'EUR',
     },
+    ocpiSessionId: 'ses_1',
     cost,
     idleMinutes: 0,
     now: endedAt,
@@ -42,7 +42,7 @@ function cdrInput(): Parameters<typeof transformCdr>[0] {
   return {
     session: {
       sessionId: 'ses_1',
-      transactionId: 'tx-1',
+      ocpiSessionId: 'ses_1',
       startedAt,
       endedAt,
       energyDeliveredWh: '10000',
@@ -194,5 +194,19 @@ describe('cdr_token', () => {
     expect(transformSession(sessionInput(total), '2.2.1').last_updated).toBe(
       '2026-09-01T11:00:00.000Z',
     );
+  });
+});
+
+describe('OCPI Session id', () => {
+  it('is the id stored on the CPO session link, not the OCPP transaction id', () => {
+    const input = { ...sessionInput(total), ocpiSessionId: 'tx-legacy-1' };
+    expect(transformSession(input, '2.2.1').id).toBe('tx-legacy-1');
+    expect(transformSession(sessionInput(total), '2.2.1').id).toBe('ses_1');
+  });
+
+  it('is the CDR session_id', () => {
+    const input = cdrInput();
+    input.session.ocpiSessionId = 'tx-legacy-1';
+    expect(transformCdr(input, '2.2.1').session_id).toBe('tx-legacy-1');
   });
 });

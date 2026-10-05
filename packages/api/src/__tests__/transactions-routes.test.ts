@@ -87,8 +87,8 @@ vi.mock('@evtivity/database', () => ({
   transactionEventTypeEnum: {
     enumValues: ['Started', 'Updated', 'Ended'] as const,
   },
-  chargingSessions: {},
-  chargingStations: {},
+  chargingSessions: { stationId: 'cs.station_id', transactionId: 'cs.transaction_id' },
+  chargingStations: { id: 'st.id', stationId: 'st.station_id' },
   sessionStatusEnum: {
     enumValues: ['active', 'completed', 'invalid', 'faulted', 'failed'] as const,
   },
@@ -376,7 +376,7 @@ describe('Transaction routes', () => {
     it('returns 401 without token', async () => {
       const res = await app.inject({
         method: 'GET',
-        url: '/transactions/by-transaction-id/txn-001',
+        url: '/transactions/by-transaction-id/txn-001?stationId=CS-001',
       });
       expect(res.statusCode).toBe(401);
     });
@@ -388,17 +388,30 @@ describe('Transaction routes', () => {
         stationId: 'station-1',
         status: 'completed',
       });
-      setupDbResults([session]);
+      setupDbResults([{ session }]);
 
       const res = await app.inject({
         method: 'GET',
-        url: '/transactions/by-transaction-id/txn-001',
+        url: '/transactions/by-transaction-id/txn-001?stationId=CS-001',
         headers: { authorization: `Bearer ${operatorToken}` },
       });
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body.transactionId).toBe('txn-001');
       expect(body.status).toBe('completed');
+      // A transactionId is unique per station only: the lookup names both.
+      const { eq } = await import('drizzle-orm');
+      expect(eq).toHaveBeenCalledWith('st.station_id', 'CS-001');
+      expect(eq).toHaveBeenCalledWith('cs.transaction_id', 'txn-001');
+    });
+
+    it('returns 400 without the station', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/transactions/by-transaction-id/txn-001',
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+      expect(res.statusCode).toBe(400);
     });
 
     it('returns 404 when transaction not found (empty array)', async () => {
@@ -406,7 +419,7 @@ describe('Transaction routes', () => {
 
       const res = await app.inject({
         method: 'GET',
-        url: '/transactions/by-transaction-id/nonexistent',
+        url: '/transactions/by-transaction-id/nonexistent?stationId=CS-001',
         headers: { authorization: `Bearer ${operatorToken}` },
       });
       expect(res.statusCode).toBe(404);
@@ -422,7 +435,7 @@ describe('Transaction routes', () => {
 
       const res = await app.inject({
         method: 'GET',
-        url: '/transactions/by-transaction-id/missing-txn',
+        url: '/transactions/by-transaction-id/missing-txn?stationId=CS-001',
         headers: { authorization: `Bearer ${operatorToken}` },
       });
       expect(res.statusCode).toBe(404);
@@ -435,11 +448,11 @@ describe('Transaction routes', () => {
         transactionId: 'some-special-chars_123',
         status: 'active',
       });
-      setupDbResults([session]);
+      setupDbResults([{ session }]);
 
       const res = await app.inject({
         method: 'GET',
-        url: '/transactions/by-transaction-id/some-special-chars_123',
+        url: '/transactions/by-transaction-id/some-special-chars_123?stationId=CS-001',
         headers: { authorization: `Bearer ${operatorToken}` },
       });
       expect(res.statusCode).toBe(200);

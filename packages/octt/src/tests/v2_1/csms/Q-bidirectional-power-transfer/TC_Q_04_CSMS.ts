@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_Q_109_CSMS: TestCase = {
   id: 'TC_Q_109_CSMS',
@@ -21,21 +22,23 @@ export const TC_Q_109_CSMS: TestCase = {
     let setProfileReceived = false;
     let updateCount = 0;
     let clearReceived = false;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'SetChargingProfile') {
-        setProfileReceived = true;
-        return { status: 'Accepted' };
-      }
-      if (action === 'UpdateDynamicSchedule') {
-        updateCount++;
-        return { status: 'Accepted' };
-      }
-      if (action === 'ClearChargingProfile') {
-        clearReceived = true;
-        return { status: 'Accepted' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'SetChargingProfile') {
+          setProfileReceived = true;
+          return { status: 'Accepted' };
+        }
+        if (action === 'UpdateDynamicSchedule') {
+          updateCount++;
+          return { status: 'Accepted' };
+        }
+        if (action === 'ClearChargingProfile') {
+          clearReceived = true;
+          return { status: 'Accepted' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'SetChargingProfile', {
         stationId: ctx.stationId,
@@ -118,7 +121,7 @@ export const TC_Q_110_CSMS: TestCase = {
           profileId = (p?.['id'] as number) ?? 1;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

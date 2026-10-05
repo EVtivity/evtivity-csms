@@ -51,7 +51,7 @@ vi.mock('@evtivity/database', () => ({
 }));
 
 const publishMock = vi.fn<(channel: string, payload: string) => Promise<void>>();
-vi.mock('../lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: () => ({ publish: publishMock }),
 }));
 

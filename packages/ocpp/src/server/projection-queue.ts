@@ -1,12 +1,12 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { EventBus } from '@evtivity/lib';
+import type { DomainEvent, EventBus } from '@evtivity/lib';
 
 /**
- * Per-aggregate sequential queue for event projections. Work for one aggregate
- * ID (a station ID, a transaction ID) runs one item at a time in arrival
- * order; different aggregate IDs run in parallel.
+ * Per-aggregate sequential queue for event projections. Work for one lane
+ * (a station ID, or a transaction as `transactionKey()`) runs one item at a
+ * time in arrival order; different lanes run in parallel.
  */
 export interface ProjectionQueue {
   enqueue(id: string, work: () => Promise<void>): Promise<void>;
@@ -27,9 +27,32 @@ export interface ProjectionQueue {
   waitForSignal(key: string, timeoutMs: number): Promise<boolean>;
 }
 
+/**
+ * The in-memory key of a transaction. An OCPP 2.1 transactionId is unique per
+ * charging station only (E01.FR.08), so every key that names a transaction
+ * (projection lane, transaction buffer, signal) includes the station's OCPP id.
+ * JSON keeps the key unambiguous: a station id may contain any separator.
+ */
+export function transactionKey(stationId: string, transactionId: string): string {
+  return JSON.stringify([stationId, transactionId]);
+}
+
+/**
+ * The projection lane of an event: the transaction (station and transactionId)
+ * for `Transaction` events, whose aggregate id is the transactionId alone, else
+ * the aggregate id (the station's OCPP id for station events).
+ */
+export function projectionLane(event: DomainEvent): string {
+  const stationId = event.payload.stationId;
+  if (event.aggregateType === 'Transaction' && typeof stationId === 'string') {
+    return transactionKey(stationId, event.aggregateId);
+  }
+  return event.aggregateId;
+}
+
 /** Signal key: the Started projection snapshotted the tariff of this transaction's session. */
 export function sessionPricedKey(stationId: string, transactionId: string): string {
-  return `session-priced:${stationId}:${transactionId}`;
+  return `session-priced:${transactionKey(stationId, transactionId)}`;
 }
 
 interface SignalEntry {

@@ -125,6 +125,7 @@ async function fetchPartnerEndpoints(
   versionsUrl: string,
   token: string,
   preferredVersion: OcpiVersion,
+  allowPrivateNetwork: boolean,
 ): Promise<{ version: OcpiVersion; endpoints: OcpiVersionDetail['endpoints'] }> {
   const client = new OcpiClient({
     token,
@@ -132,6 +133,7 @@ async function fetchPartnerEndpoints(
     fromPartyId: getOurPartyId(),
     toCountryCode: '',
     toPartyId: '',
+    allowPrivateNetwork,
   });
 
   const versionsResponse = await client.get<OcpiVersionInfo[]>(versionsUrl);
@@ -196,14 +198,8 @@ export async function handleRegistration(
     throw err;
   }
 
-  // Fetch partner version and endpoints
-  const { version, endpoints } = await fetchPartnerEndpoints(
-    credentials.url,
-    credentials.token,
-    preferredVersion,
-  );
-
-  // Create or update partner
+  // The partner may be pre-created by the operator (or the seed), with the
+  // private-network flag that decides which addresses its URLs may reach.
   const existing = await db
     .select()
     .from(ocpiPartners)
@@ -214,6 +210,16 @@ export async function handleRegistration(
       ),
     )
     .limit(1);
+
+  // Fetch partner version and endpoints
+  const { version, endpoints } = await fetchPartnerEndpoints(
+    credentials.url,
+    credentials.token,
+    preferredVersion,
+    existing[0]?.allowPrivateNetwork ?? false,
+  );
+
+  // Create or update partner
 
   let partnerId: string;
 
@@ -302,11 +308,18 @@ export async function handleCredentialUpdate(
     throw new Error('No roles provided in credentials');
   }
 
+  const [current] = await db
+    .select({ allowPrivateNetwork: ocpiPartners.allowPrivateNetwork })
+    .from(ocpiPartners)
+    .where(eq(ocpiPartners.id, partnerId))
+    .limit(1);
+
   // Fetch partner endpoints
   const { version, endpoints } = await fetchPartnerEndpoints(
     credentials.url,
     credentials.token,
     preferredVersion,
+    current?.allowPrivateNetwork ?? false,
   );
 
   // Update partner
@@ -428,6 +441,7 @@ export async function initiateRegistration(
     partner.versionUrl,
     tokenC,
     preferredVersion,
+    partner.allowPrivateNetwork,
   );
 
   const credentialsEndpoint = endpoints.find((ep) => ep.identifier === 'credentials');
@@ -448,6 +462,7 @@ export async function initiateRegistration(
     fromPartyId: getOurPartyId(),
     toCountryCode: partner.countryCode,
     toPartyId: partner.partyId,
+    allowPrivateNetwork: partner.allowPrivateNetwork,
   });
 
   const response = await client.post<OcpiCredentials>(credentialsEndpoint.url, ourCredentials);
@@ -479,6 +494,7 @@ export async function initiateRegistration(
     theirCredentials.url,
     theirCredentials.token,
     version,
+    partner.allowPrivateNetwork,
   );
 
   if (newEndpoints.length > 0) {

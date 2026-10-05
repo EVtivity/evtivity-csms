@@ -10,6 +10,7 @@ import {
   formatStationIdleFeeRate,
   formatStationQuantity,
   formatStationTime,
+  formatStationElapsed,
   type StationMessageContext,
   type StationMessageState,
 } from '../station-message.js';
@@ -264,6 +265,17 @@ describe('renderStationMessage', () => {
       expect(result).toBe('Reserved\n\nuntil 3:45 PM');
     });
 
+    it('renders the brand line, or the company name when it is empty', async () => {
+      await setBody('{{brandLine}}\n{{stationOcppId}}');
+      expect(await renderStationMessage('available', { ...baseContext, brandLine: 'ACME' })).toBe(
+        'ACME\nCS-1234',
+      );
+      expect(await renderStationMessage('available', { ...baseContext, brandLine: '  ' })).toBe(
+        'EVtivity\nCS-1234',
+      );
+      expect(await renderStationMessage('available', baseContext)).toBe('EVtivity\nCS-1234');
+    });
+
     it('returns empty string when the template row does not exist', async () => {
       const mod = (await import('@evtivity/database')) as unknown as {
         __mocks: { whereFn: ReturnType<typeof vi.fn> };
@@ -507,5 +519,24 @@ describe('station formatters', () => {
     const time = new Date(2026, 0, 1, 15, 45);
     expect(formatStationTime(time, 'en')).toMatch(/^3:45\sPM$/);
     expect(formatStationTime(time, 'de')).toBe('15:45');
+  });
+
+  it('formats the elapsed time in the display language', () => {
+    const start = new Date(0);
+    const minutes = (n: number): number => n * 60_000;
+    expect(formatStationElapsed(start, 'en', minutes(12))).toBe('12m');
+    expect(formatStationElapsed(start, 'en', minutes(65))).toBe('1h 5m');
+    expect(formatStationElapsed(start, 'en', minutes(120))).toBe('2h 0m');
+    expect(formatStationElapsed(start, 'en', 0)).toBe('0m');
+    expect(formatStationElapsed(start, 'de', minutes(65))).toBe('1 Std., 5 Min.');
+    expect(formatStationElapsed(start, 'ko', minutes(65))).toBe('1시간 5분');
+    expect(formatStationElapsed(start, 'zh', minutes(65))).toBe('1小时5分钟');
+    expect(formatStationElapsed(start.toISOString(), 'es', minutes(12))).toBe('12min');
+  });
+
+  it('formats no elapsed time without a start or for a future start', () => {
+    expect(formatStationElapsed(null, 'en')).toBe('');
+    expect(formatStationElapsed(new Date(60_000), 'en', 0)).toBe('');
+    expect(formatStationElapsed('not a date', 'en')).toBe('');
   });
 });

@@ -4,6 +4,7 @@
 import type { TestCase, StepResult } from '../../../../types.js';
 import { newPspRef, requestAdHocPayment } from '../../../../payment-test-helpers.js';
 import { newTransactionId } from '../../../../csms-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 /** Configured CardLast4Digits of the payment card presented to the terminal. */
 const CARD_LAST4 = '1234';
@@ -48,7 +49,7 @@ export const TC_C_125_CSMS: TestCase = {
         requestStartPayload = payload;
         return { status: 'Accepted' };
       }
-      return { status: 'NotSupported' };
+      return defaultReply('ocpp2.1', action, payload);
     });
 
     // Manual Action: present a payment card to the payment terminal. The terminal

@@ -4,7 +4,7 @@
 import { eq, and, inArray, sql } from 'drizzle-orm';
 import { db, chargingProfiles } from '@evtivity/database';
 import type { Logger } from 'pino';
-import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 export async function chargingProfileReconciliationHandler(log: Logger): Promise<void> {
   const stationsWithProfiles = await db

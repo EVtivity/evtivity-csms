@@ -68,12 +68,28 @@ describe('STATION_MESSAGE_DEFAULTS', () => {
 
       it('shows prices and the tax note on the available screen', () => {
         const body = defaults.available;
-        expect(body).toContain('{{companyName}}');
         expect(body).toContain('{{stationOcppId}}');
         expect(body).toContain('{{pricingDisplay}}');
         expect(body).toContain('{{#if taxRatePercent}}');
         expect(body).toContain('{{#if pricesIncludeTax}}');
         expect(body).toContain('{{taxRatePercent}}');
+      });
+
+      it('starts every state screen with the brand line', () => {
+        const states = [
+          'available',
+          'occupied',
+          'reserved',
+          'charging',
+          'suspended',
+          'discharging',
+          'faulted',
+          'unavailable',
+        ] as const;
+        for (const state of states) {
+          expect(defaults[state].startsWith('{{brandLine}}\n')).toBe(true);
+          expect(defaults[state]).not.toContain('{{companyName}}');
+        }
       });
 
       it('exposes live charging metrics in the charging template', () => {
@@ -117,7 +133,7 @@ describe('STATION_MESSAGE_DEFAULTS', () => {
 
   it('words the English tax note as incl. or excl. with the rate', () => {
     const render = Handlebars.compile(STATION_MESSAGE_DEFAULTS.en.available, { noEscape: true });
-    const base = { companyName: 'ACME', stationOcppId: 'CS-1', pricingDisplay: '$0.36/kWh' };
+    const base = { brandLine: 'ACME', stationOcppId: 'CS-1', pricingDisplay: '$0.36/kWh' };
     expect(render({ ...base, taxRatePercent: '19', pricesIncludeTax: true })).toBe(
       'ACME\nCS-1\n$0.36/kWh\nincl. 19% tax\nPlug in to start',
     );
@@ -131,7 +147,7 @@ describe('STATION_MESSAGE_DEFAULTS', () => {
 
   it('words the German tax note as inkl. or zzgl. MwSt.', () => {
     const render = Handlebars.compile(STATION_MESSAGE_DEFAULTS.de.available, { noEscape: true });
-    const base = { companyName: 'ACME', stationOcppId: 'CS-1', pricingDisplay: '0,357 €/kWh' };
+    const base = { brandLine: 'ACME', stationOcppId: 'CS-1', pricingDisplay: '0,357 €/kWh' };
     expect(render({ ...base, taxRatePercent: '19', pricesIncludeTax: true })).toContain(
       'inkl. 19 % MwSt.',
     );

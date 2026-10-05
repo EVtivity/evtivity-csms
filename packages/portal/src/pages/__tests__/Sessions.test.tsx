@@ -27,7 +27,7 @@ import { Sessions } from '../Sessions';
 function session(
   id: string,
   finalCostCents: number | null,
-  tariffTaxRate: string | null,
+  taxCents: number | null,
 ): Record<string, unknown> {
   return {
     id,
@@ -37,7 +37,7 @@ function session(
     endedAt: finalCostCents == null ? null : '2026-01-01T11:00:00Z',
     energyDeliveredWh: '10000',
     finalCostCents,
-    tariffTaxRate,
+    taxCents,
     currency: 'EUR',
     stationName: `CS-${id}`,
     siteName: null,
@@ -62,7 +62,7 @@ afterEach(() => {
 
 describe('Sessions', () => {
   it('labels a taxed amount as including tax, through the interpolated key', async () => {
-    getMock.mockResolvedValue({ data: [session('1', 1190, '0.19')], total: 1 });
+    getMock.mockResolvedValue({ data: [session('1', 1190, 190)], total: 1 });
     renderPage();
     expect(await screen.findByText('common.amountInclTax:€11.90')).toBeDefined();
   });
@@ -74,8 +74,18 @@ describe('Sessions', () => {
     expect(screen.queryByText(/common\.amountInclTax/)).toBeNull();
   });
 
+  it('reads the stored tax, not the tariff rate: no label when no tax was charged', async () => {
+    getMock.mockResolvedValue({
+      data: [{ ...session('4', 1000, 0), tariffTaxRate: '0.19' }],
+      total: 1,
+    });
+    renderPage();
+    expect(await screen.findByText('€10.00')).toBeDefined();
+    expect(screen.queryByText(/common\.amountInclTax/)).toBeNull();
+  });
+
   it('shows no label for an active session without a final cost', async () => {
-    getMock.mockResolvedValue({ data: [session('3', null, '0.19')], total: 1 });
+    getMock.mockResolvedValue({ data: [session('3', null, 190)], total: 1 });
     renderPage();
     expect(await screen.findByText('CS-3')).toBeDefined();
     expect(screen.queryByText(/common\.amountInclTax/)).toBeNull();

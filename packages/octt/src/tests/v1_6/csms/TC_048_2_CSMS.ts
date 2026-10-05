@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../types.js';
 import { pushSendAckStep } from '../../../csms-test-helpers.js';
+import { defaultReply } from '../../../default-replies.js';
 
 export const TC_048_2_CSMS: TestCase = {
   id: 'TC_048_2_CSMS',
@@ -31,12 +32,12 @@ export const TC_048_2_CSMS: TestCase = {
     pushSendAckStep(steps, 1, 'Send StatusNotification (Preparing)', resp1);
 
     let received = false;
-    ctx.client.setIncomingCallHandler(async (_messageId, action, _payload) => {
+    ctx.client.setIncomingCallHandler(async (_messageId, action, payload) => {
       if (action === 'ReserveNow') {
         received = true;
         return { status: 'Occupied' };
       }
-      return {};
+      return defaultReply('ocpp1.6', action, payload);
     });
 
     if (ctx.triggerCommand != null) {

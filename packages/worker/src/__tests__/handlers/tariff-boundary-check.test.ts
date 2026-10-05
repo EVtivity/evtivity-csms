@@ -65,11 +65,11 @@ vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
 }));
 
-vi.mock('@evtivity/api/src/lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: () => ({ publish: mockPublish }),
 }));
 
-vi.mock('@evtivity/api/src/services/station-message.service.js', () => ({
+vi.mock('@evtivity/services/station-message.service', () => ({
   pushAllMessagesToAllStations: mockPushAll,
 }));
 

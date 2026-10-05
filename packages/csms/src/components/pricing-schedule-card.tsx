@@ -82,13 +82,30 @@ function formatCompactRates(
   return parts.length > 0 ? parts.join(' + ') : freeLabel;
 }
 
-export function PricingScheduleCard({ groupId }: { groupId: string }): React.JSX.Element {
+export interface PricingScheduleCardProps {
+  groupId: string;
+  /**
+   * Timezone the current tariff is marked in, e.g. the site's. Without it the
+   * API uses the system timezone setting.
+   */
+  timezone?: string | undefined;
+}
+
+function scheduleUrl(groupId: string, timezone?: string): string {
+  const base = `/v1/pricing-groups/${groupId}/schedule`;
+  return timezone != null ? `${base}?timezone=${encodeURIComponent(timezone)}` : base;
+}
+
+export function PricingScheduleCard({
+  groupId,
+  timezone,
+}: PricingScheduleCardProps): React.JSX.Element {
   const { t } = useTranslation();
   const { currency } = useCompanyCurrency();
 
   const { data: schedule } = useQuery({
-    queryKey: ['pricing-schedule', groupId],
-    queryFn: () => api.get<ScheduleItem[]>(`/v1/pricing-groups/${groupId}/schedule`),
+    queryKey: ['pricing-schedule', groupId, timezone ?? null],
+    queryFn: () => api.get<ScheduleItem[]>(scheduleUrl(groupId, timezone)),
     refetchInterval: 60_000,
   });
 

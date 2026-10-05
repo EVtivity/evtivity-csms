@@ -1,0 +1,203 @@
+{
+  "locale": "de-DE",
+  "common": {
+    "period": "Zeitraum: {period}",
+    "range": "{from} bis {to}",
+    "since": "Ab {from}",
+    "until": "Bis {to}",
+    "allTime": "Gesamter Zeitraum",
+    "last30Days": "Letzte 30 Tage",
+    "summaryLabel": "{label}:",
+    "noSite": "Kein Standort",
+    "unknown": "Unbekannt",
+    "yes": "Ja",
+    "no": "Nein",
+    "minutes": "{value} Min.",
+    "kwh": "{value} kWh",
+    "inclTax": "inkl. Steuer",
+    "exclTax": "exkl. Steuer"
+  },
+  "columns": {
+    "date": "Datum",
+    "site": "Standort",
+    "station": "Ladestation",
+    "stations": "Ladestationen",
+    "driver": "Fahrer",
+    "email": "E-Mail",
+    "status": "Status",
+    "sessions": "Ladevorgänge",
+    "count": "Anzahl",
+    "energyKwh": "Energie (kWh)",
+    "kwh": "kWh",
+    "total": "Gesamt",
+    "durationMin": "Dauer (Min.)",
+    "duration": "Dauer",
+    "started": "Beginn",
+    "ended": "Ende"
+  },
+  "revenue": {
+    "title": "Umsatzbericht",
+    "sheets": {
+      "byDay": "Nach Tag",
+      "bySite": "Nach Standort",
+      "payments": "Zahlungen"
+    },
+    "columns": {
+      "revenue": "Umsatz",
+      "tax": "Steuer",
+      "electricityCost": "Stromkosten",
+      "profit": "Gewinn",
+      "paymentStatus": "Zahlungsstatus"
+    },
+    "summary": {
+      "totalRevenueInclTax": "Gesamtumsatz (inkl. Steuer)",
+      "totalTax": "Steuer gesamt",
+      "totalRevenueExclTax": "Gesamtumsatz (exkl. Steuer)",
+      "totalElectricityCost": "Stromkosten gesamt",
+      "totalProfit": "Gewinn gesamt",
+      "totalSessions": "Ladevorgänge gesamt"
+    }
+  },
+  "energy": {
+    "title": "Energiebericht",
+    "sheets": {
+      "byDay": "Nach Tag",
+      "byStation": "Nach Ladestation",
+      "bySite": "Nach Standort"
+    },
+    "columns": {
+      "avgKwhPerSession": "Ø kWh/Ladevorgang"
+    },
+    "summary": {
+      "totalEnergy": "Energie gesamt",
+      "totalSessions": "Ladevorgänge gesamt"
+    }
+  },
+  "driverActivity": {
+    "title": "Fahreraktivitätsbericht",
+    "sheets": {
+      "driverActivity": "Fahreraktivität"
+    },
+    "columns": {
+      "totalKwh": "kWh gesamt",
+      "totalSpend": "Ausgaben gesamt",
+      "spend": "Ausgaben",
+      "avgDurationMin": "Ø Dauer (Min.)",
+      "avgDuration": "Ø Dauer",
+      "firstSession": "Erster Ladevorgang",
+      "lastSession": "Letzter Ladevorgang"
+    },
+    "summary": {
+      "activeDrivers": "Aktive Fahrer",
+      "totalSessions": "Ladevorgänge gesamt",
+      "totalEnergy": "Energie gesamt"
+    }
+  },
+  "sessions": {
+    "title": "Ladevorgangsbericht",
+    "sheets": {
+      "sessions": "Ladevorgänge",
+      "failedSessions": "Fehlgeschlagene",
+      "note": "Hinweis"
+    },
+    "columns": {
+      "transactionId": "Transaktions-ID",
+      "transactionIdShort": "Trans.-ID",
+      "cost": "Kosten",
+      "costFinal": "Kosten endgültig",
+      "net": "Netto",
+      "tax": "Steuer",
+      "taxRatePercent": "Steuersatz (%)",
+      "refunded": "Erstattet",
+      "currency": "Währung",
+      "stoppedReason": "Beendigungsgrund",
+      "paymentSource": "Zahlungsquelle",
+      "reason": "Grund",
+      "failedReason": "Fehlergrund",
+      "resultTruncated": "Ergebnis gekürzt"
+    },
+    "failedAnalysis": "Analyse fehlgeschlagener Ladevorgänge",
+    "truncated": "Die ersten {limit} Ladevorgänge werden angezeigt. Grenzen Sie den Zeitraum ein, um die übrigen zu sehen.",
+    "summary": {
+      "totalSessions": "Ladevorgänge gesamt"
+    }
+  },
+  "utilization": {
+    "title": "Auslastungsbericht",
+    "sheets": {
+      "bySite": "Nach Standort",
+      "byStation": "Nach Ladestation",
+      "peakHours": "Spitzenzeiten"
+    },
+    "columns": {
+      "sessionHours": "Ladestunden",
+      "hours": "Stunden",
+      "utilizationPercent": "Auslastung (%)",
+      "utilizationShort": "Ausl. (%)",
+      "day": "Tag",
+      "hour": "Uhrzeit",
+      "sessionCount": "Anzahl Ladevorgänge"
+    },
+    "summary": {
+      "averageUtilization": "Durchschnittliche Auslastung",
+      "totalStations": "Ladestationen gesamt"
+    }
+  },
+  "stationHealth": {
+    "title": "Bericht zum Ladestationszustand",
+    "sheets": {
+      "uptime": "Verfügbarkeit",
+      "faultFrequency": "Fehlerhäufigkeit",
+      "downtimeIncidents": "Ausfälle"
+    },
+    "columns": {
+      "ports": "Anschlüsse",
+      "uptimePercent": "Verfügbarkeit (%)",
+      "downtimeMin": "Ausfallzeit (Min.)",
+      "faultCount": "Anzahl Fehler",
+      "evse": "EVSE"
+    },
+    "summary": {
+      "averageUptime": "Durchschnittliche Verfügbarkeit",
+      "stationsReported": "Erfasste Ladestationen"
+    }
+  },
+  "sustainability": {
+    "title": "Nachhaltigkeitsbericht",
+    "sheets": {
+      "summary": "Übersicht",
+      "configuration": "Konfiguration",
+      "bySite": "Nach Standort",
+      "dailyEnergy": "Energie pro Tag"
+    },
+    "columns": {
+      "metric": "Kennzahl",
+      "value": "Wert",
+      "parameter": "Parameter",
+      "netGhgReduction": "Netto-THG-Reduktion (kg CO₂)",
+      "ghgReduction": "THG-Reduktion (kg CO₂)"
+    },
+    "metrics": {
+      "totalEnergyDelivered": "Gelieferte Energie gesamt (kWh)",
+      "netGhgReduction": "Netto-THG-Reduktion (kg CO₂)",
+      "gridCo2": "CO₂-Emissionen des Stromnetzes (kg)",
+      "gasolineCo2Avoided": "Vermiedenes Benzin-CO₂ (kg)",
+      "evMilesEnabled": "Ermöglichte E-Meilen",
+      "gasolineGallonsDisplaced": "Ersetzte Gallonen Benzin",
+      "gridEmissionFactor": "Emissionsfaktor Stromnetz (kg CO₂/kWh)",
+      "evEfficiency": "E-Auto-Effizienz (Meilen/kWh)",
+      "gasolineEmissionFactor": "Emissionsfaktor Benzin (kg CO₂/Gallone)",
+      "averageVehicleMpg": "Durchschnittlicher Verbrauch (MPG)"
+    },
+    "summary": {
+      "totalEnergyDelivered": "Gelieferte Energie gesamt",
+      "netGhgReduction": "Netto-THG-Reduktion",
+      "evMilesEnabled": "Ermöglichte E-Meilen",
+      "gasolineDisplaced": "Ersetztes Benzin"
+    },
+    "units": {
+      "kgCo2": "{value} kg CO₂",
+      "gallons": "{value} Gallonen"
+    }
+  }
+}

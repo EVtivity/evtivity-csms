@@ -25,7 +25,7 @@ import { getAuditActor } from '../lib/audit-actor.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
 import { zodSchema } from '../lib/zod-schema.js';
-import { sessionCurrencySql } from '../lib/company-currency.js';
+import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -34,7 +34,7 @@ import * as tokenService from '../services/token.service.js';
 import { getPortalAccess, inviteDriverToPortal } from '../services/driver-portal-access.service.js';
 import { OCPP_TOKEN_TYPES } from './tokens.js';
 import type { JwtPayload } from '../plugins/auth.js';
-import { isValidTimezone } from '@evtivity/lib';
+import { isValidTimezone, UI_LANGUAGES } from '@evtivity/lib';
 import {
   paginatedResponse,
   itemResponse,
@@ -50,6 +50,9 @@ const driverItem = z
     lastName: z.string().max(100).nullable().describe('Driver last name'),
     email: z.string().email().max(255).nullable().describe('Driver email address'),
     phone: z.string().max(50).nullable().describe('Driver phone number in E.164 format'),
+    language: z
+      .string()
+      .describe('Preferred language of the portal, notifications and invoices (e.g. en, de)'),
     isActive: z.boolean().describe('Whether the driver account is enabled'),
     createdAt: z.coerce.date().describe('Timestamp when the driver was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the driver was last updated'),
@@ -162,11 +165,16 @@ const driverReservationItem = z
   })
   .passthrough();
 
+const driverLanguage = z
+  .enum(UI_LANGUAGES)
+  .describe('Preferred language of the portal, notifications and invoices');
+
 const createDriverBody = z.object({
   firstName: z.string().max(100),
   lastName: z.string().max(100),
   email: z.string().email().optional(),
   phone: z.string().max(50).optional(),
+  language: driverLanguage.optional().describe('Preferred language (default en)'),
 });
 
 const updateDriverBody = z.object({
@@ -174,6 +182,7 @@ const updateDriverBody = z.object({
   lastName: z.string().max(100).optional(),
   email: z.string().email().optional(),
   phone: z.string().max(50).optional(),
+  language: driverLanguage.optional(),
   isActive: z.boolean().optional().describe('Whether the driver account is active'),
   timezone: z.string().max(50).optional().describe('IANA timezone (e.g. America/New_York)'),
 });
@@ -525,6 +534,7 @@ export function driverRoutes(app: FastifyInstance): void {
       if (body.lastName !== undefined) fields['lastName'] = body.lastName;
       if (body.email !== undefined) fields['email'] = body.email;
       if (body.phone !== undefined) fields['phone'] = body.phone;
+      if (body.language !== undefined) fields['language'] = body.language;
       if (body.isActive !== undefined) fields['isActive'] = body.isActive;
       if (body.timezone !== undefined) fields['timezone'] = body.timezone;
 

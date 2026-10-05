@@ -102,13 +102,13 @@ const { mockDerivedStatus } = vi.hoisted(() => ({
   mockDerivedStatus: vi.fn(() => ({ __derivedStatus: true })),
 }));
 
-vi.mock('../lib/station-derived-status.js', () => ({
+vi.mock('@evtivity/services/station-derived-status', () => ({
   buildDerivedStatusSubquery: mockDerivedStatus,
 }));
 
 const { mockQueryRevenue } = vi.hoisted(() => ({ mockQueryRevenue: vi.fn() }));
 
-vi.mock('../lib/session-revenue.js', async (importOriginal) => ({
+vi.mock('@evtivity/services/session-revenue', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   queryRevenue: (input: unknown) => mockQueryRevenue(input),
 }));
@@ -337,7 +337,7 @@ describe('Dashboard routes', () => {
   it('GET /v1/dashboard/financial-stats returns revenue, electricity cost, and profit in the company currency', async () => {
     setupDbResults([{ totalElectricityCostCents: 120000, dayElectricityCostCents: 3000 }]);
     // The shared revenue definition (session-revenue.ts), split by today.
-    const { aggregateRevenueRows } = await import('../lib/session-revenue.js');
+    const { aggregateRevenueRows } = await import('@evtivity/services/session-revenue');
     mockQueryRevenue.mockResolvedValueOnce(
       aggregateRevenueRows([
         { key: 'false', taxRate: '0.19', grossCents: 1190, source: 'session', count: 392 },
@@ -395,7 +395,7 @@ describe('Dashboard routes', () => {
   });
 
   it('GET /v1/dashboard/revenue-history returns daily revenue data', async () => {
-    const { aggregateRevenueRows } = await import('../lib/session-revenue.js');
+    const { aggregateRevenueRows } = await import('@evtivity/services/session-revenue');
     mockQueryRevenue.mockResolvedValueOnce(
       aggregateRevenueRows([
         { key: '2025-01-02', taxRate: '0', grossCents: 500, source: 'session', count: 14 },

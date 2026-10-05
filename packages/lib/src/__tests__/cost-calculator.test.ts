@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { calculateSessionCost, calculateSplitSessionCost } from '../cost-calculator.js';
+import {
+  calculateSessionCost,
+  calculateSplitSessionCost,
+  toSessionCostBreakdown,
+} from '../cost-calculator.js';
+import { sessionCostTax, taxPerRate } from '../price-display.js';
+import type { TaxBasis } from '../price-display.js';
 import type { TariffInput, TariffSegment } from '../cost-calculator.js';
 
 describe('calculateSessionCost', () => {
@@ -721,7 +727,8 @@ describe('tax lines per cost dimension', () => {
       [segment(base, 5_000, true), segment(reduced, 5_000, false), segment(base, 1_000, false)],
       0,
     );
-    // 19%: 150 + 100 fee (first segment) = 250, tax 48 (47.5), then 30, tax 6 (5.7)
+    // 19%: 150 + 100 fee (first segment) = 250, then 30: net 280, tax 53 (53.2)
+    // rounded once for the rate (per segment it was 48 + 6 = 54)
     // 7%: 100, tax 7
     expect(result.taxLines).toEqual([
       expect.objectContaining({
@@ -734,7 +741,7 @@ describe('tax lines per cost dimension', () => {
         taxRate: 0.19,
         netCents: 280,
         sessionFeeCents: 100,
-        taxCents: 54,
+        taxCents: 53,
       }),
     ]);
     const lineSubtotal = result.taxLines.reduce((sum, l) => sum + l.netCents, 0);
@@ -771,5 +778,114 @@ describe('tax lines per cost dimension', () => {
 
   it('returns no lines for an empty split session', () => {
     expect(calculateSplitSessionCost([], 0).taxLines).toEqual([]);
+  });
+});
+
+describe('tax rounded once per rate (audit N3)', () => {
+  const at = (pricePerKwh: string, taxRate: string): TariffInput => ({
+    pricePerKwh,
+    pricePerMinute: null,
+    pricePerSession: null,
+    idleFeePricePerMinute: null,
+    reservationFeePerMinute: null,
+    taxRate,
+  });
+  const kwh = (tariff: TariffInput, first: boolean): TariffSegment => ({
+    tariff,
+    durationMinutes: 20,
+    energyDeliveredWh: 1_000,
+    idleMinutes: 0,
+    isFirstSegment: first,
+  });
+  const priced = (tariffs: TariffInput[], basis: TaxBasis) =>
+    calculateSplitSessionCost(
+      tariffs.map((t, i) => kwh(t, i === 0)),
+      0,
+      0,
+      basis,
+    );
+
+  it('net basis, several segments at one rate: tax on the summed net, shown net and gross', () => {
+    // 33 net three times at 19%: 99 * 0.19 = 18.81 -> 19 (per segment 6 * 3 = 18).
+    const result = priced([at('0.33', '0.19'), at('0.33', '0.19'), at('0.33', '0.19')], 'net');
+    expect(result.subtotalCents).toBe(99);
+    expect(result.taxCents).toBe(19);
+    expect(result.totalCents).toBe(118);
+    expect(result.segments.map((s) => s.taxCents)).toEqual([7, 6, 6]);
+    // Net display: 99 net + 19 tax = 118. Gross display: 118 containing 19 tax at 19%.
+    expect(sessionCostTax(toSessionCostBreakdown(result))).toEqual({
+      netCents: 99,
+      taxCents: 19,
+      taxRate: '0.19',
+    });
+  });
+
+  it('gross basis, several segments at one rate: contained tax taken from the summed gross', () => {
+    // 39 gross three times at 19%: 117 gross, net round(117 / 1.19) = 98, tax 19
+    // (per segment 39 - 33 = 6, so 18).
+    const result = priced([at('0.39', '0.19'), at('0.39', '0.19'), at('0.39', '0.19')], 'gross');
+    expect(result.totalCents).toBe(117);
+    expect(result.subtotalCents).toBe(98);
+    expect(result.taxCents).toBe(19);
+    // Each segment's net plus tax is still its gross amount.
+    expect(result.segments.map((s) => s.subtotalCents + s.taxCents)).toEqual([39, 39, 39]);
+    expect(sessionCostTax(toSessionCostBreakdown(result))).toEqual({
+      netCents: 98,
+      taxCents: 19,
+      taxRate: '0.19',
+    });
+  });
+
+  it('net basis, two rates: tax once per rate, no single rate to show', () => {
+    // 19%: 33 + 33 = 66 -> 12.54 -> 13 (per segment 12). 7%: 50 -> 3.5 -> 4.
+    const result = priced([at('0.33', '0.19'), at('0.50', '0.07'), at('0.33', '0.19')], 'net');
+    expect(result.taxLines.map((l) => [l.taxRate, l.netCents, l.taxCents])).toEqual([
+      [0.07, 50, 4],
+      [0.19, 66, 13],
+    ]);
+    expect(result.totalCents).toBe(116 + 17);
+    expect(sessionCostTax(toSessionCostBreakdown(result))).toEqual({
+      netCents: 116,
+      taxCents: 17,
+      taxRate: null,
+    });
+  });
+
+  it('gross basis, two rates: contained tax once per rate', () => {
+    // 19%: 39 + 39 = 78 gross, net 66, tax 12. 7%: 53 gross, net 50, tax 3.
+    const result = priced([at('0.39', '0.19'), at('0.53', '0.07'), at('0.39', '0.19')], 'gross');
+    expect(result.taxLines.map((l) => [l.taxRate, l.netCents, l.taxCents])).toEqual([
+      [0.07, 50, 3],
+      [0.19, 66, 12],
+    ]);
+    expect(result.totalCents).toBe(131);
+    expect(sessionCostTax(toSessionCostBreakdown(result))).toEqual({
+      netCents: 116,
+      taxCents: 15,
+      taxRate: null,
+    });
+  });
+
+  it('taxPerRate spreads each rate tax over its parts by amount, in input order', () => {
+    expect(
+      taxPerRate(
+        [
+          { taxRate: 0.19, amountCents: 33 },
+          { taxRate: 0.07, amountCents: 50 },
+          { taxRate: 0.19, amountCents: 33 },
+          { taxRate: 0.19, amountCents: 0 },
+        ],
+        'net',
+      ),
+    ).toEqual([
+      { taxRate: 0.19, netCents: 33, taxCents: 7 },
+      { taxRate: 0.07, netCents: 50, taxCents: 4 },
+      { taxRate: 0.19, netCents: 33, taxCents: 6 },
+      { taxRate: 0.19, netCents: 0, taxCents: 0 },
+    ]);
+    expect(taxPerRate([{ taxRate: 0.19, amountCents: 78 }], 'gross')).toEqual([
+      { taxRate: 0.19, netCents: 66, taxCents: 12 },
+    ]);
+    expect(taxPerRate([], 'net')).toEqual([]);
   });
 });

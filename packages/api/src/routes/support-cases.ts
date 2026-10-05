@@ -26,9 +26,9 @@ import { dispatchDriverNotification, formatCurrencyAmount, notificationMoney } f
 import { handleSupportAiAssist } from '../services/ai/support-assist.service.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
-import { getPubSub } from '../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { notifySupportCaseEvent } from '../lib/support-case-events.js';
-import { ALL_TEMPLATES_DIRS } from '../lib/template-dirs.js';
+import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import type { JwtPayload } from '../plugins/auth.js';
@@ -1650,6 +1650,8 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         paymentContext(request.log),
       );
       switch (outcome.status) {
+        // not_found answers only a fee target.
+        case 'not_found':
         case 'no_captured_payment':
           await reply.status(400).send({
             error: 'No captured payment to refund',

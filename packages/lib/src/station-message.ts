@@ -1,6 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+// Intl.DurationFormat (formatStationElapsed) ships in Node 24 but not in the ES2022 lib.
+/// <reference lib="es2025.intl" />
+
 import Handlebars from 'handlebars';
 import {
   formatFlatPrice,
@@ -46,6 +49,8 @@ export type StationMessageState =
 
 export interface StationMessageContext {
   companyName: string;
+  /** The `stationMessage.brandLine` setting. Empty or absent renders `companyName`. */
+  brandLine?: string;
   stationOcppId: string;
   pricingDisplay?: string;
   /** Single unit prices as shown (net or gross per company.priceDisplay), without units. */
@@ -182,6 +187,30 @@ export function formatStationTime(date: Date, language: StationMessageLanguage):
   return date.toLocaleTimeString(resolveLocale(language), { hour: 'numeric', minute: '2-digit' });
 }
 
+/**
+ * Time since a session started, in the display language through
+ * Intl.DurationFormat narrow style: "12m", "1h 5m" (en), "1 Std., 5 Min."
+ * (de), "1시간 5분" (ko). Empty for a missing or future start.
+ */
+export function formatStationElapsed(
+  startedAt: Date | string | null,
+  language: StationMessageLanguage,
+  now: number = Date.now(),
+): string {
+  if (startedAt == null) return '';
+  const start = startedAt instanceof Date ? startedAt : new Date(startedAt);
+  const ms = now - start.getTime();
+  if (Number.isNaN(ms) || ms < 0) return '';
+  const totalMinutes = Math.floor(ms / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const format = new Intl.DurationFormat(resolveLocale(language), {
+    style: 'narrow',
+    minutesDisplay: 'always',
+  });
+  return format.format(hours > 0 ? { hours, minutes } : { minutes });
+}
+
 /** A measurement (kWh, kW) with one decimal in the display language ("12.4", "12,4"). */
 export function formatStationQuantity(value: number, language: StationMessageLanguage): string {
   return formatNumber(value, language, 1);
@@ -286,6 +315,8 @@ export async function renderStationMessage(
 
   const renderContext: Record<string, string | boolean> = {
     companyName: ctx.companyName,
+    brandLine:
+      ctx.brandLine != null && ctx.brandLine.trim() !== '' ? ctx.brandLine : ctx.companyName,
     stationOcppId: ctx.stationOcppId,
     pricingDisplay: ctx.pricingDisplay ?? '',
     energyPrice: ctx.energyPrice ?? '',

@@ -132,6 +132,8 @@ export async function partnerToken(partnerId: string, uid: string): Promise<CdrT
 export interface CpoSessionLink {
   id: number;
   partnerId: string;
+  /** The OCPI Session id shared with the partner. */
+  ocpiSessionId: string;
   chargingSessionId: string;
   tokenUid: string;
 }
@@ -148,6 +150,7 @@ export async function renderCpoSession(
   return transformSession(
     {
       session,
+      ocpiSessionId: link.ocpiSessionId,
       cost: ocpiSessionCost(session),
       idleMinutes: idleMinutesAt(session, session.endedAt ?? now),
       now,
@@ -189,6 +192,7 @@ export async function syncCpoSessionRow(
 const linkColumns = {
   id: ocpiRoamingSessions.id,
   partnerId: ocpiRoamingSessions.partnerId,
+  ocpiSessionId: ocpiRoamingSessions.ocpiSessionId,
   chargingSessionId: ocpiRoamingSessions.chargingSessionId,
   tokenUid: ocpiRoamingSessions.tokenUid,
 };

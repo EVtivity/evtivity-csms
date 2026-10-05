@@ -4,7 +4,7 @@
 import { createHash } from 'node:crypto';
 import { Redis } from 'ioredis';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { createLogger } from '@evtivity/lib';
+import { createLogger, redisTlsOptions } from '@evtivity/lib';
 import { config } from '../lib/config.js';
 import { authorize } from '../middleware/rbac.js';
 import { successResponse, errorWith } from '../lib/response-schemas.js';
@@ -145,6 +145,7 @@ function getCacheRedis(): ResponseCacheRedis {
       maxRetriesPerRequest: 1,
       enableOfflineQueue: false,
       lazyConnect: true,
+      ...redisTlsOptions(config.REDIS_URL),
     });
     // Fail-fast cache connection: commands throw while disconnected and every
     // call site degrades to an uncached pass-through.

@@ -21,7 +21,7 @@ import {
   sessionStatusEnum,
 } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
-import { sessionCurrencySql } from '../lib/company-currency.js';
+import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';

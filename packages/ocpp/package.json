@@ -20,9 +20,11 @@
     "@evtivity/database": "*",
     "@evtivity/lib": "*",
     "@evtivity/payments": "*",
+    "@evtivity/v2g-exi": "*",
     "@peculiar/asn1-ocsp": "^2.10.0",
     "@peculiar/asn1-schema": "^2.10.0",
     "@peculiar/asn1-x509": "^2.10.0",
+    "@peculiar/x509": "^2.1.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "argon2": "^0.44.0",
@@ -30,14 +32,13 @@
     "ioredis": "^5.9.3",
     "nodemailer": "^10.0.11",
     "postgres": "^3.4.8",
+    "reflect-metadata": "^0.2.2",
     "ws": "^8.19.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
-    "@peculiar/x509": "^2.1.0",
     "@types/node": "^25.2.3",
     "@types/ws": "^8.18.1",
-    "reflect-metadata": "^0.2.2",
     "typescript": "^5.7.0",
     "vitest": "^5.0.2"
   }

@@ -97,6 +97,7 @@ vi.mock('@evtivity/database', () => {
     drivers: {},
     chargingStations: {},
     sites: {},
+    reservations: {},
     settingAuditLog: {},
     siteAuditLog: {},
     writeAudit: vi.fn(async () => undefined),
@@ -130,6 +131,7 @@ const {
   mockAuthorizeSessionHold,
   mockCaptureSessionHold,
   mockRefundPaymentRecord,
+  mockDispatchFeeRefundNotification,
   mockRetryShortfallForRecord,
   mockRunPaymentReconciliation,
   mockSaveDriverMethod,
@@ -177,6 +179,7 @@ const {
     mockAuthorizeSessionHold: vi.fn(),
     mockCaptureSessionHold: vi.fn(),
     mockRefundPaymentRecord: vi.fn(),
+    mockDispatchFeeRefundNotification: vi.fn(() => Promise.resolve()),
     mockRetryShortfallForRecord: vi.fn(),
     mockRunPaymentReconciliation: vi.fn(),
     mockSaveDriverMethod: vi.fn(),
@@ -201,6 +204,7 @@ vi.mock('@evtivity/payments', async () => ({
   authorizeSessionHold: mockAuthorizeSessionHold,
   captureSessionHold: mockCaptureSessionHold,
   refundPaymentRecord: mockRefundPaymentRecord,
+  dispatchFeeRefundNotification: mockDispatchFeeRefundNotification,
   retryShortfallForRecord: mockRetryShortfallForRecord,
   runPaymentReconciliation: mockRunPaymentReconciliation,
   saveDriverMethod: mockSaveDriverMethod,
@@ -1708,6 +1712,197 @@ describe('Payment routes - handler logic', () => {
         error: 'Refund amount 0 exceeds remaining refundable balance 0',
         code: 'REFUND_EXCEEDS_REMAINING',
       });
+    });
+  });
+
+  // --- Reservation fee payments ---
+
+  describe('GET /v1/reservations/:id/fee-payments', () => {
+    const RESERVATION_ID = 'rsv_000000000001';
+
+    it('lists the fee records of an accessible reservation', async () => {
+      const fee = paymentRecord({
+        sessionId: null,
+        chargeType: 'reservation_no_show',
+        reservationId: RESERVATION_ID,
+        taxRate: '0.19',
+        preAuthAmountCents: null,
+        status: 'captured',
+        capturedAmountCents: 1190,
+      });
+      setupDbResults([{ siteId: VALID_SITE_ID }], [fee]);
+      const response = await app.inject({
+        method: 'GET',
+        url: `/reservations/${RESERVATION_ID}/fee-payments`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual([
+        expect.objectContaining({
+          chargeType: 'reservation_no_show',
+          preAuthAmountCents: null,
+          capturedAmountCents: 1190,
+        }),
+      ]);
+    });
+
+    it('answers 404 for a reservation on a site the operator cannot access', async () => {
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce(['sit_000000000099']);
+      setupDbResults([{ siteId: VALID_SITE_ID }]);
+      const response = await app.inject({
+        method: 'GET',
+        url: `/reservations/${RESERVATION_ID}/fee-payments`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe('RESERVATION_NOT_FOUND');
+    });
+  });
+
+  describe('POST /v1/reservations/:id/fee-payments/:paymentId/refund', () => {
+    const RESERVATION_ID = 'rsv_000000000001';
+
+    async function refundFee(payload: Record<string, unknown> = {}) {
+      return app.inject({
+        method: 'POST',
+        url: `/reservations/${RESERVATION_ID}/fee-payments/7/refund`,
+        headers: { authorization: 'Bearer ' + token },
+        payload,
+      });
+    }
+
+    function feeRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      return paymentRecord({
+        id: 7,
+        sessionId: null,
+        driverId: VALID_DRIVER_ID,
+        chargeType: 'reservation_cancellation',
+        reservationId: RESERVATION_ID,
+        taxRate: '0.19',
+        preAuthAmountCents: null,
+        capturedAmountCents: 595,
+        ...overrides,
+      });
+    }
+
+    it('refunds the fee through the refund service and sends the fee refund notice', async () => {
+      setupDbResults([{ id: 7 }], [{ siteId: VALID_SITE_ID }]);
+      mockRefundPaymentRecord.mockResolvedValueOnce({
+        status: 'refunded',
+        record: feeRecord({ status: 'partially_refunded', refundedAmountCents: 200 }),
+        refundedNowCents: 200,
+        pendingCents: 0,
+        refundStatus: 'succeeded',
+        full: false,
+      });
+
+      const response = await refundFee({ amountCents: 200, reason: 'Goodwill' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        status: 'partially_refunded',
+        chargeType: 'reservation_cancellation',
+        refundStatus: 'succeeded',
+      });
+      const [request, ctx] = mockRefundPaymentRecord.mock.calls[0] as [
+        {
+          feeRecordId: number;
+          amountCents?: number;
+          actorUserId: string;
+          actionReason: (full: boolean) => string | null;
+        },
+        unknown,
+      ];
+      expect(request).toMatchObject({
+        feeRecordId: 7,
+        amountCents: 200,
+        actorUserId: VALID_USER_ID,
+      });
+      expect(request.actionReason(false)).toBe('Goodwill');
+      expect(ctx).toEqual(CTX);
+      // The fee notice, never the session's payment.Refunded.
+      expect(dispatchDriverNotification).not.toHaveBeenCalled();
+      expect(mockDispatchFeeRefundNotification).toHaveBeenCalledOnce();
+      expect(mockDispatchFeeRefundNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 7, chargeType: 'reservation_cancellation' }),
+        200,
+        expect.objectContaining({ templatesDirs: expect.any(Array) as unknown }),
+      );
+    });
+
+    it('answers 200 when the fee refund notice fails', async () => {
+      setupDbResults([{ id: 7 }], [{ siteId: VALID_SITE_ID }]);
+      mockRefundPaymentRecord.mockResolvedValueOnce({
+        status: 'refunded',
+        record: feeRecord({ status: 'refunded', refundedAmountCents: 595 }),
+        refundedNowCents: 595,
+        pendingCents: 0,
+        refundStatus: 'succeeded',
+        full: true,
+      });
+      mockDispatchFeeRefundNotification.mockRejectedValueOnce(new Error('smtp down'));
+      const response = await refundFee();
+      expect(response.statusCode).toBe(200);
+      expect(response.json().refundStatus).toBe('succeeded');
+    });
+
+    it('answers a pending refund of an async provider', async () => {
+      setupDbResults([{ id: 7 }], [{ siteId: VALID_SITE_ID }]);
+      mockRefundPaymentRecord.mockResolvedValueOnce({
+        status: 'refunded',
+        record: feeRecord({ status: 'captured', provider: 'adyen' }),
+        refundedNowCents: 0,
+        pendingCents: 595,
+        refundStatus: 'pending',
+        full: false,
+      });
+      const response = await refundFee();
+      expect(response.statusCode).toBe(200);
+      expect(response.json().refundStatus).toBe('pending');
+      // The webhook notice tells the driver once the provider confirms it.
+      expect(mockDispatchFeeRefundNotification).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 before any payment state for a payment that is not a fee of the reservation', async () => {
+      setupDbResults([]);
+      const response = await refundFee();
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe('PAYMENT_NOT_FOUND');
+      expect(mockRefundPaymentRecord).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 for a reservation on a site the operator cannot access', async () => {
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce(['sit_000000000099']);
+      setupDbResults([{ id: 7 }], [{ siteId: VALID_SITE_ID }]);
+      const response = await refundFee();
+      expect(response.statusCode).toBe(404);
+      expect(mockRefundPaymentRecord).not.toHaveBeenCalled();
+    });
+
+    it('maps the refusals of the refund service like the session refund', async () => {
+      const cases: Array<[Record<string, unknown>, number, string]> = [
+        [{ status: 'not_found' }, 404, 'PAYMENT_NOT_FOUND'],
+        [{ status: 'no_captured_payment' }, 400, 'NO_CAPTURED_PAYMENT'],
+        [
+          {
+            status: 'exceeds_remaining',
+            remainingCents: 100,
+            requestedCents: 200,
+            currency: 'EUR',
+          },
+          409,
+          'REFUND_EXCEEDS_REMAINING',
+        ],
+        [{ status: 'operation_pending', operation: 'capture' }, 409, 'PAYMENT_OPERATION_PENDING'],
+        [{ status: 'not_configured', providerId: 'adyen' }, 400, 'PAYMENT_PROVIDER_NOT_CONFIGURED'],
+      ];
+      for (const [outcome, statusCode, code] of cases) {
+        setupDbResults([{ id: 7 }], [{ siteId: VALID_SITE_ID }]);
+        mockRefundPaymentRecord.mockResolvedValueOnce(outcome);
+        const response = await refundFee();
+        expect(response.statusCode).toBe(statusCode);
+        expect(response.json().code).toBe(code);
+      }
     });
   });
 

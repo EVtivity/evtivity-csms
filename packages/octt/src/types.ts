@@ -75,6 +75,8 @@ export interface TestContext {
   callApi?: CallApiFn | undefined;
   /** Test System PKI and OCSP responder, present when the run has `ocspResponderUrl`. */
   ocsp?: OcspTestService | undefined;
+  /** Driver that owns the test's tokens (and its Plug and Charge contracts). */
+  testDriverId?: string | undefined;
 }
 
 export interface TestResult {

@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 // Helper: boot station
 async function boot(ctx: {
@@ -64,7 +65,7 @@ export const TC_F_11_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -174,7 +175,7 @@ export const TC_F_12_CSMS: TestCase = {
           requestedMessage = String(payload['requestedMessage'] ?? '');
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -287,7 +288,7 @@ export const TC_F_13_CSMS: TestCase = {
           requestedMessage = String(payload['requestedMessage'] ?? '');
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -398,7 +399,7 @@ export const TC_F_14_CSMS: TestCase = {
           requestedMessage = String(payload['requestedMessage'] ?? '');
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -497,7 +498,7 @@ export const TC_F_15_CSMS: TestCase = {
           requestedMessage = String(payload['requestedMessage'] ?? '');
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -579,7 +580,7 @@ export const TC_F_18_CSMS: TestCase = {
           requestedMessage = String(payload['requestedMessage'] ?? '');
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -661,7 +662,7 @@ export const TC_F_20_CSMS: TestCase = {
           requestedMessage = String(payload['requestedMessage'] ?? '');
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -746,7 +747,7 @@ export const TC_F_23_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -855,7 +856,7 @@ export const TC_F_24_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -935,12 +936,12 @@ export const TC_F_27_CSMS: TestCase = {
     let receivedTrigger = false;
 
     ctx.client.setIncomingCallHandler(
-      async (_messageId: string, action: string, _payload: Record<string, unknown>) => {
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'TriggerMessage') {
           receivedTrigger = true;
           return { status: 'NotImplemented' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -1006,7 +1007,7 @@ export const TC_F_100_CSMS: TestCase = {
           requestedMessage = String(payload['requestedMessage'] ?? '');
           return { status: 'NotImplemented' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

@@ -16,8 +16,8 @@ import {
   errorWith,
   successResponse,
 } from '../lib/response-schemas.js';
-import { getPubSub } from '../lib/pubsub.js';
-import { ALL_TEMPLATES_DIRS } from '../lib/template-dirs.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 const invoiceListItem = z

@@ -11,7 +11,7 @@ import {
   remoteStartTimeoutDelayMs,
 } from '@evtivity/database';
 import type { RemoteStartTimeoutMessage, RemoteStartTimeoutTarget } from '@evtivity/database';
-import { getPubSub } from './pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 /**
  * Schedules the close-out of a portal or guest start the station accepted:

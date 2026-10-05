@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_N_107_CSMS: TestCase = {
   id: 'TC_N_107_CSMS',
@@ -18,18 +19,20 @@ export const TC_N_107_CSMS: TestCase = {
       reason: 'PowerUp',
     });
     let received = false;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'GetPeriodicEventStream') {
-        received = true;
-        return {
-          constantStreamData: [
-            { id: 2, variableMonitoringId: 3, params: { interval: 10, values: 30 } },
-            { id: 3, variableMonitoringId: 4, params: { interval: 10, values: 30 } },
-          ],
-        };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'GetPeriodicEventStream') {
+          received = true;
+          return {
+            constantStreamData: [
+              { id: 2, variableMonitoringId: 3, params: { interval: 10, values: 30 } },
+              { id: 3, variableMonitoringId: 4, params: { interval: 10, values: 30 } },
+            ],
+          };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'GetPeriodicEventStream', {
         stationId: ctx.stationId,

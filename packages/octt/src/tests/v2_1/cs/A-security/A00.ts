@@ -184,10 +184,10 @@ export const TC_A_05_CS: CsTestCase = {
     'To verify whether the Charging Station is able to terminate the connection when the received server certificate is invalid.',
   stationConfig: { securityProfile: 2 },
   tls: true,
-  // The Configuration State sets no RetryBackOff* values, so the station keeps its
-  // reconnect back-off (OCPPCommCtrlr.RetryBackOffWaitMinimum W = 10 s, RandomRange
-  // R = 5 s, doubled per failed attempt). Per certificate: step 1 reconnect <= W+R, the
-  // refused attempt <= W+R, then 2x the measured reconnection time before the valid
+  // The Configuration State sets no RetryBackOff* values, so the station keeps the
+  // test station's reconnect back-off (CS_TEST_RECONNECT_BACK_OFF in cs-executor.ts:
+  // RetryBackOffWaitMinimum W = 10 s, RandomRange R = 5 s, doubled per failed attempt).
+  // Per certificate: step 1 reconnect <= W+R, the refused attempt <= W+R, then 2x the measured reconnection time before the valid
   // certificate is back, by which time the attempt after <= 2W+R may have failed too and
   // the next one comes <= 4W+R later: about 85 s typical and 115 s worst case, so five
   // certificates need up to about 575 s.

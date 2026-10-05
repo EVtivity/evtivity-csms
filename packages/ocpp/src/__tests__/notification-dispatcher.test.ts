@@ -14,10 +14,34 @@ const mockWrapEmailHtml = vi.fn();
 const mockDispatchDriverNotification = vi.fn();
 const mockRecordNotificationAttempt = vi.fn();
 const mockClearContractValidationCaCache = vi.fn();
+const mockClearStationMessageCache = vi.fn();
+const mockClearStationMessageSettingsCache = vi.fn();
+const mockGetWebhookAllowedPrivateHosts = vi.fn().mockResolvedValue([]);
+
+vi.mock('@evtivity/database', () => ({
+  clearStationMessageSettingsCache: () => {
+    mockClearStationMessageSettingsCache();
+  },
+  getWebhookAllowedPrivateHosts: () => mockGetWebhookAllowedPrivateHosts(),
+}));
+const mockClearLocalContractCaCache = vi.fn();
+const mockClearOemTrustCache = vi.fn();
 
 vi.mock('../services/pki/contract-certificate-validation.js', () => ({
   clearContractValidationCaCache: () => {
     mockClearContractValidationCaCache();
+  },
+}));
+
+vi.mock('../services/pki/local-ca-store.js', () => ({
+  clearLocalContractCaCache: () => {
+    mockClearLocalContractCaCache();
+  },
+}));
+
+vi.mock('../services/pki/local-contract-provider.js', () => ({
+  clearOemTrustCache: () => {
+    mockClearOemTrustCache();
   },
 }));
 
@@ -34,6 +58,9 @@ vi.mock('@evtivity/lib', async () => {
     wrapEmailHtml: mockWrapEmailHtml,
     recordNotificationAttempt: mockRecordNotificationAttempt,
     dispatchDriverNotification: mockDispatchDriverNotification,
+    clearStationMessageCache: () => {
+      mockClearStationMessageCache();
+    },
     createLogger: () => ({
       info: vi.fn(),
       error: vi.fn(),
@@ -174,9 +201,16 @@ describe('dispatchOcppNotification', () => {
     mockSendWebhook.mockResolvedValue('ok');
 
     const sql = createSqlMock();
+    mockGetWebhookAllowedPrivateHosts.mockResolvedValueOnce(['n8n']);
     await dispatchOcppNotification(sql as never, makeEvent('ocpp.StatusNotification'));
 
-    expect(mockSendWebhook).toHaveBeenCalled();
+    expect(mockSendWebhook).toHaveBeenCalledWith(
+      'https://hook.test.com',
+      'Test',
+      'Body',
+      expect.any(Object),
+      ['n8n'],
+    );
   });
 
   it('falls back to log when SMTP not configured', async () => {
@@ -656,5 +690,27 @@ describe('subscribeOcppEventSettingsInvalidation', () => {
     expect(mockClearContractValidationCaCache).not.toHaveBeenCalled();
     handler!(JSON.stringify({ cache: 'pkiCaCertificates' }));
     expect(mockClearContractValidationCaCache).toHaveBeenCalledTimes(1);
+    expect(mockClearLocalContractCaCache).toHaveBeenCalledTimes(1);
+    expect(mockClearOemTrustCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the station message caches on a station_message message', async () => {
+    const mod = await import('../server/notification-dispatcher.js');
+    let handler: ((p: string) => void) | null = null;
+    const pubsub = {
+      publish: vi.fn(),
+      subscribe: vi.fn((_channel: string, h: (p: string) => void) => {
+        handler = h;
+        return Promise.resolve({ unsubscribe: vi.fn().mockResolvedValue(undefined) });
+      }),
+      close: vi.fn(),
+    };
+    await mod.subscribeOcppEventSettingsInvalidation(pubsub);
+
+    handler!(JSON.stringify({ kind: 'notification_settings' }));
+    expect(mockClearStationMessageCache).not.toHaveBeenCalled();
+    handler!(JSON.stringify({ kind: 'station_message' }));
+    expect(mockClearStationMessageCache).toHaveBeenCalledTimes(1);
+    expect(mockClearStationMessageSettingsCache).toHaveBeenCalledTimes(1);
   });
 });

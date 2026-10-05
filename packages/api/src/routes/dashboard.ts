@@ -17,18 +17,20 @@ import {
 } from '@evtivity/database';
 import { ValidationError } from '@evtivity/lib';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
-import { inCompanyCurrency } from '../lib/company-currency.js';
+import { inCompanyCurrency } from '@evtivity/services/company-currency';
+import { paymentRecordsAtSites } from '../lib/payment-site-scope.js';
 import {
   queryRevenue,
   revenueAtSites,
   revenueItem,
   sumRevenue,
   EMPTY_REVENUE,
-} from '../lib/session-revenue.js';
+  paymentsKeptCentsSql,
+} from '@evtivity/services/session-revenue';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { getUserSiteIds } from '../lib/site-access.js';
-import { buildDerivedStatusSubquery } from '../lib/station-derived-status.js';
+import { buildDerivedStatusSubquery } from '@evtivity/services/station-derived-status';
 import { dateRangeQuery, parseDateRange, parseCalendarDate } from '../lib/date-range.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
@@ -217,7 +219,7 @@ const paymentBreakdownItem = z
       .int()
       .min(0)
       .describe(
-        'Total captured amount for payments in this status, in cents. Only payments in the company currency are summed.',
+        'Total captured amount minus the amount refunded for payments in this status, in cents, as revenue counts it. Only payments in the company currency are summed.',
       ),
   })
   .passthrough();
@@ -1030,22 +1032,16 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const [siteIds, currency] = await Promise.all([getUserSiteIds(userId), getCompanyCurrency()]);
       if (siteIds != null && siteIds.length === 0) return [];
 
-      const query = db
+      // Session records and reservation fee records of the operator's sites.
+      const rows = await db
         .select({
           status: paymentRecords.status,
           count: count(),
-          totalCents: sql<number>`coalesce(sum(${paymentRecords.capturedAmountCents}) filter (where ${inCompanyCurrency(paymentRecords.currency, currency)}), 0)`,
+          totalCents: sql<number>`${paymentsKeptCentsSql(currency)}`,
         })
-        .from(paymentRecords);
-
-      if (siteIds != null) {
-        query
-          .innerJoin(chargingSessions, eq(paymentRecords.sessionId, chargingSessions.id))
-          .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-          .where(inArray(chargingStations.siteId, siteIds));
-      }
-
-      const rows = await query.groupBy(paymentRecords.status);
+        .from(paymentRecords)
+        .where(siteIds != null ? paymentRecordsAtSites(siteIds) : undefined)
+        .groupBy(paymentRecords.status);
 
       return rows.map((r) => ({
         status: r.status,

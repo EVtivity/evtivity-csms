@@ -38,10 +38,19 @@ const COMMAND_TIMEOUT = 30;
  * Reject response_url values that point at our own internal network. A
  * malicious partner could otherwise use the OCPI command callback channel
  * as an SSRF probe (we POST the OCPP result back to whatever URL they
- * supplied). Returns true when the URL is safe to call back.
+ * supplied). A partner with the operator's private-network flag may use a
+ * private address. This is the URL-only check; the callback itself goes
+ * through safeFetch, which checks the resolved addresses at connect time.
+ * Returns true when the URL is acceptable.
  */
-function isAcceptableResponseUrl(url: string): boolean {
-  return !isPrivateUrl(url);
+function isAcceptableResponseUrl(url: string, allowPrivateNetwork: boolean): boolean {
+  if (!allowPrivateNetwork) return !isPrivateUrl(url);
+  try {
+    const { protocol } = new URL(url);
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 // Resolve a partner-supplied `location_id` to our internal site UUID, but
@@ -256,7 +265,7 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
       }
     }
 
-    if (!isAcceptableResponseUrl(body.response_url)) {
+    if (!isAcceptableResponseUrl(body.response_url, partner.allowPrivateNetwork)) {
       return ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'response_url is not allowed');
     }
 
@@ -342,7 +351,7 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
       return ocpiSuccess(response);
     }
 
-    if (!isAcceptableResponseUrl(body.response_url)) {
+    if (!isAcceptableResponseUrl(body.response_url, partner.allowPrivateNetwork)) {
       return ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'response_url is not allowed');
     }
 
@@ -437,7 +446,7 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
       }
     }
 
-    if (!isAcceptableResponseUrl(body.response_url)) {
+    if (!isAcceptableResponseUrl(body.response_url, partner.allowPrivateNetwork)) {
       return ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'response_url is not allowed');
     }
 
@@ -545,7 +554,7 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
         return ocpiSuccess(response);
       }
 
-      if (!isAcceptableResponseUrl(body.response_url)) {
+      if (!isAcceptableResponseUrl(body.response_url, partner.allowPrivateNetwork)) {
         return ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'response_url is not allowed');
       }
 

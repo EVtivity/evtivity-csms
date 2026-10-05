@@ -15,6 +15,7 @@ import { taxLineFromNet } from '@evtivity/lib';
 import type { PaymentContext } from './context.js';
 import { errorMessage } from './context.js';
 import { PaymentProviderNotConfiguredError } from './errors.js';
+import { reservationFeeKey } from './idempotency-keys.js';
 import { pinnedProvider } from './pinning.js';
 import {
   findReservationCharge,
@@ -66,11 +67,6 @@ export type ReservationFeeResult =
   /** The fee for this reservation and type was already recorded (a retry). */
   | { status: 'duplicate'; paymentRecordId: number }
   | { status: 'failed'; paymentRecordId: number; reason: string };
-
-const IDEMPOTENCY_PREFIX: Record<ReservationFeeType, string> = {
-  reservation_cancellation: 'cancellation-fee',
-  reservation_no_show: 'no-show-fee',
-};
 
 const DESCRIPTION: Record<ReservationFeeType, string> = {
   reservation_cancellation: 'Reservation cancellation fee',
@@ -172,7 +168,7 @@ export async function chargeReservationFee(
       payoutAccountId: site?.payoutAccountId ?? null,
       description: DESCRIPTION[input.type],
       metadata: { reservationId: input.reservationId, type: `${input.type}_fee` },
-      idempotencyKey: `${IDEMPOTENCY_PREFIX[input.type]}-${input.reservationId}`,
+      idempotencyKey: reservationFeeKey(input.type, input.reservationId),
     });
     paymentId = result.paymentId;
   } catch (err) {

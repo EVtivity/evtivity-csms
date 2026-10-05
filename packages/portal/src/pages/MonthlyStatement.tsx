@@ -17,7 +17,7 @@ import {
 } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
 import { useAuth } from '@/lib/auth';
-import { costIncludesTax } from '@evtivity/lib/price-display';
+import { costContainsTax } from '@evtivity/lib/price-display';
 
 interface StatementSession {
   id: string;
@@ -25,7 +25,7 @@ interface StatementSession {
   endedAt: string | null;
   energyDeliveredWh: string | null;
   finalCostCents: number | null;
-  tariffTaxRate: string | null;
+  taxCents: number | null;
   currency: string;
   siteName: string | null;
   siteCity: string | null;
@@ -79,7 +79,7 @@ export function MonthlyStatement(): React.JSX.Element {
   // The cost column (and its total) reads "incl. tax" only when a session's
   // cost actually contains tax, the rule the session lists label each row by.
   const costsIncludeTax =
-    data?.sessions.some((s) => costIncludesTax(s.finalCostCents, s.tariffTaxRate)) === true;
+    data?.sessions.some((s) => costContainsTax(s.finalCostCents, s.taxCents)) === true;
 
   return (
     <div className="space-y-4">

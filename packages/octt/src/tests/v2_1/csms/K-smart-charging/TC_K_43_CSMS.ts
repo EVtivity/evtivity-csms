@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 /**
  * TC_K_43_CSMS: Get Composite Schedule - Specific EVSE
@@ -46,7 +47,7 @@ export const TC_K_43_CSMS: TestCase = {
             },
           };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -121,7 +122,7 @@ export const TC_K_44_CSMS: TestCase = {
             },
           };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

@@ -19,6 +19,17 @@ export const logFormatOptions = {
   timestamp: pino.stdTimeFunctions.isoTime,
 } satisfies pino.LoggerOptions;
 
+/**
+ * The logging methods shared server code writes to. Pino loggers and Fastify's
+ * app and request loggers all fit, so a service can take either.
+ */
+export interface ServiceLogger {
+  debug(obj: unknown, msg?: string, ...args: unknown[]): void;
+  info(obj: unknown, msg?: string, ...args: unknown[]): void;
+  warn(obj: unknown, msg?: string, ...args: unknown[]): void;
+  error(obj: unknown, msg?: string, ...args: unknown[]): void;
+}
+
 export function createLogger(name: string): Logger {
   return pino({
     name,

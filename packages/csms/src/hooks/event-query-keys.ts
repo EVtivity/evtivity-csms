@@ -110,6 +110,8 @@ export function getQueryKeysForEvent(event: CsmsEvent): string[][] {
       keys.push(['dashboard', 'financial-stats']);
       keys.push(['dashboard', 'payment-breakdown']);
       keys.push(['transactions']);
+      // A reservation fee refund confirmed by webhook (no session).
+      keys.push(['reservation-fee-payments']);
       break;
 
     case 'load.updated':

@@ -18,6 +18,9 @@ import {
   authenticateConnection,
   extractStationId,
   rejectionFor,
+  RETRY_AFTER_BASE_SECONDS,
+  RETRY_AFTER_JITTER_SECONDS,
+  serviceUnavailable,
 } from '../server/middleware/authenticate.js';
 
 const verifyMock = verify as unknown as ReturnType<typeof vi.fn>;
@@ -712,6 +715,26 @@ describe('rejectionFor', () => {
     expect(rejectionFor({ ...base, failure: 'blocked' }).status).toBe(403);
     expect(rejectionFor({ ...base, failure: 'unavailable' }).status).toBe(503);
     expect(rejectionFor(base).status).toBe(503);
+  });
+
+  it('tells a station when to retry after a 503', () => {
+    const base = { authenticated: false, stationId: 'CS-1', stationDbId: null };
+    const retryAfter = Number(
+      rejectionFor({ ...base, failure: 'unavailable' }).headers?.['Retry-After'],
+    );
+    expect(retryAfter).toBeGreaterThanOrEqual(RETRY_AFTER_BASE_SECONDS);
+    expect(retryAfter).toBeLessThanOrEqual(RETRY_AFTER_BASE_SECONDS + RETRY_AFTER_JITTER_SECONDS);
+  });
+
+  it('spreads Retry-After over the jitter range in whole seconds', () => {
+    expect(serviceUnavailable(() => 0)).toEqual({
+      status: 503,
+      message: 'Service Unavailable',
+      headers: { 'Retry-After': String(RETRY_AFTER_BASE_SECONDS) },
+    });
+    expect(serviceUnavailable(() => 0.999).headers?.['Retry-After']).toBe(
+      String(RETRY_AFTER_BASE_SECONDS + RETRY_AFTER_JITTER_SECONDS),
+    );
   });
 });
 

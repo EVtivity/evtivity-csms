@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../types.js';
 import { pushSendAckStep } from '../../../csms-test-helpers.js';
+import { defaultReply } from '../../../default-replies.js';
 
 export const TC_053_CSMS: TestCase = {
   id: 'TC_053_CSMS',
@@ -30,7 +31,7 @@ export const TC_053_CSMS: TestCase = {
         reservationId = (payload['reservationId'] as number) || 0;
         return { status: 'Accepted' };
       }
-      return {};
+      return defaultReply('ocpp1.6', action, payload);
     });
 
     if (ctx.triggerCommand != null) {

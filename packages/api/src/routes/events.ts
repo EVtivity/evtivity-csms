@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Subscription } from '@evtivity/lib';
 import { createLogger } from '@evtivity/lib';
-import { getPubSub } from '../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { endSseClients, writeSseClient } from '../lib/sse-broadcast.js';
 

@@ -65,6 +65,10 @@ export const cssStations = pgTable(
     lastBootAt: timestamp('last_boot_at', { withTimezone: true }),
     sourceType: varchar('source_type', { length: 20 }).notNull().default('api'),
     enabled: boolean('enabled').notNull().default(true),
+    // First time the OCPP server saw this simulator connect with its marker
+    // header (SIMULATOR_CONNECTION_HEADER). Proof that the simulator owns the
+    // identity, required before a marker-less connection self-heals the flag.
+    markerSeenAt: timestamp('marker_seen_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

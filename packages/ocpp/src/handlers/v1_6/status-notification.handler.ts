@@ -29,7 +29,10 @@ export async function handleStatusNotification(
       evseId: request.connectorId,
       connectorId: request.connectorId,
       connectorStatus: request.status,
-      timestamp: request.timestamp ?? new Date().toISOString(),
+      // Optional in 1.6. Left out when the station sent none: the receipt
+      // time is not comparable with the station clock that orders status
+      // reports (statusReportedAt in @evtivity/database).
+      ...(request.timestamp != null ? { timestamp: request.timestamp } : {}),
       // OCPP 1.6 fault diagnostics. The 1.6 StatusNotification carries
       // the error/vendor fields inline (unlike 2.1 which moved them to
       // NotifyEvent). Capturing them in the event keeps the data in

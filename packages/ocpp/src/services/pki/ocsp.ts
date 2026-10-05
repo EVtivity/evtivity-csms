@@ -25,7 +25,8 @@ import {
   id_kp_OCSPSigning,
   id_pkix_ocsp_basic,
 } from '@peculiar/asn1-ocsp';
-import { isPrivateUrl } from '@evtivity/lib';
+import { blockedDestinationOf, isPrivateUrl, safeFetch } from '@evtivity/lib';
+import type { SafeFetchResponse } from '@evtivity/lib';
 import { getOcspAllowedPrivateHosts } from '@evtivity/database';
 import type { OcspRequestData, OcspResult } from './pki-provider.js';
 
@@ -137,10 +138,12 @@ export function buildOcspRequest(data: OcspCertId): Buffer {
 }
 
 /**
- * Whether the CSMS may send an OCSP request to this URL. Public http(s) URLs
- * are allowed. A private or internal address is allowed only when its host is
- * in the operator allowlist (`pnc.ocsp.allowedPrivateHosts`): the responder
- * URL comes from the station, so without the guard the CSMS is an SSRF probe.
+ * Whether the CSMS may send an OCSP request to this URL, judged from the URL
+ * alone. Public http(s) URLs pass. A private or internal IP literal or name
+ * passes only when its host is in the operator allowlist
+ * (`pnc.ocsp.allowedPrivateHosts`): the responder URL comes from the station
+ * or its certificate, so without the guard the CSMS is an SSRF probe. What a
+ * name resolves to is checked when postOcspRequest connects.
  */
 export function isOcspResponderAllowed(url: string, allowedPrivateHosts: string[]): boolean {
   let parsed: URL;
@@ -157,19 +160,27 @@ export function isOcspResponderAllowed(url: string, allowedPrivateHosts: string[
 
 /**
  * POSTs a DER OCSPRequest to the responder (RFC 6960 Appendix A.1) and
- * returns the DER OCSPResponse body. Throws OcspError on a network error,
- * timeout, redirect, non-2xx status, or oversized body. The caller checks the
- * URL with isOcspResponderAllowed first.
+ * returns the DER OCSPResponse body. The request goes through safeFetch: every
+ * address the responder host resolves to must be public unless the host is in
+ * `allowedPrivateHosts`, and the connection uses the checked address, so a DNS
+ * rebinding cannot reach an internal service. Throws OcspError on a blocked
+ * address, network error, timeout, redirect, non-2xx status, or oversized
+ * body. The caller checks the URL with isOcspResponderAllowed first.
  */
-export async function postOcspRequest(responderURL: string, requestDer: Buffer): Promise<Buffer> {
+export async function postOcspRequest(
+  responderURL: string,
+  requestDer: Buffer,
+  allowedPrivateHosts: readonly string[] = [],
+): Promise<Buffer> {
   const controller = new AbortController();
   const timer = setTimeout(() => {
     controller.abort();
   }, OCSP_TIMEOUT_MS);
   try {
-    let response: Response;
+    let response: SafeFetchResponse;
     try {
-      response = await fetch(responderURL, {
+      response = await safeFetch(responderURL, {
+        allowedPrivateHosts,
         method: 'POST',
         headers: {
           'Content-Type': 'application/ocsp-request',
@@ -181,6 +192,12 @@ export async function postOcspRequest(responderURL: string, requestDer: Buffer):
         signal: controller.signal,
       });
     } catch (err) {
+      const blocked = blockedDestinationOf(err);
+      if (blocked != null) {
+        throw new OcspError(
+          `Responder host ${blocked.host} resolves to private address ${blocked.address}, not in pnc.ocsp.allowedPrivateHosts`,
+        );
+      }
       throw new OcspError(
         `OCSP request failed: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -421,7 +438,7 @@ export async function fetchOcspResponse(data: OcspRequestData): Promise<Buffer> 
       'Responder URL is not http(s) or is a private address not in pnc.ocsp.allowedPrivateHosts',
     );
   }
-  return postOcspRequest(data.responderURL, buildOcspRequest(data));
+  return postOcspRequest(data.responderURL, buildOcspRequest(data), allowedPrivateHosts);
 }
 
 /**

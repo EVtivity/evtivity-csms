@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import { isIP } from 'node:net';
 import { z } from 'zod';
-import { inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
   db,
   settings,
@@ -12,7 +11,12 @@ import {
   settingAuditLog,
   clearPncSettingsCache,
 } from '@evtivity/database';
-import { encryptString, isPrivateUrl } from '@evtivity/lib';
+import {
+  encryptString,
+  isPrivateUrl,
+  parseAllowedPrivateHosts,
+  MAX_ALLOWED_PRIVATE_HOSTS,
+} from '@evtivity/lib';
 import { decryptForRead } from '../lib/settings-crypto.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { successResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
@@ -35,27 +39,21 @@ const PNC_KEYS = [
   'pnc.expirationWarningDays',
   'pnc.expirationCriticalDays',
   'pnc.ocsp.allowedPrivateHosts',
+  'pnc.local.emaidCountry',
+  'pnc.local.emaidProviderId',
 ];
 
-// A DNS hostname (RFC 1123 labels) or an IP literal, without scheme or port.
-const HOSTNAME =
-  /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/;
-
-// Checked in the handler (normalizeOcspHosts): zod-to-json-schema strips
+// Checked in the handler (parseAllowedPrivateHosts): zod-to-json-schema strips
 // .refine(), .trim(), and .toLowerCase(), and Fastify validates the body with
 // the JSON Schema only.
 const ocspAllowedHost = z.string().max(253);
 
-/** Trimmed, lowercased, de-duplicated hosts, or null when one is not a hostname or IP. */
-function normalizeOcspHosts(hosts: string[]): string[] | null {
-  const normalized = hosts.map((host) => host.trim().toLowerCase());
-  if (normalized.some((host) => !HOSTNAME.test(host) && isIP(host) === 0)) return null;
-  return [...new Set(normalized)];
-}
-
 const updatePncSettingsBody = z.object({
   enabled: z.boolean().optional().describe('Enable or disable Plug and Charge'),
-  provider: z.enum(['manual', 'hubject']).optional().describe('PKI provider type'),
+  provider: z
+    .enum(['manual', 'hubject', 'local'])
+    .optional()
+    .describe('PKI provider type (local: the CSMS issues contract certificates from its own CA)'),
   hubjectBaseUrl: z.string().optional().describe('Hubject OPCP API base URL'),
   hubjectClientId: z.string().optional().describe('Hubject OAuth2 client ID'),
   hubjectClientSecret: z
@@ -77,9 +75,19 @@ const updatePncSettingsBody = z.object({
     .max(90)
     .optional()
     .describe('Days before certificate expiry to trigger auto-renewal'),
+  localEmaidCountry: z
+    .string()
+    .regex(/^([A-Z]{2})?$/)
+    .optional()
+    .describe('ISO 3166-1 alpha-2 country code of the eMAIDs the local contract CA issues'),
+  localEmaidProviderId: z
+    .string()
+    .regex(/^([A-Z0-9]{3})?$/)
+    .optional()
+    .describe('Three character eMobility provider ID of the eMAIDs the local contract CA issues'),
   ocspAllowedPrivateHosts: z
     .array(ocspAllowedHost)
-    .max(20)
+    .max(MAX_ALLOWED_PRIVATE_HOSTS)
     .optional()
     .describe(
       'Private or internal hosts the CSMS may send OCSP requests to (hostname or IP, no scheme or port)',
@@ -158,7 +166,7 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
 
       const ocspHosts =
         body.ocspAllowedPrivateHosts !== undefined
-          ? normalizeOcspHosts(body.ocspAllowedPrivateHosts)
+          ? parseAllowedPrivateHosts(body.ocspAllowedPrivateHosts)
           : undefined;
       if (ocspHosts === null) {
         await reply.status(400).send({
@@ -197,6 +205,12 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
       }
       if (ocspHosts !== undefined) {
         updates.push({ key: 'pnc.ocsp.allowedPrivateHosts', value: ocspHosts });
+      }
+      if (body.localEmaidCountry !== undefined) {
+        updates.push({ key: 'pnc.local.emaidCountry', value: body.localEmaidCountry });
+      }
+      if (body.localEmaidProviderId !== undefined) {
+        updates.push({ key: 'pnc.local.emaidProviderId', value: body.localEmaidProviderId });
       }
 
       // Snapshot prior values so the audit entries can carry an honest
@@ -286,6 +300,32 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
 
         if (providerType === 'manual') {
           return { success: true, provider: 'manual' };
+        }
+
+        if (providerType === 'local') {
+          // The local provider needs its CA and an eMAID prefix for contracts.
+          const [caRow] = await db
+            .select({ value: settings.value })
+            .from(settings)
+            .where(eq(settings.key, 'pnc.local.caEnc'));
+          const country = settingsMap.get('pnc.local.emaidCountry');
+          const providerId = settingsMap.get('pnc.local.emaidProviderId');
+          if (
+            typeof caRow?.value !== 'string' ||
+            caRow.value === '' ||
+            typeof country !== 'string' ||
+            country === '' ||
+            typeof providerId !== 'string' ||
+            providerId === ''
+          ) {
+            await reply.status(400).send({
+              success: false,
+              error:
+                'The local provider requires a contract CA and an eMAID country and provider ID',
+            });
+            return;
+          }
+          return { success: true, provider: 'local' };
         }
 
         // For Hubject, verify required fields are configured

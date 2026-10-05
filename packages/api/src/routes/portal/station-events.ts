@@ -7,7 +7,7 @@ import { createLogger } from '@evtivity/lib';
 import { db } from '@evtivity/database';
 import { chargingStations } from '@evtivity/database';
 import { eq } from 'drizzle-orm';
-import { getPubSub } from '../../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { endSseClients, writeSseClient } from '../../lib/sse-broadcast.js';
 
 const logger = createLogger('portal-station-events-sse');

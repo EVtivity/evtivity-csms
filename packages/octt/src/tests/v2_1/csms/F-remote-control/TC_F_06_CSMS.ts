@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 // Helper: boot station
 async function boot(ctx: {
@@ -58,7 +59,7 @@ export const TC_F_06_CSMS: TestCase = {
           if (payload['connectorId'] != null) hasConnectorId = true;
           return { status: 'Unlocked' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

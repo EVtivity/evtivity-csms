@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_S_102_CSMS: TestCase = {
   id: 'TC_S_102_CSMS',
@@ -18,13 +19,15 @@ export const TC_S_102_CSMS: TestCase = {
       reason: 'PowerUp',
     });
     let received = false;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'RequestBatterySwap') {
-        received = true;
-        return { status: 'Rejected', statusInfo: { reasonCode: 'NoBatteryAvailable' } };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'RequestBatterySwap') {
+          received = true;
+          return { status: 'Rejected', statusInfo: { reasonCode: 'NoBatteryAvailable' } };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'RequestBatterySwap', {
         stationId: ctx.stationId,

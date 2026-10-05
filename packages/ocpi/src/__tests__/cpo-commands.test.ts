@@ -17,9 +17,10 @@ function makeChain(): Record<string, unknown> {
   return chain;
 }
 
-const { mockFindEvseByUid, mockDispatch } = vi.hoisted(() => ({
+const { mockFindEvseByUid, mockDispatch, partnerFlags } = vi.hoisted(() => ({
   mockFindEvseByUid: vi.fn(),
   mockDispatch: vi.fn().mockResolvedValue(undefined),
+  partnerFlags: { allowPrivateNetwork: false },
 }));
 
 vi.mock('@evtivity/database', async (importOriginal) => ({
@@ -28,7 +29,10 @@ vi.mock('@evtivity/database', async (importOriginal) => ({
 }));
 vi.mock('../middleware/ocpi-auth.js', () => ({
   ocpiAuthenticate: async (request: { ocpiPartner?: unknown }) => {
-    request.ocpiPartner = { partnerId: 'opr_000000000001' };
+    request.ocpiPartner = {
+      partnerId: 'opr_000000000001',
+      allowPrivateNetwork: partnerFlags.allowPrivateNetwork,
+    };
   },
 }));
 vi.mock('../lib/location-visibility.js', () => ({
@@ -61,6 +65,7 @@ beforeEach(() => {
   dbResults = [];
   mockDispatch.mockClear();
   mockFindEvseByUid.mockReset();
+  partnerFlags.allowPrivateNetwork = false;
 });
 
 const AVAILABLE: StationLevelState = {
@@ -90,12 +95,12 @@ const UNAVAILABLE_STATES: StationLevelState[] = [
   FAULTED,
 ];
 
-function startSession(evseUid?: string) {
+function startSession(evseUid?: string, responseUrl = 'https://partner.example.com/commands/1') {
   return app.inject({
     method: 'POST',
     url: '/ocpi/2.2.1/cpo/commands/START_SESSION',
     payload: {
-      response_url: 'https://partner.example.com/commands/1',
+      response_url: responseUrl,
       token: { uid: 'TOKEN-1' },
       location_id: 'sit_000000000001',
       ...(evseUid != null ? { evse_uid: evseUid } : {}),
@@ -145,6 +150,19 @@ describe('OCPI START_SESSION', () => {
       'RequestStartTransaction',
       expect.objectContaining({ evseId: 1 }),
     );
+  });
+
+  it('rejects a private response_url unless the partner has the private-network flag', async () => {
+    mockFindEvseByUid.mockResolvedValue(EVSE);
+    dbResults = [[{ isValid: true }], [{ siteId: 'sit_000000000001' }], []];
+    const refused = await startSession(EVSE.evseDbId, 'http://127.0.0.1:7105/commands/1');
+    expect(refused.json().status_code).not.toBe(1000);
+    expect(mockDispatch).not.toHaveBeenCalled();
+
+    partnerFlags.allowPrivateNetwork = true;
+    dbResults = [[{ isValid: true }], [{ siteId: 'sit_000000000001' }], []];
+    const accepted = await startSession(EVSE.evseDbId, 'http://127.0.0.1:7105/commands/1');
+    expect(accepted.json().data.result).toBe('ACCEPTED');
   });
 
   it('rejects an EVSE uid that belongs to another site', async () => {

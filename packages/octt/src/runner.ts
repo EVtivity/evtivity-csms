@@ -4,7 +4,13 @@
 import crypto from 'node:crypto';
 import pino from 'pino';
 import { db, chargingStations, drivers, driverTokens } from '@evtivity/database';
-import { refreshTokens, roles, users, OCTT_API_KEY_NAME } from '@evtivity/database';
+import {
+  refreshTokens,
+  roles,
+  users,
+  OCTT_API_KEY_NAME,
+  PNC_SETTINGS_CACHE_TTL_MS,
+} from '@evtivity/database';
 import { createId } from '@evtivity/database/src/lib/id.js';
 import { and, asc, like, eq, sql } from 'drizzle-orm';
 
@@ -23,6 +29,8 @@ import { startOcspTestService, type OcspTestService } from './ocsp-test-service.
 import { getNotApplicable } from './pics/index.js';
 
 const DEFAULT_CONCURRENCY = 3;
+/** Added to the CSMS settings cache TTL before the run relies on a changed setting. */
+const SETTINGS_CACHE_MARGIN_MS = 1_000;
 
 export async function runTests(
   config: RunConfig,
@@ -43,7 +51,10 @@ export async function runTests(
   let testDriverId = createId('driver');
   let octtPricingGroupId: string | null = null;
   let octtTariffId: string | null = null;
-  let pncBackup: { key: string; value: unknown }[] = [];
+  let settingsChanges: SettingChange[] = [];
+  // Each CSMS process caches the pnc.* settings for PNC_SETTINGS_CACHE_TTL_MS,
+  // so a changed value takes effect only after that (see waitForSettings).
+  let settingsEffectiveAt = 0;
   if (provisionStations) {
     testDriverId = await provisionTestDriver(testDriverId);
     logger.info('Test driver provisioned');
@@ -54,22 +65,18 @@ export async function runTests(
     octtTariffId = ids.tariffId;
     logger.info('Test pricing group and tariff provisioned');
 
-    // Capture prior PnC settings so the run can restore them afterwards.
-    pncBackup = (await db.execute(sql`
-      SELECT key, value FROM settings WHERE key IN ('pnc.enabled', 'pnc.provider')
-    `)) as unknown as { key: string; value: unknown }[];
-
-    // Enable PnC for M-certificate-management tests
-    await db.execute(sql`
-      INSERT INTO settings (key, value) VALUES ('pnc.enabled', 'true'::jsonb)
-      ON CONFLICT (key) DO UPDATE SET value = 'true'::jsonb
-    `);
-    // Set provider to manual so certificate signing flows work
-    await db.execute(sql`
-      INSERT INTO settings (key, value) VALUES ('pnc.provider', '"manual"'::jsonb)
-      ON CONFLICT (key) DO UPDATE SET value = '"manual"'::jsonb
-    `);
-    logger.info('PnC enabled for certificate management tests');
+    // PnC on with the local provider (it queues CSRs for signing like the
+    // manual provider and issues ISO 15118 contract certificates: TC_M_26,
+    // TC_M_28, TC_M_100), the test eMAID prefix unless the operator set one,
+    // and the Test System OCSP responder host allowed (TC_C_50/51/52, TC_M_24).
+    settingsChanges = await applyRunSettings(config.ocspResponderUrl);
+    if (settingsChanges.length > 0) {
+      settingsEffectiveAt = Date.now() + PNC_SETTINGS_CACHE_TTL_MS + SETTINGS_CACHE_MARGIN_MS;
+    }
+    logger.info(
+      { changed: settingsChanges.map((c) => c.key) },
+      'PnC settings set for certificate management tests',
+    );
   }
 
   // Create a temporary API key for triggering CSMS-initiated commands
@@ -129,6 +136,17 @@ export async function runTests(
         'API client setup failed - CSMS-initiated tests will timeout',
       );
     }
+  }
+
+  // Tests and the MO root upload below need the CSMS to see the settings.
+  await waitForSettings(settingsEffectiveAt, logger);
+
+  // The local contract CA the contract certificate tests need. Created through
+  // the operator route when the CSMS has none; the run end restores the
+  // previous setting, which removes it again.
+  if (callApi != null && provisionStations) {
+    const caChange = await ensureLocalContractCa(callApi, logger);
+    if (caChange != null) settingsChanges.push(caChange);
   }
 
   // The Test System OCSP service: a test PKI whose certificates name this
@@ -228,8 +246,8 @@ export async function runTests(
     await db.delete(driverTokens).where(eq(driverTokens.driverId, testDriverId));
     await db.delete(drivers).where(eq(drivers.id, testDriverId));
 
-    // Restore the PnC settings overwritten for the certificate tests.
-    await restorePncSettings(pncBackup);
+    // Restore the settings the run changed.
+    await restoreRunSettings(settingsChanges);
     logger.info('Test driver, tokens, tariff, and PnC settings cleaned up');
   }
 
@@ -239,26 +257,6 @@ export async function runTests(
 /** Subject CN of the Test System MO root (see OcttTestPki). */
 const OCTT_MO_ROOT_CN = 'CN=OCTT MO Root CA';
 
-type ApiResult = Awaited<ReturnType<CallApiFn>>;
-
-/**
- * Calls a PnC certificate route. The API caches pnc.enabled for up to 60 s,
- * so a PNC_DISABLED answer right after the runner enabled PnC is retried.
- */
-async function callPncApi(
-  callApi: CallApiFn,
-  method: Parameters<CallApiFn>[0],
-  path: string,
-  body?: Record<string, unknown>,
-): Promise<ApiResult> {
-  const deadline = Date.now() + 70_000;
-  for (;;) {
-    const res = await callApi(method, path, body);
-    if (res.body['code'] !== 'PNC_DISABLED' || Date.now() > deadline) return res;
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
-  }
-}
-
 /**
  * Deletes Test System MO roots a crashed run left in the CSMS, through the
  * same product routes an operator uses.
@@ -266,8 +264,7 @@ async function callPncApi(
 async function deleteLeftoverMoRoots(callApi: CallApiFn, logger: pino.Logger): Promise<void> {
   const leftover: number[] = [];
   for (let page = 1; ; page++) {
-    const res = await callPncApi(
-      callApi,
+    const res = await callApi(
       'GET',
       `/pnc/ca-certificates?certificateType=MORootCertificate&limit=100&page=${String(page)}`,
     );
@@ -290,7 +287,7 @@ async function deleteLeftoverMoRoots(callApi: CallApiFn, logger: pino.Logger): P
     if (rows.length < 100) break;
   }
   for (const id of leftover) {
-    const res = await callPncApi(callApi, 'DELETE', `/pnc/ca-certificates/${String(id)}`);
+    const res = await callApi('DELETE', `/pnc/ca-certificates/${String(id)}`);
     if (res.status >= 300) {
       logger.warn({ status: res.status, id }, 'Could not delete a leftover OCTT MO root');
     }
@@ -311,7 +308,7 @@ async function installMoRoot(
   logger: pino.Logger,
 ): Promise<number | null> {
   await deleteLeftoverMoRoots(callApi, logger);
-  const res = await callPncApi(callApi, 'POST', '/pnc/ca-certificates', {
+  const res = await callApi('POST', '/pnc/ca-certificates', {
     certificateType: 'MORootCertificate',
     certificate: ocsp.pki.moRoot.cert.toString('pem'),
   });
@@ -342,20 +339,131 @@ async function deleteOcttStationsAndArtifacts(): Promise<void> {
   // Keyed by the OCPP station id string / aggregate id (no FK), removable directly.
   await db.execute(sql`DELETE FROM authorize_attempts WHERE station_id LIKE 'OCTT-%'`);
   await db.execute(sql`DELETE FROM domain_events WHERE aggregate_id LIKE 'OCTT-%'`);
-  // Cascade clears evses, connectors, sessions, projection rows, and station certs.
+  // Cascade clears evses, connectors, sessions, projection rows, station certs, and
+  // queued offline commands.
   await db.delete(chargingStations).where(like(chargingStations.stationId, 'OCTT-%'));
 }
 
-async function restorePncSettings(backup: { key: string; value: unknown }[]): Promise<void> {
-  const saved = new Map(backup.map((row) => [row.key, row.value]));
-  for (const key of ['pnc.enabled', 'pnc.provider']) {
-    if (saved.has(key)) {
-      const value = JSON.stringify(saved.get(key) ?? null);
-      await db.execute(sql`UPDATE settings SET value = ${value}::jsonb WHERE key = ${key}`);
-    } else {
-      await db.execute(sql`DELETE FROM settings WHERE key = ${key}`);
+const OCTT_EMAID_COUNTRY = 'US';
+const OCTT_EMAID_PROVIDER = 'OCT';
+
+/**
+ * Creates the local contract CA through the operator route when the CSMS has
+ * none. Returns the change to undo at run end (the previous `pnc.local.caEnc`)
+ * when it created one.
+ */
+async function ensureLocalContractCa(
+  callApi: CallApiFn,
+  logger: pino.Logger,
+): Promise<SettingChange | null> {
+  const status = await callApi('GET', '/pnc/settings/local-ca');
+  if (status.status >= 300) {
+    logger.warn({ status: status.status }, 'Could not read the local contract CA');
+    return null;
+  }
+  if (status.body['configured'] === true) return null;
+  const rows = (await db.execute(sql`
+    SELECT value FROM settings WHERE key = 'pnc.local.caEnc'
+  `)) as unknown as { value: unknown }[];
+  const created = await callApi('POST', '/pnc/settings/local-ca');
+  if (created.status < 300) {
+    logger.info('Local contract CA ready for the ISO 15118 contract certificate tests');
+    return { key: 'pnc.local.caEnc', previous: rows[0]?.value };
+  }
+  if (created.body['code'] === 'LOCAL_CA_EXISTS') {
+    logger.info('Local contract CA ready for the ISO 15118 contract certificate tests');
+  } else {
+    logger.warn({ status: created.status }, 'Could not create the local contract CA');
+  }
+  return null;
+}
+
+/** A setting the run changed: its key and the value before the run (undefined when unset). */
+export interface SettingChange {
+  key: string;
+  previous: unknown;
+}
+
+/**
+ * Sets what the certificate tests need: PnC on (`pnc.enabled`), the local PKI
+ * provider (`pnc.provider`: CSRs queue for the operator to sign through the
+ * API, and it issues ISO 15118 contract certificates), the test eMAID prefix
+ * when none is set (`pnc.local.emaidCountry`, `pnc.local.emaidProviderId`),
+ * and, with an OCSP responder, its host in `pnc.ocsp.allowedPrivateHosts` (the
+ * CSMS refuses OCSP requests to private addresses that are not listed).
+ * Returns the settings it changed, for restoreRunSettings.
+ */
+export async function applyRunSettings(ocspResponderUrl?: string): Promise<SettingChange[]> {
+  const rows = (await db.execute(sql`
+    SELECT key, value FROM settings
+    WHERE key IN ('pnc.enabled', 'pnc.provider', 'pnc.ocsp.allowedPrivateHosts',
+      'pnc.local.emaidCountry', 'pnc.local.emaidProviderId')
+  `)) as unknown as { key: string; value: unknown }[];
+  const current = new Map(rows.map((row) => [row.key, row.value]));
+
+  const wanted = new Map<string, unknown>([
+    ['pnc.enabled', true],
+    ['pnc.provider', 'local'],
+  ]);
+  // The eMAID prefix of the test contracts, unless the operator set one.
+  for (const [key, value] of [
+    ['pnc.local.emaidCountry', OCTT_EMAID_COUNTRY],
+    ['pnc.local.emaidProviderId', OCTT_EMAID_PROVIDER],
+  ] as const) {
+    const set = current.get(key);
+    if (typeof set !== 'string' || set === '') wanted.set(key, value);
+  }
+  if (ocspResponderUrl != null) {
+    const host = new URL(ocspResponderUrl).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    const hosts = current.get('pnc.ocsp.allowedPrivateHosts');
+    const list = Array.isArray(hosts)
+      ? hosts.filter((h): h is string => typeof h === 'string')
+      : [];
+    if (!list.map((h) => h.toLowerCase()).includes(host)) {
+      wanted.set('pnc.ocsp.allowedPrivateHosts', [...list, host]);
     }
   }
+
+  const changes: SettingChange[] = [];
+  for (const [key, value] of wanted) {
+    if (JSON.stringify(current.get(key)) === JSON.stringify(value)) continue;
+    const json = JSON.stringify(value);
+    await db.execute(sql`
+      INSERT INTO settings (key, value) VALUES (${key}, ${json}::jsonb)
+      ON CONFLICT (key) DO UPDATE SET value = ${json}::jsonb, updated_at = now()
+    `);
+    changes.push({ key, previous: current.get(key) });
+  }
+  return changes;
+}
+
+/** Puts back the settings applyRunSettings changed. */
+export async function restoreRunSettings(changes: SettingChange[]): Promise<void> {
+  for (const { key, previous } of changes) {
+    if (previous === undefined) {
+      await db.execute(sql`DELETE FROM settings WHERE key = ${key}`);
+    } else {
+      const json = JSON.stringify(previous);
+      await db.execute(
+        sql`UPDATE settings SET value = ${json}::jsonb, updated_at = now() WHERE key = ${key}`,
+      );
+    }
+  }
+}
+
+/**
+ * Waits until every CSMS process sees settings the run changed. The OCPP
+ * server and the API cache pnc.* settings per process for
+ * PNC_SETTINGS_CACHE_TTL_MS and the run cannot clear another process's cache,
+ * so a test started earlier can get the old value: SignCertificate for a V2G
+ * certificate is Rejected while the OCPP server still has PnC disabled
+ * cached (TC_A_12_CSMS failed this way).
+ */
+export async function waitForSettings(effectiveAt: number, logger: pino.Logger): Promise<void> {
+  const waitMs = effectiveAt - Date.now();
+  if (waitMs <= 0) return;
+  logger.info({ waitMs }, 'Waiting for the CSMS settings caches to pick up the PnC settings');
+  await new Promise((resolve) => setTimeout(resolve, waitMs));
 }
 
 async function provisionTestDriver(driverId: string): Promise<string> {

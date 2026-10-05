@@ -4,10 +4,16 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
-import { db, sites, ocpiLocationPublish, ocpiLocationPublishPartners } from '@evtivity/database';
+import {
+  db,
+  sites,
+  ocpiLocationPublish,
+  ocpiLocationPublishPartners,
+  ocpiLocationAudience,
+} from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
-import { getPubSub } from '../lib/pubsub.js';
+import { lostLocationAudience, publishOcpiLocationPush } from '../lib/ocpi-location-push.js';
 import { authorize } from '../middleware/rbac.js';
 import {
   successResponse,
@@ -206,6 +212,10 @@ export function ocpiLocationRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Who sees the location now: partners that lose it get its EVSEs as
+      // REMOVED (OCPI 8.1, there is no DELETE).
+      const audienceBefore = await ocpiLocationAudience(siteId);
+
       const [existing] = await db
         .select()
         .from(ocpiLocationPublish)
@@ -271,7 +281,12 @@ export function ocpiLocationRoutes(app: FastifyInstance): void {
       }
 
       // Notify push service
-      await getPubSub().publish('ocpi_push', JSON.stringify({ type: 'location', siteId }));
+      const audienceAfter = await ocpiLocationAudience(siteId);
+      await publishOcpiLocationPush(
+        siteId,
+        lostLocationAudience(audienceBefore, audienceAfter),
+        request.log,
+      );
 
       return { success: true };
     },

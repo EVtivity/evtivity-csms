@@ -4,8 +4,8 @@
 import { eq, and, inArray } from 'drizzle-orm';
 import { db, chargingStations, configTemplates, stationConfigurations } from '@evtivity/database';
 import type { Logger } from 'pino';
-import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
-import { findTemplateTargetConfiguration } from '@evtivity/api/src/lib/config-drift.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import { findTemplateTargetConfiguration } from '@evtivity/lib';
 
 export async function configDriftDetectionHandler(log: Logger): Promise<void> {
   const templates = await db.select().from(configTemplates);

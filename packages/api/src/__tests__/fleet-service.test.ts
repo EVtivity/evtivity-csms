@@ -48,7 +48,7 @@ function makeChain() {
   return chain;
 }
 
-vi.mock('../lib/station-derived-status.js', () => ({
+vi.mock('@evtivity/services/station-derived-status', () => ({
   buildDerivedStatusSubquery: vi.fn(() => 'status'),
   buildStatusReasonSubquery: vi.fn(() => null),
 }));

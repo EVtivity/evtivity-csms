@@ -8,7 +8,7 @@ const { sendOcppCommandAndWaitMock, selectState } = vi.hoisted(() => ({
   selectState: { idx: 0, failPushUpdateOnce: false },
 }));
 
-vi.mock('../lib/ocpp-command.js', () => ({
+vi.mock('@evtivity/services/ocpp-command', () => ({
   sendOcppCommandAndWait: sendOcppCommandAndWaitMock,
 }));
 

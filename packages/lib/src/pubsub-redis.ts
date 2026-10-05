@@ -1,9 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { Redis } from 'ioredis';
+import type { Redis } from 'ioredis';
 import { createLogger } from './logger.js';
-import { logRedisErrors } from './redis-errors.js';
+import { createRedisClient } from './redis-client.js';
 import type { PubSubClient, Subscription } from './pubsub.js';
 
 const logger = createLogger('pubsub-redis');
@@ -14,8 +14,8 @@ export class RedisPubSubClient implements PubSubClient {
   private readonly handlers = new Map<string, Set<(payload: string) => void>>();
 
   constructor(url: string) {
-    this.publisher = logRedisErrors(new Redis(url, { lazyConnect: true }), 'pubsub-publisher');
-    this.subscriber = logRedisErrors(new Redis(url, { lazyConnect: true }), 'pubsub-subscriber');
+    this.publisher = createRedisClient(url, 'pubsub-publisher', { lazyConnect: true });
+    this.subscriber = createRedisClient(url, 'pubsub-subscriber', { lazyConnect: true });
 
     this.subscriber.on('message', (channel: string, message: string) => {
       const channelHandlers = this.handlers.get(channel);

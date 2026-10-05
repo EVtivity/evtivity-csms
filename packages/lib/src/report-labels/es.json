@@ -1,0 +1,203 @@
+{
+  "locale": "es-ES",
+  "common": {
+    "period": "Periodo: {period}",
+    "range": "{from} a {to}",
+    "since": "Desde {from}",
+    "until": "Hasta {to}",
+    "allTime": "Todo el periodo",
+    "last30Days": "Últimos 30 días",
+    "summaryLabel": "{label}:",
+    "noSite": "Sin ubicación",
+    "unknown": "Desconocido",
+    "yes": "sí",
+    "no": "no",
+    "minutes": "{value} min",
+    "kwh": "{value} kWh",
+    "inclTax": "imp. incl.",
+    "exclTax": "sin imp."
+  },
+  "columns": {
+    "date": "Fecha",
+    "site": "Ubicación",
+    "station": "Estación",
+    "stations": "Estaciones",
+    "driver": "Conductor",
+    "email": "Correo electrónico",
+    "status": "Estado",
+    "sessions": "Sesiones",
+    "count": "Cantidad",
+    "energyKwh": "Energía (kWh)",
+    "kwh": "kWh",
+    "total": "Total",
+    "durationMin": "Duración (min)",
+    "duration": "Duración",
+    "started": "Inicio",
+    "ended": "Fin"
+  },
+  "revenue": {
+    "title": "Informe de ingresos",
+    "sheets": {
+      "byDay": "Por día",
+      "bySite": "Por ubicación",
+      "payments": "Pagos"
+    },
+    "columns": {
+      "revenue": "Ingresos",
+      "tax": "Impuestos",
+      "electricityCost": "Coste de electricidad",
+      "profit": "Beneficio",
+      "paymentStatus": "Estado del pago"
+    },
+    "summary": {
+      "totalRevenueInclTax": "Ingresos totales (imp. incl.)",
+      "totalTax": "Impuestos totales",
+      "totalRevenueExclTax": "Ingresos totales (sin imp.)",
+      "totalElectricityCost": "Coste total de electricidad",
+      "totalProfit": "Beneficio total",
+      "totalSessions": "Sesiones totales"
+    }
+  },
+  "energy": {
+    "title": "Informe de energía",
+    "sheets": {
+      "byDay": "Por día",
+      "byStation": "Por estación",
+      "bySite": "Por ubicación"
+    },
+    "columns": {
+      "avgKwhPerSession": "kWh medios/sesión"
+    },
+    "summary": {
+      "totalEnergy": "Energía total",
+      "totalSessions": "Sesiones totales"
+    }
+  },
+  "driverActivity": {
+    "title": "Informe de actividad de conductores",
+    "sheets": {
+      "driverActivity": "Actividad de conductores"
+    },
+    "columns": {
+      "totalKwh": "kWh totales",
+      "totalSpend": "Gasto total",
+      "spend": "Gasto",
+      "avgDurationMin": "Duración media (min)",
+      "avgDuration": "Duración media",
+      "firstSession": "Primera sesión",
+      "lastSession": "Última sesión"
+    },
+    "summary": {
+      "activeDrivers": "Conductores activos",
+      "totalSessions": "Sesiones totales",
+      "totalEnergy": "Energía total"
+    }
+  },
+  "sessions": {
+    "title": "Informe de sesiones",
+    "sheets": {
+      "sessions": "Sesiones",
+      "failedSessions": "Sesiones fallidas",
+      "note": "Nota"
+    },
+    "columns": {
+      "transactionId": "ID de transacción",
+      "transactionIdShort": "ID trans.",
+      "cost": "Coste",
+      "costFinal": "Coste final",
+      "net": "Neto",
+      "tax": "Impuestos",
+      "taxRatePercent": "Tipo impositivo (%)",
+      "refunded": "Reembolsado",
+      "currency": "Moneda",
+      "stoppedReason": "Motivo de parada",
+      "paymentSource": "Origen del pago",
+      "reason": "Motivo",
+      "failedReason": "Motivo del fallo",
+      "resultTruncated": "Resultado truncado"
+    },
+    "failedAnalysis": "Análisis de sesiones fallidas",
+    "truncated": "Se muestran las primeras {limit} sesiones. Acote el rango de fechas para ver el resto.",
+    "summary": {
+      "totalSessions": "Sesiones totales"
+    }
+  },
+  "utilization": {
+    "title": "Informe de utilización",
+    "sheets": {
+      "bySite": "Por ubicación",
+      "byStation": "Por estación",
+      "peakHours": "Horas punta"
+    },
+    "columns": {
+      "sessionHours": "Horas de sesión",
+      "hours": "Horas",
+      "utilizationPercent": "Utilización (%)",
+      "utilizationShort": "Util. (%)",
+      "day": "Día",
+      "hour": "Hora",
+      "sessionCount": "Número de sesiones"
+    },
+    "summary": {
+      "averageUtilization": "Utilización media",
+      "totalStations": "Estaciones totales"
+    }
+  },
+  "stationHealth": {
+    "title": "Informe de estado de estaciones",
+    "sheets": {
+      "uptime": "Disponibilidad",
+      "faultFrequency": "Frecuencia de fallos",
+      "downtimeIncidents": "Incidencias de inactividad"
+    },
+    "columns": {
+      "ports": "Puertos",
+      "uptimePercent": "Disponibilidad (%)",
+      "downtimeMin": "Inactividad (min)",
+      "faultCount": "Número de fallos",
+      "evse": "EVSE"
+    },
+    "summary": {
+      "averageUptime": "Disponibilidad media",
+      "stationsReported": "Estaciones incluidas"
+    }
+  },
+  "sustainability": {
+    "title": "Informe de sostenibilidad",
+    "sheets": {
+      "summary": "Resumen",
+      "configuration": "Configuración",
+      "bySite": "Por ubicación",
+      "dailyEnergy": "Energía diaria"
+    },
+    "columns": {
+      "metric": "Métrica",
+      "value": "Valor",
+      "parameter": "Parámetro",
+      "netGhgReduction": "Reducción neta de GEI (kg CO₂)",
+      "ghgReduction": "Reducción de GEI (kg CO₂)"
+    },
+    "metrics": {
+      "totalEnergyDelivered": "Energía total suministrada (kWh)",
+      "netGhgReduction": "Reducción neta de GEI (kg CO₂)",
+      "gridCo2": "Emisiones de CO₂ de la red (kg)",
+      "gasolineCo2Avoided": "CO₂ de gasolina evitado (kg)",
+      "evMilesEnabled": "Millas eléctricas posibilitadas",
+      "gasolineGallonsDisplaced": "Galones de gasolina sustituidos",
+      "gridEmissionFactor": "Factor de emisión de la red (kg CO₂/kWh)",
+      "evEfficiency": "Eficiencia del VE (millas/kWh)",
+      "gasolineEmissionFactor": "Factor de emisión de la gasolina (kg CO₂/gal)",
+      "averageVehicleMpg": "Consumo medio del vehículo (MPG)"
+    },
+    "summary": {
+      "totalEnergyDelivered": "Energía total suministrada",
+      "netGhgReduction": "Reducción neta de GEI",
+      "evMilesEnabled": "Millas eléctricas posibilitadas",
+      "gasolineDisplaced": "Gasolina sustituida"
+    },
+    "units": {
+      "kgCo2": "{value} kg CO₂",
+      "gallons": "{value} galones"
+    }
+  }
+}

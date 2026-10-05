@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../types.js';
+import { defaultReply } from '../../../default-replies.js';
 
 export const TC_040_1_CSMS: TestCase = {
   id: 'TC_040_1_CSMS',
@@ -20,12 +21,12 @@ export const TC_040_1_CSMS: TestCase = {
     });
 
     let changeConfigReceived = false;
-    ctx.client.setIncomingCallHandler(async (_messageId, action, _payload) => {
+    ctx.client.setIncomingCallHandler(async (_messageId, action, payload) => {
       if (action === 'ChangeConfiguration') {
         changeConfigReceived = true;
         return { status: 'NotSupported' };
       }
-      return {};
+      return defaultReply('ocpp1.6', action, payload);
     });
 
     // Trigger the CSMS to send ChangeConfiguration with an unknown key

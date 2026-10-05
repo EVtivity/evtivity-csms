@@ -10,7 +10,8 @@ import type { Ocpi230Tariff } from '../types/ocpi-2.3.0.js';
 
 interface CdrInput {
   sessionId: string;
-  transactionId: string;
+  /** The OCPI Session id the CDR belongs to (the CPO session link's id). */
+  ocpiSessionId: string;
   startedAt: Date;
   endedAt: Date;
   energyDeliveredWh: string | null;
@@ -123,7 +124,7 @@ export function transformCdr(input: CdrTransformInput, version: OcpiVersion): Oc
     id: cdrId,
     start_date_time: session.startedAt.toISOString(),
     end_date_time: session.endedAt.toISOString(),
-    session_id: session.transactionId,
+    session_id: session.ocpiSessionId,
     cdr_token: cdrToken(input.token),
     auth_method: 'AUTH_REQUEST',
     cdr_location: cdrLocation,

@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const publishMock = vi.fn(async () => undefined);
 
-vi.mock('../lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: (): { publish: typeof publishMock } => ({ publish: publishMock }),
 }));
 

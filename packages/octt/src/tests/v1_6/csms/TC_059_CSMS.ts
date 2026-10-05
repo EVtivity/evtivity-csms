@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../types.js';
 import { pushSendAckStep } from '../../../csms-test-helpers.js';
+import { defaultReply } from '../../../default-replies.js';
 
 export const TC_059_CSMS: TestCase = {
   id: 'TC_059_CSMS',
@@ -31,7 +32,7 @@ export const TC_059_CSMS: TestCase = {
         hasProfile = payload['chargingProfile'] !== undefined;
         return { status: 'Accepted' };
       }
-      return {};
+      return defaultReply('ocpp1.6', action, payload);
     });
 
     if (ctx.triggerCommand != null) {

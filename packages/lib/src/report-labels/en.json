@@ -1,0 +1,203 @@
+{
+  "locale": "en-US",
+  "common": {
+    "period": "Period: {period}",
+    "range": "{from} to {to}",
+    "since": "From {from}",
+    "until": "Until {to}",
+    "allTime": "All time",
+    "last30Days": "Last 30 days",
+    "summaryLabel": "{label}:",
+    "noSite": "No Site",
+    "unknown": "Unknown",
+    "yes": "yes",
+    "no": "no",
+    "minutes": "{value} min",
+    "kwh": "{value} kWh",
+    "inclTax": "incl. tax",
+    "exclTax": "excl. tax"
+  },
+  "columns": {
+    "date": "Date",
+    "site": "Site",
+    "station": "Station",
+    "stations": "Stations",
+    "driver": "Driver",
+    "email": "Email",
+    "status": "Status",
+    "sessions": "Sessions",
+    "count": "Count",
+    "energyKwh": "Energy (kWh)",
+    "kwh": "kWh",
+    "total": "Total",
+    "durationMin": "Duration (min)",
+    "duration": "Duration",
+    "started": "Started",
+    "ended": "Ended"
+  },
+  "revenue": {
+    "title": "Revenue Report",
+    "sheets": {
+      "byDay": "By Day",
+      "bySite": "By Site",
+      "payments": "Payments"
+    },
+    "columns": {
+      "revenue": "Revenue",
+      "tax": "Tax",
+      "electricityCost": "Electricity Cost",
+      "profit": "Profit",
+      "paymentStatus": "Payment Status"
+    },
+    "summary": {
+      "totalRevenueInclTax": "Total Revenue (incl. tax)",
+      "totalTax": "Total Tax",
+      "totalRevenueExclTax": "Total Revenue (excl. tax)",
+      "totalElectricityCost": "Total Electricity Cost",
+      "totalProfit": "Total Profit",
+      "totalSessions": "Total Sessions"
+    }
+  },
+  "energy": {
+    "title": "Energy Report",
+    "sheets": {
+      "byDay": "By Day",
+      "byStation": "By Station",
+      "bySite": "By Site"
+    },
+    "columns": {
+      "avgKwhPerSession": "Avg kWh/Session"
+    },
+    "summary": {
+      "totalEnergy": "Total Energy",
+      "totalSessions": "Total Sessions"
+    }
+  },
+  "driverActivity": {
+    "title": "Driver Activity Report",
+    "sheets": {
+      "driverActivity": "Driver Activity"
+    },
+    "columns": {
+      "totalKwh": "Total kWh",
+      "totalSpend": "Total Spend",
+      "spend": "Spend",
+      "avgDurationMin": "Avg Duration (min)",
+      "avgDuration": "Avg Duration",
+      "firstSession": "First Session",
+      "lastSession": "Last Session"
+    },
+    "summary": {
+      "activeDrivers": "Active Drivers",
+      "totalSessions": "Total Sessions",
+      "totalEnergy": "Total Energy"
+    }
+  },
+  "sessions": {
+    "title": "Sessions Report",
+    "sheets": {
+      "sessions": "Sessions",
+      "failedSessions": "Failed Sessions",
+      "note": "Note"
+    },
+    "columns": {
+      "transactionId": "Transaction ID",
+      "transactionIdShort": "Txn ID",
+      "cost": "Cost",
+      "costFinal": "Cost Final",
+      "net": "Net",
+      "tax": "Tax",
+      "taxRatePercent": "Tax Rate (%)",
+      "refunded": "Refunded",
+      "currency": "Currency",
+      "stoppedReason": "Stopped Reason",
+      "paymentSource": "Payment Source",
+      "reason": "Reason",
+      "failedReason": "Failed Reason",
+      "resultTruncated": "Result truncated"
+    },
+    "failedAnalysis": "Failed Session Analysis",
+    "truncated": "Showing first {limit} sessions; narrow the date range to see the rest.",
+    "summary": {
+      "totalSessions": "Total Sessions"
+    }
+  },
+  "utilization": {
+    "title": "Utilization Report",
+    "sheets": {
+      "bySite": "By Site",
+      "byStation": "By Station",
+      "peakHours": "Peak Hours"
+    },
+    "columns": {
+      "sessionHours": "Session Hours",
+      "hours": "Hours",
+      "utilizationPercent": "Utilization (%)",
+      "utilizationShort": "Util (%)",
+      "day": "Day",
+      "hour": "Hour",
+      "sessionCount": "Session Count"
+    },
+    "summary": {
+      "averageUtilization": "Average Utilization",
+      "totalStations": "Total Stations"
+    }
+  },
+  "stationHealth": {
+    "title": "Station Health Report",
+    "sheets": {
+      "uptime": "Uptime",
+      "faultFrequency": "Fault Frequency",
+      "downtimeIncidents": "Downtime Incidents"
+    },
+    "columns": {
+      "ports": "Ports",
+      "uptimePercent": "Uptime (%)",
+      "downtimeMin": "Downtime (min)",
+      "faultCount": "Fault Count",
+      "evse": "EVSE"
+    },
+    "summary": {
+      "averageUptime": "Average Uptime",
+      "stationsReported": "Stations Reported"
+    }
+  },
+  "sustainability": {
+    "title": "Sustainability Report",
+    "sheets": {
+      "summary": "Summary",
+      "configuration": "Configuration",
+      "bySite": "By Site",
+      "dailyEnergy": "Daily Energy"
+    },
+    "columns": {
+      "metric": "Metric",
+      "value": "Value",
+      "parameter": "Parameter",
+      "netGhgReduction": "Net GHG Reduction (kg CO₂)",
+      "ghgReduction": "GHG Reduction (kg CO₂)"
+    },
+    "metrics": {
+      "totalEnergyDelivered": "Total Energy Delivered (kWh)",
+      "netGhgReduction": "Net GHG Reduction (kg CO₂)",
+      "gridCo2": "Grid CO₂ Emissions (kg)",
+      "gasolineCo2Avoided": "Gasoline CO₂ Avoided (kg)",
+      "evMilesEnabled": "EV Miles Enabled",
+      "gasolineGallonsDisplaced": "Gasoline Gallons Displaced",
+      "gridEmissionFactor": "Grid Emission Factor (kg CO₂/kWh)",
+      "evEfficiency": "EV Efficiency (miles/kWh)",
+      "gasolineEmissionFactor": "Gasoline Emission Factor (kg CO₂/gal)",
+      "averageVehicleMpg": "Average Vehicle MPG"
+    },
+    "summary": {
+      "totalEnergyDelivered": "Total Energy Delivered",
+      "netGhgReduction": "Net GHG Reduction",
+      "evMilesEnabled": "EV Miles Enabled",
+      "gasolineDisplaced": "Gasoline Displaced"
+    },
+    "units": {
+      "kgCo2": "{value} kg CO₂",
+      "gallons": "{value} gallons"
+    }
+  }
+}

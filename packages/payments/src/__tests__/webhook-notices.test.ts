@@ -22,6 +22,7 @@ vi.mock('@evtivity/database', () => ({
   chargingSessions: { id: 'cs.id', transactionId: 'cs.tx', stationId: 'cs.station_id' },
   chargingStations: { id: 'st.id', stationId: 'st.station_id', siteId: 'st.site_id' },
   sites: { id: 'si.id', name: 'si.name' },
+  reservations: { id: 'r.id', reservationId: 'r.reservation_id' },
 }));
 vi.mock('drizzle-orm', () => ({ eq: (a: unknown, b: unknown) => ({ eq: [a, b] }) }));
 vi.mock('@evtivity/lib', async (importOriginal) => ({
@@ -50,6 +51,7 @@ function rec(overrides: Partial<PaymentRecord> = {}): PaymentRecord {
     driverId: 'd1',
     currency: 'EUR',
     capturedAmountCents: 4000,
+    chargeType: 'session',
     ...overrides,
   } as PaymentRecord;
 }
@@ -109,6 +111,44 @@ describe('dispatchPaymentWebhookNotices', () => {
       expect.objectContaining({ amountCents: 700, currency: 'EUR', transactionId: 's1' }),
       ['/t'],
       pubsub,
+    );
+  });
+
+  it('sends the fee refund notice for a reservation fee and refreshes the operator UI', async () => {
+    // No session lookup (no session id); one reservation lookup.
+    h.sessions.push([{ reservationId: 1042 }]);
+    await dispatchPaymentWebhookNotices(
+      [
+        {
+          kind: 'refund_succeeded',
+          record: rec({
+            sessionId: null,
+            chargeType: 'reservation_no_show',
+            reservationId: 'rsv_1',
+          }),
+          amountCents: 700,
+        },
+      ],
+      deps,
+    );
+    expect(h.dispatchDriverNotification).toHaveBeenCalledOnce();
+    expect(h.dispatchDriverNotification).toHaveBeenCalledWith(
+      { __client: true },
+      'payment.FeeRefunded',
+      'd1',
+      expect.objectContaining({
+        amountCents: 700,
+        currency: 'EUR',
+        feeType: 'no_show',
+        isNoShowFee: true,
+        reservationId: '1042',
+      }),
+      ['/t'],
+      pubsub,
+    );
+    expect(publish).toHaveBeenCalledWith(
+      'csms_events',
+      expect.stringContaining('"change":"refund_succeeded"'),
     );
   });
 

@@ -22,7 +22,7 @@ vi.mock('../middleware/rbac.js', () => ({
 }));
 
 // Mock the pubsub singleton used by ocpp-commands route
-vi.mock('../lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn(() => ({
     publish: vi.fn().mockResolvedValue(undefined),
     subscribe: vi.fn().mockResolvedValue({ unsubscribe: vi.fn() }),

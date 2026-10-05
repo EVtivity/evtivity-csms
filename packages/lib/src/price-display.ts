@@ -15,13 +15,14 @@ import { resolveLocale } from './number.js';
  * Rounding rules (what the driver was charged):
  * - Tax basis 'net' (default): tariff prices exclude tax. Each billed amount
  *   is quantity times price rounded to the cent. Tax is the net amount times
- *   the rate, rounded half up to the cent (taxOnNet): once per single-tariff
- *   session, once per tariff segment of a split session, and once for a split
- *   session's reservation holding fee at the first segment's rate.
+ *   the rate, rounded half up to the cent (taxOnNet), once per tax rate of a
+ *   session: the amounts of every tariff segment (and a split session's
+ *   reservation holding fee, at the first segment's rate) billed at one rate
+ *   are summed first (taxPerRate).
  * - Tax basis 'gross': tariff prices include tax. Each billed amount is
  *   quantity times the gross price rounded to the cent, so a gross unit price
  *   times its quantity is exactly the amount charged. The tax contained in
- *   the gross sum is extracted at the same points (splitGrossByTaxRate).
+ *   the gross sum of each rate is extracted once (splitGrossByTaxRate).
  * - A charged (gross) amount at one rate splits into net and tax with
  *   netFromGross, round(gross / (1 + rate)), which gives back the cost
  *   calculator's net exactly for an amount it produced on the net basis.
@@ -194,6 +195,20 @@ export function costIncludesTax(
   return costCents != null && costCents > 0 && Number(taxRate ?? 0) > 0;
 }
 
+/**
+ * Whether a session cost contains tax, from the tax stored with it
+ * (charging_sessions.tax_cents, written with every cost): an amount above 0
+ * whose stored tax is above 0. Portal lists and the guest page gate their
+ * "incl. tax" labels on it, so a session whose tariffs charged no tax (or a
+ * free session) never reads "incl. tax".
+ */
+export function costContainsTax(
+  costCents: number | null | undefined,
+  taxCents: number | null | undefined,
+): boolean {
+  return costCents != null && costCents > 0 && taxCents != null && taxCents > 0;
+}
+
 /** A session cost split into its net amount and the tax it contains. */
 export interface SessionCostTax {
   netCents: number;
@@ -244,8 +259,8 @@ export type CostDimension = (typeof COST_DIMENSIONS)[number];
  * A tax line of a cost breakdown: the amount of each cost dimension billed at
  * the rate, in the breakdown's tax basis (net amounts on the 'net' basis,
  * gross amounts on the 'gross' basis). netCents and taxCents are the net
- * amount and the tax the cost calculator charged (per tariff segment, then
- * summed per rate). On the 'net' basis netCents is the sum of the dimensions,
+ * amount and the tax the cost calculator charged (rounded once per rate; a
+ * segment's share of its rate's tax in a split session's components). On the 'net' basis netCents is the sum of the dimensions,
  * on the 'gross' basis netCents plus taxCents is. dimensionAmounts gives each
  * dimension's net amount and tax.
  */
@@ -477,6 +492,45 @@ export function taxLineForAmount(amountCents: number, taxRate: number, basis: Ta
   return basis === 'gross'
     ? splitGrossByTaxRate(amountCents, taxRate)
     : { taxRate, netCents: amountCents, taxCents: taxOnNet(amountCents, taxRate) };
+}
+
+/** An amount billed at one rate, in the tax basis it was priced in. */
+export interface RatedAmount {
+  taxRate: number;
+  amountCents: number;
+}
+
+/**
+ * The net amount and tax of each part of a cost, with tax rounded once per
+ * rate: the amounts of all parts at one rate are summed and taxed together
+ * (taxLineForAmount), then that tax is spread over the parts in proportion
+ * to their amounts (allocateCents). One line per part, in input order. The
+ * parts of a rate add up to that rate's tax exactly.
+ */
+export function taxPerRate(parts: readonly RatedAmount[], basis: TaxBasis): TaxLine[] {
+  const indexesByRate = new Map<number, number[]>();
+  parts.forEach((part, index) => {
+    const indexes = indexesByRate.get(part.taxRate);
+    if (indexes == null) indexesByRate.set(part.taxRate, [index]);
+    else indexes.push(index);
+  });
+  const taxes: number[] = parts.map(() => 0);
+  for (const [taxRate, indexes] of indexesByRate) {
+    const amounts = indexes.map((i) => parts[i]?.amountCents ?? 0);
+    const total = amounts.reduce((sum, amount) => sum + amount, 0);
+    const shares = allocateCents(taxLineForAmount(total, taxRate, basis).taxCents, amounts);
+    indexes.forEach((partIndex, i) => {
+      taxes[partIndex] = shares[i] ?? 0;
+    });
+  }
+  return parts.map((part, i) => {
+    const taxCents = taxes[i] ?? 0;
+    return {
+      taxRate: part.taxRate,
+      netCents: basis === 'gross' ? part.amountCents - taxCents : part.amountCents,
+      taxCents,
+    };
+  });
 }
 
 /** Billed components of one tariff segment (1-based), or of the whole session (null). */

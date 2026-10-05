@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { userPermissions } from '@evtivity/database';
 import { hasPermission } from '@evtivity/lib';
-import { getPubSub } from '../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 const permissionCache = new Map<string, { permissions: string[]; expiresAt: number }>();
 const CACHE_TTL_MS = 60_000;

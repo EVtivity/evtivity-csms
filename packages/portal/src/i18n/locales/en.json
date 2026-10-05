@@ -516,7 +516,7 @@
     "CREATE_FAILED": "Failed to create circuit",
     "CSRF_INVALID": "Invalid CSRF token",
     "CSR_NOT_FOUND": "Pending CSR not found",
-    "CSS_ACTION_REJECTED": "Charging station simulator rejected the action",
+    "CSS_ACTION_REJECTED": "Charging Station Simulator rejected the action",
     "CSS_ACTION_TIMEOUT": "Simulator did not respond within 5s",
     "DOWNTIME_NOT_FOUND": "Excluded downtime record not found",
     "DRIVER_ALREADY_IN_FLEET": "Driver is already in this fleet",
@@ -636,6 +636,7 @@
     "PAYMENT_RECORD_NOT_RECOVERABLE": "Payment record is not in a recoverable state",
     "PAYMENT_TOP_UP_FAILED": "Payment top-up rejected",
     "PERMISSIONS_EXCEED_OWN": "API key permissions must be a subset of your own permissions",
+    "PKI_ROOT_REFRESH_FAILED": "Root certificate refresh from the PKI provider failed",
     "PNC_DISABLED": "Plug & Charge is disabled",
     "ATTESTATION_FAILED": "Device attestation failed. Update the app and try again.",
     "PORTAL_REGISTRATION_DISABLED": "Driver self-registration is disabled. Contact your operator to be invited.",
@@ -739,7 +740,11 @@
     "SECURITY_PROFILE_DOWNGRADE": "A connected station cannot be moved to a lower security profile",
     "STATION_TLS_URL_NOT_CONFIGURED": "The public TLS address for stations (OCPP_STATION_TLS_URL) is not configured",
     "STATION_SECURITY_CHANGE_REJECTED": "The station did not accept the security change; its current settings are unchanged",
-    "PORTAL_ALREADY_ACTIVE": "Driver already has portal access"
+    "PORTAL_ALREADY_ACTIVE": "Driver already has portal access",
+    "EMAID_PREFIX_NOT_CONFIGURED": "Set the eMAID country code and provider ID first",
+    "LOCAL_CA_EXISTS": "A local contract CA already exists",
+    "LOCAL_CA_NOT_CONFIGURED": "Create the local contract CA first",
+    "PNC_CONTRACT_NOT_FOUND": "Plug & Charge contract not found"
   },
   "validation": {
     "required": "This field is required",

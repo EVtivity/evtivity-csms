@@ -11,10 +11,13 @@ import {
 import type { SessionPricingInput, SessionSegmentInput, TariffInput } from '../cost-calculator.js';
 import { dimensionAmounts, parseSessionCostBreakdown, COST_DIMENSIONS } from '../price-display.js';
 import {
-  legacySessionCostCentsAt,
   legacySessionCostTotal,
   legacySplitSessionCostTotal,
 } from './fixtures/legacy-cost-reference.js';
+import {
+  perRateSessionCostCentsAt,
+  perRateSplitSessionCostTotal,
+} from './fixtures/per-rate-cost-reference.js';
 
 /** Deterministic pseudo-random numbers (LCG), so a failure is reproducible. */
 function random(seed: number): () => number {
@@ -87,12 +90,14 @@ function randomScenario(next: () => number): SessionPricingInput {
   };
 }
 
-describe('calculateSessionCostAt against the legacy assembly (net basis)', () => {
-  it('charges the same amount to the cent for 5000 single and split sessions', () => {
+describe('calculateSessionCostAt against the reference assembly (net basis)', () => {
+  it('charges the reference amount to the cent for 5000 single and split sessions', () => {
     const next = random(33);
     for (let i = 0; i < 5000; i++) {
       const input = randomScenario(next);
-      const legacy = legacySessionCostCentsAt({
+      // Single-tariff sessions bill as the legacy calculator did; split
+      // sessions round tax once per rate.
+      const reference = perRateSessionCostCentsAt({
         tariff: input.tariff,
         startedAt: input.startedAt,
         endedAt: input.at,
@@ -100,14 +105,23 @@ describe('calculateSessionCostAt against the legacy assembly (net basis)', () =>
         idleMinutes: input.idleMinutes,
         gracePeriodMinutes: input.gracePeriodMinutes,
         holdingMinutes: input.reservationHoldingMinutes,
-        splitEnabled: true,
         segments: input.segments.map((seg) => ({ ...seg })),
       });
       const breakdown = calculateSessionCostAt(input);
-      expect({ i, total: breakdown.totalCents }).toEqual({ i, total: legacy });
+      expect({ i, total: breakdown.totalCents }).toEqual({ i, total: reference });
       const stored = toSessionCostBreakdown(breakdown);
-      expect(stored.grossCents).toBe(legacy);
-      expect(stored.netCents + stored.taxCents).toBe(legacy);
+      expect(stored.grossCents).toBe(reference);
+      expect(stored.netCents + stored.taxCents).toBe(reference);
+      // The per-segment components add up to the tax of each rate.
+      const componentTax = new Map<number, number>();
+      for (const group of stored.components ?? []) {
+        for (const line of group.taxLines) {
+          componentTax.set(line.taxRate, (componentTax.get(line.taxRate) ?? 0) + line.taxCents);
+        }
+      }
+      for (const line of stored.taxLines) {
+        expect(componentTax.get(line.taxRate) ?? 0).toBe(line.taxCents);
+      }
     }
   });
 
@@ -134,7 +148,7 @@ describe('calculateSessionCostAt against the legacy assembly (net basis)', () =>
     }
   });
 
-  it('keeps the subtotal and tax of the legacy calculator for split sessions', () => {
+  it('rounds tax once per rate for split sessions', () => {
     const next = random(11);
     for (let i = 0; i < 1000; i++) {
       const count = 1 + Math.floor(next() * 4);
@@ -147,8 +161,34 @@ describe('calculateSessionCostAt against the legacy assembly (net basis)', () =>
       }));
       const grace = pick(next, [0, 5, 10]);
       const holding = Math.floor(next() * 40);
-      const legacy = legacySplitSessionCostTotal(segments, grace, holding);
+      const reference = perRateSplitSessionCostTotal(segments, grace, holding);
       const result = calculateSplitSessionCost(segments, grace, holding, 'net');
+      expect({ s: result.subtotalCents, t: result.taxCents }).toEqual({
+        s: reference.subtotalCents,
+        t: reference.taxCents,
+      });
+    }
+  });
+
+  it('keeps the legacy amounts when no two parts of a split session share a rate', () => {
+    const rates = ['0.05', '0.07', '0.19', '0.25'];
+    const next = random(17);
+    for (let i = 0; i < 500; i++) {
+      const count = 1 + Math.floor(next() * 4);
+      const segments = Array.from({ length: count }, (_, index) => ({
+        tariff: {
+          ...randomTariff(next),
+          // A rate per segment, and no holding fee to share the first rate.
+          taxRate: rates[index] ?? null,
+          reservationFeePerMinute: null,
+        },
+        durationMinutes: next() * 120,
+        energyDeliveredWh: Math.round(next() * 30_000),
+        idleMinutes: next() < 0.5 ? 0 : next() * 30,
+        isFirstSegment: index === 0,
+      }));
+      const legacy = legacySplitSessionCostTotal(segments, 5, 10);
+      const result = calculateSplitSessionCost(segments, 5, 10, 'net');
       expect({ s: result.subtotalCents, t: result.taxCents }).toEqual({
         s: legacy.subtotalCents,
         t: legacy.taxCents,
@@ -211,10 +251,11 @@ describe('calculateSessionCostAt against the legacy assembly (net basis)', () =>
     const before = calculateSessionCostAt(open);
     expect(calculateSessionCostAt(closed)).toEqual(before);
     // Idle 4 + 16 = 20 minutes, 5 minutes grace taken from the last segment.
-    // Segment 1: 300 + 100 fee + 4 * 0.10 = 440 net, tax 83.6 -> 84.
-    // Segment 2: 500 + 11 * 0.10 = 610 net, tax 42.7 -> 43.
-    // Holding: 10 min * 0.05 = 50 at 19%, tax 9.5 -> 10.
-    expect(before.totalCents).toBe(440 + 84 + 610 + 43 + 50 + 10);
+    // Segment 1: 300 + 100 fee + 4 * 0.10 = 440 net at 19%.
+    // Segment 2: 500 + 11 * 0.10 = 610 net at 7%, tax 42.7 -> 43.
+    // Holding: 10 min * 0.05 = 50 at 19%.
+    // 19% once on 440 + 50 = 490: 93.1 -> 93 (per part it was 84 + 10 = 94).
+    expect(before.totalCents).toBe(440 + 610 + 50 + 93 + 43);
   });
 
   it('uses the session snapshot when there is one segment or none', () => {
@@ -328,7 +369,7 @@ describe('gross tax basis', () => {
     expect(calculateSessionCost(net, 10_000, 0, 0, 0, 0, 'net').totalCents).toBe(357);
   });
 
-  it('extracts tax per segment and for the holding fee on split sessions', () => {
+  it('extracts tax once per rate on split sessions', () => {
     const reduced: TariffInput = { ...grossTariff, pricePerKwh: '0.321', taxRate: '0.07' };
     const result = calculateSplitSessionCost(
       [
@@ -351,17 +392,24 @@ describe('gross tax basis', () => {
       10,
       'gross',
     );
-    // Segment 1: 357 + 30 * 0.0119 = 0.357 -> 36 + 119 = 512 gross, net 430, tax 82.
+    // Segment 1: 357 + 30 * 0.0119 = 0.357 -> 36 + 119 = 512 gross at 19%.
     // Segment 2: 321 + 36 = 357 gross at 7%: net 334, tax 23.
-    // Holding: 10 * 0.0595 = 0.595 -> 60 gross at 19%: net 50, tax 10.
+    // Holding: 10 * 0.0595 = 0.595 -> 60 gross at 19%.
+    // 19% once on 512 + 60 = 572 gross: net 481, tax 91 (per part it was
+    // 82 + 10 = 92). Shares by gross: 81.45 and 9.55, so 81 and 10.
     expect(result.segments.map((s) => s.totalCents)).toEqual([512, 357]);
+    expect(result.segments.map((s) => s.taxCents)).toEqual([81, 23]);
     expect(result.reservationHolding).toMatchObject({
       netCents: 50,
       taxCents: 10,
       reservationHoldingFeeCents: 60,
     });
+    expect(result.taxLines.map((l) => [l.taxRate, l.netCents, l.taxCents])).toEqual([
+      [0.07, 334, 23],
+      [0.19, 481, 91],
+    ]);
     expect(result.totalCents).toBe(512 + 357 + 60);
-    expect(result.taxCents).toBe(82 + 23 + 10);
+    expect(result.taxCents).toBe(91 + 23);
     expect(result.subtotalCents + result.taxCents).toBe(result.totalCents);
   });
 
@@ -445,13 +493,15 @@ describe('toSessionCostBreakdown', () => {
       ),
     );
     expect(stored.components?.map((g) => g.segment)).toEqual([1, 2, null]);
-    // Segment 1: 150 + 100 fee = 250 at 19%, tax 47.5 -> 48. Segment 2: 150 at
-    // 7%, tax 10.5 -> 11. Holding: 5 * 0.10 = 50 at 19%, tax 9.5 -> 10.
+    // Segment 1: 150 + 100 fee = 250 at 19%. Segment 2: 150 at 7%, tax 10.5
+    // -> 11. Holding: 5 * 0.10 = 50 at 19%. 19% once on 300: 57 (per part it
+    // was 48 + 10 = 58), shared 47.5 and 9.5: 48 and 9.
     expect(stored.taxLines).toEqual([
       { taxRate: 0.07, netCents: 150, taxCents: 11 },
-      { taxRate: 0.19, netCents: 300, taxCents: 58 },
+      { taxRate: 0.19, netCents: 300, taxCents: 57 },
     ]);
-    expect(stored.grossCents).toBe(150 + 11 + 300 + 58);
+    expect(stored.components?.map((g) => g.taxLines[0]?.taxCents)).toEqual([48, 11, 9]);
+    expect(stored.grossCents).toBe(150 + 11 + 300 + 57);
   });
 
   it('stores a zero cost without components', () => {

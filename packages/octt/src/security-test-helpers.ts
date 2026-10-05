@@ -73,11 +73,21 @@ export function tryConnect(
 }
 
 /**
+ * Bound for waits on CSMS state a test station's message produces
+ * asynchronously (connection record, EVSE rows). Generous because the wait
+ * ends as soon as the state is there, and a loaded CSMS takes seconds.
+ */
+export const CSMS_STATE_TIMEOUT_MS = 30_000;
+
+/**
  * Waits until the CSMS has marked the test station online. The connection is
  * recorded asynchronously, so an operator action sent right after
  * BootNotification could otherwise see the station as offline.
  */
-export async function waitForOnline(ctx: TestContext, timeoutMs = 10_000): Promise<boolean> {
+export async function waitForOnline(
+  ctx: TestContext,
+  timeoutMs = CSMS_STATE_TIMEOUT_MS,
+): Promise<boolean> {
   if (ctx.callApi == null || ctx.stationDbId == null) return false;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -86,6 +96,30 @@ export async function waitForOnline(ctx: TestContext, timeoutMs = 10_000): Promi
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   return false;
+}
+
+/**
+ * Waits until the CSMS knows the station's EVSE `evseId`. The StatusNotification
+ * projection creates the EVSE row after the CALLRESULT, so a request for the
+ * EVSE sent right after it can get an unknown EVSE. Returns null when the EVSE
+ * exists, or why the wait failed.
+ */
+export async function waitForEvse(
+  ctx: TestContext,
+  evseId: number,
+  timeoutMs = CSMS_STATE_TIMEOUT_MS,
+): Promise<string | null> {
+  if (ctx.callApi == null || ctx.stationDbId == null) return 'API client not available';
+  const deadline = Date.now() + timeoutMs;
+  let status = 0;
+  while (Date.now() < deadline) {
+    const res = await ctx.callApi('GET', `/stations/${ctx.stationDbId}/connectors`);
+    status = res.status;
+    const evses = Array.isArray(res.body) ? (res.body as { evseId?: unknown }[]) : [];
+    if (evses.some((evse) => evse.evseId === evseId)) return null;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return `EVSE ${String(evseId)} not known to the CSMS within ${String(timeoutMs / 1000)} s (HTTP ${String(status)})`;
 }
 
 /**

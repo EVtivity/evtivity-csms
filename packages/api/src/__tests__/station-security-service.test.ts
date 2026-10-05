@@ -11,7 +11,7 @@ const { sendMock, syncCssMock, updates, station, configState } = vi.hoisted(() =
   configState: { OCPP_STATION_TLS_URL: undefined as string | undefined },
 }));
 
-vi.mock('../lib/ocpp-command.js', () => ({ sendOcppCommandAndWait: sendMock }));
+vi.mock('@evtivity/services/ocpp-command', () => ({ sendOcppCommandAndWait: sendMock }));
 vi.mock('../lib/config.js', () => ({ config: configState }));
 vi.mock('../lib/css-pairing.js', () => ({ syncCssStationSecurity: syncCssMock }));
 vi.mock('argon2', () => ({ hash: vi.fn((pw: string) => Promise.resolve(`hash(${pw})`)) }));

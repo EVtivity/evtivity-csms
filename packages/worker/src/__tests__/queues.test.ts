@@ -23,7 +23,7 @@ describe('createQueues', () => {
     vi.clearAllMocks();
   });
 
-  it('creates all nine queues with the expected names', async () => {
+  it('creates all ten queues with the expected names', async () => {
     const { createQueues, QUEUE_NAMES } = await import('../queues.js');
     const queues = createQueues('redis://localhost:6379');
 
@@ -36,6 +36,7 @@ describe('createQueues', () => {
     expect(queues.stationWatchQueue).toBeDefined();
     expect(queues.paymentWebhookQueue).toBeDefined();
     expect(queues.remoteStartTimeoutQueue).toBeDefined();
+    expect(queues.stationMessageQueue).toBeDefined();
 
     const names = queueCalls.map((c) => c.name);
     expect(names).toEqual([
@@ -48,6 +49,7 @@ describe('createQueues', () => {
       QUEUE_NAMES.STATION_WATCH,
       QUEUE_NAMES.PAYMENT_WEBHOOKS,
       QUEUE_NAMES.REMOTE_START_TIMEOUTS,
+      QUEUE_NAMES.STATION_MESSAGES,
     ]);
     expect(names).toEqual([
       'cron-jobs',
@@ -59,6 +61,7 @@ describe('createQueues', () => {
       'station-watch',
       'payment-webhooks',
       'remote-start-timeouts',
+      'station-messages',
     ]);
   });
 
@@ -67,7 +70,7 @@ describe('createQueues', () => {
     const { createQueues } = await import('../queues.js');
     createQueues('redis://localhost:6379');
 
-    expect(createBullMQConnection).toHaveBeenCalledTimes(9);
+    expect(createBullMQConnection).toHaveBeenCalledTimes(10);
     expect(createBullMQConnection).toHaveBeenCalledWith('redis://localhost:6379');
     for (const call of queueCalls) {
       expect(call.opts.connection).toBe(mockConnection);

@@ -16,7 +16,7 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
 });
 
 const mockRunMaintenanceFanout = vi.fn().mockResolvedValue(undefined);
-vi.mock('@evtivity/api/src/services/maintenance.service.js', () => ({
+vi.mock('@evtivity/services/maintenance.service', () => ({
   runMaintenanceFanout: (...args: unknown[]) => mockRunMaintenanceFanout(...args),
   MAINTENANCE_FANOUT_CHANNEL: 'maintenance_fanout',
 }));

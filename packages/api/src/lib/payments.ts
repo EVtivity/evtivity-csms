@@ -12,7 +12,7 @@ import {
 } from '@evtivity/payments';
 import type { PaymentContext, PaymentLogger, PaymentProvider } from '@evtivity/payments';
 import { config } from './config.js';
-import { getPubSub } from './pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 /**
  * The API process's payment providers (@evtivity/payments), built once with

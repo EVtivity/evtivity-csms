@@ -19,7 +19,7 @@ vi.mock('../lib/site-access.js', () => ({
 }));
 
 const unsubscribe = vi.fn().mockResolvedValue(undefined);
-vi.mock('../lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: () => ({
     publish: vi.fn(),
     subscribe: vi.fn().mockResolvedValue({ unsubscribe }),

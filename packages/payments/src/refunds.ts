@@ -4,9 +4,14 @@
 import { db } from '@evtivity/database';
 import type { PaymentContext } from './context.js';
 import { PaymentProviderNotConfiguredError } from './errors.js';
-import { refundKey } from './idempotency-keys.js';
+import { refundKey, reservationFeeKey } from './idempotency-keys.js';
 import { pinnedProvider } from './pinning.js';
-import { addPendingRefunds, lockSessionRecord, markRefunded } from './payment-records.js';
+import {
+  addPendingRefunds,
+  lockRecord,
+  lockSessionRecord,
+  markRefunded,
+} from './payment-records.js';
 import type { PaymentRecord } from './payment-records.js';
 import {
   allocateRefund,
@@ -16,15 +21,20 @@ import {
   withTopUpRefunds,
 } from './top-ups.js';
 
-export interface RefundRequest {
-  sessionId: string;
+/**
+ * What is refunded: a session's payment record, or a reservation
+ * cancellation or no-show fee record by its id.
+ */
+export type RefundTarget = { sessionId: string } | { feeRecordId: number };
+
+export type RefundRequest = RefundTarget & {
   /** Default: everything still refundable. */
   amountCents?: number;
   /** Stored as `last_actor_user_id` when given. */
   actorUserId?: string | null;
   /** Stored as `last_action_reason` when given. */
   actionReason?: (full: boolean) => string | null;
-}
+};
 
 /** One provider refund of a refund request. */
 export interface ChargeRefund {
@@ -53,6 +63,8 @@ export type RefundOutcome =
     }
   /** An async capture is not confirmed yet (owner decision O3: refuse until it is). */
   | { status: 'operation_pending'; operation: 'capture' | 'cancel' | 'adjust' }
+  /** A fee target that does not exist or is not a reservation fee record. */
+  | { status: 'not_found' }
   | { status: 'no_captured_payment' }
   | { status: 'missing_payment_id' }
   | { status: 'nothing_refundable'; remainingCents: number }
@@ -81,9 +93,11 @@ type TxResult =
   | { status: 'partially_failed'; failure: unknown; refunds: ChargeRefund[]; recordId: number };
 
 /**
- * Refunds a session's captured payment through the provider it is pinned to,
- * for the operator route and support cases alike. The record is locked for
- * the refund so a concurrent refund cannot read a stale refunded total.
+ * Refunds a captured payment through the provider it is pinned to: a
+ * session's record (operator route and support cases) or a reservation
+ * cancellation or no-show fee record (operator fee refund route), with the
+ * same rules and keys. The record is locked for the refund so a concurrent
+ * refund cannot read a stale refunded total.
  *
  * A session paid as hold capture plus top-ups (`top-ups.ts`) is refunded per
  * charge: the hold charge first, then each top-up in order, each up to what
@@ -112,7 +126,13 @@ export async function refundPaymentRecord(
   ctx: PaymentContext,
 ): Promise<RefundOutcome> {
   const result = await db.transaction(async (tx): Promise<TxResult> => {
-    const locked = await lockSessionRecord(tx, request.sessionId);
+    let locked: PaymentRecord | null;
+    if ('feeRecordId' in request) {
+      locked = await lockRecord(tx, request.feeRecordId);
+      if (locked == null || locked.chargeType === 'session') return { status: 'not_found' };
+    } else {
+      locked = await lockSessionRecord(tx, request.sessionId);
+    }
     if (
       locked == null ||
       (locked.status !== 'captured' && locked.status !== 'partially_refunded')
@@ -174,6 +194,7 @@ export async function refundPaymentRecord(
       amountCents: requested,
       ledgerEntries: locked.providerRefunds.length,
     };
+    const merchantReference = refundMerchantReference(request, locked);
     const charges = paymentCharges(locked).map((c) => ({
       ...c,
       refundedCents: c.refundedCents + (pendingByCharge.get(c.paymentId) ?? 0),
@@ -188,7 +209,7 @@ export async function refundPaymentRecord(
           paymentId: piece.charge.paymentId,
           amountCents: piece.amountCents,
           currency: locked.currency,
-          merchantReference: `sess_${request.sessionId}`,
+          merchantReference,
           idempotencyKey:
             piece.charge.kind === 'hold'
               ? refundKey(paymentId, keyParts)
@@ -287,4 +308,18 @@ export async function refundPaymentRecord(
     throw result.failure;
   }
   return result;
+}
+
+/**
+ * The provider reference of a refund: the session's (`sess_<id>`), or the
+ * reference the fee was charged with (`cancellation-fee-<reservationId>`,
+ * `no-show-fee-<reservationId>`). A fee whose reservation was deleted uses
+ * `fee_<paymentId>`.
+ */
+function refundMerchantReference(target: RefundTarget, record: PaymentRecord): string {
+  if ('sessionId' in target) return `sess_${target.sessionId}`;
+  if (record.chargeType !== 'session' && record.reservationId != null) {
+    return reservationFeeKey(record.chargeType, record.reservationId);
+  }
+  return `fee_${record.providerPaymentId ?? String(record.id)}`;
 }

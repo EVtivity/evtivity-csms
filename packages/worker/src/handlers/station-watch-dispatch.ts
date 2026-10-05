@@ -1,21 +1,11 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { client } from '@evtivity/database';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import type { Logger } from 'pino';
-import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
-
-const currentDir = dirname(fileURLToPath(import.meta.url));
-const API_TEMPLATES_DIR =
-  process.env['API_TEMPLATES_DIR'] ??
-  resolve(currentDir, '..', '..', '..', 'api', 'src', 'templates');
-const OCPP_TEMPLATES_DIR =
-  process.env['OCPP_TEMPLATES_DIR'] ??
-  resolve(currentDir, '..', '..', '..', 'ocpp', 'src', 'templates');
-const ALL_TEMPLATES_DIRS = [OCPP_TEMPLATES_DIR, API_TEMPLATES_DIR];
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 interface StationRow {
   station_id: string;

@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { readFileSync } from 'node:fs';
-import { connect as tlsConnect, type TLSSocket } from 'node:tls';
 import type postgres from 'postgres';
-import type { PubSubClient } from '@evtivity/lib';
+import { CSS_RECONNECT_SPREAD_S, type PubSubClient } from '@evtivity/lib';
 import { StationSimulator, type StationConfig } from './station-simulator.js';
 import { ClockAlignedScheduler } from './clock-aligned-scheduler.js';
+import { isTlsReachable } from './tls-probe.js';
 import { config as cssConfig } from './lib/config.js';
 import { isStationStuck, MAX_HEAL_ATTEMPTS, MAX_HEAL_PER_TICK } from './simulator-heal.js';
 
@@ -64,8 +64,10 @@ const TLS_PROBE_FAILURE_TTL_MS = 15_000;
 // When the OCPP server restarts, every simulator in a 2000-station fleet sees
 // the close at the same instant; with only the 20% backoff jitter they all
 // reconnect within ~2 seconds, which saturates postgres on the server side.
-// The first reconnect attempt spreads uniformly over this window instead.
-const FLEET_RECONNECT_SPREAD_MS = 15_000;
+// A 1.6 station's first reconnect attempt spreads uniformly over this window
+// instead. A 2.1 station spreads through its own RetryBackOffRandomRange (factory
+// default the same window, CSS_RETRY_BACK_OFF_DEFAULTS), not through this.
+const FLEET_RECONNECT_SPREAD_MS = CSS_RECONNECT_SPREAD_S * 1000;
 
 export class SimulatorManager {
   readonly simulators = new Map<string, StationSimulator>();
@@ -318,6 +320,8 @@ export class SimulatorManager {
       // cycle so a TLS server coming online is picked up without restarting
       // CSS -- with a short negative-cache TTL so we don't open a 3s probe
       // every 5s for every unreachable station while the TLS server is down.
+      // The probe does not verify the certificate; the station's OcppClient
+      // does (see tls-probe.ts).
       if (targetUrl.startsWith('wss://')) {
         const cachedFailureExpiresAt = this.tlsProbeFailureCache.get(targetUrl);
         const isCachedFailure =
@@ -325,7 +329,7 @@ export class SimulatorManager {
         if (isCachedFailure) {
           continue;
         }
-        const reachable = await this.isTlsReachable(targetUrl);
+        const reachable = await isTlsReachable(targetUrl);
         if (!reachable) {
           this.tlsProbeFailureCache.set(targetUrl, Date.now() + TLS_PROBE_FAILURE_TTL_MS);
           console.log(
@@ -405,38 +409,6 @@ export class SimulatorManager {
         this.healAttempts.delete(stationId);
         console.log(`[simulator-manager] Stopped simulator: ${stationId}`);
       }
-    }
-  }
-
-  private async isTlsReachable(url: string): Promise<boolean> {
-    try {
-      const parsed = new URL(url);
-      const host = parsed.hostname;
-      const port = Number(parsed.port) || 443;
-      return await new Promise<boolean>((resolve) => {
-        const socket: TLSSocket = tlsConnect(
-          {
-            host,
-            port,
-            rejectUnauthorized: process.env['TLS_REJECT_UNAUTHORIZED'] === 'true',
-            timeout: 3000,
-          },
-          () => {
-            socket.destroy();
-            resolve(true);
-          },
-        );
-        socket.on('error', () => {
-          socket.destroy();
-          resolve(false);
-        });
-        socket.on('timeout', () => {
-          socket.destroy();
-          resolve(false);
-        });
-      });
-    } catch {
-      return false;
     }
   }
 

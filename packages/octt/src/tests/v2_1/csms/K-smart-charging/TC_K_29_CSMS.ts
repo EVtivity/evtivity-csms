@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 // Helper for GetChargingProfiles tests
 async function bootStation(ctx: {
@@ -51,7 +52,7 @@ function makeGetChargingProfilesTest(
             requestId = (payload['requestId'] as number) ?? 1;
             return { status: 'Accepted' };
           }
-          return {};
+          return defaultReply('ocpp2.1', action, payload);
         },
       );
 

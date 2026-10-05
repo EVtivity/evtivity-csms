@@ -1,14 +1,15 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import crypto from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { PubSubClient } from './pubsub.js';
+import { publishOcppCommand } from './ocpp-command-publish.js';
 import {
   renderStationMessage,
   type StationMessageContext,
   type StationMessageState,
 } from './station-message.js';
+import { isStationMessageLanguage } from './station-message-defaults.js';
 
 // One-shot display-message dispatch helper. Used for event-driven station
 // messages that aren't tied to a MessageState slot (9000-9005) - payment
@@ -20,7 +21,8 @@ import {
 // an endDateTime so the station auto-clears the message after the TTL. On
 // OCPP 1.6 (no native SetDisplayMessage) the helper falls back to a
 // DataTransfer on the com.evtivity vendor channel. The template renders in
-// the stationMessage.language display language.
+// the station's site display language, else the stationMessage.language
+// setting.
 // Either path can opt into a defensive in-process clear by passing
 // `autoClearMs` - the helper schedules a follow-up ClearDisplayMessage /
 // DataTransfer-clear after the delay, so 1.6 stations and any 2.1 firmware
@@ -89,33 +91,25 @@ export async function clearStationMessage(
 
   try {
     if (protocol.startsWith('ocpp2')) {
-      await pubsub.publish(
-        'ocpp_commands',
-        JSON.stringify({
-          commandId: crypto.randomUUID(),
-          stationId: args.stationOcppId,
-          action: 'ClearDisplayMessage',
-          payload: { id: slotId },
-          version: protocol,
-        }),
-      );
+      await publishOcppCommand(pubsub, {
+        stationId: args.stationOcppId,
+        action: 'ClearDisplayMessage',
+        payload: { id: slotId },
+        version: protocol,
+      });
       return true;
     }
     if (protocol === 'ocpp1.6') {
-      await pubsub.publish(
-        'ocpp_commands',
-        JSON.stringify({
-          commandId: crypto.randomUUID(),
-          stationId: args.stationOcppId,
-          action: 'DataTransfer',
-          payload: {
-            vendorId: 'com.evtivity',
-            messageId: dataTransferMessageId,
-            data: JSON.stringify({ slotId }),
-          },
-          version: 'ocpp1.6',
-        }),
-      );
+      await publishOcppCommand(pubsub, {
+        stationId: args.stationOcppId,
+        action: 'DataTransfer',
+        payload: {
+          vendorId: 'com.evtivity',
+          messageId: dataTransferMessageId,
+          data: JSON.stringify({ slotId }),
+        },
+        version: 'ocpp1.6',
+      });
       return true;
     }
   } catch {
@@ -156,10 +150,16 @@ export async function dispatchOneShotStationMessage(
   } = options;
 
   let protocol: string | null = null;
+  let siteLanguage: unknown = null;
   try {
-    const rows =
-      await sql`SELECT ocpp_protocol FROM charging_stations WHERE id = ${args.stationDbId}`;
+    const rows = await sql`
+      SELECT cs.ocpp_protocol, s.station_message_language
+      FROM charging_stations cs
+      LEFT JOIN sites s ON s.id = cs.site_id
+      WHERE cs.id = ${args.stationDbId}
+    `;
     protocol = (rows[0]?.['ocpp_protocol'] as string | null | undefined) ?? null;
+    siteLanguage = rows[0]?.['station_message_language'];
   } catch {
     return false;
   }
@@ -167,7 +167,13 @@ export async function dispatchOneShotStationMessage(
 
   let content = '';
   try {
-    content = await renderStationMessage(args.state, args.context);
+    // The site's display language, else renderStationMessage reads the
+    // stationMessage.language setting.
+    content = await renderStationMessage(
+      args.state,
+      args.context,
+      isStationMessageLanguage(siteLanguage) ? siteLanguage : undefined,
+    );
   } catch {
     return false;
   }
@@ -178,39 +184,31 @@ export async function dispatchOneShotStationMessage(
 
   try {
     if (protocol.startsWith('ocpp2')) {
-      await pubsub.publish(
-        'ocpp_commands',
-        JSON.stringify({
-          commandId: crypto.randomUUID(),
-          stationId: args.stationOcppId,
-          action: 'SetDisplayMessage',
-          payload: {
-            message: {
-              id: slotId,
-              priority,
-              message: { format: 'UTF8', content },
-              endDateTime,
-            },
+      await publishOcppCommand(pubsub, {
+        stationId: args.stationOcppId,
+        action: 'SetDisplayMessage',
+        payload: {
+          message: {
+            id: slotId,
+            priority,
+            message: { format: 'UTF8', content },
+            endDateTime,
           },
-          version: protocol,
-        }),
-      );
+        },
+        version: protocol,
+      });
       published = true;
     } else if (protocol === 'ocpp1.6') {
-      await pubsub.publish(
-        'ocpp_commands',
-        JSON.stringify({
-          commandId: crypto.randomUUID(),
-          stationId: args.stationOcppId,
-          action: 'DataTransfer',
-          payload: {
-            vendorId: 'com.evtivity',
-            messageId: dataTransferMessageId,
-            data: JSON.stringify({ state: args.state, message: content }),
-          },
-          version: 'ocpp1.6',
-        }),
-      );
+      await publishOcppCommand(pubsub, {
+        stationId: args.stationOcppId,
+        action: 'DataTransfer',
+        payload: {
+          vendorId: 'com.evtivity',
+          messageId: dataTransferMessageId,
+          data: JSON.stringify({ state: args.state, message: content }),
+        },
+        version: 'ocpp1.6',
+      });
       published = true;
     }
   } catch {

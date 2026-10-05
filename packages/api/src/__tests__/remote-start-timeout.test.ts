@@ -27,7 +27,7 @@ vi.mock('@evtivity/database', () => ({
   },
 }));
 vi.mock('drizzle-orm', () => ({ eq: (a: unknown, b: unknown) => ({ a, b }) }));
-vi.mock('../lib/pubsub.js', () => ({ getPubSub: () => ({ publish: h.publish }) }));
+vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: () => ({ publish: h.publish }) }));
 
 import {
   scheduleGuestStartTimeout,

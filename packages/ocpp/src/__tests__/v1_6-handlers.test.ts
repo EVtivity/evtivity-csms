@@ -446,7 +446,7 @@ describe('OCPP 1.6 StatusNotification handler - passes through raw status', () =
     );
   });
 
-  it('uses current time when timestamp is absent', async () => {
+  it('leaves the timestamp out when the station sent none', async () => {
     const { ctx, publishMock } = makeCtx('StatusNotification', {
       connectorId: 1,
       errorCode: 'NoError',
@@ -455,8 +455,22 @@ describe('OCPP 1.6 StatusNotification handler - passes through raw status', () =
 
     await handleStatusNotification(ctx);
 
-    const call = publishMock.mock.calls[0]?.[0] as { payload: { timestamp: string } };
-    expect(call.payload.timestamp).toBeDefined();
+    const call = publishMock.mock.calls[0]?.[0] as { payload: Record<string, unknown> };
+    expect(call.payload).not.toHaveProperty('timestamp');
+  });
+
+  it('passes the station timestamp through', async () => {
+    const { ctx, publishMock } = makeCtx('StatusNotification', {
+      connectorId: 1,
+      errorCode: 'NoError',
+      status: 'Available',
+      timestamp: '2026-02-15T10:30:00Z',
+    });
+
+    await handleStatusNotification(ctx);
+
+    const call = publishMock.mock.calls[0]?.[0] as { payload: Record<string, unknown> };
+    expect(call.payload.timestamp).toBe('2026-02-15T10:30:00Z');
   });
 });
 

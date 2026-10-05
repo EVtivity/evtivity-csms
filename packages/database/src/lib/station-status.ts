@@ -141,6 +141,54 @@ export async function clearStationFirmwareInstalling(
   return recomputeStationAvailability(sql, stationUuid);
 }
 
+// Status reports are ordered by the station's own timestamp: a report applies
+// only when its timestamp is not older than the stored one, so an
+// offline-queued report replayed after reconnect, a TransactionEvent projected
+// on its own lane, or a report a second OCPP pod projects late cannot
+// overwrite a newer status.
+// - Equal timestamps apply: OCPP-J allows one outstanding CALL per station, so
+//   arrival order is send order, and two changes can share a second.
+// - No timestamp (a 1.6 StatusNotification may omit it): applies and stores
+//   NULL. Receipt time is not comparable with the station clock, so the report
+//   falls back to arrival order and the next timestamped report applies.
+// - A timestamp in the future is clamped to the receipt time, so a station
+//   clock that ran ahead and was corrected does not freeze the status.
+export function statusReportedAt(raw: unknown, receivedAt: Date = new Date()): Date | null {
+  if (typeof raw !== 'string' && !(raw instanceof Date)) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.getTime() > receivedAt.getTime() ? receivedAt : parsed;
+}
+
+// Starts a new ordering epoch on an accepted BootNotification: forgets the
+// stored report timestamps of the station and its connectors, so the
+// current-state reports the station sends after boot (B01.FR.05) apply even
+// when its clock moved back across the reboot (RTC reset, manual change).
+// The statuses themselves are kept. A report cached from before the reboot
+// that arrives after boot (B01.FR.08) is still ordered against the post-boot
+// report of the same connector once that is stored.
+export async function startStatusOrderingEpoch(
+  sql: postgres.Sql,
+  stationUuid: string,
+): Promise<void> {
+  await sql`
+    WITH reset_connectors AS (
+      UPDATE connectors c SET status_reported_at = NULL
+      FROM evses e
+      WHERE c.evse_id = e.id AND e.station_id = ${stationUuid}
+        AND c.status_reported_at IS NOT NULL
+      RETURNING c.id
+    )
+    UPDATE charging_stations SET reported_status_at = NULL
+    WHERE id = ${stationUuid} AND reported_status_at IS NOT NULL
+  `;
+}
+
+export interface StationReportedStatusChange extends AvailabilityChange {
+  // False when the station row is gone or a newer report is already stored.
+  applied: boolean;
+}
+
 // The status a station reports for itself (OCPP 1.6 connector 0, 2.x evseId 0
 // or ChargingStation AvailabilityState). Changes are logged as EVSE 0 /
 // connector 0 so reports keep station-level history.
@@ -148,23 +196,45 @@ export async function setStationReportedStatus(
   sql: postgres.Sql,
   stationUuid: string,
   status: StationAvailability,
-): Promise<AvailabilityChange> {
-  const [current] = await sql`
-    SELECT reported_status FROM charging_stations WHERE id = ${stationUuid}
+  timestamp: string | null,
+): Promise<StationReportedStatusChange> {
+  const reportedAt = statusReportedAt(timestamp);
+  // Read the previous status and write the new one in one statement under the
+  // row lock, so a concurrent report cannot slip between the guard and the write.
+  const rows = await sql`
+    WITH prev AS (
+      SELECT id, reported_status FROM charging_stations WHERE id = ${stationUuid} FOR UPDATE
+    ),
+    upd AS (
+      UPDATE charging_stations cs
+      SET reported_status = ${status}::charging_station_status,
+          reported_status_at = ${reportedAt}::timestamptz,
+          updated_at = CASE
+            WHEN cs.reported_status IS DISTINCT FROM ${status}::charging_station_status THEN now()
+            ELSE cs.updated_at
+          END
+      FROM prev
+      WHERE cs.id = prev.id
+        AND (cs.reported_status_at IS NULL OR ${reportedAt}::timestamptz IS NULL
+          OR ${reportedAt}::timestamptz >= cs.reported_status_at)
+      RETURNING cs.id
+    )
+    SELECT prev.reported_status AS previous_status, EXISTS (SELECT 1 FROM upd) AS applied
+    FROM prev
   `;
-  const previous = (current?.reported_status as string | null | undefined) ?? null;
+  const row = rows[0];
+  if (row?.applied !== true) {
+    return { applied: false, availabilityChanged: false };
+  }
+  const previous = (row.previous_status as string | null | undefined) ?? null;
   if (previous !== status) {
-    await sql`
-      UPDATE charging_stations
-      SET reported_status = ${status}::charging_station_status, updated_at = now()
-      WHERE id = ${stationUuid}
-    `;
     await sql`
       INSERT INTO port_status_log (station_id, evse_id, connector_id, previous_status, new_status, timestamp)
       VALUES (${stationUuid}, 0, 0, ${previous}, ${status}, now())
     `;
   }
-  return recomputeStationAvailability(sql, stationUuid);
+  const change = await recomputeStationAvailability(sql, stationUuid);
+  return { applied: true, ...change };
 }
 
 export interface ConnectorStatusInput {
@@ -172,18 +242,47 @@ export interface ConnectorStatusInput {
   evseId: number;
   connectorId: number;
   status: string;
+  // The station's timestamp of the report, null when it sent none.
+  timestamp: string | null;
 }
 
 // stationExists is false when the station row no longer exists, so nothing
-// was written.
+// was written. applied is false when a newer report is already stored, so
+// nothing was written either.
 export type ConnectorStatusResult =
-  | { stationExists: false; availabilityChanged: false }
+  | { stationExists: false; applied: false; availabilityChanged: false }
   | (AvailabilityChange & {
       stationExists: true;
+      applied: boolean;
       evseUuid: string;
       previousStatus: string | undefined;
       autoCreated: boolean;
     });
+
+// Creates a connector the station reported for the first time. Two reports
+// can create it together; the unique index on (EVSE, connector number) makes
+// the later one an update that passes the same timestamp guard. Returns false
+// when the row already held a newer report.
+async function insertReportedConnector(
+  sql: postgres.Sql,
+  evseUuid: string,
+  connectorId: number,
+  status: string,
+  reportedAt: Date | null,
+): Promise<boolean> {
+  // StatusNotification has no connector type. 'Unknown' keeps the connector
+  // visible in station lists, which skip NULL types; operators can edit it.
+  const rows = await sql`
+    INSERT INTO connectors (id, evse_id, connector_id, status, status_reported_at, auto_created, connector_type)
+    VALUES (${createId('connector')}, ${evseUuid}, ${connectorId}, ${status}, ${reportedAt}::timestamptz, true, 'Unknown')
+    ON CONFLICT (evse_id, connector_id) DO UPDATE
+      SET status = EXCLUDED.status, status_reported_at = EXCLUDED.status_reported_at, updated_at = now()
+      WHERE connectors.status_reported_at IS NULL OR EXCLUDED.status_reported_at IS NULL
+        OR EXCLUDED.status_reported_at >= connectors.status_reported_at
+    RETURNING id
+  `;
+  return rows.length > 0;
+}
 
 // A plug's status from StatusNotification or NotifyEvent AvailabilityState.
 // Creates the EVSE and connector the first time they are reported.
@@ -192,6 +291,7 @@ export async function applyConnectorStatus(
   input: ConnectorStatusInput,
 ): Promise<ConnectorStatusResult> {
   const { stationUuid, evseId, connectorId, status } = input;
+  const reportedAt = statusReportedAt(input.timestamp);
   const evseRows = await sql`
     SELECT id FROM evses WHERE station_id = ${stationUuid} AND evse_id = ${evseId}
   `;
@@ -209,16 +309,20 @@ export async function applyConnectorStatus(
       RETURNING id
     `;
     if (insertedEvse.length === 0) {
-      return { stationExists: false, availabilityChanged: false };
+      return { stationExists: false, applied: false, availabilityChanged: false };
     }
     const evseUuid = insertedEvse[0]?.id as string;
-    // StatusNotification has no connector type. 'Unknown' keeps the connector
-    // visible in station lists, which skip NULL types; operators can edit it.
-    await sql`
-      INSERT INTO connectors (id, evse_id, connector_id, status, auto_created, connector_type)
-      VALUES (${createId('connector')}, ${evseUuid}, ${connectorId}, ${status}, true, 'Unknown')
-      ON CONFLICT (evse_id, connector_id) DO UPDATE SET status = EXCLUDED.status, updated_at = now()
-    `;
+    const written = await insertReportedConnector(sql, evseUuid, connectorId, status, reportedAt);
+    if (!written) {
+      return {
+        stationExists: true,
+        applied: false,
+        evseUuid,
+        previousStatus: undefined,
+        autoCreated: false,
+        availabilityChanged: false,
+      };
+    }
     await sql`
       INSERT INTO port_status_log (station_id, evse_id, connector_id, previous_status, new_status, timestamp)
       VALUES (${stationUuid}, ${evseId}, ${connectorId}, ${null}, ${status}, now())
@@ -226,6 +330,7 @@ export async function applyConnectorStatus(
     const change = await recomputeStationAvailability(sql, stationUuid);
     return {
       stationExists: true,
+      applied: true,
       evseUuid,
       previousStatus: undefined,
       autoCreated: true,
@@ -234,10 +339,56 @@ export async function applyConnectorStatus(
   }
 
   const evseUuid = evseRow.id as string;
-  const prevRows = await sql`
-    SELECT status FROM connectors WHERE evse_id = ${evseUuid} AND connector_id = ${connectorId}
+  // Read the previous status and write the new one in one statement under the
+  // row lock, so a concurrent report (another lane or pod) cannot slip between
+  // the guard and the write.
+  const updated = await sql`
+    WITH prev AS (
+      SELECT id, status FROM connectors
+      WHERE evse_id = ${evseUuid} AND connector_id = ${connectorId}
+      FOR UPDATE
+    ),
+    upd AS (
+      UPDATE connectors c
+      SET status = ${status}, status_reported_at = ${reportedAt}::timestamptz, updated_at = now()
+      FROM prev
+      WHERE c.id = prev.id
+        AND (c.status_reported_at IS NULL OR ${reportedAt}::timestamptz IS NULL
+          OR ${reportedAt}::timestamptz >= c.status_reported_at)
+      RETURNING c.id
+    )
+    SELECT prev.status AS previous_status, EXISTS (SELECT 1 FROM upd) AS applied FROM prev
   `;
-  const previousStatus = prevRows[0]?.status as string | undefined;
+  const updatedRow = updated[0];
+
+  let previousStatus: string | undefined;
+  let autoCreated = false;
+  if (updatedRow == null) {
+    const written = await insertReportedConnector(sql, evseUuid, connectorId, status, reportedAt);
+    if (!written) {
+      return {
+        stationExists: true,
+        applied: false,
+        evseUuid,
+        previousStatus: undefined,
+        autoCreated: false,
+        availabilityChanged: false,
+      };
+    }
+    autoCreated = true;
+  } else {
+    previousStatus = updatedRow.previous_status as string;
+    if (updatedRow.applied !== true) {
+      return {
+        stationExists: true,
+        applied: false,
+        evseUuid,
+        previousStatus,
+        autoCreated: false,
+        availabilityChanged: false,
+      };
+    }
+  }
 
   // Stations resend unchanged statuses; logging those would clutter the
   // timeline and inflate transition counts.
@@ -248,42 +399,31 @@ export async function applyConnectorStatus(
     `;
   }
 
-  let autoCreated = false;
-  if (prevRows.length === 0) {
-    await sql`
-      INSERT INTO connectors (id, evse_id, connector_id, status, auto_created, connector_type)
-      VALUES (${createId('connector')}, ${evseUuid}, ${connectorId}, ${status}, true, 'Unknown')
-      ON CONFLICT (evse_id, connector_id) DO UPDATE SET status = EXCLUDED.status, updated_at = now()
-    `;
-    autoCreated = true;
-  } else {
-    await sql`
-      UPDATE connectors SET status = ${status}, updated_at = now()
-      WHERE evse_id = ${evseUuid} AND connector_id = ${connectorId}
-    `;
-  }
-
   const change = await recomputeStationAvailability(sql, stationUuid);
-  return { stationExists: true, evseUuid, previousStatus, autoCreated, ...change };
+  return { stationExists: true, applied: true, evseUuid, previousStatus, autoCreated, ...change };
 }
 
-// Fine-grained connector status from a TransactionEvent chargingState. A
-// faulted or unavailable connector keeps its status until the station reports
-// a new one.
+// Fine-grained connector status from a TransactionEvent chargingState, ordered
+// by the TransactionEvent timestamp like any other status report. A faulted or
+// unavailable connector keeps its status until the station reports a new one.
+// Returns true when a connector changed.
 export async function applyEvseChargingState(
   sql: postgres.Sql,
   evseUuid: string,
   status: string,
-): Promise<void> {
-  await sql`
+  timestamp: string | null,
+): Promise<boolean> {
+  const reportedAt = statusReportedAt(timestamp);
+  const rows = await sql`
     UPDATE connectors
-    SET status = CASE
-          WHEN status IN ('faulted', 'unavailable') THEN status
-          ELSE ${status}
-        END,
-        updated_at = now()
+    SET status = ${status}, status_reported_at = ${reportedAt}::timestamptz, updated_at = now()
     WHERE evse_id = ${evseUuid}
+      AND status NOT IN ('faulted', 'unavailable')
+      AND (status_reported_at IS NULL OR ${reportedAt}::timestamptz IS NULL
+        OR ${reportedAt}::timestamptz >= status_reported_at)
+    RETURNING id
   `;
+  return rows.length > 0;
 }
 
 export interface StationLevelState {

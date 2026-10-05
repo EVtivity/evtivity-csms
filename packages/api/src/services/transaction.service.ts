@@ -54,10 +54,20 @@ export async function getTransactionEventsBySession(sessionId: string) {
     .orderBy(transactionEvents.seqNo);
 }
 
-export async function getSessionByTransactionId(transactionId: string) {
-  const [session] = await db
-    .select()
+/**
+ * The session of a transaction at a station (its OCPP identity). A
+ * transactionId is unique per station only (OCPP 2.1 E01.FR.08).
+ */
+export async function getSessionByTransactionId(stationOcppId: string, transactionId: string) {
+  const [row] = await db
+    .select({ session: chargingSessions })
     .from(chargingSessions)
-    .where(eq(chargingSessions.transactionId, transactionId));
-  return session ?? null;
+    .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+    .where(
+      and(
+        eq(chargingStations.stationId, stationOcppId),
+        eq(chargingSessions.transactionId, transactionId),
+      ),
+    );
+  return row?.session ?? null;
 }

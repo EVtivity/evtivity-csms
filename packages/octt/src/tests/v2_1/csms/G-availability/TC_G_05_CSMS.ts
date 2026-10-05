@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 // Helper: boot station and send StatusNotification
 async function bootAndStatus(ctx: {
@@ -60,7 +61,7 @@ export const TC_G_05_CSMS: TestCase = {
           if (payload['evse'] != null) hasEvse = true;
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -159,7 +160,7 @@ export const TC_G_06_CSMS: TestCase = {
           operationalStatus = String(payload['operationalStatus'] ?? '');
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -256,7 +257,7 @@ export const TC_G_14_CSMS: TestCase = {
           operationalStatus = String(payload['operationalStatus'] ?? '');
           return { status: 'Scheduled' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

@@ -2,8 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi } from 'vitest';
-import type { EventBus } from '@evtivity/lib';
-import { projectionQueueFor } from '../server/projection-queue.js';
+import type { DomainEvent, EventBus } from '@evtivity/lib';
+import {
+  projectionLane,
+  projectionQueueFor,
+  sessionPricedKey,
+  transactionKey,
+} from '../server/projection-queue.js';
 
 function makeBus(): EventBus {
   return { publish: vi.fn(), subscribe: vi.fn(), drain: vi.fn(), track: vi.fn() };
@@ -101,5 +106,52 @@ describe('projectionQueueFor', () => {
     void queue.enqueue('tx-1', () => stuck.promise);
     await expect(queue.settled(['tx-1'], 20)).resolves.toBe(false);
     stuck.resolve();
+  });
+});
+
+function makeEvent(aggregateType: string, aggregateId: string, stationId: string): DomainEvent {
+  return {
+    eventType: 'ocpp.TransactionEvent',
+    aggregateType,
+    aggregateId,
+    payload: { stationId, transactionId: aggregateId },
+    occurredAt: new Date(),
+  };
+}
+
+describe('transaction keys', () => {
+  it('scopes a transactionId by its station', () => {
+    expect(transactionKey('CS-1', 'tx-1')).not.toBe(transactionKey('CS-2', 'tx-1'));
+    expect(transactionKey('CS-1', 'tx-1')).toBe(transactionKey('CS-1', 'tx-1'));
+  });
+
+  it('never joins two different pairs into one key', () => {
+    expect(transactionKey('A:B', 'C')).not.toBe(transactionKey('A', 'B:C'));
+    expect(sessionPricedKey('A:B', 'C')).not.toBe(sessionPricedKey('A', 'B:C'));
+    expect(sessionPricedKey('CS-1', 'tx-1')).not.toBe(sessionPricedKey('CS-2', 'tx-1'));
+  });
+
+  it('puts the same transactionId of two stations on two lanes', () => {
+    const a = projectionLane(makeEvent('Transaction', 'tx-1', 'CS-1'));
+    const b = projectionLane(makeEvent('Transaction', 'tx-1', 'CS-2'));
+    expect(a).toBe(transactionKey('CS-1', 'tx-1'));
+    expect(b).toBe(transactionKey('CS-2', 'tx-1'));
+  });
+
+  it('keeps station events on the station lane', () => {
+    expect(projectionLane(makeEvent('EVSE', 'CS-1', 'CS-1'))).toBe('CS-1');
+    expect(projectionLane(makeEvent('ChargingStation', 'CS-1', 'CS-1'))).toBe('CS-1');
+  });
+
+  it('runs the same transactionId of two stations in parallel', async () => {
+    const queue = projectionQueueFor(makeBus());
+    const blocked = deferred();
+    void queue.enqueue(transactionKey('CS-1', 'tx-1'), () => blocked.promise);
+    const other = vi.fn(() => Promise.resolve());
+    await queue.enqueue(transactionKey('CS-2', 'tx-1'), other);
+    expect(other).toHaveBeenCalledOnce();
+    await expect(queue.settled([transactionKey('CS-2', 'tx-1')], 50)).resolves.toBe(true);
+    await expect(queue.settled([transactionKey('CS-1', 'tx-1')], 20)).resolves.toBe(false);
+    blocked.resolve();
   });
 });

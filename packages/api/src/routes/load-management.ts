@@ -13,7 +13,7 @@ import {
   buildSiteHierarchy,
   computeHierarchicalAllocation,
   type HierarchyNode,
-} from '../services/load-management.service.js';
+} from '@evtivity/services/load-management.service';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 

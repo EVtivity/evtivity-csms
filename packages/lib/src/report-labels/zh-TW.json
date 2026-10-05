@@ -1,0 +1,203 @@
+{
+  "locale": "zh-TW",
+  "common": {
+    "period": "期間：{period}",
+    "range": "{from} 至 {to}",
+    "since": "自 {from} 起",
+    "until": "截至 {to}",
+    "allTime": "全部時間",
+    "last30Days": "最近 30 天",
+    "summaryLabel": "{label}：",
+    "noSite": "無站點",
+    "unknown": "未知",
+    "yes": "是",
+    "no": "否",
+    "minutes": "{value} 分鐘",
+    "kwh": "{value} kWh",
+    "inclTax": "含稅",
+    "exclTax": "未稅"
+  },
+  "columns": {
+    "date": "日期",
+    "site": "站點",
+    "station": "充電樁",
+    "stations": "充電樁數",
+    "driver": "駕駛員",
+    "email": "電子郵件",
+    "status": "狀態",
+    "sessions": "工作階段",
+    "count": "數量",
+    "energyKwh": "電量 (kWh)",
+    "kwh": "kWh",
+    "total": "合計",
+    "durationMin": "時長（分鐘）",
+    "duration": "時長",
+    "started": "開始",
+    "ended": "結束"
+  },
+  "revenue": {
+    "title": "營收報告",
+    "sheets": {
+      "byDay": "依日",
+      "bySite": "依站點",
+      "payments": "付款"
+    },
+    "columns": {
+      "revenue": "營收",
+      "tax": "稅額",
+      "electricityCost": "電費成本",
+      "profit": "利潤",
+      "paymentStatus": "付款狀態"
+    },
+    "summary": {
+      "totalRevenueInclTax": "總營收（含稅）",
+      "totalTax": "總稅額",
+      "totalRevenueExclTax": "總營收（未稅）",
+      "totalElectricityCost": "總電費成本",
+      "totalProfit": "總利潤",
+      "totalSessions": "工作階段總數"
+    }
+  },
+  "energy": {
+    "title": "電量報告",
+    "sheets": {
+      "byDay": "依日",
+      "byStation": "依充電樁",
+      "bySite": "依站點"
+    },
+    "columns": {
+      "avgKwhPerSession": "每次工作階段平均 kWh"
+    },
+    "summary": {
+      "totalEnergy": "總電量",
+      "totalSessions": "工作階段總數"
+    }
+  },
+  "driverActivity": {
+    "title": "駕駛員活動報告",
+    "sheets": {
+      "driverActivity": "駕駛員活動"
+    },
+    "columns": {
+      "totalKwh": "總 kWh",
+      "totalSpend": "總消費",
+      "spend": "消費",
+      "avgDurationMin": "平均時長（分鐘）",
+      "avgDuration": "平均時長",
+      "firstSession": "首次工作階段",
+      "lastSession": "最近工作階段"
+    },
+    "summary": {
+      "activeDrivers": "活躍駕駛員",
+      "totalSessions": "工作階段總數",
+      "totalEnergy": "總電量"
+    }
+  },
+  "sessions": {
+    "title": "工作階段報告",
+    "sheets": {
+      "sessions": "工作階段",
+      "failedSessions": "失敗的工作階段",
+      "note": "說明"
+    },
+    "columns": {
+      "transactionId": "交易 ID",
+      "transactionIdShort": "交易 ID",
+      "cost": "費用",
+      "costFinal": "費用已確定",
+      "net": "淨額",
+      "tax": "稅額",
+      "taxRatePercent": "稅率 (%)",
+      "refunded": "已退款",
+      "currency": "幣別",
+      "stoppedReason": "停止原因",
+      "paymentSource": "付款來源",
+      "reason": "原因",
+      "failedReason": "失敗原因",
+      "resultTruncated": "結果已截斷"
+    },
+    "failedAnalysis": "失敗工作階段分析",
+    "truncated": "僅顯示前 {limit} 個工作階段。縮小日期範圍以查看其餘工作階段。",
+    "summary": {
+      "totalSessions": "工作階段總數"
+    }
+  },
+  "utilization": {
+    "title": "使用率報告",
+    "sheets": {
+      "bySite": "依站點",
+      "byStation": "依充電樁",
+      "peakHours": "尖峰時段"
+    },
+    "columns": {
+      "sessionHours": "工作階段時數",
+      "hours": "時數",
+      "utilizationPercent": "使用率 (%)",
+      "utilizationShort": "使用率 (%)",
+      "day": "星期",
+      "hour": "時段",
+      "sessionCount": "工作階段數"
+    },
+    "summary": {
+      "averageUtilization": "平均使用率",
+      "totalStations": "充電樁總數"
+    }
+  },
+  "stationHealth": {
+    "title": "充電樁健康報告",
+    "sheets": {
+      "uptime": "妥善率",
+      "faultFrequency": "故障頻率",
+      "downtimeIncidents": "停機事件"
+    },
+    "columns": {
+      "ports": "連接埠",
+      "uptimePercent": "妥善率 (%)",
+      "downtimeMin": "停機時長（分鐘）",
+      "faultCount": "故障次數",
+      "evse": "EVSE"
+    },
+    "summary": {
+      "averageUptime": "平均妥善率",
+      "stationsReported": "統計的充電樁"
+    }
+  },
+  "sustainability": {
+    "title": "永續發展報告",
+    "sheets": {
+      "summary": "摘要",
+      "configuration": "設定",
+      "bySite": "依站點",
+      "dailyEnergy": "每日電量"
+    },
+    "columns": {
+      "metric": "指標",
+      "value": "值",
+      "parameter": "參數",
+      "netGhgReduction": "溫室氣體淨減量 (kg CO₂)",
+      "ghgReduction": "溫室氣體減量 (kg CO₂)"
+    },
+    "metrics": {
+      "totalEnergyDelivered": "總供電量 (kWh)",
+      "netGhgReduction": "溫室氣體淨減量 (kg CO₂)",
+      "gridCo2": "電網 CO₂ 排放量 (kg)",
+      "gasolineCo2Avoided": "避免的汽油 CO₂ (kg)",
+      "evMilesEnabled": "電動車可行駛英里數",
+      "gasolineGallonsDisplaced": "替代的汽油加侖數",
+      "gridEmissionFactor": "電網排放係數 (kg CO₂/kWh)",
+      "evEfficiency": "電動車能效（英里/kWh）",
+      "gasolineEmissionFactor": "汽油排放係數 (kg CO₂/加侖)",
+      "averageVehicleMpg": "車輛平均油耗 (MPG)"
+    },
+    "summary": {
+      "totalEnergyDelivered": "總供電量",
+      "netGhgReduction": "溫室氣體淨減量",
+      "evMilesEnabled": "電動車可行駛英里數",
+      "gasolineDisplaced": "替代的汽油"
+    },
+    "units": {
+      "kgCo2": "{value} kg CO₂",
+      "gallons": "{value} 加侖"
+    }
+  }
+}

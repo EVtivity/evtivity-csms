@@ -7,7 +7,7 @@ import { AppError, dispatchSystemNotification } from '@evtivity/lib';
 import { db, client, drivers, userTokens, driverAuditLog, writeAudit } from '@evtivity/database';
 import { generateUserToken, hashUserToken } from '../lib/user-token.js';
 import { validatePasswordComplexity } from '../lib/password-validation.js';
-import { ALL_TEMPLATES_DIRS } from '../lib/template-dirs.js';
+import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { config } from '../lib/config.js';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
 import { revokeAllDriverRefreshTokens } from './refresh-token.service.js';

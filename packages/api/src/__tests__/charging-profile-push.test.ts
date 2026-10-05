@@ -7,7 +7,7 @@ const { sendOcppCommandAndWaitMock } = vi.hoisted(() => ({
   sendOcppCommandAndWaitMock: vi.fn(),
 }));
 
-vi.mock('../lib/ocpp-command.js', () => ({
+vi.mock('@evtivity/services/ocpp-command', () => ({
   sendOcppCommandAndWait: sendOcppCommandAndWaitMock,
 }));
 

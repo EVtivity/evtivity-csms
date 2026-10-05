@@ -28,14 +28,14 @@ import {
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
-import { buildDerivedStatusSubquery } from '../lib/station-derived-status.js';
+import { buildDerivedStatusSubquery } from '@evtivity/services/station-derived-status';
 import {
   createEvent,
   cancelEvent,
   updateEvent,
   addStationsToMaintenance,
   removeStationsFromMaintenance,
-} from '../services/maintenance.service.js';
+} from '@evtivity/services/maintenance.service';
 
 const siteIdParams = z.object({
   siteId: z.string().describe('Site ID (e.g., sit_...)'),

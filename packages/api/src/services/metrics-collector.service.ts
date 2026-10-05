@@ -31,7 +31,7 @@ import {
   ocppPingSuccessRate,
   ocppHeartbeatsTotal,
 } from '../plugins/metrics.js';
-import { queryRevenueTotal } from '../lib/session-revenue.js';
+import { queryRevenueTotal } from '@evtivity/services/session-revenue';
 
 const logger = createLogger('metrics-collector');
 

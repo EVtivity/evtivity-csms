@@ -14,7 +14,7 @@ import {
   isStationChargingFree,
   resolveStationTariff,
 } from '@evtivity/database';
-import { decryptString, notificationMoney, TAX_BASES } from '@evtivity/lib';
+import { decryptString, notificationMoney, publishOcppCommand, TAX_BASES } from '@evtivity/lib';
 import { config as apiConfig } from '../../lib/config.js';
 import {
   chargingStations,
@@ -32,9 +32,9 @@ import {
 } from '@evtivity/database';
 import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
 import { zodSchema } from '../../lib/zod-schema.js';
-import { sessionCurrencySql } from '../../lib/company-currency.js';
+import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import { ID_PARAMS } from '../../lib/id-validation.js';
-import { getPubSub } from '../../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { scheduleRemoteStartTimeout } from '../../lib/remote-start-timeout.js';
 import {
   errorResponse,
@@ -44,18 +44,15 @@ import {
 } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import { getS3Config, generateDownloadUrl } from '../../services/s3.service.js';
-import {
-  sendOcppCommandAndWait,
-  sendStatusCheckError,
-  triggerAndWaitForStatus,
-} from '../../lib/ocpp-command.js';
-import { applyReservationCancellation } from '../../lib/reservation-cancel.js';
+import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
+import { sendStatusCheckError, triggerAndWaitForStatus } from '../../lib/station-status-check.js';
+import { applyReservationCancellation } from '@evtivity/services/reservation-cancel';
 import { assertReservationsAllowed } from '../../lib/reservation-eligibility.js';
 import {
   assertNoMaintenanceConflict,
   MaintenanceConflictError,
-} from '../../lib/maintenance-check.js';
-import { getActiveMaintenanceForStation } from '../../services/maintenance.service.js';
+} from '@evtivity/services/maintenance-check';
+import { getActiveMaintenanceForStation } from '@evtivity/services/maintenance.service';
 import { renderMaintenanceMessage } from '@evtivity/lib';
 import {
   isStationCheckRateLimited,
@@ -66,7 +63,7 @@ import type { DriverJwtPayload } from '../../plugins/auth.js';
 import { authorizeSessionHold, cancelOpenSessionHold } from '@evtivity/payments';
 import { activePaymentProvider, paymentContext } from '../../lib/payments.js';
 import { dispatchDriverNotification } from '@evtivity/lib';
-import { ALL_TEMPLATES_DIRS } from '../../lib/template-dirs.js';
+import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { isEvseInReservationBuffer } from '../../lib/reservation-buffer.js';
 
 const portalConnectorItem = z
@@ -2675,7 +2672,6 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         );
       } else {
         // Send ReserveNow to station immediately
-        const commandId = crypto.randomUUID();
         const ocppPayload: Record<string, unknown> = {
           id: reservationId,
           expiryDateTime: body.expiresAt,
@@ -2685,14 +2681,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           ocppPayload['evseId'] = body.evseId;
         }
 
-        const notification = JSON.stringify({
-          commandId,
+        await publishOcppCommand(getPubSub(), {
           stationId: body.stationId,
           action: 'ReserveNow',
           payload: ocppPayload,
         });
-
-        await getPubSub().publish('ocpp_commands', notification);
       }
 
       // Notify driver of reservation
@@ -2766,15 +2759,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
 
       // Skip OCPP CancelReservation for scheduled reservations (not yet sent to station)
       if (reservation.status === 'active') {
-        const commandId = crypto.randomUUID();
-        const notification = JSON.stringify({
-          commandId,
+        await publishOcppCommand(getPubSub(), {
           stationId: reservation.stationOcppId,
           action: 'CancelReservation',
           payload: { reservationId: reservation.reservationId },
         });
-
-        await getPubSub().publish('ocpp_commands', notification);
       }
 
       // Driver-initiated: chargeFee=true. The helper still gates on the
@@ -2791,6 +2780,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           actorDriverId: driverId,
           reason: 'driver_initiated',
           chargeFee: true,
+          payments: paymentContext(request.log),
           logger: request.log,
         });
 

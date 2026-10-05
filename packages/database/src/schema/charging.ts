@@ -50,6 +50,10 @@ export const chargingSessions = pgTable(
     driverId: text('driver_id').references(() => drivers.id),
     tokenId: text('token_id').references(() => driverTokens.id, { onDelete: 'set null' }),
     vehicleId: text('vehicle_id').references(() => vehicles.id, { onDelete: 'set null' }),
+    // OCPP 2.1 transactionIds are unique per station only (E01.FR.08): new code
+    // keys by uq_charging_sessions_station_transaction. The global unique
+    // (charging_sessions_transaction_id_unique) stays until the N4 contract,
+    // because pods before v0.1.38 insert with ON CONFLICT (transaction_id).
     transactionId: varchar('transaction_id', { length: 36 }).notNull().unique(),
     status: sessionStatusEnum('status').notNull().default('active'),
     startedAt: timestamp('started_at', { withTimezone: true }),
@@ -87,6 +91,14 @@ export const chargingSessions = pgTable(
     // The idle_started_at the idle notification was sent for (one per idle period).
     idleNotifiedAt: timestamp('idle_notified_at', { withTimezone: true }),
     lastUpdateNotifiedAt: timestamp('last_update_notified_at', { withTimezone: true }),
+    // A durable request to end the session the normal way (completed and
+    // billed) because the station will not: 'GhostRecovered' or 'Superseded'.
+    // end_claimed_at is the lease of the OCPP pod processing it (retried by the
+    // OCPP sweep). See packages/ocpp/src/server/csms-session-end.ts.
+    endRequestReason: varchar('end_request_reason', { length: 32 }),
+    endClaimedAt: timestamp('end_claimed_at', { withTimezone: true }),
+    // Claims taken for the end request; the sweep gives up after a cap.
+    endAttempts: integer('end_attempts').notNull().default(0),
     metadata: jsonb('metadata'),
     freeVend: boolean('free_vend').notNull().default(false),
     co2AvoidedKg: numeric('co2_avoided_kg'),
@@ -98,6 +110,10 @@ export const chargingSessions = pgTable(
     index('idx_sessions_station_id').on(table.stationId),
     index('idx_sessions_status').on(table.status),
     index('idx_sessions_transaction_id').on(table.transactionId),
+    uniqueIndex('uq_charging_sessions_station_transaction').on(
+      table.stationId,
+      table.transactionId,
+    ),
     index('idx_sessions_started_at').on(table.startedAt),
     index('idx_sessions_driver_id').on(table.driverId),
     index('idx_sessions_reservation_id').on(table.reservationId),
@@ -110,6 +126,9 @@ export const chargingSessions = pgTable(
     index('idx_sessions_driver_status').on(table.driverId, table.status),
     index('idx_sessions_token_id').on(table.tokenId),
     index('idx_sessions_vehicle_id').on(table.vehicleId),
+    index('idx_charging_sessions_end_request')
+      .on(table.endRequestReason)
+      .where(sql`status = 'active' AND end_request_reason IS NOT NULL`),
   ],
 );
 

@@ -38,6 +38,12 @@ vi.mock('../encryption.js', async (importOriginal) => {
 const mockFetch = vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
 vi.stubGlobal('fetch', mockFetch);
 
+// The connect-time DNS guard of safeFetch has its own tests (safe-fetch.test.ts).
+vi.mock('../safe-fetch.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../safe-fetch.js')>()),
+  safeFetch: (...args: unknown[]) => (globalThis.fetch as (...a: unknown[]) => unknown)(...args),
+}));
+
 // --- SQL mock ---
 
 const sqlCalls: Array<{ strings: TemplateStringsArray; values: unknown[] }> = [];
@@ -396,18 +402,45 @@ describe('notification-dispatch (full coverage)', () => {
       expect(result.body).toBe('SMS override text');
     });
 
-    it('uses defaultSubject when DB template has null subject', async () => {
+    it('uses the subject file when the DB template has a null subject', async () => {
       const { renderTemplate } = await freshImport();
       setupSqlResults([{ subject: null, body_html: '<p>Body only</p>' }]);
+      mockReadFile.mockImplementation((path: string) =>
+        path === '/subj-db/ko/session/Started/subject.hbs'
+          ? Promise.resolve('{{{companyName}}} - 충전 세션이 시작되었습니다\n')
+          : Promise.reject(new Error('ENOENT')),
+      );
       const result = await renderTemplate(
         'email',
         'session.Started',
-        'en',
+        'ko',
         { companyName: 'TestCo' },
         sql as never,
+        undefined,
+        '/subj-db',
       );
-      expect(result.subject).toContain('TestCo');
-      expect(result.subject).toContain('started');
+      expect(result.subject).toBe('TestCo - 충전 세션이 시작되었습니다');
+      expect(result.html).toBe('<p>Body only</p>');
+    });
+
+    it('prefers the DB subject over the subject file', async () => {
+      const { renderTemplate } = await freshImport();
+      setupSqlResults([{ subject: 'Custom {{companyName}}', body_html: '<p>Body</p>' }]);
+      mockReadFile.mockImplementation((path: string) =>
+        path.endsWith('subject.hbs')
+          ? Promise.resolve('File subject')
+          : Promise.reject(new Error('ENOENT')),
+      );
+      const result = await renderTemplate(
+        'email',
+        'session.Started',
+        'de',
+        { companyName: 'TestCo' },
+        sql as never,
+        undefined,
+        '/subj-db-wins',
+      );
+      expect(result.subject).toBe('Custom TestCo');
     });
 
     it('does not set html for sms channel from DB template', async () => {
@@ -509,29 +542,60 @@ describe('notification-dispatch (full coverage)', () => {
       expect(result.subject).toContain('Notification');
     });
 
-    it('uses friendly subject for all known event types', async () => {
+    it('renders the subject file in the recipient language without HTML escaping', async () => {
       const { renderTemplate } = await freshImport();
-      const knownTypes = [
-        'session.Completed',
-        'session.Updated',
-        'session.PaymentReceived',
-        'driver.Welcome',
-        'driver.ForgotPassword',
-        'driver.PasswordChanged',
-        'driver.AccountVerification',
+      mockReadFile.mockImplementation((path: string) => {
+        if (path === '/subj-lang/zh-TW/payment/Complete/email.hbs') {
+          return Promise.resolve('<p>{{amountFormatted}}</p>');
+        }
+        if (path === '/subj-lang/zh-TW/payment/Complete/subject.hbs') {
+          return Promise.resolve('{{{companyName}}} - 付款確認\n');
+        }
+        return Promise.reject(new Error('ENOENT'));
+      });
+      const result = await renderTemplate(
+        'email',
         'payment.Complete',
-        'payment.Refunded',
-        'reservation.Expiring',
-        'reservation.Expired',
+        'zh-TW',
+        { companyName: 'A & B', amountFormatted: '$1.00' },
+        undefined,
+        undefined,
+        '/subj-lang',
+      );
+      expect(result.subject).toBe('A & B - 付款確認');
+      expect(result.html).toBe('<p>$1.00</p>');
+    });
+
+    it('falls back to the en subject file when the language has none', async () => {
+      const { renderTemplate } = await freshImport();
+      mockReadFile.mockImplementation((path: string) =>
+        path === '/subj-fallback/en/session/Receipt/subject.hbs'
+          ? Promise.resolve('{{{companyName}}} - Charging session receipt')
+          : Promise.reject(new Error('ENOENT')),
+      );
+      const result = await renderTemplate(
+        'sms',
         'session.Receipt',
-        'operator.ForgotPassword',
-        'report.Scheduled',
-      ];
-      for (const eventType of knownTypes) {
-        const result = await renderTemplate('sms', eventType, 'en', { companyName: 'Acme' });
-        expect(result.subject).toContain('Acme');
-        expect(result.subject).not.toContain('Notification');
-      }
+        'ko',
+        { companyName: 'Acme' },
+        undefined,
+        undefined,
+        '/subj-fallback',
+      );
+      expect(result.subject).toBe('Acme - Charging session receipt');
+    });
+
+    it('searches the template directories in order for the subject', async () => {
+      const { loadSubjectTemplate } = await freshImport();
+      mockReadFile.mockImplementation((path: string) =>
+        path === '/subj-second/es/token/Added/subject.hbs'
+          ? Promise.resolve('  Segundo  \n')
+          : Promise.reject(new Error('ENOENT')),
+      );
+      await expect(
+        loadSubjectTemplate('token.Added', 'es', ['/subj-first', '/subj-second']),
+      ).resolves.toBe('Segundo');
+      await expect(loadSubjectTemplate('token.Added', 'es')).resolves.toBeNull();
     });
 
     it('skips DB lookup when sql is not provided', async () => {

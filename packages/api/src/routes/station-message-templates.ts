@@ -11,6 +11,7 @@ import {
   getCompanyPriceDisplay,
   getCompanyTaxBasis,
   getStationMessagePricingFormat,
+  getStationMessageBrandLine,
 } from '@evtivity/database';
 import {
   STATION_MESSAGE_DEFAULTS,
@@ -18,6 +19,7 @@ import {
   buildStationPriceContext,
   clearStationMessageCache,
   formatCurrencyAmount,
+  formatStationElapsed,
   formatStationIdleFeeRate,
   formatStationQuantity,
   formatStationTime,
@@ -29,6 +31,20 @@ import { itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
 import type { JwtPayload } from '../plugins/auth.js';
+import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
+
+// State screens re-render on a template change; one-shot templates render on
+// their next dispatch.
+const STATE_SCREEN_TEMPLATES = new Set<StationMessageState>([
+  'available',
+  'occupied',
+  'reserved',
+  'charging',
+  'suspended',
+  'discharging',
+  'faulted',
+  'unavailable',
+]);
 
 const STATION_MESSAGE_STATES = [
   'available',
@@ -98,14 +114,16 @@ const SAMPLE_TARIFF = {
 };
 
 async function sampleContext(language: StationMessageLanguage): Promise<Record<string, unknown>> {
-  const [currency, priceDisplay, taxBasis, pricingFormat] = await Promise.all([
+  const [currency, priceDisplay, taxBasis, pricingFormat, brandLine] = await Promise.all([
     getCompanyCurrency(),
     getCompanyPriceDisplay(),
     getCompanyTaxBasis(),
     getStationMessagePricingFormat(),
+    getStationMessageBrandLine(),
   ]);
   return {
     companyName: 'EVtivity',
+    brandLine: brandLine.trim() !== '' ? brandLine : 'EVtivity',
     stationOcppId: 'CS-1234',
     ...buildStationPriceContext({
       tariff: SAMPLE_TARIFF,
@@ -118,7 +136,8 @@ async function sampleContext(language: StationMessageLanguage): Promise<Record<s
     energyKwh: formatStationQuantity(12.4, language),
     powerKw: formatStationQuantity(22, language),
     costFormatted: formatCurrencyAmount(342, currency, language),
-    elapsedFormatted: '12m',
+    // A session started 1 h 12 min ago.
+    elapsedFormatted: formatStationElapsed(new Date(0), language, 72 * 60_000),
     idleFeeRate: formatStationIdleFeeRate({
       pricePerMinute: SAMPLE_TARIFF.idleFeePricePerMinute,
       taxRate: SAMPLE_TARIFF.taxRate,
@@ -209,6 +228,7 @@ export function stationMessageTemplateRoutes(app: FastifyInstance): void {
       }
 
       clearStationMessageCache();
+      if (STATE_SCREEN_TEMPLATES.has(state)) await requestStationMessageRepush(request.log);
       return row;
     },
   );
@@ -252,6 +272,7 @@ export function stationMessageTemplateRoutes(app: FastifyInstance): void {
         });
 
       clearStationMessageCache();
+      if (STATE_SCREEN_TEMPLATES.has(state)) await requestStationMessageRepush(request.log);
       return row;
     },
   );

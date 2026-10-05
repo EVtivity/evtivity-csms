@@ -28,7 +28,7 @@ import {
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { processConfigPush } from '../lib/config-push.js';
-import { findTemplateTargetConfiguration } from '../lib/config-drift.js';
+import { findTemplateTargetConfiguration } from '@evtivity/lib';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 

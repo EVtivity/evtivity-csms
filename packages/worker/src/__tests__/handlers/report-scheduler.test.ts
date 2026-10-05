@@ -11,6 +11,7 @@ import type { Logger } from 'pino';
 //   then per schedule:
 //   2. UPDATE reportSchedules (nextRunAt/lastRunAt)  -> no awaited result needed
 //   3. SELECT report (inside waitForReport)
+//   4. SELECT users (recipient languages), when there are recipients and SMTP
 let dbResults: unknown[][] = [];
 let dbCallIndex = 0;
 function setupDbResults(...results: unknown[][]) {
@@ -73,20 +74,26 @@ vi.mock('@evtivity/database', () => ({
     fileData: 'reports.fileData',
     fileName: 'reports.fileName',
   },
+  users: { email: 'users.email', language: 'users.language' },
 }));
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
   and: vi.fn(),
+  inArray: vi.fn((col: unknown, values: unknown) => ({ col, values })),
   lte: vi.fn(),
   sql: vi.fn(() => 'now()'),
 }));
 
 const mockQueueReport = vi.fn().mockResolvedValue('report-id-123');
 const mockComputeNextRunAt = vi.fn().mockResolvedValue(new Date('2026-01-02T06:00:00Z'));
-vi.mock('@evtivity/api/src/services/report.service.js', () => ({
+const mockOperatorReportLanguage = vi.fn().mockResolvedValue('en');
+const mockRenderReport = vi.fn();
+vi.mock('@evtivity/services/report.service', () => ({
   queueReport: (...args: unknown[]) => mockQueueReport(...args),
   computeNextRunAtInTz: (...args: unknown[]) => mockComputeNextRunAt(...args),
+  operatorReportLanguage: (...args: unknown[]) => mockOperatorReportLanguage(...args),
+  renderReport: (...args: unknown[]) => mockRenderReport(...args),
 }));
 
 const mockGetNotificationSettings = vi.fn();
@@ -138,7 +145,133 @@ describe('reportSchedulerHandler', () => {
     clientCallIndex = 0;
     mockQueueReport.mockResolvedValue('report-id-123');
     mockComputeNextRunAt.mockResolvedValue(new Date('2026-01-02T06:00:00Z'));
+    mockOperatorReportLanguage.mockResolvedValue('en');
     mockClient.json.mockImplementation((v: unknown) => v);
+  });
+
+  it('attaches the report in each recipient language, reusing the stored file', async () => {
+    const schedule = makeSchedule({
+      format: 'pdf',
+      recipientEmails: ['de1@example.com', 'ko@example.com', 'x@ext.com', 'de2@example.com'],
+    });
+    setupDbResults(
+      [schedule],
+      [],
+      [{ status: 'completed', fileData: Buffer.from('stored-de'), fileName: 'stored.pdf' }],
+      [
+        { email: 'de1@example.com', language: 'de' },
+        { email: 'ko@example.com', language: 'ko' },
+        { email: 'de2@example.com', language: 'de' },
+      ],
+    );
+    setupClientResults([{ value: 'Acme' }], [], [], [], []);
+    mockGetNotificationSettings.mockResolvedValue({ smtp: SMTP, emailWrapperTemplate: null });
+    mockRenderTemplate.mockResolvedValue({ subject: 's', body: 'b' });
+    mockSendEmail.mockResolvedValue(true);
+    // The schedule creator reads German, so the stored report is the German file.
+    mockOperatorReportLanguage.mockResolvedValue('de');
+    mockRenderReport.mockImplementation(
+      (_type: string, _filters: unknown, _format: string, language: string) =>
+        Promise.resolve({ data: Buffer.from(`file-${language}`), fileName: `${language}.pdf` }),
+    );
+
+    const { reportSchedulerHandler } = await import('../../handlers/report-scheduler.js');
+    await reportSchedulerHandler(makeLog());
+
+    expect(mockOperatorReportLanguage).toHaveBeenCalledWith('usr_1');
+    // One file per missing language, with the schedule's type, filters and format.
+    expect(mockRenderReport.mock.calls).toEqual([
+      ['sessions', { siteId: 'site_1' }, 'pdf', 'ko'],
+      ['sessions', { siteId: 'site_1' }, 'pdf', 'en'],
+    ]);
+    const attached = mockSendEmail.mock.calls.map((c) => {
+      const files = c[5] as Array<{ filename: string; contentType: string }>;
+      return [c[1], files.map((f) => f.filename), files[0]?.contentType];
+    });
+    expect(attached).toEqual([
+      ['de1@example.com', ['stored.pdf'], 'application/pdf'],
+      ['ko@example.com', ['ko.pdf'], 'application/pdf'],
+      ['x@ext.com', ['en.pdf'], 'application/pdf'],
+      ['de2@example.com', ['stored.pdf'], 'application/pdf'],
+    ]);
+  });
+
+  it('sends without an attachment when a language fails to render', async () => {
+    const schedule = makeSchedule({ recipientEmails: ['ko@example.com', 'ops@evtivity.com'] });
+    setupDbResults(
+      [schedule],
+      [],
+      [{ status: 'completed', fileData: Buffer.from('stored'), fileName: 'stored.csv' }],
+      [{ email: 'ko@example.com', language: 'ko' }],
+    );
+    setupClientResults([{ value: 'Acme' }], [], []);
+    mockGetNotificationSettings.mockResolvedValue({ smtp: SMTP, emailWrapperTemplate: null });
+    mockRenderTemplate.mockResolvedValue({ subject: 's', body: 'b' });
+    mockSendEmail.mockResolvedValue(true);
+    mockRenderReport.mockRejectedValue(new Error('generator failed'));
+    const log = makeLog();
+
+    const { reportSchedulerHandler } = await import('../../handlers/report-scheduler.js');
+    await reportSchedulerHandler(log);
+
+    expect(mockSendEmail.mock.calls.map((c) => [c[1], c[5]])).toEqual([
+      ['ko@example.com', undefined],
+      ['ops@evtivity.com', [expect.objectContaining({ filename: 'stored.csv' })]],
+    ]);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ scheduleId: 'sch_1', language: 'ko' }),
+      'Scheduled report attachment failed in this language, sending without it',
+    );
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it('renders the email once per recipient language and falls back to en', async () => {
+    const schedule = makeSchedule({
+      recipientEmails: ['Ko.Op@Example.com', 'de.op@example.com', 'ko2@example.com', 'x@ext.com'],
+    });
+    setupDbResults(
+      [schedule],
+      [],
+      [{ status: 'completed', fileData: Buffer.from('a'), fileName: 'r.csv' }],
+      [
+        { email: 'ko.op@example.com', language: 'ko' },
+        { email: 'DE.OP@example.com', language: 'de' },
+        { email: 'ko2@example.com', language: 'ko' },
+      ],
+    );
+    setupClientResults([{ value: 'Acme' }], [], [], [], []);
+    mockGetNotificationSettings.mockResolvedValue({ smtp: SMTP, emailWrapperTemplate: null });
+    mockRenderTemplate.mockImplementation((_c: string, _e: string, language: string) =>
+      Promise.resolve({ subject: `subject-${language}`, body: `body-${language}` }),
+    );
+    mockSendEmail.mockResolvedValue(true);
+
+    const { inArray } = await import('drizzle-orm');
+    const { reportSchedulerHandler } = await import('../../handlers/report-scheduler.js');
+    await reportSchedulerHandler(makeLog());
+
+    // The lookup is case-insensitive: lowercased, deduplicated addresses.
+    expect(vi.mocked(inArray).mock.calls.at(-1)?.[1]).toEqual([
+      'ko.op@example.com',
+      'de.op@example.com',
+      'ko2@example.com',
+      'x@ext.com',
+    ]);
+    // One render per language, in the language of each recipient.
+    expect(mockRenderTemplate.mock.calls.map((c) => c[2])).toEqual(['ko', 'de', 'en']);
+    expect(mockSendEmail.mock.calls.map((c) => [c[1], c[2]])).toEqual([
+      ['Ko.Op@Example.com', 'subject-ko'],
+      ['de.op@example.com', 'subject-de'],
+      ['ko2@example.com', 'subject-ko'],
+      ['x@ext.com', 'subject-en'],
+    ]);
+    const inserts = clientCalls.filter((c) => String(c[0]).includes('INSERT INTO notifications'));
+    expect(inserts.map((c) => c[2])).toEqual([
+      'subject-ko',
+      'subject-de',
+      'subject-ko',
+      'subject-en',
+    ]);
   });
 
   it('does nothing when no schedules are due', async () => {
@@ -520,8 +653,9 @@ describe('reportSchedulerHandler', () => {
       // missing report -> early null. To keep the loop running we hand every
       // poll a non-terminal 'processing' row by re-arming the mock.
       const pendingRow = { status: 'processing', fileData: null, fileName: null };
-      const pollResults = Array.from({ length: 61 }, () => [pendingRow]);
-      setupDbResults([makeSchedule()], [], ...pollResults);
+      const pollResults = Array.from({ length: 60 }, () => [pendingRow]);
+      // Then the recipient language lookup (no user account: en).
+      setupDbResults([makeSchedule()], [], ...pollResults, []);
       setupClientResults([{ value: 'Acme' }], []);
       mockGetNotificationSettings.mockResolvedValue({ smtp: SMTP, emailWrapperTemplate: null });
       mockRenderTemplate.mockResolvedValue({ subject: 's', body: 'b', html: '<p>h</p>' });

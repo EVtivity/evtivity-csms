@@ -88,9 +88,19 @@ vi.mock('drizzle-orm', () => ({
   lte: vi.fn(),
 }));
 
-vi.mock('../services/report.service.js', () => ({
+vi.mock('@evtivity/services/report.service', () => ({
   queueReport: vi.fn(() => Promise.resolve('report-123')),
   computeNextRunAtInTz: vi.fn(() => Promise.resolve(new Date('2026-01-02T06:00:00Z'))),
+  REPORT_TYPES: [
+    'nevi',
+    'revenue',
+    'energy',
+    'sessions',
+    'utilization',
+    'stationHealth',
+    'sustainability',
+    'driverActivity',
+  ],
 }));
 
 vi.mock('../middleware/rbac.js', () => ({

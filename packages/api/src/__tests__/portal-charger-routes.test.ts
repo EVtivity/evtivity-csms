@@ -149,16 +149,20 @@ vi.mock('../lib/payments.js', () => ({
   paymentContext: vi.fn((logger: unknown) => ({ registry: 'registry', logger })),
 }));
 
-vi.mock('../lib/pubsub.js', () => ({
+const { mockPublish } = vi.hoisted(() => ({
+  mockPublish: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn(() => ({
-    publish: vi.fn().mockResolvedValue(undefined),
+    publish: mockPublish,
     subscribe: vi.fn().mockResolvedValue({ unsubscribe: vi.fn() }),
     close: vi.fn().mockResolvedValue(undefined),
   })),
   setPubSub: vi.fn(),
 }));
 
-vi.mock('../lib/ocpp-command.js', () => ({
+vi.mock('@evtivity/services/ocpp-command', () => ({
   sendOcppCommandAndWait: vi.fn().mockResolvedValue({
     response: { status: 'Accepted' },
     error: null,
@@ -177,15 +181,15 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
   };
 });
 
-vi.mock('../lib/template-dirs.js', () => ({
+vi.mock('@evtivity/services/template-dirs', () => ({
   ALL_TEMPLATES_DIRS: [],
 }));
 
-vi.mock('../services/maintenance.service.js', () => ({
+vi.mock('@evtivity/services/maintenance.service', () => ({
   getActiveMaintenanceForStation: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock('../lib/maintenance-check.js', () => ({
+vi.mock('@evtivity/services/maintenance-check', () => ({
   assertNoMaintenanceConflict: vi.fn().mockResolvedValue(undefined),
   MaintenanceConflictError: class MaintenanceConflictError extends Error {
     statusCode = 409;
@@ -197,10 +201,10 @@ vi.mock('../lib/maintenance-check.js', () => ({
 import { registerAuth } from '../plugins/auth.js';
 import { portalChargerRoutes } from '../routes/portal/charger.js';
 import { db, resolveStationTariff, isStationChargingFree } from '@evtivity/database';
-import { sendOcppCommandAndWait } from '../lib/ocpp-command.js';
+import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import { isEvseInReservationBuffer } from '../lib/reservation-buffer.js';
-import { getActiveMaintenanceForStation } from '../services/maintenance.service.js';
-import { assertNoMaintenanceConflict } from '../lib/maintenance-check.js';
+import { getActiveMaintenanceForStation } from '@evtivity/services/maintenance.service';
+import { assertNoMaintenanceConflict } from '@evtivity/services/maintenance-check';
 
 const VALID_STATION_ID = 'sta_000000000001';
 const VALID_USER_ID = 'usr_000000000001';
@@ -1068,7 +1072,7 @@ describe('Portal charger routes - handler logic', () => {
     });
 
     it('lets the OCPP server translate the stop for an OCPP 1.6 station', async () => {
-      const { sendOcppCommandAndWait } = await import('../lib/ocpp-command.js');
+      const { sendOcppCommandAndWait } = await import('@evtivity/services/ocpp-command');
       const sendMock = vi.mocked(sendOcppCommandAndWait);
       sendMock.mockClear();
       setupDbResults([
@@ -1261,6 +1265,14 @@ describe('Portal charger routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(response.json().id).toBe(VALID_RESERVATION_ID);
+      const call = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
+      const message = JSON.parse(call?.[1] as string) as Record<string, unknown>;
+      expect(Object.keys(message)).toEqual(['commandId', 'stationId', 'action', 'payload']);
+      expect(message).toMatchObject({
+        stationId: 'CS-001',
+        action: 'ReserveNow',
+        payload: { id: expect.any(Number), idToken: { idToken: DRIVER_ID, type: 'Central' } },
+      });
     });
   });
 
@@ -1315,6 +1327,14 @@ describe('Portal charger routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(response.json().status).toBe('cancelled');
+      const call = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
+      const message = JSON.parse(call?.[1] as string) as Record<string, unknown>;
+      expect(Object.keys(message)).toEqual(['commandId', 'stationId', 'action', 'payload']);
+      expect(message).toMatchObject({
+        stationId: 'CS-001',
+        action: 'CancelReservation',
+        payload: { reservationId: 1 },
+      });
     });
   });
 

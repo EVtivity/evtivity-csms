@@ -88,7 +88,7 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 const mockSendOcppCommandAndWait = vi.fn();
-vi.mock('../lib/ocpp-command.js', () => ({
+vi.mock('@evtivity/services/ocpp-command', () => ({
   sendOcppCommandAndWait: (...args: unknown[]) => mockSendOcppCommandAndWait(...args),
 }));
 
@@ -96,7 +96,7 @@ vi.mock('../lib/reservation-eligibility.js', () => ({
   assertReservationsAllowed: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../lib/maintenance-check.js', () => ({
+vi.mock('@evtivity/services/maintenance-check', () => ({
   assertNoMaintenanceConflict: vi.fn().mockResolvedValue(undefined),
 }));
 

@@ -1,24 +1,13 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import crypto from 'node:crypto';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { client, resolveStationTariff, writeReservationAudit } from '@evtivity/database';
-import { dispatchDriverNotification } from '@evtivity/lib';
+import { dispatchDriverNotification, publishOcppCommand } from '@evtivity/lib';
 import type { Logger } from 'pino';
-import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { chargeReservationFee } from '@evtivity/payments';
 import { paymentContext } from '../lib/payments.js';
-
-const currentDir = dirname(fileURLToPath(import.meta.url));
-const API_TEMPLATES_DIR =
-  process.env['API_TEMPLATES_DIR'] ??
-  resolve(currentDir, '..', '..', '..', 'api', 'src', 'templates');
-const OCPP_TEMPLATES_DIR =
-  process.env['OCPP_TEMPLATES_DIR'] ??
-  resolve(currentDir, '..', '..', '..', 'ocpp', 'src', 'templates');
-const ALL_TEMPLATES_DIRS = [OCPP_TEMPLATES_DIR, API_TEMPLATES_DIR];
 
 const EXPIRY_WARNING_MINUTES = 15;
 
@@ -120,15 +109,11 @@ export async function reservationExpiryCheckHandler(log: Logger): Promise<void> 
     // log an error.
     if (row.prior_status === 'active') {
       try {
-        await pubsub.publish(
-          'ocpp_commands',
-          JSON.stringify({
-            commandId: crypto.randomUUID(),
-            stationId: row.station_ocpp_id,
-            action: 'CancelReservation',
-            payload: { reservationId: row.reservation_ocpp_id },
-          }),
-        );
+        await publishOcppCommand(pubsub, {
+          stationId: row.station_ocpp_id,
+          action: 'CancelReservation',
+          payload: { reservationId: row.reservation_ocpp_id },
+        });
       } catch (err) {
         log.warn(
           { err, reservationId: row.id, stationOcppId: row.station_ocpp_id },

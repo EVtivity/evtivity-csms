@@ -5,14 +5,20 @@ import { PricingAssignmentTab } from '@/components/pricing/PricingAssignmentTab'
 
 export interface StationPricingTabProps {
   stationId: string;
+  /** Timezone of the station's site; the schedule marks the current tariff in it. */
+  siteTimezone?: string | undefined;
 }
 
-export function StationPricingTab({ stationId }: StationPricingTabProps): React.JSX.Element {
+export function StationPricingTab({
+  stationId,
+  siteTimezone,
+}: StationPricingTabProps): React.JSX.Element {
   return (
     <PricingAssignmentTab
       resourceType="station"
       resourceId={stationId}
       assignUrl={`/stations/${stationId}/pricing/add`}
+      scheduleTimezone={siteTimezone}
     />
   );
 }

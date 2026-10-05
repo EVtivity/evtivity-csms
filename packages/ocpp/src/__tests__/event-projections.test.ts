@@ -8,6 +8,8 @@ import type { EventBus, DomainEvent, PubSubClient } from '@evtivity/lib';
 const sqlCalls: Array<{ strings: string[]; values: unknown[] }> = [];
 let sqlResults: Array<unknown[]> = [];
 let sqlCallIndex = 0;
+// Rejects the statements whose text it returns an error for (unique violations).
+let sqlFailOn: ((text: string) => Error | null) | null = null;
 
 function createSqlMock() {
   sqlCalls.length = 0;
@@ -18,6 +20,8 @@ function createSqlMock() {
     sqlCalls.push({ strings: [...strings], values });
     const result = sqlResults[sqlCallIndex] ?? [];
     sqlCallIndex++;
+    const failure = sqlFailOn?.(strings.join(''));
+    if (failure != null) return Promise.reject(failure);
     return Promise.resolve(result);
   };
 
@@ -71,6 +75,10 @@ vi.mock('../../../database/src/lib/pricing-settings.js', () => ({
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  // The session end request channel and reasons.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/session-end-request.js',
+  )),
   // The real status entry point, running on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/station-status.js',
@@ -95,6 +103,8 @@ vi.mock('@evtivity/database', async () => ({
   isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
   getCompanyPriceDisplay: vi.fn().mockResolvedValue('net'),
+  // The real Postgres error readers.
+  ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/pg-errors.js')),
 }));
 
 const mockDispatchOcpp = vi.fn().mockResolvedValue(undefined);
@@ -200,6 +210,7 @@ describe('Event projections', () => {
     sqlCalls.length = 0;
     sqlResults = [];
     sqlCallIndex = 0;
+    sqlFailOn = null;
     vi.clearAllMocks();
     mockAuthorizeSessionHold.mockResolvedValue({
       outcome: 'authorized',
@@ -586,7 +597,7 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationId
         [], // SELECT evses (not found)
         [{ id: 'evs_000000000001' }], // INSERT evses RETURNING id
-        [], // INSERT connectors
+        [{ id: 'con_000000000001' }], // INSERT connectors RETURNING id
         [], // INSERT port_status_log
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
@@ -609,11 +620,10 @@ describe('Event projections', () => {
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationId
-        [{ id: 'evs_000000000001', status: 'available' }], // SELECT evses (found)
+        [{ id: 'evs_000000000001' }], // SELECT evses (found)
+        [], // guarded UPDATE connectors (not found)
+        [{ id: 'con_000000000001' }], // INSERT connectors RETURNING id
         [], // INSERT port_status_log
-        [], // UPDATE evses
-        [], // SELECT connectors (not found)
-        [], // INSERT connectors
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
       );
@@ -635,11 +645,9 @@ describe('Event projections', () => {
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationId
-        [{ id: 'evs_000000000001', status: 'available' }], // SELECT evses
+        [{ id: 'evs_000000000001' }], // SELECT evses
+        [{ previous_status: 'available', applied: true }], // guarded UPDATE connectors
         [], // INSERT port_status_log
-        [], // UPDATE evses
-        [{ id: 'con_000000000001' }], // SELECT connectors (found)
-        [], // UPDATE connectors
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
       );
@@ -663,7 +671,7 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationId
         [], // SELECT evses (not found)
         [{ id: 'evs_000000000001' }], // INSERT evses
-        [], // INSERT connectors
+        [{ id: 'con_000000000001' }], // INSERT connectors RETURNING id
         [], // INSERT port_status_log
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
@@ -688,9 +696,8 @@ describe('Event projections', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
-        [{ status: 'charging' }], // SELECT status FROM connectors (prevRows)
+        [{ previous_status: 'charging', applied: true }], // guarded UPDATE connectors (prevRows)
         [], // INSERT port_status_log
-        [], // UPDATE connectors
         [{ site_id: null }], // resolveSiteId
         [], // UPDATE charging_sessions SET idle_started_at
         [], // SELECT active session for notification dispatch (no session found)
@@ -716,9 +723,8 @@ describe('Event projections', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
-        [{ status: 'charging' }], // SELECT status FROM connectors (prevRows)
+        [{ previous_status: 'charging', applied: true }], // guarded UPDATE connectors (prevRows)
         [], // INSERT port_status_log
-        [], // UPDATE connectors
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
@@ -771,9 +777,8 @@ describe('Event projections', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
-        [{ status: 'charging' }], // SELECT status FROM connectors (prevRows)
+        [{ previous_status: 'charging', applied: true }], // guarded UPDATE connectors (prevRows)
         [], // INSERT port_status_log
-        [], // UPDATE connectors
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
@@ -814,9 +819,8 @@ describe('Event projections', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
-        [{ status: 'charging' }], // SELECT status FROM connectors (prevRows)
+        [{ previous_status: 'charging', applied: true }], // guarded UPDATE connectors (prevRows)
         [], // INSERT port_status_log
-        [], // UPDATE connectors
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
@@ -872,9 +876,8 @@ describe('Event projections', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
-        [{ status: 'charging' }], // SELECT status FROM connectors (prevRows)
+        [{ previous_status: 'charging', applied: true }], // guarded UPDATE connectors (prevRows)
         [], // INSERT port_status_log
-        [], // UPDATE connectors
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
@@ -924,9 +927,8 @@ describe('Event projections', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
-        [{ status: 'charging' }], // SELECT status FROM connectors (prevRows)
+        [{ previous_status: 'charging', applied: true }], // guarded UPDATE connectors (prevRows)
         [], // INSERT port_status_log
-        [], // UPDATE connectors
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
       );
@@ -951,9 +953,8 @@ describe('Event projections', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
-        [{ status: 'suspended_ev' }], // SELECT status FROM connectors (prevRows)
+        [{ previous_status: 'suspended_ev', applied: true }], // guarded UPDATE connectors (prevRows)
         [], // INSERT port_status_log
-        [], // UPDATE connectors
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
         [], // UPDATE charging_sessions (clear idle)
@@ -982,9 +983,8 @@ describe('Event projections', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
-        [{ status: 'available' }], // SELECT status FROM connectors (prev)
+        [{ previous_status: 'available', applied: true }], // guarded UPDATE connectors (prev)
         [], // INSERT port_status_log
-        [], // UPDATE connectors
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
@@ -1014,9 +1014,8 @@ describe('Event projections', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
-        [{ status: 'available' }], // SELECT status FROM connectors (prev = same as new)
+        [{ previous_status: 'available', applied: true }], // guarded UPDATE connectors (prev = same as new)
         [], // INSERT port_status_log
-        [], // UPDATE connectors
         [{ site_id: null }], // resolveSiteId
       );
 
@@ -1035,15 +1034,16 @@ describe('Event projections', () => {
       expect(refreshCalls.length).toBe(0);
     });
 
-    it('does NOT publish station_message_refresh for OCPP 1.6 stations', async () => {
+    it('publishes station_message_refresh for OCPP 1.6 stations (Idle screen via DataTransfer)', async () => {
       await setup();
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
-        [{ status: 'available' }], // SELECT status FROM connectors (prev)
+        [{ previous_status: 'available', applied: true }], // guarded UPDATE connectors (prev)
         [], // INSERT port_status_log
-        [], // UPDATE connectors
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
+        [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
         [{ ocpp_protocol: 'ocpp1.6' }], // SELECT ocpp_protocol for station_message_refresh
       );
@@ -1060,7 +1060,11 @@ describe('Event projections', () => {
       const refreshCalls = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
         (c) => c[0] === 'station_message_refresh',
       );
-      expect(refreshCalls.length).toBe(0);
+      expect(refreshCalls.length).toBe(1);
+      expect(JSON.parse(refreshCalls[0]?.[1] as string)).toMatchObject({
+        stationOcppId: 'CS-001',
+        ocppProtocol: 'ocpp1.6',
+      });
     });
 
     it('publishes station_message_refresh for Faulted transitions on OCPP 2.1', async () => {
@@ -1069,9 +1073,8 @@ describe('Event projections', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
-        [{ status: 'available' }], // SELECT status FROM connectors (prev)
+        [{ previous_status: 'available', applied: true }], // guarded UPDATE connectors (prev)
         [], // INSERT port_status_log
-        [], // UPDATE connectors
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
@@ -1100,7 +1103,7 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [], // SELECT evses (not found)
         [{ id: 'evs_000000000001' }], // INSERT evses RETURNING id
-        [], // INSERT connectors
+        [{ id: 'con_000000000001' }], // INSERT connectors RETURNING id
         [], // INSERT port_status_log
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
@@ -1122,6 +1125,101 @@ describe('Event projections', () => {
         (c) => c[0] === 'station_message_refresh',
       );
       expect(refreshCalls.length).toBe(1);
+    });
+  });
+
+  describe('ocpp.StatusNotification ordering', () => {
+    it('passes the station timestamp to the guarded connector write', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [{ id: 'evse_000000000001' }], // SELECT evses
+        [{ previous_status: 'available', applied: true }], // guarded UPDATE connectors
+      );
+
+      await eventBus.emit(
+        'ocpp.StatusNotification',
+        makeDomainEvent('ocpp.StatusNotification', 'CS-001', {
+          evseId: 1,
+          connectorId: 1,
+          connectorStatus: 'Occupied',
+          timestamp: '2024-01-01T01:00:00Z',
+        }),
+      );
+
+      const write = sqlCalls.find((c) => c.strings.join('').includes('UPDATE connectors c'));
+      expect(write?.values).toContainEqual(new Date('2024-01-01T01:00:00Z'));
+    });
+
+    it('an older connector report changes nothing and sends nothing', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [{ id: 'evse_000000000001' }], // SELECT evses
+        [{ previous_status: 'available', applied: false }], // guard rejected the report
+      );
+
+      await eventBus.emit(
+        'ocpp.StatusNotification',
+        makeDomainEvent('ocpp.StatusNotification', 'CS-001', {
+          evseId: 1,
+          connectorId: 1,
+          connectorStatus: 'SuspendedEV',
+          timestamp: '2024-01-01T00:00:00Z',
+        }),
+      );
+
+      const joined = sqlCalls.map((c) => c.strings.join(''));
+      expect(joined.some((q) => q.includes('INSERT INTO port_status_log'))).toBe(false);
+      expect(joined.some((q) => q.includes('SET idle_started_at'))).toBe(false);
+      expect(mockPubSub.publish).not.toHaveBeenCalled();
+    });
+
+    it('an older station-level report changes nothing and sends nothing', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [{ previous_status: 'available', applied: false }], // guard rejected the report
+      );
+
+      await eventBus.emit(
+        'ocpp.StatusNotification',
+        makeDomainEvent('ocpp.StatusNotification', 'CS-001', {
+          evseId: 0,
+          connectorId: 0,
+          connectorStatus: 'Unavailable',
+          timestamp: '2024-01-01T00:00:00Z',
+        }),
+      );
+
+      const write = sqlCalls[1];
+      expect(write?.strings.join('')).toContain('reported_status_at');
+      expect(write?.values).toContainEqual(new Date('2024-01-01T00:00:00Z'));
+      expect(sqlCalls).toHaveLength(2);
+      expect(mockPubSub.publish).not.toHaveBeenCalled();
+    });
+
+    it('a report without a timestamp is applied with a NULL timestamp', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [{ previous_status: 'available', applied: true }], // guarded station write
+      );
+
+      await eventBus.emit(
+        'ocpp.StatusNotification',
+        makeDomainEvent('ocpp.StatusNotification', 'CS-001', {
+          evseId: 0,
+          connectorId: 0,
+          connectorStatus: 'Unavailable',
+        }),
+      );
+
+      const write = sqlCalls[1];
+      expect(write?.values.some((v) => v instanceof Date)).toBe(false);
+      expect(sqlCalls.some((c) => c.strings.join('').includes('INSERT INTO port_status_log'))).toBe(
+        true,
+      );
     });
   });
 
@@ -1159,6 +1257,114 @@ describe('Event projections', () => {
       );
 
       expect(sqlCalls.length).toBeGreaterThanOrEqual(5);
+    });
+
+    it('ends an older active session on the EVSE through a CSMS end, not a fault', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [{ id: 'evs_000000000001' }], // resolveEvseUuid
+        [{ id: 'session-new' }], // INSERT charging_sessions RETURNING id
+        [{ id: 'session-old' }], // SELECT older active sessions on the EVSE
+        [
+          {
+            transaction_id: 'tx-old',
+            updated_at: new Date('2023-12-31T23:30:00Z'),
+            station_ocpp_id: 'CS-001',
+            next_seq_no: 4,
+          },
+        ], // requestCsmsSessionEnd claim
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Started',
+          stationId: 'CS-001',
+          transactionId: 'tx-new',
+          evseId: 1,
+          connectorId: 1,
+          seqNo: 0,
+          triggerReason: 'Authorized',
+          timestamp: '2024-01-01T00:00:00Z',
+        }),
+      );
+
+      const claim = sqlCalls.find((c) => c.strings.join('?').includes('SET stopped_reason = ?'));
+      expect(claim?.strings.join('?')).toContain("cs.status = 'active'");
+      expect(claim?.values).toContain('Superseded');
+      expect(claim?.values).toContain('session-old');
+      // Never faulted at cost 0.
+      expect(sqlCalls.some((c) => c.strings.join('?').includes("SET status = 'faulted'"))).toBe(
+        false,
+      );
+      expect(eventBus.publish).toHaveBeenCalledWith({
+        eventType: 'session.EndedByCsms',
+        aggregateType: 'Transaction',
+        aggregateId: 'tx-old',
+        payload: {
+          eventType: 'Ended',
+          stationId: 'CS-001',
+          transactionId: 'tx-old',
+          seqNo: 4,
+          triggerReason: 'AbnormalCondition',
+          timestamp: '2023-12-31T23:30:00.000Z',
+          stoppedReason: 'Superseded',
+        },
+      });
+    });
+
+    it('runs the normal end and settlement for a CSMS end of an active session', async () => {
+      await setup();
+      setupSqlResults(
+        [{ status: 'active' }], // status check
+        [{ id: 'sta_000000000001' }], // resolveStationId; later queries return []
+      );
+      await eventBus.emit(
+        'session.EndedByCsms',
+        makeDomainEvent('session.EndedByCsms', 'CS-001', {
+          eventType: 'Ended',
+          stationId: 'CS-001',
+          transactionId: 'tx-old',
+          seqNo: 4,
+          triggerReason: 'AbnormalCondition',
+          timestamp: '2023-12-31T23:30:00Z',
+          stoppedReason: 'Superseded',
+        }),
+      );
+      const ended = sqlCalls.find((c) =>
+        c.strings.join('?').includes('stopped_reason = COALESCE(stopped_reason, ?)'),
+      );
+      expect(ended?.values).toContain('completed');
+      expect(ended?.values).toContain('Superseded');
+      // The settlement subscriber's session lookup ran too.
+      expect(
+        sqlCalls.some((c) => c.strings.join('?').includes('cs2.station_id AS station_ocpp_id')),
+      ).toBe(true);
+    });
+
+    it('leaves a session faulted or failed meanwhile alone (P5)', async () => {
+      await setup();
+      setupSqlResults([{ status: 'faulted' }]);
+      await eventBus.emit(
+        'session.EndedByCsms',
+        makeDomainEvent('session.EndedByCsms', 'CS-001', {
+          eventType: 'Ended',
+          stationId: 'CS-001',
+          transactionId: 'tx-old',
+          seqNo: 4,
+          triggerReason: 'AbnormalCondition',
+          timestamp: '2023-12-31T23:30:00Z',
+          stoppedReason: 'GhostRecovered',
+        }),
+      );
+      expect(sqlCalls).toHaveLength(1);
+      // The session is looked up by station and transaction id (N4).
+      expect(sqlCalls[0]?.strings.join('?')).toContain(
+        'WHERE st.station_id = ? AND cs.transaction_id = ?',
+      );
+      expect(sqlCalls[0]?.values).toEqual(['CS-001', 'tx-old']);
+      expect(mockSettleSessionPayment).not.toHaveBeenCalled();
     });
 
     it('falls back to the only connector on the EVSE when the reported one does not match', async () => {
@@ -1422,6 +1628,9 @@ describe('Event projections', () => {
         );
       });
       expect(updateConnectorCall).toBeDefined();
+      // Ordered by the TransactionEvent timestamp, like a status report.
+      expect(updateConnectorCall?.strings.join('')).toContain('>= status_reported_at');
+      expect(updateConnectorCall?.values).toContainEqual(new Date('2024-01-01T01:00:00Z'));
     });
 
     it('completes session and computes cost on Ended', async () => {
@@ -3637,6 +3846,84 @@ describe('Event projections', () => {
     });
   });
 
+  describe('transactionId used by another station (N4 step 1)', () => {
+    function uniqueViolation(constraint: string): Error {
+      return Object.assign(new Error('duplicate key value violates unique constraint'), {
+        code: '23505',
+        constraint_name: constraint,
+      });
+    }
+
+    function startedFrom(stationId: string, triggerReason = 'Authorized'): DomainEvent {
+      return makeDomainEvent('ocpp.TransactionEvent', stationId, {
+        eventType: 'Started',
+        stationId,
+        transactionId: 'tx-shared',
+        seqNo: 0,
+        triggerReason,
+        timestamp: '2024-01-01T00:00:00Z',
+      });
+    }
+
+    it('stops the Started projection when the global unique index holds the id', async () => {
+      await setup();
+      sqlFailOn = (text) =>
+        text.includes('INSERT INTO charging_sessions')
+          ? uniqueViolation('charging_sessions_transaction_id_unique')
+          : null;
+      setupSqlResults(
+        [{ id: 'sta_000000000002' }], // resolveStationUuid
+        [], // INSERT (rejected)
+        [{ station_id: 'CS-001' }], // the station that holds the id
+      );
+
+      await eventBus.emit('ocpp.TransactionEvent', startedFrom('CS-002'));
+
+      const texts = sqlCalls.map((c) => c.strings.join(''));
+      expect(texts).toHaveLength(3);
+      expect(texts[1]).toContain('INSERT INTO charging_sessions');
+      expect(texts[2]).toContain('cs.station_id !=');
+      expect(sqlCalls[2]!.values).toEqual(['tx-shared', 'sta_000000000002']);
+      // Nothing touches another session: no stale-session fault, no event row.
+      expect(texts.some((t) => t.includes("stopped_reason = 'StaleSession'"))).toBe(false);
+      expect(texts.some((t) => t.includes('INSERT INTO transaction_events'))).toBe(false);
+    });
+
+    it('stops a remote-start link that would take the id of another station', async () => {
+      await setup();
+      sqlFailOn = (text) =>
+        text.includes('UPDATE charging_sessions cs')
+          ? uniqueViolation('charging_sessions_transaction_id_unique')
+          : null;
+      setupSqlResults(
+        [{ id: 'sta_000000000002' }], // resolveStationUuid
+        [], // remote-start link (rejected)
+        [{ station_id: 'CS-001' }], // the station that holds the id
+      );
+
+      await eventBus.emit('ocpp.TransactionEvent', startedFrom('CS-002', 'RemoteStart'));
+
+      const texts = sqlCalls.map((c) => c.strings.join(''));
+      expect(texts).toHaveLength(3);
+      expect(texts.some((t) => t.includes('INSERT INTO charging_sessions'))).toBe(false);
+    });
+
+    it('does not treat another unique violation as a foreign transactionId', async () => {
+      await setup();
+      sqlFailOn = (text) =>
+        text.includes('INSERT INTO charging_sessions')
+          ? uniqueViolation('some_other_unique')
+          : null;
+      setupSqlResults([{ id: 'sta_000000000002' }]);
+
+      await eventBus.emit('ocpp.TransactionEvent', startedFrom('CS-002'));
+
+      // The error propagates to safeSubscribe: no holder lookup.
+      const texts = sqlCalls.map((c) => c.strings.join(''));
+      expect(texts).toHaveLength(2);
+    });
+  });
+
   describe('out-of-order message buffering', () => {
     it('buffers MeterValues when session not found and replays after Started', async () => {
       await setup();
@@ -3733,6 +4020,11 @@ describe('Event projections', () => {
         c.strings.join('').includes('INSERT INTO transaction_events'),
       );
       expect(insertCalls.length).toBe(0);
+
+      // A transactionId is unique per station only: the lookup names the station.
+      const lookup = sqlCalls[1]!;
+      expect(lookup.strings.join('')).toContain('station_id');
+      expect(lookup.values).toEqual(['sta_000000000001', 'tx-ooo-2']);
     });
 
     it('buffers TransactionEvent Ended when session not found', async () => {
@@ -3767,6 +4059,17 @@ describe('Event projections', () => {
 
       // No cost calculation should have happened
       expect(mockPriceSessionAt).not.toHaveBeenCalled();
+
+      // Every Ended statement that names the transaction also names the station
+      // (the projection by its id, the settlement subscriber by its OCPP id).
+      const byTransaction = sqlCalls.filter((c) => c.values.includes('tx-ooo-3'));
+      expect(byTransaction).toHaveLength(4);
+      for (const call of byTransaction) {
+        expect(call.strings.join('')).toContain('station_id');
+        expect(call.values.includes('sta_000000000001') || call.values.includes('CS-001')).toBe(
+          true,
+        );
+      }
     });
   });
 });

@@ -8,6 +8,7 @@ import {
   tryConnect,
   waitForOnline,
 } from '../../../../security-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 const PASSWORD = newTestPassword(24);
 const MESSAGE_TIMEOUT = 30;
@@ -93,7 +94,7 @@ export const TC_A_19_CSMS: TestCase = {
         resetReceived = true;
         return Promise.resolve({ status: 'Accepted' });
       }
-      return Promise.resolve({});
+      return defaultReply('ocpp2.1', action, payload);
     });
 
     // Manual actions: new NetworkConnectionProfile one level higher, priority, reboot.
@@ -167,14 +168,30 @@ export const TC_A_19_CSMS: TestCase = {
         expected: 'Connection accepted',
         actual: upgraded ? 'Connected' : 'Not connected',
       });
-      const lower = await tryConnect(ctx, { serverUrl: ctx.config.serverUrl, password: PASSWORD });
-      steps.push({
-        step: 10,
-        description: 'Reconnect with the original security profile 1 is rejected (A05.FR.07)',
-        status: lower === 401 ? 'passed' : 'failed',
-        expected: 'HTTP 401',
-        actual: `HTTP ${String(lower)}`,
-      });
+      // Profile 1 is Basic Auth over plain ws://. Through a wss:// --server the
+      // same credentials make a valid profile 2 connection, which the CSMS
+      // rightly accepts, so the step needs a plain ws:// endpoint.
+      if (!ctx.config.serverUrl.startsWith('ws://')) {
+        steps.push({
+          step: 10,
+          description: 'Reconnect with the original security profile 1 is rejected (A05.FR.07)',
+          status: 'skipped',
+          expected: 'Run with --server <plain ws:// url>',
+          actual: `--server ${ctx.config.serverUrl} is not a plain ws:// endpoint`,
+        });
+      } else {
+        const lower = await tryConnect(ctx, {
+          serverUrl: ctx.config.serverUrl,
+          password: PASSWORD,
+        });
+        steps.push({
+          step: 10,
+          description: 'Reconnect with the original security profile 1 is rejected (A05.FR.07)',
+          status: lower === 401 ? 'passed' : 'failed',
+          expected: 'HTTP 401',
+          actual: `HTTP ${String(lower)}`,
+        });
+      }
     }
 
     const passed = steps.every((s) => s.status !== 'failed');

@@ -10,8 +10,11 @@ import {
   timestamp,
   integer,
   index,
+  smallint,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { chargingStations } from './assets.js';
+import { driverTokens } from './drivers.js';
 
 export const certificateStatusEnum = pgEnum('certificate_status', ['active', 'expired', 'revoked']);
 
@@ -93,5 +96,55 @@ export const stationCertificates = pgTable(
   (table) => [
     index('idx_station_certificates_station_id').on(table.stationId),
     index('idx_station_certificates_status').on(table.status),
+  ],
+);
+
+// ISO 15118 contracts the local contract CA provisions (pnc.provider =
+// 'local'). A contract is an eMAID driver token bound to the vehicle PCID
+// (the OEM provisioning certificate subject) that may install it. Written
+// only by the API pnc-contract service. Revoked is terminal.
+export const pncContractStatusEnum = pgEnum('pnc_contract_status', ['active', 'revoked']);
+
+export const pncContracts = pgTable(
+  'pnc_contracts',
+  {
+    id: serial('id').primaryKey(),
+    driverTokenId: text('driver_token_id')
+      .notNull()
+      .references(() => driverTokens.id, { onDelete: 'cascade' }),
+    pcid: varchar('pcid', { length: 64 }).notNull(),
+    status: pncContractStatusEnum('status').notNull().default('active'),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('uq_pnc_contracts_driver_token').on(table.driverTokenId),
+    index('idx_pnc_contracts_pcid_status').on(table.pcid, table.status),
+  ],
+);
+
+// Contract certificates the local contract CA issued, one row per
+// Get15118EVCertificate delivery. The rows give the revocation status of a
+// local contract certificate (C07) and the ISO 15118-20 delivery order
+// (remainingContracts). Written only by the OCPP local contract provider.
+export const pncContractCertificates = pgTable(
+  'pnc_contract_certificates',
+  {
+    id: serial('id').primaryKey(),
+    contractId: integer('contract_id')
+      .notNull()
+      .references(() => pncContracts.id, { onDelete: 'cascade' }),
+    stationId: text('station_id').references(() => chargingStations.id, { onDelete: 'set null' }),
+    pcid: varchar('pcid', { length: 64 }).notNull(),
+    schemaVersion: smallint('schema_version').notNull(),
+    serialNumber: varchar('serial_number', { length: 64 }).notNull(),
+    validTo: timestamp('valid_to', { withTimezone: true }).notNull(),
+    issuedAt: timestamp('issued_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('uq_pnc_contract_certificates_serial').on(table.serialNumber),
+    index('idx_pnc_contract_certificates_contract').on(table.contractId),
+    index('idx_pnc_contract_certificates_delivery').on(table.stationId, table.pcid, table.issuedAt),
   ],
 );

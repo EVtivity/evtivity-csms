@@ -2,6 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import {
+  startStationSequence,
+  waitForStationSequence,
+  type StationSequence,
+} from '../../../../csms-test-helpers.js';
+import { waitFor } from '../../../../security-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_B_20_CSMS: TestCase = {
   id: 'TC_B_20_CSMS',
@@ -23,6 +30,7 @@ export const TC_B_20_CSMS: TestCase = {
 
     let receivedReset = false;
     let resetType: string | null = null;
+    let resetSequence: StationSequence | null = null;
     let evseIdOmitted = true;
 
     ctx.client.setIncomingCallHandler(
@@ -34,27 +42,23 @@ export const TC_B_20_CSMS: TestCase = {
             evseIdOmitted = false;
           }
           // Respond with Accepted, then simulate reboot
-          setTimeout(async () => {
-            try {
-              // Send BootNotification after reset
-              await ctx.client.sendCall('BootNotification', {
-                chargingStation: { model: 'OCTT-Virtual', vendorName: 'OCTT' },
-                reason: 'ScheduledReset',
-              });
-              // Send StatusNotification for connector
-              await ctx.client.sendCall('StatusNotification', {
-                timestamp: new Date().toISOString(),
-                connectorStatus: 'Available',
-                evseId: 1,
-                connectorId: 1,
-              });
-            } catch {
-              // Ignore errors during status notification
-            }
-          }, 500);
+          resetSequence = startStationSequence(async () => {
+            // Send BootNotification after reset
+            await ctx.client.sendCall('BootNotification', {
+              chargingStation: { model: 'OCTT-Virtual', vendorName: 'OCTT' },
+              reason: 'ScheduledReset',
+            });
+            // Send StatusNotification for connector
+            await ctx.client.sendCall('StatusNotification', {
+              timestamp: new Date().toISOString(),
+              connectorStatus: 'Available',
+              evseId: 1,
+              connectorId: 1,
+            });
+          });
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -64,8 +68,13 @@ export const TC_B_20_CSMS: TestCase = {
         type: 'OnIdle',
       });
     } else {
-      await new Promise((resolve) => setTimeout(resolve, 8000));
+      // Without the API, wait for a ResetRequest the CSMS sends on its own.
+      await waitFor(() => resetSequence != null, 8_000);
     }
+    // Let the station finish what it sends after the ResetRequest before the
+    // test ends (the executor then stops open transactions and disconnects).
+    const sequenceError = await waitForStationSequence(resetSequence);
+    if (sequenceError != null) ctx.logger.warn({ sequenceError }, 'Reset sequence incomplete');
 
     steps.push({
       step: 1,

@@ -12,7 +12,7 @@
     }
   },
   "scripts": {
-    "test": "vitest run --exclude src/__tests__/runner.test.ts",
+    "test": "vitest run",
     "run:all": "tsx src/cli.ts --server ws://localhost:7103",
     "run:1.6": "tsx src/cli.ts --server ws://localhost:7103 --version ocpp1.6",
     "run:2.1": "tsx src/cli.ts --server ws://localhost:7103 --version ocpp2.1",
@@ -24,6 +24,7 @@
     "@evtivity/css": "*",
     "@evtivity/database": "*",
     "@evtivity/lib": "*",
+    "@evtivity/v2g-exi": "*",
     "@peculiar/asn1-ocsp": "^2.10.0",
     "@peculiar/asn1-schema": "^2.10.0",
     "@peculiar/asn1-x509": "^2.10.0",
@@ -36,6 +37,7 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "ajv": "^8.20.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.0",
     "vitest": "^5.0.2"

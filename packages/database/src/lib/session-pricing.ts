@@ -209,6 +209,41 @@ export function zeroCostBreakdown(basis: TaxBasis): SessionCostBreakdown {
 }
 
 /**
+ * Fault an active session that ended without the station closing it (a stale
+ * session, a transaction the station no longer knows) and bill it nothing:
+ * final and running cost, net, and tax 0 with a zero breakdown in the
+ * session's basis, like the payment gate's stop. Only an `active` session
+ * changes (P5), so one that ended meanwhile keeps its own end and cost.
+ * Returns whether this call faulted the session. The caller cancels the open
+ * hold.
+ */
+export async function faultUnbilledSession(
+  sql: postgres.Sql,
+  input: { sessionId: string; reason: string; endedAt: Date | string },
+): Promise<boolean> {
+  const endedAt = input.endedAt instanceof Date ? input.endedAt.toISOString() : input.endedAt;
+  const rows = await sql`
+    UPDATE charging_sessions
+    SET status = 'faulted',
+        stopped_reason = ${input.reason},
+        ended_at = ${endedAt},
+        final_cost_cents = 0,
+        current_cost_cents = 0,
+        net_cents = 0,
+        tax_cents = 0,
+        cost_breakdown = jsonb_set(
+          ${sql.json(zeroCostBreakdown('net') as unknown as postgres.JSONValue)}::jsonb,
+          '{basis}',
+          to_jsonb(COALESCE(tax_basis, 'net'))
+        ),
+        updated_at = now()
+    WHERE id = ${input.sessionId} AND status = 'active'
+    RETURNING id
+  `;
+  return rows.length > 0;
+}
+
+/**
  * Store the running cost of an active session with its split. Returns false
  * when the session is no longer active (a late meter value), which changes
  * nothing.

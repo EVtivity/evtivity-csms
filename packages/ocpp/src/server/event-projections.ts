@@ -35,6 +35,7 @@ import {
   setStationDisabled,
   setStationFirmwareState,
   setStationReportedStatus,
+  startStatusOrderingEpoch,
   getCompanyTaxBasis,
   snapshotSessionTariff,
   resolveStationTariff,
@@ -45,7 +46,10 @@ import {
   openSegmentTariffId,
   switchTariffSegment,
   sessionIdleMinutesAt,
-  zeroCostBreakdown,
+  faultUnbilledSession,
+  pgErrorCode,
+  pgConstraintName,
+  PG_UNIQUE_VIOLATION,
 } from '@evtivity/database';
 import type { TariffPriceSnapshot } from '@evtivity/database';
 import {
@@ -57,6 +61,7 @@ import {
 import { getSecuritySeverity } from '../lib/security-severity.js';
 import { paymentContext } from '../lib/payments.js';
 import { upsertStationConfiguration } from './station-configurations.js';
+import { requestCsmsSessionEnd, SESSION_ENDED_BY_CSMS } from './csms-session-end.js';
 import {
   generateId,
   createLogger,
@@ -77,7 +82,7 @@ import {
   resolveTaxBasis,
 } from '@evtivity/lib';
 import type { StationMessageState } from '@evtivity/lib';
-import crypto from 'node:crypto';
+import { publishOcppCommand } from '@evtivity/lib';
 import {
   dispatchOcppNotification,
   dispatchDriverNotification,
@@ -85,7 +90,7 @@ import {
   ALL_TEMPLATES_DIRS,
 } from './notification-dispatcher.js';
 import { TransactionBuffer } from './transaction-buffer.js';
-import { projectionQueueFor, sessionPricedKey } from './projection-queue.js';
+import { projectionLane, projectionQueueFor, sessionPricedKey } from './projection-queue.js';
 import { isUnbilledTimeoutEnd } from './session-cost.js';
 import { SERVER_SHUTDOWN_DISCONNECT_REASON } from './graceful-shutdown.js';
 import {
@@ -153,6 +158,9 @@ export interface ProjectionOptions {
   registry?: ConnectionRegistry;
   instanceId?: string;
 }
+
+/** The global unique on charging_sessions.transaction_id, dropped by the N4 contract. */
+const GLOBAL_TRANSACTION_ID_UNIQUE = 'charging_sessions_transaction_id_unique';
 
 export function registerProjections(
   eventBus: EventBus,
@@ -316,7 +324,8 @@ export function registerProjections(
   // Fix: per-station sequential queue. Events from the same station are processed
   // one at a time in order. Different stations run in parallel. This bounds total
   // concurrency to the number of active stations and preserves event ordering.
-  // Each aggregate ID (station or transaction) gets a sequential promise chain
+  // Each lane (a station, or a transaction as station plus transactionId, since
+  // a transactionId is unique per station only) gets a sequential promise chain
   // (projection-queue.ts, shared with handlers that wait for projected state).
   const projectionQueue = projectionQueueFor(eventBus);
 
@@ -326,7 +335,7 @@ export function registerProjections(
 
   function safeSubscribe(eventType: string, handler: (event: DomainEvent) => Promise<void>): void {
     eventBus.subscribe(eventType, (event: DomainEvent) => {
-      return enqueueForStation(event.aggregateId, async () => {
+      return enqueueForStation(projectionLane(event), async () => {
         try {
           await handler(event);
         } catch (err) {
@@ -551,20 +560,18 @@ export function registerProjections(
   // A session started with a partner's (eMSP's) token is our CPO session for
   // that partner. The link row in ocpi_roaming_sessions is what the OCPI
   // server serves on GET /cpo/sessions, pushes to the partner, and resolves
-  // STOP_SESSION and CDRs with. The OCPI Session id is the transaction id.
+  // STOP_SESSION and CDRs with. The OCPI Session id is the charging session
+  // id: OCPI needs it unique for the CPO, and a transactionId is unique per
+  // station only (links written before 0.1.38 keep their transaction id).
   // Written here, before the push is published, so a lost push still leaves
   // the session visible to the partner's next pull. ON CONFLICT keeps it to
   // one link per session when Started is processed twice.
-  async function linkCpoRoamingSession(
-    sessionId: string,
-    transactionId: string,
-    idToken: string,
-  ): Promise<void> {
+  async function linkCpoRoamingSession(sessionId: string, idToken: string): Promise<void> {
     try {
       await sql`
         INSERT INTO ocpi_roaming_sessions
           (partner_id, ocpi_session_id, charging_session_id, token_uid, status, currency)
-        SELECT t.partner_id, ${transactionId}, ${sessionId}, t.uid, 'ACTIVE', cs.currency
+        SELECT t.partner_id, ${sessionId}, ${sessionId}, t.uid, 'ACTIVE', cs.currency
         FROM ocpi_external_tokens t
         JOIN charging_sessions cs ON cs.id = ${sessionId}
         WHERE t.uid = ${idToken} AND t.is_valid = true
@@ -753,15 +760,14 @@ export function registerProjections(
       // unmarked-as-sent (which would cause duplicate dispatch on next reconnect).
       const sentIds: number[] = [];
       for (const cmd of pendingCommands) {
-        const queuedPayload = JSON.stringify({
-          commandId: cmd.command_id as string,
-          stationId: stationOcppId,
-          action: cmd.action as string,
-          payload: cmd.payload as Record<string, unknown>,
-          version: (cmd.version as string | undefined) ?? undefined,
-        });
         try {
-          await pubsub.publish('ocpp_commands', queuedPayload);
+          await publishOcppCommand(pubsub, {
+            commandId: cmd.command_id as string,
+            stationId: stationOcppId,
+            action: cmd.action as string,
+            payload: cmd.payload as Record<string, unknown>,
+            version: cmd.version as string | null,
+          });
           sentIds.push(cmd.id as number);
         } catch (publishErr) {
           logger.warn(
@@ -781,7 +787,9 @@ export function registerProjections(
       logger.debug({ err, stationOcppId }, 'Offline command queue drain failed; continuing');
     }
 
-    if (ocppProtocol != null && ocppProtocol.startsWith('ocpp2')) {
+    // Both versions: OCPP 1.6 stations get the Idle screen through the
+    // vendor DataTransfer (station-message.service.ts).
+    if (ocppProtocol != null) {
       try {
         await pubsub.publish(
           'station_message_refresh',
@@ -984,6 +992,9 @@ export function registerProjections(
           updated_at = now()
         WHERE id = ${stationUuid}
       `;
+      // A reboot starts a new status ordering epoch: the station's clock may
+      // have moved back, and its post-boot reports carry the current state.
+      await startStatusOrderingEpoch(sql, stationUuid);
       // Availability comes from its inputs, so a disable or fault survives the
       // reboot. A reboot ends a firmware install, so one still marked
       // installing is cleared; a failed install stays until the operator enables.
@@ -1019,7 +1030,7 @@ export function registerProjections(
         SELECT ocpp_protocol FROM charging_stations WHERE id = ${stationUuid}
       `;
       const msgProtocol = msgStationRow?.ocpp_protocol as string | null;
-      if (msgProtocol != null && msgProtocol.startsWith('ocpp2')) {
+      if (msgProtocol != null) {
         await pubsub.publish(
           'station_message_refresh',
           JSON.stringify({
@@ -1054,16 +1065,7 @@ export function registerProjections(
       const protocol = stationRow?.ocpp_protocol as string | null;
 
       const publishCmd = (action: string, payload: Record<string, unknown>, version: string) =>
-        pubsub.publish(
-          'ocpp_commands',
-          JSON.stringify({
-            commandId: crypto.randomUUID(),
-            stationId: stationOcppId,
-            action,
-            payload,
-            version,
-          }),
-        );
+        publishOcppCommand(pubsub, { stationId: stationOcppId, action, payload, version });
 
       // Measurands valid only in OCPP 1.6 (not in 2.1 MeasurandEnumType)
       const OCPP_16_ONLY = new Set(['Temperature', 'RPM']);
@@ -1274,6 +1276,9 @@ export function registerProjections(
     const connectorIdNum = payload.connectorId as number;
     const ocppStatus = payload.connectorStatus as string;
     const dbStatus = OCPP_STATUS_MAP[ocppStatus] ?? 'unavailable';
+    // The station's own timestamp orders status reports; null when a 1.6
+    // station sent none (see statusReportedAt in station-status.ts).
+    const reportedTimestamp = typeof payload.timestamp === 'string' ? payload.timestamp : null;
 
     // EVSE 0 is the station itself (OCPP 1.6 connector 0, OCPP 2.x evseId 0 or
     // NotifyEvent ChargingStation), never a plug: record it on the station
@@ -1285,7 +1290,19 @@ export function registerProjections(
           : dbStatus === 'unavailable'
             ? 'unavailable'
             : 'available';
-      await setStationReportedStatus(sql, stationUuid, reported);
+      const stationChange = await setStationReportedStatus(
+        sql,
+        stationUuid,
+        reported,
+        reportedTimestamp,
+      );
+      if (!stationChange.applied) {
+        logger.info(
+          { stationId: event.aggregateId, status: ocppStatus, timestamp: reportedTimestamp },
+          'Ignored a station status older than the stored one',
+        );
+        return;
+      }
       const stationSiteId = await resolveSiteId(stationUuid);
       await notifyChange('station.status', stationUuid, stationSiteId);
       if (stationSiteId != null) {
@@ -1299,9 +1316,25 @@ export function registerProjections(
       evseId: evseIdNum,
       connectorId: connectorIdNum,
       status: dbStatus,
+      timestamp: reportedTimestamp,
     });
     if (!applied.stationExists) {
       invalidateStationCache(event.aggregateId);
+      return;
+    }
+    // An older report than the stored one (offline replay, another projection
+    // lane or pod) changed nothing, so none of the follow-ups below apply.
+    if (!applied.applied) {
+      logger.info(
+        {
+          stationId: event.aggregateId,
+          evseId: evseIdNum,
+          connectorId: connectorIdNum,
+          status: ocppStatus,
+          timestamp: reportedTimestamp,
+        },
+        'Ignored a connector status older than the stored one',
+      );
       return;
     }
     const resolvedEvseUuid = applied.evseUuid;
@@ -1333,19 +1366,15 @@ export function registerProjections(
           // event.aggregateId is the station's OCPP string id (set by the
           // StatusNotification handler), so we can publish directly without
           // another DB lookup.
-          await pubsub.publish(
-            'ocpp_commands',
-            JSON.stringify({
-              commandId: crypto.randomUUID(),
-              stationId: event.aggregateId,
-              action: 'GetBaseReport',
-              payload: {
-                requestId: Math.floor(Math.random() * 2_000_000_000),
-                reportBase: 'ConfigurationInventory',
-              },
-              version: 'ocpp2.1',
-            }),
-          );
+          await publishOcppCommand(pubsub, {
+            stationId: event.aggregateId,
+            action: 'GetBaseReport',
+            payload: {
+              requestId: Math.floor(Math.random() * 2_000_000_000),
+              reportBase: 'ConfigurationInventory',
+            },
+            version: 'ocpp2.1',
+          });
         }
       } catch (err) {
         logger.warn(
@@ -1379,7 +1408,7 @@ export function registerProjections(
           SELECT ocpp_protocol FROM charging_stations WHERE id = ${stationUuid}
         `;
         const protocol = stationRow?.ocpp_protocol as string | null | undefined;
-        if (protocol != null && protocol.startsWith('ocpp2')) {
+        if (protocol != null) {
           await pubsub.publish(
             'station_message_refresh',
             JSON.stringify({
@@ -1488,7 +1517,7 @@ export function registerProjections(
     }
   });
 
-  safeSubscribe('ocpp.TransactionEvent', async (event: DomainEvent) => {
+  async function projectTransactionEvent(event: DomainEvent): Promise<void> {
     const payload = event.payload;
     const eventType = payload.eventType as string;
     const stationId = payload.stationId as string;
@@ -1523,6 +1552,37 @@ export function registerProjections(
       }
     }
 
+    // N4 step 1: charging_sessions_transaction_id_unique still makes a
+    // transactionId global (pods before v0.1.38 insert with ON CONFLICT
+    // (transaction_id)). A Started whose id another station already used fails
+    // on it; the session of the other station is untouched (every lookup and
+    // key is scoped by station). The N4 contract drops the global index.
+    async function isForeignTransactionId(err: unknown): Promise<boolean> {
+      if (
+        pgErrorCode(err) !== PG_UNIQUE_VIOLATION ||
+        pgConstraintName(err) !== GLOBAL_TRANSACTION_ID_UNIQUE
+      ) {
+        return false;
+      }
+      let otherStationId: string | null = null;
+      try {
+        const [holder] = await sql`
+          SELECT st.station_id FROM charging_sessions cs
+          JOIN charging_stations st ON st.id = cs.station_id
+          WHERE cs.transaction_id = ${transactionId} AND cs.station_id != ${stationUuid}
+          LIMIT 1
+        `;
+        otherStationId = (holder?.station_id as string | undefined) ?? null;
+      } catch (lookupErr) {
+        logger.debug({ err: lookupErr, transactionId }, 'Transaction id holder lookup failed');
+      }
+      logger.warn(
+        { stationId, otherStationId, transactionId },
+        'TransactionEvent Started not projected: another station already used this transactionId',
+      );
+      return true;
+    }
+
     if (eventType === 'Started') {
       // For remote starts, link back to the session created by the portal/API
       // instead of creating a duplicate.
@@ -1539,7 +1599,9 @@ export function registerProjections(
         // claim the same pending row. Without FOR UPDATE SKIP LOCKED, two
         // simultaneous portal starts on the same station would both UPDATE
         // the same row and the second would orphan the first's linkage.
-        const linked = await sql`
+        let linked: postgres.RowList<postgres.Row[]>;
+        try {
+          linked = await sql`
           WITH target AS (
             SELECT id FROM charging_sessions
             WHERE station_id = ${stationUuid}
@@ -1564,6 +1626,10 @@ export function registerProjections(
           WHERE cs.id = target.id
           RETURNING cs.id
         `;
+        } catch (err) {
+          if (await isForeignTransactionId(err)) return;
+          throw err;
+        }
         if (linked[0] != null) {
           sessionId = linked[0].id as string;
         }
@@ -1614,7 +1680,9 @@ export function registerProjections(
         // operator delete) removed it between INSERT and SELECT.
         // The session is billed in the company currency at its start.
         const initialCurrency = await getCompanyCurrency();
-        const inserted = await sql`
+        let inserted: postgres.RowList<postgres.Row[]>;
+        try {
+          inserted = await sql`
           INSERT INTO charging_sessions (id, station_id, evse_id, connector_id, transaction_id, status, started_at, meter_start, is_roaming, currency)
           VALUES (${newSessionId}, ${stationUuid}, ${txEvseUuid}, (
             SELECT c.id FROM connectors c
@@ -1623,25 +1691,36 @@ export function registerProjections(
                 OR (SELECT count(*) FROM connectors c2 WHERE c2.evse_id = ${txEvseUuid}) = 1)
             LIMIT 1
           ), ${transactionId}, 'active', ${timestamp}, ${meterStartVal}, ${initialIsRoaming}, ${initialCurrency})
-          ON CONFLICT (transaction_id) DO UPDATE SET updated_at = now()
+          ON CONFLICT (station_id, transaction_id) DO UPDATE SET updated_at = now()
           RETURNING id
         `;
+        } catch (err) {
+          if (await isForeignTransactionId(err)) return;
+          throw err;
+        }
         sessionId = getSessionId(inserted);
       }
       if (sessionId != null) {
         // Close stale active sessions on the same EVSE (if any).
         // A new transaction starting means any previous session on this EVSE ended
         // without a proper Ended event (e.g., station rebooted, connection lost).
+        // Such a session is ended the normal way, as completed with its
+        // final cost, settlement, and receipt (owner decision 2026-10-04):
+        // requestCsmsSessionEnd claims it while it is still active (P5) and
+        // queues a CSMS end behind this event.
         const stale = await sql`
-          UPDATE charging_sessions
-          SET status = 'faulted', stopped_reason = 'StaleSession', ended_at = ${timestamp}, updated_at = now()
+          SELECT id FROM charging_sessions
           WHERE station_id = ${stationUuid} AND status = 'active'
             AND id != ${sessionId}
             AND evse_id = (SELECT evse_id FROM charging_sessions WHERE id = ${sessionId})
-          RETURNING id
         `;
         for (const r of stale) {
-          await auditLinkedReservationFault(r['id'] as string, 'faulted: StaleSession');
+          const staleId = r['id'] as string;
+          try {
+            await requestCsmsSessionEnd(sql, eventBus, staleId, 'Superseded');
+          } catch (err: unknown) {
+            logger.error({ err, sessionId: staleId }, 'Failed to end a superseded session');
+          }
         }
 
         // Set connector to 'ev_connected' on transaction start (cable connected).
@@ -1663,7 +1742,7 @@ export function registerProjections(
             // unavailable connector should not be reset to ev_connected just
             // because a session started on it; the operator wants the bad
             // state visible until they explicitly clear it.
-            await applyEvseChargingState(sql, startEvseUuid, 'ev_connected');
+            await applyEvseChargingState(sql, startEvseUuid, 'ev_connected', timestamp);
             // Notify portal SSE: chargingState enrichment changes
             // connectors.status without sending a StatusNotification, so the
             // 'session.started' event below is not enough -- the portal SSE
@@ -1929,7 +2008,7 @@ export function registerProjections(
         await notifyChange('session.started', stationUuid, siteId, sessionId);
         const roamingIdToken = payload.idToken as string | null | undefined;
         if (isRoamingSession && roamingIdToken != null) {
-          await linkCpoRoamingSession(sessionId, transactionId, roamingIdToken);
+          await linkCpoRoamingSession(sessionId, roamingIdToken);
         }
         await notifyOcpiPush('session', { sessionId });
 
@@ -2017,7 +2096,7 @@ export function registerProjections(
       }
 
       // Drain buffered out-of-order events for this transaction
-      const buffered = txBuffer.drain(transactionId);
+      const buffered = txBuffer.drain(stationId, transactionId);
       for (const bufferedEvent of buffered) {
         void eventBus.publish(bufferedEvent);
       }
@@ -2025,16 +2104,14 @@ export function registerProjections(
       // Refresh station display with the in-progress transaction message.
       // Defer to the api-side listener so the renderer + push logic stays
       // in one place and we don't pull the renderer into the OCPP package.
-      const startedSessionId = getSessionId(
-        await sql`SELECT id FROM charging_sessions WHERE transaction_id = ${transactionId}`,
-      );
-      if (startedSessionId != null) {
+      if (sessionId != null) {
         const startedChargingState = (payload.chargingState as string | undefined) ?? null;
-        await publishTransactionScreen(startedSessionId, 'started', startedChargingState);
+        await publishTransactionScreen(sessionId, 'started', startedChargingState);
       }
     } else if (eventType === 'Updated') {
       const updatedRows = await sql`
-        SELECT id, evse_id FROM charging_sessions WHERE transaction_id = ${transactionId}
+        SELECT id, evse_id FROM charging_sessions
+        WHERE station_id = ${stationUuid} AND transaction_id = ${transactionId}
       `;
       const updatedRow = updatedRows[0];
       const sessionId = updatedRow != null ? (updatedRow.id as string) : null;
@@ -2083,7 +2160,7 @@ export function registerProjections(
         if (chargingState != null) {
           const connectorStatus = CHARGING_STATE_TO_STATUS[chargingState];
           if (connectorStatus != null && sessionEvseUuid != null) {
-            await applyEvseChargingState(sql, sessionEvseUuid, connectorStatus);
+            await applyEvseChargingState(sql, sessionEvseUuid, connectorStatus, timestamp);
             const updatedStationStatusSiteId = await resolveSiteId(stationUuid);
             await notifyChange('station.status', stationUuid, updatedStationStatusSiteId);
           }
@@ -2145,7 +2222,7 @@ export function registerProjections(
         const updatedChargingState = getString(payload, 'chargingState');
         await publishTransactionScreen(sessionId, 'updated', updatedChargingState);
       } else {
-        txBuffer.add(transactionId, event);
+        txBuffer.add(stationId, transactionId, event);
       }
     } else if (eventType === 'Ended') {
       const stoppedReason = getString(payload, 'stoppedReason');
@@ -2153,7 +2230,10 @@ export function registerProjections(
       // Check if this session was stopped due to a payment failure (pre-auth or missing payment method)
       const failedPaymentRows = await sql`
         SELECT id FROM payment_records
-        WHERE session_id = (SELECT id FROM charging_sessions WHERE transaction_id = ${transactionId} LIMIT 1)
+        WHERE session_id = (
+          SELECT id FROM charging_sessions
+          WHERE station_id = ${stationUuid} AND transaction_id = ${transactionId}
+        )
           AND status = 'failed'
         LIMIT 1
       `;
@@ -2189,14 +2269,15 @@ export function registerProjections(
               ELSE energy_delivered_wh
             END,
             updated_at = now()
-        WHERE transaction_id = ${transactionId}
+        WHERE station_id = ${stationUuid} AND transaction_id = ${transactionId}
       `;
 
       const sessionRows = await sql`
         SELECT id, evse_id, status, tariff_id, current_cost_cents, started_at, ended_at,
                energy_delivered_wh, currency, tariff_tax_rate, idle_started_at, idle_minutes,
                reservation_id
-        FROM charging_sessions WHERE transaction_id = ${transactionId}
+        FROM charging_sessions
+        WHERE station_id = ${stationUuid} AND transaction_id = ${transactionId}
       `;
       const sessionRow = sessionRows[0];
       if (sessionRow != null) {
@@ -2211,7 +2292,7 @@ export function registerProjections(
         if (endedChargingState != null) {
           const endedConnectorStatus = CHARGING_STATE_TO_STATUS[endedChargingState];
           if (endedConnectorStatus != null && endedEvseUuid != null) {
-            await applyEvseChargingState(sql, endedEvseUuid, endedConnectorStatus);
+            await applyEvseChargingState(sql, endedEvseUuid, endedConnectorStatus, timestamp);
             const endedSiteId = await resolveSiteId(stationUuid);
             await notifyChange('station.status', stationUuid, endedSiteId);
           }
@@ -2523,17 +2604,23 @@ export function registerProjections(
           );
         }
 
-        await publishTransactionScreen(sessionRow.id as string, 'ended', null);
+        // The station does not know a session the CSMS ended (superseded or
+        // ghost), and may be in a new transaction: its screen is left alone.
+        if (event.eventType !== SESSION_ENDED_BY_CSMS) {
+          await publishTransactionScreen(sessionRow.id as string, 'ended', null);
+        }
 
         // Free the per-session CostUpdated throttle entry now that the
         // session is over. Without this the Map grows unbounded over the
         // process lifetime.
         lastCostUpdatedAt.delete(sessionRow.id as string);
       } else {
-        txBuffer.add(transactionId, event);
+        txBuffer.add(stationId, transactionId, event);
       }
     }
-  });
+  }
+
+  safeSubscribe('ocpp.TransactionEvent', projectTransactionEvent);
 
   safeSubscribe('ocpp.MeterValues', async (event: DomainEvent) => {
     const payload = event.payload;
@@ -2560,7 +2647,7 @@ export function registerProjections(
     const sessionId = session?.id ?? null;
 
     if (sessionId == null && transactionId != null && isTransactionScoped) {
-      txBuffer.add(transactionId, event);
+      txBuffer.add(stationId, transactionId, event);
       return;
     }
 
@@ -2887,18 +2974,15 @@ export function registerProjections(
           const txId = session.transaction_id as string | null;
           const protocol = session.ocpp_protocol as string | null;
           if (txId != null && protocol === 'ocpp2.1') {
-            const commandId = crypto.randomUUID();
-            const costUpdatePayload = JSON.stringify({
-              commandId,
-              stationId,
-              action: 'CostUpdated',
-              payload: {
-                totalCost: totalCents / 100,
-                transactionId: txId,
-              },
-            });
             try {
-              await pubsub.publish('ocpp_commands', costUpdatePayload);
+              await publishOcppCommand(pubsub, {
+                stationId,
+                action: 'CostUpdated',
+                payload: {
+                  totalCost: totalCents / 100,
+                  transactionId: txId,
+                },
+              });
               lastCostUpdatedAt.set(sessionId, nowMs);
             } catch (err) {
               logger.debug(
@@ -3109,15 +3193,11 @@ export function registerProjections(
           // command listener translates it for 1.6 (ChangeAvailability on
           // connector 0). Fail-open: the disable is already stored.
           try {
-            await pubsub.publish(
-              'ocpp_commands',
-              JSON.stringify({
-                commandId: crypto.randomUUID(),
-                stationId: event.aggregateId,
-                action: 'ChangeAvailability',
-                payload: { operationalStatus: 'Inoperative' },
-              }),
-            );
+            await publishOcppCommand(pubsub, {
+              stationId: event.aggregateId,
+              action: 'ChangeAvailability',
+              payload: { operationalStatus: 'Inoperative' },
+            });
           } catch (err) {
             logger.warn({ err, stationUuid }, 'ChangeAvailability after security disable failed');
           }
@@ -3268,8 +3348,10 @@ export function registerProjections(
     }
 
     const sessionRows = await sql`
-      SELECT id, driver_id, station_id, UPPER(currency) AS currency
-      FROM charging_sessions WHERE transaction_id = ${transactionId}
+      SELECT cs.id, cs.driver_id, cs.station_id, UPPER(cs.currency) AS currency
+      FROM charging_sessions cs
+      JOIN charging_stations st ON st.id = cs.station_id
+      WHERE st.station_id = ${event.aggregateId} AND cs.transaction_id = ${transactionId}
     `;
     const session = sessionRows[0];
     if (session == null) return;
@@ -3413,15 +3495,11 @@ export function registerProjections(
     }
 
     try {
-      await pubsub.publish(
-        'ocpp_commands',
-        JSON.stringify({
-          commandId: crypto.randomUUID(),
-          stationId: ocppStationId,
-          action: 'RequestStopTransaction',
-          payload: { transactionId },
-        }),
-      );
+      await publishOcppCommand(pubsub, {
+        stationId: ocppStationId,
+        action: 'RequestStopTransaction',
+        payload: { transactionId },
+      });
     } catch (err) {
       logger.error({ err }, 'Failed to publish RequestStopTransaction');
     }
@@ -3490,31 +3568,18 @@ export function registerProjections(
       // the cost calc on the Ended event (or MeterValues if a stray one
       // arrives) applies pricePerSession + tax and the portal Recent
       // Sessions list shows a phantom $0.81 next to a 0 kWh row.
-      const eager = await sql`
-        UPDATE charging_sessions
-        SET status = 'faulted',
-            stopped_reason = ${reason},
-            ended_at = now(),
-            final_cost_cents = 0,
-            current_cost_cents = 0,
-            net_cents = 0,
-            tax_cents = 0,
-            cost_breakdown = jsonb_set(
-              ${sql.json(zeroCostBreakdown('net') as unknown as postgres.JSONValue)}::jsonb,
-              '{basis}',
-              to_jsonb(COALESCE(tax_basis, 'net'))
-            ),
-            updated_at = now()
-        WHERE id = ${sessionId} AND status = 'active'
-        RETURNING id
-      `;
+      const faulted = await faultUnbilledSession(sql, {
+        sessionId,
+        reason,
+        endedAt: new Date(),
+      });
       await sql`
         UPDATE session_tariff_segments
         SET ended_at = now(),
             duration_minutes = EXTRACT(EPOCH FROM (now() - started_at)) / 60
         WHERE session_id = ${sessionId} AND ended_at IS NULL
       `;
-      if (eager.length > 0) {
+      if (faulted) {
         await auditLinkedReservationFault(sessionId, `faulted: ${reason}`);
       }
     } catch (err) {
@@ -3731,10 +3796,11 @@ export function registerProjections(
   }
 
   // Payment auto-capture on session end (separate subscriber, no race with session creation)
-  safeSubscribe('ocpp.TransactionEvent', async (event: DomainEvent) => {
+  async function settleTransactionEnded(event: DomainEvent): Promise<void> {
     const payload = event.payload;
     const eventType = payload.eventType as string;
     const transactionId = payload.transactionId as string;
+    const stationId = payload.stationId as string;
 
     if (eventType === 'Ended') {
       // Settlement on session end
@@ -3744,7 +3810,7 @@ export function registerProjections(
                cs2.station_id AS station_ocpp_id, cs2.site_id
         FROM charging_sessions cs
         JOIN charging_stations cs2 ON cs2.id = cs.station_id
-        WHERE cs.transaction_id = ${transactionId}
+        WHERE cs2.station_id = ${stationId} AND cs.transaction_id = ${transactionId}
       `;
       const session = sessionRows[0];
       if (session == null) return;
@@ -3834,6 +3900,25 @@ export function registerProjections(
         );
       }
     }
+  }
+
+  safeSubscribe('ocpp.TransactionEvent', settleTransactionEnded);
+
+  // A session the CSMS ends because the station will not (superseded on its
+  // EVSE, or unknown to the station): the normal end, then the settlement, in
+  // one queued step. A session faulted or failed meanwhile is left alone (P5).
+  safeSubscribe(SESSION_ENDED_BY_CSMS, async (event: DomainEvent) => {
+    const stationId = event.payload.stationId as string;
+    const transactionId = event.payload.transactionId as string;
+    // Transaction ids are unique per station only (N4).
+    const [row] = await sql`
+      SELECT cs.status FROM charging_sessions cs
+      JOIN charging_stations st ON st.id = cs.station_id
+      WHERE st.station_id = ${stationId} AND cs.transaction_id = ${transactionId}
+    `;
+    if (row?.status !== 'active') return;
+    await projectTransactionEvent(event);
+    await settleTransactionEnded(event);
   });
 
   // ---- OCPP Message Logging ----
@@ -4653,13 +4738,15 @@ export function registerProjections(
 
     const ttlHours = await getOfflineCommandTtlHours();
 
+    // A command for a station deleted meanwhile is dropped (the queue has an FK
+    // to charging_stations.station_id and the commands could never be sent).
     await sql`
       INSERT INTO offline_command_queue (station_id, command_id, action, payload, version, expires_at)
-      VALUES (
+      SELECT
         ${stationId}, ${commandId}, ${action},
         ${sql.json(asJson(cmdPayload))}, ${version},
         now() + ${String(ttlHours) + ' hours'}::interval
-      )
+      WHERE EXISTS (SELECT 1 FROM charging_stations WHERE station_id = ${stationId})
       ON CONFLICT (command_id) DO NOTHING
     `;
   });

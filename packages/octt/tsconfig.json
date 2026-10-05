@@ -6,5 +6,5 @@
     "composite": true
   },
   "include": ["src"],
-  "references": [{ "path": "../css" }]
+  "references": [{ "path": "../css" }, { "path": "../v2g-exi" }]
 }

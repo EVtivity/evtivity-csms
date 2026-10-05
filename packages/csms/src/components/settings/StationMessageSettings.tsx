@@ -77,6 +77,7 @@ const ALL: ReadonlySet<StationMessageState> = new Set([
 
 const VARIABLES: VariableDef[] = [
   { name: 'companyName', descriptionKey: 'messages.varCompanyName', states: ALL },
+  { name: 'brandLine', descriptionKey: 'messages.varBrandLine', states: ALL },
   { name: 'stationOcppId', descriptionKey: 'messages.varStationOcppId', states: ALL },
   { name: 'supportPhone', descriptionKey: 'messages.varSupportPhone', states: ALL },
   {

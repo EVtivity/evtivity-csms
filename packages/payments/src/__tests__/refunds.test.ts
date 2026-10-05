@@ -9,6 +9,7 @@ const h = vi.hoisted(() => {
     tx,
     transaction: vi.fn((fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
     lockSessionRecord: vi.fn(),
+    lockRecord: vi.fn(),
     markRefunded: vi.fn(),
     addPendingRefunds: vi.fn(),
   };
@@ -17,6 +18,7 @@ const h = vi.hoisted(() => {
 vi.mock('@evtivity/database', () => ({ db: { transaction: h.transaction } }));
 vi.mock('../payment-records.js', () => ({
   lockSessionRecord: h.lockSessionRecord,
+  lockRecord: h.lockRecord,
   markRefunded: h.markRefunded,
   addPendingRefunds: h.addPendingRefunds,
 }));
@@ -24,6 +26,9 @@ vi.mock('../payment-records.js', () => ({
 import type Stripe from 'stripe';
 import { refundPaymentRecord } from '../refunds.js';
 import { StripePaymentProvider } from '../providers/stripe/index.js';
+import { SimulatedPaymentProvider } from '../providers/simulated/index.js';
+import type { SimulatedWebhookDelivery } from '../providers/simulated/index.js';
+import { fakeAdyenProvider, MODIFICATION_PSP } from '../testing/index.js';
 import { fakeClient } from './helpers/fake-stripe.js';
 import { PaymentProviderNotConfiguredError } from '../errors.js';
 import type { PaymentContext } from '../context.js';
@@ -626,5 +631,250 @@ describe('refundPaymentRecord with top-ups', () => {
         { idempotencyKey: 'refund_pi_1_0_3000_0_topup_2' },
       ],
     ]);
+  });
+});
+
+describe('refundPaymentRecord of a reservation fee', () => {
+  /** A captured cancellation fee: 5.00 net plus 19% tax, charged as one payment. */
+  function feeRecord(overrides: Partial<PaymentRecord> = {}): PaymentRecord {
+    return record({
+      id: 7,
+      sessionId: null,
+      chargeType: 'reservation_cancellation',
+      reservationId: 'rsv_1',
+      taxRate: '0.19',
+      preAuthAmountCents: null,
+      capturedAmountCents: 595,
+      stripePaymentIntentId: 'pi_fee',
+      providerPaymentId: 'pi_fee',
+      ...overrides,
+    });
+  }
+
+  beforeEach(() => {
+    refund.mockReset();
+    refund.mockResolvedValue({ state: 'succeeded', refundId: 're_fee', amountCents: 0 });
+    h.lockSessionRecord.mockReset();
+    h.lockRecord.mockReset();
+    h.markRefunded.mockClear();
+    h.addPendingRefunds.mockReset();
+    h.addPendingRefunds.mockImplementation((id: number) => Promise.resolve(feeRecord({ id })));
+  });
+
+  it('answers not_found for a missing record or a session record, without a provider call', async () => {
+    h.lockRecord.mockResolvedValueOnce(null);
+    expect(await refundPaymentRecord({ feeRecordId: 7 }, ctx)).toEqual({ status: 'not_found' });
+    h.lockRecord.mockResolvedValueOnce(record());
+    expect(await refundPaymentRecord({ feeRecordId: 42 }, ctx)).toEqual({ status: 'not_found' });
+    expect(h.lockSessionRecord).not.toHaveBeenCalled();
+    expect(refund).not.toHaveBeenCalled();
+    expect(h.markRefunded).not.toHaveBeenCalled();
+  });
+
+  it('refunds the fee in full by its record id with the request key and the fee reference', async () => {
+    h.lockRecord.mockResolvedValue(feeRecord());
+    const outcome = await refundPaymentRecord(
+      { feeRecordId: 7, actorUserId: 'u1', actionReason: (full) => (full ? 'Full' : 'Partial') },
+      ctx,
+    );
+    expect(h.lockRecord).toHaveBeenCalledWith(h.tx, 7);
+    expect(refund).toHaveBeenCalledWith({
+      paymentId: 'pi_fee',
+      amountCents: 595,
+      currency: 'EUR',
+      merchantReference: 'cancellation-fee-rsv_1',
+      idempotencyKey: 'refund_pi_fee_0_595_0',
+    });
+    expect(h.markRefunded).toHaveBeenCalledWith(
+      7,
+      {
+        refundedTotalCents: 595,
+        full: true,
+        actorUserId: 'u1',
+        actionReason: 'Full',
+        ledger: [ledgerEntry('re_fee', 'pi_fee', 595)],
+      },
+      h.tx,
+    );
+    expect(outcome).toMatchObject({ status: 'refunded', refundedNowCents: 595, full: true });
+  });
+
+  it('applies the partial-refund rules of a session refund', async () => {
+    const ledger = [
+      {
+        refundId: 're_0',
+        paymentId: 'pi_fee',
+        amountCents: 100,
+        state: 'succeeded' as const,
+        requestedAt: '2026-10-03T10:00:00.000Z',
+        settledAt: '2026-10-03T10:00:00.000Z',
+      },
+    ];
+    h.lockRecord.mockResolvedValue(
+      feeRecord({
+        status: 'partially_refunded',
+        refundedAmountCents: 100,
+        providerRefunds: ledger,
+      }),
+    );
+    expect(await refundPaymentRecord({ feeRecordId: 7, amountCents: 496 }, ctx)).toEqual({
+      status: 'exceeds_remaining',
+      remainingCents: 495,
+      requestedCents: 496,
+      currency: 'EUR',
+    });
+    expect(refund).not.toHaveBeenCalled();
+
+    const outcome = await refundPaymentRecord({ feeRecordId: 7, amountCents: 200 }, ctx);
+    expect(refund).toHaveBeenCalledWith(
+      expect.objectContaining({ amountCents: 200, idempotencyKey: 'refund_pi_fee_100_200_1' }),
+    );
+    expect(h.markRefunded).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ refundedTotalCents: 300, full: false }),
+      h.tx,
+    );
+    expect(outcome).toMatchObject({ status: 'refunded', full: false });
+
+    h.lockRecord.mockResolvedValue(feeRecord({ status: 'refunded', refundedAmountCents: 595 }));
+    expect(await refundPaymentRecord({ feeRecordId: 7 }, ctx)).toEqual({
+      status: 'no_captured_payment',
+    });
+  });
+
+  it('reverses the transfer and refunds the platform fee of a Stripe destination charge', async () => {
+    const client = fakeClient();
+    client.paymentIntents.retrieve.mockResolvedValue({
+      transfer_data: { destination: 'acct_1' },
+      application_fee_amount: 50,
+    });
+    client.refunds.create.mockResolvedValue({ id: 're_stripe', amount: 595 });
+    getPaymentProvider.mockResolvedValue(
+      new StripePaymentProvider({
+        client: client as unknown as Stripe,
+        publishableKey: 'pk_test_1',
+        webhookSecret: null,
+        connectWebhookSecret: null,
+      }),
+    );
+    h.lockRecord.mockResolvedValue(feeRecord());
+    const outcome = await refundPaymentRecord({ feeRecordId: 7 }, ctx);
+    expect(client.refunds.create.mock.calls).toEqual([
+      [
+        {
+          payment_intent: 'pi_fee',
+          amount: 595,
+          reverse_transfer: true,
+          refund_application_fee: true,
+        },
+        { idempotencyKey: 'refund_pi_fee_0_595_0' },
+      ],
+    ]);
+    expect(outcome).toMatchObject({
+      status: 'refunded',
+      refundStatus: 'succeeded',
+      refunds: [{ paymentId: 'pi_fee', refundId: 're_stripe', state: 'succeeded' }],
+    });
+  });
+
+  it('lists an Adyen fee refund as pending under the fee reference until the webhook confirms it', async () => {
+    const { provider, adyen } = fakeAdyenProvider();
+    getPaymentProvider.mockResolvedValue(provider);
+    h.lockRecord.mockResolvedValue(
+      feeRecord({
+        provider: 'adyen',
+        chargeType: 'reservation_no_show',
+        providerPaymentId: 'PSPFEE',
+        stripePaymentIntentId: null,
+      }),
+    );
+    const outcome = await refundPaymentRecord(
+      { feeRecordId: 7, amountCents: 300, actorUserId: 'u1', actionReason: () => 'Partial' },
+      ctx,
+    );
+    const call = adyen.last();
+    expect(call.path).toMatch(/\/payments\/PSPFEE\/refunds$/);
+    expect(call.headers['idempotency-key']).toBe('refund_PSPFEE_0_300_0');
+    expect(call.body).toMatchObject({
+      amount: { value: 300, currency: 'EUR' },
+      reference: 'no-show-fee-rsv_1',
+    });
+    expect(h.markRefunded).not.toHaveBeenCalled();
+    expect(h.addPendingRefunds).toHaveBeenCalledWith(
+      7,
+      [{ refundId: MODIFICATION_PSP, paymentId: 'PSPFEE', amountCents: 300 }],
+      { actorUserId: 'u1', actionReason: 'Partial' },
+      h.tx,
+    );
+    expect(outcome).toMatchObject({
+      status: 'refunded',
+      refundStatus: 'pending',
+      pendingCents: 300,
+      refundedNowCents: 0,
+    });
+  });
+
+  it('uses fee_<paymentId> as the reference of a fee whose reservation was deleted', async () => {
+    const { provider, adyen } = fakeAdyenProvider();
+    getPaymentProvider.mockResolvedValue(provider);
+    h.lockRecord.mockResolvedValue(
+      feeRecord({ provider: 'adyen', reservationId: null, providerPaymentId: 'PSPFEE' }),
+    );
+    await refundPaymentRecord({ feeRecordId: 7, amountCents: 100 }, ctx);
+    expect(adyen.last().body).toMatchObject({ reference: 'fee_PSPFEE' });
+  });
+
+  it('refunds a simulated fee charge synchronously', async () => {
+    getPaymentProvider.mockResolvedValue(
+      new SimulatedPaymentProvider({ encryptionKey: 'test-encryption-key-32chars-long!' }),
+    );
+    h.lockRecord.mockResolvedValue(
+      feeRecord({ provider: 'simulated', providerPaymentId: 'pi_sim_approve_595_abc' }),
+    );
+    const outcome = await refundPaymentRecord({ feeRecordId: 7 }, ctx);
+    expect(h.markRefunded).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({
+        refundedTotalCents: 595,
+        full: true,
+        ledger: [
+          expect.objectContaining({ paymentId: 'pi_sim_approve_595_abc', state: 'succeeded' }),
+        ],
+      }),
+      h.tx,
+    );
+    expect(outcome).toMatchObject({ status: 'refunded', refundStatus: 'succeeded' });
+  });
+
+  it('confirms a simulated async fee refund by webhook', async () => {
+    const deliveries: SimulatedWebhookDelivery[] = [];
+    getPaymentProvider.mockResolvedValue(
+      new SimulatedPaymentProvider({
+        encryptionKey: 'test-encryption-key-32chars-long!',
+        resultMode: 'async',
+        events: {
+          deliver: (d) => {
+            deliveries.push(d);
+            return Promise.resolve();
+          },
+        },
+      }),
+    );
+    h.lockRecord.mockResolvedValue(
+      feeRecord({ provider: 'simulated', providerPaymentId: 'pi_sim_approve_595_abc' }),
+    );
+    const outcome = await refundPaymentRecord({ feeRecordId: 7, amountCents: 200 }, ctx);
+    expect(outcome).toMatchObject({
+      status: 'refunded',
+      refundStatus: 'pending',
+      pendingCents: 200,
+    });
+    expect(h.addPendingRefunds).toHaveBeenCalledWith(
+      7,
+      [expect.objectContaining({ paymentId: 'pi_sim_approve_595_abc', amountCents: 200 })],
+      expect.anything(),
+      h.tx,
+    );
+    expect(JSON.stringify(deliveries)).toContain('payment.refunded');
   });
 });

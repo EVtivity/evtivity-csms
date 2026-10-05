@@ -56,6 +56,13 @@ vi.mock('drizzle-orm', () => ({
   eq: vi.fn((col: unknown, val: unknown) => ({ col, val })),
 }));
 
+const workerConfig = vi.hoisted(() => ({
+  OCPP_SERVER_URL: 'ws://localhost:7103',
+  API_BASE_URL: 'http://localhost:7102',
+  OCTT_OCSP_RESPONDER_URL: undefined as string | undefined,
+}));
+vi.mock('../../lib/config.js', () => ({ config: workerConfig }));
+
 const mockRunTests = vi.fn();
 vi.mock('@evtivity/octt', () => ({
   runTests: (...args: unknown[]) => mockRunTests(...args),
@@ -109,8 +116,8 @@ describe('octtRunnerHandler', () => {
     insertRejectError = new Error('insert boom');
     mockRunTests.mockReset();
     mockPublish.mockClear();
-    delete process.env['OCPP_SERVER_URL'];
-    delete process.env['API_BASE_URL'];
+    workerConfig.OCPP_SERVER_URL = 'ws://localhost:7103';
+    workerConfig.API_BASE_URL = 'http://localhost:7102';
   });
 
   it('marks the run running at start, then completed with summary counts on success', async () => {
@@ -151,11 +158,31 @@ describe('octtRunnerHandler', () => {
     expect(config.concurrency).toBe(3);
     expect(config.serverUrl).toBe('ws://localhost:7103');
     expect(config.apiUrl).toBe('http://localhost:7102');
+    // No responder configured: the OCSP tests are skipped.
+    expect(config.ocspResponderUrl).toBeUndefined();
   });
 
-  it('passes the concrete version and env-overridden urls to runTests', async () => {
-    process.env['OCPP_SERVER_URL'] = 'ws://ocpp.internal:9000';
-    process.env['API_BASE_URL'] = 'http://api.internal:8000';
+  it('starts the Test System OCSP responder at OCTT_OCSP_RESPONDER_URL', async () => {
+    workerConfig.OCTT_OCSP_RESPONDER_URL = 'http://worker:7110/ocsp';
+    mockRunTests.mockResolvedValue(summary);
+    try {
+      const { octtRunnerHandler } = await import('../../handlers/octt-runner.js');
+      await octtRunnerHandler(
+        { runId: 3, ocppVersion: 'ocpp2.1', sutType: 'csms' },
+        makeLogger(),
+        pubsub,
+      );
+    } finally {
+      workerConfig.OCTT_OCSP_RESPONDER_URL = undefined;
+    }
+
+    const config = mockRunTests.mock.calls[0]?.[0] as RunConfig;
+    expect(config.ocspResponderUrl).toBe('http://worker:7110/ocsp');
+  });
+
+  it('passes the concrete version and the configured urls to runTests', async () => {
+    workerConfig.OCPP_SERVER_URL = 'ws://ocpp.internal:9000';
+    workerConfig.API_BASE_URL = 'http://api.internal:8000';
     mockRunTests.mockResolvedValue(summary);
 
     const { octtRunnerHandler } = await import('../../handlers/octt-runner.js');

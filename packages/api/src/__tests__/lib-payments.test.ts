@@ -20,7 +20,7 @@ vi.stubEnv('API_PORT', '3001');
 vi.stubEnv('SETTINGS_ENCRYPTION_KEY', 'k');
 
 await import('../lib/payments.js');
-const { setPubSub } = await import('../lib/pubsub.js');
+const { setPubSub } = await import('@evtivity/lib/pubsub-instance');
 
 const delivery: SimulatedWebhookDelivery = {
   rawBody: '{"events":[]}',

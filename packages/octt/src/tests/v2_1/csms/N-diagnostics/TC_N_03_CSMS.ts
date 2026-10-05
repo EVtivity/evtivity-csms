@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_N_05_CSMS: TestCase = {
   id: 'TC_N_05_CSMS',
@@ -24,7 +25,7 @@ export const TC_N_05_CSMS: TestCase = {
           bases.push(payload['monitoringBase'] as string);
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

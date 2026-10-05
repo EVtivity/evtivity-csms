@@ -10,6 +10,7 @@ import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { LanguageSelect } from '@/components/ui/language-select';
 import { Card, CardContent } from '@/components/ui/card';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
@@ -20,6 +21,15 @@ interface Driver {
   lastName: string;
   email: string | null;
   phone: string | null;
+  language: string;
+}
+
+interface CreateDriverBody {
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phone?: string;
+  language: string;
 }
 
 export function DriverCreate(): React.JSX.Element {
@@ -31,11 +41,11 @@ export function DriverCreate(): React.JSX.Element {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [language, setLanguage] = useState('en');
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const createMutation = useMutation({
-    mutationFn: (body: { firstName: string; lastName: string; email?: string; phone?: string }) =>
-      api.post<Driver>('/v1/drivers', body),
+    mutationFn: (body: CreateDriverBody) => api.post<Driver>('/v1/drivers', body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['drivers'] });
       void navigate(`/drivers/${created.id}`);
@@ -56,10 +66,7 @@ export function DriverCreate(): React.JSX.Element {
     e.preventDefault();
     setHasSubmitted(true);
     if (Object.keys(errors).length > 0) return;
-    const body: { firstName: string; lastName: string; email?: string; phone?: string } = {
-      firstName,
-      lastName,
-    };
+    const body: CreateDriverBody = { firstName, lastName, language };
     if (email.trim() !== '') body.email = email;
     if (phone.trim() !== '') body.phone = phone;
     createMutation.mutate(body);
@@ -137,6 +144,13 @@ export function DriverCreate(): React.JSX.Element {
                   setPhone(e.target.value);
                 }}
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="driver-language" className="leading-6">
+                {t('drivers.language')}
+              </Label>
+              <LanguageSelect id="driver-language" value={language} onChange={setLanguage} />
+              <p className="text-sm text-muted-foreground">{t('drivers.languageHelp')}</p>
             </div>
             {createMutation.isError && (
               <p className="text-sm text-destructive">{getErrorMessage(createMutation.error, t)}</p>

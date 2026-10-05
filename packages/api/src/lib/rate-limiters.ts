@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { StatusCheckResult } from './ocpp-command.js';
+import type { StatusCheckResult } from './station-status-check.js';
 
 const stationCheckRateLimit = new Map<string, number[]>();
 const CHECK_RATE_LIMIT = 5; // max TriggerMessage dispatches per minute per station

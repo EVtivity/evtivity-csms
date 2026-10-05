@@ -5,6 +5,8 @@ import { z } from 'zod';
 
 const schema = z.object({
   DATABASE_URL: z.string().url().default('postgres://evtivity:evtivity@localhost:5433/evtivity'),
+  // Connection pool size, as for the other services (@evtivity/database).
+  DB_POOL_MAX: z.coerce.number().int().positive().default(10),
   REDIS_URL: z.string().url().default('redis://localhost:6379'),
   OCPP_SERVER_URL: z.string().url().default('ws://localhost:7103'),
   OCPP_TLS_SERVER_URL: z.string().url().default('wss://localhost:8443'),

@@ -73,6 +73,8 @@ vi.mock('@evtivity/database', () => ({
   clearSystemSettingsCache: vi.fn(),
   clearMobileAppConfigCache: vi.fn(),
   clearStationMessageSettingsCache: vi.fn(),
+  clearWebhookSettingsCache: vi.fn(),
+  WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY: 'notifications.webhookAllowedPrivateHosts',
   invalidateReservationSettingsCache: vi.fn(),
   writeAudit: vi.fn().mockResolvedValue(undefined),
   siteAuditLog: {},
@@ -130,6 +132,10 @@ vi.mock('../lib/payments.js', async (importOriginal) => ({
   clearPaymentCaches: vi.fn(),
 }));
 
+vi.mock('@evtivity/services/station-message.service', () => ({
+  requestStationMessageRepush: vi.fn().mockResolvedValue(undefined),
+}));
+
 // The provider-switch guard has its own tests (settings-routes-full, provider-switch).
 vi.mock('../lib/provider-switch.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/provider-switch.js')>()),
@@ -139,6 +145,7 @@ vi.mock('../lib/provider-switch.js', async (importOriginal) => ({
 import { registerAuth } from '../plugins/auth.js';
 import { settingsRoutes } from '../routes/settings.js';
 import { clearPaymentCaches } from '../lib/payments.js';
+import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
 import {
   db,
   clearSystemSettingsCache,
@@ -450,6 +457,51 @@ describe('Settings routes', () => {
     });
     expect(clearStationMessageSettingsCache).toHaveBeenCalled();
     expect(clearSystemSettingsCache).not.toHaveBeenCalled();
+  });
+
+  it('PUT /v1/settings/stationMessage.language re-renders station screens when the value changes', async () => {
+    vi.mocked(requestStationMessageRepush).mockClear();
+    setupDbResults(
+      [{ key: 'stationMessage.language', value: 'en' }],
+      [{ key: 'stationMessage.language', value: 'de' }],
+    );
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/stationMessage.language',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 'de' },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(requestStationMessageRepush).toHaveBeenCalledTimes(1);
+  });
+
+  it('PUT /v1/settings/company.name does not re-render station screens for an unchanged value', async () => {
+    vi.mocked(requestStationMessageRepush).mockClear();
+    setupDbResults(
+      [{ key: 'company.name', value: 'ACME' }],
+      [{ key: 'company.name', value: 'ACME' }],
+    );
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/company.name',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 'ACME' },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(requestStationMessageRepush).not.toHaveBeenCalled();
+  });
+
+  it('PUT /v1/settings/smtp.host does not re-render station screens', async () => {
+    vi.mocked(requestStationMessageRepush).mockClear();
+    setupDbResults([], [{ key: 'smtp.host', value: 'mail.example.com' }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/smtp.host',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 'mail.example.com' },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(requestStationMessageRepush).not.toHaveBeenCalled();
   });
 
   it('PUT /v1/settings/reservation.cancellationFeeCents clears the reservation settings cache', async () => {

@@ -9,9 +9,14 @@ import {
   RedisPubSubClient,
   initSentry,
   clearNotificationSettingsCache,
+  clearStationMessageCache,
 } from '@evtivity/lib';
-import { getSentryConfig } from '@evtivity/database';
-import { setPubSub } from '@evtivity/api/src/lib/pubsub.js';
+import {
+  getSentryConfig,
+  clearStationMessageSettingsCache,
+  clearSystemSettingsCache,
+} from '@evtivity/database';
+import { setPubSub } from '@evtivity/lib/pubsub-instance';
 import { createQueues, QUEUE_NAMES } from './queues.js';
 import { createCronWorker } from './cron-worker.js';
 import { scheduleCronJobs, scheduleLoadManagementCoordinator } from './scheduler.js';
@@ -34,6 +39,7 @@ import {
   createRemoteStartTimeoutWorker,
   startRemoteStartTimeoutBridge,
 } from './remote-start-timeout-worker.js';
+import { createStationMessageWorker, startStationMessageBridge } from './station-message-worker.js';
 import { octtRunnerHandler } from './handlers/octt-runner.js';
 import type { OcttJobData } from './handlers/octt-runner.js';
 
@@ -58,6 +64,7 @@ async function start(): Promise<void> {
     stationWatchQueue,
     paymentWebhookQueue,
     remoteStartTimeoutQueue,
+    stationMessageQueue,
   } = createQueues(REDIS_URL);
   // BullMQ re-emits Redis errors on every Queue and Worker; unheard, it
   // prints each one as a raw stack trace.
@@ -115,6 +122,11 @@ async function start(): Promise<void> {
     pubsub,
   );
 
+  const stationMessageWorker = createStationMessageWorker(
+    createBullMQConnection(REDIS_URL),
+    createBullMQConnection(REDIS_URL),
+  );
+
   // OCTT conformance test worker
   const octtWorker = new Worker<OcttJobData>(
     QUEUE_NAMES.OCTT,
@@ -154,6 +166,7 @@ async function start(): Promise<void> {
     pubsub,
     remoteStartTimeoutQueue,
   );
+  const stopStationMessageBridge = await startStationMessageBridge(pubsub, stationMessageQueue);
 
   // Listen for credential-rotation invalidations from the API so the next
   // dispatchDriverNotification / scheduled report email reads fresh SMTP and
@@ -165,6 +178,12 @@ async function start(): Promise<void> {
         const msg = JSON.parse(payload) as { kind?: string };
         if (msg.kind === 'notification_settings') {
           clearNotificationSettingsCache();
+        }
+        if (msg.kind === 'station_message') {
+          // Station screens render here (station-messages and tariff boundary jobs).
+          clearStationMessageCache();
+          clearStationMessageSettingsCache();
+          clearSystemSettingsCache();
         }
       } catch {
         // ignore malformed payloads
@@ -196,6 +215,7 @@ async function start(): Promise<void> {
     await stopStationWatchBridge();
     await stopPaymentWebhookBridge();
     await stopRemoteStartTimeoutBridge();
+    await stopStationMessageBridge();
     await octtSubscription.unsubscribe();
     await cacheInvalidateSubscription.unsubscribe();
     await cronWorker.close();
@@ -206,6 +226,7 @@ async function start(): Promise<void> {
     await stationWatchWorker.close();
     await paymentWebhookWorker.close();
     await remoteStartTimeoutWorker.close();
+    await stationMessageWorker.close();
     await octtWorker.close();
     await cronQueue.close();
     await loadQueue.close();
@@ -217,6 +238,7 @@ async function start(): Promise<void> {
     setSimulatedEventSink(null);
     await paymentWebhookQueue.close();
     await remoteStartTimeoutQueue.close();
+    await stationMessageQueue.close();
     await pubsub.close();
     log.info('Worker shutdown complete');
     process.exit(0);

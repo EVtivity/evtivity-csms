@@ -4,6 +4,7 @@
 import type { StepResult, TestCase } from '../../../types.js';
 import { pushSendAckStep } from '../../../csms-test-helpers.js';
 import { FIRMWARE_SIGNATURE, FIRMWARE_SIGNING_CERTIFICATE } from '../../../firmware-fixtures.js';
+import { defaultReply } from '../../../default-replies.js';
 
 export const TC_081_CSMS: TestCase = {
   id: 'TC_081_CSMS',
@@ -22,12 +23,12 @@ export const TC_081_CSMS: TestCase = {
     });
 
     let received = false;
-    ctx.client.setIncomingCallHandler(async (_messageId, action, _payload) => {
+    ctx.client.setIncomingCallHandler(async (_messageId, action, payload) => {
       if (action === 'SignedUpdateFirmware') {
         received = true;
         return { status: 'Accepted' };
       }
-      return {};
+      return defaultReply('ocpp1.6', action, payload);
     });
 
     if (ctx.triggerCommand != null) {

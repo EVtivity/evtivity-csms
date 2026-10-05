@@ -107,6 +107,10 @@ vi.mock('../../../database/src/lib/pricing-settings.js', () => ({
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  // The session end request channel and reasons.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/session-end-request.js',
+  )),
   // The real status entry point, running on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/station-status.js',
@@ -420,6 +424,7 @@ describe('Event projections - coverage round 2', () => {
         STA, // resolveStationUuid
         [{ onboarding_status: 'accepted' }], // SELECT onboarding_status
         [], // UPDATE charging_stations (accepted)
+        [], // reset the status report timestamps (new ordering epoch)
         [], // UPDATE firmware_state (a reboot ends an install)
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // availability recompute (unchanged)
@@ -436,6 +441,9 @@ describe('Event projections - coverage round 2', () => {
       // inputs, so a disable or fault survives a reboot.
       expect(findSql(/availability = 'available'/)).toBeUndefined();
       expect(findSql(/SET availability = .*IS DISTINCT FROM/s)).toBeDefined();
+      // A reboot starts a new status ordering epoch for the station and its connectors.
+      const epoch = findSql(/SET status_reported_at = NULL/);
+      expect(epoch?.strings.join('')).toContain('SET reported_status_at = NULL');
       // A reboot ends an install, so only an 'installing' state is cleared.
       expect(findSql(/SET firmware_state = NULL.*firmware_state = 'installing'/s)).toBeDefined();
       const cmds = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
@@ -480,6 +488,7 @@ describe('Event projections - coverage round 2', () => {
         STA,
         [{ onboarding_status: 'accepted' }],
         [],
+        [], // reset the status report timestamps (new ordering epoch)
         [], // UPDATE firmware_state (a reboot ends an install)
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // availability recompute
@@ -502,6 +511,7 @@ describe('Event projections - coverage round 2', () => {
         STA,
         [{ onboarding_status: 'accepted' }],
         [],
+        [], // reset the status report timestamps (new ordering epoch)
         [], // UPDATE firmware_state (a reboot ends an install)
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // availability recompute
@@ -523,6 +533,7 @@ describe('Event projections - coverage round 2', () => {
         STA,
         [{ onboarding_status: 'accepted' }],
         [],
+        [], // reset the status report timestamps (new ordering epoch)
         [], // UPDATE firmware_state (a reboot ends an install)
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // availability recompute
@@ -544,6 +555,7 @@ describe('Event projections - coverage round 2', () => {
         STA,
         [{ onboarding_status: 'accepted' }],
         [],
+        [], // reset the status report timestamps (new ordering epoch)
         [], // UPDATE firmware_state (a reboot ends an install)
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // availability recompute
@@ -1065,6 +1077,10 @@ describe('Event projections - coverage round 2', () => {
       expect(ins?.values).toContain('cmd-1');
       expect(ins?.values).toContain('Reset');
       expect(ins?.values).toContain('24 hours');
+      // Only for a station that still exists (FK to charging_stations.station_id).
+      expect(ins?.strings.join('?')).toMatch(
+        /WHERE EXISTS \(SELECT 1 FROM charging_stations WHERE station_id = \?\)/,
+      );
     });
   });
 
@@ -1100,7 +1116,7 @@ describe('Event projections - coverage round 2', () => {
         STA, // resolveStationUuid
         [], // SELECT evses -> none
         [{ id: 'evs_new' }], // INSERT evses RETURNING
-        [], // INSERT connectors
+        [{ id: 'con_new' }], // INSERT connectors RETURNING
         [], // INSERT port_status_log
         [{ site_id: null }], // resolveSiteId
         [{ ocpp_protocol: 'ocpp1.6' }], // didAutoCreate GetBaseReport check (1.6, no publish)
@@ -1126,7 +1142,7 @@ describe('Event projections - coverage round 2', () => {
         STA,
         [], // SELECT evses
         [{ id: 'evs_new' }], // INSERT evses
-        [], // INSERT connectors
+        [{ id: 'con_new' }], // INSERT connectors RETURNING
         [], // INSERT port_status_log
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // availability recompute (unchanged)
@@ -1166,8 +1182,7 @@ describe('Event projections - coverage round 2', () => {
       setupSqlResults(
         STA,
         [{ id: 'evs_1' }], // SELECT evses
-        [{ status: 'available' }], // SELECT connectors prev status (same as new)
-        [], // UPDATE connectors
+        [{ previous_status: 'available', applied: true }], // guarded UPDATE connectors (same status)
         [{ site_id: null }], // resolveSiteId
       );
       await emit('ocpp.StatusNotification', 'CS-1', {
@@ -1177,7 +1192,7 @@ describe('Event projections - coverage round 2', () => {
       });
       // No status change -> no port_status_log insert
       expect(findSql(/INSERT INTO port_status_log/)).toBeUndefined();
-      expect(findSql(/UPDATE connectors SET status/)).toBeDefined();
+      expect(findSql(/UPDATE connectors c\s+SET status/)).toBeDefined();
     });
 
     it('logs transition and auto-creates connector when connector row missing', async () => {
@@ -1185,9 +1200,9 @@ describe('Event projections - coverage round 2', () => {
       setupSqlResults(
         STA,
         [{ id: 'evs_1' }], // SELECT evses
-        [], // SELECT connectors -> none (length 0)
+        [], // guarded UPDATE connectors -> no row (length 0)
+        [{ id: 'con_2' }], // INSERT connectors RETURNING
         [], // INSERT port_status_log (status changed: undefined -> faulted)
-        [], // INSERT connectors
         [{ site_id: null }], // resolveSiteId
         [{ ocpp_protocol: 'ocpp1.6' }], // GetBaseReport check (1.6)
       );
@@ -1206,8 +1221,7 @@ describe('Event projections - coverage round 2', () => {
       setupSqlResults(
         STA,
         [{ id: 'evs_1' }],
-        [{ status: 'occupied' }],
-        [], // UPDATE connectors
+        [{ previous_status: 'occupied', applied: true }], // guarded UPDATE connectors
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: 'site-9' }], // resolveSiteId
@@ -1228,9 +1242,8 @@ describe('Event projections - coverage round 2', () => {
       setupSqlResults(
         STA,
         [{ id: 'evs_1' }],
-        [{ status: 'charging' }],
+        [{ previous_status: 'charging', applied: true }], // guarded UPDATE connectors
         [], // INSERT port_status_log (charging -> suspended_ev)
-        [], // UPDATE connectors
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
@@ -1270,9 +1283,8 @@ describe('Event projections - coverage round 2', () => {
       setupSqlResults(
         STA,
         [{ id: 'evs_1' }],
-        [{ status: 'suspended_ev' }],
+        [{ previous_status: 'suspended_ev', applied: true }], // guarded UPDATE connectors
         [], // INSERT port_status_log
-        [], // UPDATE connectors
         [{ site_id: null }], // resolveSiteId
         // station_message_refresh: Charging is not in STATION_MESSAGE_RELEVANT? It is not.
         [], // UPDATE charging_sessions resume

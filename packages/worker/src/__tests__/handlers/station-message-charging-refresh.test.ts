@@ -90,7 +90,7 @@ vi.mock('drizzle-orm', () => ({
   ),
 }));
 
-vi.mock('@evtivity/api/src/lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: () => ({ publish: mockPublish }),
 }));
 

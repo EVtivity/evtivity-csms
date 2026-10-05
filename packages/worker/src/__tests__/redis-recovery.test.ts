@@ -40,7 +40,7 @@ const { rebuildDelayedJobs, recoverLostRedisState, startRedisRecoveryWatch } =
 
 const redisClient = new EventEmitter();
 const queues = {
-  cronQueue: { client: Promise.resolve(redisClient) },
+  cronQueue: { getBackend: () => ({ client: Promise.resolve(redisClient) }) },
   loadQueue: {},
   reservationQueue: { name: 'reservations' },
   remoteStartTimeoutQueue: { name: 'remote-start-timeouts' },

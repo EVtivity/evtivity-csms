@@ -21,6 +21,8 @@ export interface PricingAssignmentTabProps {
   resourceType: ResourceType;
   resourceId: string;
   assignUrl: string;
+  /** Timezone the schedule marks the current tariff in (default: the system timezone). */
+  scheduleTimezone?: string | undefined;
 }
 
 const RESOURCE_PLURAL: Record<ResourceType, string> = {
@@ -61,6 +63,7 @@ export function PricingAssignmentTab({
   resourceType,
   resourceId,
   assignUrl,
+  scheduleTimezone,
 }: PricingAssignmentTabProps): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -127,7 +130,7 @@ export function PricingAssignmentTab({
             </CardHeader>
           </Card>
 
-          <PricingScheduleCard groupId={pricingGroup.id} />
+          <PricingScheduleCard groupId={pricingGroup.id} timezone={scheduleTimezone} />
         </>
       ) : (
         <Card>

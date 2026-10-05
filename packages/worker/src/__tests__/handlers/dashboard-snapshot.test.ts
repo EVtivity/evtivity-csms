@@ -163,13 +163,13 @@ const mockQueryRevenue = vi.fn(
     const siteId = found ?? '';
     if (siteRejects[siteId]?.kind === 'revenue') throw new Error(`forced failure: ${siteId}`);
     const { aggregateRevenueRows } = await vi.importActual<
-      typeof import('@evtivity/api/src/lib/session-revenue.js')
-    >('@evtivity/api/src/lib/session-revenue.js');
+      typeof import('@evtivity/services/session-revenue')
+    >('@evtivity/services/session-revenue');
     return aggregateRevenueRows(dataFor(siteId).revenue ?? DEFAULT_SITE_DATA.revenue);
   },
 );
 
-vi.mock('@evtivity/api/src/lib/session-revenue.js', async (importOriginal) => ({
+vi.mock('@evtivity/services/session-revenue', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   queryRevenue: (input: { companyCurrency: string; where?: Array<{ values: unknown[] }> }) =>
     mockQueryRevenue(input),

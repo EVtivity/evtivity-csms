@@ -107,7 +107,7 @@ vi.mock('../lib/site-access.js', () => ({
   invalidateSiteAccessCache: vi.fn(),
 }));
 
-vi.mock('../services/load-management.service.js', () => ({
+vi.mock('@evtivity/services/load-management.service', () => ({
   getSitePowerStatus: vi.fn().mockResolvedValue({
     totalDrawKw: 50,
     stations: [

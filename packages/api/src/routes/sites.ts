@@ -16,8 +16,8 @@ import {
   PG_FOREIGN_KEY_VIOLATION,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
-import { inCompanyCurrency, sessionCurrencySql } from '../lib/company-currency.js';
-import { queryRevenue, queryRevenueTotal, revenueItem } from '../lib/session-revenue.js';
+import { inCompanyCurrency, sessionCurrencySql } from '@evtivity/services/company-currency';
+import { queryRevenue, queryRevenueTotal, revenueItem } from '@evtivity/services/session-revenue';
 import { siteNameEq } from '../lib/site-lookup.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
@@ -45,6 +45,7 @@ import {
   FREE_VEND_OCPP_16_KEYS,
   electricityRateRestrictionsSchema,
   deriveElectricityRatePriority,
+  STATION_MESSAGE_LANGUAGES,
 } from '@evtivity/lib';
 import type { ElectricityRatePeriodRestrictions } from '@evtivity/lib';
 import { assertZodRefinements, zodSchema } from '../lib/zod-schema.js';
@@ -62,7 +63,7 @@ import {
 import {
   buildDerivedStatusSubquery,
   buildStatusReasonSubquery,
-} from '../lib/station-derived-status.js';
+} from '@evtivity/services/station-derived-status';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import {
   exportSitesCsv,
@@ -76,6 +77,7 @@ import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.j
 import { pushTemplateToSiteStations } from '../lib/config-push.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
+import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
 
 const importSiteRow = z.object({
   siteName: z.string().min(1).max(255),
@@ -227,6 +229,13 @@ const updateSiteBody = z.object({
     .boolean()
     .optional()
     .describe('Whether reservations are allowed at this site'),
+  stationMessageLanguage: z
+    .enum(STATION_MESSAGE_LANGUAGES)
+    .nullable()
+    .optional()
+    .describe(
+      'Display language of the station screens at this site. Null follows the stationMessage.language setting',
+    ),
 });
 
 const siteSelect = {
@@ -254,6 +263,7 @@ const siteSelect = {
   freeVendEnabled: sites.freeVendEnabled,
   freeVendTemplateId21: sites.freeVendTemplateId21,
   freeVendTemplateId16: sites.freeVendTemplateId16,
+  stationMessageLanguage: sites.stationMessageLanguage,
   underMaintenance: sql<boolean>`EXISTS (
     SELECT 1
     FROM maintenance_events me
@@ -308,6 +318,12 @@ const siteItem = z
       .describe('True when the site currently has an active maintenance event'),
     maxPowerKw: z.number().nullable().describe('Maximum power available at the site in kilowatts'),
     totalDrawKw: z.number().describe('Current total power draw across all stations in kilowatts'),
+    stationMessageLanguage: z
+      .string()
+      .nullable()
+      .describe(
+        'Display language of the station screens at this site (en, de, es, ko, zh, zh-TW). Null follows the stationMessage.language setting',
+      ),
   })
   .passthrough();
 
@@ -328,6 +344,12 @@ const siteBase = z
     timezone: z.string().nullable().describe('IANA timezone name (e.g. America/Los_Angeles)'),
     hoursOfOperation: z.string().nullable().describe('Free-form description of operating hours'),
     metadata: z.record(z.unknown()).nullable().describe('Arbitrary site metadata as JSON object'),
+    stationMessageLanguage: z
+      .string()
+      .nullable()
+      .describe(
+        'Display language of the station screens at this site (en, de, es, ko, zh, zh-TW). Null follows the stationMessage.language setting',
+      ),
     createdAt: z.coerce.date().describe('Timestamp when the site was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the site was last updated'),
   })
@@ -976,6 +998,13 @@ export function siteRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      if (
+        before != null &&
+        body.stationMessageLanguage !== undefined &&
+        before.stationMessageLanguage !== site.stationMessageLanguage
+      ) {
+        await requestStationMessageRepush(request.log, { siteId: site.id });
+      }
       return site;
     },
   );

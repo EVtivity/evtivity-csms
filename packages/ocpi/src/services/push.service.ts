@@ -1,31 +1,32 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, and, sql, lte, gte } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import {
   db,
-  sites,
   chargingStations,
   evses,
-  connectors,
   ocpiPartners,
   ocpiPartnerEndpoints,
   ocpiLocationPublish,
   ocpiLocationPublishPartners,
   ocpiSyncLog,
   chargingSessions,
-  maintenanceEvents,
-  isStationLevelUnavailable,
+  ocpiLocationAudience,
 } from '@evtivity/database';
 import { createInFlightTracker, createLogger } from '@evtivity/lib';
 import type { PubSubClient, Subscription } from '@evtivity/lib';
 import { drainListener, trackListenerWork } from '../lib/listener-drain.js';
 import { OcpiClient } from '../lib/ocpi-client.js';
+import { OcpiStatusCode } from '../lib/ocpi-response.js';
 import { getOutboundToken } from '../lib/outbound-token.js';
 import { config } from '../lib/config.js';
 import { transformLocation } from '../transformers/location.transformer.js';
 import { resolvePartnerVersion } from '../lib/ocpi-version.js';
 import { cpoSessionLink, renderCpoSession, syncCpoSessionRow } from './cpo-sessions.js';
+import { connectorTariffIds } from './connector-tariffs.js';
+import { loadSiteLocation, withTariffIds } from './location-render.js';
+import type { SiteLocation } from './location-render.js';
 import {
   mappingsForPricingChange,
   partnerTariffMappings,
@@ -44,6 +45,11 @@ export interface TariffPushTarget {
 export interface PushNotification {
   type: 'location' | 'session' | 'cdr' | 'tariff';
   siteId?: string;
+  /**
+   * location: partners that no longer see the site, under the OCPI location
+   * id they know. They get the location with every EVSE REMOVED.
+   */
+  removed?: { ocpiLocationId: string; partnerIds: string[] };
   sessionId?: string;
   cdrId?: string;
   /**
@@ -66,7 +72,13 @@ function getPartyId(): string {
 }
 
 async function getConnectedPartners(): Promise<
-  Array<{ id: string; countryCode: string; partyId: string; version: string | null }>
+  Array<{
+    id: string;
+    countryCode: string;
+    partyId: string;
+    version: string | null;
+    allowPrivateNetwork: boolean;
+  }>
 > {
   return db
     .select({
@@ -74,6 +86,7 @@ async function getConnectedPartners(): Promise<
       countryCode: ocpiPartners.countryCode,
       partyId: ocpiPartners.partyId,
       version: ocpiPartners.version,
+      allowPrivateNetwork: ocpiPartners.allowPrivateNetwork,
     })
     .from(ocpiPartners)
     .where(eq(ocpiPartners.status, 'connected'));
@@ -103,13 +116,17 @@ async function getPartnerToken(partnerId: string): Promise<string | null> {
   return getOutboundToken(partnerId);
 }
 
-function createOcpiClient(token: string, toCountryCode: string, toPartyId: string): OcpiClient {
+function createOcpiClient(
+  token: string,
+  partner: { countryCode: string; partyId: string; allowPrivateNetwork: boolean },
+): OcpiClient {
   return new OcpiClient({
     token,
     fromCountryCode: getCountryCode(),
     fromPartyId: getPartyId(),
-    toCountryCode,
-    toPartyId,
+    toCountryCode: partner.countryCode,
+    toPartyId: partner.partyId,
+    allowPrivateNetwork: partner.allowPrivateNetwork,
   });
 }
 
@@ -143,182 +160,192 @@ async function logSync(
   await db.insert(ocpiSyncLog).values(values);
 }
 
-async function pushLocationUpdate(siteId: string): Promise<void> {
-  logger.info({ siteId }, 'Pushing location update');
+/** A partner's receiver endpoint for a module, its token, and its identity. */
+interface PartnerTarget {
+  url: string;
+  token: string;
+  countryCode: string;
+  partyId: string;
+  version: string | null;
+  allowPrivateNetwork: boolean;
+}
 
-  // Check if published
-  const [publishSetting] = await db
-    .select()
-    .from(ocpiLocationPublish)
-    .where(and(eq(ocpiLocationPublish.siteId, siteId), eq(ocpiLocationPublish.isPublished, true)))
-    .limit(1);
-
-  if (publishSetting == null) {
-    logger.debug({ siteId }, 'Site not published, skipping push');
-    return;
+async function partnerTarget(partnerId: string, module: string): Promise<PartnerTarget | null> {
+  const [url, token, partnerRows] = await Promise.all([
+    getPartnerEndpoint(partnerId, module, 'RECEIVER'),
+    getPartnerToken(partnerId),
+    db
+      .select({
+        countryCode: ocpiPartners.countryCode,
+        partyId: ocpiPartners.partyId,
+        version: ocpiPartners.version,
+        allowPrivateNetwork: ocpiPartners.allowPrivateNetwork,
+      })
+      .from(ocpiPartners)
+      .where(eq(ocpiPartners.id, partnerId))
+      .limit(1),
+  ]);
+  if (url == null) return null;
+  if (token == null) {
+    logger.debug({ partnerId }, 'No outbound token for partner, skipping push');
+    return null;
   }
+  const partner = partnerRows[0];
+  if (partner == null) return null;
+  return { url, token, ...partner };
+}
 
-  const [site] = await db.select().from(sites).where(eq(sites.id, siteId)).limit(1);
-  if (site == null) return;
-
-  // OCPI Location.coordinates is required. Skipping the push here keeps
-  // unconfigured sites out of partner feeds entirely instead of publishing
-  // (0, 0) null-island coordinates that routing systems would treat as real.
-  if (site.latitude == null || site.longitude == null) {
-    logger.warn({ siteId }, 'Skipping OCPI location push: site has no coordinates configured');
-    return;
-  }
-
-  // Get stations and EVSEs
-  const stationRows = await db
-    .select()
-    .from(chargingStations)
-    .where(eq(chargingStations.siteId, siteId));
-
-  const stationIds = stationRows.map((s) => s.id);
-  if (stationIds.length === 0) return;
-
-  const evseRows = await db
-    .select()
-    .from(evses)
-    .where(sql`${evses.stationId} IN ${stationIds}`);
-
-  const evseIds = evseRows.map((e) => e.id);
-  const connectorRows =
-    evseIds.length > 0
-      ? await db
-          .select()
-          .from(connectors)
-          .where(sql`${connectors.evseId} IN ${evseIds}`)
-      : [];
-
-  const connectorsByEvse = new Map<string, typeof connectorRows>();
-  for (const c of connectorRows) {
-    const list = connectorsByEvse.get(c.evseId) ?? [];
-    list.push(c);
-    connectorsByEvse.set(c.evseId, list);
-  }
-
-  const stationById = new Map(stationRows.map((s) => [s.id, s]));
-  const evsesWithConnectors = evseRows.map((e) => {
-    const station = stationById.get(e.stationId);
-    return {
-      ...e,
-      stationOcppId: station?.stationId ?? e.stationId,
-      stationLevelUnavailable: station != null && isStationLevelUnavailable(station),
-      connectors: (connectorsByEvse.get(e.id) ?? []).map((c) => ({
-        id: c.id,
-        connectorId: c.connectorId,
-        connectorType: c.connectorType,
-        maxPowerKw: c.maxPowerKw,
-        maxCurrentAmps: c.maxCurrentAmps,
-        status: c.status,
-        updatedAt: c.updatedAt,
-      })),
-    };
-  });
-
-  const locationId = publishSetting.ocpiLocationId ?? siteId;
-  const countryCode = getCountryCode();
-  const partyId = getPartyId();
-
-  const now = new Date();
-  const activeMaintenance = await db
-    .select({ affectedStationIds: maintenanceEvents.affectedStationIds })
-    .from(maintenanceEvents)
-    .where(
-      and(
-        eq(maintenanceEvents.siteId, siteId),
-        eq(maintenanceEvents.status, 'active'),
-        lte(maintenanceEvents.plannedStartAt, now),
-        gte(maintenanceEvents.plannedEndAt, now),
-      ),
-    );
-
-  let coverage: { allAffected: boolean; affectedStationIds: Set<string> } | undefined;
-  if (activeMaintenance.length > 0) {
-    const allAffected = activeMaintenance.some(
-      (m) => m.affectedStationIds == null || m.affectedStationIds.length === 0,
-    );
-    const stationSet = new Set<string>();
-    for (const m of activeMaintenance) {
-      if (m.affectedStationIds != null) {
-        for (const s of m.affectedStationIds) stationSet.add(s);
-      }
-    }
-    coverage = { allAffected, affectedStationIds: stationSet };
-  }
-
-  const locationInput = {
-    site,
-    evses: evsesWithConnectors,
-    ocpiLocationId: locationId,
-    countryCode,
-    partyId,
-    ...(coverage != null ? { maintenance: coverage } : {}),
-  };
-
-  // Determine which partners to push to
-  let partnerIds: string[];
-
-  if (publishSetting.publishToAll) {
-    const partners = await getConnectedPartners();
-    partnerIds = partners.map((p) => p.id);
-  } else {
-    const rows = await db
-      .select({ partnerId: ocpiLocationPublishPartners.partnerId })
-      .from(ocpiLocationPublishPartners)
-      .where(eq(ocpiLocationPublishPartners.locationPublishId, publishSetting.id));
-    partnerIds = rows.map((r) => r.partnerId);
-  }
-
-  // Push to every partner in parallel. The inner Promise.all already batches
-  // the 3 lookups per partner, but the outer loop was serial: at 10 partners
-  // a single location update spent ~3s blocked on sequential HTTP. Each
-  // partner is independent (different endpoint, token, identity), and
-  // allSettled isolates per-partner failures so one slow or down partner
-  // does not hold up the rest.
+/**
+ * PUTs the location to each partner in its version. `removed` renders every
+ * EVSE as REMOVED (the partner no longer sees the location, OCPI 8.1).
+ * Partners are pushed in parallel and independently, so one slow or down
+ * partner does not hold up the rest.
+ */
+async function putLocation(
+  location: SiteLocation,
+  partnerIds: readonly string[],
+  removed: boolean,
+): Promise<void> {
+  const { input } = location;
+  const action = removed ? 'push_removed' : 'push_update';
   await Promise.allSettled(
     partnerIds.map(async (partnerId) => {
       try {
-        const [url, token, partnerRows] = await Promise.all([
-          getPartnerEndpoint(partnerId, 'locations', 'RECEIVER'),
-          getPartnerToken(partnerId),
-          db
-            .select({
-              countryCode: ocpiPartners.countryCode,
-              partyId: ocpiPartners.partyId,
-              version: ocpiPartners.version,
-            })
-            .from(ocpiPartners)
-            .where(eq(ocpiPartners.id, partnerId))
-            .limit(1),
-        ]);
-        if (url == null) return;
-        if (token == null) {
-          logger.debug({ partnerId }, 'No outbound token for partner, skipping push');
-          return;
-        }
-        const partner = partnerRows[0];
-        if (partner == null) return;
-
+        const target = await partnerTarget(partnerId, 'locations');
+        if (target == null) return;
+        // A removed location carries no tariffs: its EVSEs are gone.
+        const tariffIds = removed
+          ? new Map<string, string[]>()
+          : await connectorTariffIds(partnerId, location.stations);
         // Shape the payload to the partner's negotiated version so 2.3.0
-        // partners receive the 2.3.0 fields (e.g. open-enum statuses, AFIR
-        // metadata) instead of being silently downshifted to 2.2.1.
-        const location = transformLocation(locationInput, resolvePartnerVersion(partner.version));
-        const client = createOcpiClient(token, partner.countryCode, partner.partyId);
-        await client.put(`${url}/${countryCode}/${partyId}/${locationId}`, location);
-        await logSync(partnerId, 'locations', 'push_update', 'completed', 1);
+        // partners receive the 2.3.0 fields instead of a 2.2.1 downshift.
+        const ocpiLocation = transformLocation(
+          { ...withTariffIds(input, tariffIds), ...(removed ? { allRemoved: true } : {}) },
+          resolvePartnerVersion(target.version),
+        );
+        const client = createOcpiClient(target.token, target);
+        await client.put(
+          `${target.url}/${getCountryCode()}/${getPartyId()}/${input.ocpiLocationId}`,
+          ocpiLocation,
+        );
+        await logSync(partnerId, 'locations', action, 'completed', 1);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Push failed';
         logger.error({ partnerId, err }, 'Failed to push location update');
-        await logSync(partnerId, 'locations', 'push_update', 'failed', 0, message);
+        await logSync(partnerId, 'locations', action, 'failed', 0, message);
       }
     }),
   );
 }
 
-async function pushSessionUpdate(sessionId: string): Promise<void> {
+async function pushLocationUpdate(
+  siteId: string,
+  removed?: { ocpiLocationId: string; partnerIds: string[] },
+): Promise<void> {
+  logger.info({ siteId }, 'Pushing location update');
+
+  const audience = await ocpiLocationAudience(siteId);
+  if (audience != null && audience.partnerIds.length > 0) {
+    const location = await loadSiteLocation(siteId, audience.ocpiLocationId);
+    if (location != null) await putLocation(location, audience.partnerIds, false);
+  } else {
+    logger.debug({ siteId }, 'Site not published, skipping push');
+  }
+
+  // Partners that lost the location (unpublished, dropped from the
+  // allow-list, or the OCPI location id changed) get it with every EVSE
+  // REMOVED under the id they know.
+  if (removed != null && removed.partnerIds.length > 0) {
+    const location = await loadSiteLocation(siteId, removed.ocpiLocationId);
+    if (location != null) await putLocation(location, removed.partnerIds, true);
+  }
+}
+
+/** The body of a PATCH that removes an EVSE (OCPI 8.2.2, "delete an EVSE"). */
+function evseRemovedPatch(): { status: 'REMOVED'; last_updated: string } {
+  return { status: 'REMOVED', last_updated: new Date().toISOString() };
+}
+
+/** Throws for an OCPI server error (3xxx), so the caller's job retries. */
+function assertNoServerError(
+  response: { status_code: OcpiStatusCode; status_message: string },
+  what: string,
+): void {
+  if (response.status_code >= OcpiStatusCode.SERVER_ERROR) {
+    throw new Error(
+      `Partner answered ${String(response.status_code)} for ${what}: ${response.status_message}`,
+    );
+  }
+}
+
+/**
+ * The EVSE uids published before v0.1.32 were `{siteId}-{evseNumber}`. For
+ * every site published to the partner: PUTs the current location (new uids),
+ * so the location keeps valid EVSEs, then PATCHes REMOVED for each old uid
+ * (every EVSE number at the site). A partner that does not know a uid answers
+ * with a client error (2xxx), which counts as done. A transport error or a
+ * server error (3xxx) throws, so the caller's job retries. Returns the number
+ * of PATCHes sent; null when the partner has no locations receiver or token
+ * (nothing to do).
+ */
+export async function pushLegacyEvseRemoval(partnerId: string): Promise<number | null> {
+  const target = await partnerTarget(partnerId, 'locations');
+  if (target == null) return null;
+
+  const rows = await db
+    .selectDistinct({
+      siteId: ocpiLocationPublish.siteId,
+      ocpiLocationId: ocpiLocationPublish.ocpiLocationId,
+      evseNumber: evses.evseId,
+    })
+    .from(ocpiLocationPublish)
+    .innerJoin(chargingStations, eq(chargingStations.siteId, ocpiLocationPublish.siteId))
+    .innerJoin(evses, eq(evses.stationId, chargingStations.id))
+    .leftJoin(
+      ocpiLocationPublishPartners,
+      and(
+        eq(ocpiLocationPublishPartners.locationPublishId, ocpiLocationPublish.id),
+        eq(ocpiLocationPublishPartners.partnerId, partnerId),
+      ),
+    )
+    .where(
+      and(
+        eq(ocpiLocationPublish.isPublished, true),
+        sql`(${ocpiLocationPublish.publishToAll} = true OR ${ocpiLocationPublishPartners.partnerId} IS NOT NULL)`,
+      ),
+    );
+
+  const client = createOcpiClient(target.token, target);
+  const base = `${target.url}/${getCountryCode()}/${getPartyId()}`;
+  const version = resolvePartnerVersion(target.version);
+  const sites = new Map(rows.map((r) => [r.siteId, r.ocpiLocationId ?? r.siteId]));
+  for (const [siteId, locationId] of sites) {
+    const location = await loadSiteLocation(siteId, locationId);
+    if (location == null) continue;
+    const tariffIds = await connectorTariffIds(partnerId, location.stations);
+    const response = await client.put(
+      `${base}/${locationId}`,
+      transformLocation(withTariffIds(location.input, tariffIds), version),
+    );
+    assertNoServerError(response, `location ${locationId}`);
+  }
+  for (const row of rows) {
+    const locationId = row.ocpiLocationId ?? row.siteId;
+    const uid = `${row.siteId}-${String(row.evseNumber)}`;
+    const response = await client.patch(`${base}/${locationId}/${uid}`, evseRemovedPatch());
+    assertNoServerError(response, `legacy EVSE ${uid}`);
+  }
+  await logSync(partnerId, 'locations', 'push_removed_legacy', 'completed', rows.length);
+  return rows.length;
+}
+
+/** Called after a session push when the session is completed (CDR issue). */
+export type SessionCompletedHook = (sessionId: string) => Promise<void>;
+
+async function pushSessionUpdate(
+  sessionId: string,
+  onCompleted: SessionCompletedHook | null,
+): Promise<void> {
   logger.info({ sessionId }, 'Pushing session update');
 
   // sessionId is the internal charging session ID from event-projections. A
@@ -340,6 +367,7 @@ async function pushSessionUpdate(sessionId: string): Promise<void> {
         countryCode: ocpiPartners.countryCode,
         partyId: ocpiPartners.partyId,
         version: ocpiPartners.version,
+        allowPrivateNetwork: ocpiPartners.allowPrivateNetwork,
       })
       .from(ocpiPartners)
       .where(eq(ocpiPartners.id, partnerId))
@@ -353,6 +381,15 @@ async function pushSessionUpdate(sessionId: string): Promise<void> {
     if (ocpiSession == null) return;
     await syncCpoSessionRow(link, ocpiSession, version);
 
+    // A completed session is billed with a CDR (OCPI 10.1). The hook only
+    // schedules it; the job rechecks the status (P5). Faulted and failed
+    // sessions are INVALID in OCPI ("will not be billed") and get none.
+    if (onCompleted != null && session.status === 'completed' && session.endedAt != null) {
+      await onCompleted(sessionId).catch((err: unknown) => {
+        logger.warn({ err, sessionId }, 'CDR scheduling failed; the CDR sweep retries');
+      });
+    }
+
     const [url, token] = await Promise.all([
       getPartnerEndpoint(partnerId, 'sessions', 'RECEIVER'),
       getPartnerToken(partnerId),
@@ -362,7 +399,7 @@ async function pushSessionUpdate(sessionId: string): Promise<void> {
 
     const countryCode = getCountryCode();
     const partyId = getPartyId();
-    const client = createOcpiClient(token, partner.countryCode, partner.partyId);
+    const client = createOcpiClient(token, partner);
     // PUT replaces the Session in the eMSP system (9.2.2.2), charging
     // periods included.
     await client.put(`${url}/${countryCode}/${partyId}/${ocpiSession.id}`, ocpiSession);
@@ -389,6 +426,7 @@ async function syncPartnerTariff(partnerId: string, ocpiTariffId: string): Promi
           countryCode: ocpiPartners.countryCode,
           partyId: ocpiPartners.partyId,
           version: ocpiPartners.version,
+          allowPrivateNetwork: ocpiPartners.allowPrivateNetwork,
         })
         .from(ocpiPartners)
         .where(eq(ocpiPartners.id, partnerId))
@@ -407,7 +445,7 @@ async function syncPartnerTariff(partnerId: string, ocpiTariffId: string): Promi
         ? await renderTariffMapping(mapping, resolvePartnerVersion(partner.version))
         : null;
 
-    const client = createOcpiClient(token, partner.countryCode, partner.partyId);
+    const client = createOcpiClient(token, partner);
     const target = `${url}/${getCountryCode()}/${getPartyId()}/${ocpiTariffId}`;
     if (tariff != null) {
       await client.put(target, tariff);
@@ -456,7 +494,10 @@ async function pushTariffUpdate(notification: PushNotification): Promise<void> {
   );
 }
 
-async function handlePushNotification(raw: string): Promise<void> {
+async function handlePushNotification(
+  raw: string,
+  onSessionCompleted: SessionCompletedHook | null,
+): Promise<void> {
   let notification: PushNotification;
   try {
     notification = JSON.parse(raw) as PushNotification;
@@ -468,19 +509,19 @@ async function handlePushNotification(raw: string): Promise<void> {
   switch (notification.type) {
     case 'location':
       if (notification.siteId != null) {
-        await pushLocationUpdate(notification.siteId);
+        await pushLocationUpdate(notification.siteId, notification.removed);
       }
       break;
     case 'session':
       if (notification.sessionId != null) {
-        await pushSessionUpdate(notification.sessionId);
+        await pushSessionUpdate(notification.sessionId, onSessionCompleted);
       }
       break;
     case 'tariff':
       await pushTariffUpdate(notification);
       break;
     case 'cdr':
-      // CDRs are pushed by the CDR service directly after generation
+      // CDRs are issued and pushed by the ocpi-cdrs queue (cdr-jobs.ts).
       break;
   }
 }
@@ -489,14 +530,22 @@ export class OcpiPushListener {
   private readonly pubsub: PubSubClient;
   private subscription: Subscription | null = null;
   private readonly inFlight = createInFlightTracker();
+  private readonly onSessionCompleted: SessionCompletedHook | null;
 
-  constructor(pubsub: PubSubClient) {
+  /**
+   * `onSessionCompleted` runs after a completed session is pushed; the OCPI
+   * server passes the CDR scheduler (`scheduleSessionCdr`).
+   */
+  constructor(pubsub: PubSubClient, onSessionCompleted: SessionCompletedHook | null = null) {
     this.pubsub = pubsub;
+    this.onSessionCompleted = onSessionCompleted;
   }
 
   async start(): Promise<void> {
     this.subscription = await this.pubsub.subscribe(CHANNEL, (payload: string) => {
-      trackListenerWork(this.inFlight, logger, () => handlePushNotification(payload));
+      trackListenerWork(this.inFlight, logger, () =>
+        handlePushNotification(payload, this.onSessionCompleted),
+      );
     });
     logger.info({ channel: CHANNEL }, 'Listening for OCPI push notifications');
   }

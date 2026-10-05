@@ -17,9 +17,9 @@ import {
   switchTariffSegment,
 } from '@evtivity/database';
 import type { Logger } from 'pino';
-import crypto from 'node:crypto';
-import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
-import { pushAllMessagesToAllStations } from '@evtivity/api/src/services/station-message.service.js';
+import { publishOcppCommand } from '@evtivity/lib';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import { pushAllMessagesToAllStations } from '@evtivity/services/station-message.service';
 
 export async function tariffBoundaryCheckHandler(log: Logger): Promise<void> {
   const [splitBilling, pushDisplay] = await Promise.all([
@@ -122,20 +122,15 @@ export async function tariffBoundaryCheckHandler(log: Logger): Promise<void> {
         session.ocppProtocol != null &&
         session.ocppProtocol.startsWith('ocpp2')
       ) {
-        const commandId = crypto.randomUUID();
-        await pubsub.publish(
-          'ocpp_commands',
-          JSON.stringify({
-            commandId,
-            stationId: session.stationOcppId,
-            action: 'CostUpdated',
-            payload: {
-              totalCost: (runningCostCents ?? 0) / 100,
-              transactionId: session.transactionId,
-            },
-            version: session.ocppProtocol,
-          }),
-        );
+        await publishOcppCommand(pubsub, {
+          stationId: session.stationOcppId,
+          action: 'CostUpdated',
+          payload: {
+            totalCost: (runningCostCents ?? 0) / 100,
+            transactionId: session.transactionId,
+          },
+          version: session.ocppProtocol,
+        });
       }
     };
 

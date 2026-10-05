@@ -18,8 +18,8 @@ vi.mock('@evtivity/lib', async (importOriginal) => ({
 
 // Noto Sans CJK subsets (OFL, fixtures/noto-sans-cjk/OFL.txt) with the same
 // collection layout and PostScript names as the fonts-noto-cjk files.
-vi.mock('../services/invoice-pdf-fonts.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../services/invoice-pdf-fonts.js')>()),
+vi.mock('@evtivity/services/pdf-fonts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/services/pdf-fonts')>()),
   CJK_FONT_FILES: {
     regular: fileURLToPath(
       new URL('./fixtures/noto-sans-cjk/NotoSansCJK-Regular-subset.ttc', import.meta.url),
@@ -305,8 +305,8 @@ describe('generateInvoicePdf', () => {
 describe('generateInvoicePdf without the CJK fonts', () => {
   it('renders Korean and Chinese invoices in English and warns once', async () => {
     vi.resetModules();
-    vi.doMock('../services/invoice-pdf-fonts.js', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('../services/invoice-pdf-fonts.js')>()),
+    vi.doMock('@evtivity/services/pdf-fonts', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('@evtivity/services/pdf-fonts')>()),
       CJK_FONT_FILES: {
         regular: '/nonexistent/NotoSansCJK-Regular.ttc',
         bold: '/nonexistent/NotoSansCJK-Bold.ttc',
@@ -332,8 +332,8 @@ describe('generateInvoicePdf without the CJK fonts', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith(
       expect.objectContaining({ files: expect.anything() as unknown }),
-      'CJK fonts not found, Korean and Chinese invoice PDFs render in English',
+      'CJK fonts not found, Korean and Chinese PDFs render in English',
     );
-    vi.doUnmock('../services/invoice-pdf-fonts.js');
+    vi.doUnmock('@evtivity/services/pdf-fonts');
   });
 });

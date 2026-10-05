@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_B_44_CSMS: TestCase = {
   id: 'TC_B_44_CSMS',
@@ -24,13 +25,13 @@ export const TC_B_44_CSMS: TestCase = {
     let receivedSetNetworkProfile = false;
 
     ctx.client.setIncomingCallHandler(
-      async (_messageId: string, action: string, _payload: Record<string, unknown>) => {
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'SetNetworkProfile') {
           receivedSetNetworkProfile = true;
           // Respond with Failed
           return { status: 'Failed' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

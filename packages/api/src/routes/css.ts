@@ -19,7 +19,7 @@ import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, paginatedResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { paginationQuery } from '../lib/pagination.js';
-import { getPubSub } from '../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import {
   bootReasonEnum,
   certificateActionEnum,
@@ -1073,7 +1073,7 @@ export function cssRoutes(app: FastifyInstance): void {
         } else if (!existingCs.isSimulator) {
           await tx
             .update(chargingStations)
-            .set({ isSimulator: true, updatedAt: new Date() })
+            .set({ isSimulator: true, simulatorConflictAt: null, updatedAt: new Date() })
             .where(eq(chargingStations.id, existingCs.id));
         }
 

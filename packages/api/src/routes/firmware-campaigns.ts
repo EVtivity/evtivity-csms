@@ -1,7 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { randomInt, randomUUID } from 'node:crypto';
+import { randomInt } from 'node:crypto';
+import { publishOcppCommand } from '@evtivity/lib';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc, count, isNotNull, asc, inArray } from 'drizzle-orm';
@@ -29,7 +30,7 @@ import {
   errorWith,
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
-import { getPubSub } from '../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 import {
@@ -772,9 +773,8 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
       }
 
       const publishResults = await Promise.allSettled(
-        dispatches.map(({ target, requestId }) => {
-          const commandPayload = {
-            commandId: randomUUID(),
+        dispatches.map(({ target, requestId }) =>
+          publishOcppCommand(pubsub, {
             stationId: target.stationId,
             action: 'UpdateFirmware',
             payload: {
@@ -792,9 +792,8 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
                   : {}),
               },
             },
-          };
-          return pubsub.publish('ocpp_commands', JSON.stringify(commandPayload));
-        }),
+          }),
+        ),
       );
       publishResults.forEach((result, idx) => {
         if (result.status === 'rejected') {

@@ -10,7 +10,7 @@ vi.mock('@evtivity/database', () => ({
   db: { execute: vi.fn().mockResolvedValue([{ '?column?': 1 }]) },
 }));
 
-vi.mock('../lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn().mockReturnValue({ ping: vi.fn().mockResolvedValue(true) }),
 }));
 

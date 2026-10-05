@@ -145,20 +145,28 @@ vi.mock('../lib/payments.js', () => ({
   paymentContext: vi.fn((logger: unknown) => ({ registry: 'registry', logger })),
 }));
 
-vi.mock('../lib/pubsub.js', () => ({
+const { mockPublish } = vi.hoisted(() => ({
+  mockPublish: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn(() => ({
-    publish: vi.fn().mockResolvedValue(undefined),
+    publish: mockPublish,
     subscribe: vi.fn().mockResolvedValue(undefined),
   })),
   setPubSub: vi.fn(),
 }));
 
-vi.mock('../lib/ocpp-command.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/ocpp-command.js')>()),
+vi.mock('@evtivity/services/ocpp-command', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/services/ocpp-command')>()),
   sendOcppCommandAndWait: vi.fn().mockResolvedValue({
     commandId: 'mock-command-id',
     response: { status: 'Accepted' },
   }),
+}));
+
+vi.mock('../lib/station-status-check.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/station-status-check.js')>()),
   triggerAndWaitForStatus: vi.fn().mockResolvedValue({ status: 'available' }),
 }));
 
@@ -168,7 +176,7 @@ vi.mock('../lib/reservation-buffer.js', () => ({
   isEvseInReservationBuffer: vi.fn().mockResolvedValue(false),
 }));
 
-vi.mock('../services/maintenance.service.js', () => ({
+vi.mock('@evtivity/services/maintenance.service', () => ({
   getActiveMaintenanceForStation: vi.fn().mockResolvedValue(null),
 }));
 
@@ -176,9 +184,10 @@ import { registerAuth } from '../plugins/auth.js';
 import { portalGuestRoutes } from '../routes/portal/guest.js';
 import { isStationChargingFree, resolveStationTariff } from '@evtivity/database';
 import { isEvseInReservationBuffer } from '../lib/reservation-buffer.js';
-import { sendOcppCommandAndWait, triggerAndWaitForStatus } from '../lib/ocpp-command.js';
+import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
+import { triggerAndWaitForStatus } from '../lib/station-status-check.js';
 import { db } from '@evtivity/database';
-import { getActiveMaintenanceForStation } from '../services/maintenance.service.js';
+import { getActiveMaintenanceForStation } from '@evtivity/services/maintenance.service';
 import { config as apiConfig } from '../lib/config.js';
 
 const CTX = { registry: 'registry', logger: expect.anything() };
@@ -1148,6 +1157,14 @@ describe('Portal guest routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(response.json().success).toBe(true);
+      const call = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
+      const message = JSON.parse(call?.[1] as string) as Record<string, unknown>;
+      expect(Object.keys(message)).toEqual(['commandId', 'stationId', 'action', 'payload']);
+      expect(message).toMatchObject({
+        stationId: 'CS-001',
+        action: 'RequestStopTransaction',
+        payload: { transactionId: 'tx-456' },
+      });
     });
   });
 

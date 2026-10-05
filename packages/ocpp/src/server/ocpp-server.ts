@@ -25,8 +25,20 @@ import { validateMiddleware } from './middleware/validate.js';
 import { createRateLimitMiddleware } from './middleware/rate-limit.js';
 import { createDedupMiddleware } from './middleware/dedup.js';
 import { createBootGuardMiddleware } from './middleware/boot-guard.js';
-import { authenticateConnection, rejectionFor } from './middleware/authenticate.js';
+import {
+  authenticateConnection,
+  rejectionFor,
+  serviceUnavailable,
+} from './middleware/authenticate.js';
 import type { AuthResult } from './middleware/authenticate.js';
+import {
+  ConnectionAuthBusyError,
+  ConnectionAuthLimiter,
+  DEFAULT_CONNECTION_AUTH_MAX_QUEUED,
+  DEFAULT_CONNECTION_AUTH_MAX_WAIT_MS,
+  defaultConnectionAuthConcurrency,
+} from './connection-auth-limiter.js';
+import type { ConnectionAuthLimits, ConnectionAuthStats } from './connection-auth-limiter.js';
 import { MessageLifecycle } from './message-lifecycle.js';
 import { CommandDispatcher } from './command-dispatcher.js';
 import { registerHandlers } from '../handlers/handler-registry.js';
@@ -101,7 +113,13 @@ export interface OcppServerOptions {
   tls?: TlsOptions | undefined;
   // Fixed idle timeout (tests). By default it follows the heartbeat setting.
   idleTimeoutMs?: number | undefined;
+  // Bounds on concurrent connection authentications. By default half the
+  // database pool, 1000 queued, 10 s wait (see connection-auth-limiter.ts).
+  connectionAuthLimits?: Partial<ConnectionAuthLimits> | undefined;
 }
+
+// Refused connection authentications are logged at most this often.
+const AUTH_BUSY_LOG_INTERVAL_MS = 5_000;
 
 // A connection with no OCPP message and no WebSocket ping or pong for this long
 // is closed. The default is twice the heartbeat interval handed out at boot,
@@ -134,6 +152,9 @@ export class OcppServer {
   private readonly sql: postgres.Sql | null;
   private readonly trustedProxies: ReturnType<typeof parseTrustedProxies>;
   private readonly fixedIdleTimeoutMs: number | null;
+  private readonly authLimiter: ConnectionAuthLimiter;
+  private authBusyLoggedAt = 0;
+  private authBusySinceLog = 0;
   private idleTimeoutMs = MIN_IDLE_TIMEOUT_MS;
   private idleTimeoutRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private wss: WebSocketServer | null = null;
@@ -164,6 +185,13 @@ export class OcppServer {
     this.trustedProxies = parseTrustedProxies(options?.trustedProxyCidrs ?? '');
     this.fixedIdleTimeoutMs = options?.idleTimeoutMs ?? null;
     if (this.fixedIdleTimeoutMs != null) this.idleTimeoutMs = this.fixedIdleTimeoutMs;
+    const limits = options?.connectionAuthLimits;
+    this.authLimiter = new ConnectionAuthLimiter({
+      maxConcurrent:
+        limits?.maxConcurrent ?? defaultConnectionAuthConcurrency(this.sql?.options.max ?? 10),
+      maxQueued: limits?.maxQueued ?? DEFAULT_CONNECTION_AUTH_MAX_QUEUED,
+      maxWaitMs: limits?.maxWaitMs ?? DEFAULT_CONNECTION_AUTH_MAX_WAIT_MS,
+    });
 
     // Set up middleware pipeline
     this.pipeline = new MiddlewarePipeline();
@@ -328,13 +356,27 @@ export class OcppServer {
       }
     };
 
-    authenticateConnection(
-      req,
-      this.logger,
-      this.sql,
-      remoteIp === 'unknown' ? null : remoteIp,
-      isTlsConnection(req, this.trustedProxies),
-    )
+    // A reconnect wave queues here instead of filling the database pool.
+    this.authLimiter
+      .run(() => {
+        // The station gave up while the request waited: skip the lookup.
+        if (req.socket.destroyed) {
+          return Promise.resolve<AuthResult>({
+            authenticated: false,
+            stationId: null,
+            stationDbId: null,
+            error: 'Connection closed while waiting for authentication',
+            failure: 'unavailable',
+          });
+        }
+        return authenticateConnection(
+          req,
+          this.logger,
+          this.sql,
+          remoteIp === 'unknown' ? null : remoteIp,
+          isTlsConnection(req, this.trustedProxies),
+        );
+      })
       .then((auth) => {
         releasePending();
         if (auth.authenticated && auth.stationId != null) {
@@ -351,12 +393,36 @@ export class OcppServer {
       })
       .catch((err: unknown) => {
         releasePending();
-        this.logger.error(
-          { error: err instanceof Error ? err.message : String(err) },
-          'Connection authentication failed',
-        );
-        callback(false, 503, 'Service Unavailable');
+        const unavailable = serviceUnavailable();
+        if (err instanceof ConnectionAuthBusyError) {
+          this.logAuthBusy(err);
+        } else {
+          this.logger.error(
+            { error: err instanceof Error ? err.message : String(err) },
+            'Connection authentication failed',
+          );
+        }
+        callback(false, unavailable.status, unavailable.message, unavailable.headers);
       });
+  }
+
+  // One warning per interval with the number refused since the last one, so a
+  // reconnect wave does not log a line per station.
+  private logAuthBusy(err: ConnectionAuthBusyError): void {
+    this.authBusySinceLog++;
+    const now = Date.now();
+    if (now - this.authBusyLoggedAt < AUTH_BUSY_LOG_INTERVAL_MS) return;
+    this.logger.warn(
+      { ...this.authLimiter.stats(), reason: err.reason, refused: this.authBusySinceLog },
+      'Connection authentication busy: refused station connections with 503',
+    );
+    this.authBusyLoggedAt = now;
+    this.authBusySinceLog = 0;
+  }
+
+  /** Connection authentications running, queued, and refused (health endpoint). */
+  getConnectionAuthStats(): ConnectionAuthStats {
+    return this.authLimiter.stats();
   }
 
   // The CSMS sends a station queued commands and screen messages only once it

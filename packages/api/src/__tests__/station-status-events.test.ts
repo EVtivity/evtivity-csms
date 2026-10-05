@@ -9,7 +9,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('@evtivity/database', () => ({ isRoamingEnabled: h.isRoamingEnabled }));
-vi.mock('../lib/pubsub.js', () => ({ getPubSub: () => ({ publish: h.publish }) }));
+vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: () => ({ publish: h.publish }) }));
 
 import { publishStationStatusChanged } from '../lib/station-status-events.js';
 

@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_Q_102_CSMS: TestCase = {
   id: 'TC_Q_102_CSMS',
@@ -20,13 +21,15 @@ export const TC_Q_102_CSMS: TestCase = {
       reason: 'PowerUp',
     });
     let getBaseReportReceived = false;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'GetBaseReport') {
-        getBaseReportReceived = true;
-        return { status: 'Accepted' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'GetBaseReport') {
+          getBaseReportReceived = true;
+          return { status: 'Accepted' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'GetBaseReport', {
         stationId: ctx.stationId,

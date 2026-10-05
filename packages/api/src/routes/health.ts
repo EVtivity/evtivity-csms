@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { db } from '@evtivity/database';
 import { sql } from 'drizzle-orm';
 import { zodSchema } from '../lib/zod-schema.js';
-import { getPubSub } from '../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { APP_VERSION } from '../lib/app-version.js';
 
 const healthResponse = z

@@ -19,6 +19,7 @@ vi.mock('@evtivity/database', () => {
     },
     chargingSessions: {
       status: 'status',
+      stationId: 'station_id',
       transactionId: 'transaction_id',
     },
     __mocks: { selectFn, fromFn, whereFn },
@@ -27,14 +28,18 @@ vi.mock('@evtivity/database', () => {
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((a: unknown, b: unknown) => ({ type: 'eq', a, b })),
+  and: vi.fn((...conditions: unknown[]) => ({ type: 'and', conditions })),
 }));
 
 const logger = pino({ level: 'silent' });
 
-function makeCtx(payload: Record<string, unknown>): HandlerContext {
+function makeCtx(
+  payload: Record<string, unknown>,
+  stationDbId: string | null = 'sta_000000000001',
+): HandlerContext {
   return {
     stationId: 'CS-001',
-    stationDbId: null,
+    stationDbId,
     session: {
       stationId: 'CS-001',
       stationDbId: null,
@@ -76,6 +81,14 @@ describe('GetTransactionStatus handler', () => {
 
     expect(response.ongoingIndicator).toBe(true);
     expect(response.messagesInQueue).toBe(false);
+    // A transactionId is unique per station only: the lookup is scoped by it.
+    expect(mocks.whereFn).toHaveBeenLastCalledWith({
+      type: 'and',
+      conditions: [
+        { type: 'eq', a: 'station_id', b: 'sta_000000000001' },
+        { type: 'eq', a: 'transaction_id', b: 'tx-123' },
+      ],
+    });
   });
 
   it('returns ongoingIndicator false for completed session', async () => {
@@ -117,5 +130,19 @@ describe('GetTransactionStatus handler', () => {
 
     expect(response.ongoingIndicator).toBe(false);
     expect(response.messagesInQueue).toBe(false);
+  });
+
+  it('returns defaults for an unregistered station without a lookup', async () => {
+    const mod = (await import('@evtivity/database')) as Record<string, unknown>;
+    const mocks = mod['__mocks'] as { whereFn: ReturnType<typeof vi.fn> };
+    mocks.whereFn.mockClear();
+
+    const { handleGetTransactionStatus } =
+      await import('../handlers/v2_1/get-transaction-status.handler.js');
+
+    const response = await handleGetTransactionStatus(makeCtx({ transactionId: 'tx-1' }, null));
+
+    expect(response.ongoingIndicator).toBe(false);
+    expect(mocks.whereFn).not.toHaveBeenCalled();
   });
 });

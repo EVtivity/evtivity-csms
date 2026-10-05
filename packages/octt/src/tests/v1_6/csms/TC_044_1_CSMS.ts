@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../types.js';
 import { pushSendAckStep } from '../../../csms-test-helpers.js';
+import { defaultReply } from '../../../default-replies.js';
 
 export const TC_044_1_CSMS: TestCase = {
   id: 'TC_044_1_CSMS',
@@ -22,12 +23,12 @@ export const TC_044_1_CSMS: TestCase = {
     });
 
     let updateFirmwareReceived = false;
-    ctx.client.setIncomingCallHandler(async (_messageId, action, _payload) => {
+    ctx.client.setIncomingCallHandler(async (_messageId, action, payload) => {
       if (action === 'UpdateFirmware') {
         updateFirmwareReceived = true;
         return {};
       }
-      return {};
+      return defaultReply('ocpp1.6', action, payload);
     });
 
     if (ctx.triggerCommand != null) {

@@ -595,7 +595,7 @@ describe('OcppServer integration', () => {
     // The pool belongs to the caller (the process-wide client), so stop() must not end it.
     const port = getNextPort();
     const end = vi.fn();
-    const sharedSql = { end } as unknown as import('postgres').Sql;
+    const sharedSql = { end, options: { max: 20 } } as unknown as import('postgres').Sql;
     const srv = new OcppServer({ sql: sharedSql });
     await srv.start({ port, host: '127.0.0.1' });
     await expect(srv.stop()).resolves.toBeUndefined();

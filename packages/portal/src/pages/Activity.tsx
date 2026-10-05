@@ -8,7 +8,7 @@ import { useInfiniteQuery, useQuery, useQueries } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, FileText, Leaf } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { api } from '@/lib/api';
-import { costIncludesTax } from '@evtivity/lib/price-display';
+import { costContainsTax } from '@evtivity/lib/price-display';
 import {
   formatCents,
   formatEnergy,
@@ -26,7 +26,7 @@ interface Session {
   endedAt: string | null;
   energyDeliveredWh: string | null;
   finalCostCents: number | null;
-  tariffTaxRate: string | null;
+  taxCents: number | null;
   currency: string;
   stationName: string | null;
   siteName: string | null;
@@ -350,7 +350,7 @@ export function Activity(): React.JSX.Element {
                 <p className="text-sm font-medium">
                   {formatCents(session.finalCostCents, session.currency)}
                 </p>
-                {costIncludesTax(session.finalCostCents, session.tariffTaxRate) && (
+                {costContainsTax(session.finalCostCents, session.taxCents) && (
                   <p className="text-xs text-muted-foreground">{t('common.inclTax')}</p>
                 )}
                 <p className="text-xs text-muted-foreground">

@@ -28,7 +28,7 @@ import {
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { isPrivateUrl, encryptString } from '@evtivity/lib';
-import { getPubSub } from '../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { config as apiConfig } from '../lib/config.js';
 import { authorize } from '../middleware/rbac.js';
 
@@ -45,6 +45,11 @@ const ocpiPartnerItem = z
       .describe('Partner connection status'),
     version: z.string().max(20).nullable().describe('Negotiated OCPI version'),
     versionUrl: z.string().max(2048).nullable().describe('OCPI versions endpoint URL'),
+    allowPrivateNetwork: z
+      .boolean()
+      .describe(
+        'True when outbound OCPI requests and command callbacks to this partner may reach loopback and private addresses (private peering, local simulators). False: public addresses only.',
+      ),
     hasPartnerRegistrationToken: z
       .boolean()
       .describe(
@@ -65,6 +70,7 @@ interface PartnerRow {
   status: 'pending' | 'connected' | 'suspended' | 'disconnected';
   version: string | null;
   versionUrl: string | null;
+  allowPrivateNetwork: boolean;
   partnerRegistrationTokenEnc: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -122,6 +128,12 @@ const createPartnerBody = z.object({
   countryCode: z.string().length(2).describe('ISO 3166-1 alpha-2 country code'),
   partyId: z.string().min(1).max(3).describe('OCPI party identifier'),
   versionUrl: z.string().url().max(2048).optional().describe('OCPI versions endpoint URL'),
+  allowPrivateNetwork: z
+    .boolean()
+    .optional()
+    .describe(
+      'Allow outbound OCPI requests and command callbacks to this partner to reach loopback and private addresses. Default false (public addresses only).',
+    ),
   partnerRegistrationToken: z
     .string()
     .min(1)
@@ -139,6 +151,12 @@ const updatePartnerBody = z.object({
     .optional()
     .describe('Partner connection status'),
   versionUrl: z.string().url().max(2048).optional().describe('OCPI versions endpoint URL'),
+  allowPrivateNetwork: z
+    .boolean()
+    .optional()
+    .describe(
+      'Allow outbound OCPI requests and command callbacks to this partner to reach loopback and private addresses. Default false (public addresses only).',
+    ),
   partnerRegistrationToken: z
     .string()
     .min(1)
@@ -291,7 +309,8 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         return;
       }
 
-      if (body.versionUrl != null && isPrivateUrl(body.versionUrl)) {
+      const allowPrivateNetwork = body.allowPrivateNetwork ?? false;
+      if (body.versionUrl != null && !allowPrivateNetwork && isPrivateUrl(body.versionUrl)) {
         await reply.status(400).send({
           error: 'Version URL must not point to a private or internal address',
           code: 'PRIVATE_URL',
@@ -311,6 +330,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
           countryCode: body.countryCode,
           partyId: body.partyId,
           versionUrl: body.versionUrl,
+          allowPrivateNetwork,
           status: 'pending',
           roles: [],
           ourRoles: [],
@@ -389,7 +409,8 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         return;
       }
 
-      if (body.versionUrl != null && isPrivateUrl(body.versionUrl)) {
+      const allowPrivateNetwork = body.allowPrivateNetwork ?? before.allowPrivateNetwork;
+      if (body.versionUrl != null && !allowPrivateNetwork && isPrivateUrl(body.versionUrl)) {
         await reply.status(400).send({
           error: 'Version URL must not point to a private or internal address',
           code: 'PRIVATE_URL',
@@ -401,6 +422,9 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
       if (body.name != null) updateData['name'] = body.name;
       if (body.status != null) updateData['status'] = body.status;
       if (body.versionUrl != null) updateData['versionUrl'] = body.versionUrl;
+      if (body.allowPrivateNetwork != null) {
+        updateData['allowPrivateNetwork'] = body.allowPrivateNetwork;
+      }
       if (body.partnerRegistrationToken != null) {
         updateData['partnerRegistrationTokenEnc'] = encryptString(
           body.partnerRegistrationToken,

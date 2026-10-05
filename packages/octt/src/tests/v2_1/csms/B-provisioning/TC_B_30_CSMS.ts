@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 // B02/B03: Cold Boot Charging Station - Pending/Rejected - SecurityError
 export const TC_B_30_CSMS: TestCase = {
@@ -148,13 +149,15 @@ export const TC_B_31_CSMS: TestCase = {
 
     // Step 2: Wait for TriggerMessage from CSMS
     let receivedTrigger = false;
-    ctx.client.setIncomingCallHandler(async (_messageId: string, action: string) => {
-      if (action === 'TriggerMessage') {
-        receivedTrigger = true;
-        return { status: 'Accepted' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'TriggerMessage') {
+          receivedTrigger = true;
+          return { status: 'Accepted' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
 
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'TriggerMessage', {
@@ -228,13 +231,15 @@ export const TC_B_58_CSMS: TestCase = {
     // The test verifies that when CSMS receives SetNetworkProfileRequest response of Failed,
     // it handles it gracefully. In CSMS-as-SUT: wait for SetNetworkProfile from CSMS.
     let receivedSetNetwork = false;
-    ctx.client.setIncomingCallHandler(async (_messageId: string, action: string) => {
-      if (action === 'SetNetworkProfile') {
-        receivedSetNetwork = true;
-        return { status: 'Failed' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'SetNetworkProfile') {
+          receivedSetNetwork = true;
+          return { status: 'Failed' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
 
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'SetNetworkProfile', {
@@ -313,7 +318,7 @@ export const TC_B_105_CSMS: TestCase = {
         if (action === 'Reset') {
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

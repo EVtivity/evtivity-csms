@@ -106,16 +106,16 @@ vi.mock('../services/s3.service.js', () => ({
 
 // -- Other mocks --
 
-vi.mock('../../lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn(),
 }));
 
-vi.mock('../lib/pubsub.js', () => ({
-  getPubSub: vi.fn(),
-}));
-
-vi.mock('../lib/ocpp-command.js', () => ({
+vi.mock('@evtivity/services/ocpp-command', () => ({
   sendOcppCommandAndWait: vi.fn(),
+}));
+
+vi.mock('../lib/station-status-check.js', () => ({
+  sendStatusCheckError: vi.fn(),
   triggerAndWaitForStatus: vi.fn(),
 }));
 
@@ -148,11 +148,11 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
   };
 });
 
-vi.mock('../services/maintenance.service.js', () => ({
+vi.mock('@evtivity/services/maintenance.service', () => ({
   getActiveMaintenanceForStation: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock('../lib/template-dirs.js', () => ({
+vi.mock('@evtivity/services/template-dirs', () => ({
   ALL_TEMPLATES_DIRS: [],
 }));
 

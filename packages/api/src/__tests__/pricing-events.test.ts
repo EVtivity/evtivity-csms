@@ -8,10 +8,17 @@ const mocks = vi.hoisted(() => ({
   isRoamingEnabled: vi.fn(),
 }));
 
-vi.mock('../lib/pubsub.js', () => ({ getPubSub: () => ({ publish: mocks.publish }) }));
+vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: () => ({ publish: mocks.publish }) }));
 vi.mock('@evtivity/database', () => ({ isRoamingEnabled: mocks.isRoamingEnabled }));
 
-const { publishPricingChanged } = await import('../lib/pricing-events.js');
+const { publishPricingChanged, stationMessageRepushScope } =
+  await import('../lib/pricing-events.js');
+
+function repushes(): unknown[] {
+  return mocks.publish.mock.calls
+    .filter(([channel]) => channel === 'station_message_repush')
+    .map(([, payload]) => JSON.parse(payload as string) as unknown);
+}
 
 function ocpiPushes(): unknown[] {
   return mocks.publish.mock.calls
@@ -57,5 +64,55 @@ describe('publishPricingChanged', () => {
     await expect(
       publishPricingChanged({ pricingGroupId: 'pgr_1', action: 'tariff.created' }),
     ).resolves.toBeUndefined();
+  });
+
+  it('re-renders the station screens a pricing change can alter', async () => {
+    mocks.publish.mockResolvedValue(undefined);
+    await publishPricingChanged({ pricingGroupId: 'pgr_1', action: 'tariff.updated' });
+    await publishPricingChanged({
+      pricingGroupId: 'pgr_1',
+      action: 'assignment.changed',
+      siteId: 'sit_1',
+    });
+    await publishPricingChanged({ pricingGroupId: 'pgr_1', action: 'group.created' });
+    expect(repushes()).toEqual([{ pricingGroupId: 'pgr_1' }, { siteId: 'sit_1' }]);
+  });
+});
+
+describe('stationMessageRepushScope', () => {
+  it('narrows to the group, the site, or the station', () => {
+    expect(stationMessageRepushScope({ pricingGroupId: 'g', action: 'tariff.created' })).toEqual({
+      pricingGroupId: 'g',
+    });
+    expect(stationMessageRepushScope({ pricingGroupId: 'g', action: 'group.updated' })).toEqual({
+      pricingGroupId: 'g',
+    });
+    expect(
+      stationMessageRepushScope({ pricingGroupId: 'g', action: 'assignment.changed', siteId: 's' }),
+    ).toEqual({ siteId: 's' });
+    expect(
+      stationMessageRepushScope({
+        pricingGroupId: 'g',
+        action: 'assignment.changed',
+        stationId: 'st',
+      }),
+    ).toEqual({ stationId: 'st' });
+  });
+
+  it('re-renders every station after a group delete or a holiday change', () => {
+    expect(stationMessageRepushScope({ pricingGroupId: 'g', action: 'group.deleted' })).toEqual({});
+    expect(stationMessageRepushScope({ pricingGroupId: null, action: 'holiday.changed' })).toEqual(
+      {},
+    );
+    expect(stationMessageRepushScope({ pricingGroupId: null, action: 'tariff.updated' })).toEqual(
+      {},
+    );
+  });
+
+  it('skips changes that cannot alter a station screen', () => {
+    expect(stationMessageRepushScope({ pricingGroupId: 'g', action: 'group.created' })).toBeNull();
+    expect(
+      stationMessageRepushScope({ pricingGroupId: 'g', action: 'assignment.changed' }),
+    ).toBeNull();
   });
 });

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../types.js';
+import { defaultReply } from '../../../default-replies.js';
 
 export const TC_048_3_CSMS: TestCase = {
   id: 'TC_048_3_CSMS',
@@ -22,7 +23,7 @@ export const TC_048_3_CSMS: TestCase = {
 
     let changeAvailReceived = false;
     let reserveReceived = false;
-    ctx.client.setIncomingCallHandler(async (_messageId, action, _payload) => {
+    ctx.client.setIncomingCallHandler(async (_messageId, action, payload) => {
       if (action === 'ChangeAvailability') {
         changeAvailReceived = true;
         return { status: 'Accepted' };
@@ -31,7 +32,7 @@ export const TC_048_3_CSMS: TestCase = {
         reserveReceived = true;
         return { status: 'Unavailable' };
       }
-      return {};
+      return defaultReply('ocpp1.6', action, payload);
     });
 
     if (ctx.triggerCommand != null) {

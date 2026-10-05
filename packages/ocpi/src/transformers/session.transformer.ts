@@ -9,7 +9,6 @@ import type { OcpiSession, OcpiSessionStatus, OcpiVersion } from '../types/ocpi.
 
 interface SessionRow {
   id: string;
-  transactionId: string;
   status: 'active' | 'completed' | 'invalid' | 'faulted' | 'failed';
   startedAt: Date | null;
   endedAt: Date | null;
@@ -20,6 +19,11 @@ interface SessionRow {
 
 interface SessionTransformInput {
   session: SessionRow;
+  /**
+   * The OCPI Session id, as stored on the CPO session link
+   * (`ocpi_roaming_sessions.ocpi_session_id`). Unique for the CPO.
+   */
+  ocpiSessionId: string;
   /**
    * The session cost split into net and tax (`ocpiSessionCost`): the final
    * cost once completed, the running cost before. Null when not known yet,
@@ -55,7 +59,7 @@ export function transformSession(input: SessionTransformInput, version: OcpiVers
   const result: OcpiSession = {
     country_code: countryCode,
     party_id: partyId,
-    id: session.transactionId,
+    id: input.ocpiSessionId,
     start_date_time: (session.startedAt ?? session.updatedAt).toISOString(),
     kwh,
     cdr_token: cdrToken(input.token),

@@ -86,7 +86,12 @@ describe('v2_1 Get15118EVCertificate handler', () => {
     const response = await handleGet15118EVCertificate(ctx);
 
     expect(response).toEqual({ status: 'Accepted', exiResponse: 'exi-resp' });
-    expect(getContractCertificateMock).toHaveBeenCalledWith('exi-blob');
+    expect(getContractCertificateMock).toHaveBeenCalledWith({
+      stationDbId: 'sta_db_1',
+      iso15118SchemaVersion: reqPayload.iso15118SchemaVersion,
+      action: 'Install',
+      exiRequest: 'exi-blob',
+    });
     expect(publishMock).toHaveBeenCalledWith({
       eventType: 'ocpp.Get15118EVCertificate',
       aggregateType: 'ChargingStation',
@@ -98,6 +103,31 @@ describe('v2_1 Get15118EVCertificate handler', () => {
         action: 'Install',
         exiRequest: 'exi-blob',
       },
+    });
+  });
+
+  it('forwards the ISO 15118-20 fields and returns remainingContracts', async () => {
+    getContractCertificateMock.mockResolvedValue({
+      status: 'Accepted',
+      exiResponse: 'exi-20',
+      remainingContracts: 2,
+    });
+    const { handleGet15118EVCertificate } =
+      await import('../../../handlers/v2_1/get-15118-ev-certificate.handler.js');
+    const payload = {
+      iso15118SchemaVersion: 'urn:iso:std:iso:15118:-20:CommonMessages',
+      action: 'Install',
+      exiRequest: 'exi-blob-20',
+      maximumContractCertificateChains: 10,
+      prioritizedEMAIDs: ['USEVTC000000001'],
+    };
+    const { ctx } = makeCtx(payload);
+    const response = await handleGet15118EVCertificate(ctx);
+
+    expect(response).toEqual({ status: 'Accepted', exiResponse: 'exi-20', remainingContracts: 2 });
+    expect(getContractCertificateMock).toHaveBeenCalledWith({
+      stationDbId: 'sta_db_1',
+      ...payload,
     });
   });
 

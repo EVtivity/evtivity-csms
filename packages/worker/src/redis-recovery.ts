@@ -245,7 +245,8 @@ export async function startRedisRecoveryWatch(
     return running;
   };
 
-  const client = await queues.cronQueue.client;
+  // BullMQ 6 moved the raw Redis client from the queue to its backend.
+  const client = await queues.cronQueue.getBackend().client;
   const onReady = (): void => {
     void check();
   };

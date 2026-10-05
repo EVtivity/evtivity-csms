@@ -10,7 +10,11 @@ import { logAuthorizeAttempt } from '../authorize-log.js';
 import { prepaidCacheExpiry, prepaidCredit, prepaidMaxCost } from '../prepaid.js';
 import { findAdHocTransactionLimit } from '../ad-hoc-payment-limit.js';
 import { energyRegisterWh } from '../../server/meter-units.js';
-import { projectionQueueFor, sessionPricedKey } from '../../server/projection-queue.js';
+import {
+  projectionQueueFor,
+  sessionPricedKey,
+  transactionKey,
+} from '../../server/projection-queue.js';
 import { transactionCostAt } from '../../server/session-cost.js';
 import type { TransactionCost } from '../../server/session-cost.js';
 
@@ -32,6 +36,9 @@ export async function handleTransactionEvent(
 
   const transactionId = request.transactionInfo.transactionId;
   const queue = projectionQueueFor(ctx.eventBus);
+  // A transactionId is unique per station only: the projection lane of this
+  // transaction is keyed by both.
+  const transactionLane = transactionKey(ctx.stationId, transactionId);
   // The energy register reading of this event, in whole Wh (meter_stop is an
   // integer column). The Ended reading is the session's final meter value, as
   // the 1.6 StopTransaction meterStop is.
@@ -49,7 +56,7 @@ export async function handleTransactionEvent(
   let cost: TransactionCost | null = null;
   if (centralCost && request.eventType !== 'Started') {
     cost = await costForTransaction(ctx, request, registerWh, () =>
-      queue.settled([transactionId, ctx.stationId], PROJECTION_SETTLE_TIMEOUT_MS),
+      queue.settled([transactionLane, ctx.stationId], PROJECTION_SETTLE_TIMEOUT_MS),
     );
   }
 
@@ -108,7 +115,7 @@ export async function handleTransactionEvent(
           sessionPricedKey(ctx.stationId, transactionId),
           PROJECTION_SETTLE_TIMEOUT_MS,
         ),
-        queue.settled([transactionId], PROJECTION_SETTLE_TIMEOUT_MS),
+        queue.settled([transactionLane], PROJECTION_SETTLE_TIMEOUT_MS),
       ]),
     );
   }

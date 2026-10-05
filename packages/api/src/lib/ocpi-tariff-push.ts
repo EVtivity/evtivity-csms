@@ -3,7 +3,7 @@
 
 import { isRoamingEnabled } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
-import { getPubSub } from './pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 const logger = createLogger('ocpi-tariff-push');
 

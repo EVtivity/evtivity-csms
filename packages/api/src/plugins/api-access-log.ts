@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { db, accessLogs } from '@evtivity/database';
-import { getPubSub } from '../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { redactAccessLogBody } from '../lib/access-log-redaction.js';
 
 // Paths not recorded in the 'api' access-log category.

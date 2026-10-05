@@ -1,0 +1,203 @@
+{
+  "locale": "zh-CN",
+  "common": {
+    "period": "期间：{period}",
+    "range": "{from} 至 {to}",
+    "since": "自 {from} 起",
+    "until": "截至 {to}",
+    "allTime": "全部时间",
+    "last30Days": "最近 30 天",
+    "summaryLabel": "{label}：",
+    "noSite": "无站点",
+    "unknown": "未知",
+    "yes": "是",
+    "no": "否",
+    "minutes": "{value} 分钟",
+    "kwh": "{value} kWh",
+    "inclTax": "含税",
+    "exclTax": "不含税"
+  },
+  "columns": {
+    "date": "日期",
+    "site": "站点",
+    "station": "充电桩",
+    "stations": "充电桩数",
+    "driver": "驾驶员",
+    "email": "电子邮件",
+    "status": "状态",
+    "sessions": "会话",
+    "count": "数量",
+    "energyKwh": "电量 (kWh)",
+    "kwh": "kWh",
+    "total": "合计",
+    "durationMin": "时长（分钟）",
+    "duration": "时长",
+    "started": "开始",
+    "ended": "结束"
+  },
+  "revenue": {
+    "title": "收入报告",
+    "sheets": {
+      "byDay": "按日",
+      "bySite": "按站点",
+      "payments": "付款"
+    },
+    "columns": {
+      "revenue": "收入",
+      "tax": "税额",
+      "electricityCost": "电费成本",
+      "profit": "利润",
+      "paymentStatus": "付款状态"
+    },
+    "summary": {
+      "totalRevenueInclTax": "总收入（含税）",
+      "totalTax": "总税额",
+      "totalRevenueExclTax": "总收入（不含税）",
+      "totalElectricityCost": "总电费成本",
+      "totalProfit": "总利润",
+      "totalSessions": "会话总数"
+    }
+  },
+  "energy": {
+    "title": "电量报告",
+    "sheets": {
+      "byDay": "按日",
+      "byStation": "按充电桩",
+      "bySite": "按站点"
+    },
+    "columns": {
+      "avgKwhPerSession": "每次会话平均 kWh"
+    },
+    "summary": {
+      "totalEnergy": "总电量",
+      "totalSessions": "会话总数"
+    }
+  },
+  "driverActivity": {
+    "title": "驾驶员活动报告",
+    "sheets": {
+      "driverActivity": "驾驶员活动"
+    },
+    "columns": {
+      "totalKwh": "总 kWh",
+      "totalSpend": "总消费",
+      "spend": "消费",
+      "avgDurationMin": "平均时长（分钟）",
+      "avgDuration": "平均时长",
+      "firstSession": "首次会话",
+      "lastSession": "最近会话"
+    },
+    "summary": {
+      "activeDrivers": "活跃驾驶员",
+      "totalSessions": "会话总数",
+      "totalEnergy": "总电量"
+    }
+  },
+  "sessions": {
+    "title": "会话报告",
+    "sheets": {
+      "sessions": "会话",
+      "failedSessions": "失败会话",
+      "note": "说明"
+    },
+    "columns": {
+      "transactionId": "交易 ID",
+      "transactionIdShort": "交易 ID",
+      "cost": "费用",
+      "costFinal": "费用已确定",
+      "net": "净额",
+      "tax": "税额",
+      "taxRatePercent": "税率 (%)",
+      "refunded": "已退款",
+      "currency": "货币",
+      "stoppedReason": "停止原因",
+      "paymentSource": "付款来源",
+      "reason": "原因",
+      "failedReason": "失败原因",
+      "resultTruncated": "结果已截断"
+    },
+    "failedAnalysis": "失败会话分析",
+    "truncated": "仅显示前 {limit} 个会话。缩小日期范围以查看其余会话。",
+    "summary": {
+      "totalSessions": "会话总数"
+    }
+  },
+  "utilization": {
+    "title": "利用率报告",
+    "sheets": {
+      "bySite": "按站点",
+      "byStation": "按充电桩",
+      "peakHours": "高峰时段"
+    },
+    "columns": {
+      "sessionHours": "会话小时数",
+      "hours": "小时",
+      "utilizationPercent": "利用率 (%)",
+      "utilizationShort": "利用率 (%)",
+      "day": "星期",
+      "hour": "时段",
+      "sessionCount": "会话数"
+    },
+    "summary": {
+      "averageUtilization": "平均利用率",
+      "totalStations": "充电桩总数"
+    }
+  },
+  "stationHealth": {
+    "title": "充电桩健康报告",
+    "sheets": {
+      "uptime": "在线率",
+      "faultFrequency": "故障频率",
+      "downtimeIncidents": "停机事件"
+    },
+    "columns": {
+      "ports": "端口",
+      "uptimePercent": "在线率 (%)",
+      "downtimeMin": "停机时长（分钟）",
+      "faultCount": "故障次数",
+      "evse": "EVSE"
+    },
+    "summary": {
+      "averageUptime": "平均在线率",
+      "stationsReported": "统计的充电桩"
+    }
+  },
+  "sustainability": {
+    "title": "可持续发展报告",
+    "sheets": {
+      "summary": "摘要",
+      "configuration": "配置",
+      "bySite": "按站点",
+      "dailyEnergy": "每日电量"
+    },
+    "columns": {
+      "metric": "指标",
+      "value": "值",
+      "parameter": "参数",
+      "netGhgReduction": "温室气体净减排量 (kg CO₂)",
+      "ghgReduction": "温室气体减排量 (kg CO₂)"
+    },
+    "metrics": {
+      "totalEnergyDelivered": "总供电量 (kWh)",
+      "netGhgReduction": "温室气体净减排量 (kg CO₂)",
+      "gridCo2": "电网 CO₂ 排放量 (kg)",
+      "gasolineCo2Avoided": "避免的汽油 CO₂ (kg)",
+      "evMilesEnabled": "电动车可行驶英里数",
+      "gasolineGallonsDisplaced": "替代的汽油加仑数",
+      "gridEmissionFactor": "电网排放因子 (kg CO₂/kWh)",
+      "evEfficiency": "电动车能效（英里/kWh）",
+      "gasolineEmissionFactor": "汽油排放因子 (kg CO₂/加仑)",
+      "averageVehicleMpg": "车辆平均油耗 (MPG)"
+    },
+    "summary": {
+      "totalEnergyDelivered": "总供电量",
+      "netGhgReduction": "温室气体净减排量",
+      "evMilesEnabled": "电动车可行驶英里数",
+      "gasolineDisplaced": "替代的汽油"
+    },
+    "units": {
+      "kgCo2": "{value} kg CO₂",
+      "gallons": "{value} 加仑"
+    }
+  }
+}

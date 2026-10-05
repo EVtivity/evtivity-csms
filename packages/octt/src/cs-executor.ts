@@ -25,6 +25,16 @@ function serverTlsFor(
   };
 }
 
+// OCPP 2.1 reconnect back-off of a test station (OCPPCommCtrlr.RetryBackOff*): the
+// first attempt 10-15 s after a connection loss. The CS test waits and timeouts were
+// measured with these values; fleet stations use the faster, wider-spread factory
+// defaults (CSS_RETRY_BACK_OFF_DEFAULTS). Ignored by 1.6 stations.
+export const CS_TEST_RECONNECT_BACK_OFF: Readonly<Record<string, string>> = {
+  'OCPPCommCtrlr.RetryBackOffWaitMinimum': '10',
+  'OCPPCommCtrlr.RetryBackOffRandomRange': '5',
+  'OCPPCommCtrlr.RetryBackOffRepeatTimes': '3',
+};
+
 function generateCsStationId(module: string, testId: string): string {
   const suffix = Math.random().toString(36).slice(2, 8);
   return `OCTT-CS-${module}-${testId}-${suffix}`;
@@ -157,9 +167,9 @@ export async function executeCsTest(
       model: stationConfig.model ?? 'OCTT-Virtual',
       serialNumber,
       firmwareVersion: '1.0.0',
-      ...(stationConfig.configOverrides != null
-        ? { configOverrides: stationConfig.configOverrides }
-        : {}),
+      // A test station keeps the reconnect back-off the CS test timings were measured
+      // with; a test's own overrides win.
+      configOverrides: { ...CS_TEST_RECONNECT_BACK_OFF, ...stationConfig.configOverrides },
       // The station verifies the server certificate. On security profile 2 and 3 it
       // has the root installed, and on profile 3 a client certificate the root issued.
       ...(tls != null ? { verifyServerCertificate: true } : {}),

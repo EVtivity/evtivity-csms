@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
@@ -76,6 +77,8 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
   const [twilioAuthToken, setTwilioAuthToken] = useState('');
   const [twilioFromNumber, setTwilioFromNumber] = useState('');
 
+  const [webhookAllowedHosts, setWebhookAllowedHosts] = useState('');
+
   const [testEmailRecipient, setTestEmailRecipient] = useState('');
   const [testSmsRecipient, setTestSmsRecipient] = useState('');
 
@@ -99,6 +102,10 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
     setTwilioAccountSid(s('twilio.accountSid'));
     setTwilioAuthToken(s('twilio.authTokenEnc'));
     setTwilioFromNumber(s('twilio.fromNumber'));
+    const hosts = settings['notifications.webhookAllowedPrivateHosts'];
+    setWebhookAllowedHosts(
+      Array.isArray(hosts) ? hosts.filter((h) => typeof h === 'string').join('\n') : '',
+    );
     const wrapper = s('email.wrapperTemplate');
     setEmailWrapperTemplate(wrapper !== '' ? wrapper : DEFAULT_EMAIL_WRAPPER);
   }, [settings]);
@@ -130,6 +137,14 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
         api.put('/v1/settings/twilio.authTokenEnc', { value: vals.authToken }),
         api.put('/v1/settings/twilio.fromNumber', { value: vals.fromNumber }),
       ]),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+    },
+  });
+
+  const webhookMutation = useMutation({
+    mutationFn: (hosts: string[]) =>
+      api.put('/v1/settings/notifications.webhookAllowedPrivateHosts', { value: hosts }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['settings'] });
     },
@@ -178,6 +193,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
       <TabsList>
         <TabsTrigger value="smtp">{t('settings.smtp')}</TabsTrigger>
         <TabsTrigger value="twilio">{t('settings.twilio')}</TabsTrigger>
+        <TabsTrigger value="webhooks">{t('settings.webhooks')}</TabsTrigger>
         <TabsTrigger value="emailLayout">{t('settings.emailLayout')}</TabsTrigger>
       </TabsList>
       <TabsContent value="smtp" className="mt-4">
@@ -414,6 +430,55 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
             )}
             {testNotificationMutation.isError && (
               <p className="text-sm text-destructive">{t('settings.testFailed')}</p>
+            )}
+          </CardContent>
+        </Card>
+      </TabsContent>
+      <TabsContent value="webhooks" className="mt-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('settings.webhooks')}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">{t('settings.webhooksDescription')}</p>
+            <div className="space-y-2">
+              <Label htmlFor="webhook-allowed-hosts" className="leading-6">
+                {t('settings.webhookAllowedPrivateHosts')}
+              </Label>
+              <Textarea
+                id="webhook-allowed-hosts"
+                rows={3}
+                value={webhookAllowedHosts}
+                onChange={(e) => {
+                  setWebhookAllowedHosts(e.target.value);
+                }}
+                placeholder="automation.internal.example"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('settings.webhookAllowedPrivateHostsHint')}
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <SaveButton
+                isPending={webhookMutation.isPending}
+                type="button"
+                onClick={() => {
+                  webhookMutation.mutate(
+                    webhookAllowedHosts
+                      .split(/[\s,]+/)
+                      .map((h) => h.trim())
+                      .filter((h) => h !== ''),
+                  );
+                }}
+              />
+            </div>
+            {webhookMutation.isSuccess && (
+              <p className="text-sm text-green-600">{t('settings.webhooksSaved')}</p>
+            )}
+            {webhookMutation.isError && (
+              <p className="text-sm text-destructive">
+                {t('settings.webhooksSaveFailed')} {getErrorMessage(webhookMutation.error, t)}
+              </p>
             )}
           </CardContent>
         </Card>

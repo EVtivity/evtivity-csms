@@ -1,12 +1,18 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { DEFAULT_TAX_BASIS, taxBreakdownByRate, taxLineForAmount } from './price-display.js';
+import {
+  DEFAULT_TAX_BASIS,
+  taxBreakdownByRate,
+  taxLineForAmount,
+  taxPerRate,
+} from './price-display.js';
 import type {
   CostComponentGroup,
   CostTaxLine,
   SessionCostBreakdown,
   TaxBasis,
+  TaxLine,
 } from './price-display.js';
 
 export interface TariffInput {
@@ -44,11 +50,12 @@ export interface CostBreakdown {
 export interface SplitCostBreakdown extends CostBreakdown {
   /**
    * Cost of each segment, in segment order, after the grace period was
-   * distributed and without the reservation holding fee. Each segment's tax
-   * is computed once on its own amount at its tariff rate.
+   * distributed and without the reservation holding fee. Tax is rounded once
+   * per rate over all segments (and the holding fee) at that rate; each
+   * segment carries its share of it, in proportion to its amount.
    */
   segments: CostBreakdown[];
-  /** The reservation holding fee, taxed at the first segment's rate. */
+  /** The reservation holding fee, taxed with the first segment's rate (its share of that rate's tax). */
   reservationHolding: CostTaxLine;
 }
 
@@ -62,23 +69,6 @@ export interface TariffSegment {
 
 function dollarsToCents(dollars: number): number {
   return Math.round(Number((dollars * 100).toPrecision(12)));
-}
-
-/** A tax line holding only a reservation holding fee (an amount in the basis). */
-function reservationHoldingLine(
-  amountCents: number,
-  taxRate: number,
-  basis: TaxBasis,
-): CostTaxLine {
-  const line = taxLineForAmount(amountCents, taxRate, basis);
-  return {
-    ...line,
-    energyCostCents: 0,
-    timeCostCents: 0,
-    sessionFeeCents: 0,
-    idleFeeCents: 0,
-    reservationHoldingFeeCents: amountCents,
-  };
 }
 
 /**
@@ -164,7 +154,16 @@ export function calculateSplitSessionCost(
       totalCents: 0,
       taxLines: [],
       segments: [],
-      reservationHolding: reservationHoldingLine(0, 0, basis),
+      reservationHolding: {
+        taxRate: 0,
+        netCents: 0,
+        taxCents: 0,
+        energyCostCents: 0,
+        timeCostCents: 0,
+        sessionFeeCents: 0,
+        idleFeeCents: 0,
+        reservationHoldingFeeCents: 0,
+      },
     };
   }
 
@@ -185,12 +184,12 @@ export function calculateSplitSessionCost(
     })
     .reverse();
 
-  // Tax is applied per segment (not on the aggregate) so that sessions which
-  // cross tariffs with different tax rates -- different jurisdictions,
-  // tax-exempt promotional tariffs, peak-vs-off-peak rate differences -- are
-  // billed at the rate that applied during each window. The session fee only
-  // applies to the first segment. Grace was applied above.
-  const segmentBreakdowns = adjustedSegments.map((segment) =>
+  // Each segment is billed at its own tariff's rate, so sessions which cross
+  // tariffs with different tax rates -- different jurisdictions, tax-exempt
+  // promotional tariffs -- are taxed at the rate that applied during each
+  // window. The session fee only applies to the first segment. Grace was
+  // applied above. The segment amounts are taxed below, once per rate.
+  const segmentAmounts = adjustedSegments.map((segment) =>
     calculateSessionCost(
       segment.isFirstSegment ? segment.tariff : { ...segment.tariff, pricePerSession: null },
       segment.energyDeliveredWh,
@@ -213,11 +212,40 @@ export function calculateSplitSessionCost(
   const reservationHoldingFeeCents = dollarsToCents(
     reservationHoldingMinutes * reservationFeePerMinute,
   );
-  const reservationHolding = reservationHoldingLine(
-    reservationHoldingFeeCents,
-    firstTaxRate,
+
+  // Tax is rounded once per rate: the amounts of every segment (and the
+  // holding fee) at one rate are summed and taxed together, and each part
+  // carries its share of that tax (taxPerRate), so the per-segment components
+  // add up to the session's tax per rate.
+  const segmentRates = adjustedSegments.map((segment) =>
+    segment.tariff.taxRate != null ? Number(segment.tariff.taxRate) : 0,
+  );
+  const partTaxes = taxPerRate(
+    [
+      ...segmentAmounts.map((b, i) => ({
+        taxRate: segmentRates[i] ?? 0,
+        amountCents: amountInBasis(b),
+      })),
+      { taxRate: firstTaxRate, amountCents: reservationHoldingFeeCents },
+    ],
     basis,
   );
+  const segmentBreakdowns = segmentAmounts.map((b, i) =>
+    withTax(b, partTaxes[i] ?? { taxRate: segmentRates[i] ?? 0, netCents: 0, taxCents: 0 }),
+  );
+  const holdingTax = partTaxes[segmentAmounts.length] ?? {
+    taxRate: firstTaxRate,
+    netCents: 0,
+    taxCents: 0,
+  };
+  const reservationHolding: CostTaxLine = {
+    ...holdingTax,
+    energyCostCents: 0,
+    timeCostCents: 0,
+    sessionFeeCents: 0,
+    idleFeeCents: 0,
+    reservationHoldingFeeCents,
+  };
 
   const sum = (pick: (b: CostBreakdown) => number): number =>
     segmentBreakdowns.reduce((total, b) => total + pick(b), 0);
@@ -240,6 +268,36 @@ export function calculateSplitSessionCost(
     ]),
     segments: segmentBreakdowns,
     reservationHolding,
+  };
+}
+
+/** The amount billed, in the breakdown's basis: the sum of its dimensions. */
+function amountInBasis(b: CostBreakdown): number {
+  return (
+    b.energyCostCents +
+    b.timeCostCents +
+    b.sessionFeeCents +
+    b.idleFeeCents +
+    b.reservationHoldingFeeCents
+  );
+}
+
+/** A segment's amounts with its share of its rate's tax. */
+function withTax(b: CostBreakdown, tax: TaxLine): CostBreakdown {
+  const dimensions = {
+    energyCostCents: b.energyCostCents,
+    timeCostCents: b.timeCostCents,
+    sessionFeeCents: b.sessionFeeCents,
+    idleFeeCents: b.idleFeeCents,
+    reservationHoldingFeeCents: b.reservationHoldingFeeCents,
+  };
+  return {
+    basis: b.basis,
+    ...dimensions,
+    subtotalCents: tax.netCents,
+    taxCents: tax.taxCents,
+    totalCents: tax.netCents + tax.taxCents,
+    taxLines: taxBreakdownByRate([{ ...tax, ...dimensions }]),
   };
 }
 

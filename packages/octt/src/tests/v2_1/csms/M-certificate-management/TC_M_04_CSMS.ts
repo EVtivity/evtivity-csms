@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_M_20_CSMS: TestCase = {
   id: 'TC_M_20_CSMS',
@@ -19,31 +20,33 @@ export const TC_M_20_CSMS: TestCase = {
     });
     let getIdCount = 0;
     let deleteCount = 0;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'GetInstalledCertificateIds') {
-        getIdCount++;
-        return {
-          status: 'Accepted',
-          certificateHashDataChain: [
-            {
-              certificateType: 'CSMSRootCertificate',
-              certificateHashData: {
-                hashAlgorithm: 'SHA256',
-                issuerNameHash: 'aabb',
-                issuerKeyHash: 'ccdd',
-                serialNumber: '01',
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'GetInstalledCertificateIds') {
+          getIdCount++;
+          return {
+            status: 'Accepted',
+            certificateHashDataChain: [
+              {
+                certificateType: 'CSMSRootCertificate',
+                certificateHashData: {
+                  hashAlgorithm: 'SHA256',
+                  issuerNameHash: 'aabb',
+                  issuerKeyHash: 'ccdd',
+                  serialNumber: '01',
+                },
               },
-            },
-          ],
-        };
-      }
-      if (action === 'DeleteCertificate') {
-        deleteCount++;
-        return { status: 'Accepted' };
-      }
-      if (action === 'InstallCertificate') return { status: 'Accepted' };
-      return {};
-    });
+            ],
+          };
+        }
+        if (action === 'DeleteCertificate') {
+          deleteCount++;
+          return { status: 'Accepted' };
+        }
+        if (action === 'InstallCertificate') return { status: 'Accepted' };
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'GetInstalledCertificateIds', {
         stationId: ctx.stationId,
@@ -99,31 +102,33 @@ export const TC_M_21_CSMS: TestCase = {
     });
     let getIdCount = 0;
     let deleteCount = 0;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'GetInstalledCertificateIds') {
-        getIdCount++;
-        return {
-          status: 'Accepted',
-          certificateHashDataChain: [
-            {
-              certificateType: 'CSMSRootCertificate',
-              certificateHashData: {
-                hashAlgorithm: 'SHA256',
-                issuerNameHash: 'aabb',
-                issuerKeyHash: 'ccdd',
-                serialNumber: '01',
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'GetInstalledCertificateIds') {
+          getIdCount++;
+          return {
+            status: 'Accepted',
+            certificateHashDataChain: [
+              {
+                certificateType: 'CSMSRootCertificate',
+                certificateHashData: {
+                  hashAlgorithm: 'SHA256',
+                  issuerNameHash: 'aabb',
+                  issuerKeyHash: 'ccdd',
+                  serialNumber: '01',
+                },
               },
-            },
-          ],
-        };
-      }
-      if (action === 'DeleteCertificate') {
-        deleteCount++;
-        return { status: 'Failed' };
-      }
-      if (action === 'InstallCertificate') return { status: 'Accepted' };
-      return {};
-    });
+            ],
+          };
+        }
+        if (action === 'DeleteCertificate') {
+          deleteCount++;
+          return { status: 'Failed' };
+        }
+        if (action === 'InstallCertificate') return { status: 'Accepted' };
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'GetInstalledCertificateIds', {
         stationId: ctx.stationId,

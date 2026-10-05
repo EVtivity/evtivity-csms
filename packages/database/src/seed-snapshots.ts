@@ -6,8 +6,9 @@ import { db, client, sites, getCompanyCurrency } from './index.js';
 
 /**
  * Populate 14 days of dashboard_snapshots rows per site so the Historical
- * and Trend modes have something to render in dev. Idempotent via the
- * ON CONFLICT upsert on (site_id, snapshot_date). Exported for reuse by the
+ * and Trend modes have something to render in dev. Idempotent via
+ * ON CONFLICT (site_id, snapshot_date) DO NOTHING: a rerun fills missing days
+ * and never replaces a snapshot the worker (or an earlier run) wrote. Exported for reuse by the
  * main seed; module also runs standalone via `node seed-snapshots.js` at
  * the bottom of this file.
  */
@@ -67,28 +68,7 @@ export async function seedDashboardSnapshots(): Promise<void> {
           ${avgPingLatencyMs}, ${pingSuccessRate}, ${currency},
           now()
         )
-        ON CONFLICT (site_id, snapshot_date) DO UPDATE SET
-          total_stations = EXCLUDED.total_stations,
-          online_stations = EXCLUDED.online_stations,
-          online_percent = EXCLUDED.online_percent,
-          uptime_percent = EXCLUDED.uptime_percent,
-          active_sessions = EXCLUDED.active_sessions,
-          total_energy_wh = EXCLUDED.total_energy_wh,
-          day_energy_wh = EXCLUDED.day_energy_wh,
-          total_sessions = EXCLUDED.total_sessions,
-          day_sessions = EXCLUDED.day_sessions,
-          connected_stations = EXCLUDED.connected_stations,
-          total_revenue_cents = EXCLUDED.total_revenue_cents,
-          day_revenue_cents = EXCLUDED.day_revenue_cents,
-          avg_revenue_cents_per_session = EXCLUDED.avg_revenue_cents_per_session,
-          total_transactions = EXCLUDED.total_transactions,
-          day_transactions = EXCLUDED.day_transactions,
-          total_ports = EXCLUDED.total_ports,
-          stations_below_threshold = EXCLUDED.stations_below_threshold,
-          avg_ping_latency_ms = EXCLUDED.avg_ping_latency_ms,
-          ping_success_rate = EXCLUDED.ping_success_rate,
-          currency = EXCLUDED.currency,
-          created_at = now()
+        ON CONFLICT (site_id, snapshot_date) DO NOTHING
       `);
     }
     console.log(`Seeded ${String(days)} days for site ${site.name} (${site.id})`);

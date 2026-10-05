@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../../../server/middleware/pipeline.js';
+import { sessionPricedKey, transactionKey } from '../../../server/projection-queue.js';
 
 let whereResult: Record<string, unknown>[] | Error;
 const whereFn = vi.fn((): Promise<Record<string, unknown>[]> => {
@@ -37,10 +38,9 @@ vi.mock('../../../server/session-cost.js', () => ({
 
 const settledMock = vi.fn();
 const waitForSignalMock = vi.fn();
-vi.mock('../../../server/projection-queue.js', () => ({
+vi.mock('../../../server/projection-queue.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../server/projection-queue.js')>()),
   projectionQueueFor: () => ({ settled: settledMock, waitForSignal: waitForSignalMock }),
-  sessionPricedKey: (stationId: string, transactionId: string) =>
-    `session-priced:${stationId}:${transactionId}`,
 }));
 
 const findLimitMock = vi.fn();
@@ -593,7 +593,10 @@ describe('v2_1 TransactionEvent handler', () => {
       const response = await handleTransactionEvent(ctx);
 
       expect(response['totalCost']).toBe(12.34);
-      expect(settledMock).toHaveBeenCalledWith(['tx-cost', 'CS-001'], 5000);
+      expect(settledMock).toHaveBeenCalledWith(
+        [transactionKey('CS-001', 'tx-cost'), 'CS-001'],
+        5000,
+      );
       expect(costMock).toHaveBeenCalledWith(
         {},
         {
@@ -715,7 +718,10 @@ describe('v2_1 TransactionEvent handler', () => {
       const response = await handleTransactionEvent(ctx);
 
       expect(response['totalCost']).toBe(4.5);
-      expect(settledMock).toHaveBeenCalledWith(['tx-cost', 'CS-001'], 5000);
+      expect(settledMock).toHaveBeenCalledWith(
+        [transactionKey('CS-001', 'tx-cost'), 'CS-001'],
+        5000,
+      );
       expect(costMock).toHaveBeenCalledWith(
         {},
         expect.objectContaining({ transactionId: 'tx-cost', meterRegisterWh: 15000 }),
@@ -736,7 +742,7 @@ describe('v2_1 TransactionEvent handler', () => {
       const response = await handleTransactionEvent(ctx);
 
       expect(response['totalCost']).toBe(1);
-      expect(waitForSignalMock).toHaveBeenCalledWith('session-priced:CS-001:tx-cost', 5000);
+      expect(waitForSignalMock).toHaveBeenCalledWith(sessionPricedKey('CS-001', 'tx-cost'), 5000);
       // The Started event is published before the wait: its projection creates the session.
       expect(publishMock.mock.invocationCallOrder[0]).toBeLessThan(
         waitForSignalMock.mock.invocationCallOrder[0] ?? 0,

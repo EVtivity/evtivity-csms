@@ -26,16 +26,20 @@ import { dispatchDriverNotification, notificationMoney } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
-import { getPubSub } from '../lib/pubsub.js';
-import { sendOcppCommandAndWait } from '../lib/ocpp-command.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import { getUserSiteIds } from '../lib/site-access.js';
-import { ALL_TEMPLATES_DIRS } from '../lib/template-dirs.js';
+import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { paginatedResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
-import { applyReservationCancellation } from '../lib/reservation-cancel.js';
+import { applyReservationCancellation } from '@evtivity/services/reservation-cancel';
+import { paymentContext } from '../lib/payments.js';
 import { assertReservationsAllowed } from '../lib/reservation-eligibility.js';
-import { assertNoMaintenanceConflict, MaintenanceConflictError } from '../lib/maintenance-check.js';
+import {
+  assertNoMaintenanceConflict,
+  MaintenanceConflictError,
+} from '@evtivity/services/maintenance-check';
 import { authorize } from '../middleware/rbac.js';
 
 const reservationListItem = z
@@ -1692,6 +1696,7 @@ export function reservationRoutes(app: FastifyInstance): void {
           reason: 'operator_manual',
           note: operatorReason,
           chargeFee: chargeCancellationFee,
+          payments: paymentContext(request.log),
           logger: request.log,
         });
 

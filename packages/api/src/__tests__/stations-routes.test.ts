@@ -33,18 +33,23 @@ GYQS+sRDqF0Qhk6ZnPUUuqpEFcP7/Ib3/Bna1XC/6nitqfoF5jMPZcahQY9eOVR2
 qf/5BbM=
 -----END CERTIFICATE-----`;
 
-const { mockSetStationDisabled, mockSendAvailability } = vi.hoisted(() => ({
-  mockSetStationDisabled: vi.fn().mockResolvedValue({ availabilityChanged: true }),
-  mockSendAvailability: vi.fn().mockResolvedValue({
-    command: 'ChangeAvailability',
-    commandStatus: 'accepted',
-    error: null,
+const { mockSetStationDisabled, mockSendAvailability, mockRecordSessionEndRequest } = vi.hoisted(
+  () => ({
+    mockSetStationDisabled: vi.fn().mockResolvedValue({ availabilityChanged: true }),
+    mockRecordSessionEndRequest: vi.fn().mockResolvedValue(true),
+    mockSendAvailability: vi.fn().mockResolvedValue({
+      command: 'ChangeAvailability',
+      commandStatus: 'accepted',
+      error: null,
+    }),
   }),
-}));
+);
 
-vi.mock('../lib/availability-command.js', () => ({
+vi.mock('@evtivity/services/availability-command', () => ({
   sendAvailabilityCommand: mockSendAvailability,
 }));
+
+const mockRecordRemoved = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 
 const { mockPublish, mockSubscribe } = vi.hoisted(() => {
   const pub = vi.fn().mockResolvedValue(undefined);
@@ -54,7 +59,7 @@ const { mockPublish, mockSubscribe } = vi.hoisted(() => {
   return { mockPublish: pub, mockSubscribe: sub };
 });
 
-vi.mock('../lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn(() => ({ publish: mockPublish, subscribe: mockSubscribe })),
   setPubSub: vi.fn(),
 }));
@@ -139,7 +144,10 @@ vi.mock('@evtivity/database', () => {
     db: dbMock,
     client: {},
     setStationDisabled: mockSetStationDisabled,
+    SESSION_END_REQUEST_CHANNEL: 'session_end_requests',
+    recordSessionEndRequest: mockRecordSessionEndRequest,
     isRoamingEnabled: vi.fn(() => Promise.resolve(true)),
+    recordRemovedOcpiEvses: mockRecordRemoved,
     stationStatusReasonSql: () => 'NULL',
     getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
     // buildDerivedStatusSubquery and buildUnderMaintenanceSubquery read
@@ -159,6 +167,7 @@ vi.mock('@evtivity/database', () => {
     ocppMessageLogs: {},
     connectionLogs: {},
     stationCertificates: {},
+    variableMonitoringRules: {},
     pricingGroupStations: {},
     pricingGroups: {},
     guestSessions: {},
@@ -227,6 +236,12 @@ vi.mock('../services/station-security.service.js', () => ({
   rotateStationPassword: rotateStationPasswordMock,
 }));
 
+const { confirmRealStationMock } = vi.hoisted(() => ({ confirmRealStationMock: vi.fn() }));
+
+vi.mock('../services/station-simulator.service.js', () => ({
+  confirmRealStation: confirmRealStationMock,
+}));
+
 vi.mock('argon2', () => ({
   hash: vi.fn().mockResolvedValue('hashed_password'),
 }));
@@ -235,8 +250,8 @@ const { mockQueryRevenue } = vi.hoisted(() => ({ mockQueryRevenue: vi.fn() }));
 
 // Revenue comes from the shared definition (session-revenue.ts); its SQL is
 // covered by the integration tests.
-vi.mock('../lib/session-revenue.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../lib/session-revenue.js')>();
+vi.mock('@evtivity/services/session-revenue', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@evtivity/services/session-revenue')>();
   return {
     ...actual,
     queryRevenue: (input: unknown) => mockQueryRevenue(input),
@@ -253,12 +268,16 @@ vi.mock('../lib/site-access.js', () => ({
   userCanAccessSite: vi.fn().mockResolvedValue(true),
 }));
 
-vi.mock('../lib/ocpp-command.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/ocpp-command.js')>()),
+vi.mock('@evtivity/services/ocpp-command', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/services/ocpp-command')>()),
   sendOcppCommandAndWait: vi.fn().mockResolvedValue({
     commandId: 'mock-cmd',
     response: { status: 'Accepted' },
   }),
+}));
+
+vi.mock('../lib/station-status-check.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/station-status-check.js')>()),
   triggerAndWaitForStatus: vi.fn().mockResolvedValue({ status: 'available' }),
 }));
 
@@ -407,6 +426,7 @@ describe('Station routes - handler logic', () => {
         lastHeartbeat: null,
         isOnline: false,
         isSimulator: false,
+        simulatorConflictAt: null,
         loadPriority: 0,
         securityProfile: 0,
         pendingSecurityProfile: null,
@@ -562,6 +582,53 @@ describe('Station routes - handler logic', () => {
   // --- PATCH /v1/stations/:id ---
 
   describe('PATCH /v1/stations/:id', () => {
+    it("re-renders the station's screens when it moves to another site", async () => {
+      const station = {
+        id: VALID_STATION_ID,
+        stationId: 'STATION-001',
+        siteId: null as string | null,
+        vendorId: null,
+        model: null,
+        serialNumber: null,
+        firmwareVersion: null,
+        availability: 'available',
+        reportedStatus: null,
+        statusReason: null,
+        onboardingStatus: 'accepted',
+        isOnline: true,
+        isSimulator: false,
+        loadPriority: 0,
+        securityProfile: 0,
+        pendingSecurityProfile: null,
+        hasPassword: false,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      };
+      const moved = { ...station, siteId: 'sit_000000000002' };
+
+      mockPublish.mockClear();
+      setupDbResults([station], [moved]);
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { siteId: 'sit_000000000002' },
+      });
+      expect(response.statusCode).toBe(200);
+      const repush = mockPublish.mock.calls.find((c) => c[0] === 'station_message_repush');
+      expect(JSON.parse(repush?.[1] as string)).toEqual({ stationId: VALID_STATION_ID });
+
+      mockPublish.mockClear();
+      setupDbResults([moved], [moved]);
+      await app.inject({
+        method: 'PATCH',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { siteId: 'sit_000000000002' },
+      });
+      expect(mockPublish.mock.calls.some((c) => c[0] === 'station_message_repush')).toBe(false);
+    });
+
     it('updates and returns the station', async () => {
       const updated = {
         id: VALID_STATION_ID,
@@ -596,6 +663,54 @@ describe('Station routes - handler logic', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json().model).toBe('Updated Model');
+    });
+
+    it('moves the station EVSEs to the new OCPI location', async () => {
+      const base = {
+        id: VALID_STATION_ID,
+        stationId: 'STATION-001',
+        vendorId: null,
+        model: null,
+        serialNumber: null,
+        firmwareVersion: null,
+        availability: 'available',
+        reportedStatus: null,
+        statusReason: null,
+        onboardingStatus: 'accepted',
+        isOnline: false,
+        isSimulator: false,
+        loadPriority: 0,
+        securityProfile: 0,
+        pendingSecurityProfile: null,
+        hasPassword: false,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      };
+      // 1: before SELECT, 2: UPDATE returning, 3: the station's EVSEs
+      setupDbResults(
+        [{ ...base, siteId: 'sit_000000000001' }],
+        [{ ...base, siteId: 'sit_000000000002' }],
+        [{ id: 'evs_000000000001' }],
+      );
+      mockPublish.mockClear();
+      mockRecordRemoved.mockClear();
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { siteId: 'sit_000000000002' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockRecordRemoved).toHaveBeenCalledWith('sit_000000000001', ['evs_000000000001']);
+      const pushes = mockPublish.mock.calls
+        .filter((c) => c[0] === 'ocpi_push')
+        .map((c) => c[1] as string);
+      expect(pushes).toEqual([
+        JSON.stringify({ type: 'location', siteId: 'sit_000000000001' }),
+        JSON.stringify({ type: 'location', siteId: 'sit_000000000002' }),
+      ]);
     });
 
     it('returns 404 when station not found', async () => {
@@ -861,6 +976,42 @@ describe('Station routes - handler logic', () => {
       expect(body.hasPassword).toBe(true);
     });
 
+    it('asks the OCPI server to push the site location (EVSEs REMOVED)', async () => {
+      const station = {
+        id: VALID_STATION_ID,
+        stationId: 'STATION-001',
+        siteId: 'sit_000000000001',
+        vendorId: null,
+        model: null,
+        serialNumber: null,
+        firmwareVersion: null,
+        availability: 'unavailable',
+        onboardingStatus: 'blocked',
+        isOnline: false,
+        isSimulator: false,
+        loadPriority: 0,
+        securityProfile: 0,
+        pendingSecurityProfile: null,
+        basicAuthPasswordHash: null,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      };
+      setupDbResults([station], [station]);
+      mockPublish.mockClear();
+
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockPublish).toHaveBeenCalledWith(
+        'ocpi_push',
+        JSON.stringify({ type: 'location', siteId: 'sit_000000000001' }),
+      );
+    });
+
     it('returns 404 when station not found', async () => {
       setupDbResults([]);
 
@@ -1076,6 +1227,34 @@ describe('Station routes - handler logic', () => {
       expect(response.json().status).toBe('deleted');
     });
 
+    it('records the deleted EVSE as removed from its site and pushes the location', async () => {
+      setupDbResults(
+        [{ id: 'evs_000000000001' }], // evse found
+        [], // no occupied connectors
+        [{ siteId: 'sit_000000000001' }], // station site
+        [], // delete result (not used)
+      );
+      mockPublish.mockClear();
+      mockRecordRemoved.mockClear();
+
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/stations/${VALID_STATION_ID}/evses/1`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockRecordRemoved).toHaveBeenCalledWith(
+        'sit_000000000001',
+        ['evs_000000000001'],
+        expect.anything(),
+      );
+      expect(mockPublish).toHaveBeenCalledWith(
+        'ocpi_push',
+        JSON.stringify({ type: 'location', siteId: 'sit_000000000001' }),
+      );
+    });
+
     it('returns 404 when EVSE not found', async () => {
       setupDbResults([]);
 
@@ -1145,7 +1324,7 @@ describe('Station routes - handler logic', () => {
   // translates them for 1.6 stations (evseId -> connectorId, unwrapped criteria).
   describe('charging profile commands to an OCPP 1.6 station', () => {
     it('sends GetCompositeSchedule without a version', async () => {
-      const { sendOcppCommandAndWait } = await import('../lib/ocpp-command.js');
+      const { sendOcppCommandAndWait } = await import('@evtivity/services/ocpp-command');
       const sendMock = vi.mocked(sendOcppCommandAndWait);
       sendMock.mockResolvedValueOnce({ commandId: 'm', response: { status: 'Rejected' } });
       setupDbResults([{ stationId: 'CS-016', ocppProtocol: 'ocpp1.6', isOnline: true }]);
@@ -1163,7 +1342,7 @@ describe('Station routes - handler logic', () => {
     });
 
     it('sends ClearChargingProfile without a version', async () => {
-      const { sendOcppCommandAndWait } = await import('../lib/ocpp-command.js');
+      const { sendOcppCommandAndWait } = await import('@evtivity/services/ocpp-command');
       const sendMock = vi.mocked(sendOcppCommandAndWait);
       sendMock.mockResolvedValueOnce({ commandId: 'm', response: { status: 'Unknown' } });
       setupDbResults([{ stationId: 'CS-016', ocppProtocol: 'ocpp1.6', isOnline: true }]);
@@ -1183,7 +1362,7 @@ describe('Station routes - handler logic', () => {
 
   describe('POST /v1/stations/:id/evses/:evseId/stop-active-session', () => {
     it('dispatches RequestStopTransaction and returns ghostRecovered=false on Accepted', async () => {
-      const { sendOcppCommandAndWait } = await import('../lib/ocpp-command.js');
+      const { sendOcppCommandAndWait } = await import('@evtivity/services/ocpp-command');
       const sendMock = vi.mocked(sendOcppCommandAndWait);
       sendMock.mockResolvedValueOnce({ commandId: 'm', response: { status: 'Accepted' } });
       setupDbResults(
@@ -1212,7 +1391,7 @@ describe('Station routes - handler logic', () => {
     });
 
     it('returns ghostRecovered=true and force-cleans the DB on Rejected+TxNotFound', async () => {
-      const { sendOcppCommandAndWait } = await import('../lib/ocpp-command.js');
+      const { sendOcppCommandAndWait } = await import('@evtivity/services/ocpp-command');
       vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
         commandId: 'm',
         response: { status: 'Rejected', statusInfo: { reasonCode: 'TxNotFound' } },
@@ -1235,10 +1414,70 @@ describe('Station routes - handler logic', () => {
       expect(body.ghostRecovered).toBe(true);
       expect(body.sessionId).toBe('ses_000000000001');
       expect(body.transactionId).toBe('tx-ghost');
+      // Recorded durably first (P4), then the OCPP server ends it the normal
+      // way (completed, cost, settlement, receipt).
+      expect(mockRecordSessionEndRequest).toHaveBeenCalledWith(
+        {},
+        'ses_000000000001',
+        'GhostRecovered',
+      );
+      expect(mockPublish).toHaveBeenCalledWith(
+        'session_end_requests',
+        JSON.stringify({ sessionId: 'ses_000000000001', reason: 'GhostRecovered' }),
+      );
+    });
+
+    it('publishes nothing when the ghost session ended meanwhile (P5)', async () => {
+      const { sendOcppCommandAndWait } = await import('@evtivity/services/ocpp-command');
+      vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+        commandId: 'm',
+        response: { status: 'Rejected', statusInfo: { reasonCode: 'TxNotFound' } },
+      });
+      mockRecordSessionEndRequest.mockResolvedValueOnce(false);
+      mockPublish.mockClear();
+      setupDbResults(
+        [{ stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }],
+        [{ id: 'evs_000000000001' }],
+        [{ id: 'ses_000000000001', transactionId: 'tx-ghost' }],
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/evses/1/stop-active-session`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockPublish).not.toHaveBeenCalledWith('session_end_requests', expect.anything());
+    });
+
+    it('still answers when the end request publish fails (the OCPP sweep ends it)', async () => {
+      const { sendOcppCommandAndWait } = await import('@evtivity/services/ocpp-command');
+      vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+        commandId: 'm',
+        response: { status: 'Rejected', statusInfo: { reasonCode: 'TxNotFound' } },
+      });
+      mockPublish.mockRejectedValueOnce(new Error('redis down'));
+      setupDbResults(
+        [{ stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }],
+        [{ id: 'evs_000000000001' }],
+        [{ id: 'ses_000000000001', transactionId: 'tx-ghost' }],
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/evses/1/stop-active-session`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().ghostRecovered).toBe(true);
     });
 
     it('returns 504 when station does not respond', async () => {
-      const { sendOcppCommandAndWait } = await import('../lib/ocpp-command.js');
+      const { sendOcppCommandAndWait } = await import('@evtivity/services/ocpp-command');
       vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
         commandId: 'm',
         error: 'No response within 35s',
@@ -1397,7 +1636,7 @@ describe('Station routes - handler logic', () => {
   describe('GET /v1/stations/:id/revenue-history', () => {
     it('returns daily revenue data zero-filled across the range', async () => {
       setupDbResults([{ siteTimezone: 'UTC' }]);
-      const { aggregateRevenueRows } = await import('../lib/session-revenue.js');
+      const { aggregateRevenueRows } = await import('@evtivity/services/session-revenue');
       mockQueryRevenue.mockResolvedValueOnce(
         aggregateRevenueRows([
           { key: '2025-01-02', taxRate: '0', grossCents: 500, source: 'session', count: 3 },
@@ -1586,7 +1825,7 @@ describe('Station routes - handler logic', () => {
       const utilizationStats = { sessionHours: 5, portCount: 2 };
       const financialStats = { totalElectricityCostCents: 3000 };
       // Revenue: 8 sessions of 1190 at 19% and one of 480 at 0%.
-      const { aggregateRevenueRows } = await import('../lib/session-revenue.js');
+      const { aggregateRevenueRows } = await import('@evtivity/services/session-revenue');
       mockQueryRevenue.mockResolvedValueOnce(
         aggregateRevenueRows([
           { key: null, taxRate: '0.19', grossCents: 1190, source: 'session', count: 8 },
@@ -1914,6 +2153,40 @@ describe('Station routes - handler logic', () => {
     });
   });
 
+  // --- POST /v1/stations/:id/confirm-real-station ---
+
+  describe('POST /v1/stations/:id/confirm-real-station', () => {
+    it('hands the confirmation to the station simulator service', async () => {
+      confirmRealStationMock.mockResolvedValueOnce({ changed: true });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/confirm-real-station`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ changed: true });
+      expect(confirmRealStationMock).toHaveBeenCalledWith(VALID_STATION_ID, expect.any(Object));
+    });
+
+    it('returns 404 when the service does not find the station', async () => {
+      const { AppError } = await import('@evtivity/lib');
+      confirmRealStationMock.mockRejectedValueOnce(
+        new AppError('Station not found', 404, 'STATION_NOT_FOUND'),
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/confirm-real-station`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe('STATION_NOT_FOUND');
+    });
+  });
+
   // --- POST /v1/stations/:id/evses (500 on EVSE insert failure) ---
 
   describe('POST /v1/stations/:id/evses (EVSE insert failure)', () => {
@@ -2093,6 +2366,99 @@ describe('Station routes - handler logic', () => {
 
       expect(response.statusCode).toBe(404);
       expect(response.json().code).toBe('STATION_NOT_FOUND');
+    });
+  });
+
+  // --- Variable monitoring rules: OCPP command messages ---
+
+  describe('Variable monitoring rule commands', () => {
+    const ruleRow = {
+      id: 7,
+      stationId: VALID_STATION_ID,
+      monitoringId: 42,
+      component: 'EVSE',
+      variable: 'Power',
+      type: 'UpperThreshold',
+      value: '11000',
+      severity: 3,
+      status: 'pending',
+      errorInfo: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+
+    it('publishes SetVariableMonitoring with the command message shape', async () => {
+      setupDbResults([{ id: VALID_STATION_ID, stationId: 'STATION-001' }], [ruleRow]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/monitoring-rules`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {
+          component: 'EVSE',
+          variable: 'Power',
+          type: 'UpperThreshold',
+          value: 11000,
+          severity: 3,
+        },
+      });
+
+      expect(response.statusCode).toBe(201);
+      const call = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
+      expect(call).toBeDefined();
+      const message = JSON.parse(call?.[1] as string) as Record<string, unknown>;
+      expect(Object.keys(message)).toEqual(['commandId', 'stationId', 'action', 'payload']);
+      expect(message).toMatchObject({
+        stationId: 'STATION-001',
+        action: 'SetVariableMonitoring',
+        payload: {
+          setMonitoringData: [
+            {
+              component: { name: 'EVSE' },
+              variable: { name: 'Power' },
+              type: 'UpperThreshold',
+              value: 11000,
+              severity: 3,
+            },
+          ],
+        },
+      });
+      expect(typeof message['commandId']).toBe('string');
+    });
+
+    it('returns 502 STATION_REJECTED when the publish fails', async () => {
+      setupDbResults([{ id: VALID_STATION_ID, stationId: 'STATION-001' }], [ruleRow]);
+      mockPublish.mockRejectedValueOnce(new Error('redis down'));
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/monitoring-rules`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { component: 'EVSE', variable: 'Power', type: 'UpperThreshold', value: 1 },
+      });
+
+      expect(response.statusCode).toBe(502);
+      expect(response.json().code).toBe('STATION_REJECTED');
+    });
+
+    it('publishes ClearVariableMonitoring for a rule the station acknowledged', async () => {
+      setupDbResults([ruleRow], [{ stationId: 'STATION-001' }], []);
+
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/stations/${VALID_STATION_ID}/monitoring-rules/7`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+      expect(response.statusCode).toBe(204);
+      const call = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
+      const message = JSON.parse(call?.[1] as string) as Record<string, unknown>;
+      expect(message).toMatchObject({
+        stationId: 'STATION-001',
+        action: 'ClearVariableMonitoring',
+        payload: { id: [42] },
+      });
+      expect(message).not.toHaveProperty('version');
     });
   });
 

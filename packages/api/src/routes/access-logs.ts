@@ -11,7 +11,7 @@ import { successResponse, paginatedResponse } from '../lib/response-schemas.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
-import { getPubSub } from '../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 // Tell the CSMS so the Access Logs page reloads itself. The 'api' category is
 // announced separately (throttled) from app.ts. Best-effort.

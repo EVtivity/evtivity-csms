@@ -61,7 +61,7 @@ vi.mock('@evtivity/database', () => ({
 vi.mock('drizzle-orm', () => ({ eq: vi.fn(), and: vi.fn() }));
 
 const sendOcppCommandAndWait = vi.fn();
-vi.mock('../lib/ocpp-command.js', () => ({
+vi.mock('@evtivity/services/ocpp-command', () => ({
   sendOcppCommandAndWait: (...args: unknown[]) => sendOcppCommandAndWait(...args),
 }));
 

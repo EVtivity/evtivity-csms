@@ -20,7 +20,7 @@ vi.mock('../middleware/rbac.js', () => ({
 }));
 
 // The station answers every GetVariables item with Accepted.
-vi.mock('../lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn(() => ({
     subscribe: vi.fn(async (_channel: string, cb: (raw: string) => void) => {
       resultCallback.current = cb;

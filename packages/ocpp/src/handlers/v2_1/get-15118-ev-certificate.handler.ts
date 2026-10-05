@@ -10,8 +10,10 @@ export async function handleGet15118EVCertificate(
 ): Promise<Record<string, unknown>> {
   const request = ctx.payload as {
     iso15118SchemaVersion: string;
-    action: string;
+    action: 'Install' | 'Update';
     exiRequest: string;
+    maximumContractCertificateChains?: number;
+    prioritizedEMAIDs?: string[];
   };
 
   ctx.logger.info(
@@ -43,9 +45,26 @@ export async function handleGet15118EVCertificate(
 
   try {
     const provider = await getPkiProvider();
-    const result = await provider.getContractCertificate(request.exiRequest);
+    const result = await provider.getContractCertificate({
+      stationDbId: ctx.stationDbId,
+      iso15118SchemaVersion: request.iso15118SchemaVersion,
+      action: request.action,
+      exiRequest: request.exiRequest,
+      ...(request.maximumContractCertificateChains != null
+        ? { maximumContractCertificateChains: request.maximumContractCertificateChains }
+        : {}),
+      ...(request.prioritizedEMAIDs != null
+        ? { prioritizedEMAIDs: request.prioritizedEMAIDs }
+        : {}),
+    });
     if (result.status === 'Accepted' && result.exiResponse !== '') {
-      return { status: result.status, exiResponse: result.exiResponse };
+      return {
+        status: result.status,
+        exiResponse: result.exiResponse,
+        ...(result.remainingContracts != null
+          ? { remainingContracts: result.remainingContracts }
+          : {}),
+      };
     }
     ctx.logger.warn(
       { stationId: ctx.stationId, providerStatus: result.status },

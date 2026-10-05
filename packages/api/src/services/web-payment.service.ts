@@ -18,7 +18,7 @@ import {
   stationWebPaymentConfigs,
   writeAudit,
 } from '@evtivity/database';
-import { sendOcppCommandAndWait } from '../lib/ocpp-command.js';
+import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
 import { config } from '../lib/config.js';
 

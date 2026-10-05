@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_B_13_CSMS: TestCase = {
   id: 'TC_B_13_CSMS',
@@ -37,7 +38,7 @@ export const TC_B_13_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

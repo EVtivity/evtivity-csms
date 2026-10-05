@@ -27,7 +27,7 @@ COPY --chmod=755 packages/portal/docker-runtime-config.sh /docker-entrypoint.d/4
 VOLUME ["/tmp"]
 
 LABEL org.opencontainers.image.source="https://github.com/EVtivity/evtivity-csms-helm"
-LABEL org.opencontainers.image.license="LicenseRef-EVtivity-EULA"
+LABEL org.opencontainers.image.licenses="BUSL-1.1"
 LABEL org.opencontainers.image.vendor="EVtivity"
 
 EXPOSE 8080

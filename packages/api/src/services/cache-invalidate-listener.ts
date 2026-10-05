@@ -2,13 +2,17 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyBaseLogger } from 'fastify';
-import { getPubSub } from '../lib/pubsub.js';
-import { clearNotificationSettingsCache } from '@evtivity/lib';
-import { clearSecuritySettingsCache } from '@evtivity/database';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import { clearNotificationSettingsCache, clearStationMessageCache } from '@evtivity/lib';
+import {
+  clearSecuritySettingsCache,
+  clearStationMessageSettingsCache,
+  clearSystemSettingsCache,
+} from '@evtivity/database';
 import { clearPermissionCacheLocal } from '../middleware/rbac.js';
 import { clearSiteAccessCacheLocal } from '../lib/site-access.js';
 import { clearUserActiveCacheLocal } from '../plugins/auth.js';
-import { clearMaintenanceCheckCacheLocal } from '../lib/maintenance-check.js';
+import { clearMaintenanceCheckCacheLocal } from '@evtivity/services/maintenance-check';
 
 interface CacheInvalidateMessage {
   kind:
@@ -17,7 +21,8 @@ interface CacheInvalidateMessage {
     | 'active'
     | 'notification_settings'
     | 'security_settings'
-    | 'maintenance';
+    | 'maintenance'
+    | 'station_message';
   userId?: string;
 }
 
@@ -37,6 +42,10 @@ interface CacheInvalidateMessage {
  * from settings.ts and security-settings.ts when an operator rotates SMTP,
  * Twilio, MFA, or reCAPTCHA credentials. The settings clear functions are
  * inherently local-only (no re-publish), so the listener calls them directly.
+ *
+ * `station_message` comes from requestStationMessageRepush after a station
+ * message setting, company setting, or state template changes: the listeners
+ * here render station screens, so they drop the template and settings caches.
  */
 export async function startCacheInvalidateListener(
   logger: FastifyBaseLogger,
@@ -61,6 +70,11 @@ export async function startCacheInvalidateListener(
         return;
       case 'maintenance':
         clearMaintenanceCheckCacheLocal();
+        return;
+      case 'station_message':
+        clearStationMessageCache();
+        clearStationMessageSettingsCache();
+        clearSystemSettingsCache();
         return;
       case 'permission':
       case 'site':

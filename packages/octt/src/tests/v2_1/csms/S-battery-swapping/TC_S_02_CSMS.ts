@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_S_103_CSMS: TestCase = {
   id: 'TC_S_103_CSMS',
@@ -19,13 +20,15 @@ export const TC_S_103_CSMS: TestCase = {
       reason: 'PowerUp',
     });
     let requestBatterySwapReceived = false;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'RequestBatterySwap') {
-        requestBatterySwapReceived = true;
-        return { status: 'Accepted' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'RequestBatterySwap') {
+          requestBatterySwapReceived = true;
+          return { status: 'Accepted' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'RequestBatterySwap', {
         stationId: ctx.stationId,

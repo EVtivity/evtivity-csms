@@ -91,6 +91,15 @@ export interface SessionPaymentTabProps {
   canRefund: boolean;
   formatCents: (cents: number | null | undefined, currency: string) => string;
   timezone: string;
+  /**
+   * Reuse for another payment record (a reservation fee): the card title,
+   * the refund endpoint, the query to refresh after a refund, and whether the
+   * pre-authorization row applies. Defaults are the session's.
+   */
+  title?: string;
+  refundPath?: string;
+  invalidateKey?: readonly unknown[];
+  showPreAuth?: boolean;
 }
 
 export function SessionPaymentTab({
@@ -99,6 +108,10 @@ export function SessionPaymentTab({
   canRefund,
   formatCents,
   timezone,
+  title,
+  refundPath,
+  invalidateKey,
+  showPreAuth = true,
 }: SessionPaymentTabProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -111,11 +124,11 @@ export function SessionPaymentTab({
   const refundMutation = useMutation({
     mutationFn: (data: { amountCents?: number }) =>
       api.post<{ refundStatus?: 'succeeded' | 'pending' }>(
-        `/v1/sessions/${sessionId}/refund`,
+        refundPath ?? `/v1/sessions/${sessionId}/refund`,
         data,
       ),
     onSuccess: (result) => {
-      void queryClient.invalidateQueries({ queryKey: ['sessions'] });
+      void queryClient.invalidateQueries({ queryKey: invalidateKey ?? ['sessions'] });
       // An asynchronous provider (Adyen) confirms the refund later by webhook.
       if (result.refundStatus === 'pending') {
         toast({ title: t('sessions.refundPending'), variant: 'success' });
@@ -152,7 +165,7 @@ export function SessionPaymentTab({
     <>
       <Card>
         <CardHeader>
-          <CardTitle>{t('sessions.payment')}</CardTitle>
+          <CardTitle>{title ?? t('sessions.payment')}</CardTitle>
         </CardHeader>
         <CardContent>
           {payment == null ? (
@@ -170,9 +183,11 @@ export function SessionPaymentTab({
                   </Badge>
                 </Row>
                 <Row label={t('sessions.paymentSource')}>{payment.paymentSource}</Row>
-                <Row label={t('sessions.preAuthAmount')}>
-                  {formatCents(payment.preAuthAmountCents, payment.currency)}
-                </Row>
+                {showPreAuth && (
+                  <Row label={t('sessions.preAuthAmount')}>
+                    {formatCents(payment.preAuthAmountCents, payment.currency)}
+                  </Row>
+                )}
                 <Row label={t('sessions.capturedAmount')}>
                   {formatCents(payment.capturedAmountCents, payment.currency)}
                 </Row>

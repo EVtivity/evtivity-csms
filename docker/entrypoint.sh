@@ -9,6 +9,8 @@
 #   DB_HOST, DB_PORT (5432), DB_NAME (evtivity), DB_USER, DB_PASSWORD, DB_SSLMODE (optional)
 #   REDIS_HOST, REDIS_PORT (6379), REDIS_USER (optional), REDIS_PASSWORD (optional),
 #   REDIS_TLS (true|false, default false)
+# A rediss:// URL with a private CA also needs REDIS_TLS_CA_PEM or REDIS_TLS_CA_FILE,
+# read by the Redis client factory in @evtivity/lib (redis-client.ts).
 set -eu
 
 if [ -z "${DATABASE_URL:-}" ] && [ -n "${DB_HOST:-}" ]; then

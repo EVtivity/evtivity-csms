@@ -141,7 +141,7 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
   };
 });
 
-vi.mock('../lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn(() => ({
     publish: vi.fn().mockResolvedValue(undefined),
     subscribe: vi.fn().mockResolvedValue({ unsubscribe: vi.fn() }),
@@ -484,9 +484,9 @@ describe('Transaction Service', () => {
   describe('getSessionByTransactionId', () => {
     it('returns session when found', async () => {
       const session = { id: 'sess1', transactionId: 'tx1' };
-      setupDbResults([session]);
+      setupDbResults([{ session }]);
 
-      const result = await getSessionByTransactionId('tx1');
+      const result = await getSessionByTransactionId('CS-001', 'tx1');
 
       expect(result).toEqual(session);
     });
@@ -494,7 +494,7 @@ describe('Transaction Service', () => {
     it('returns null when not found', async () => {
       setupDbResults([]);
 
-      const result = await getSessionByTransactionId('nonexistent');
+      const result = await getSessionByTransactionId('CS-001', 'nonexistent');
 
       expect(result).toBeNull();
     });

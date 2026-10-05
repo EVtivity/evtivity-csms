@@ -18,6 +18,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { useHasPermission } from '@/lib/auth';
 import { useToast } from '@/components/ui/toast';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { getErrorMessage } from '@/lib/error-message';
@@ -44,6 +47,7 @@ interface PartnerDetail {
   status: string;
   version: string | null;
   versionUrl: string | null;
+  allowPrivateNetwork: boolean;
   roles: unknown[];
   ourRoles: unknown[];
   createdAt: string;
@@ -71,6 +75,7 @@ export function RoamingPartnerDetail(): React.JSX.Element {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [disconnectOpen, setDisconnectOpen] = useState(false);
+  const canWrite = useHasPermission('roaming:write');
 
   const { data: partner, isLoading } = useQuery({
     queryKey: ['ocpi-partners', id],
@@ -91,6 +96,18 @@ export function RoamingPartnerDetail(): React.JSX.Element {
     mutationFn: () => api.post(`/v1/ocpi/partners/${id ?? ''}/register`, {}),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['ocpi-partners'] });
+    },
+  });
+
+  const privateNetworkMutation = useMutation({
+    mutationFn: (allowPrivateNetwork: boolean) =>
+      api.patch(`/v1/ocpi/partners/${id ?? ''}`, { allowPrivateNetwork }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['ocpi-partners'] });
+      toast({ title: t('roaming.partners.privateNetworkSaved') });
+    },
+    onError: (err) => {
+      toast({ variant: 'destructive', title: getErrorMessage(err, t) });
     },
   });
 
@@ -181,6 +198,27 @@ export function RoamingPartnerDetail(): React.JSX.Element {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardContent className="space-y-1 pt-6">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="partner-allow-private-network"
+              checked={partner.allowPrivateNetwork}
+              disabled={!canWrite || privateNetworkMutation.isPending}
+              onChange={(e) => {
+                privateNetworkMutation.mutate(e.target.checked);
+              }}
+            />
+            <Label htmlFor="partner-allow-private-network">
+              {t('roaming.partners.allowPrivateNetwork')}
+            </Label>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t('roaming.partners.allowPrivateNetworkHint')}
+          </p>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

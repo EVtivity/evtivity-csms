@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase, TestContext } from '../../../../types.js';
 import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 // Helper: boot station and send initial StatusNotification
 async function bootAndStatus(ctx: TestContext) {
@@ -259,7 +260,7 @@ export const TC_E_21_CSMS: TestCase = {
           requestStopTxId = String(payload['transactionId'] ?? '');
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

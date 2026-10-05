@@ -10,6 +10,7 @@ import { CopyableId } from '@/components/copyable-id';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ReservationDetailsTab } from '@/components/reservation/ReservationDetailsTab';
+import { ReservationFeePayments } from '@/components/reservation/ReservationFeePayments';
 import { ReservationSessionTab } from '@/components/reservation/ReservationSessionTab';
 import { ReservationCommandsTab } from '@/components/reservation/ReservationCommandsTab';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
@@ -125,8 +126,9 @@ export function ReservationDetail(): React.JSX.Element {
           <TabsTrigger value="commands">{t('reservations.commands')}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="details">
+        <TabsContent value="details" className="space-y-6">
           <ReservationDetailsTab reservation={reservation} timezone={timezone} />
+          <ReservationFeePayments reservationId={reservation.id} timezone={timezone} />
         </TabsContent>
 
         {hasSession && (

@@ -84,6 +84,7 @@ import { ocpiCdrRoutes } from './routes/ocpi-cdrs.js';
 import { ocpiTariffRoutes } from './routes/ocpi-tariffs.js';
 import { pncSettingsRoutes } from './routes/pnc-settings.js';
 import { pncCertificateRoutes } from './routes/pnc-certificates.js';
+import { pncLocalRoutes } from './routes/pnc-local.js';
 import { securitySettingsRoutes } from './routes/security-settings.js';
 import { securityPublicRoutes } from './routes/security-public.js';
 import { systemRoutes } from './routes/system.js';
@@ -238,6 +239,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(ocpiTariffRoutes);
       await v1.register(pncSettingsRoutes);
       await v1.register(pncCertificateRoutes);
+      await v1.register(pncLocalRoutes);
       await v1.register(securitySettingsRoutes);
       await v1.register(securityPublicRoutes);
       await v1.register(systemRoutes);

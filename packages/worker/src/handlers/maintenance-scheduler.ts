@@ -4,10 +4,7 @@
 import { and, eq, lte, sql } from 'drizzle-orm';
 import { db, maintenanceEvents } from '@evtivity/database';
 import type { Logger } from 'pino';
-import {
-  enterMaintenance,
-  exitMaintenance,
-} from '@evtivity/api/src/services/maintenance.service.js';
+import { enterMaintenance, exitMaintenance } from '@evtivity/services/maintenance.service';
 
 const SYSTEM_ACTOR = { type: 'system' as const, label: 'maintenance-scheduler' };
 

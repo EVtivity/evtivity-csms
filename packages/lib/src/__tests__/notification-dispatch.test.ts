@@ -18,6 +18,12 @@ vi.mock('node:fs/promises', () => ({
 const mockFetch = vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
 vi.stubGlobal('fetch', mockFetch);
 
+// The connect-time DNS guard of safeFetch has its own tests (safe-fetch.test.ts).
+vi.mock('../safe-fetch.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../safe-fetch.js')>()),
+  safeFetch: (...args: unknown[]) => (globalThis.fetch as (...a: unknown[]) => unknown)(...args),
+}));
+
 // SQL mock
 const sqlCalls: Array<{ values: unknown[] }> = [];
 let sqlResults: unknown[][] = [];
@@ -106,15 +112,16 @@ describe('notification-dispatch', () => {
       expect(result['startedAt']).toContain('2026');
     });
 
-    it('formats issuedAt and dueAt the same way as startedAt', async () => {
+    it('formats issuedAt, dueAt and refundedAt the same way as startedAt', async () => {
       const { formatDateVariables } = await import('../notification-dispatch.js');
       const iso = '2026-07-05T00:00:00.000Z';
       const result = formatDateVariables(
-        { startedAt: iso, issuedAt: iso, dueAt: iso },
+        { startedAt: iso, issuedAt: iso, dueAt: iso, refundedAt: iso },
         'America/New_York',
       );
       expect(result['issuedAt']).toBe(result['startedAt']);
       expect(result['dueAt']).toBe(result['startedAt']);
+      expect(result['refundedAt']).toBe(result['startedAt']);
       expect(result['issuedAt']).not.toContain('T');
       expect(result['issuedAt']).not.toContain('Z');
     });
@@ -221,13 +228,12 @@ describe('notification-dispatch', () => {
       expect(result.subject).toBe('EN Subject');
     });
 
-    it('uses friendly subject for known event types', async () => {
+    it('uses the generic subject when no subject template exists', async () => {
       const { renderTemplate } = await import('../notification-dispatch.js');
       const result = await renderTemplate('email', 'session.Started', 'en', {
         companyName: 'TestCo',
       });
-      expect(result.subject).toContain('TestCo');
-      expect(result.subject).toContain('started');
+      expect(result.subject).toBe('TestCo - session.Started Notification');
     });
   });
 

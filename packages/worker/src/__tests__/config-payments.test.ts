@@ -40,3 +40,27 @@ describe('PAYMENTS_ALLOW_SIMULATED', () => {
     await expect(allowSimulated({ PAYMENTS_ALLOW_SIMULATED: 'yes' })).rejects.toThrow();
   });
 });
+
+describe('OCTT_OCSP_RESPONDER_URL', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  async function responderUrl(value: string | undefined): Promise<string | undefined> {
+    vi.resetModules();
+    vi.stubEnv('SETTINGS_ENCRYPTION_KEY', 'k');
+    vi.stubEnv('OCTT_OCSP_RESPONDER_URL', value);
+    const { config } = await import('../lib/config.js');
+    return config.OCTT_OCSP_RESPONDER_URL;
+  }
+
+  it('is optional, and empty (compose without a value) means unset', async () => {
+    expect(await responderUrl(undefined)).toBeUndefined();
+    expect(await responderUrl('')).toBeUndefined();
+  });
+
+  it('takes a URL and rejects anything else', async () => {
+    expect(await responderUrl('http://worker:7110/ocsp')).toBe('http://worker:7110/ocsp');
+    await expect(responderUrl('worker 7110')).rejects.toThrow();
+  });
+});

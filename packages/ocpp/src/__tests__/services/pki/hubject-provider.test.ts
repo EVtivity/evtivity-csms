@@ -179,7 +179,12 @@ describe('HubjectProvider.getContractCertificate', () => {
       .mockResolvedValueOnce(jsonResponse(true, 200, { exiResponse: 'exi-out' }));
 
     const provider = new HubjectProvider(config);
-    const result = await provider.getContractCertificate('exi-in');
+    const result = await provider.getContractCertificate({
+      stationDbId: 'sta_1',
+      iso15118SchemaVersion: 'urn:iso:15118:2:2013:MsgDef',
+      action: 'Install',
+      exiRequest: 'exi-in',
+    });
 
     const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(url).toBe('https://hubject.example.com/ccp/getSignedContractData');
@@ -199,7 +204,12 @@ describe('HubjectProvider.getContractCertificate', () => {
       .mockResolvedValueOnce(textResponse(false, 500, 'ccp down'));
 
     const provider = new HubjectProvider(config);
-    const result = await provider.getContractCertificate('exi-in');
+    const result = await provider.getContractCertificate({
+      stationDbId: 'sta_1',
+      iso15118SchemaVersion: 'urn:iso:15118:2:2013:MsgDef',
+      action: 'Install',
+      exiRequest: 'exi-in',
+    });
 
     expect(result).toEqual({ status: 'Failed', exiResponse: '' });
   });

@@ -925,6 +925,111 @@
       "when": 1791000010023,
       "tag": "0131_setting_audit_deleted",
       "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1791000011022,
+      "tag": "0132_css_reconnect_back_off_defaults",
+      "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1791000012022,
+      "tag": "0133_css_drop_factory_tx_default_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "7",
+      "when": 1791000012023,
+      "tag": "0134_ocpi_partner_allow_private_network",
+      "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "7",
+      "when": 1791000012024,
+      "tag": "0135_seed_webhook_allowed_private_hosts",
+      "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1791000012025,
+      "tag": "0136_offline_command_queue_station_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "7",
+      "when": 1791000012026,
+      "tag": "0137_invoice_paid_status_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1791000012027,
+      "tag": "0138_station_message_site_language_brand_line",
+      "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1791000012028,
+      "tag": "0139_ocpi_partner_legacy_evse_uids",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1791000012029,
+      "tag": "0140_ocpi_removed_evses",
+      "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1791000012030,
+      "tag": "0141_ocpi_cdr_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1791000012031,
+      "tag": "0142_session_end_request",
+      "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1791000012032,
+      "tag": "0143_session_transaction_unique_per_station",
+      "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1791000012033,
+      "tag": "0144_status_reported_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1791000012034,
+      "tag": "0145_simulator_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 146,
+      "version": "7",
+      "when": 1791000012035,
+      "tag": "0146_pnc_local_contract_ca",
+      "breakpoints": true
     }
   ]
 }

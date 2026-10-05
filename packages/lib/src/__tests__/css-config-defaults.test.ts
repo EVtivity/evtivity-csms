@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { buildCssConfigDefaults, type CssConfigDefaultsInput } from '../css-config-defaults.js';
+import {
+  buildCssConfigDefaults,
+  CSS_RECONNECT_SPREAD_S,
+  type CssConfigDefaultsInput,
+} from '../css-config-defaults.js';
 
 function baseInput(overrides: Partial<CssConfigDefaultsInput> = {}): CssConfigDefaultsInput {
   return {
@@ -93,6 +97,14 @@ describe('buildCssConfigDefaults', () => {
   });
 
   describe('OCPP 2.1', () => {
+    it('spreads reconnects through the factory back-off (Part 4 5.4)', () => {
+      const m = keyMap(buildCssConfigDefaults(baseInput()));
+      expect(m.get('OCPPCommCtrlr.RetryBackOffWaitMinimum')).toBe('2');
+      expect(m.get('OCPPCommCtrlr.RetryBackOffRandomRange')).toBe(String(CSS_RECONNECT_SPREAD_S));
+      expect(m.get('OCPPCommCtrlr.RetryBackOffRepeatTimes')).toBe('3');
+      expect(CSS_RECONNECT_SPREAD_S).toBe(15);
+    });
+
     it('includes the OCPP 2.1 device model keys', () => {
       const m = keyMap(buildCssConfigDefaults(baseInput()));
 

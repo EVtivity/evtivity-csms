@@ -81,6 +81,7 @@ export const DRIVER_ACCOUNT_EVENTS = [
 export const DRIVER_PAYMENT_EVENTS = [
   'payment.Complete',
   'payment.Refunded',
+  'payment.FeeRefunded',
   'payment.PreAuthFailed',
   'payment.CaptureFailed',
   'payment.MissingPaymentMethod',
@@ -471,6 +472,24 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'amountCents', description: 'Refund amount in cents' },
     { name: 'currency', description: 'Currency code' },
     { name: 'transactionId', description: 'Session ID' },
+  ],
+  'payment.FeeRefunded': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'email', description: 'Driver email address' },
+    {
+      name: 'amountFormatted',
+      description: 'Refund amount with currency, in the driver language (e.g. $5.95)',
+    },
+    { name: 'amountCents', description: 'Refund amount in cents' },
+    { name: 'currency', description: 'Currency code' },
+    { name: 'feeType', description: 'Refunded fee: cancellation or no_show' },
+    { name: 'isNoShowFee', description: 'True for a no-show fee, false for a cancellation fee' },
+    {
+      name: 'reservationId',
+      description: 'Reservation ID (empty when the reservation was deleted)',
+    },
+    { name: 'refundedAt', description: 'Refund date and time' },
   ],
   'payment.PreAuthFailed': [
     { name: 'firstName', description: 'Driver first name' },

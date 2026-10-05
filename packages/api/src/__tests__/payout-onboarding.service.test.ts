@@ -18,7 +18,7 @@ const { state, dispatchMock, writeAuditMock, findSitePayoutAccountMock } = vi.ho
 }));
 
 vi.mock('../lib/config.js', () => ({ config: { PORTAL_URL: 'https://portal.test' } }));
-vi.mock('../lib/template-dirs.js', () => ({ ALL_TEMPLATES_DIRS: ['templates'] }));
+vi.mock('@evtivity/services/template-dirs', () => ({ ALL_TEMPLATES_DIRS: ['templates'] }));
 vi.mock('@evtivity/lib', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return { ...actual, dispatchSystemNotification: dispatchMock };

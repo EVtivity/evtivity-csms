@@ -130,7 +130,7 @@ const mockSubscribe = vi
     return { unsubscribe: mockUnsubscribe };
   });
 
-vi.mock('../lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn(() => ({
     publish: mockPublish,
     subscribe: mockSubscribe,

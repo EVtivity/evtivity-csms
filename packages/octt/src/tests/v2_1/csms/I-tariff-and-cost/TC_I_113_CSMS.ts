@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase, TestContext } from '../../../../types.js';
 import { newTransactionId } from '../../../../csms-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 // Helper: boot and start energy transfer
 async function bootAndStartTransaction(ctx: TestContext) {
@@ -60,7 +61,7 @@ export const TC_I_113_CSMS: TestCase = {
           receivedTxId = String(payload['transactionId'] ?? '');
           return { status: 'TooManyElements' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -134,7 +135,7 @@ export const TC_I_114_CSMS: TestCase = {
           receivedTxId = String(payload['transactionId'] ?? '');
           return { status: 'ConditionNotSupported' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -218,7 +219,7 @@ export const TC_I_115_CSMS: TestCase = {
           tariffPayload = payload;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

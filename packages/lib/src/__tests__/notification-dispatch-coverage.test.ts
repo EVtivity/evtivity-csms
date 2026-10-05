@@ -29,6 +29,12 @@ vi.mock('../logger.js', () => ({
 const mockFetch = vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
 vi.stubGlobal('fetch', mockFetch);
 
+// The connect-time DNS guard of safeFetch has its own tests (safe-fetch.test.ts).
+vi.mock('../safe-fetch.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../safe-fetch.js')>()),
+  safeFetch: (...args: unknown[]) => (globalThis.fetch as (...a: unknown[]) => unknown)(...args),
+}));
+
 // --- SQL mock with .json (required by recordNotificationAttempt) ---
 
 interface SqlCall {
@@ -265,6 +271,36 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       const result = await sendWebhook('http://127.0.0.1/hook', 'Sub', 'Body', {});
       expect(result).toBe('blocked_private_url');
       expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('delivers to a private host in the webhook allowlist', async () => {
+      const { sendWebhook } = await import('../notification-dispatch.js');
+      mockFetch.mockResolvedValueOnce({ ok: true, status: 200, text: () => Promise.resolve('') });
+      const result = await sendWebhook('http://10.0.0.7/hook', 'Sub', 'Body', {}, ['10.0.0.7']);
+      expect(result).toBe('ok');
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://10.0.0.7/hook',
+        expect.objectContaining({ allowedPrivateHosts: ['10.0.0.7'] }),
+      );
+    });
+
+    it('still blocks a private host that is not in the allowlist', async () => {
+      const { sendWebhook } = await import('../notification-dispatch.js');
+      const result = await sendWebhook('http://10.0.0.8/hook', 'Sub', 'Body', {}, ['10.0.0.7']);
+      expect(result).toBe('blocked_private_url');
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('blocks delivery when the host resolves to a private address at connect time', async () => {
+      const { sendWebhook } = await import('../notification-dispatch.js');
+      const { BlockedDestinationError } = await import('../safe-fetch.js');
+      mockFetch.mockRejectedValueOnce(
+        new TypeError('fetch failed', {
+          cause: new BlockedDestinationError('hook.example.com', '10.0.0.7'),
+        }),
+      );
+      const result = await sendWebhook('https://hook.example.com', 'Sub', 'Body', {});
+      expect(result).toBe('blocked_private_url');
     });
 
     it('returns timeout when the request aborts', async () => {

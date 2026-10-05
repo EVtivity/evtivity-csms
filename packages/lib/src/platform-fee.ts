@@ -10,7 +10,7 @@ import type { SessionCostBreakdown } from './price-display.js';
 
 /**
  * How an amount charged is split into net and tax: the session's stored cost
- * split (charging_sessions.cost_breakdown, exact per tariff segment), or the
+ * split (charging_sessions.cost_breakdown, exact per tax rate), or the
  * one rate it was taxed at (a fraction, 0.19) for a fee or a session without
  * a stored split.
  */

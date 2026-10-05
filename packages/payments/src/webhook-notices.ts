@@ -6,6 +6,7 @@ import { chargingSessions, chargingStations, client, db, sites } from '@evtivity
 import { dispatchDriverNotification, notificationMoney } from '@evtivity/lib';
 import type { PubSubClient } from '@evtivity/lib';
 import type { PaymentLogger } from './context.js';
+import { dispatchFeeRefundNotification } from './fee-refund-notice.js';
 import type { PaymentWebhookNotice } from './webhooks.js';
 
 export interface WebhookNoticeDeps {
@@ -54,7 +55,8 @@ async function sessionRef(sessionId: string | null): Promise<SessionRef> {
  * (`ingestPaymentWebhook` returns the notices; the API webhook route and the
  * worker's delivery job call this). A capture that failed after the session
  * ended sends `payment.CaptureFailed` (the driver may already hold a receipt,
- * D-A6); a confirmed async refund sends `payment.Refunded`; a session settled
+ * D-A6); a confirmed async refund sends `payment.Refunded` (a reservation fee
+ * refund `payment.FeeRefunded`); a session settled
  * after its authorisation adjustment sends `session.PaymentReceived`. Every record
  * change refreshes the operator UI (`payment.settled` on `csms_events`).
  * Everything here is fail-open (P9): a failure is logged at warn.
@@ -99,7 +101,15 @@ export async function dispatchPaymentWebhookNotices(
           deps.pubsub ?? undefined,
         );
       }
-      if (notice.kind === 'refund_succeeded' && record.driverId != null) {
+      // A reservation fee refund has its own event (no session to name).
+      if (notice.kind === 'refund_succeeded' && record.chargeType !== 'session') {
+        await dispatchFeeRefundNotification(record, notice.amountCents, deps);
+      }
+      if (
+        notice.kind === 'refund_succeeded' &&
+        record.driverId != null &&
+        record.chargeType === 'session'
+      ) {
         await dispatchDriverNotification(
           client,
           'payment.Refunded',

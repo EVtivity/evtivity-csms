@@ -16,6 +16,7 @@ import {
   unique,
   uniqueIndex,
   check,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { createId } from '../lib/id.js';
@@ -63,6 +64,16 @@ export const ocpiPartners = pgTable(
     // when WE are the Sender (outbound registration). Encrypted at rest via
     // SETTINGS_ENCRYPTION_KEY; null for partners that registered inbound.
     partnerRegistrationTokenEnc: text('partner_registration_token_enc'),
+    // Operator-set: the partner may be reached on loopback and private
+    // addresses (private peering, local simulators). Off: every outbound OCPI
+    // request and command callback must resolve to public addresses only.
+    allowPrivateNetwork: boolean('allow_private_network').notNull().default(false),
+    // When the partner was sent REMOVED for the EVSE uids published before
+    // v0.1.32 ({siteId}-{evseNumber}). Null: still to send (partners that
+    // existed at migration 0139). New partners never saw them: default now().
+    legacyEvseUidsRemovedAt: timestamp('legacy_evse_uids_removed_at', {
+      withTimezone: true,
+    }).defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -221,6 +232,50 @@ export const ocpiRoamingSessions = pgTable(
       .on(table.chargingSessionId)
       .where(sql`charging_session_id IS NOT NULL`),
   ],
+);
+
+// An EVSE that left a location: deleted, or its station moved to another
+// site. OCPI 8.1: EVSEs are never deleted for partners; the location keeps
+// serving it with status REMOVED (GET and push) for a retention period. The
+// live `evses` table stays the only source of live EVSEs: a row here is
+// ignored while the EVSE is live at the same site again. Written by
+// `recordRemovedOcpiEvses` (lib/ocpi-removed-evses.ts) only.
+export const ocpiRemovedEvses = pgTable(
+  'ocpi_removed_evses',
+  {
+    // The OCPI uid: the internal EVSE id (no foreign key, the EVSE can be gone).
+    evseUid: text('evse_uid').notNull(),
+    siteId: text('site_id')
+      .notNull()
+      .references(() => sites.id, { onDelete: 'cascade' }),
+    stationOcppId: varchar('station_ocpp_id', { length: 255 }).notNull(),
+    evseNumber: integer('evse_number').notNull(),
+    // Connector snapshot (OCPI requires at least one connector per EVSE).
+    connectors: jsonb('connectors').notNull().default([]),
+    removedAt: timestamp('removed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.evseUid, table.siteId] }),
+    index('idx_ocpi_removed_evses_site').on(table.siteId),
+    index('idx_ocpi_removed_evses_removed_at').on(table.removedAt),
+  ],
+);
+
+// The one-time CDR backfill (one row, id 1): CDRs for completed roaming
+// sessions that ended in the 30 days before `cutoff_at` (the time migration
+// 0141 ran). The cursor makes a crash resume where it stopped; `completed_at`
+// stops it for good. Internal state, written only by the OCPI server's
+// cdr-jobs.ts.
+export const ocpiCdrBackfill = pgTable(
+  'ocpi_cdr_backfill',
+  {
+    id: integer('id').primaryKey().default(1),
+    cutoffAt: timestamp('cutoff_at', { withTimezone: true }).notNull().defaultNow(),
+    cursorEndedAt: timestamp('cursor_ended_at', { withTimezone: true }),
+    cursorSessionId: text('cursor_session_id'),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (table) => [check('ocpi_cdr_backfill_single_row', sql`${table.id} = 1`)],
 );
 
 export const ocpiCdrs = pgTable(

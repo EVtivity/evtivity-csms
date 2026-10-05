@@ -5,6 +5,8 @@ import type { IncomingMessage } from 'node:http';
 import type postgres from 'postgres';
 import { verify } from 'argon2';
 import type { Logger } from '@evtivity/lib';
+import { logConnectionEvent } from './connection-log.js';
+import { hasSimulatorMarker, reconcileSimulatorIdentity } from './simulator-identity.js';
 
 export type AuthFailure =
   | 'unknown_station'
@@ -50,8 +52,24 @@ export function rejectionFor(auth: AuthResult): AuthRejection {
       return { status: 403, message: 'Forbidden' };
     case 'unavailable':
     case undefined:
-      return { status: 503, message: 'Service Unavailable' };
+      return serviceUnavailable();
   }
+}
+
+// A refused upgrade during a reconnect wave or a database outage. Retry-After
+// (RFC 9110) tells a station that honors it when to come back; the jitter
+// spreads those retries instead of returning the whole wave at once.
+export const RETRY_AFTER_BASE_SECONDS = 10;
+export const RETRY_AFTER_JITTER_SECONDS = 10;
+
+export function serviceUnavailable(random: () => number = Math.random): AuthRejection {
+  const seconds =
+    RETRY_AFTER_BASE_SECONDS + Math.floor(random() * (RETRY_AFTER_JITTER_SECONDS + 1));
+  return {
+    status: 503,
+    message: 'Service Unavailable',
+    headers: { 'Retry-After': String(seconds) },
+  };
 }
 
 export function extractStationId(url: string | undefined): string | null {
@@ -97,11 +115,15 @@ export async function authenticateConnection(
   }
 
   // Look up station in database
+  // The paired simulator row (if any) rides along so a simulator-flagged
+  // station needs no second lookup (see simulator-identity.ts).
   const rows = await sql`
-    SELECT id, security_profile, pending_security_profile, basic_auth_password_hash, availability,
-           onboarding_status
-    FROM charging_stations
-    WHERE station_id = ${stationId}
+    SELECT cs.id, cs.security_profile, cs.pending_security_profile, cs.basic_auth_password_hash,
+           cs.availability, cs.onboarding_status, cs.is_simulator,
+           css.enabled AS css_enabled, css.marker_seen_at AS css_marker_seen_at
+    FROM charging_stations cs
+    LEFT JOIN css_stations css ON css.station_id = cs.station_id
+    WHERE cs.station_id = ${stationId}
   `;
   const station = rows[0] as
     | {
@@ -111,6 +133,9 @@ export async function authenticateConnection(
         basic_auth_password_hash: string | null;
         availability: string;
         onboarding_status: string;
+        is_simulator?: boolean | null;
+        css_enabled?: boolean | null;
+        css_marker_seen_at?: Date | null;
       }
     | undefined;
 
@@ -148,6 +173,8 @@ export async function authenticateConnection(
   // profile is no longer accepted (OCPP 2.1 A05.FR.07). Its failures are not
   // logged: until the station switches, every connection fails this check.
   const pending = station.pending_security_profile;
+  let result: AuthResult | null = null;
+  let usedProfile = station.security_profile;
   if (pending != null && pending !== station.security_profile) {
     const upgraded = await authenticateForProfile(pending, ctx, false);
     if (upgraded.authenticated) {
@@ -159,10 +186,32 @@ export async function authenticateConnection(
         remoteAddress,
         logger,
       );
-      return upgraded;
+      result = upgraded;
+      usedProfile = pending;
     }
   }
-  return authenticateForProfile(station.security_profile, ctx, true);
+  result ??= await authenticateForProfile(station.security_profile, ctx, true);
+
+  // A simulator-flagged station: tell the simulator from a real station that
+  // uses its identity. Never changes the outcome of the authentication.
+  if (result.authenticated && station.is_simulator === true) {
+    await reconcileSimulatorIdentity(
+      sql,
+      {
+        stationDbId: station.id,
+        stationId,
+        securityProfile: usedProfile,
+        markerPresent: hasSimulatorMarker(req),
+        pairing:
+          station.css_enabled == null
+            ? null
+            : { enabled: station.css_enabled, markerSeenAt: station.css_marker_seen_at ?? null },
+        remoteAddress,
+      },
+      logger,
+    );
+  }
+  return result;
 }
 
 interface ProfileAuthContext {
@@ -182,7 +231,7 @@ async function authenticateForProfile(
   logFailures: boolean,
 ): Promise<AuthResult> {
   const { req, sql, logger, stationId, station, remoteAddress, viaTls } = ctx;
-  const logEvent = logFailures ? logAuthEvent : async (): Promise<void> => {};
+  const logEvent = logFailures ? logConnectionEvent : async (): Promise<void> => {};
 
   // SP0: no authentication required
   if (securityProfile === 0) {
@@ -501,7 +550,7 @@ async function promotePendingSecurityProfile(
     return;
   }
   logger.info({ stationDbId, fromProfile, toProfile }, 'Security profile upgrade completed');
-  await logAuthEvent(
+  await logConnectionEvent(
     sql,
     stationDbId,
     'security_profile_upgraded',
@@ -509,24 +558,4 @@ async function promotePendingSecurityProfile(
     { fromProfile, toProfile },
     logger,
   );
-}
-
-async function logAuthEvent(
-  sql: postgres.Sql,
-  stationDbId: string,
-  event: string,
-  remoteAddress: string | null,
-  metadata: Record<string, unknown>,
-  logger: Logger,
-): Promise<void> {
-  try {
-    await sql`
-      INSERT INTO connection_logs (station_id, event, remote_address, metadata)
-      VALUES (${stationDbId}, ${event}, ${remoteAddress}, ${sql.json(metadata as Parameters<postgres.Sql['json']>[0])})
-    `;
-  } catch (err) {
-    // Best-effort logging; do not fail the auth flow, but surface the failure
-    // so operators notice when forensic logs go missing.
-    logger.warn({ err, stationDbId, event }, 'Failed to write connection_logs row');
-  }
 }

@@ -76,7 +76,7 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
-vi.mock('../lib/station-derived-status.js', () => ({
+vi.mock('@evtivity/services/station-derived-status', () => ({
   buildDerivedStatusSubquery: vi.fn(() => 'status'),
   buildStatusReasonSubquery: vi.fn(() => null),
 }));
@@ -165,8 +165,13 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
     deriveElectricityRatePriority: vi.fn(() => 0),
     revenueFromGrossGroups: actual.revenueFromGrossGroups,
     createLogger: actual.createLogger,
+    STATION_MESSAGE_LANGUAGES: actual.STATION_MESSAGE_LANGUAGES,
   };
 });
+
+vi.mock('@evtivity/services/station-message.service', () => ({
+  requestStationMessageRepush: vi.fn().mockResolvedValue(undefined),
+}));
 
 vi.mock('../services/site-import.service.js', () => ({
   exportSitesCsv: vi.fn().mockResolvedValue('name,address\nSite1,123 Main St\n'),
@@ -188,8 +193,8 @@ const { mockQueryRevenue } = vi.hoisted(() => ({ mockQueryRevenue: vi.fn() }));
 
 // Revenue comes from the shared definition (session-revenue.ts); its SQL is
 // covered by the integration tests.
-vi.mock('../lib/session-revenue.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../lib/session-revenue.js')>();
+vi.mock('@evtivity/services/session-revenue', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@evtivity/services/session-revenue')>();
   return {
     ...actual,
     queryRevenue: (input: unknown) => mockQueryRevenue(input),
@@ -206,6 +211,7 @@ vi.mock('../lib/site-access.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { siteRoutes } from '../routes/sites.js';
+import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -255,6 +261,7 @@ describe('Site routes - handler logic', () => {
         contactIsPublic: false,
         hoursOfOperation: null,
         metadata: null,
+        stationMessageLanguage: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         stationCount: 3,
@@ -323,6 +330,7 @@ describe('Site routes - handler logic', () => {
         contactIsPublic: false,
         hoursOfOperation: null,
         metadata: null,
+        stationMessageLanguage: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         stationCount: 5,
@@ -374,6 +382,7 @@ describe('Site routes - handler logic', () => {
         timezone: null,
         hoursOfOperation: null,
         metadata: null,
+        stationMessageLanguage: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
@@ -431,6 +440,7 @@ describe('Site routes - handler logic', () => {
         timezone: null,
         hoursOfOperation: null,
         metadata: null,
+        stationMessageLanguage: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
@@ -461,6 +471,86 @@ describe('Site routes - handler logic', () => {
 
       expect(response.statusCode).toBe(404);
       expect(response.json().code).toBe('SITE_NOT_FOUND');
+    });
+
+    it("re-renders the site's station screens when its display language changes", async () => {
+      vi.mocked(requestStationMessageRepush).mockClear();
+      const base = {
+        id: VALID_SITE_ID,
+        name: 'Site',
+        address: null,
+        city: null,
+        state: null,
+        postalCode: null,
+        country: null,
+        latitude: null,
+        longitude: null,
+        timezone: null,
+        hoursOfOperation: null,
+        metadata: null,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      };
+      setupDbResults(
+        [{ ...base, stationMessageLanguage: null }],
+        [{ ...base, stationMessageLanguage: 'de' }],
+      );
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/sites/${VALID_SITE_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { stationMessageLanguage: 'de' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().stationMessageLanguage).toBe('de');
+      expect(requestStationMessageRepush).toHaveBeenCalledWith(expect.anything(), {
+        siteId: VALID_SITE_ID,
+      });
+    });
+
+    it('does not re-render station screens when the display language is unchanged', async () => {
+      vi.mocked(requestStationMessageRepush).mockClear();
+      const row = {
+        id: VALID_SITE_ID,
+        name: 'Site',
+        address: null,
+        city: null,
+        state: null,
+        postalCode: null,
+        country: null,
+        latitude: null,
+        longitude: null,
+        timezone: null,
+        hoursOfOperation: null,
+        metadata: null,
+        stationMessageLanguage: 'de',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      };
+      setupDbResults([row], [row]);
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/sites/${VALID_SITE_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { stationMessageLanguage: 'de' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(requestStationMessageRepush).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unsupported display language', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/sites/${VALID_SITE_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { stationMessageLanguage: 'fr' },
+      });
+
+      expect(response.statusCode).toBe(400);
     });
 
     it('returns 400 for a latitude outside [-90, 90]', async () => {
@@ -496,6 +586,7 @@ describe('Site routes - handler logic', () => {
         timezone: null,
         hoursOfOperation: null,
         metadata: null,
+        stationMessageLanguage: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
@@ -623,7 +714,7 @@ describe('Site routes - handler logic', () => {
   describe('GET /v1/sites/:id/revenue-history', () => {
     it('returns daily revenue history zero-filled across the range', async () => {
       setupDbResults([{ timezone: 'UTC' }]);
-      const { aggregateRevenueRows } = await import('../lib/session-revenue.js');
+      const { aggregateRevenueRows } = await import('@evtivity/services/session-revenue');
       mockQueryRevenue.mockResolvedValueOnce(
         aggregateRevenueRows([
           { key: '2025-01-02', taxRate: '0', grossCents: 500, source: 'session', count: 10 },
@@ -733,7 +824,7 @@ describe('Site routes - handler logic', () => {
       const utilizationStats = { sessionHours: 15, portCount: 4 };
       const financialStats = { totalElectricityCostCents: 5000 };
       // Revenue: 20 sessions of 1070 at 7%, 3600 at 20%, and a 595 fee at 19%.
-      const { aggregateRevenueRows } = await import('../lib/session-revenue.js');
+      const { aggregateRevenueRows } = await import('@evtivity/services/session-revenue');
       mockQueryRevenue.mockResolvedValueOnce(
         aggregateRevenueRows([
           { key: null, taxRate: '0.07', grossCents: 1070, source: 'session', count: 20 },

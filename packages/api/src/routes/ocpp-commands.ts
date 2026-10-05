@@ -10,7 +10,7 @@ import {
   ActionRegistry16,
   type ActionName16,
 } from '@evtivity/ocpp';
-import type { Subscription } from '@evtivity/lib';
+import { awaitPubSubReply, OCPP_COMMAND_RESULTS_CHANNEL, publishOcppCommand } from '@evtivity/lib';
 import { eq, and, isNull } from 'drizzle-orm';
 import {
   db,
@@ -21,7 +21,7 @@ import {
 } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, errorResponse } from '../lib/response-schemas.js';
-import { getPubSub } from '../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { assertFirmwareSignature } from '../lib/firmware-signature.js';
@@ -86,7 +86,6 @@ import {
 } from '../lib/ocpp-zod-types-v16.js';
 
 const RESPONSE_TIMEOUT_MS = 35_000;
-const RESULTS_CHANNEL = 'ocpp_command_results';
 
 // ---------------------------------------------------------------------------
 // Shared response schemas
@@ -298,53 +297,15 @@ async function dispatchCommandRaw(
   const commandId = crypto.randomUUID();
   app.log.info({ commandId, stationId, action }, 'OCPP command requested');
 
-  let subscription: Subscription | null = null;
-
   try {
-    const result = await new Promise<CommandResult>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        if (subscription != null) {
-          void subscription.unsubscribe().catch(() => {});
-          subscription = null;
-        }
-        resolve({ commandId, error: 'No response within 35s' });
-      }, RESPONSE_TIMEOUT_MS);
-
-      void pubsub
-        .subscribe(RESULTS_CHANNEL, (rawPayload: string) => {
-          let parsed: CommandResult;
-          try {
-            parsed = JSON.parse(rawPayload) as CommandResult;
-          } catch {
-            return;
-          }
-          if (parsed.commandId !== commandId) return;
-
-          clearTimeout(timeout);
-          if (subscription != null) {
-            void subscription.unsubscribe().catch(() => {});
-            subscription = null;
-          }
-          resolve(parsed);
-        })
-        .then(async (sub) => {
-          subscription = sub;
-
-          const notification = JSON.stringify({
-            commandId,
-            stationId,
-            action,
-            payload,
-            ...(ocppVersion != null && { version: ocppVersion }),
-          });
-
-          await pubsub.publish('ocpp_commands', notification);
-        })
-        .catch((err: unknown) => {
-          clearTimeout(timeout);
-          reject(err instanceof Error ? err : new Error(String(err)));
-        });
+    const reply = await awaitPubSubReply<CommandResult>(pubsub, {
+      replyChannel: OCPP_COMMAND_RESULTS_CHANNEL,
+      commandId,
+      timeoutMs: RESPONSE_TIMEOUT_MS,
+      send: () =>
+        publishOcppCommand(pubsub, { commandId, stationId, action, payload, version: ocppVersion }),
     });
+    const result: CommandResult = reply ?? { commandId, error: 'No response within 35s' };
 
     // The CommandListener publishes { queued: true } when the station is
     // not connected to any OCPP pod -- the command is held in
@@ -400,10 +361,6 @@ async function dispatchCommandRaw(
       body: { status: 'accepted', stationId, action, response: result.response },
     };
   } catch (err: unknown) {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- subscription is set asynchronously in .then()
-    if (subscription != null) {
-      void (subscription as Subscription).unsubscribe().catch(() => {});
-    }
     app.log.error({ commandId, error: err }, 'Command listener error');
     return {
       code: 500,

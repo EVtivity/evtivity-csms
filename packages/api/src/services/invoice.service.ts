@@ -29,8 +29,8 @@ import type {
   TaxBreakdownLine,
 } from '@evtivity/lib';
 import { getCompanyCurrency } from '@evtivity/database';
-import { storedCostBreakdown } from '../lib/session-tax.js';
-import { inCompanyCurrency, sessionCurrencySql } from '../lib/company-currency.js';
+import { storedCostBreakdown } from '@evtivity/lib';
+import { inCompanyCurrency, sessionCurrencySql } from '@evtivity/services/company-currency';
 
 const logger = createLogger('invoice-service');
 
@@ -104,7 +104,7 @@ interface LineDraft {
   taxCents: number;
 }
 
-interface SessionForInvoice {
+interface SessionForInvoice extends SessionPayment {
   id: string;
   driverId: string | null;
   energyDeliveredWh: string | null;
@@ -122,6 +122,51 @@ const sessionColumns = {
   tariffTaxRate: chargingSessions.tariffTaxRate,
   costBreakdown: chargingSessions.costBreakdown,
 };
+
+/** The session's payment record (one per session), left-joined on session_id. */
+const sessionPaymentColumns = {
+  paymentStatus: paymentRecords.status,
+  paymentCapturedCents: paymentRecords.capturedAmountCents,
+};
+
+/**
+ * Payment states in which the charge was collected. A later refund does not
+ * reopen it: the driver paid, the refund is its own record.
+ */
+const COLLECTED_PAYMENT_STATUSES: ReadonlySet<string> = new Set([
+  'captured',
+  'partially_refunded',
+  'refunded',
+]);
+
+export interface SessionPayment {
+  finalCostCents: number;
+  paymentStatus?: string | null;
+  paymentCapturedCents?: number | null;
+}
+
+/**
+ * Whether the driver already paid what the session cost: it cost nothing, or
+ * its payment record was captured for at least the final cost. A session
+ * without a payment record (billed by invoice), with a failed or pending
+ * payment, or with a shortfall (captured less than the final cost) is not.
+ */
+export function isSessionCollected(session: SessionPayment): boolean {
+  if (session.finalCostCents === 0) return true;
+  return (
+    session.paymentStatus != null &&
+    COLLECTED_PAYMENT_STATUSES.has(session.paymentStatus) &&
+    (session.paymentCapturedCents ?? 0) >= session.finalCostCents
+  );
+}
+
+/**
+ * Status of a new invoice: `paid` when every session on it was collected
+ * (reservation fee lines are captured charges by selection), else `issued`.
+ */
+export function invoiceStatusFor(sessions: SessionPayment[]): 'paid' | 'issued' {
+  return sessions.every(isSessionCollected) ? 'paid' : 'issued';
+}
 
 function snapshotTaxRate(session: SessionForInvoice): number {
   return session.tariffTaxRate != null ? Number(session.tariffTaxRate) : 0;
@@ -281,6 +326,7 @@ async function insertInvoice(
   currency: string,
   lines: LineDraft[],
   chargedCents: number,
+  status: 'paid' | 'issued',
 ): Promise<InvoiceWithLineItems> {
   const totals = taxTotals(lines);
   if (totals.grossCents !== chargedCents) {
@@ -300,7 +346,7 @@ async function insertInvoice(
       .values({
         invoiceNumber,
         driverId,
-        status: 'issued',
+        status,
         issuedAt: now,
         dueAt,
         currency,
@@ -339,11 +385,13 @@ export async function createSessionInvoice(sessionId: string): Promise<InvoiceWi
   const [row] = await db
     .select({
       ...sessionColumns,
+      ...sessionPaymentColumns,
       finalCostCents: chargingSessions.finalCostCents,
       currency: sessionCurrencySql(),
       status: chargingSessions.status,
     })
     .from(chargingSessions)
+    .leftJoin(paymentRecords, eq(paymentRecords.sessionId, chargingSessions.id))
     .where(eq(chargingSessions.id, sessionId));
 
   if (row == null) {
@@ -376,7 +424,13 @@ export async function createSessionInvoice(sessionId: string): Promise<InvoiceWi
 
   const session: SessionForInvoice = { ...row, finalCostCents: row.finalCostCents };
   const lines = singleSessionLines(session);
-  return insertInvoice(session.driverId, row.currency, lines, session.finalCostCents);
+  return insertInvoice(
+    session.driverId,
+    row.currency,
+    lines,
+    session.finalCostCents,
+    invoiceStatusFor([session]),
+  );
 }
 
 export async function createAggregatedInvoice(
@@ -387,9 +441,14 @@ export async function createAggregatedInvoice(
   // Sessions billed in another currency stay uninvoiced here; they can still be invoiced one by one.
   const currency = await getCompanyCurrency();
   const rows = await db
-    .select({ ...sessionColumns, finalCostCents: chargingSessions.finalCostCents })
+    .select({
+      ...sessionColumns,
+      ...sessionPaymentColumns,
+      finalCostCents: chargingSessions.finalCostCents,
+    })
     .from(chargingSessions)
     .leftJoin(invoiceLineItems, eq(chargingSessions.id, invoiceLineItems.sessionId))
+    .leftJoin(paymentRecords, eq(paymentRecords.sessionId, chargingSessions.id))
     .where(
       and(
         eq(chargingSessions.driverId, driverId),
@@ -441,9 +500,11 @@ export async function createAggregatedInvoice(
   }
 
   const lines: LineDraft[] = [];
+  const sessions: SessionForInvoice[] = [];
   let chargedCents = 0;
   for (const row of rows) {
     const session: SessionForInvoice = { ...row, finalCostCents: row.finalCostCents ?? 0 };
+    sessions.push(session);
     chargedCents += session.finalCostCents;
     lines.push(...sessionSummaryLines(session, sessionCostBreakdown(session).taxLines));
   }
@@ -453,7 +514,7 @@ export async function createAggregatedInvoice(
     lines.push(feeLine(fee.id, fee.chargeType, gross, Number(fee.taxRate ?? 0), fee.createdAt));
   }
 
-  return insertInvoice(driverId, currency, lines, chargedCents);
+  return insertInvoice(driverId, currency, lines, chargedCents, invoiceStatusFor(sessions));
 }
 
 export async function getInvoice(invoiceId: string): Promise<InvoiceDetail | null> {

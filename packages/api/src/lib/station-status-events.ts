@@ -3,7 +3,7 @@
 
 import type { FastifyBaseLogger } from 'fastify';
 import { isRoamingEnabled } from '@evtivity/database';
-import { getPubSub } from './pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 // Tell the dashboards (station.status on csms_events) and roaming partners
 // (location push on ocpi_push, when roaming is enabled and the station has a

@@ -18,10 +18,10 @@ import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import { paginatedResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
-import { sendOcppCommandAndWait } from '../lib/ocpp-command.js';
-import { applyReservationCancellation } from '../lib/reservation-cancel.js';
+import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
+import { applyReservationCancellation } from '@evtivity/services/reservation-cancel';
 import { assertReservationsAllowed } from '../lib/reservation-eligibility.js';
-import { assertNoMaintenanceConflict } from '../lib/maintenance-check.js';
+import { assertNoMaintenanceConflict } from '@evtivity/services/maintenance-check';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 

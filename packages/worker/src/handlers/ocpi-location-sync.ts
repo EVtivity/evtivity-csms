@@ -4,7 +4,7 @@
 import { eq } from 'drizzle-orm';
 import { db, ocpiPartners, isRoamingEnabled } from '@evtivity/database';
 import type { Logger } from '@evtivity/lib';
-import { getPubSub } from '@evtivity/api/src/lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 // Twice-daily reconciliation: refresh the cached partner location catalog so the
 // portal/mobile roaming search keeps discovering out-of-network stations even

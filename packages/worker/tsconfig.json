@@ -19,6 +19,9 @@
     },
     {
       "path": "../payments"
+    },
+    {
+      "path": "../services"
     }
   ],
   "include": ["src"]

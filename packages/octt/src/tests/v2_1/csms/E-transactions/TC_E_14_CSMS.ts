@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase, TestContext } from '../../../../types.js';
 import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 // Helper: boot station and send initial StatusNotification
 async function bootAndStatus(ctx: TestContext) {
@@ -72,7 +73,7 @@ export const TC_E_29_CSMS: TestCase = {
           requestedTxId = String(payload['transactionId'] ?? '');
           return { ongoingIndicator: true, messagesInQueue: true };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -168,7 +169,7 @@ export const TC_E_30_CSMS: TestCase = {
           requestedTxId = String(payload['transactionId'] ?? '');
           return { ongoingIndicator: true, messagesInQueue: false };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -242,13 +243,15 @@ export const TC_E_31_CSMS: TestCase = {
     // Set up handler for GetTransactionStatus
     let receivedGetTxStatus = false;
 
-    ctx.client.setIncomingCallHandler(async (_messageId: string, action: string) => {
-      if (action === 'GetTransactionStatus') {
-        receivedGetTxStatus = true;
-        return { ongoingIndicator: false, messagesInQueue: true };
-      }
-      return { status: 'NotSupported' };
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'GetTransactionStatus') {
+          receivedGetTxStatus = true;
+          return { ongoingIndicator: false, messagesInQueue: true };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
 
     // Step 3: StatusNotification Available (after reconnect)
     await ctx.client.sendCall('StatusNotification', {
@@ -376,12 +379,12 @@ export const TC_E_33_CSMS: TestCase = {
     let receivedGetTxStatus = false;
 
     ctx.client.setIncomingCallHandler(
-      async (_messageId: string, action: string, _payload: Record<string, unknown>) => {
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'GetTransactionStatus') {
           receivedGetTxStatus = true;
           return { messagesInQueue: true };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -472,7 +475,7 @@ export const TC_E_34_CSMS: TestCase = {
           transactionIdOmitted = payload['transactionId'] == null;
           return { messagesInQueue: false };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

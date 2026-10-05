@@ -14,13 +14,16 @@ vi.mock('@evtivity/database', () => ({
 }));
 
 const mockPublish = vi.fn().mockResolvedValue(undefined);
-vi.mock('@evtivity/api/src/lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: () => ({ publish: mockPublish }),
 }));
 
-vi.mock('node:crypto', () => ({
-  randomUUID: () => 'fixed-uuid',
-}));
+// publishOcppCommand (@evtivity/lib) draws the command id from node:crypto.
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>();
+  const randomUUID = () => 'fixed-uuid' as const;
+  return { ...actual, randomUUID, default: { ...actual, randomUUID } };
+});
 
 const log = {
   info: vi.fn(),

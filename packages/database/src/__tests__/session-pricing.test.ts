@@ -22,6 +22,7 @@ const {
   openSegmentTariffId,
   switchTariffSegment,
   zeroCostBreakdown,
+  faultUnbilledSession,
 } = await import('../lib/session-pricing.js');
 
 interface Call {
@@ -333,6 +334,47 @@ describe('cost writes', () => {
     await storeFinalCost(sql, 'ses_1', breakdown);
     expect(calls[0]?.text).toContain('final_cost_cents = ?');
     expect(calls[0]?.text).toContain('cost_breakdown = ?');
+  });
+
+  it('faults an active session unbilled: cost, net, and tax 0 with a zero breakdown', async () => {
+    const active = makeSql([['UPDATE charging_sessions', [{ id: 'ses_1' }]]]);
+    const endedAt = new Date('2026-06-04T01:00:00Z');
+    expect(
+      await faultUnbilledSession(active.sql, {
+        sessionId: 'ses_1',
+        reason: 'StaleSession',
+        endedAt,
+      }),
+    ).toBe(true);
+    const call = active.calls[0];
+    expect(call?.text).toContain("SET status = 'faulted'");
+    for (const column of [
+      'final_cost_cents = 0',
+      'current_cost_cents = 0',
+      'net_cents = 0',
+      'tax_cents = 0',
+    ]) {
+      expect(call?.text).toContain(column);
+    }
+    expect(call?.text).toContain("to_jsonb(COALESCE(tax_basis, 'net'))");
+    expect(call?.text).toContain("WHERE id = ? AND status = 'active'");
+    expect(call?.values).toEqual([
+      'StaleSession',
+      '2026-06-04T01:00:00.000Z',
+      { json: zeroCostBreakdown('net') },
+      'ses_1',
+    ]);
+
+    // A session that is no longer active is left alone (P5).
+    const ended = makeSql();
+    expect(
+      await faultUnbilledSession(ended.sql, {
+        sessionId: 'ses_1',
+        reason: 'StaleSession',
+        endedAt: '2026-06-04T01:00:00Z',
+      }),
+    ).toBe(false);
+    expect(ended.calls[0]?.values[1]).toBe('2026-06-04T01:00:00Z');
   });
 
   it('zeroCostBreakdown is an empty breakdown in the basis', () => {

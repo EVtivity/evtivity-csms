@@ -8,7 +8,7 @@ import {
   chargingProfilePushStations,
   chargingProfiles,
 } from '@evtivity/database';
-import { sendOcppCommandAndWait } from './ocpp-command.js';
+import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 
 const CONCURRENCY_LIMIT = 10;
 

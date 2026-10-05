@@ -32,7 +32,7 @@ interface SiteRow {
   updatedAt: Date;
 }
 
-interface EvseRow {
+export interface EvseRow {
   id: string;
   /** Internal DB id of the owning station. Used by the OCPI transformer to
    *  apply per-station maintenance masking. */
@@ -46,6 +46,14 @@ interface EvseRow {
    *  station-reported Unavailable or Faulted). Masks the EVSE as INOPERATIVE
    *  the same way maintenance does. */
   stationLevelUnavailable: boolean;
+  /** True when the EVSE left the location: its station was deleted (soft
+   *  delete, onboarding status `blocked`), or the EVSE is a removed EVSE of
+   *  `ocpi_removed_evses` (deleted, or its station moved to another site).
+   *  OCPI 8.1: a removed EVSE is reported REMOVED. */
+  removed?: boolean;
+  /** OCPI tariff ids for the connectors of this EVSE, for the partner the
+   *  location is rendered for (`connectorTariffIds`). Omitted when none. */
+  tariffIds?: string[];
   connectors: ConnectorRow[];
 }
 
@@ -59,13 +67,15 @@ interface ConnectorRow {
   updatedAt: Date;
 }
 
-interface LocationTransformInput {
+export interface LocationTransformInput {
   site: SiteRow;
   evses: EvseRow[];
   ocpiLocationId: string;
   countryCode: string;
   partyId: string;
-  tariffIds?: string[];
+  /** Report every EVSE as REMOVED: the location is unpublished for the
+   *  partner it is rendered for (OCPI 8.1, there is no DELETE). */
+  allRemoved?: boolean;
   /** Maintenance coverage for this location. When `allAffected` is true every
    *  EVSE in the location reports INOPERATIVE regardless of its connector
    *  status. When `allAffected` is false, only stations whose internal DB id
@@ -185,22 +195,23 @@ function deriveEvseStatus(connectors: ConnectorRow[]): OcpiEVSEStatus {
   return 'UNKNOWN';
 }
 
+function evseStatus(evse: EvseRow, underMaintenance: boolean, removed: boolean): OcpiEVSEStatus {
+  if (removed || evse.removed === true) return 'REMOVED';
+  if (underMaintenance || evse.stationLevelUnavailable) return 'INOPERATIVE';
+  return deriveEvseStatus(evse.connectors);
+}
+
 function transformEvse(
   evse: EvseRow,
   version: OcpiVersion,
-  tariffIds?: string[],
-  underMaintenance?: boolean,
+  underMaintenance: boolean,
+  removed: boolean,
 ): OcpiEVSE {
-  const status: OcpiEVSEStatus =
-    underMaintenance === true || evse.stationLevelUnavailable
-      ? 'INOPERATIVE'
-      : deriveEvseStatus(evse.connectors);
-
   return {
     uid: ocpiEvseUid(evse),
     evse_id: ocpiEvseId(evse.stationOcppId, evse.evseId),
-    status,
-    connectors: evse.connectors.map((c) => transformConnector(c, version, tariffIds)),
+    status: evseStatus(evse, underMaintenance, removed),
+    connectors: evse.connectors.map((c) => transformConnector(c, version, evse.tariffIds)),
     capabilities: ['REMOTE_START_STOP_CAPABLE', 'RFID_READER'],
     last_updated: evse.updatedAt.toISOString(),
   };
@@ -219,7 +230,7 @@ export function transformLocation(
   input: LocationTransformInput,
   version: OcpiVersion,
 ): OcpiLocation {
-  const { site, evses, ocpiLocationId, countryCode, partyId, tariffIds } = input;
+  const { site, evses, ocpiLocationId, countryCode, partyId } = input;
 
   // OCPI Location.coordinates is required. Callers (push.service,
   // cpo/locations routes) gate on non-null coordinates before reaching here so
@@ -243,7 +254,12 @@ export function transformLocation(
     },
     time_zone: site.timezone,
     evses: evses.map((e) =>
-      transformEvse(e, version, tariffIds, isEvseUnderMaintenance(e, input.maintenance)),
+      transformEvse(
+        e,
+        version,
+        isEvseUnderMaintenance(e, input.maintenance),
+        input.allRemoved === true,
+      ),
     ),
     last_updated: site.updatedAt.toISOString(),
   };
@@ -275,10 +291,9 @@ export function transformLocation(
 export function transformEvseStandalone(
   evse: EvseRow,
   version: OcpiVersion,
-  tariffIds?: string[],
-  underMaintenance?: boolean,
+  underMaintenance = false,
 ): OcpiEVSE {
-  return transformEvse(evse, version, tariffIds, underMaintenance);
+  return transformEvse(evse, version, underMaintenance, false);
 }
 
 export function transformConnectorStandalone(

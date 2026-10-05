@@ -54,7 +54,7 @@ vi.mock('drizzle-orm', () => ({
 
 const mockEnter = vi.fn().mockResolvedValue(undefined);
 const mockExit = vi.fn().mockResolvedValue(undefined);
-vi.mock('@evtivity/api/src/services/maintenance.service.js', () => ({
+vi.mock('@evtivity/services/maintenance.service', () => ({
   enterMaintenance: (...args: unknown[]) => mockEnter(...args),
   exitMaintenance: (...args: unknown[]) => mockExit(...args),
 }));

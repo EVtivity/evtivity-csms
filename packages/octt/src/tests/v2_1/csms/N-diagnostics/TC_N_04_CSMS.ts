@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_N_08_CSMS: TestCase = {
   id: 'TC_N_08_CSMS',
@@ -18,24 +19,26 @@ export const TC_N_08_CSMS: TestCase = {
       reason: 'PowerUp',
     });
     let received = false;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'SetVariableMonitoring') {
-        received = true;
-        return {
-          setMonitoringResult: [
-            {
-              id: 1,
-              status: 'Accepted',
-              type: 'Delta',
-              severity: 8,
-              component: { name: 'EVSE', evse: { id: 1 } },
-              variable: { name: 'AvailabilityState' },
-            },
-          ],
-        };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'SetVariableMonitoring') {
+          received = true;
+          return {
+            setMonitoringResult: [
+              {
+                id: 1,
+                status: 'Accepted',
+                type: 'Delta',
+                severity: 8,
+                component: { name: 'EVSE', evse: { id: 1 } },
+                variable: { name: 'AvailabilityState' },
+              },
+            ],
+          };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'SetVariableMonitoring', {
         stationId: ctx.stationId,
@@ -102,7 +105,7 @@ export const TC_N_09_CSMS: TestCase = {
             ),
           };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

@@ -9,6 +9,7 @@ import {
   tryConnect,
   waitForOnline,
 } from '../../../security-test-helpers.js';
+import { defaultReply } from '../../../default-replies.js';
 
 const INITIAL_PASSWORD = newTestPassword(18);
 
@@ -47,7 +48,7 @@ export const TC_073_CSMS: TestCase = {
         }
         return Promise.resolve({ status: 'Accepted' });
       }
-      return Promise.resolve({ status: 'NotSupported' });
+      return defaultReply('ocpp1.6', action, payload);
     });
 
     // Manual action: update the Basic Auth password on the Central System.

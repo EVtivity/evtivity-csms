@@ -36,7 +36,7 @@ function status(overrides: Record<string, unknown>): Record<string, unknown> {
     energyDeliveredWh: 54,
     currentCostCents: 55,
     finalCostCents: null,
-    tariffTaxRate: '0.0825',
+    taxCents: 4,
     currency: 'USD',
     startedAt: new Date().toISOString(),
     endedAt: null,

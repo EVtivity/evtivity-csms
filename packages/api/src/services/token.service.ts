@@ -12,7 +12,7 @@ import {
   writeAudit,
 } from '@evtivity/database';
 import { dispatchDriverNotification, createLogger, csvEscape } from '@evtivity/lib';
-import { getPubSub } from '../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import type { PaginationParams, PaginatedResponse } from '../lib/pagination.js';
 
 const logger = createLogger('token-service');

@@ -103,14 +103,15 @@ vi.mock('@evtivity/database', () => ({
   cssStations: { id: 'id', stationId: 'stationId', tableName: 'cssStations' },
   cssEvses: { tableName: 'cssEvses' },
   cssConfigVariables: { tableName: 'cssConfigVariables' },
-  evses: { id: 'id', stationId: 'stationId', evseId: 'evseId', tableName: 'evses' },
+  evses: { id: 'id', stationId: 'evses.stationId', evseId: 'evseId', tableName: 'evses' },
   connectors: { evseId: 'evseId', tableName: 'connectors' },
-  chargingStations: { id: 'id', tableName: 'chargingStations' },
+  chargingStations: { id: 'cs.id', stationId: 'cs.stationId', tableName: 'chargingStations' },
   vendors: { id: 'id', name: 'name', tableName: 'vendors' },
 }));
 
+const eqMock = vi.hoisted(() => vi.fn((..._args: unknown[]) => ({})));
 vi.mock('drizzle-orm', () => ({
-  eq: vi.fn(() => ({})),
+  eq: eqMock,
 }));
 
 vi.mock('@evtivity/lib', () => ({
@@ -188,6 +189,28 @@ describe('enableCssPair', () => {
       expect.objectContaining({ vendorName: 'Acme', model: 'M1', targetUrl: 'ws://server' }),
     );
     expect(findInsert('cssConfigVariables')).toBeDefined();
+  });
+
+  it('looks the parent station up by its OCPP identity and its EVSEs by its id', async () => {
+    h.state.selectResults = [
+      [],
+      [
+        {
+          id: 'sta_parent',
+          model: 'M1',
+          serialNumber: 'SN1',
+          firmwareVersion: '2.0',
+          vendorId: null,
+        },
+      ],
+      [{ evseId: 1, connectorId: 1, connectorType: 'CCS2', maxPowerKw: '50' }],
+    ];
+
+    await enableCssPair(baseOpts);
+
+    expect(eqMock).toHaveBeenCalledWith('cs.stationId', 'CS-1');
+    expect(eqMock).toHaveBeenCalledWith('evses.stationId', 'sta_parent');
+    expect(eqMock).not.toHaveBeenCalledWith('cs.id', 'CS-1');
   });
 
   it('picks the TLS url when securityProfile >= 2 and vendorId is null', async () => {

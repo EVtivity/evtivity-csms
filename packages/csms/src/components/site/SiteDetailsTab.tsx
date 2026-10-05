@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { TabsContent } from '@/components/ui/tabs';
 import { Select } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { LANGUAGES } from '@/components/ui/language-select';
 import { GoogleMapPicker } from '@/components/GoogleMapPicker';
 import { HoursOfOperationField } from '@/components/site/HoursOfOperationField';
 import { api } from '@/lib/api';
@@ -41,6 +42,7 @@ interface Site {
   freeVendTemplateId21: string | null;
   freeVendTemplateId16: string | null;
   carbonRegionCode: string | null;
+  stationMessageLanguage: string | null;
   stationCount: number;
   createdAt: string;
   updatedAt: string;
@@ -97,6 +99,14 @@ export function SiteDetailsTab({
   const carbonRegionMutation = useMutation({
     mutationFn: (regionCode: string | null) =>
       api.put(`/v1/sites/${siteId}/carbon-region`, { regionCode }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sites'] });
+    },
+  });
+
+  const stationMessageLanguageMutation = useMutation({
+    mutationFn: (language: string | null) =>
+      api.patch<Site>(`/v1/sites/${siteId}`, { stationMessageLanguage: language }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['sites'] });
     },
@@ -516,6 +526,33 @@ export function SiteDetailsTab({
                   ) : null;
                 })()}
             </div>
+          </CardContent>
+        </Card>
+      )}
+      {!editing && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('sites.stationMessageLanguage')}</CardTitle>
+            <CardDescription>{t('sites.stationMessageLanguageDescription')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Select
+              aria-label={t('sites.stationMessageLanguage')}
+              value={site.stationMessageLanguage ?? ''}
+              onChange={(e) => {
+                const val = e.target.value;
+                stationMessageLanguageMutation.mutate(val === '' ? null : val);
+              }}
+              disabled={stationMessageLanguageMutation.isPending}
+              className="h-9 max-w-sm"
+            >
+              <option value="">{t('sites.stationMessageLanguageDefault')}</option>
+              {LANGUAGES.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.label}
+                </option>
+              ))}
+            </Select>
           </CardContent>
         </Card>
       )}

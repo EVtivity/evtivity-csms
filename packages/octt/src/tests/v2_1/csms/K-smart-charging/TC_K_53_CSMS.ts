@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 /**
  * TC_K_53_CSMS: Charging with load leveling based on High Level Communication - Success
@@ -75,12 +76,12 @@ export const TC_K_53_CSMS: TestCase = {
     // Step 2: CSMS must NOT send SetChargingProfileRequest (wait and verify absence)
     let receivedSetProfile = false;
     ctx.client.setIncomingCallHandler(
-      async (_messageId: string, action: string, _payload: Record<string, unknown>) => {
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'SetChargingProfile') {
           receivedSetProfile = true;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -170,12 +171,12 @@ export const TC_K_55_CSMS: TestCase = {
     // Step 3-4: Wait for SetChargingProfile
     let profileCount = 0;
     ctx.client.setIncomingCallHandler(
-      async (_messageId: string, action: string, _payload: Record<string, unknown>) => {
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'SetChargingProfile') {
           profileCount++;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

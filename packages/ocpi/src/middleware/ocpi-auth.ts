@@ -12,6 +12,8 @@ export interface OcpiPartnerInfo {
   partnerName: string | null;
   countryCode: string | null;
   partyId: string | null;
+  /** ocpi_partners.allow_private_network; false for a registration token. */
+  allowPrivateNetwork: boolean;
   tokenId: number;
 }
 
@@ -74,6 +76,7 @@ async function verifyToken(
       partnerName: null,
       countryCode: null,
       partyId: null,
+      allowPrivateNetwork: false,
       tokenId: matchedCandidate.tokenId,
     };
   }
@@ -83,6 +86,7 @@ async function verifyToken(
       name: ocpiPartners.name,
       countryCode: ocpiPartners.countryCode,
       partyId: ocpiPartners.partyId,
+      allowPrivateNetwork: ocpiPartners.allowPrivateNetwork,
     })
     .from(ocpiPartners)
     .where(eq(ocpiPartners.id, matchedCandidate.partnerId))
@@ -95,6 +99,7 @@ async function verifyToken(
     partnerName: partner.name,
     countryCode: partner.countryCode,
     partyId: partner.partyId,
+    allowPrivateNetwork: partner.allowPrivateNetwork,
     tokenId: matchedCandidate.tokenId,
   };
 }

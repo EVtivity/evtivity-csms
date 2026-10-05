@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { TestCase, StepResult } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_C_39_CSMS: TestCase = {
   id: 'TC_C_39_CSMS',
@@ -32,12 +33,12 @@ export const TC_C_39_CSMS: TestCase = {
     // Step 2: The CSMS sends a ClearCacheRequest - station responds Rejected
     // Set up handler for incoming ClearCache from CSMS
     let clearCacheReceived = false;
-    ctx.client.setIncomingCallHandler(async (_messageId, action, _payload) => {
+    ctx.client.setIncomingCallHandler(async (_messageId, action, payload) => {
       if (action === 'ClearCache') {
         clearCacheReceived = true;
         return { status: 'Rejected' };
       }
-      return { status: 'NotSupported' };
+      return defaultReply('ocpp2.1', action, payload);
     });
 
     // Wait briefly for the CSMS to potentially send ClearCache

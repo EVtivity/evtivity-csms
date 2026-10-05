@@ -2,8 +2,9 @@
 
 import * as esbuild from 'esbuild';
 import { resolve, dirname } from 'path';
+import { readFileSync } from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { existsSync } from 'fs';
+import { statSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
@@ -38,11 +39,37 @@ const WORKSPACE_PACKAGES = {
   '@evtivity/lib': resolve(root, 'packages/lib'),
   '@evtivity/database': resolve(root, 'packages/database'),
   '@evtivity/payments': resolve(root, 'packages/payments'),
+  '@evtivity/services': resolve(root, 'packages/services'),
   '@evtivity/ocpp': resolve(root, 'packages/ocpp'),
-  '@evtivity/api': resolve(root, 'packages/api'),
   '@evtivity/css': resolve(root, 'packages/css'),
   '@evtivity/octt': resolve(root, 'packages/octt'),
   '@evtivity/worker': resolve(root, 'packages/worker'),
+  '@evtivity/v2g-exi': resolve(root, 'packages/v2g-exi'),
+};
+
+// The ISO 15118 EXI codec reads its WebAssembly module from disk in
+// development. In the bundles the module is embedded (binary loader), so the
+// service images need no file next to the bundle.
+const WASM_BYTES_MODULE = resolve(root, 'packages/v2g-exi/src/wasm-bytes.ts');
+
+export const embedWasmPlugin = {
+  name: 'embed-v2g-exi-wasm',
+  setup(build) {
+    build.onLoad({ filter: /wasm-bytes\.ts$/ }, (args) => {
+      if (args.path !== WASM_BYTES_MODULE) return undefined;
+      // Fail the build early when the committed module is missing.
+      readFileSync(resolve(root, 'packages/v2g-exi/wasm/v2g_exi.wasm'));
+      return {
+        contents:
+          "import wasm from '../wasm/v2g_exi.wasm';\n" +
+          'export function getWasmBytes(): Uint8Array<ArrayBuffer> {\n' +
+          '  return new Uint8Array(wasm);\n' +
+          '}\n',
+        loader: 'ts',
+        resolveDir: dirname(args.path),
+      };
+    });
+  },
 };
 
 const workspacePlugin = {
@@ -63,7 +90,7 @@ const workspacePlugin = {
             resolve(pkgDir, 'src', `${subpath}.ts`),
           ];
           for (const c of candidates) {
-            if (existsSync(c)) return { path: c };
+            if (statSync(c, { throwIfNoEntry: false })?.isFile() === true) return { path: c };
           }
           return { path: candidates[0] };
         }
@@ -98,7 +125,8 @@ async function main() {
       minify: true,
       treeShaking: true,
       external: EXTERNAL,
-      plugins: [workspacePlugin],
+      plugins: [workspacePlugin, embedWasmPlugin],
+      loader: { '.wasm': 'binary' },
       banner: { js: BANNER },
     });
 

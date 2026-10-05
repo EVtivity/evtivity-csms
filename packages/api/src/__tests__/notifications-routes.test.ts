@@ -118,6 +118,10 @@ vi.mock('nodemailer', () => ({
   },
 }));
 
+const { mockLoadSubjectTemplate } = vi.hoisted(() => ({
+  mockLoadSubjectTemplate: vi.fn(),
+}));
+
 vi.mock('@evtivity/lib', async () => {
   const actual = await vi.importActual<typeof import('@evtivity/lib')>('@evtivity/lib');
   return {
@@ -129,6 +133,7 @@ vi.mock('@evtivity/lib', async () => {
     notificationMoney: actual.notificationMoney,
     notificationUnitPrice: actual.notificationUnitPrice,
     notificationTaxRate: actual.notificationTaxRate,
+    loadSubjectTemplate: mockLoadSubjectTemplate,
     decryptString: vi.fn().mockReturnValue('decrypted'),
     wrapEmailHtml: vi.fn(
       (html: string, _company: string, _wrapper: string | null, _vars: unknown) =>
@@ -456,6 +461,50 @@ describe('Notification routes', () => {
     const body = JSON.parse(response.body);
     expect(body.isCustomized).toBe(false);
     expect(body.eventType).toBe('station.Connected');
+  });
+
+  it('GET /v1/notification-templates returns the subject file in the requested language', async () => {
+    setupDbResults([]);
+    mockLoadSubjectTemplate.mockResolvedValueOnce('{{{companyName}}} - 결제 확인');
+    const response = await app.inject({
+      method: 'GET',
+      url: '/notification-templates?eventType=payment.Complete&channel=email&language=ko',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).subject).toBe('{{{companyName}}} - 결제 확인');
+    const [eventType, language, dirs] = mockLoadSubjectTemplate.mock.calls.at(-1) as [
+      string,
+      string,
+      string[],
+    ];
+    expect(eventType).toBe('payment.Complete');
+    expect(language).toBe('ko');
+    expect(dirs).toHaveLength(2);
+  });
+
+  it('GET /v1/notification-templates never looks up a subject for an unsafe event type', async () => {
+    setupDbResults([]);
+    mockLoadSubjectTemplate.mockClear();
+    const response = await app.inject({
+      method: 'GET',
+      url: '/notification-templates?eventType=..%2F..%2Fetc&channel=email&language=en',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(mockLoadSubjectTemplate).not.toHaveBeenCalled();
+    expect(JSON.parse(response.body).subject).toBe('{{{companyName}}} - ../../etc Notification');
+  });
+
+  it('GET /v1/notification-templates returns no subject for sms', async () => {
+    setupDbResults([]);
+    const response = await app.inject({
+      method: 'GET',
+      url: '/notification-templates?eventType=payment.Complete&channel=sms&language=ko',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).subject).toBeNull();
   });
 
   it('PUT /v1/notification-templates upserts a template', async () => {

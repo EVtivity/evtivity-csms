@@ -89,13 +89,15 @@ describe('OcppServer per-IP limits', () => {
       releaseLookups = resolve;
     });
     let lookups = 0;
-    const sql = ((strings: TemplateStringsArray): Promise<unknown[]> => {
+    const lookup = (strings: TemplateStringsArray): Promise<unknown[]> => {
       if (strings.join('?').includes('FROM charging_stations')) {
         lookups++;
         return lookupsReleased.then(() => []);
       }
       return Promise.resolve([]);
-    }) as unknown as postgres.Sql;
+    };
+    // options.max sizes the connection-auth limit (half the pool).
+    const sql = Object.assign(lookup, { options: { max: 20 } }) as unknown as postgres.Sql;
 
     const port = getNextPort();
     const srv = new OcppServer({ sql });

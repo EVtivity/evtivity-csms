@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 /**
  * TC_K_48_CSMS: EMS Control - Set / Update External Charging Limit (not on a transaction)
@@ -79,7 +80,7 @@ export const TC_K_52_CSMS: TestCase = {
           requestId = (payload['requestId'] as number) ?? 1;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

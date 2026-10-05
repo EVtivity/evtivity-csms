@@ -3,6 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  costContainsTax,
   costIncludesTax,
   formatTaxRatePercent,
   grossUnitPrice,
@@ -129,6 +130,17 @@ describe('costIncludesTax', () => {
     expect(costIncludesTax(0, '0.19')).toBe(false);
     expect(costIncludesTax(1234, null)).toBe(false);
     expect(costIncludesTax(1234, '0')).toBe(false);
+  });
+});
+
+describe('costContainsTax', () => {
+  it('is true only for an amount above 0 whose stored tax is above 0', () => {
+    expect(costContainsTax(1190, 190)).toBe(true);
+    expect(costContainsTax(1190, 0)).toBe(false);
+    expect(costContainsTax(1190, null)).toBe(false);
+    expect(costContainsTax(0, 0)).toBe(false);
+    expect(costContainsTax(null, 190)).toBe(false);
+    expect(costContainsTax(undefined, undefined)).toBe(false);
   });
 });
 
@@ -669,13 +681,20 @@ describe('componentTaxLines', () => {
         10,
       ),
     );
-    // Tax is rounded per segment: 50 * 0.19 = 9.5 -> 10 twice, plus 19 on the
-    // 100 holding fee, so 39 rather than 38 on the merged 200.
+    // Tax is rounded once for the rate: 38 on the merged 200 (per segment it
+    // was 10 + 10 + 19 = 39). The segments and the holding fee carry their
+    // shares of it (9.5, 9.5, 19: the remainder cent goes to the first).
+    expect(breakdown.taxLines).toEqual([{ taxRate: 0.19, netCents: 200, taxCents: 38 }]);
+    expect(breakdown.components?.map((g) => [g.segment, g.taxLines[0]?.taxCents])).toEqual([
+      [1, 10],
+      [2, 9],
+      [null, 19],
+    ]);
     expect(componentTaxLines(breakdown)).toEqual([
       {
         taxRate: 0.19,
         netCents: 200,
-        taxCents: 39,
+        taxCents: 38,
         energyCostCents: 100,
         timeCostCents: 0,
         sessionFeeCents: 0,

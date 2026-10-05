@@ -106,7 +106,7 @@ vi.mock('drizzle-orm', () => ({
 
 const mockPublish = vi.fn().mockResolvedValue(undefined);
 
-vi.mock('../lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn(() => ({
     publish: mockPublish,
     subscribe: vi.fn(),
@@ -118,7 +118,7 @@ const mockSendOcppCommand = vi
   .fn()
   .mockResolvedValue({ commandId: 'cmd-1', response: { status: 'Accepted' } });
 
-vi.mock('../lib/ocpp-command.js', () => ({
+vi.mock('@evtivity/services/ocpp-command', () => ({
   sendOcppCommandAndWait: (...args: unknown[]) => mockSendOcppCommand(...args),
 }));
 

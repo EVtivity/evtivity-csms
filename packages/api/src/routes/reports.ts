@@ -12,21 +12,6 @@ import {
   reportFrequencyEnum,
 } from '@evtivity/database';
 
-// Report types are registered in `packages/api/src/index.ts` via
-// `registerGenerator(name, fn)`. Keep this list in sync with that registration.
-// Used for both the input filter (reportListQuery) and create-body validation
-// so the docs surface the exact set of legal values.
-const REPORT_TYPES = [
-  'nevi',
-  'revenue',
-  'energy',
-  'sessions',
-  'utilization',
-  'stationHealth',
-  'sustainability',
-  'driverActivity',
-] as const;
-
 const REPORT_FORMATS = ['csv', 'pdf', 'xlsx'] as const;
 import { zodSchema } from '../lib/zod-schema.js';
 import {
@@ -38,7 +23,7 @@ import {
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
-import { queueReport, computeNextRunAtInTz } from '../services/report.service.js';
+import { queueReport, computeNextRunAtInTz, REPORT_TYPES } from '@evtivity/services/report.service';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 

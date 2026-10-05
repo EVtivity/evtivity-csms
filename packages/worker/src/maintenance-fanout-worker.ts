@@ -9,7 +9,7 @@ import {
   runMaintenanceFanout,
   MAINTENANCE_FANOUT_CHANNEL,
   type MaintenanceFanoutJob,
-} from '@evtivity/api/src/services/maintenance.service.js';
+} from '@evtivity/services/maintenance.service';
 import { QUEUE_NAMES } from './queues.js';
 import { logJobStarted, logJobCompleted, logJobFailed } from './job-logger.js';
 

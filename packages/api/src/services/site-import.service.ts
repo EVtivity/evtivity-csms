@@ -16,8 +16,9 @@ import {
   stationAuditLog,
 } from '@evtivity/database';
 import { csvEscape } from '@evtivity/lib';
-import { sendAvailabilityCommand } from '../lib/availability-command.js';
+import { sendAvailabilityCommand } from '@evtivity/services/availability-command';
 import { publishStationStatusChanged } from '../lib/station-status-events.js';
+import { publishOcpiStationSiteMove } from '../lib/ocpi-location-push.js';
 
 interface ImportActor {
   actor: 'operator' | 'driver' | 'api_key' | 'system' | 'ocpp';
@@ -204,6 +205,8 @@ export async function importSitesCsv(
   const stationUuidByStationId = new Map<string, string>();
   // stationStatus per written station: true disables it, false enables it.
   const operatorDisableByUuid = new Map<string, boolean>();
+  // Existing stations the import moves to another site (OCPI location push).
+  const siteMoves: Array<{ stationUuid: string; fromSiteId: string | null; toSiteId: string }> = [];
   await db.transaction(async (tx) => {
     const siteIdByName = new Map<string, string>();
     const evseUuidByKey = new Map<string, string>();
@@ -348,6 +351,10 @@ export async function importSitesCsv(
         const requestedStatus = firstStationRow.row.stationStatus;
 
         if (updateExisting) {
+          const [previous] = await tx
+            .select({ siteId: chargingStations.siteId })
+            .from(chargingStations)
+            .where(eq(chargingStations.stationId, stationId));
           const [station] = await tx
             .insert(chargingStations)
             .values(stationValues)
@@ -362,6 +369,13 @@ export async function importSitesCsv(
             });
           if (station != null) {
             stationUuidByStationId.set(stationId, station.id);
+            if (previous != null && previous.siteId !== siteId) {
+              siteMoves.push({
+                stationUuid: station.id,
+                fromSiteId: previous.siteId,
+                toSiteId: siteId,
+              });
+            }
             if (requestedStatus != null) {
               operatorDisableByUuid.set(station.id, requestedStatus === 'unavailable');
             }
@@ -542,6 +556,9 @@ export async function importSitesCsv(
     actor,
     logger,
   );
+  for (const move of siteMoves) {
+    await publishOcpiStationSiteMove(move.stationUuid, move.fromSiteId, move.toSiteId, logger);
+  }
 
   return result;
 }

@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './button';
 import { Spinner } from '@/components/ui/spinner';
@@ -43,6 +44,8 @@ export function ConfirmDialog({
   children,
 }: ConfirmDialogProps): React.JSX.Element | null {
   const { t } = useTranslation();
+  const titleId = useId();
+  const descriptionId = useId();
 
   if (!open) return null;
 
@@ -55,10 +58,20 @@ export function ConfirmDialog({
           onOpenChange(false);
         }}
       />
-      <div className="relative z-50 w-full max-w-sm mx-4 rounded-lg border bg-card p-6 shadow-lg space-y-4">
-        <h2 className="text-lg font-semibold">{title}</h2>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        className="relative z-50 w-full max-w-sm mx-4 rounded-lg border bg-card p-6 shadow-lg space-y-4"
+      >
+        <h2 id={titleId} className="text-lg font-semibold">
+          {title}
+        </h2>
         {children}
-        <p className="text-sm text-muted-foreground">{description}</p>
+        <p id={descriptionId} className="text-sm text-muted-foreground">
+          {description}
+        </p>
         <div className="flex justify-end gap-2">
           {!hideCancel && (
             <Button

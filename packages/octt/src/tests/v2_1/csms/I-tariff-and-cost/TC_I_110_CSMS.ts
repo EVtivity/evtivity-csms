@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 /**
  * TC_I_110_CSMS: Clear Tariffs - DefaultTariff
@@ -56,7 +57,7 @@ export const TC_I_110_CSMS: TestCase = {
             clearTariffsResult: [{ status: 'NoTariff' }],
           };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

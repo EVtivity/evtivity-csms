@@ -36,6 +36,7 @@ interface Driver {
   lastName: string;
   email: string | null;
   phone: string | null;
+  language: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

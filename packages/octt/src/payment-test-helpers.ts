@@ -3,7 +3,7 @@
 
 import { randomBytes } from 'node:crypto';
 import type { TestContext } from './types.js';
-import { waitForOnline } from './security-test-helpers.js';
+import { CSMS_STATE_TIMEOUT_MS, waitForOnline } from './security-test-helpers.js';
 
 /** A unique PSP reference for one test, as a payment provider would issue it. */
 export function newPspRef(): string {
@@ -32,10 +32,12 @@ export interface AdHocPaymentRequest {
 export async function requestAdHocPayment(
   ctx: TestContext,
   payment: AdHocPaymentRequest,
-  timeoutMs = 10_000,
+  timeoutMs = CSMS_STATE_TIMEOUT_MS,
 ): Promise<string | null> {
   if (ctx.callApi == null) return 'API client not available';
-  if (!(await waitForOnline(ctx, timeoutMs))) return 'Station not online in the CSMS';
+  if (!(await waitForOnline(ctx, timeoutMs))) {
+    return `Station not online in the CSMS within ${String(timeoutMs / 1000)} s`;
+  }
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const res = await ctx.callApi('POST', '/ad-hoc-payments', {

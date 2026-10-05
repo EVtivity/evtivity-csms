@@ -3,7 +3,8 @@
 
 import { createHmac } from 'node:crypto';
 import type { StepResult, TestContext, TestResult } from './types.js';
-import { waitForOnline } from './security-test-helpers.js';
+import { CSMS_STATE_TIMEOUT_MS, waitForEvse, waitForOnline } from './security-test-helpers.js';
+import { defaultReply } from './default-replies.js';
 
 /**
  * The station side of OCPP 2.1 C25 dynamic QR codes for the CSMS tests
@@ -102,7 +103,9 @@ export async function enableDynamicQr(
   },
 ): Promise<string | null> {
   if (ctx.callApi == null || ctx.stationDbId == null) return 'API client not available';
-  if (!(await waitForOnline(ctx))) return 'Station not online in the CSMS';
+  if (!(await waitForOnline(ctx))) {
+    return `Station not online in the CSMS within ${String(CSMS_STATE_TIMEOUT_MS / 1000)} s`;
+  }
   const res = await ctx.callApi('PUT', `/stations/${ctx.stationDbId}/web-payments`, settings);
   if (res.status !== 200) {
     const code = typeof res.body['code'] === 'string' ? res.body['code'] : '';
@@ -167,7 +170,7 @@ export async function runInvalidQrTest(
       seen.requestStart = true;
       return Promise.resolve({ status: 'Accepted' });
     }
-    return Promise.resolve({ status: 'NotSupported' });
+    return defaultReply('ocpp2.1', action, payload);
   });
 
   // Prerequisite: the CSMS configured the station's dynamic QR code.
@@ -180,6 +183,20 @@ export async function runInvalidQrTest(
     actual: configError ?? `URLTemplate = ${String(capture.values['URLTemplate'])}`,
   });
   if (configError != null) return { status: 'failed', durationMs: 0, steps };
+
+  // The QR code names EVSE 1: the CSMS must know it, or every URL is refused
+  // as unknown_evse and the check below would pass for the wrong reason.
+  const evseError = await waitForEvse(ctx, 1);
+  if (evseError != null) {
+    steps.push({
+      step: 3,
+      description: `CSMS refuses the ${description} and shows no payment page`,
+      status: 'failed',
+      expected: 'EVSE 1 known to the CSMS',
+      actual: evseError,
+    });
+    return { status: 'failed', durationMs: 0, steps };
+  }
 
   // Manual Action: the EV driver opens the invalid QR code URL.
   const url = buildQrUrl(capture.values['URLTemplate'] ?? '', parts(capture.values));

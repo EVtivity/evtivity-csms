@@ -11,6 +11,7 @@ import {
   loadStationPricing,
   pickTariff,
   resolveGroupTariffs,
+  getSystemTimezone,
   pgErrorCode,
   PG_FOREIGN_KEY_VIOLATION,
 } from '@evtivity/database';
@@ -23,7 +24,12 @@ import {
   sessionTariffSegments,
   writeAudit,
 } from '@evtivity/database';
-import { tariffRestrictionsSchema, derivePriority, validateNoOverlap } from '@evtivity/lib';
+import {
+  tariffRestrictionsSchema,
+  derivePriority,
+  validateNoOverlap,
+  isValidTimezone,
+} from '@evtivity/lib';
 import type { TariffRestrictions } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -122,7 +128,7 @@ const scheduleItem = z
     isCurrent: z
       .boolean()
       .describe(
-        'Whether this tariff is the one resolved as active right now. The schedule is per-pricing-group, not per-station, so resolution uses the SERVER timezone -- the same group may be assigned to stations in multiple timezones, and we cannot single one out. Use GET /v1/stations/:id/active-tariff for station-timezone-aware resolution.',
+        'Whether this tariff is the one resolved as active right now, evaluated in the `timezone` query parameter or, without it, the system timezone setting (a pricing group has no site of its own). GET /v1/stations/:id/active-tariff resolves in the station site timezone.',
       ),
   })
   .passthrough();
@@ -161,6 +167,16 @@ const activeTariffItem = z
 
 const groupParams = z.object({
   id: ID_PARAMS.pricingGroupId.describe('Pricing group ID'),
+});
+
+const scheduleQuery = z.object({
+  timezone: z
+    .string()
+    .max(100)
+    .optional()
+    .describe(
+      'IANA timezone to evaluate the current tariff in, e.g. the site timezone (default: the system timezone setting)',
+    ),
 });
 
 const tariffParams = z.object({
@@ -920,14 +936,22 @@ export function pricingRoutes(app: FastifyInstance): void {
         operationId: 'getPricingGroupSchedule',
         security: [{ bearerAuth: [] }],
         params: zodSchema(groupParams),
+        querystring: zodSchema(scheduleQuery),
         response: {
           200: arrayResponse(scheduleItem),
+          400: errorWith('Invalid timezone', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Pricing group not found', [ERROR_CODES.PRICING_GROUP_NOT_FOUND]),
         },
       },
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof groupParams>;
+      const query = request.query as z.infer<typeof scheduleQuery>;
+
+      if (query.timezone !== undefined && !isValidTimezone(query.timezone)) {
+        await reply.status(400).send({ error: 'Invalid IANA timezone', code: 'VALIDATION_ERROR' });
+        return;
+      }
 
       const [group] = await db.select().from(pricingGroups).where(eq(pricingGroups.id, id));
       if (group == null) {
@@ -937,10 +961,12 @@ export function pricingRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Evaluated in the server's local time: a group has no site of its own.
+      // A group has no site of its own: the caller names the timezone (a site's,
+      // when shown for a site or station), else the system timezone setting.
+      const timezone = query.timezone ?? (await getSystemTimezone());
       const { tariffs: activeTariffs, current: currentTariff } = await resolveGroupTariffs(
         id,
-        { at: new Date() },
+        { at: new Date(), timezone },
         client,
       );
 

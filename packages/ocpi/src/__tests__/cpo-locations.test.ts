@@ -30,15 +30,23 @@ function makeInsertChain(): Record<string, unknown> {
   return chain;
 }
 
-const { mockFindEvseByUid, putMock } = vi.hoisted(() => ({
-  mockFindEvseByUid: vi.fn(),
-  putMock: vi.fn(() => Promise.resolve({})),
-}));
+const { mockFindEvseByUid, putMock, patchMock, mockTariffIds, mockAudience, mockRemoved } =
+  vi.hoisted(() => ({
+    mockFindEvseByUid: vi.fn(),
+    putMock: vi.fn(() => Promise.resolve({})),
+    patchMock: vi.fn(() => Promise.resolve({ status_code: 1000 })),
+    mockTariffIds: vi.fn(),
+    mockAudience: vi.fn(),
+    mockRemoved: vi.fn(),
+  }));
 
 vi.mock('@evtivity/database', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/database')>()),
   db: { select: vi.fn(() => makeChain()), insert: vi.fn(() => makeInsertChain()) },
+  ocpiLocationAudience: mockAudience,
+  removedOcpiEvses: mockRemoved,
 }));
+vi.mock('../services/connector-tariffs.js', () => ({ connectorTariffIds: mockTariffIds }));
 vi.mock('../middleware/ocpi-auth.js', () => ({
   ocpiAuthenticate: async (request: { ocpiPartner?: unknown }) => {
     request.ocpiPartner = { partnerId: 'opr_000000000001' };
@@ -51,6 +59,7 @@ vi.mock('../lib/evse-lookup.js', () => ({ findEvseByUid: mockFindEvseByUid }));
 vi.mock('../lib/ocpi-client.js', () => ({
   OcpiClient: class {
     put = putMock;
+    patch = patchMock;
   },
 }));
 vi.mock('../lib/outbound-token.js', () => ({
@@ -103,6 +112,25 @@ const EVSE = {
   siteId: SITE_ID,
   updatedAt,
   stationState: AVAILABLE,
+  stationRemoved: false,
+};
+const NO_FREE_VEND = [{ freeVendEnabled: false }];
+// An EVSE deleted from the site (ocpi_removed_evses).
+const REMOVED_EVSE = {
+  evseUid: 'evs_gone',
+  siteId: SITE_ID,
+  stationOcppId: 'CS-0009',
+  evseNumber: 2,
+  connectors: [
+    {
+      id: 'con_gone',
+      connectorId: 1,
+      connectorType: 'CCS2',
+      maxPowerKw: '150',
+      maxCurrentAmps: null,
+    },
+  ],
+  removedAt: updatedAt,
 };
 
 let app: FastifyInstance;
@@ -121,16 +149,23 @@ beforeEach(() => {
   dbResults = [];
   mockFindEvseByUid.mockReset();
   putMock.mockClear();
+  patchMock.mockClear();
+  mockTariffIds.mockReset();
+  mockTariffIds.mockResolvedValue(new Map());
+  mockAudience.mockReset();
+  mockRemoved.mockReset();
+  mockRemoved.mockResolvedValue([]);
 });
 
 describe('GET /cpo/locations', () => {
-  it('publishes the EVSEs of a station-level unavailable station as INOPERATIVE', async () => {
+  it('masks unavailable stations, removes deleted ones, and links connector tariffs', async () => {
     dbResults = [
       [{ siteId: SITE_ID, ocpiLocationId: 'LOC-1' }], // published site ids
-      [SITE], // sites
+      [{ ...SITE, freeVendEnabled: false }], // sites
       [
         { id: 'sta_000000000001', siteId: SITE_ID },
         { id: 'sta_000000000002', siteId: SITE_ID },
+        { id: 'sta_000000000003', siteId: SITE_ID },
       ], // stations
       [
         {
@@ -149,27 +184,43 @@ describe('GET /cpo/locations', () => {
           updatedAt,
           ...AVAILABLE,
         },
+        {
+          id: 'evs_c',
+          stationId: 'sta_000000000003',
+          stationOcppId: 'CS-0003',
+          evseId: 1,
+          updatedAt,
+          ...AVAILABLE,
+          onboardingStatus: 'blocked',
+        },
       ], // evses
-      [connector('evs_a'), connector('evs_b')],
+      [connector('evs_a'), connector('evs_b'), connector('evs_c')],
       [{ siteId: SITE_ID, ocpiLocationId: 'LOC-1' }], // publish settings
       [], // maintenance events
     ];
+    mockTariffIds.mockResolvedValue(new Map([['sta_000000000002', ['T-GROUP']]]));
 
     const res = await app.inject({ method: 'GET', url: '/ocpi/2.2.1/cpo/locations' });
 
-    const evses = res.json<{ data: Array<{ evses: Array<{ uid: string; status: string }> }> }>()
-      .data[0]?.evses;
+    const evses = res.json<{
+      data: Array<{
+        evses: Array<{ uid: string; status: string; connectors: Array<{ tariff_ids?: string[] }> }>;
+      }>;
+    }>().data[0]?.evses;
     expect(evses).toEqual([
       expect.objectContaining({ uid: 'evs_a', status: 'INOPERATIVE' }),
       expect.objectContaining({ uid: 'evs_b', status: 'AVAILABLE' }),
+      expect.objectContaining({ uid: 'evs_c', status: 'REMOVED' }),
     ]);
+    expect(evses?.[0]?.connectors[0]).not.toHaveProperty('tariff_ids');
+    expect(evses?.[1]?.connectors[0]?.tariff_ids).toEqual(['T-GROUP']);
   });
 });
 
 describe('GET /cpo/locations/:location_id/:evse_uid', () => {
   it('returns the EVSE when it belongs to the location', async () => {
     mockFindEvseByUid.mockResolvedValue(EVSE);
-    dbResults = [[{ siteId: SITE_ID }], [connector(EVSE.evseDbId)], []];
+    dbResults = [[{ siteId: SITE_ID }], NO_FREE_VEND, [connector(EVSE.evseDbId)], []];
 
     const res = await app.inject({
       method: 'GET',
@@ -184,7 +235,7 @@ describe('GET /cpo/locations/:location_id/:evse_uid', () => {
 
   it('masks a station-level unavailable station as INOPERATIVE', async () => {
     mockFindEvseByUid.mockResolvedValue({ ...EVSE, stationState: DISABLED });
-    dbResults = [[{ siteId: SITE_ID }], [connector(EVSE.evseDbId)], []];
+    dbResults = [[{ siteId: SITE_ID }], NO_FREE_VEND, [connector(EVSE.evseDbId)], []];
 
     const res = await app.inject({
       method: 'GET',
@@ -198,6 +249,7 @@ describe('GET /cpo/locations/:location_id/:evse_uid', () => {
     mockFindEvseByUid.mockResolvedValue(EVSE);
     dbResults = [
       [{ siteId: SITE_ID }],
+      NO_FREE_VEND,
       [connector(EVSE.evseDbId)],
       [{ siteId: SITE_ID, affectedStationIds: [EVSE.stationDbId] }],
     ];
@@ -208,6 +260,18 @@ describe('GET /cpo/locations/:location_id/:evse_uid', () => {
     });
 
     expect(res.json().data.status).toBe('INOPERATIVE');
+  });
+
+  it('reports an EVSE of a deleted station as REMOVED', async () => {
+    mockFindEvseByUid.mockResolvedValue({ ...EVSE, stationRemoved: true });
+    dbResults = [[{ siteId: SITE_ID }], NO_FREE_VEND, [connector(EVSE.evseDbId)], []];
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/ocpi/2.2.1/cpo/locations/LOC-1/${EVSE.evseDbId}`,
+    });
+
+    expect(res.json().data.status).toBe('REMOVED');
   });
 
   it('returns not found for an EVSE at another location', async () => {
@@ -221,6 +285,35 @@ describe('GET /cpo/locations/:location_id/:evse_uid', () => {
 
     expect(res.statusCode).toBe(404);
     expect(res.json().status_code).toBe(2003);
+  });
+
+  it('serves an EVSE that left the location as REMOVED', async () => {
+    mockFindEvseByUid.mockResolvedValue(null);
+    mockRemoved.mockResolvedValue([REMOVED_EVSE]);
+    dbResults = [[{ siteId: SITE_ID }]];
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/ocpi/2.2.1/cpo/locations/LOC-1/evs_gone',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ uid: 'evs_gone', status: 'REMOVED' });
+    expect(mockRemoved).toHaveBeenCalledWith([SITE_ID]);
+  });
+
+  it('serves the connector of an EVSE that left the location', async () => {
+    mockFindEvseByUid.mockResolvedValue({ ...EVSE, evseDbId: 'evs_gone', siteId: 'sit_other' });
+    mockRemoved.mockResolvedValue([REMOVED_EVSE]);
+    dbResults = [[{ siteId: SITE_ID }]];
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/ocpi/2.2.1/cpo/locations/LOC-1/evs_gone/1',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ id: '1', standard: 'IEC_62196_T2_COMBO' });
   });
 
   it('returns not found for an unknown location', async () => {
@@ -240,7 +333,8 @@ describe('GET /cpo/locations/:location_id/:evse_uid', () => {
 describe('GET /cpo/locations/:location_id/:evse_uid/:connector_id', () => {
   it('returns the connector when the EVSE belongs to the location', async () => {
     mockFindEvseByUid.mockResolvedValue(EVSE);
-    dbResults = [[{ siteId: SITE_ID }], [connector(EVSE.evseDbId)]];
+    mockTariffIds.mockResolvedValue(new Map([[EVSE.stationDbId, ['T-1']]]));
+    dbResults = [[{ siteId: SITE_ID }], [connector(EVSE.evseDbId)], NO_FREE_VEND];
 
     const res = await app.inject({
       method: 'GET',
@@ -249,6 +343,10 @@ describe('GET /cpo/locations/:location_id/:evse_uid/:connector_id', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().data.id).toBe('1');
+    expect(res.json().data.tariff_ids).toEqual(['T-1']);
+    expect(mockTariffIds).toHaveBeenCalledWith('opr_000000000001', [
+      { id: EVSE.stationDbId, freeVend: false },
+    ]);
   });
 
   it('returns not found for an EVSE at another location', async () => {
@@ -267,8 +365,8 @@ describe('GET /cpo/locations/:location_id/:evse_uid/:connector_id', () => {
 
 describe('location push', () => {
   it('pushes the EVSEs of a station-level unavailable station as INOPERATIVE', async () => {
+    mockAudience.mockResolvedValue({ ocpiLocationId: 'LOC-1', partnerIds: ['opr_000000000001'] });
     dbResults = [
-      [{ id: 'olp_1', siteId: SITE_ID, ocpiLocationId: 'LOC-1', publishToAll: false }],
       [SITE],
       [
         { id: 'sta_000000000001', stationId: 'CS-0001', siteId: SITE_ID, ...DISABLED },
@@ -280,7 +378,6 @@ describe('location push', () => {
       ],
       [connector('evs_a'), connector('evs_b')],
       [], // maintenance events
-      [{ partnerId: 'opr_000000000001' }], // allow-listed partners
       [{ url: 'http://127.0.0.1/locations' }], // partner endpoint
       [{ countryCode: 'DE', partyId: 'ABC', version: '2.2.1' }], // partner
     ];
@@ -305,6 +402,84 @@ describe('location push', () => {
         evses: [
           expect.objectContaining({ uid: 'evs_a', status: 'INOPERATIVE' }),
           expect.objectContaining({ uid: 'evs_b', status: 'AVAILABLE' }),
+        ],
+      }),
+    );
+  });
+
+  async function startListener(): Promise<(payload: string) => void> {
+    let handler: ((payload: string) => void) | undefined;
+    const pubsub = {
+      subscribe: vi.fn((_channel: string, cb: (payload: string) => void) => {
+        handler = cb;
+        return Promise.resolve({ unsubscribe: vi.fn() });
+      }),
+    };
+    await new OcpiPushListener(pubsub as never).start();
+    return (payload) => handler?.(payload);
+  }
+
+  it('sends the location with every EVSE REMOVED to partners that lost it', async () => {
+    mockAudience.mockResolvedValue(null); // unpublished
+    dbResults = [
+      [SITE],
+      [{ id: 'sta_000000000001', stationId: 'CS-0001', siteId: SITE_ID, ...AVAILABLE }],
+      [{ id: 'evs_a', stationId: 'sta_000000000001', evseId: 1, updatedAt }],
+      [connector('evs_a')],
+      [], // maintenance events
+      [{ url: 'http://127.0.0.1/locations' }], // partner endpoint
+      [{ countryCode: 'DE', partyId: 'ABC', version: '2.3.0' }], // partner
+    ];
+    const send = await startListener();
+
+    send(
+      JSON.stringify({
+        type: 'location',
+        siteId: SITE_ID,
+        removed: { ocpiLocationId: 'LOC-OLD', partnerIds: ['opr_000000000001'] },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(putMock).toHaveBeenCalled();
+    });
+
+    expect(putMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/LOC-OLD$/),
+      expect.objectContaining({
+        id: 'LOC-OLD',
+        evses: [expect.objectContaining({ uid: 'evs_a', status: 'REMOVED' })],
+      }),
+    );
+    expect(mockTariffIds).not.toHaveBeenCalled();
+  });
+
+  it('pushes the EVSEs that left the site as REMOVED, with their connectors', async () => {
+    mockAudience.mockResolvedValue({ ocpiLocationId: 'LOC-1', partnerIds: ['opr_000000000001'] });
+    mockRemoved.mockResolvedValue([REMOVED_EVSE]);
+    dbResults = [
+      [SITE],
+      [], // no stations left at the site
+      [], // maintenance events
+      [{ url: 'http://127.0.0.1/locations' }], // partner endpoint
+      [{ countryCode: 'DE', partyId: 'ABC', version: '2.2.1' }], // partner
+    ];
+    const send = await startListener();
+
+    send(JSON.stringify({ type: 'location', siteId: SITE_ID }));
+    await vi.waitFor(() => {
+      expect(putMock).toHaveBeenCalled();
+    });
+
+    expect(putMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/LOC-1$/),
+      expect.objectContaining({
+        evses: [
+          expect.objectContaining({
+            uid: 'evs_gone',
+            evse_id: 'CS-0009-EVSE-2',
+            status: 'REMOVED',
+            connectors: [expect.objectContaining({ id: '1' })],
+          }),
         ],
       }),
     );

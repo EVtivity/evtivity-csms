@@ -55,6 +55,7 @@ interface Site {
   freeVendTemplateId21: string | null;
   freeVendTemplateId16: string | null;
   carbonRegionCode: string | null;
+  stationMessageLanguage: string | null;
   stationCount: number;
   createdAt: string;
   updatedAt: string;
@@ -357,7 +358,7 @@ export function SiteDetail(): React.JSX.Element {
 
         <SiteQrCodesTab stations={stations} guestChargingEnabled={guestChargingEnabled} />
 
-        <SitePricingTab siteId={id ?? ''} />
+        <SitePricingTab siteId={id ?? ''} timezone={site.timezone} />
 
         {reservationEnabled && (
           <TabsContent value="reservations" className="space-y-6">

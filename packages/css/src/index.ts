@@ -16,7 +16,10 @@ const healthPort = config.CSS_HEALTH_PORT;
 const actionIntervalMs = config.CSS_ACTION_INTERVAL_MS;
 const stationLimit = config.CSS_STATION_LIMIT;
 
-const sql = postgres(databaseUrl, { connection: { application_name: connectionName() } });
+const sql = postgres(databaseUrl, {
+  max: config.DB_POOL_MAX,
+  connection: { application_name: connectionName() },
+});
 const pubsub = new RedisPubSubClient(redisUrl);
 const manager = new SimulatorManager(sql, pubsub);
 

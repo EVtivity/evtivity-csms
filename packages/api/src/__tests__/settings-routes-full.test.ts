@@ -58,6 +58,8 @@ vi.mock('@evtivity/database', () => ({
   clearSystemSettingsCache: vi.fn(),
   clearMobileAppConfigCache: vi.fn(),
   clearStationMessageSettingsCache: vi.fn(),
+  clearWebhookSettingsCache: vi.fn(),
+  WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY: 'notifications.webhookAllowedPrivateHosts',
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -127,6 +129,8 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
     parseMobileAppList: actual.parseMobileAppList,
     MOBILE_APP_URL_SCHEMES_KEY: actual.MOBILE_APP_URL_SCHEMES_KEY,
     MOBILE_APP_ANDROID_PACKAGES_KEY: actual.MOBILE_APP_ANDROID_PACKAGES_KEY,
+    parseAllowedPrivateHosts: actual.parseAllowedPrivateHosts,
+    MAX_ALLOWED_PRIVATE_HOSTS: actual.MAX_ALLOWED_PRIVATE_HOSTS,
   };
 });
 
@@ -174,6 +178,10 @@ vi.mock('../lib/payments.js', async (importOriginal) => ({
 }));
 
 const { mockAssertWritable } = vi.hoisted(() => ({ mockAssertWritable: vi.fn() }));
+vi.mock('@evtivity/services/station-message.service', () => ({
+  requestStationMessageRepush: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../lib/provider-switch.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/provider-switch.js')>()),
   assertPaymentProviderWritable: mockAssertWritable,

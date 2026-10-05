@@ -2,7 +2,16 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import crypto from 'node:crypto';
-import { createInFlightTracker, createLogger } from '@evtivity/lib';
+import { db, ocpiPartners } from '@evtivity/database';
+import {
+  createInFlightTracker,
+  createLogger,
+  OCPP_COMMAND_RESULTS_CHANNEL,
+  publishOcppCommand,
+  safeFetch,
+} from '@evtivity/lib';
+import type { SafeFetchResponse } from '@evtivity/lib';
+import { eq } from 'drizzle-orm';
 import type { PubSubClient, Subscription } from '@evtivity/lib';
 import { drainListener, trackListenerWork } from '../lib/listener-drain.js';
 import { getOutboundToken } from '../lib/outbound-token.js';
@@ -10,8 +19,6 @@ import { config } from '../lib/config.js';
 import type { OcpiCommandType, OcpiCommandResult, OcpiCommandResultType } from '../types/ocpi.js';
 
 const logger = createLogger('ocpi-command-callback');
-const RESULTS_CHANNEL = 'ocpp_command_results';
-const COMMANDS_CHANNEL = 'ocpp_commands';
 const COMMAND_TIMEOUT_MS = 30_000;
 const CLEANUP_INTERVAL_MS = 10_000;
 
@@ -118,21 +125,23 @@ export class OcpiCommandCallbackService {
     action: string,
     payload: Record<string, unknown>,
   ): Promise<void> {
-    const notification = JSON.stringify({ commandId, stationId, action, payload });
-    await this.pubsub.publish(COMMANDS_CHANNEL, notification);
+    await publishOcppCommand(this.pubsub, { commandId, stationId, action, payload });
     logger.info({ commandId, stationId, action }, 'Dispatched OCPP command');
   }
 
   async start(): Promise<void> {
-    this.subscription = await this.pubsub.subscribe(RESULTS_CHANNEL, (payload: string) => {
-      trackListenerWork(this.inFlight, logger, () => this.handleResult(payload));
-    });
+    this.subscription = await this.pubsub.subscribe(
+      OCPP_COMMAND_RESULTS_CHANNEL,
+      (payload: string) => {
+        trackListenerWork(this.inFlight, logger, () => this.handleResult(payload));
+      },
+    );
 
     this.cleanupTimer = setInterval(() => {
       this.cleanupExpired();
     }, CLEANUP_INTERVAL_MS);
 
-    logger.info({ channel: RESULTS_CHANNEL }, 'Listening for OCPP command results');
+    logger.info({ channel: OCPP_COMMAND_RESULTS_CHANNEL }, 'Listening for OCPP command results');
   }
 
   private async handleResult(raw: string): Promise<void> {
@@ -198,13 +207,22 @@ export class OcpiCommandCallbackService {
       const timer = setTimeout(() => {
         controller.abort();
       }, 30_000);
-      let response: Response;
+      // The response_url is partner input: safeFetch checks every resolved
+      // address at connect time, allowing private ones only for a partner
+      // with the operator's private-network flag.
+      const [partner] = await db
+        .select({ allowPrivateNetwork: ocpiPartners.allowPrivateNetwork })
+        .from(ocpiPartners)
+        .where(eq(ocpiPartners.id, partnerId))
+        .limit(1);
+      let response: SafeFetchResponse;
       try {
-        response = await fetch(responseUrl, {
+        response = await safeFetch(responseUrl, {
           method: 'POST',
           headers,
           body: JSON.stringify(commandResult),
           signal: controller.signal,
+          allowPrivateNetworks: partner?.allowPrivateNetwork ?? false,
         });
       } finally {
         clearTimeout(timer);

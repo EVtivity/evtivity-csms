@@ -1,8 +1,6 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createLogger } from '@evtivity/lib';
 import { createPaymentRegistry, deferredSimulatedSink } from '@evtivity/payments';
 import type {
@@ -11,6 +9,7 @@ import type {
   PaymentLogger,
   SimulatedEventSink,
 } from '@evtivity/payments';
+import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { config } from './config.js';
 
 /**
@@ -40,16 +39,8 @@ export function paymentContext(logger: PaymentLogger): PaymentContext {
   return { registry: paymentRegistry, logger };
 }
 
-const currentDir = dirname(fileURLToPath(import.meta.url));
-const API_TEMPLATES_DIR =
-  process.env['API_TEMPLATES_DIR'] ??
-  resolve(currentDir, '..', '..', '..', 'api', 'src', 'templates');
-const OCPP_TEMPLATES_DIR =
-  process.env['OCPP_TEMPLATES_DIR'] ??
-  resolve(currentDir, '..', '..', '..', 'ocpp', 'src', 'templates');
-
 /** The notification templates of payment messages the worker sends. */
-export const PAYMENT_TEMPLATES_DIRS = [OCPP_TEMPLATES_DIR, API_TEMPLATES_DIR];
+export const PAYMENT_TEMPLATES_DIRS = ALL_TEMPLATES_DIRS;
 
 /** Guest session events also send the guest receipt, from the notification templates. */
 export function guestEventDeps(logger: PaymentLogger): GuestEventDeps {

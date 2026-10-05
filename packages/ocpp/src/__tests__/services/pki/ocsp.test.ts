@@ -1,9 +1,10 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { AsnConvert } from '@peculiar/asn1-schema';
 import { OCSPRequest, OCSPResponseStatus } from '@peculiar/asn1-ocsp';
+import { BlockedDestinationError, type SafeFetchInit } from '@evtivity/lib';
 import {
   buildResponse,
   errorResponse,
@@ -16,6 +17,15 @@ const allowedHostsMock = vi.fn<() => Promise<string[]>>();
 
 vi.mock('@evtivity/database', () => ({
   getOcspAllowedPrivateHosts: () => allowedHostsMock(),
+}));
+
+type SafeFetchArgs = [url: string, init: SafeFetchInit];
+const fetchMock = vi.fn<(...args: SafeFetchArgs) => Promise<Response>>();
+
+// The connect-time DNS guard of safeFetch has its own tests in @evtivity/lib.
+vi.mock('@evtivity/lib', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/lib')>()),
+  safeFetch: (...args: SafeFetchArgs) => fetchMock(...args),
 }));
 
 import {
@@ -37,17 +47,10 @@ beforeAll(async () => {
   leaf = await issueCert('CN=EMAID1', subCa, { ocspUrl: 'https://ocsp.example.com/' });
 });
 
-let fetchMock: ReturnType<typeof vi.fn<(url: string, init: RequestInit) => Promise<Response>>>;
-
 beforeEach(() => {
   allowedHostsMock.mockReset();
   allowedHostsMock.mockResolvedValue([]);
-  fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>();
-  vi.stubGlobal('fetch', fetchMock);
-});
-
-afterEach(() => {
-  vi.unstubAllGlobals();
+  fetchMock.mockReset();
 });
 
 function derResponse(body: Buffer, status = 200): Response {
@@ -220,8 +223,9 @@ describe('getOcspResultForStation', () => {
     const result = await getOcspResultForStation(data);
 
     expect(result).toEqual({ status: 'Accepted', ocspResult: res.toString('base64') });
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as SafeFetchArgs;
     expect(url).toBe(data.responderURL);
+    expect(init.allowedPrivateHosts).toEqual([]);
     expect(init.method).toBe('POST');
     expect(init.redirect).toBe('error');
     expect((init.headers as Record<string, string>)['Content-Type']).toBe(
@@ -246,6 +250,20 @@ describe('getOcspResultForStation', () => {
     fetchMock.mockResolvedValueOnce(derResponse(res));
     const result = await getOcspResultForStation(data);
     expect(result.status).toBe('Accepted');
+    expect(fetchMock.mock.calls[0]?.[1].allowedPrivateHosts).toEqual(['127.0.0.1']);
+  });
+
+  it('fails when the responder name resolves to a private address at connect time', async () => {
+    fetchMock.mockRejectedValueOnce(
+      new TypeError('fetch failed', {
+        cause: new BlockedDestinationError('ocsp.example.com', '10.0.0.5'),
+      }),
+    );
+    const result = await getOcspResultForStation(requestDataFor(leaf));
+    expect(result).toMatchObject({
+      status: 'Failed',
+      reason: expect.stringMatching(/10\.0\.0\.5.*pnc\.ocsp\.allowedPrivateHosts/),
+    });
   });
 
   it('fails on HTTP errors, network errors, non-OCSP bodies, and error statuses', async () => {

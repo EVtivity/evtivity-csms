@@ -5,9 +5,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
 
 // `db.select(...).from().innerJoin().where()` resolves to the stale session
-// list. `db.update().set().where().returning()` resolves to the faulted rows
-// and captures the SET arg. The cost assembly (closeOpenSegment, priceSessionAt) is mocked; it
-// is tested in @evtivity/database.
+// list. closeOpenSegment and faultUnbilledSession are mocked; they are tested
+// in @evtivity/database.
 
 let staleSessionRows: unknown[] = [];
 function setStaleSessions(rows: unknown[]): void {
@@ -23,22 +22,11 @@ const mockSelect = vi.fn(() => ({
   })),
 }));
 
-const updateSetArgs: unknown[] = [];
-let faultedRows: unknown[] = [{ id: 'ses_1' }];
-const updateReturning = vi.fn(() => Promise.resolve(faultedRows));
-const updateWhere = vi.fn(() => ({ returning: updateReturning }));
-const mockUpdate = vi.fn(() => ({
-  set: vi.fn((arg: unknown) => {
-    updateSetArgs.push(arg);
-    return { where: updateWhere };
-  }),
-}));
-
 const {
   mockGetStaleSessionTimeoutHours,
   mockWriteReservationAudit,
   mockCloseOpenSegment,
-  mockPriceSessionAt,
+  mockFaultUnbilledSession,
   mockPublish,
   mockClient,
   mockCancelOpenSessionHold,
@@ -46,7 +34,7 @@ const {
   mockGetStaleSessionTimeoutHours: vi.fn(),
   mockWriteReservationAudit: vi.fn().mockResolvedValue(undefined),
   mockCloseOpenSegment: vi.fn().mockResolvedValue(undefined),
-  mockPriceSessionAt: vi.fn(),
+  mockFaultUnbilledSession: vi.fn(),
   mockPublish: vi.fn().mockResolvedValue(undefined),
   mockClient: { __client: true },
   mockCancelOpenSessionHold: vi.fn(),
@@ -63,7 +51,6 @@ vi.mock('../../lib/payments.js', () => ({
 vi.mock('@evtivity/database', async () => ({
   db: {
     select: mockSelect,
-    update: mockUpdate,
   },
   client: mockClient,
   chargingSessions: {
@@ -71,12 +58,13 @@ vi.mock('@evtivity/database', async () => ({
     stationId: 'cs.stationId',
     status: 'cs.status',
     updatedAt: 'cs.updatedAt',
+    endRequestReason: 'cs.endRequestReason',
   },
   chargingStations: { id: 'st.id', isOnline: 'st.isOnline', stationId: 'st.stationId' },
   getStaleSessionTimeoutHours: mockGetStaleSessionTimeoutHours,
   writeReservationAudit: mockWriteReservationAudit,
   closeOpenSegment: mockCloseOpenSegment,
-  priceSessionAt: mockPriceSessionAt,
+  faultUnbilledSession: mockFaultUnbilledSession,
   sessionIdleMinutesAt: (
     await vi.importActual<typeof import('../../../../database/src/lib/session-pricing.js')>(
       '../../../../database/src/lib/session-pricing.js',
@@ -95,13 +83,14 @@ vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
   and: vi.fn(),
   lte: vi.fn(),
+  isNull: vi.fn((column: unknown) => ({ isNull: column })),
   sql: Object.assign(
     (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
     { raw: vi.fn() },
   ),
 }));
 
-vi.mock('@evtivity/api/src/lib/pubsub.js', () => ({
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: () => ({ publish: mockPublish }),
 }));
 
@@ -120,7 +109,6 @@ function baseSession(overrides: Record<string, unknown> = {}): Record<string, un
     startedAt: new Date('2026-06-01T00:00:00.000Z'),
     updatedAt: new Date('2026-06-01T01:00:00.000Z'),
     energyDeliveredWh: '1000',
-    currentCostCents: 500,
     tariffId: null,
     idleStartedAt: null,
     idleMinutes: '0',
@@ -136,18 +124,16 @@ describe('staleSessionCleanupHandler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setStaleSessions([]);
-    updateSetArgs.length = 0;
     mockGetStaleSessionTimeoutHours.mockResolvedValue(4);
     mockWriteReservationAudit.mockResolvedValue(undefined);
-    mockPriceSessionAt.mockResolvedValue(null);
+    mockFaultUnbilledSession.mockResolvedValue(true);
     mockPublish.mockResolvedValue(undefined);
-    faultedRows = [{ id: 'ses_1' }];
     mockCancelOpenSessionHold.mockResolvedValue({ status: 'none' });
   });
 
   it('cancels the open hold of a session it faulted, without a capture', async () => {
     const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
-    setStaleSessions([baseSession({ currentCostCents: 750 })]);
+    setStaleSessions([baseSession()]);
     mockCancelOpenSessionHold.mockResolvedValueOnce({ status: 'cancelled', paymentRecordId: 9 });
     const log = makeLog();
 
@@ -158,13 +144,17 @@ describe('staleSessionCleanupHandler', () => {
       'Stale session faulted',
       expect.objectContaining({ registry: 'registry' }),
     );
-    expect(updateSetArgs[0]).toMatchObject({ status: 'faulted', stoppedReason: 'StaleSession' });
+    expect(mockFaultUnbilledSession).toHaveBeenCalledWith(mockClient, {
+      sessionId: 'ses_1',
+      reason: 'StaleSession',
+      endedAt: new Date('2026-06-01T01:00:00.000Z'),
+    });
   });
 
   it('leaves the hold of a session that ended meanwhile to its settlement (P5)', async () => {
     const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
     setStaleSessions([baseSession()]);
-    faultedRows = [];
+    mockFaultUnbilledSession.mockResolvedValueOnce(false);
 
     await staleSessionCleanupHandler(makeLog());
 
@@ -196,7 +186,15 @@ describe('staleSessionCleanupHandler', () => {
 
     expect(log.debug).toHaveBeenCalledWith('Stale session cleanup disabled (timeout <= 0)');
     expect(mockSelect).not.toHaveBeenCalled();
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockFaultUnbilledSession).not.toHaveBeenCalled();
+  });
+
+  it('skips sessions with a pending end request (they end billed through the OCPP server)', async () => {
+    const { and, isNull } = await import('drizzle-orm');
+    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    await staleSessionCleanupHandler(makeLog());
+    expect(isNull).toHaveBeenCalledWith('cs.endRequestReason');
+    expect(vi.mocked(and).mock.calls[0]).toContainEqual({ isNull: 'cs.endRequestReason' });
   });
 
   it('returns silently when no stale sessions are found', async () => {
@@ -206,7 +204,7 @@ describe('staleSessionCleanupHandler', () => {
     const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
     await staleSessionCleanupHandler(log);
 
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockFaultUnbilledSession).not.toHaveBeenCalled();
     expect(mockPublish).not.toHaveBeenCalled();
     expect(log.info).not.toHaveBeenCalledWith(expect.anything(), 'Stale session cleanup complete');
   });
@@ -218,14 +216,15 @@ describe('staleSessionCleanupHandler', () => {
     const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
     await staleSessionCleanupHandler(log);
 
-    expect(mockUpdate).toHaveBeenCalledTimes(1);
-    const set = updateSetArgs[0] as Record<string, unknown>;
-    expect(set.status).toBe('faulted');
-    expect(set.stoppedReason).toBe('StaleSession');
-    expect(set.endedAt).toEqual(new Date('2026-06-01T01:00:00.000Z'));
-    // No tariff snapshot -> finalCostCents falls back to currentCostCents (500).
-    expect(set.finalCostCents).toBe(500);
-    expect(set.currentCostCents).toBe(500);
+    // Faulted at the last update and not billed (cost 0, audit N6).
+    expect(mockFaultUnbilledSession).toHaveBeenCalledTimes(1);
+    expect(mockFaultUnbilledSession).toHaveBeenCalledWith(mockClient, {
+      sessionId: 'ses_1',
+      reason: 'StaleSession',
+      endedAt: new Date('2026-06-01T01:00:00.000Z'),
+    });
+    // No tariff snapshot: no segment to close.
+    expect(mockCloseOpenSegment).not.toHaveBeenCalled();
 
     // Offline station: no RequestStopTransaction.
     expect(mockPublish).not.toHaveBeenCalled();
@@ -287,20 +286,11 @@ describe('staleSessionCleanupHandler', () => {
       'Failed to send RequestStopTransaction for stale session',
     );
     // Both sessions still got faulted; the failed publish did not stop the loop.
-    expect(mockUpdate).toHaveBeenCalledTimes(2);
+    expect(mockFaultUnbilledSession).toHaveBeenCalledTimes(2);
     expect(log.info).toHaveBeenCalledWith({ count: 2 }, 'Stale session cleanup complete');
   });
 
-  it('closes the open segment and stores the final cost from the cost assembly', async () => {
-    const breakdown = {
-      basis: 'net',
-      netCents: 1143,
-      taxCents: 91,
-      grossCents: 1234,
-      taxLines: [{ taxRate: 0.08, netCents: 1143, taxCents: 91 }],
-      components: null,
-    };
-    mockPriceSessionAt.mockResolvedValue(breakdown);
+  it('closes the open segment, then faults the session without billing it', async () => {
     setStaleSessions([
       baseSession({
         tariffId: 'tar_1',
@@ -317,18 +307,17 @@ describe('staleSessionCleanupHandler', () => {
     const endedAt = new Date('2026-06-01T01:00:00.000Z');
     // 10 accumulated idle minutes plus the open period 00:50 to 01:00.
     expect(mockCloseOpenSegment).toHaveBeenCalledWith(mockClient, 'ses_1', endedAt, 1000, 20);
-    expect(mockPriceSessionAt).toHaveBeenCalledWith(mockClient, 'ses_1', endedAt, 1000);
-    expect(updateSetArgs[0]).toMatchObject({
-      status: 'faulted',
-      finalCostCents: 1234,
-      currentCostCents: 1234,
-      netCents: 1143,
-      taxCents: 91,
-      costBreakdown: breakdown,
+    expect(mockFaultUnbilledSession).toHaveBeenCalledWith(mockClient, {
+      sessionId: 'ses_1',
+      reason: 'StaleSession',
+      endedAt,
     });
+    expect(mockCloseOpenSegment.mock.invocationCallOrder[0]).toBeLessThan(
+      mockFaultUnbilledSession.mock.invocationCallOrder[0] ?? 0,
+    );
   });
 
-  it('prices a session without stored energy at 0 Wh', async () => {
+  it('closes the open segment of a session without stored energy at 0 Wh', async () => {
     setStaleSessions([
       baseSession({ tariffId: 'tar_1', energyDeliveredWh: null, stationIsOnline: false }),
     ]);
@@ -337,44 +326,13 @@ describe('staleSessionCleanupHandler', () => {
     const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
     await staleSessionCleanupHandler(log);
 
-    expect(mockPriceSessionAt).toHaveBeenCalledWith(
+    expect(mockCloseOpenSegment).toHaveBeenCalledWith(
       mockClient,
       'ses_1',
       new Date('2026-06-01T01:00:00.000Z'),
       0,
+      0,
     );
-  });
-
-  it('keeps the last running cost when the cost assembly cannot price the session', async () => {
-    setStaleSessions([baseSession({ tariffId: 'tar_1', stationIsOnline: false })]);
-    const log = makeLog();
-
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
-    await staleSessionCleanupHandler(log);
-
-    const set = updateSetArgs[0] as Record<string, unknown>;
-    expect(set.finalCostCents).toBe(500);
-    expect(set.currentCostCents).toBe(500);
-    // The split stored with the running cost stays.
-    expect(set).not.toHaveProperty('netCents');
-    expect(set).not.toHaveProperty('costBreakdown');
-  });
-
-  it('falls back to currentCostCents (null) for final/current cost when no tariff snapshot exists', async () => {
-    setStaleSessions([
-      baseSession({ tariffId: null, currentCostCents: null, stationIsOnline: false }),
-    ]);
-    const log = makeLog();
-
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
-    await staleSessionCleanupHandler(log);
-
-    const set = updateSetArgs[0] as Record<string, unknown>;
-    // finalCostCents stays null (== currentCostCents) when no tariff path runs.
-    expect(set.finalCostCents).toBeNull();
-    expect(set.currentCostCents).toBeNull();
-    expect(mockPriceSessionAt).not.toHaveBeenCalled();
-    expect(mockCloseOpenSegment).not.toHaveBeenCalled();
   });
 
   it('writes a reservation audit when the session is linked to a reservation', async () => {
@@ -410,13 +368,13 @@ describe('staleSessionCleanupHandler', () => {
       'Failed to write session_failed reservation audit on stale cleanup',
     );
     // Session was still faulted despite audit failure.
-    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockFaultUnbilledSession).toHaveBeenCalledTimes(1);
     expect(log.info).toHaveBeenCalledWith({ count: 1 }, 'Stale session cleanup complete');
   });
 
   it('logs an error and continues the loop when faulting a session throws', async () => {
     // First session's UPDATE rejects; second session must still be processed.
-    updateWhere.mockRejectedValueOnce(new Error('update failed'));
+    mockFaultUnbilledSession.mockRejectedValueOnce(new Error('update failed'));
     setStaleSessions([
       baseSession({ id: 'ses_bad', stationIsOnline: false }),
       baseSession({
@@ -435,7 +393,7 @@ describe('staleSessionCleanupHandler', () => {
       'Failed to close stale session',
     );
     // Loop continued: second session's UPDATE ran.
-    expect(mockUpdate).toHaveBeenCalledTimes(2);
+    expect(mockFaultUnbilledSession).toHaveBeenCalledTimes(2);
     expect(log.info).toHaveBeenCalledWith({ count: 2 }, 'Stale session cleanup complete');
   });
 });

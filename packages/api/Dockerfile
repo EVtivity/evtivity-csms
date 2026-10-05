@@ -6,8 +6,10 @@ COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
 COPY packages/database/package.json packages/database/
 COPY packages/payments/package.json packages/payments/
+COPY packages/services/package.json packages/services/
 COPY packages/api/package.json packages/api/
 COPY packages/ocpp/package.json packages/ocpp/
+COPY packages/v2g-exi/package.json packages/v2g-exi/
 COPY packages/ocpi/package.json packages/ocpi/
 COPY packages/csms/package.json packages/csms/
 COPY packages/portal/package.json packages/portal/
@@ -24,16 +26,18 @@ COPY scripts/build.mjs scripts/build.mjs
 COPY packages/lib/ packages/lib/
 COPY packages/database/ packages/database/
 COPY packages/payments/ packages/payments/
+COPY packages/services/ packages/services/
 COPY packages/api/ packages/api/
 COPY packages/ocpp/ packages/ocpp/
+COPY packages/v2g-exi/ packages/v2g-exi/
 
 RUN node scripts/build.mjs api
 
 FROM node:24-slim
 
 # Noto Sans CJK (Regular and Bold collections) for Korean and Chinese invoice
-# PDFs (packages/api/src/services/invoice-pdf-fonts.ts). The dpkg exclude
-# skips the package's serif collections, which the PDF does not use.
+# and report PDFs (packages/services/src/pdf-fonts.ts). The dpkg exclude
+# skips the package's serif collections, which the PDFs do not use.
 RUN echo 'path-exclude=/usr/share/fonts/opentype/noto/NotoSerifCJK-*' > /etc/dpkg/dpkg.cfg.d/exclude-noto-serif-cjk \
     && apt-get update \
     && apt-get install -y --no-install-recommends fonts-noto-cjk \
@@ -45,8 +49,10 @@ COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
 COPY packages/database/package.json packages/database/
 COPY packages/payments/package.json packages/payments/
+COPY packages/services/package.json packages/services/
 COPY packages/api/package.json packages/api/
 COPY packages/ocpp/package.json packages/ocpp/
+COPY packages/v2g-exi/package.json packages/v2g-exi/
 COPY packages/ocpi/package.json packages/ocpi/
 COPY packages/csms/package.json packages/csms/
 COPY packages/portal/package.json packages/portal/
@@ -64,7 +70,7 @@ COPY packages/api/src/templates/ templates/api/
 COPY packages/ocpp/src/templates/ templates/ocpp/
 
 LABEL org.opencontainers.image.source="https://github.com/EVtivity/evtivity-csms-helm"
-LABEL org.opencontainers.image.license="LicenseRef-EVtivity-EULA"
+LABEL org.opencontainers.image.licenses="BUSL-1.1"
 LABEL org.opencontainers.image.vendor="EVtivity"
 
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/evtivity-entrypoint

@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_N_105_CSMS: TestCase = {
   id: 'TC_N_105_CSMS',
@@ -37,13 +38,15 @@ export const TC_N_105_CSMS: TestCase = {
       });
     }
     let adjustReceived = false;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'AdjustPeriodicEventStream') {
-        adjustReceived = true;
-        return { status: 'Accepted' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'AdjustPeriodicEventStream') {
+          adjustReceived = true;
+          return { status: 'Accepted' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'AdjustPeriodicEventStream', {
         stationId: ctx.stationId,

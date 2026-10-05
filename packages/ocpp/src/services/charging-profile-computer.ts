@@ -3,7 +3,7 @@
 
 import type { Sql } from 'postgres';
 import type { PubSubClient } from '@evtivity/lib';
-import crypto from 'node:crypto';
+import { publishOcppCommand } from '@evtivity/lib';
 
 interface ChargingNeedsInput {
   stationUuid: string;
@@ -163,17 +163,14 @@ export async function computeAndSendChargingProfile(
     ],
   };
 
-  const commandPayload = {
-    commandId: crypto.randomUUID(),
+  await publishOcppCommand(pubsub, {
     stationId: stationOcppId,
     action: 'SetChargingProfile',
     payload: {
       evseId,
       chargingProfile: profile,
     },
-  };
-
-  await pubsub.publish('ocpp_commands', JSON.stringify(commandPayload));
+  });
 
   // 6. Record computed schedule
   await sql`

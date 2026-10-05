@@ -6,15 +6,18 @@ import { TabsContent } from '@/components/ui/tabs';
 
 export interface SitePricingTabProps {
   siteId: string;
+  /** Site timezone; the schedule marks the current tariff in it. */
+  timezone?: string | undefined;
 }
 
-export function SitePricingTab({ siteId }: SitePricingTabProps): React.JSX.Element {
+export function SitePricingTab({ siteId, timezone }: SitePricingTabProps): React.JSX.Element {
   return (
     <TabsContent value="pricing" className="space-y-6">
       <PricingAssignmentTab
         resourceType="site"
         resourceId={siteId}
         assignUrl={`/sites/${siteId}/pricing/add`}
+        scheduleTimezone={timezone}
       />
     </TabsContent>
   );

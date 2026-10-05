@@ -20,7 +20,7 @@ vi.mock('@evtivity/lib', () => ({
   createLogger: () => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }),
 }));
 
-vi.mock('../lib/session-revenue.js', () => ({
+vi.mock('@evtivity/services/session-revenue', () => ({
   queryRevenueTotal: (input: unknown) => mockQueryRevenueTotal(input),
 }));
 

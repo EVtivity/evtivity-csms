@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyReply } from 'fastify';
-import { Redis } from 'ioredis';
-import { logRedisErrors } from '@evtivity/lib';
+import type { Redis } from 'ioredis';
+import { createRedisClient } from '@evtivity/lib';
 import { assertProviderSelectable, PaymentProviderUpgradePendingError } from '@evtivity/payments';
 import type { ProcessWatchStore } from '@evtivity/payments';
 import { config } from './config.js';
@@ -16,10 +16,9 @@ let redis: Redis | null = null;
 
 function redisClient(): Redis {
   if (redis == null) {
-    redis = logRedisErrors(
-      new Redis(config.REDIS_URL, { maxRetriesPerRequest: 2 }),
-      'provider-switch-guard',
-    );
+    redis = createRedisClient(config.REDIS_URL, 'provider-switch-guard', {
+      maxRetriesPerRequest: 2,
+    });
   }
   return redis;
 }

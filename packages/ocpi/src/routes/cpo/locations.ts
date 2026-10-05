@@ -13,6 +13,7 @@ import {
   ocpiLocationPublishPartners,
   maintenanceEvents,
   isStationLevelUnavailable,
+  removedOcpiEvses,
 } from '@evtivity/database';
 import { inArray } from 'drizzle-orm';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
@@ -26,7 +27,10 @@ import {
 import { config } from '../../lib/config.js';
 import { isLocationVisibleToPartner } from '../../lib/location-visibility.js';
 import { findEvseByUid } from '../../lib/evse-lookup.js';
+import { connectorTariffIds } from '../../services/connector-tariffs.js';
+import { removedEvseRow } from '../../services/location-render.js';
 import type { OcpiVersion } from '../../types/ocpi.js';
+import type { EvseRow as TransformEvseRow } from '../../transformers/location.transformer.js';
 
 function getCountryCode(): string {
   return config.OCPI_COUNTRY_CODE;
@@ -43,6 +47,7 @@ interface EvseRow {
   evseId: number;
   updatedAt: Date;
   stationLevelUnavailable: boolean;
+  removed: boolean;
 }
 
 interface ConnectorRow {
@@ -138,6 +143,13 @@ async function getPublishedLocations(
   return { locations: siteRows, total };
 }
 
+function withEvseTariffIds<T extends EvseRow>(
+  evse: T,
+  tariffIds: string[] | undefined,
+): T & { tariffIds?: string[] } {
+  return tariffIds != null ? { ...evse, tariffIds } : evse;
+}
+
 async function getEvsesWithConnectors(
   stationIds: string[],
 ): Promise<Map<string, Array<EvseRow & { connectors: ConnectorRow[] }>>> {
@@ -153,6 +165,7 @@ async function getEvsesWithConnectors(
       disabledReason: chargingStations.disabledReason,
       firmwareState: chargingStations.firmwareState,
       reportedStatus: chargingStations.reportedStatus,
+      onboardingStatus: chargingStations.onboardingStatus,
     })
     .from(evses)
     .innerJoin(chargingStations, eq(chargingStations.id, evses.stationId))
@@ -193,6 +206,8 @@ async function getEvsesWithConnectors(
       evseId: e.evseId,
       updatedAt: e.updatedAt,
       stationLevelUnavailable: isStationLevelUnavailable(e),
+      // A deleted station is kept with onboarding status `blocked`.
+      removed: e.onboardingStatus === 'blocked',
       connectors: connectorsByEvse.get(e.id) ?? [],
     });
     result.set(stId, list);
@@ -258,6 +273,29 @@ async function resolvePublishedSiteId(locationId: string): Promise<string | null
   return publishRow?.siteId ?? null;
 }
 
+// An EVSE that left the site (`ocpi_removed_evses`), as a REMOVED EVSE row.
+async function findRemovedEvse(siteId: string, uid: string): Promise<TransformEvseRow | null> {
+  const removed = (await removedOcpiEvses([siteId])).find((r) => r.evseUid === uid);
+  return removed != null ? removedEvseRow(removed) : null;
+}
+
+// Connector tariff ids of one station for a partner (empty when none is published).
+async function stationTariffIds(
+  partnerId: string,
+  stationDbId: string,
+  siteId: string,
+): Promise<string[] | undefined> {
+  const [site] = await db
+    .select({ freeVendEnabled: sites.freeVendEnabled })
+    .from(sites)
+    .where(eq(sites.id, siteId))
+    .limit(1);
+  const ids = await connectorTariffIds(partnerId, [
+    { id: stationDbId, freeVend: site?.freeVendEnabled === true },
+  ]);
+  return ids.get(stationDbId);
+}
+
 function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): void {
   const prefix = `/ocpi/${version}/cpo/locations`;
 
@@ -321,12 +359,33 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
 
     const allSiteIds = siteRows.map((s) => s.id);
     const maintenanceCoverage = await findSiteMaintenanceCoverage(allSiteIds);
+    const freeVendBySite = new Map(siteRows.map((s) => [s.id, s.freeVendEnabled]));
+    // EVSEs that left these sites (deleted, station moved) are served as
+    // REMOVED for the retention period (OCPI 8.1).
+    const removedBySite = new Map<string, TransformEvseRow[]>();
+    for (const r of await removedOcpiEvses(allSiteIds)) {
+      const list = removedBySite.get(r.siteId) ?? [];
+      list.push(removedEvseRow(r));
+      removedBySite.set(r.siteId, list);
+    }
+    const tariffIds = await connectorTariffIds(
+      partner.partnerId,
+      stationRows.map((s) => ({
+        id: s.id,
+        freeVend: s.siteId != null && freeVendBySite.get(s.siteId) === true,
+      })),
+    );
 
     // OCPI Location.coordinates is required; getPublishedLocations() filters
     // out coordinateless sites at the source so total + pagination stay aligned.
     const ocpiLocations = siteRows.map((site) => {
       const siteStationIds = stationsBySite.get(site.id) ?? [];
-      const allEvses = siteStationIds.flatMap((stId) => evseMap.get(stId) ?? []);
+      const allEvses = [
+        ...siteStationIds.flatMap((stId) =>
+          (evseMap.get(stId) ?? []).map((e) => withEvseTariffIds(e, tariffIds.get(stId))),
+        ),
+        ...(removedBySite.get(site.id) ?? []),
+      ];
       const coverage = maintenanceCoverage.get(site.id);
 
       return transformLocation(
@@ -389,7 +448,16 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
 
     const stationIds = stationRows.map((s) => s.id);
     const evseMap = await getEvsesWithConnectors(stationIds);
-    const allEvses = stationIds.flatMap((stId) => evseMap.get(stId) ?? []);
+    const tariffIds = await connectorTariffIds(
+      partner.partnerId,
+      stationIds.map((id) => ({ id, freeVend: site.freeVendEnabled })),
+    );
+    const allEvses = [
+      ...stationIds.flatMap((stId) =>
+        (evseMap.get(stId) ?? []).map((e) => withEvseTariffIds(e, tariffIds.get(stId))),
+      ),
+      ...(await removedOcpiEvses([siteId])).map(removedEvseRow),
+    ];
 
     const maintenanceCoverage = await findSiteMaintenanceCoverage([siteId]);
     const coverage = maintenanceCoverage.get(siteId);
@@ -424,18 +492,25 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
         return;
       }
 
-      // The EVSE must belong to the requested location.
+      // The EVSE must belong to the requested location, or have left it
+      // (served as REMOVED, OCPI 8.1).
       const siteId = await resolvePublishedSiteId(location_id);
       const found = siteId != null ? await findEvseByUid(evse_uid) : null;
-      if (
-        siteId == null ||
-        found?.siteId !== siteId ||
-        !(await isLocationVisibleToPartner(partner.partnerId, siteId))
-      ) {
+      if (siteId == null || !(await isLocationVisibleToPartner(partner.partnerId, siteId))) {
         await reply
           .status(404)
           .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_LOCATION, 'EVSE not found'));
         return;
+      }
+      if (found?.siteId !== siteId) {
+        const removed = await findRemovedEvse(siteId, evse_uid);
+        if (removed == null) {
+          await reply
+            .status(404)
+            .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_LOCATION, 'EVSE not found'));
+          return;
+        }
+        return ocpiSuccess(transformEvseStandalone(removed, version));
       }
       const evseRow = {
         id: found.evseDbId,
@@ -444,7 +519,9 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
         evseId: found.evseNumber,
         updatedAt: found.updatedAt,
         stationLevelUnavailable: isStationLevelUnavailable(found.stationState),
+        removed: found.stationRemoved,
       };
+      const evseTariffIds = await stationTariffIds(partner.partnerId, found.stationDbId, siteId);
 
       const connectorRows = await db
         .select()
@@ -453,6 +530,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
 
       const evseWithConnectors = {
         ...evseRow,
+        ...(evseTariffIds != null ? { tariffIds: evseTariffIds } : {}),
         connectors: connectorRows.map((c) => ({
           id: c.id,
           connectorId: c.connectorId,
@@ -468,12 +546,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
       const underMaintenance =
         coverage != null &&
         (coverage.allAffected || coverage.affectedStationIds.has(found.stationDbId));
-      const ocpiEvse = transformEvseStandalone(
-        evseWithConnectors,
-        version,
-        undefined,
-        underMaintenance,
-      );
+      const ocpiEvse = transformEvseStandalone(evseWithConnectors, version, underMaintenance);
       return ocpiSuccess(ocpiEvse);
     },
   );
@@ -496,18 +569,27 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
       }
 
       const connectorIdNum = parseInt(connector_id, 10);
-      // The EVSE must belong to the requested location.
+      // The EVSE must belong to the requested location, or have left it (its
+      // connectors are served as they were).
       const siteId = await resolvePublishedSiteId(location_id);
       const found = siteId != null ? await findEvseByUid(evse_uid) : null;
-      if (
-        siteId == null ||
-        found?.siteId !== siteId ||
-        !(await isLocationVisibleToPartner(partner.partnerId, siteId))
-      ) {
+      if (siteId == null || !(await isLocationVisibleToPartner(partner.partnerId, siteId))) {
         await reply
           .status(404)
           .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_LOCATION, 'Connector not found'));
         return;
+      }
+      if (found?.siteId !== siteId) {
+        const removed = (await findRemovedEvse(siteId, evse_uid))?.connectors.find(
+          (c) => c.connectorId === connectorIdNum,
+        );
+        if (removed == null) {
+          await reply
+            .status(404)
+            .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_LOCATION, 'Connector not found'));
+          return;
+        }
+        return ocpiSuccess(transformConnectorStandalone(removed, version));
       }
 
       const [connector] = await db
@@ -525,6 +607,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
         return;
       }
 
+      const connectorTariffs = await stationTariffIds(partner.partnerId, found.stationDbId, siteId);
       const ocpiConnector = transformConnectorStandalone(
         {
           id: connector.id,
@@ -536,6 +619,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
           updatedAt: connector.updatedAt,
         },
         version,
+        connectorTariffs,
       );
 
       return ocpiSuccess(ocpiConnector);

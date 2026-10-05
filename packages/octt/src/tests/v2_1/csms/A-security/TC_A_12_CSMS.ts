@@ -4,6 +4,7 @@
 import type { TestCase, StepResult } from '../../../../types.js';
 import { OCTT_CSR, OCTT_SIGNED_CERTIFICATE_CHAIN } from '../../../../certificate-fixtures.js';
 import { signPendingCsr, waitFor } from '../../../../security-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_A_12_CSMS: TestCase = {
   id: 'TC_A_12_CSMS',
@@ -46,7 +47,7 @@ export const TC_A_12_CSMS: TestCase = {
         certificateSignedReceived = true;
         return { status: 'Accepted' };
       }
-      return { status: 'NotSupported' };
+      return defaultReply('ocpp2.1', action, payload);
     });
 
     // Wait for the CSMS to send TriggerMessage
@@ -87,7 +88,11 @@ export const TC_A_12_CSMS: TestCase = {
 
       // Step 5-6: CSMS sends CertificateSignedRequest, we respond with Accepted
       // Manual action: the operator signs the queued CSR (manual PKI provider).
-      const signError = await signPendingCsr(ctx, OCTT_SIGNED_CERTIFICATE_CHAIN);
+      // A rejected CSR is not queued, so there is nothing to sign.
+      const signError =
+        signStatus === 'Accepted'
+          ? await signPendingCsr(ctx, OCTT_SIGNED_CERTIFICATE_CHAIN)
+          : `Not signed: SignCertificateResponse status = ${signStatus}`;
       if (signError == null) await waitFor(() => certificateSignedReceived);
 
       steps.push({

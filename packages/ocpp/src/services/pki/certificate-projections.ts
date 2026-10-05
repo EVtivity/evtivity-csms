@@ -1,9 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import crypto from 'node:crypto';
 import type postgres from 'postgres';
-import { createLogger } from '@evtivity/lib';
+import { createLogger, publishOcppCommand } from '@evtivity/lib';
 import type { PubSubClient } from '@evtivity/lib';
 
 const logger = createLogger('certificate-projections');
@@ -38,8 +37,7 @@ export async function handleCsrSigned(
   `;
 
   // Dispatch CertificateSigned command to the station
-  const commandPayload = JSON.stringify({
-    commandId: crypto.randomUUID(),
+  await publishOcppCommand(pubsub, {
     stationId,
     action: 'CertificateSigned',
     payload: {
@@ -47,8 +45,6 @@ export async function handleCsrSigned(
       certificateType: payload.certificateType,
     },
   });
-
-  await pubsub.publish('ocpp_commands', commandPayload);
 
   logger.info(
     { stationId, certificateType: payload.certificateType },

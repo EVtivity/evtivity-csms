@@ -6,6 +6,7 @@ import { createLogger, decryptString } from '@evtivity/lib';
 import type { PkiProvider } from './pki-provider.js';
 import { HubjectProvider } from './hubject-provider.js';
 import { ManualProvider } from './manual-provider.js';
+import { LocalContractProvider } from './local-contract-provider.js';
 import { config } from '../../lib/config.js';
 
 const logger = createLogger('pki-provider-factory');
@@ -88,6 +89,9 @@ export async function getPkiProvider(): Promise<PkiProvider> {
     });
 
     logger.info('Hubject PKI provider initialized');
+  } else if (providerType === 'local') {
+    instance = new LocalContractProvider();
+    logger.info('Local contract CA PKI provider initialized');
   } else {
     instance = new ManualProvider();
     logger.info('Manual PKI provider initialized');

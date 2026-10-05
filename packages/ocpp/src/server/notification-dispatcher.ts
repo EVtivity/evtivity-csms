@@ -6,6 +6,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLogger } from '@evtivity/lib';
 import type { DomainEvent, PubSubClient } from '@evtivity/lib';
+import { getWebhookAllowedPrivateHosts } from '@evtivity/database';
 import {
   getNotificationSettings,
   getCompanySettings,
@@ -21,8 +22,12 @@ import {
   formatDateVariables,
   recordNotificationAttempt,
   clearNotificationSettingsCache,
+  clearStationMessageCache,
 } from '@evtivity/lib';
+import { clearStationMessageSettingsCache } from '@evtivity/database';
 import { clearContractValidationCaCache } from '../services/pki/contract-certificate-validation.js';
+import { clearLocalContractCaCache } from '../services/pki/local-ca-store.js';
+import { clearOemTrustCache } from '../services/pki/local-contract-provider.js';
 
 export { dispatchSystemNotification };
 
@@ -99,11 +104,18 @@ export async function subscribeOcppEventSettingsInvalidation(
       }
       if (msg.cache === 'pkiCaCertificates') {
         clearContractValidationCaCache();
+        clearLocalContractCaCache();
+        clearOemTrustCache();
         log.info('CA certificate cache invalidated');
       }
       if (msg.kind === 'notification_settings') {
         clearNotificationSettingsCache();
         log.info('Notification settings cache invalidated');
+      }
+      if (msg.kind === 'station_message') {
+        // One-shot station messages render here.
+        clearStationMessageCache();
+        clearStationMessageSettingsCache();
       }
     } catch (err: unknown) {
       log.warn({ err }, 'Bad cache_invalidate payload');
@@ -251,6 +263,7 @@ export async function dispatchOcppNotification(
               rendered.subject,
               rendered.body,
               formattedVariables,
+              await getWebhookAllowedPrivateHosts(),
             );
             if (result !== 'ok') {
               status = 'failed';

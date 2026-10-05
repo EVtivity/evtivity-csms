@@ -2,19 +2,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { Logger } from 'pino';
-import { Redis } from 'ioredis';
+import type { Redis } from 'ioredis';
 import { recordProcessWatch } from '@evtivity/payments';
-import { logRedisErrors } from '@evtivity/lib';
+import { createRedisClient } from '@evtivity/lib';
 
 let redis: Redis | null = null;
 
 function watchStore(): Redis {
   if (redis == null) {
-    redis = logRedisErrors(
-      new Redis(process.env['REDIS_URL'] ?? 'redis://localhost:6379', {
-        maxRetriesPerRequest: 2,
-      }),
+    redis = createRedisClient(
+      process.env['REDIS_URL'] ?? 'redis://localhost:6379',
       'process-version-watch',
+      { maxRetriesPerRequest: 2 },
     );
   }
   return redis;

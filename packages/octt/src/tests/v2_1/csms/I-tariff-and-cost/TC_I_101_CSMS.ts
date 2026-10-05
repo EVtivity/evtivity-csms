@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 /**
  * TC_I_101_CSMS: Set Default Tariff - startTimeOfDay, endTimeOfDay
@@ -38,7 +39,7 @@ export const TC_I_101_CSMS: TestCase = {
           tariffPayload = payload;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -145,12 +146,12 @@ export const TC_I_102_CSMS: TestCase = {
     let receivedSetDefaultTariff = false;
 
     ctx.client.setIncomingCallHandler(
-      async (_messageId: string, action: string, _payload: Record<string, unknown>) => {
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'SetDefaultTariff') {
           receivedSetDefaultTariff = true;
           return { status: 'TooManyElements' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -214,12 +215,12 @@ export const TC_I_105_CSMS: TestCase = {
     let receivedSetDefaultTariff = false;
 
     ctx.client.setIncomingCallHandler(
-      async (_messageId: string, action: string, _payload: Record<string, unknown>) => {
+      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'SetDefaultTariff') {
           receivedSetDefaultTariff = true;
           return { status: 'ConditionsNotSupported' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -326,7 +327,7 @@ export const TC_I_106_CSMS: TestCase = {
             ],
           };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

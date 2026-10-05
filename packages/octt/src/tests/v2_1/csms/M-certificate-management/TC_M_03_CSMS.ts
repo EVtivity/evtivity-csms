@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 const makeCertRetrieveTest = (id: string, name: string, certType: string): TestCase => ({
   id,
@@ -42,7 +43,7 @@ const makeCertRetrieveTest = (id: string, name: string, certType: string): TestC
         }
         if (action === 'InstallCertificate') return { status: 'Accepted' };
         if (action === 'DeleteCertificate') return { status: 'Accepted' };
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -130,7 +131,7 @@ const makeMultiCertRetrieveTest = (id: string, name: string, certTypes: string[]
         }
         if (action === 'InstallCertificate') return { status: 'Accepted' };
         if (action === 'DeleteCertificate') return { status: 'Accepted' };
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -202,13 +203,15 @@ export const TC_M_19_CSMS: TestCase = {
       reason: 'PowerUp',
     });
     let received = false;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'GetInstalledCertificateIds') {
-        received = true;
-        return { status: 'NotFound' };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'GetInstalledCertificateIds') {
+          received = true;
+          return { status: 'NotFound' };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'GetInstalledCertificateIds', {
         stationId: ctx.stationId,

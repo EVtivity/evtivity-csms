@@ -56,7 +56,7 @@ vi.mock('../job-logger.js', () => ({
 }));
 
 const mockRunLoadManagementCycle = vi.fn().mockResolvedValue(undefined);
-vi.mock('@evtivity/api/src/services/load-management.service.js', () => ({
+vi.mock('@evtivity/services/load-management.service', () => ({
   runLoadManagementCycle: (...args: unknown[]) => mockRunLoadManagementCycle(...args),
 }));
 

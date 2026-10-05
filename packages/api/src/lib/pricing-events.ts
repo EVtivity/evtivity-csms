@@ -2,8 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { createLogger } from '@evtivity/lib';
-import { getPubSub } from './pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { publishOcpiTariffPush } from './ocpi-tariff-push.js';
+import {
+  requestStationMessageRepush,
+  type StationMessageRepushJob,
+} from '@evtivity/services/station-message.service';
 
 const logger = createLogger('pricing-events');
 
@@ -30,6 +34,33 @@ export type PricingChangedAction =
   | 'group.created'
   | 'holiday.changed'
   | 'assignment.changed';
+
+/**
+ * The stations whose Available screen (station tariff prices) a pricing
+ * change can alter, or null when none. Driver and fleet assignments do not
+ * change the station tariff. A deleted group's assignments are already gone,
+ * and holidays apply to every group, so both re-render every station.
+ */
+export function stationMessageRepushScope(args: {
+  pricingGroupId: string | null;
+  action: PricingChangedAction;
+  siteId?: string | null;
+  stationId?: string | null;
+}): StationMessageRepushJob | null {
+  switch (args.action) {
+    case 'group.created':
+      return null;
+    case 'assignment.changed':
+      if (args.stationId != null) return { stationId: args.stationId };
+      if (args.siteId != null) return { siteId: args.siteId };
+      return null;
+    case 'group.deleted':
+    case 'holiday.changed':
+      return {};
+    default:
+      return args.pricingGroupId != null ? { pricingGroupId: args.pricingGroupId } : {};
+  }
+}
 
 export async function publishPricingChanged(args: {
   pricingGroupId: string | null;
@@ -63,6 +94,8 @@ export async function publishPricingChanged(args: {
     // already committed and the audit log captured it.
     logger.warn({ err, action: args.action }, 'pricing.changed publish failed');
   }
+  const stationScope = stationMessageRepushScope(args);
+  if (stationScope != null) await requestStationMessageRepush(logger, stationScope);
   if (OCPI_TARIFF_ACTIONS.has(args.action)) {
     await publishOcpiTariffPush({
       tariffId: args.tariffId ?? null,

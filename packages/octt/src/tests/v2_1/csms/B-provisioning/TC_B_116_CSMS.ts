@@ -2,7 +2,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
-import { newTransactionId } from '../../../../csms-test-helpers.js';
+import {
+  newTransactionId,
+  startStationSequence,
+  waitForStationSequence,
+  type StationSequence,
+} from '../../../../csms-test-helpers.js';
+import { waitFor } from '../../../../security-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_B_116_CSMS: TestCase = {
   id: 'TC_B_116_CSMS',
@@ -39,6 +46,8 @@ export const TC_B_116_CSMS: TestCase = {
     let receivedReset = false;
     let resetType: string | null = null;
     let bootResponseStatus: string | null = null;
+    let resetSequence: StationSequence | null = null;
+    let sequenceError: string | null = null;
     let receivedPostResumeProfile = false;
 
     ctx.client.setIncomingCallHandler(
@@ -64,44 +73,40 @@ export const TC_B_116_CSMS: TestCase = {
           receivedReset = true;
           resetType = payload['type'] as string;
           // Respond Accepted, then simulate ImmediateAndResume with SmartCharging
-          setTimeout(async () => {
-            try {
-              // Updated for reset command
-              await ctx.client.sendCall('TransactionEvent', {
-                eventType: 'Updated',
-                timestamp: new Date().toISOString(),
-                triggerReason: 'ResetCommand',
-                seqNo: 1,
-                transactionInfo: { transactionId: txId, chargingState: 'SuspendedEVSE' },
-              });
-              // Reboot
-              const bootResp = await ctx.client.sendCall('BootNotification', {
-                chargingStation: { model: 'OCTT-Virtual', vendorName: 'OCTT' },
-                reason: 'RemoteReset',
-              });
-              bootResponseStatus = bootResp['status'] as string;
-              // Status after reboot
-              await ctx.client.sendCall('StatusNotification', {
-                timestamp: new Date().toISOString(),
-                connectorStatus: 'Occupied',
-                evseId: 1,
-                connectorId: 1,
-              });
-              // Resume transaction
-              await ctx.client.sendCall('TransactionEvent', {
-                eventType: 'Updated',
-                timestamp: new Date().toISOString(),
-                triggerReason: 'TxResumed',
-                seqNo: 2,
-                transactionInfo: { transactionId: txId, chargingState: 'Charging' },
-              });
-            } catch {
-              // Ignore errors
-            }
-          }, 500);
+          resetSequence = startStationSequence(async () => {
+            // Updated for reset command
+            await ctx.client.sendCall('TransactionEvent', {
+              eventType: 'Updated',
+              timestamp: new Date().toISOString(),
+              triggerReason: 'ResetCommand',
+              seqNo: 1,
+              transactionInfo: { transactionId: txId, chargingState: 'SuspendedEVSE' },
+            });
+            // Reboot
+            const bootResp = await ctx.client.sendCall('BootNotification', {
+              chargingStation: { model: 'OCTT-Virtual', vendorName: 'OCTT' },
+              reason: 'RemoteReset',
+            });
+            bootResponseStatus = bootResp['status'] as string;
+            // Status after reboot
+            await ctx.client.sendCall('StatusNotification', {
+              timestamp: new Date().toISOString(),
+              connectorStatus: 'Occupied',
+              evseId: 1,
+              connectorId: 1,
+            });
+            // Resume transaction
+            await ctx.client.sendCall('TransactionEvent', {
+              eventType: 'Updated',
+              timestamp: new Date().toISOString(),
+              triggerReason: 'TxResumed',
+              seqNo: 2,
+              transactionInfo: { transactionId: txId, chargingState: 'Charging' },
+            });
+          });
           return { status: 'Accepted' };
         }
-        return { status: 'NotSupported' };
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 
@@ -132,8 +137,8 @@ export const TC_B_116_CSMS: TestCase = {
         type: 'ImmediateAndResume',
       });
 
-      // Wait for the async BootNotification/resume sequence from the setTimeout callback
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      // Wait for the reboot and resume before the profile is sent again.
+      sequenceError = await waitForStationSequence(resetSequence);
 
       // Step 3: Re-send SetChargingProfile after resume
       await ctx.triggerCommand('v21', 'SetChargingProfile', {
@@ -155,7 +160,9 @@ export const TC_B_116_CSMS: TestCase = {
         },
       });
     } else {
-      await new Promise((resolve) => setTimeout(resolve, 15000));
+      // Without the API, wait for a ResetRequest the CSMS sends on its own.
+      await waitFor(() => resetSequence != null, 15_000);
+      sequenceError = await waitForStationSequence(resetSequence);
     }
 
     steps.push({
@@ -200,7 +207,10 @@ export const TC_B_116_CSMS: TestCase = {
           ? ('passed' as 'passed' | 'failed')
           : ('failed' as 'passed' | 'failed'),
       expected: 'BootNotificationResponse status = Accepted',
-      actual: `status = ${String(bootResponseStatus)}`,
+      actual:
+        bootResponseStatus != null
+          ? `status = ${String(bootResponseStatus)}`
+          : (sequenceError ?? 'No BootNotificationResponse'),
     });
 
     steps.push({

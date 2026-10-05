@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 export const TC_N_18_CSMS: TestCase = {
   id: 'TC_N_18_CSMS',
@@ -18,24 +19,26 @@ export const TC_N_18_CSMS: TestCase = {
       reason: 'PowerUp',
     });
     let clearCount = 0;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'GetVariables')
-        return {
-          getVariableResult: [
-            {
-              attributeStatus: 'Accepted',
-              attributeValue: '5',
-              component: { name: 'MonitoringCtrlr' },
-              variable: { name: 'ItemsPerMessage', instance: 'ClearVariableMonitoring' },
-            },
-          ],
-        };
-      if (action === 'ClearVariableMonitoring') {
-        clearCount++;
-        return { clearMonitoringResult: [{ id: 1, status: 'Accepted' }] };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'GetVariables')
+          return {
+            getVariableResult: [
+              {
+                attributeStatus: 'Accepted',
+                attributeValue: '5',
+                component: { name: 'MonitoringCtrlr' },
+                variable: { name: 'ItemsPerMessage', instance: 'ClearVariableMonitoring' },
+              },
+            ],
+          };
+        if (action === 'ClearVariableMonitoring') {
+          clearCount++;
+          return { clearMonitoringResult: [{ id: 1, status: 'Accepted' }] };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'ClearVariableMonitoring', {
         stationId: ctx.stationId,
@@ -74,13 +77,15 @@ export const TC_N_44_CSMS: TestCase = {
       reason: 'PowerUp',
     });
     let received = false;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'ClearVariableMonitoring') {
-        received = true;
-        return { clearMonitoringResult: [{ id: 1, status: 'Rejected' }] };
-      }
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'ClearVariableMonitoring') {
+          received = true;
+          return { clearMonitoringResult: [{ id: 1, status: 'Rejected' }] };
+        }
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'ClearVariableMonitoring', {
         stationId: ctx.stationId,

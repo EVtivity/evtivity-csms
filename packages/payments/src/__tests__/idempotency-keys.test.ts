@@ -8,6 +8,7 @@ import {
   captureKey,
   MAX_IDEMPOTENCY_KEY_LENGTH,
   refundKey,
+  reservationFeeKey,
   topUpKey,
   topUpRetryKey,
 } from '../idempotency-keys.js';
@@ -63,5 +64,12 @@ describe('idempotency keys of operations on a provider payment', () => {
     );
     expect(key).toBe(`refund_${PI}_99999_99999_9_topup_9`);
     expect(key.length).toBeLessThanOrEqual(MAX_IDEMPOTENCY_KEY_LENGTH);
+  });
+});
+
+describe('reservationFeeKey', () => {
+  it('keeps the key reservation fees were always charged with', () => {
+    expect(reservationFeeKey('reservation_cancellation', 'rsv_1')).toBe('cancellation-fee-rsv_1');
+    expect(reservationFeeKey('reservation_no_show', 'rsv_1')).toBe('no-show-fee-rsv_1');
   });
 });

@@ -16,6 +16,8 @@ export interface EvseByUid {
   siteId: string | null;
   updatedAt: Date;
   stationState: StationLevelState;
+  /** The station was deleted (soft delete: onboarding status `blocked`). */
+  stationRemoved: boolean;
 }
 
 export async function findEvseByUid(uid: string): Promise<EvseByUid | null> {
@@ -30,12 +32,17 @@ export async function findEvseByUid(uid: string): Promise<EvseByUid | null> {
       disabledReason: chargingStations.disabledReason,
       firmwareState: chargingStations.firmwareState,
       reportedStatus: chargingStations.reportedStatus,
+      onboardingStatus: chargingStations.onboardingStatus,
     })
     .from(evses)
     .innerJoin(chargingStations, eq(chargingStations.id, evses.stationId))
     .where(eq(evses.id, uid))
     .limit(1);
   if (row == null) return null;
-  const { disabledReason, firmwareState, reportedStatus, ...evse } = row;
-  return { ...evse, stationState: { disabledReason, firmwareState, reportedStatus } };
+  const { disabledReason, firmwareState, reportedStatus, onboardingStatus, ...evse } = row;
+  return {
+    ...evse,
+    stationState: { disabledReason, firmwareState, reportedStatus },
+    stationRemoved: onboardingStatus === 'blocked',
+  };
 }

@@ -36,6 +36,7 @@ import { StationSessionsTab } from '@/components/station/StationSessionsTab';
 import { StationQrTab } from '@/components/station/StationQrTab';
 import { StationPricingTab } from '@/components/station/StationPricingTab';
 import { StationReservationsTab } from '@/components/station/StationReservationsTab';
+import { StationSimulatorConflict } from '@/components/station/StationSimulatorConflict';
 import { api } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
@@ -69,6 +70,7 @@ interface Station {
   reportedStatus: string | null;
   isOnline: boolean;
   isSimulator: boolean;
+  simulatorConflictAt: string | null;
   lastHeartbeat: string | null;
   ocppProtocol: string | null;
   securityProfile: number;
@@ -261,6 +263,15 @@ export function StationDetail(): React.JSX.Element {
         }}
       />
 
+      {station.isSimulator && station.simulatorConflictAt != null && (
+        <StationSimulatorConflict
+          stationDbId={station.id}
+          stationId={station.stationId}
+          conflictAt={station.simulatorConflictAt}
+          timezone={siteTimezone}
+        />
+      )}
+
       {station.onboardingStatus === 'pending' && (
         <Card className="border-warning">
           <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -449,7 +460,10 @@ export function StationDetail(): React.JSX.Element {
         </TabsContent>
 
         <TabsContent value="pricing" className="space-y-6">
-          <StationPricingTab stationId={id ?? ''} />
+          <StationPricingTab
+            stationId={id ?? ''}
+            siteTimezone={sites?.find((s) => s.id === station.siteId)?.timezone}
+          />
         </TabsContent>
 
         <TabsContent value="local-auth">

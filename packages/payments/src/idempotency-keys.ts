@@ -76,3 +76,17 @@ export function refundKey(
   const key = topUpNumber == null ? request : `${request}_topup_${String(topUpNumber)}`;
   return bounded('refund', key);
 }
+
+/**
+ * A reservation cancellation or no-show fee charge (creates a payment: one
+ * per reservation and fee type). It is also the charge's provider reference,
+ * which a refund of the fee reuses. Not bounded: it must stay the key the
+ * existing charges were made with.
+ */
+export function reservationFeeKey(
+  type: 'reservation_cancellation' | 'reservation_no_show',
+  reservationId: string,
+): string {
+  const prefix = type === 'reservation_cancellation' ? 'cancellation-fee' : 'no-show-fee';
+  return `${prefix}-${reservationId}`;
+}

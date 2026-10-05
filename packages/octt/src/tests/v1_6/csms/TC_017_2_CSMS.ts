@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../types.js';
+import { defaultReply } from '../../../default-replies.js';
 
 export const TC_017_2_CSMS: TestCase = {
   id: 'TC_017_2_CSMS',
@@ -20,12 +21,12 @@ export const TC_017_2_CSMS: TestCase = {
     });
 
     let unlockReceived = false;
-    ctx.client.setIncomingCallHandler(async (_messageId, action, _payload) => {
+    ctx.client.setIncomingCallHandler(async (_messageId, action, payload) => {
       if (action === 'UnlockConnector') {
         unlockReceived = true;
         return { status: 'NotSupported' };
       }
-      return {};
+      return defaultReply('ocpp1.6', action, payload);
     });
 
     if (ctx.triggerCommand != null) {

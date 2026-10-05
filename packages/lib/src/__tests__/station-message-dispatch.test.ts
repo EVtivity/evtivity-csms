@@ -22,7 +22,7 @@ import { clearStationMessage, dispatchOneShotStationMessage } from '../station-m
 
 interface SqlMock {
   sql: Sql;
-  setProtocol: (protocol: string | null | undefined) => void;
+  setProtocol: (protocol: string | null | undefined, siteLanguage?: string | null) => void;
   setThrow: (err: Error) => void;
   calls: unknown[][];
 }
@@ -40,9 +40,12 @@ function createSqlMock(): SqlMock {
 
   return {
     sql: sqlFn as unknown as Sql,
-    setProtocol: (protocol) => {
+    setProtocol: (protocol, siteLanguage = null) => {
       toThrow = null;
-      rows = protocol === undefined ? [{}] : [{ ocpp_protocol: protocol }];
+      rows =
+        protocol === undefined
+          ? [{}]
+          : [{ ocpp_protocol: protocol, station_message_language: siteLanguage }];
     },
     setThrow: (err) => {
       toThrow = err;
@@ -358,7 +361,39 @@ describe('dispatchOneShotStationMessage', () => {
     });
 
     expect(mockRenderStationMessage).toHaveBeenCalledTimes(1);
-    expect(mockRenderStationMessage).toHaveBeenCalledWith('payment_failed', baseContext);
+    expect(mockRenderStationMessage).toHaveBeenCalledWith('payment_failed', baseContext, undefined);
+  });
+
+  it("renders in the station's site display language when the site has one", async () => {
+    const sqlMock = createSqlMock();
+    sqlMock.setProtocol('ocpp1.6', 'de');
+    mockRenderStationMessage.mockResolvedValueOnce('Zahlung abgelehnt');
+    const { pubsub } = createPubSubMock();
+
+    await dispatchOneShotStationMessage(pubsub, sqlMock.sql, {
+      stationOcppId: 'CS-1',
+      stationDbId: 'sta_1',
+      state: 'payment_failed',
+      context: baseContext,
+    });
+
+    expect(mockRenderStationMessage).toHaveBeenCalledWith('payment_failed', baseContext, 'de');
+  });
+
+  it('ignores an unknown site language and falls back to the setting', async () => {
+    const sqlMock = createSqlMock();
+    sqlMock.setProtocol('ocpp2.1', 'fr');
+    mockRenderStationMessage.mockResolvedValueOnce('Payment declined');
+    const { pubsub } = createPubSubMock();
+
+    await dispatchOneShotStationMessage(pubsub, sqlMock.sql, {
+      stationOcppId: 'CS-1',
+      stationDbId: 'sta_1',
+      state: 'payment_failed',
+      context: baseContext,
+    });
+
+    expect(mockRenderStationMessage).toHaveBeenCalledWith('payment_failed', baseContext, undefined);
   });
 
   it('publishes SetDisplayMessage on ocpp2.1 with default slot/priority/ttl', async () => {

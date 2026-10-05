@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { hostname } from 'node:os';
-import { Redis } from 'ioredis';
+import type { Redis } from 'ioredis';
 import { OcppServer } from './server/ocpp-server.js';
 import { CommandListener } from './server/command-listener.js';
 import { PgEventPersistence, client, getSentryConfig } from '@evtivity/database';
@@ -13,13 +13,16 @@ import {
   RedisPubSubClient,
   RedisConnectionRegistry,
   initSentry,
-  logRedisErrors,
+  createRedisClient,
 } from '@evtivity/lib';
 import { registerProjections } from './server/event-projections.js';
 import { subscribeOcppEventSettingsInvalidation } from './server/notification-dispatcher.js';
+import { subscribePncCommands } from './services/pki/root-certificate-refresh.js';
+import { startSessionEndSweep, subscribeSessionEndRequests } from './server/csms-session-end.js';
 import { setAuthorizeLogPubSub } from './handlers/authorize-log.js';
 import { setPaymentPubSub } from './lib/payments.js';
 import { config } from './lib/config.js';
+import { connectionAuthLimitsFromConfig } from './server/connection-auth-limiter.js';
 
 const OCPP_PORT = config.OCPP_PORT;
 const OCPP_HOST = config.OCPP_HOST;
@@ -68,9 +71,13 @@ const server = new OcppServer({
   eventPersistence,
   sql: client,
   trustedProxyCidrs: config.OCPP_TRUSTED_PROXY_CIDRS,
+  connectionAuthLimits: connectionAuthLimitsFromConfig(config),
 });
 let commandListener: CommandListener | null = null;
 let cacheInvalidateSub: { unsubscribe: () => Promise<void> } | null = null;
+let pncCommandsSub: { unsubscribe: () => Promise<void> } | null = null;
+let sessionEndSub: { unsubscribe: () => Promise<void> } | null = null;
+let stopSessionEndSweep: (() => void) | null = null;
 let healthServer: Server | null = null;
 let pubsub: RedisPubSubClient | null = null;
 let registryRedis: Redis | null = null;
@@ -93,7 +100,7 @@ async function start(): Promise<void> {
   setPaymentPubSub(pubsub);
 
   // Create a separate Redis client for the connection registry (not the pub/sub client)
-  registryRedis = logRedisErrors(new Redis(REDIS_URL), 'connection-registry');
+  registryRedis = createRedisClient(REDIS_URL, 'connection-registry');
   const registry = new RedisConnectionRegistry(registryRedis);
 
   // Pass registry to connection manager for station ownership tracking
@@ -117,6 +124,18 @@ async function start(): Promise<void> {
   // operator updates OCPP event settings. The subscription keeps each pod&#39;s
   // in-memory dispatcher cache fresh without waiting for the 60s TTL.
   cacheInvalidateSub = await subscribeOcppEventSettingsInvalidation(pubsub);
+  pncCommandsSub = await subscribePncCommands(pubsub);
+
+  // The API ends a ghost session (TxNotFound) here, through the normal
+  // session end: final cost, settlement, receipt.
+  sessionEndSub = await subscribeSessionEndRequests(
+    pubsub,
+    client,
+    server.getEventBus(),
+    server.getLogger(),
+  );
+  // The backstop: ends sessions whose end request message was lost.
+  stopSessionEndSweep = startSessionEndSweep(client, server.getEventBus(), server.getLogger());
 
   // Health check HTTP server
   // Returns 503 during shutdown so Kubernetes stops routing traffic before
@@ -135,6 +154,8 @@ async function start(): Promise<void> {
     }
 
     const connectedStations = server.getConnectionManager().count();
+    // Running, queued, and refused station connection authentications.
+    const connectionAuth = server.getConnectionAuthStats();
 
     if (pubsub == null) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -143,6 +164,7 @@ async function start(): Promise<void> {
           status: 'degraded',
           timestamp: new Date().toISOString(),
           connectedStations,
+          connectionAuth,
           redis: 'error',
         }),
       );
@@ -159,6 +181,7 @@ async function start(): Promise<void> {
             status,
             timestamp: new Date().toISOString(),
             connectedStations,
+            connectionAuth,
             redis: redisOk ? 'ok' : 'error',
           }),
         );
@@ -170,6 +193,7 @@ async function start(): Promise<void> {
             status: 'degraded',
             timestamp: new Date().toISOString(),
             connectedStations,
+            connectionAuth,
             redis: 'error',
           }),
         );
@@ -181,7 +205,7 @@ async function start(): Promise<void> {
 async function shutdown(): Promise<void> {
   // SIGINT and SIGTERM can both arrive; run the sequence once.
   if (shuttingDown) return;
-  console.log('\nShutting down OCPP server...');
+  server.getLogger().info('Shutting down OCPP server');
   shuttingDown = true;
   if (healthServer != null) {
     healthServer.close();
@@ -191,6 +215,15 @@ async function shutdown(): Promise<void> {
   }
   if (cacheInvalidateSub != null) {
     await cacheInvalidateSub.unsubscribe();
+  }
+  if (pncCommandsSub != null) {
+    await pncCommandsSub.unsubscribe();
+  }
+  if (sessionEndSub != null) {
+    await sessionEndSub.unsubscribe();
+  }
+  if (stopSessionEndSweep != null) {
+    stopSessionEndSweep();
   }
   // Stops accepting connections, closes the station sockets, and waits for
   // the station.Disconnected projections and other event handlers to finish.
@@ -216,6 +249,6 @@ process.on('SIGTERM', () => {
 });
 
 start().catch((err: unknown) => {
-  console.error('OCPP server failed to start:', err);
+  server.getLogger().error({ err }, 'OCPP server failed to start');
   process.exit(1);
 });

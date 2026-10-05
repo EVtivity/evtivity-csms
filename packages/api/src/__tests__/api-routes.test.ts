@@ -189,7 +189,7 @@ describe('Auth requirements - returns 401 without token', () => {
   it('GET /v1/transactions/by-transaction-id/:transactionId returns 401', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: '/transactions/by-transaction-id/txn-123',
+      url: '/transactions/by-transaction-id/txn-123?stationId=CS-001',
     });
     expect(response.statusCode).toBe(401);
   });

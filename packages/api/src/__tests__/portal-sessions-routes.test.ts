@@ -158,6 +158,7 @@ describe('Portal sessions routes - handler logic', () => {
             energyDeliveredWh: 10000,
             finalCostCents: 500,
             tariffTaxRate: '0.19',
+            taxCents: 80,
             currency: 'USD',
             stationName: 'CS-001',
             siteName: 'Site A',
@@ -182,6 +183,7 @@ describe('Portal sessions routes - handler logic', () => {
       expect(body.data[0].id).toBe(VALID_SESSION_ID);
       expect(body.data[0].status).toBe('completed');
       expect(body.data[0].tariffTaxRate).toBe('0.19');
+      expect(body.data[0].taxCents).toBe(80);
     });
 
     it('returns empty data with zero total when no sessions', async () => {

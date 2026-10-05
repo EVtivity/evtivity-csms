@@ -21,6 +21,7 @@ import { api } from '@/lib/api';
 import { ReservationSettings } from '@/components/settings/ReservationSettings';
 import { GoogleMapPicker } from '@/components/GoogleMapPicker';
 import { StationMessageSettings } from '@/components/settings/StationMessageSettings';
+import { PncLocalCaSection } from '@/components/settings/PncLocalCaSection';
 
 interface IntegrationsSettingsProps {
   settings: Record<string, unknown> | undefined;
@@ -104,6 +105,8 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
   const [pncWarningDays, setPncWarningDays] = useState('30');
   const [pncCriticalDays, setPncCriticalDays] = useState('7');
   const [pncOcspAllowedHosts, setPncOcspAllowedHosts] = useState('');
+  const [pncEmaidCountry, setPncEmaidCountry] = useState('');
+  const [pncEmaidProviderId, setPncEmaidProviderId] = useState('');
 
   const roamingEnabled = settings != null && settings['roaming.enabled'] === true;
 
@@ -120,6 +123,8 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     setPncHubjectTokenUrl(s('pnc.hubject.tokenUrl'));
     setPncWarningDays(s('pnc.expirationWarningDays') || '30');
     setPncCriticalDays(s('pnc.expirationCriticalDays') || '7');
+    setPncEmaidCountry(s('pnc.local.emaidCountry'));
+    setPncEmaidProviderId(s('pnc.local.emaidProviderId'));
     const hosts = pncSettings['pnc.ocsp.allowedPrivateHosts'];
     setPncOcspAllowedHosts(
       Array.isArray(hosts) ? hosts.filter((h) => typeof h === 'string').join('\n') : '',
@@ -375,6 +380,8 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
       expirationWarningDays: number;
       expirationCriticalDays: number;
       ocspAllowedPrivateHosts: string[];
+      localEmaidCountry?: string;
+      localEmaidProviderId?: string;
     }) => api.put('/v1/pnc/settings', vals),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['pnc-settings'] });
@@ -706,6 +713,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                     >
                       <option value="manual">{t('settings.pncProviderManual')}</option>
                       <option value="hubject">{t('settings.pncProviderHubject')}</option>
+                      <option value="local">{t('settings.pncProviderLocal')}</option>
                     </Select>
                   </div>
 
@@ -759,6 +767,15 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                     {t('settings.pncOcspAllowedPrivateHostsHint')}
                   </p>
                 </div>
+
+                {pncProvider === 'local' && (
+                  <PncLocalCaSection
+                    emaidCountry={pncEmaidCountry}
+                    emaidProviderId={pncEmaidProviderId}
+                    onEmaidCountryChange={setPncEmaidCountry}
+                    onEmaidProviderIdChange={setPncEmaidProviderId}
+                  />
+                )}
 
                 {pncProvider === 'hubject' && (
                   <div className="grid gap-4 sm:grid-cols-2">
@@ -841,6 +858,12 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                           .split(/[\s,]+/)
                           .map((h) => h.trim())
                           .filter((h) => h !== ''),
+                        ...(pncProvider === 'local'
+                          ? {
+                              localEmaidCountry: pncEmaidCountry,
+                              localEmaidProviderId: pncEmaidProviderId,
+                            }
+                          : {}),
                       });
                     }}
                   />

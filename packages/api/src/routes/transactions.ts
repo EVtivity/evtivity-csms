@@ -106,6 +106,15 @@ const transactionIdParams = z.object({
   transactionId: z.string().describe('OCPP transaction ID'),
 });
 
+const transactionLookupQuery = z.object({
+  stationId: z
+    .string()
+    .min(1)
+    .describe(
+      'OCPP identity of the station that reported the transaction (a transaction ID is unique per station only)',
+    ),
+});
+
 /** Check if user has site access to a session's station. Returns true if allowed. */
 async function checkSessionSiteAccess(sessionId: string, userId: string): Promise<boolean> {
   const siteIds = await getUserSiteIds(userId);
@@ -182,9 +191,12 @@ export function transactionRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Transactions'],
         summary: 'Get session by OCPP transaction ID',
+        description:
+          'Returns the charging session of a transaction. OCPP 2.1 transaction IDs are unique per station only, so the station is required.',
         operationId: 'getTransactionById',
         security: [{ bearerAuth: [] }],
         params: zodSchema(transactionIdParams),
+        querystring: zodSchema(transactionLookupQuery),
         response: {
           200: itemResponse(transactionSessionItem),
           404: errorWith('Transaction not found', [ERROR_CODES.TRANSACTION_NOT_FOUND]),
@@ -193,7 +205,8 @@ export function transactionRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { transactionId } = request.params as z.infer<typeof transactionIdParams>;
-      const session = await transactionService.getSessionByTransactionId(transactionId);
+      const { stationId } = request.query as z.infer<typeof transactionLookupQuery>;
+      const session = await transactionService.getSessionByTransactionId(stationId, transactionId);
       if (session == null) {
         await reply
           .status(404)

@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, like, or, inArray } from 'drizzle-orm';
 import {
@@ -22,6 +22,8 @@ import {
   clearStationMessageSettingsCache,
   invalidateReservationSettingsCache,
   clearMobileAppConfigCache,
+  clearWebhookSettingsCache,
+  WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY,
 } from '@evtivity/database';
 import { clearPaymentCaches, isPaymentSettingKey } from '../lib/payments.js';
 import {
@@ -44,8 +46,11 @@ import {
   parseMobileAppList,
   MOBILE_APP_URL_SCHEMES_KEY,
   MOBILE_APP_ANDROID_PACKAGES_KEY,
+  parseAllowedPrivateHosts,
+  MAX_ALLOWED_PRIVATE_HOSTS,
 } from '@evtivity/lib';
-import { getPubSub } from '../lib/pubsub.js';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
 
 const NOTIFICATION_SETTINGS_KEY_PREFIXES = ['smtp.', 'twilio.', 'email.', 'company.'];
 const NOTIFICATION_SETTINGS_EXACT_KEYS = new Set(['system.timezone']);
@@ -74,7 +79,7 @@ import { DEFAULT_CONTENT } from './default-content.js';
 import { authorize } from '../middleware/rbac.js';
 import { config as apiConfig } from '../lib/config.js';
 import { getAuditActor } from '../lib/audit-actor.js';
-import { decryptForRead, encryptForWrite } from '../lib/settings-crypto.js';
+import { decryptForRead, encryptForWrite, isServerManagedSetting } from '../lib/settings-crypto.js';
 
 const settingParams = z.object({
   key: z.string().min(1).describe('Setting key'),
@@ -103,6 +108,7 @@ function isCachedSystemSetting(key: string): boolean {
  * null when the value is invalid.
  */
 function normalizeSettingValue(key: string, value: unknown): { value: unknown } | null {
+  if (isServerManagedSetting(key)) return null;
   if (key === COMPANY_PRICE_DISPLAY_KEY) return isPriceDisplay(value) ? { value } : null;
   if (key === STATION_MESSAGE_LANGUAGE_KEY) {
     return isStationMessageLanguage(value) ? { value } : null;
@@ -111,6 +117,10 @@ function normalizeSettingValue(key: string, value: unknown): { value: unknown } 
   if (isMobileAppSettingKey(key)) {
     const list = parseMobileAppList(key, value);
     return list != null ? { value: list } : null;
+  }
+  if (key === WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY) {
+    const hosts = parseAllowedPrivateHosts(value);
+    return hosts != null ? { value: hosts } : null;
   }
   if (key !== COMPANY_CURRENCY_KEY) return { value };
   const code = typeof value === 'string' ? value.trim().toUpperCase() : value;
@@ -148,13 +158,50 @@ const invalidMobileAppPackagesError = {
   code: 'VALIDATION_ERROR',
 };
 
+const invalidWebhookAllowedHostsError = {
+  error: `${WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY} must be an array of at most ${String(MAX_ALLOWED_PRIVATE_HOSTS)} hostnames or IP addresses without scheme or port`,
+  code: 'VALIDATION_ERROR',
+};
+
+const serverManagedSettingError = {
+  error: 'This setting is managed by the CSMS and cannot be written directly',
+  code: 'VALIDATION_ERROR',
+};
+
 function invalidSettingError(key: string): { error: string; code: string } {
+  if (isServerManagedSetting(key)) return serverManagedSettingError;
+  if (key === WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY) return invalidWebhookAllowedHostsError;
   if (key === MOBILE_APP_URL_SCHEMES_KEY) return invalidMobileAppSchemesError;
   if (key === MOBILE_APP_ANDROID_PACKAGES_KEY) return invalidMobileAppPackagesError;
   if (key === COMPANY_PRICE_DISPLAY_KEY) return invalidPriceDisplayError;
   if (key === COMPANY_TAX_BASIS_KEY) return invalidTaxBasisError;
   if (key === STATION_MESSAGE_LANGUAGE_KEY) return invalidStationMessageLanguageError;
   return invalidCurrencyError;
+}
+
+// Settings that change what station screens show. A changed value re-renders
+// them (requestStationMessageRepush); unchanged content is not resent.
+const STATION_MESSAGE_RENDER_KEYS = new Set([
+  'stationMessage.enabled',
+  'stationMessage.pricingFormat',
+  'stationMessage.brandLine',
+  'stationMessage.language',
+  'company.name',
+  'company.supportPhone',
+  'company.currency',
+  'company.priceDisplay',
+  'company.taxBasis',
+]);
+
+async function repushStationMessagesIfChanged(
+  key: string,
+  before: unknown,
+  after: unknown,
+  log: FastifyBaseLogger,
+): Promise<void> {
+  if (!STATION_MESSAGE_RENDER_KEYS.has(key)) return;
+  if (JSON.stringify(before) === JSON.stringify(after)) return;
+  await requestStationMessageRepush(log);
 }
 
 // Keys read through cached getters in @evtivity/database clear their cache on change.
@@ -164,6 +211,7 @@ function clearCachesForKey(key: string): void {
   if (key.startsWith('reservation.')) invalidateReservationSettingsCache();
   if (isPaymentSettingKey(key)) clearPaymentCaches();
   if (isMobileAppSettingKey(key)) clearMobileAppConfigCache();
+  if (key === WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY) clearWebhookSettingsCache();
 }
 
 const settingItem = z
@@ -336,6 +384,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       const rows = await db.select().from(settings);
       const result: Record<string, unknown> = {};
       for (const row of rows) {
+        if (isServerManagedSetting(row.key)) continue;
         result[row.key] = decryptForRead(row.key, row.value);
       }
       return result;
@@ -360,7 +409,9 @@ export function settingsRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { key } = request.params as z.infer<typeof settingParams>;
-      const [row] = await db.select().from(settings).where(eq(settings.key, key));
+      const [row] = isServerManagedSetting(key)
+        ? []
+        : await db.select().from(settings).where(eq(settings.key, key));
       if (row == null) {
         await reply.status(404).send({ error: 'Setting not found', code: 'SETTING_NOT_FOUND' });
         return;
@@ -436,6 +487,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       );
       clearCachesForKey(row.key);
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
+      await repushStationMessagesIfChanged(row.key, before?.value, row.value, request.log);
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
   );
@@ -506,6 +558,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       );
       clearCachesForKey(row.key);
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
+      await repushStationMessagesIfChanged(row.key, before?.value, row.value, request.log);
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
   );
@@ -522,12 +575,20 @@ export function settingsRoutes(app: FastifyInstance): void {
         params: zodSchema(settingParams),
         response: {
           200: itemResponse(settingItem),
+          400: errorWith('Setting managed by the CSMS', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
         },
       },
     },
     async (request, reply) => {
       const { key } = request.params as z.infer<typeof settingParams>;
+      if (isServerManagedSetting(key)) {
+        await reply.status(400).send({
+          error: serverManagedSettingError.error,
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
       const [row] = await db.delete(settings).where(eq(settings.key, key)).returning();
       if (row == null) {
         await reply.status(404).send({ error: 'Setting not found', code: 'SETTING_NOT_FOUND' });
@@ -549,6 +610,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       );
       clearCachesForKey(row.key);
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
+      await repushStationMessagesIfChanged(row.key, row.value, undefined, request.log);
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
   );

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../types.js';
+import { defaultReply } from '../../../default-replies.js';
 
 export const TC_026_CSMS: TestCase = {
   id: 'TC_026_CSMS',
@@ -20,12 +21,12 @@ export const TC_026_CSMS: TestCase = {
     });
 
     let remoteStartReceived = false;
-    ctx.client.setIncomingCallHandler(async (_messageId, action, _payload) => {
+    ctx.client.setIncomingCallHandler(async (_messageId, action, payload) => {
       if (action === 'RemoteStartTransaction') {
         remoteStartReceived = true;
         return { status: 'Rejected' };
       }
-      return {};
+      return defaultReply('ocpp1.6', action, payload);
     });
 
     if (ctx.triggerCommand != null) {

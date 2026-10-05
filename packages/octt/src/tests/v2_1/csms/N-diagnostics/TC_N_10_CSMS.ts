@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { pushSendAckStep } from '../../../../csms-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 const makeClearCustomerTest = (id: string, name: string, desc: string): TestCase => ({
   id,
@@ -19,14 +20,16 @@ const makeClearCustomerTest = (id: string, name: string, desc: string): TestCase
       reason: 'PowerUp',
     });
     let received = false;
-    ctx.client.setIncomingCallHandler(async (_mid: string, action: string) => {
-      if (action === 'CustomerInformation') {
-        received = true;
-        return { status: 'Accepted' };
-      }
-      if (action === 'SendLocalList') return { status: 'Accepted' };
-      return {};
-    });
+    ctx.client.setIncomingCallHandler(
+      async (_mid: string, action: string, payload: Record<string, unknown>) => {
+        if (action === 'CustomerInformation') {
+          received = true;
+          return { status: 'Accepted' };
+        }
+        if (action === 'SendLocalList') return { status: 'Accepted' };
+        return defaultReply('ocpp2.1', action, payload);
+      },
+    );
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'CustomerInformation', {
         stationId: ctx.stationId,

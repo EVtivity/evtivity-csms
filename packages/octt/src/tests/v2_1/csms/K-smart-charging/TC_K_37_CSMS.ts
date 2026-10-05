@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
+import { defaultReply } from '../../../../default-replies.js';
 
 /**
  * TC_K_37_CSMS: Remote start transaction with charging profile - Success
@@ -44,7 +45,7 @@ export const TC_K_37_CSMS: TestCase = {
           remoteStartId = (payload['remoteStartId'] as number) ?? 1;
           return { status: 'Accepted' };
         }
-        return {};
+        return defaultReply('ocpp2.1', action, payload);
       },
     );
 

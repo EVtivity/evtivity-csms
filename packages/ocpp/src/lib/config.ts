@@ -3,6 +3,11 @@
 
 import { z } from 'zod';
 
+// Compose passes an unset variable as an empty string.
+function optionalInt<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess((v) => (v === '' ? undefined : v), schema.optional());
+}
+
 const schema = z.object({
   OCPP_PORT: z.coerce.number().int().positive(),
   OCPP_HOST: z.string().default('0.0.0.0'),
@@ -27,6 +32,11 @@ const schema = z.object({
   OCPP_TRUSTED_PROXY_CIDRS: z.string().default(''),
   OCPP_MAX_CONNECTIONS_PER_IP: z.coerce.number().int().positive().default(2500),
   OCPP_MAX_MESSAGES_PER_IP_PER_SECOND: z.coerce.number().int().positive().default(5000),
+  // Station connection authentications (connection-auth-limiter.ts). Unset or
+  // empty: half of DB_POOL_MAX run at once, 1000 wait, for at most 10 s.
+  OCPP_AUTH_MAX_CONCURRENT: optionalInt(z.coerce.number().int().positive()),
+  OCPP_AUTH_MAX_QUEUED: optionalInt(z.coerce.number().int().nonnegative()),
+  OCPP_AUTH_MAX_WAIT_MS: optionalInt(z.coerce.number().int().positive()),
   // Allows the simulated (test) payment provider in this process (D-T1). Default:
   // on when NODE_ENV is development (or unset) or test, off otherwise.
   PAYMENTS_ALLOW_SIMULATED: z

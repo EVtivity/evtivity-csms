@@ -55,12 +55,17 @@ const { mockRecompute, mockSetDisabled, mockSendAvailability, mockPublishStatus 
   }),
 );
 
-vi.mock('../lib/availability-command.js', () => ({
+vi.mock('@evtivity/services/availability-command', () => ({
   sendAvailabilityCommand: mockSendAvailability,
 }));
 
 vi.mock('../lib/station-status-events.js', () => ({
   publishStationStatusChanged: mockPublishStatus,
+}));
+
+const mockSiteMove = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock('../lib/ocpi-location-push.js', () => ({
+  publishOcpiStationSiteMove: mockSiteMove,
 }));
 
 vi.mock('@evtivity/database', () => ({
@@ -348,7 +353,8 @@ describe('importSitesCsv', () => {
     // Transaction flow with updateExisting=true (post case-insensitive fix):
     // 1. tx.select (ilike duplicate-name pre-check) -> not found, so site is new
     // 2. tx.insert (site insert) -> returns new site
-    // 3. tx.insert (station upsert) -> returns station
+    // 3. tx.select (the station's previous site) -> not found
+    // 4. tx.insert (station upsert) -> returns station
     // 4. tx.select (EVSE lookup) -> not found
     // 5. tx.insert (EVSE create) -> returns EVSE
     // 6. tx.select (connector lookup) -> not found
@@ -356,6 +362,7 @@ describe('importSitesCsv', () => {
     setupDbResults(
       [], // ilike duplicate check: not found
       [{ id: 'site-1', createdAt: now, updatedAt: now }], // site insert (created)
+      [], // the station's previous site: none (new station)
       [{ id: 'station-1', createdAt: now, updatedAt: now }], // station upsert (created)
       [], // EVSE lookup: not found
       [{ id: 'evse-1' }], // EVSE insert
@@ -499,12 +506,28 @@ describe('importSitesCsv', () => {
     expect(result.errors.some((e) => e.includes('vendor "Ghost Vendor" not found'))).toBe(true);
   });
 
+  it('pushes the OCPI locations of a station the import moves to another site', async () => {
+    const created = new Date('2026-01-01T00:00:00Z');
+    const updated = new Date('2026-02-01T00:00:00Z');
+    setupDbResults(
+      [], // site ilike pre-check: not found
+      [{ id: 'site-1', createdAt: created, updatedAt: created }], // site insert (created)
+      [{ siteId: 'site-0' }], // the station's previous site
+      [{ id: 'station-1', createdAt: created, updatedAt: updated }], // station upsert -> UPDATED
+    );
+
+    await importSitesCsv([{ siteName: 'Moved', stationId: 'CS-001' }], true);
+
+    expect(mockSiteMove).toHaveBeenCalledWith('station-1', 'site-0', 'site-1', undefined);
+  });
+
   it('counts a station as updated when the upsert returns differing timestamps', async () => {
     const created = new Date('2026-01-01T00:00:00Z');
     const updated = new Date('2026-02-01T00:00:00Z');
     setupDbResults(
       [], // site ilike pre-check: not found
       [{ id: 'site-1', createdAt: created, updatedAt: created }], // site insert (created)
+      [], // the station's previous site: none (new station)
       [{ id: 'station-1', createdAt: created, updatedAt: updated }], // station upsert -> UPDATED
     );
 
@@ -522,6 +545,7 @@ describe('importSitesCsv', () => {
     return [
       [], // site ilike pre-check: not found
       [{ id: 'site-1', createdAt: now, updatedAt: now }], // site insert
+      [], // the station's previous site: none (new station)
       [{ id: 'station-1', createdAt: now, updatedAt: now }], // station upsert (created)
       [
         {
@@ -615,6 +639,7 @@ describe('importSitesCsv', () => {
     setupDbResults(
       [], // site ilike pre-check: not found
       [{ id: 'site-1', createdAt: now, updatedAt: now }], // site insert
+      [], // the station's previous site: none (new station)
       [{ id: 'station-1', createdAt: now, updatedAt: now }], // station upsert (created)
       [{ id: 'evse-1' }], // EVSE lookup -> found
       [], // EVSE update (no returning needed)
