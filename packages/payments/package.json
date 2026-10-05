@@ -1,6 +1,6 @@
 {
   "name": "@evtivity/payments",
-  "version": "0.1.38-nightly.7",
+  "version": "0.1.38-beta.2",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
