@@ -7,7 +7,7 @@ set -euo pipefail
 #   scripts/release.sh minor --push       # Minor bump (0.1.x -> 0.2.0)
 #   scripts/release.sh major --push       # Major bump (0.x.y -> 1.0.0)
 #   scripts/release.sh v0.2.1 --push      # Explicit version (for hotfixes)
-#   scripts/release.sh v0.1.38-beta.1 --push  # Prerelease (beta, preview, nightly, rc, ...)
+#   scripts/release.sh v0.1.38-beta.1 --push  # Prerelease: alpha, beta or nightly only
 #   scripts/release.sh --force --push     # Overwrite existing tag and release
 #
 # Bump types: patch (default), minor, major. Auto-increment starts from the
@@ -237,6 +237,7 @@ git push origin HEAD "$next"
 
 echo "Pushed $next. CI will build and push images to ghcr.io/evtivity."
 if [ "$PRERELEASE" = true ]; then
-  echo "Prerelease: CI tags images $next_version only, creates a GitHub prerelease, and"
+  echo "Prerelease: CI tags images $next_version and its channel alias (alpha, beta or nightly),"
+  echo "creates a GitHub prerelease, and"
   echo "skips the Helm chart and CDK bumps. Do not bump the website csms-version.txt."
 fi

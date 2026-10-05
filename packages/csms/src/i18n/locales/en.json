@@ -2175,7 +2175,12 @@
     "adyenWebhookTestFailed": "The Adyen test event failed (HTTP {{code}}). Check that this API is reachable at the webhook URL.",
     "adyenWebhookNoEndpoints": "No EVtivity webhook at this URL on this merchant account.",
     "adyenWebhookNotConfigured": "Save the API key and merchant account to create or list the webhook.",
-    "adyenWebhookLoadFailed": "Could not read the webhook from Adyen."
+    "adyenWebhookLoadFailed": "Could not read the webhook from Adyen.",
+    "secretStoredPlaceholder": "Stored value hidden",
+    "secretStoredHint": "A value is stored. Viewing it requires the Settings - System read permission. Leave the field empty to keep it, or enter a new value to replace it.",
+    "secretRemove": "Remove stored value",
+    "secretRemovePending": "The stored value is removed when you save.",
+    "secretRemoveUndo": "Keep it"
   },
   "pnc": {
     "certificates": "Certificates",

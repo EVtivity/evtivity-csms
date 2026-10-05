@@ -124,6 +124,11 @@ vi.mock('../registry.js', () => ({
   ]),
 }));
 
+vi.mock('../pics/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../pics/index.js')>();
+  return { ...actual, getNotApplicable: vi.fn(actual.getNotApplicable) };
+});
+
 vi.mock('../ocsp-test-service.js', () => ({
   startOcspTestService: vi.fn(() =>
     Promise.resolve({
@@ -147,6 +152,7 @@ import { db, PNC_SETTINGS_CACHE_TTL_MS } from '@evtivity/database';
 import { runTests } from '../runner.js';
 import { executeTest } from '../executor.js';
 import { getRegistry } from '../registry.js';
+import { getNotApplicable } from '../pics/index.js';
 import type { TestCase, TestCaseResult } from '../types.js';
 
 describe('runTests', () => {
@@ -195,7 +201,7 @@ describe('runTests', () => {
     expect(eq).toHaveBeenCalledWith('name', 'admin');
   });
 
-  it('reports tests the CSMS PICS excludes as notApplicable without executing them', async () => {
+  it('runs the ISO 15118 contract certificate tests the CSMS PICS declares supported', async () => {
     const testCase = (id: string): TestCase => ({
       id,
       name: id,
@@ -214,21 +220,48 @@ describe('runTests', () => {
     ]);
     vi.mocked(executeTest).mockClear();
 
-    const results: TestCaseResult[] = [];
-    const summary = await runTests(config, (r) => results.push(r));
+    const summary = await runTests(config, vi.fn());
 
     expect(summary.total).toBe(4);
-    expect(summary.passed).toBe(1);
-    expect(summary.notApplicable).toBe(3);
-    expect(vi.mocked(executeTest)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(executeTest).mock.calls[0]?.[0].id).toBe('TC_M_24_CSMS');
+    expect(summary.passed).toBe(4);
+    expect(summary.notApplicable).toBe(0);
+    expect(
+      vi
+        .mocked(executeTest)
+        .mock.calls.map((c) => c[0].id)
+        .sort(),
+    ).toEqual(['TC_M_100_CSMS', 'TC_M_24_CSMS', 'TC_M_26_CSMS', 'TC_M_28_CSMS']);
+  });
 
-    const na = results.find((r) => r.testId === 'TC_M_26_CSMS');
+  it('reports tests the CSMS PICS excludes as notApplicable without executing them', async () => {
+    const actual = await vi.importActual<typeof import('../pics/index.js')>('../pics/index.js');
+    const excluded = {
+      item: 'ExampleFeature',
+      reason: 'PICS ExampleFeature not supported: no example feature',
+    };
+    vi.mocked(getNotApplicable).mockImplementation((id, version, sut) =>
+      id === 'TC_E_01_CSMS' ? excluded : actual.getNotApplicable(id, version, sut),
+    );
+    vi.mocked(executeTest).mockClear();
+
+    const results: TestCaseResult[] = [];
+    try {
+      const summary = await runTests(config, (r) => results.push(r));
+
+      expect(summary.total).toBe(3);
+      expect(summary.passed).toBe(2);
+      expect(summary.notApplicable).toBe(1);
+    } finally {
+      vi.mocked(getNotApplicable).mockImplementation(actual.getNotApplicable);
+    }
+    expect(vi.mocked(executeTest)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(executeTest).mock.calls.map((c) => c[0].id)).not.toContain('TC_E_01_CSMS');
+
+    const na = results.find((r) => r.testId === 'TC_E_01_CSMS');
     expect(na?.result.status).toBe('notApplicable');
     expect(na?.result.durationMs).toBe(0);
     expect(na?.result.steps).toEqual([]);
-    expect(na?.result.notApplicable?.item).toBe('ContractCertificateInstallationEV');
-    expect(na?.result.notApplicable?.reason).toContain('contract certificate provisioning');
+    expect(na?.result.notApplicable).toEqual(excluded);
   });
 
   describe('PnC settings and the CSMS settings caches', () => {

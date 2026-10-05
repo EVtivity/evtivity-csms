@@ -49,7 +49,13 @@ function makeChain() {
   return chain;
 }
 
+const { mockRecordSessionEndRequest } = vi.hoisted(() => ({
+  mockRecordSessionEndRequest: vi.fn().mockResolvedValue(true),
+}));
+
 vi.mock('@evtivity/database', async () => ({
+  SESSION_END_REQUEST_CHANNEL: 'session_end_requests',
+  recordSessionEndRequest: mockRecordSessionEndRequest,
   isStationLevelUnavailable: (
     await vi.importActual<typeof import('../../../database/src/lib/station-status.js')>(
       '../../../database/src/lib/station-status.js',
@@ -1098,6 +1104,65 @@ describe('Portal charger routes - handler logic', () => {
         transactionId: '4',
       });
       expect(sendMock.mock.calls[0]).toHaveLength(3);
+    });
+
+    it('ends a ghost session (TxNotFound) through the OCPP server, completed and billed', async () => {
+      vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+        commandId: 'm',
+        response: { status: 'Rejected', statusInfo: { reasonCode: 'TxNotFound' } },
+      });
+      mockRecordSessionEndRequest.mockClear();
+      mockPublish.mockClear();
+      const { db } = await import('@evtivity/database');
+      vi.mocked(db.execute).mockClear();
+      setupDbResults([
+        { id: VALID_SESSION_ID, transactionId: 'tx-ghost', stationOcppId: 'CS-001' },
+      ]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/portal/chargers/sessions/${VALID_SESSION_ID}/stop`,
+        headers: { authorization: `Bearer ${driverToken}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        status: 'ghostRecovered',
+        chargingSessionId: VALID_SESSION_ID,
+      });
+      // Recorded durably first (P4), then the OCPP server ends it the normal way.
+      expect(mockRecordSessionEndRequest).toHaveBeenCalledWith(
+        {},
+        VALID_SESSION_ID,
+        'GhostRecovered',
+      );
+      expect(mockPublish).toHaveBeenCalledWith(
+        'session_end_requests',
+        JSON.stringify({ sessionId: VALID_SESSION_ID, reason: 'GhostRecovered' }),
+      );
+      // The route never faults the session itself.
+      expect(db.execute).not.toHaveBeenCalled();
+    });
+
+    it('publishes no end request when the ghost session ended meanwhile (P5)', async () => {
+      vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+        commandId: 'm',
+        response: { status: 'Rejected', statusInfo: { reasonCode: 'TxNotFound' } },
+      });
+      mockRecordSessionEndRequest.mockResolvedValueOnce(false);
+      mockPublish.mockClear();
+      setupDbResults([
+        { id: VALID_SESSION_ID, transactionId: 'tx-ghost', stationOcppId: 'CS-001' },
+      ]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/portal/chargers/sessions/${VALID_SESSION_ID}/stop`,
+        headers: { authorization: `Bearer ${driverToken}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockPublish).not.toHaveBeenCalledWith('session_end_requests', expect.anything());
     });
   });
 

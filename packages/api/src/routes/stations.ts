@@ -30,11 +30,9 @@ import {
   pgErrorCode,
   PG_UNIQUE_VIOLATION,
   PG_FOREIGN_KEY_VIOLATION,
-  SESSION_END_REQUEST_CHANNEL,
-  recordSessionEndRequest,
 } from '@evtivity/database';
-import type { SessionEndRequestMessage } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { requestGhostSessionEnd } from '../lib/ghost-session-end.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
@@ -1571,11 +1569,17 @@ export function stationRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
-      const [station] = await db
-        .update(chargingStations)
-        .set({ onboardingStatus: 'blocked', updatedAt: new Date() })
-        .where(eq(chargingStations.id, id))
-        .returning();
+      const station = await db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(chargingStations)
+          .set({ onboardingStatus: 'blocked', updatedAt: new Date() })
+          .where(eq(chargingStations.id, id))
+          .returning();
+        // A removed station's paired simulator stops: the CSMS refuses a blocked
+        // station, so an enabled pairing would reconnect and be refused forever.
+        if (updated != null) await disableCssPair(updated.stationId, tx);
+        return updated;
+      });
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
@@ -2183,27 +2187,8 @@ export function stationRoutes(app: FastifyInstance): void {
       const isGhost = status === 'Rejected' && statusInfo?.reasonCode === 'TxNotFound';
 
       if (isGhost) {
-        // Ghost session: the station has no record of this transaction. The
-        // OCPP server ends it the normal way, as completed at its last metered
-        // energy with its final cost, settlement, and receipt (owner decision
-        // 2026-10-04). The request is recorded on the session first (P4): the
-        // OCPP sweep ends it should the message be lost, and the stale-session
-        // cleanup skips it. Only an active session is requested (P5).
-        const requested = await recordSessionEndRequest(client, activeSession.id, 'GhostRecovered');
-        if (requested) {
-          const message: SessionEndRequestMessage = {
-            sessionId: activeSession.id,
-            reason: 'GhostRecovered',
-          };
-          try {
-            await getPubSub().publish(SESSION_END_REQUEST_CHANNEL, JSON.stringify(message));
-          } catch (err) {
-            request.log.warn(
-              { err, sessionId: activeSession.id },
-              'Session end request publish failed; the OCPP sweep ends the session',
-            );
-          }
-        }
+        // Ghost session: ended completed and billed by the OCPP server.
+        await requestGhostSessionEnd(activeSession.id, request.log);
         request.log.info(
           { sessionId: activeSession.id, transactionId: activeSession.transactionId },
           'Ghost session recovered: station returned TxNotFound, session end requested',

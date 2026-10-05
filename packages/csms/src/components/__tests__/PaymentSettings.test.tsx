@@ -99,18 +99,31 @@ const ENDPOINTS = [
 
 const WEBHOOK_GET_PREFIX = '/v1/settings/stripe/webhook?url=';
 
+/** GET /v1/settings/stripe for a user with settings.system:read (secrets returned). */
+const STRIPE_SETTINGS_WITH_SECRETS = {
+  publishableKey: 'pk_test_1',
+  secretKey: 'sk_test_stored',
+  secretKeyConfigured: true,
+  webhookSecret: 'whsec_stored',
+  webhookSecretConfigured: true,
+  connectWebhookSecret: null,
+  connectWebhookSecretConfigured: false,
+};
+
+/** The same settings for a user without settings.system:read (secrets withheld). */
+const STRIPE_SETTINGS_HIDDEN = {
+  ...STRIPE_SETTINGS_WITH_SECRETS,
+  secretKey: null,
+  webhookSecret: null,
+};
+
+let stripeSettings: Record<string, unknown> = STRIPE_SETTINGS_WITH_SECRETS;
+
 function mockGets(
   webhook: (url: string) => Promise<unknown> = () => Promise.resolve(webhookSetup()),
 ): void {
   getMock.mockImplementation((url: string) => {
-    if (url === '/v1/settings/stripe') {
-      return Promise.resolve({
-        publishableKey: 'pk_test_1',
-        secretKey: 'sk_test_stored',
-        webhookSecret: 'whsec_stored',
-        connectWebhookSecret: null,
-      });
-    }
+    if (url === '/v1/settings/stripe') return Promise.resolve(stripeSettings);
     if (url.startsWith(WEBHOOK_GET_PREFIX)) {
       return webhook(decodeURIComponent(url.slice(WEBHOOK_GET_PREFIX.length)));
     }
@@ -171,6 +184,7 @@ afterEach(() => {
   putMock.mockReset();
   toastMock.mockReset();
   permission.canWrite = true;
+  stripeSettings = STRIPE_SETTINGS_WITH_SECRETS;
 });
 
 describe('PaymentSettings sub-tabs', () => {
@@ -466,6 +480,103 @@ describe('PaymentSettings Stripe tab', () => {
     const body = putMock.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(body).toMatchObject({ connectWebhookSecret: 'whsec_connect', webhookSecret: '' });
     expect(body).not.toHaveProperty('secretKey');
+  });
+
+  describe('without settings.system:read (secrets withheld by the API)', () => {
+    async function hiddenSecretKey(): Promise<HTMLInputElement> {
+      const input = asInput(await screen.findByLabelText('settings.stripeSecretKey'));
+      await waitFor(() => {
+        expect(input.placeholder).toBe('settings.secretStoredPlaceholder');
+      });
+      return input;
+    }
+
+    it('shows the stored state with an empty field', async () => {
+      stripeSettings = STRIPE_SETTINGS_HIDDEN;
+      mockGets();
+      renderSettings();
+      const secretKey = await hiddenSecretKey();
+      expect(secretKey.value).toBe('');
+      expect(asInput(screen.getByLabelText('settings.stripeWebhookSecret')).value).toBe('');
+      // Two stored secrets are hidden; the unset Connect secret keeps its hint.
+      expect(screen.getAllByText('settings.secretStoredHint')).toHaveLength(2);
+      expect(screen.getByText('settings.stripeConnectWebhookSecretHint')).toBeTruthy();
+      expect(screen.queryByText('settings.stripeSecretKeyHint')).toBeNull();
+    });
+
+    it('keeps a hidden secret when its field is left empty', async () => {
+      stripeSettings = STRIPE_SETTINGS_HIDDEN;
+      mockGets();
+      putMock.mockResolvedValue({ success: true });
+      renderSettings();
+      await hiddenSecretKey();
+      fireEvent.change(screen.getByLabelText('settings.stripePublishableKey'), {
+        target: { value: 'pk_test_2' },
+      });
+      fireEvent.submit(await stripeForm());
+
+      await waitFor(() => {
+        expect(putMock).toHaveBeenCalledWith('/v1/settings/stripe', {
+          publishableKey: 'pk_test_2',
+        });
+      });
+    });
+
+    it('replaces a hidden secret with a typed value', async () => {
+      stripeSettings = STRIPE_SETTINGS_HIDDEN;
+      mockGets();
+      putMock.mockResolvedValue({ success: true });
+      renderSettings();
+      const secretKey = await hiddenSecretKey();
+      fireEvent.change(secretKey, { target: { value: ' sk_test_new ' } });
+      fireEvent.submit(await stripeForm());
+
+      await waitFor(() => {
+        expect(putMock).toHaveBeenCalledTimes(1);
+      });
+      const body = putMock.mock.calls[0]?.[1] as Record<string, unknown>;
+      expect(body).toMatchObject({ secretKey: 'sk_test_new' });
+      expect(body).not.toHaveProperty('webhookSecret');
+      expect(body).not.toHaveProperty('connectWebhookSecret');
+    });
+
+    it('clears a hidden secret only through Remove, and Keep it undoes the remove', async () => {
+      stripeSettings = STRIPE_SETTINGS_HIDDEN;
+      mockGets();
+      putMock.mockResolvedValue({ success: true });
+      renderSettings();
+      const secretKey = await hiddenSecretKey();
+      const [removeSecretKey, removeWebhookSecret] = screen.getAllByRole('button', {
+        name: 'settings.secretRemove',
+      });
+      if (removeSecretKey == null || removeWebhookSecret == null) throw new Error('no remove');
+      fireEvent.click(removeSecretKey);
+      expect(secretKey.disabled).toBe(true);
+      expect(screen.getByText('settings.secretRemovePending')).toBeTruthy();
+      fireEvent.click(removeWebhookSecret);
+      const undoWebhookSecret = screen.getAllByRole('button', {
+        name: 'settings.secretRemoveUndo',
+      })[1];
+      if (undoWebhookSecret == null) throw new Error('no undo');
+      fireEvent.click(undoWebhookSecret);
+      fireEvent.submit(await stripeForm());
+
+      await waitFor(() => {
+        expect(putMock).toHaveBeenCalledTimes(1);
+      });
+      const body = putMock.mock.calls[0]?.[1] as Record<string, unknown>;
+      expect(body).toMatchObject({ secretKey: '' });
+      expect(body).not.toHaveProperty('webhookSecret');
+    });
+
+    it('has no Remove without payments:write', async () => {
+      stripeSettings = STRIPE_SETTINGS_HIDDEN;
+      permission.canWrite = false;
+      mockGets();
+      renderSettings();
+      await hiddenSecretKey();
+      expect(screen.queryByRole('button', { name: 'settings.secretRemove' })).toBeNull();
+    });
   });
 
   it('hides the write controls without payments:write', async () => {

@@ -2175,7 +2175,12 @@
     "adyenWebhookTestFailed": "Adyen 测试事件失败 (HTTP {{code}})。请检查能否通过 Webhook URL 访问此 API。",
     "adyenWebhookNoEndpoints": "此商户账户中没有此 URL 上的 EVtivity Webhook。",
     "adyenWebhookNotConfigured": "请先保存 API 密钥和商户账户，才能创建或列出 Webhook。",
-    "adyenWebhookLoadFailed": "无法从 Adyen 读取 Webhook。"
+    "adyenWebhookLoadFailed": "无法从 Adyen 读取 Webhook。",
+    "secretStoredPlaceholder": "已存储的值已隐藏",
+    "secretStoredHint": "已存储一个值。查看该值需要“Settings - System”读取权限。将字段留空可保留该值，输入新值可替换它。",
+    "secretRemove": "删除已存储的值",
+    "secretRemovePending": "保存时将删除已存储的值。",
+    "secretRemoveUndo": "保留"
   },
   "pnc": {
     "certificates": "证书",

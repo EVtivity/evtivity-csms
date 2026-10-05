@@ -12,6 +12,10 @@ const VALID_SITE_ID = 'sit_000000000001';
 const VALID_DRIVER_ID = 'drv_000000000001';
 const VALID_PM_ID = '1';
 
+const { mockRequestHasPermission } = vi.hoisted(() => ({
+  mockRequestHasPermission: vi.fn(async (_request: unknown, _permission: string) => true),
+}));
+
 // -- DB mock helpers --
 
 let dbResults: unknown[][] = [];
@@ -74,6 +78,7 @@ vi.mock('../middleware/rbac.js', () => ({
       }
     },
   invalidatePermissionCache: vi.fn(),
+  requestHasPermission: mockRequestHasPermission,
 }));
 
 vi.mock('@evtivity/database', () => {
@@ -763,7 +768,7 @@ describe('Payment routes - handler logic', () => {
       expect(body.connectWebhookSecret).toBeNull();
     });
 
-    it('returns the secrets decrypted, like the generic settings GET (P12)', async () => {
+    it('returns the secrets decrypted to a caller with settings.system:read (P12)', async () => {
       setupDbResults([
         { key: 'stripe.secretKeyEnc', value: 'enc_sk' },
         { key: 'stripe.webhookSecretEnc', value: 'enc_whsec' },
@@ -777,11 +782,48 @@ describe('Payment routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(200);
+      expect(mockRequestHasPermission).toHaveBeenCalledWith(
+        expect.anything(),
+        'settings.system:read',
+      );
       const body = response.json();
       expect(body.secretKey).toBe('decrypted:enc_sk');
+      expect(body.secretKeyConfigured).toBe(true);
       expect(body.webhookSecret).toBe('decrypted:enc_whsec');
+      expect(body.webhookSecretConfigured).toBe(true);
       expect(body.connectWebhookSecret).toBeNull();
-      expect(body).not.toHaveProperty('secretKeyConfigured');
+      expect(body.connectWebhookSecretConfigured).toBe(false);
+    });
+
+    it('returns only whether each secret is stored without settings.system:read', async () => {
+      // Also the answer for an API key whose scope leaves settings.system:read out:
+      // requestHasPermission applies the key scope like authorize().
+      mockRequestHasPermission.mockResolvedValueOnce(false);
+      setupDbResults([
+        { key: 'stripe.publishableKey', value: 'pk_test_123' },
+        { key: 'stripe.secretKeyEnc', value: 'enc_sk' },
+        { key: 'stripe.webhookSecretEnc', value: 'enc_whsec' },
+        { key: 'stripe.connectWebhookSecretEnc', value: '' },
+      ]);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/settings/stripe',
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        publishableKey: 'pk_test_123',
+        secretKey: null,
+        secretKeyConfigured: true,
+        webhookSecret: null,
+        webhookSecretConfigured: true,
+        connectWebhookSecret: null,
+        connectWebhookSecretConfigured: false,
+      });
+      expect(response.body).not.toContain('enc_sk');
+      expect(response.body).not.toContain('decrypted:');
     });
   });
 

@@ -142,23 +142,32 @@ const stripeSettingsResponse = z
     secretKey: z
       .string()
       .nullable()
-      .describe('Stripe secret API key (decrypted from storage; null when unset)'),
+      .describe(
+        'Stripe secret API key, decrypted. Returned only to callers that also hold settings.system:read; null otherwise and when unset (see secretKeyConfigured).',
+      ),
+    secretKeyConfigured: z.boolean().describe('A Stripe secret API key is stored'),
     webhookSecret: z
       .string()
       .nullable()
       .describe(
-        'Signing secret of the platform webhook endpoint at /v1/webhooks/payments/stripe (decrypted from storage; null when unset)',
+        'Signing secret of the platform webhook endpoint at /v1/webhooks/payments/stripe, decrypted. Returned only to callers that also hold settings.system:read; null otherwise and when unset (see webhookSecretConfigured).',
       ),
+    webhookSecretConfigured: z
+      .boolean()
+      .describe('A signing secret of the platform webhook endpoint is stored'),
     connectWebhookSecret: z
       .string()
       .nullable()
       .describe(
-        'Signing secret of the Connect webhook endpoint (connected account events) at /v1/webhooks/payments/stripe (decrypted from storage; null when unset)',
+        'Signing secret of the Connect webhook endpoint (connected account events) at /v1/webhooks/payments/stripe, decrypted. Returned only to callers that also hold settings.system:read; null otherwise and when unset (see connectWebhookSecretConfigured).',
       ),
+    connectWebhookSecretConfigured: z
+      .boolean()
+      .describe('A signing secret of the Connect webhook endpoint is stored'),
   })
   .passthrough()
   .describe(
-    'Stripe settings. Secrets are returned decrypted, like the generic settings GET. The pre-authorization amount and platform fee are in GET /v1/settings/payments.',
+    'Stripe settings. The secrets are returned decrypted only to callers that also hold settings.system:read; every caller gets whether each one is stored. The pre-authorization amount and platform fee are in GET /v1/settings/payments.',
   );
 
 const driverPaymentMethodItem = z
@@ -423,7 +432,7 @@ const reconciliationResultItem = z
       .describe('Detailed error entries encountered during reconciliation'),
   })
   .passthrough();
-import { authorize } from '../middleware/rbac.js';
+import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { clearPaymentCaches, paymentContext, paymentRegistry } from '../lib/payments.js';
 import { writePaymentSettings } from '../lib/payment-settings-writes.js';
 import {
@@ -436,7 +445,7 @@ import {
   checkPaymentWebhookUrl,
   splitWebhookEndpoints,
 } from '../lib/payment-webhook-url.js';
-import { decryptForRead } from '../lib/settings-crypto.js';
+import { decryptForRead, SECRET_SETTINGS_READ_PERMISSION } from '../lib/settings-crypto.js';
 
 const siteIdParams = z.object({ id: ID_PARAMS.siteId.describe('Site ID') });
 const driverIdParams = z.object({ id: ID_PARAMS.driverId.describe('Driver ID') });
@@ -1097,30 +1106,41 @@ export function paymentRoutes(app: FastifyInstance): void {
         tags: ['Payments'],
         summary: 'Get system Stripe settings',
         description:
-          'Returns the Stripe settings. The secret key and the webhook signing secrets are decrypted, like the generic settings GET.',
+          'Returns the Stripe settings and whether each secret is stored. The secret key and the webhook signing secrets are returned decrypted only when the caller also holds settings.system:read (for an API key, when its scope includes it), like the generic settings GET; otherwise they are null.',
         operationId: 'getStripeSettings',
         security: [{ bearerAuth: [] }],
         response: { 200: itemResponse(stripeSettingsResponse) },
       },
     },
-    async () => {
+    async (request) => {
       // Push the stripe.* prefix filter to Postgres so the admin Settings
       // page doesn't drag the entire settings table over the wire just to
-      // pick a few keys. *Enc keys are decrypted like the generic settings GET (P12).
+      // pick a few keys. Stored secrets are readable only with the permission
+      // of the generic settings GET (P12), so payments:read alone gets whether
+      // each one is stored.
       const rows = await db.select().from(settings).where(like(settings.key, 'stripe.%'));
       const map = new Map<string, unknown>();
       for (const row of rows) {
         map.set(row.key, row.value);
       }
+      const includeSecrets = await requestHasPermission(request, SECRET_SETTINGS_READ_PERMISSION);
+      const stored = (key: string): boolean => {
+        const value = map.get(key);
+        return typeof value === 'string' && value !== '';
+      };
       const secret = (key: string): string | null => {
+        if (!includeSecrets) return null;
         const value = decryptForRead(key, map.get(key));
         return typeof value === 'string' && value !== '' ? value : null;
       };
       return {
         publishableKey: map.get('stripe.publishableKey') ?? null,
         secretKey: secret('stripe.secretKeyEnc'),
+        secretKeyConfigured: stored('stripe.secretKeyEnc'),
         webhookSecret: secret('stripe.webhookSecretEnc'),
+        webhookSecretConfigured: stored('stripe.webhookSecretEnc'),
         connectWebhookSecret: secret('stripe.connectWebhookSecretEnc'),
+        connectWebhookSecretConfigured: stored('stripe.connectWebhookSecretEnc'),
       };
     },
   );

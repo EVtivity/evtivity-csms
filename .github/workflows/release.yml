@@ -18,15 +18,17 @@ permissions:
   packages: write
 
 jobs:
-  # A tag with a semver prerelease suffix (v0.1.38-beta.1, v0.1.38-nightly.2,
-  # v0.1.38-rc.1) is a prerelease: exact-version images only, a GitHub
-  # prerelease, and no Helm chart or CDK bump. scripts/release-version.sh
-  # holds the tag grammar.
+  # Four channels: stable (v0.1.38), alpha (v0.1.39-alpha.1), beta (v0.1.38-beta.2)
+  # and nightly (v0.1.38-nightly.7). An alpha, beta or nightly is a prerelease:
+  # exact-version images plus its channel alias, a GitHub prerelease, and no Helm
+  # chart or CDK bump.
+  # scripts/release-version.sh holds the tag grammar and rejects other labels.
   prepare:
     name: Resolve release type
     runs-on: ubuntu-latest
     outputs:
       prerelease: ${{ steps.type.outputs.prerelease }}
+      channel: ${{ steps.type.outputs.channel }}
     steps:
       - uses: actions/checkout@v5
 
@@ -45,8 +47,10 @@ jobs:
           else
             PRERELEASE=false
           fi
+          CHANNEL=$(release_tag_channel "$REF_NAME")
           echo "prerelease=${PRERELEASE}" >> "$GITHUB_OUTPUT"
-          echo "${REF_NAME}: prerelease=${PRERELEASE}" >> "$GITHUB_STEP_SUMMARY"
+          echo "channel=${CHANNEL}" >> "$GITHUB_OUTPUT"
+          echo "${REF_NAME}: prerelease=${PRERELEASE} channel=${CHANNEL:-none}" >> "$GITHUB_STEP_SUMMARY"
 
   build-and-push:
     name: Build ${{ matrix.image }}
@@ -112,6 +116,10 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}},enable=${{ needs.prepare.outputs.prerelease == 'false' }}
             type=semver,pattern={{major}},enable=${{ needs.prepare.outputs.prerelease == 'false' }}
+            type=raw,value=stable,enable=${{ needs.prepare.outputs.channel == 'stable' }}
+            type=raw,value=alpha,enable=${{ needs.prepare.outputs.channel == 'alpha' }}
+            type=raw,value=beta,enable=${{ needs.prepare.outputs.channel == 'beta' }}
+            type=raw,value=nightly,enable=${{ needs.prepare.outputs.channel == 'nightly' }}
             type=ref,event=branch
           labels: |
             org.opencontainers.image.title=evtivity-${{ matrix.image }}

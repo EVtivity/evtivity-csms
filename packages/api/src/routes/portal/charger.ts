@@ -32,6 +32,7 @@ import {
 } from '@evtivity/database';
 import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
 import { zodSchema } from '../../lib/zod-schema.js';
+import { requestGhostSessionEnd } from '../../lib/ghost-session-end.js';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import { ID_PARAMS } from '../../lib/id-validation.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
@@ -2117,7 +2118,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         tags: ['Portal Chargers'],
         summary: 'Stop an active charging session',
         description:
-          'Sends RequestStopTransaction (OCPP 2.1) or RemoteStopTransaction (OCPP 1.6) for the supplied sessionId and waits up to 35s for the station response. If the station rejects with reasonCode=TxNotFound (a "ghost session"), the API automatically marks the session faulted in the database and returns status=ghostRecovered. Returns 404 if the session does not exist or is not owned by the driver, 504 if the station does not respond within the timeout window.',
+          'Sends RequestStopTransaction (OCPP 2.1) or RemoteStopTransaction (OCPP 1.6) for the supplied sessionId and waits up to 35s for the station response. If the station rejects with reasonCode=TxNotFound (a "ghost session"), the API asks the OCPP server to end the session as completed and billed at its last metered energy, and returns status=ghostRecovered. Returns 404 if the session does not exist or is not owned by the driver, 504 if the station does not respond within the timeout window.',
         operationId: 'portalStopSession',
         security: [{ bearerAuth: [] }],
         params: zodSchema(sessionIdParams),
@@ -2173,24 +2174,12 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       const isGhost = status === 'Rejected' && statusInfo?.reasonCode === 'TxNotFound';
 
       if (isGhost) {
-        await db.execute(sql`
-          UPDATE charging_sessions
-          SET status = 'faulted',
-              stopped_reason = 'TxNotFound',
-              ended_at = now(),
-              final_cost_cents = COALESCE(final_cost_cents, current_cost_cents),
-              updated_at = now()
-          WHERE id = ${session.id} AND status = 'active'
-        `);
-        await db.execute(sql`
-          UPDATE session_tariff_segments
-          SET ended_at = now(),
-              duration_minutes = EXTRACT(EPOCH FROM (now() - started_at)) / 60
-          WHERE session_id = ${session.id} AND ended_at IS NULL
-        `);
+        // Ghost session: ended completed and billed by the OCPP server, as on the
+        // operator stop (the station has no record of the transaction).
+        await requestGhostSessionEnd(session.id, request.log);
         request.log.info(
           { sessionId: session.id, transactionId: session.transactionId },
-          'Ghost session recovered: station returned TxNotFound, marked DB faulted',
+          'Ghost session recovered: station returned TxNotFound, session end requested',
         );
         return { status: 'ghostRecovered', chargingSessionId: session.id };
       }

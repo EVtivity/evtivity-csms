@@ -10,6 +10,8 @@ let sqlResults: Array<unknown[]> = [];
 let sqlCallIndex = 0;
 // Rejects the statements whose text it returns an error for (unique violations).
 let sqlFailOn: ((text: string) => Error | null) | null = null;
+// Answers the statements whose text it returns rows for, without using an indexed result.
+let sqlRoute: ((text: string) => unknown[] | undefined) | null = null;
 
 function createSqlMock() {
   sqlCalls.length = 0;
@@ -18,6 +20,8 @@ function createSqlMock() {
 
   const sqlFn = (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> => {
     sqlCalls.push({ strings: [...strings], values });
+    const routed = sqlRoute?.(strings.join('?'));
+    if (routed !== undefined) return Promise.resolve(routed);
     const result = sqlResults[sqlCallIndex] ?? [];
     sqlCallIndex++;
     const failure = sqlFailOn?.(strings.join(''));
@@ -211,6 +215,7 @@ describe('Event projections', () => {
     sqlResults = [];
     sqlCallIndex = 0;
     sqlFailOn = null;
+    sqlRoute = null;
     vi.clearAllMocks();
     mockAuthorizeSessionHold.mockResolvedValue({
       outcome: 'authorized',
@@ -1257,6 +1262,47 @@ describe('Event projections', () => {
       );
 
       expect(sqlCalls.length).toBeGreaterThanOrEqual(5);
+    });
+
+    it('does not remember an EVSE that did not exist yet when a Started arrived', async () => {
+      // A Started projected before the station lane created its EVSE finds no EVSE. The
+      // next Started on that EVSE must look it up again, not reuse the miss for minutes.
+      await setup();
+      let evseExists = false;
+      sqlRoute = (text) => {
+        if (text.includes('FROM charging_stations WHERE station_id')) {
+          return [{ id: 'sta_000000000001' }];
+        }
+        if (text.includes('SELECT id FROM evses WHERE station_id')) {
+          return evseExists ? [{ id: 'evs_000000000001' }] : [];
+        }
+        if (text.includes('INSERT INTO charging_sessions')) return [{ id: 'session-x' }];
+        return [];
+      };
+      const started = (transactionId: string): DomainEvent =>
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Started',
+          stationId: 'CS-001',
+          transactionId,
+          evseId: 1,
+          connectorId: 1,
+          seqNo: 0,
+          triggerReason: 'Authorized',
+          timestamp: '2024-01-01T00:00:00Z',
+        });
+      const sessionInsertEvse = (): unknown => {
+        const inserts = sqlCalls.filter((c) =>
+          c.strings.join('?').includes('INSERT INTO charging_sessions'),
+        );
+        return inserts[inserts.length - 1]?.values[2];
+      };
+
+      await eventBus.emit('ocpp.TransactionEvent', started('tx-before-evse'));
+      expect(sessionInsertEvse()).toBeNull();
+
+      evseExists = true;
+      await eventBus.emit('ocpp.TransactionEvent', started('tx-after-evse'));
+      expect(sessionInsertEvse()).toBe('evs_000000000001');
     });
 
     it('ends an older active session on the EVSE through a CSMS end, not a fault', async () => {

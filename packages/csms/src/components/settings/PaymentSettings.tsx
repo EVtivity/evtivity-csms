@@ -12,7 +12,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { PasswordInput } from '@/components/ui/password-input';
 import { Toggle } from '@/components/ui/toggle';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
@@ -28,13 +27,37 @@ import { percentError, preAuthAmountError } from './payment-amount-validation';
 import { PaymentProviderSettings } from './PaymentProviderSettings';
 import { SitePayoutAccountCard } from './SitePayoutAccountCard';
 import { StripeWebhookCard } from './StripeWebhookCard';
+import { StoredSecretInput } from './StoredSecretInput';
+import { secretChange, type StoredSecret } from './stored-secret';
 
-/** `GET /v1/settings/stripe`: secrets are returned decrypted, like the generic settings GET. */
+/**
+ * `GET /v1/settings/stripe`: secrets are returned decrypted only to users who
+ * also hold `settings.system:read`; everyone gets the `*Configured` flags.
+ */
 interface StripeSettings {
   publishableKey: string | null;
   secretKey: string | null;
+  secretKeyConfigured: boolean;
   webhookSecret: string | null;
+  webhookSecretConfigured: boolean;
   connectWebhookSecret: string | null;
+  connectWebhookSecretConfigured: boolean;
+}
+
+type StripeSecretField = 'secretKey' | 'webhookSecret' | 'connectWebhookSecret';
+
+const NO_STRIPE_REMOVALS: Record<StripeSecretField, boolean> = {
+  secretKey: false,
+  webhookSecret: false,
+  connectWebhookSecret: false,
+};
+
+function stripeSecret(
+  settings: StripeSettings | undefined,
+  field: StripeSecretField,
+): StoredSecret {
+  if (settings == null) return { value: null, configured: false };
+  return { value: settings[field], configured: settings[`${field}Configured`] };
 }
 
 interface StripeSettingsBody {
@@ -69,6 +92,7 @@ export function PaymentSettings(): React.JSX.Element {
   const [stripePublishableKey, setStripePublishableKey] = useState('');
   const [stripeWebhookSecret, setStripeWebhookSecret] = useState('');
   const [stripeConnectWebhookSecret, setStripeConnectWebhookSecret] = useState('');
+  const [stripeRemoving, setStripeRemoving] = useState(NO_STRIPE_REMOVALS);
   const { currency } = useCompanyCurrency();
   const [stripeHasUnsavedChanges, setStripeHasUnsavedChanges] = useState(false);
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
@@ -153,6 +177,7 @@ export function PaymentSettings(): React.JSX.Element {
     setStripeSecretKey(stripeSettings.secretKey ?? '');
     setStripeWebhookSecret(stripeSettings.webhookSecret ?? '');
     setStripeConnectWebhookSecret(stripeSettings.connectWebhookSecret ?? '');
+    setStripeRemoving(NO_STRIPE_REMOVALS);
     setStripeHasUnsavedChanges(false);
   }, [stripeSettings]);
 
@@ -218,15 +243,17 @@ export function PaymentSettings(): React.JSX.Element {
   function handleStripeSubmit(e: React.SyntheticEvent): void {
     e.preventDefault();
     const vals: StripeSettingsBody = {};
-    // Send only the secrets that changed (an emptied field clears), so an
-    // unchanged secret is not re-encrypted and audited.
-    const secrets: Array<[keyof StripeSettingsBody, string, string | null | undefined]> = [
-      ['secretKey', stripeSecretKey, stripeSettings?.secretKey],
-      ['webhookSecret', stripeWebhookSecret, stripeSettings?.webhookSecret],
-      ['connectWebhookSecret', stripeConnectWebhookSecret, stripeSettings?.connectWebhookSecret],
+    // Send only the secrets that changed, so an unchanged secret is not
+    // re-encrypted and audited. A shown secret emptied by the user clears; a
+    // hidden one clears only through its explicit remove (see secretChange).
+    const secrets: Array<[StripeSecretField, string]> = [
+      ['secretKey', stripeSecretKey],
+      ['webhookSecret', stripeWebhookSecret],
+      ['connectWebhookSecret', stripeConnectWebhookSecret],
     ];
-    for (const [key, value, stored] of secrets) {
-      if (value.trim() !== (stored ?? '')) vals[key] = value.trim();
+    for (const [key, value] of secrets) {
+      const change = secretChange(value, stripeSecret(stripeSettings, key), stripeRemoving[key]);
+      if (change !== undefined) vals[key] = change;
     }
     if (stripePublishableKey.trim() !== '') vals.publishableKey = stripePublishableKey.trim();
     stripeSaveMutation.mutate(vals);
@@ -280,19 +307,22 @@ export function PaymentSettings(): React.JSX.Element {
                   <Label htmlFor="stripe-secret-key" className="leading-6">
                     {t('settings.stripeSecretKey')}
                   </Label>
-                  <PasswordInput
+                  <StoredSecretInput
                     id="stripe-secret-key"
                     value={stripeSecretKey}
-                    disabled={!canWrite}
-                    autoComplete="off"
-                    onChange={(e) => {
-                      setStripeSecretKey(e.target.value);
+                    onChange={(value) => {
+                      setStripeSecretKey(value);
                       markStripeChanged();
                     }}
+                    secret={stripeSecret(stripeSettings, 'secretKey')}
+                    removing={stripeRemoving.secretKey}
+                    onRemovingChange={(removing) => {
+                      setStripeRemoving((current) => ({ ...current, secretKey: removing }));
+                      markStripeChanged();
+                    }}
+                    canWrite={canWrite}
+                    hint={t('settings.stripeSecretKeyHint')}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    {t('settings.stripeSecretKeyHint')}
-                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -314,38 +344,47 @@ export function PaymentSettings(): React.JSX.Element {
                   <Label htmlFor="stripe-webhook-secret" className="leading-6">
                     {t('settings.stripeWebhookSecret')}
                   </Label>
-                  <PasswordInput
+                  <StoredSecretInput
                     id="stripe-webhook-secret"
                     value={stripeWebhookSecret}
-                    disabled={!canWrite}
-                    autoComplete="off"
-                    onChange={(e) => {
-                      setStripeWebhookSecret(e.target.value);
+                    onChange={(value) => {
+                      setStripeWebhookSecret(value);
                       markStripeChanged();
                     }}
+                    secret={stripeSecret(stripeSettings, 'webhookSecret')}
+                    removing={stripeRemoving.webhookSecret}
+                    onRemovingChange={(removing) => {
+                      setStripeRemoving((current) => ({ ...current, webhookSecret: removing }));
+                      markStripeChanged();
+                    }}
+                    canWrite={canWrite}
+                    hint={t('settings.stripeWebhookSecretHint')}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    {t('settings.stripeWebhookSecretHint')}
-                  </p>
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="stripe-connect-webhook-secret" className="leading-6">
                     {t('settings.stripeConnectWebhookSecret')}
                   </Label>
-                  <PasswordInput
+                  <StoredSecretInput
                     id="stripe-connect-webhook-secret"
                     value={stripeConnectWebhookSecret}
-                    disabled={!canWrite}
-                    autoComplete="off"
-                    onChange={(e) => {
-                      setStripeConnectWebhookSecret(e.target.value);
+                    onChange={(value) => {
+                      setStripeConnectWebhookSecret(value);
                       markStripeChanged();
                     }}
+                    secret={stripeSecret(stripeSettings, 'connectWebhookSecret')}
+                    removing={stripeRemoving.connectWebhookSecret}
+                    onRemovingChange={(removing) => {
+                      setStripeRemoving((current) => ({
+                        ...current,
+                        connectWebhookSecret: removing,
+                      }));
+                      markStripeChanged();
+                    }}
+                    canWrite={canWrite}
+                    hint={t('settings.stripeConnectWebhookSecretHint')}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    {t('settings.stripeConnectWebhookSecretHint')}
-                  </p>
                 </div>
               </div>
 

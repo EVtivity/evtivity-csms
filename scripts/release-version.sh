@@ -2,19 +2,19 @@
 # Release tag helpers shared by scripts/release.sh and .github/workflows/release.yml.
 #
 # Source this file; it defines functions only. Tags are `v` plus a semver 2.0.0
-# version (https://semver.org). A tag with a prerelease suffix
-# (`v0.1.38-beta.1`, `v0.1.38-nightly.2`, `v0.1.38-rc.1`) is a prerelease.
-# Build metadata (`+...`) is rejected because Docker image tags cannot hold `+`.
+# version (https://semver.org) in one of four channels: stable `v0.1.38`, alpha
+# `v0.1.38-alpha.1`, beta `v0.1.38-beta.2` and nightly `v0.1.38-nightly.7` (the
+# number is optional). No other prerelease label (rc, preview) is used, so this
+# grammar rejects them. Build metadata (`+...`) is rejected because Docker image
+# tags cannot hold `+`.
 #
 # Usage from a shell: bash scripts/release-version.sh <function> [args...]
 
-# Semver 2.0.0 core and prerelease grammar (semver.org regex without build metadata).
 RELEASE_NUM='(0|[1-9][0-9]*)'
-RELEASE_PRE_ID='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
 RELEASE_STABLE_RE="^v${RELEASE_NUM}\\.${RELEASE_NUM}\\.${RELEASE_NUM}\$"
-RELEASE_TAG_RE="^v${RELEASE_NUM}\\.${RELEASE_NUM}\\.${RELEASE_NUM}(-${RELEASE_PRE_ID}(\\.${RELEASE_PRE_ID})*)?\$"
+RELEASE_TAG_RE="^v${RELEASE_NUM}\\.${RELEASE_NUM}\\.${RELEASE_NUM}(-(alpha|beta|nightly)(\\.${RELEASE_NUM})?)?\$"
 
-# release_tag_is_valid <tag>: exit 0 when the tag is v + semver (stable or prerelease).
+# release_tag_is_valid <tag>: exit 0 when the tag is a stable, alpha, beta or nightly tag.
 release_tag_is_valid() {
   [[ "${1:-}" =~ $RELEASE_TAG_RE ]]
 }
@@ -22,6 +22,20 @@ release_tag_is_valid() {
 # release_tag_is_prerelease <tag>: exit 0 when the tag is a valid prerelease tag.
 release_tag_is_prerelease() {
   release_tag_is_valid "${1:-}" && ! [[ "$1" =~ $RELEASE_STABLE_RE ]]
+}
+
+# release_tag_channel <tag>: print the release channel, which is also the floating
+# image tag (alias) the release moves: `stable`, `alpha`, `beta` or `nightly`. Exit 1 for an
+# invalid tag.
+release_tag_channel() {
+  local tag="${1:-}" pre
+  release_tag_is_valid "$tag" || return 1
+  if ! release_tag_is_prerelease "$tag"; then
+    echo stable
+    return 0
+  fi
+  pre="${tag#*-}"
+  echo "${pre%%.*}"
 }
 
 # release_latest_stable_tag: print the highest stable tag in the repo (prereleases

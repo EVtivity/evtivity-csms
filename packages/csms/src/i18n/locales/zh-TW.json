@@ -2175,7 +2175,12 @@
     "adyenWebhookTestFailed": "Adyen 測試事件失敗 (HTTP {{code}})。請檢查能否透過 Webhook URL 存取此 API。",
     "adyenWebhookNoEndpoints": "此商家帳戶中沒有此 URL 上的 EVtivity Webhook。",
     "adyenWebhookNotConfigured": "請先儲存 API 金鑰和商家帳戶，才能建立或列出 Webhook。",
-    "adyenWebhookLoadFailed": "無法從 Adyen 讀取 Webhook。"
+    "adyenWebhookLoadFailed": "無法從 Adyen 讀取 Webhook。",
+    "secretStoredPlaceholder": "已儲存的值已隱藏",
+    "secretStoredHint": "已儲存一個值。檢視該值需要「Settings - System」讀取權限。將欄位留空可保留該值，輸入新值可取代它。",
+    "secretRemove": "移除已儲存的值",
+    "secretRemovePending": "儲存時將移除已儲存的值。",
+    "secretRemoveUndo": "保留"
   },
   "pnc": {
     "certificates": "憑證",

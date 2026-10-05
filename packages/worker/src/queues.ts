@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { Queue } from 'bullmq';
-import { createBullMQConnection } from '@evtivity/lib';
+import { createBullMQConnection, logBullMQErrors } from '@evtivity/lib';
 
 export const QUEUE_NAMES = {
   CRON_JOBS: 'cron-jobs',
@@ -19,12 +19,7 @@ export const QUEUE_NAMES = {
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
-/**
- * Creates all BullMQ queues, each with its own Redis connection.
- * BullMQ blocking commands require dedicated connections per queue.
- * Call once at startup.
- */
-export function createQueues(redisUrl: string): {
+export interface WorkerQueues {
   cronQueue: Queue;
   loadQueue: Queue;
   guestSessionQueue: Queue;
@@ -35,9 +30,17 @@ export function createQueues(redisUrl: string): {
   paymentWebhookQueue: Queue;
   remoteStartTimeoutQueue: Queue;
   stationMessageQueue: Queue;
-} {
+}
+
+/**
+ * Creates all BullMQ queues, each with its own Redis connection.
+ * BullMQ blocking commands require dedicated connections per queue.
+ * Every queue logs its errors: BullMQ re-emits Redis errors on each Queue and,
+ * unheard, prints every one as a raw stack trace. Call once at startup.
+ */
+export function createQueues(redisUrl: string): WorkerQueues {
   // Each queue needs its own connection for BullMQ blocking commands
-  return {
+  const queues: WorkerQueues = {
     cronQueue: new Queue(QUEUE_NAMES.CRON_JOBS, {
       connection: createBullMQConnection(redisUrl),
       defaultJobOptions: {
@@ -137,4 +140,8 @@ export function createQueues(redisUrl: string): {
       },
     }),
   };
+  for (const [name, queue] of Object.entries(queues)) {
+    logBullMQErrors(queue, name);
+  }
+  return queues;
 }

@@ -126,12 +126,10 @@ describe('PICS', () => {
   describe('CSMS PICS', () => {
     const contractCertTests = ['TC_M_26_CSMS', 'TC_M_28_CSMS', 'TC_M_100_CSMS'];
 
-    it('excludes the ISO 15118 contract certificate installation and update tests', () => {
+    it('applies the ISO 15118 contract certificate installation and update tests', () => {
+      expect(PICS_CSMS_V2_1.items.ContractCertificateInstallationEV?.supported).toBe(true);
       for (const id of contractCertTests) {
-        const na = getNotApplicable(id, 'ocpp2.1', 'csms');
-        expect(na?.item, id).toBe('ContractCertificateInstallationEV');
-        expect(na?.reason, id).toContain('ContractCertificateInstallationEV not supported');
-        expect(na?.reason, id).toContain('contract certificate provisioning');
+        expect(getNotApplicable(id, 'ocpp2.1', 'csms'), id).toBeNull();
       }
     });
 
@@ -141,12 +139,17 @@ describe('PICS', () => {
       }
     });
 
-    it('excludes exactly the contract certificate tests', () => {
+    it('excludes no CSMS test', () => {
       const excluded = getRegistry()
         .filter((t) => getNotApplicable(t.id, t.version, 'csms') != null)
-        .map((t) => t.id)
-        .sort();
-      expect(excluded).toEqual([...contractCertTests].sort());
+        .map((t) => t.id);
+      expect(excluded).toEqual([]);
+    });
+
+    it('declares every OCPP 2.1 item supported', () => {
+      for (const item of Object.values(PICS_CSMS_V2_1.items)) {
+        expect(item.supported, item.id).toBe(true);
+      }
     });
 
     it('declares every OCPP 1.6 row supported', () => {

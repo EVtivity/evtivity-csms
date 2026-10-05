@@ -241,6 +241,44 @@ All hostnames share a single load balancer IP. DNS records for each hostname mus
 
 The Kubernetes Helm chart is maintained in a separate repository: [EVtivity/evtivity-csms-helm](https://github.com/EVtivity/evtivity-csms-helm)
 
+## Releases
+
+Versions follow [Semantic Versioning](https://semver.org): `vMAJOR.MINOR.PATCH`. Every release is a git tag and a GitHub release with notes.
+
+### Channels
+
+| Channel | Tag example         | Purpose                                                      | GitHub release |
+| ------- | ------------------- | ------------------------------------------------------------ | -------------- |
+| Stable  | `v0.1.38`           | Production release                                           | Latest         |
+| Beta    | `v0.1.38-beta.2`    | Feature-complete preview of the next stable release          | Pre-release    |
+| Alpha   | `v0.1.39-alpha.1`   | Early preview while the version's features are still in work | Pre-release    |
+| Nightly | `v0.1.38-nightly.7` | Test build between alphas or betas                           | Pre-release    |
+
+Prereleases rank below the stable version they lead to (`v0.1.38-beta.2` comes before `v0.1.38`). Run only stable releases in production.
+
+Once a version's betas start, it is feature-frozen: later betas carry only fixes, and new features go to the next version. The stable release is cut from the same code as the last beta.
+
+### Container images
+
+Images are published to `ghcr.io/evtivity/evtivity-csms/<service>` for `linux/amd64` and `linux/arm64`.
+
+- Every release has an exact, immutable tag: `0.1.38`, `0.1.38-beta.2`.
+- Stable releases also move `0.1`, `0`, `latest` and `stable`.
+- Prereleases move the alias of their channel only: `beta`, `alpha` or `nightly`.
+
+Aliases always point to the newest image of their channel, and a deployment picks up a new one only when it pulls the image again. Pin an exact tag in production.
+
+### Helm chart and AWS CDK
+
+The [Helm chart](https://github.com/EVtivity/evtivity-csms-helm) and the AWS CDK app follow stable releases only. Each stable release bumps them to its version. To try a prerelease, set the image tag yourself, for example `image.tag=0.1.38-beta.2`.
+
+### Release notes and upgrades
+
+- Every release note starts with a **Breaking changes** section: what changed, who is affected, and the action to take. It says "None." when there are none.
+- **Upgrade notes** give the steps for the upgrade, such as webhook moves, renamed settings, or chart values that changed.
+- Database changes that old and new versions must share during a rolling upgrade ship in two steps: one release adds the new structure while keeping the old one, and a later release removes the old one. When a release note says so, upgrade through each stable version in order instead of skipping one.
+- The dashboard shows an update notice when a newer stable release is available. Prereleases never trigger it.
+
 ## License
 
 Copyright (c) 2025-2026 EVtivity. All rights reserved.

@@ -13,19 +13,16 @@ import type { Pics, PicsItem, PicsPrerequisite } from './types.js';
  * TC_M_100) belongs to the "ISO 15118 support" profile (Table 1, "ISO 15118
  * Certificate Management: (Contract) Certificate Installation / Update EV")
  * and has no CSMS feature id of its own, so the item uses a descriptive key.
- * The profile as a whole is not declared unsupported: the CSMS passes its
- * other tests (TC_M_24 certificate status, CA certificate installation, PnC
- * authorization). Only items that decide whether a CSMS test applies are
- * listed. Every unsupported item says why.
+ * The CSMS supports it through the local contract CA (`pnc.provider =
+ * 'local'`). Only items that decide whether a CSMS test applies are listed.
+ * Every unsupported item says why.
  */
 const items: Record<string, PicsItem> = {
   ContractCertificateInstallationEV: {
     id: 'ContractCertificateInstallationEV',
     description:
-      'ISO 15118 support: (Contract) Certificate Installation / Update EV (Get15118EVCertificate). Part 5 lists TC_M_26 and TC_M_28 under ISO-1.1 (ISO 15118-2) and TC_M_100 under ISO-1.2 (ISO 15118-20)',
-    supported: false,
-    reason:
-      'The CSMS does not provide ISO 15118 contract certificate provisioning itself: that needs an EXI codec and a contract CA, or a Hubject-style provider',
+      'ISO 15118 support: (Contract) Certificate Installation / Update EV (Get15118EVCertificate), issued by the local contract CA. Part 5 lists TC_M_26 and TC_M_28 under ISO-1.1 (ISO 15118-2) and TC_M_100 under ISO-1.2 (ISO 15118-20)',
+    supported: true,
   },
 };
 

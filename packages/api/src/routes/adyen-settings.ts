@@ -19,7 +19,7 @@ import {
   WebhookExistsError,
 } from '@evtivity/payments';
 import type { AdyenCredentialInfo, WebhookEndpointInfo } from '@evtivity/payments';
-import { authorize } from '../middleware/rbac.js';
+import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { errorWith, itemResponse, successResponse } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
@@ -31,7 +31,7 @@ import {
   checkPaymentWebhookUrl,
   splitWebhookEndpoints,
 } from '../lib/payment-webhook-url.js';
-import { decryptForRead } from '../lib/settings-crypto.js';
+import { decryptForRead, SECRET_SETTINGS_READ_PERMISSION } from '../lib/settings-crypto.js';
 
 /** The path Adyen posts to; the operator's webhook URL must end in it exactly. */
 export const ADYEN_WEBHOOK_URL_PATH = '/v1/webhooks/payments/adyen';
@@ -59,24 +59,33 @@ const adyenSettingsResponse = z
     apiKey: z
       .string()
       .nullable()
-      .describe('Adyen API key (decrypted from storage; null when unset)'),
+      .describe(
+        'Adyen API key, decrypted. Returned only to callers that also hold settings.system:read; null otherwise and when unset (see apiKeyConfigured).',
+      ),
+    apiKeyConfigured: z.boolean().describe('An Adyen API key is stored'),
     hmacKey: z
       .string()
       .nullable()
-      .describe('Webhook HMAC key in hex (decrypted from storage; null when unset)'),
+      .describe(
+        'Webhook HMAC key in hex, decrypted. Returned only to callers that also hold settings.system:read; null otherwise and when unset (see hmacKeyConfigured).',
+      ),
+    hmacKeyConfigured: z.boolean().describe('A webhook HMAC key is stored'),
     hmacKeyPreviousConfigured: z
       .boolean()
       .describe('A previous HMAC key is stored and still accepted (key rotation)'),
     webhookPassword: z
       .string()
       .nullable()
-      .describe('Webhook Basic auth password (decrypted from storage; null when unset)'),
+      .describe(
+        'Webhook Basic auth password, decrypted. Returned only to callers that also hold settings.system:read; null otherwise and when unset (see webhookPasswordConfigured).',
+      ),
+    webhookPasswordConfigured: z.boolean().describe('A webhook Basic auth password is stored'),
     webhookUrlPath: z
       .literal(ADYEN_WEBHOOK_URL_PATH)
       .describe('Path of the Adyen webhook on this API; prefix it with the public API URL'),
   })
   .describe(
-    'Adyen settings. Secrets are returned decrypted, like the generic settings GET. The previous HMAC key is reported as stored or not.',
+    'Adyen settings. The secrets are returned decrypted only to callers that also hold settings.system:read; every caller gets whether each one is stored. The previous HMAC key is reported only as stored or not.',
   );
 
 const updateAdyenSettingsBody = z.object({
@@ -279,14 +288,19 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
         tags: ['Payments'],
         summary: 'Get Adyen settings',
         description:
-          'Returns the Adyen settings. The API key, HMAC key and webhook password are decrypted, like the generic settings GET. The previous HMAC key is reported only as stored or not.',
+          'Returns the Adyen settings and whether each secret is stored. The API key, HMAC key and webhook password are returned decrypted only when the caller also holds settings.system:read (for an API key, when its scope includes it), like the generic settings GET; otherwise they are null. The previous HMAC key is reported only as stored or not.',
         operationId: 'getAdyenSettings',
         security: [{ bearerAuth: [] }],
         response: { 200: itemResponse(adyenSettingsResponse) },
       },
     },
-    async () => {
+    async (request) => {
       const map = await readAdyenSettings();
+      // Stored secrets are readable only with the permission of the generic
+      // settings GET (P12); payments:read alone gets whether each is stored.
+      const includeSecrets = await requestHasPermission(request, SECRET_SETTINGS_READ_PERMISSION);
+      const secret = (key: string): string | null =>
+        includeSecrets ? decryptedSecret(map, key) : null;
       const region = map.get('adyen.liveRegion');
       return {
         merchantAccount: plainString(map.get('adyen.merchantAccount')),
@@ -296,10 +310,13 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
         clientKey: plainString(map.get('adyen.clientKey')),
         webhookUsername: plainString(map.get('adyen.webhookUsername')),
         authorisationAdjustment: map.get('adyen.authorisationAdjustment') === true,
-        apiKey: decryptedSecret(map, 'adyen.apiKeyEnc'),
-        hmacKey: decryptedSecret(map, 'adyen.hmacKeyEnc'),
+        apiKey: secret('adyen.apiKeyEnc'),
+        apiKeyConfigured: configured(map.get('adyen.apiKeyEnc')),
+        hmacKey: secret('adyen.hmacKeyEnc'),
+        hmacKeyConfigured: configured(map.get('adyen.hmacKeyEnc')),
         hmacKeyPreviousConfigured: configured(map.get('adyen.hmacKeyPreviousEnc')),
-        webhookPassword: decryptedSecret(map, 'adyen.webhookPasswordEnc'),
+        webhookPassword: secret('adyen.webhookPasswordEnc'),
+        webhookPasswordConfigured: configured(map.get('adyen.webhookPasswordEnc')),
         webhookUrlPath: ADYEN_WEBHOOK_URL_PATH,
       };
     },

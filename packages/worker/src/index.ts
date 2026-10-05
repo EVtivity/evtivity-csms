@@ -66,21 +66,6 @@ async function start(): Promise<void> {
     remoteStartTimeoutQueue,
     stationMessageQueue,
   } = createQueues(REDIS_URL);
-  // BullMQ re-emits Redis errors on every Queue and Worker; unheard, it
-  // prints each one as a raw stack trace.
-  for (const [name, queue] of Object.entries({
-    cronQueue,
-    loadQueue,
-    guestSessionQueue,
-    reservationQueue,
-    octtQueue,
-    maintenanceFanoutQueue,
-    stationWatchQueue,
-    paymentWebhookQueue,
-    remoteStartTimeoutQueue,
-  })) {
-    logBullMQErrors(queue, name);
-  }
   setSimulatedEventSink(queueSimulatedSink(paymentWebhookQueue));
 
   // Schedule cron jobs from database
@@ -148,8 +133,11 @@ async function start(): Promise<void> {
     stationWatchWorker,
     paymentWebhookWorker,
     remoteStartTimeoutWorker,
+    stationMessageWorker,
     octtWorker,
   })) {
+    // BullMQ re-emits Redis errors on every Worker; unheard, it prints each one
+    // as a raw stack trace. The queues log theirs in createQueues.
     logBullMQErrors(worker, name);
   }
 

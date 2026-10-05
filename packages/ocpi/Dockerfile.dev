@@ -9,6 +9,7 @@ COPY packages/payments/package.json packages/payments/
 COPY packages/services/package.json packages/services/
 COPY packages/api/package.json packages/api/
 COPY packages/ocpp/package.json packages/ocpp/
+COPY packages/v2g-exi/package.json packages/v2g-exi/
 COPY packages/ocpi/package.json packages/ocpi/
 COPY packages/csms/package.json packages/csms/
 COPY packages/portal/package.json packages/portal/

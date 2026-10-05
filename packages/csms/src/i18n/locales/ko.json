@@ -2175,7 +2175,12 @@
     "adyenWebhookTestFailed": "Adyen 테스트 이벤트가 실패했습니다(HTTP {{code}}). 웹훅 URL로 이 API에 접근할 수 있는지 확인하세요.",
     "adyenWebhookNoEndpoints": "이 가맹점 계정에 이 URL의 EVtivity 웹훅이 없습니다.",
     "adyenWebhookNotConfigured": "웹훅을 생성하거나 조회하려면 API 키와 가맹점 계정을 저장하세요.",
-    "adyenWebhookLoadFailed": "Adyen에서 웹훅을 읽을 수 없습니다."
+    "adyenWebhookLoadFailed": "Adyen에서 웹훅을 읽을 수 없습니다.",
+    "secretStoredPlaceholder": "저장된 값 숨김",
+    "secretStoredHint": "저장된 값이 있습니다. 값을 보려면 Settings - System 읽기 권한이 필요합니다. 유지하려면 필드를 비워 두고, 바꾸려면 새 값을 입력하세요.",
+    "secretRemove": "저장된 값 삭제",
+    "secretRemovePending": "저장하면 저장된 값이 삭제됩니다.",
+    "secretRemoveUndo": "유지"
   },
   "pnc": {
     "certificates": "인증서",

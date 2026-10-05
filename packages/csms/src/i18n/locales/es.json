@@ -2175,7 +2175,12 @@
     "adyenWebhookTestFailed": "El evento de prueba de Adyen falló (HTTP {{code}}). Compruebe que esta API es accesible en la URL del webhook.",
     "adyenWebhookNoEndpoints": "No hay ningún webhook de EVtivity en esta URL en esta cuenta de comercio.",
     "adyenWebhookNotConfigured": "Guarde la clave API y la cuenta de comercio para crear o listar el webhook.",
-    "adyenWebhookLoadFailed": "No se pudo leer el webhook de Adyen."
+    "adyenWebhookLoadFailed": "No se pudo leer el webhook de Adyen.",
+    "secretStoredPlaceholder": "Valor guardado oculto",
+    "secretStoredHint": "Hay un valor guardado. Para verlo se necesita el permiso de lectura de «Settings - System». Deje el campo vacío para conservarlo o introduzca un valor nuevo para reemplazarlo.",
+    "secretRemove": "Eliminar valor guardado",
+    "secretRemovePending": "El valor guardado se elimina al guardar.",
+    "secretRemoveUndo": "Conservar"
   },
   "pnc": {
     "certificates": "Certificados",

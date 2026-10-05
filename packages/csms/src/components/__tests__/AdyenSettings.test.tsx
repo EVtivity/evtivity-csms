@@ -62,7 +62,8 @@ function asInput(element: HTMLElement): HTMLInputElement {
   return element;
 }
 
-const SETTINGS: AdyenSettingsResponse = {
+/** GET /v1/settings/adyen for a user with settings.system:read (secrets returned). */
+const SETTINGS_WITH_SECRETS: AdyenSettingsResponse = {
   merchantAccount: 'EVtivityECOM',
   environment: 'test',
   liveUrlPrefix: null,
@@ -71,11 +72,23 @@ const SETTINGS: AdyenSettingsResponse = {
   webhookUsername: 'evtivity-abc',
   authorisationAdjustment: false,
   apiKey: 'AQE_stored_key',
+  apiKeyConfigured: true,
   hmacKey: 'ABCDEF0123',
+  hmacKeyConfigured: true,
   hmacKeyPreviousConfigured: false,
   webhookPassword: null,
+  webhookPasswordConfigured: false,
   webhookUrlPath: '/v1/webhooks/payments/adyen',
 };
+
+/** The same settings for a user without settings.system:read (secrets withheld). */
+const SETTINGS_HIDDEN: AdyenSettingsResponse = {
+  ...SETTINGS_WITH_SECRETS,
+  apiKey: null,
+  hmacKey: null,
+};
+
+let SETTINGS: AdyenSettingsResponse = SETTINGS_WITH_SECRETS;
 
 const ENDPOINT = {
   id: 'WBHK1',
@@ -141,6 +154,7 @@ afterEach(() => {
   putMock.mockReset();
   toastMock.mockReset();
   permission.canWrite = true;
+  SETTINGS = SETTINGS_WITH_SECRETS;
 });
 
 describe('AdyenSettings', () => {
@@ -372,6 +386,71 @@ describe('AdyenSettings', () => {
     });
     renderSettings();
     expect(await screen.findByText('settings.adyenWebhookNotConfigured')).toBeTruthy();
+  });
+
+  describe('without settings.system:read (secrets withheld by the API)', () => {
+    async function hiddenApiKey(): Promise<HTMLInputElement> {
+      const input = asInput(await screen.findByLabelText('settings.adyenApiKey'));
+      expect(input.placeholder).toBe('settings.secretStoredPlaceholder');
+      return input;
+    }
+
+    it('shows the stored state with empty fields', async () => {
+      SETTINGS = SETTINGS_HIDDEN;
+      mockGets();
+      renderSettings();
+      expect((await hiddenApiKey()).value).toBe('');
+      expect(asInput(screen.getByLabelText('settings.adyenHmacKey')).value).toBe('');
+      expect(screen.getAllByText('settings.secretStoredHint')).toHaveLength(2);
+      expect(screen.queryByText('settings.adyenApiKeyHint')).toBeNull();
+      // The unset webhook password keeps its normal hint and no placeholder.
+      expect(asInput(screen.getByLabelText('settings.adyenWebhookPassword')).placeholder).toBe('');
+    });
+
+    it('keeps hidden secrets left empty, sends a typed one, and clears one through Remove', async () => {
+      SETTINGS = SETTINGS_HIDDEN;
+      mockGets();
+      putMock.mockResolvedValue({ success: true });
+      renderSettings();
+      await hiddenApiKey();
+      fireEvent.change(screen.getByLabelText('settings.adyenHmacKey'), {
+        target: { value: '0123ABCD' },
+      });
+      const removeButtons = screen.getAllByRole('button', { name: 'settings.secretRemove' });
+      expect(removeButtons).toHaveLength(2);
+      const [removeApiKey] = removeButtons;
+      if (removeApiKey == null) throw new Error('no remove');
+      fireEvent.click(removeApiKey);
+      fireEvent.submit(await form());
+
+      await waitFor(() => {
+        expect(putMock).toHaveBeenCalledTimes(1);
+      });
+      const body = putMock.mock.calls[0]?.[1] as Record<string, unknown>;
+      expect(body).toMatchObject({ hmacKey: '0123ABCD', apiKey: '' });
+      expect(body).not.toHaveProperty('webhookPassword');
+    });
+
+    it('sends no secret when only plain fields change', async () => {
+      SETTINGS = SETTINGS_HIDDEN;
+      mockGets();
+      putMock.mockResolvedValue({ success: true });
+      renderSettings();
+      await hiddenApiKey();
+      fireEvent.change(screen.getByLabelText('settings.adyenMerchantAccount'), {
+        target: { value: 'OtherECOM' },
+      });
+      fireEvent.submit(await form());
+
+      await waitFor(() => {
+        expect(putMock).toHaveBeenCalledTimes(1);
+      });
+      const body = putMock.mock.calls[0]?.[1] as Record<string, unknown>;
+      expect(body).toMatchObject({ merchantAccount: 'OtherECOM' });
+      expect(body).not.toHaveProperty('apiKey');
+      expect(body).not.toHaveProperty('hmacKey');
+      expect(body).not.toHaveProperty('webhookPassword');
+    });
   });
 
   it('hides the write controls without payments:write', async () => {

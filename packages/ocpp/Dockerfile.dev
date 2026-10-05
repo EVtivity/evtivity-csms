@@ -9,6 +9,7 @@ COPY packages/payments/package.json packages/payments/
 COPY packages/services/package.json packages/services/
 COPY packages/api/package.json packages/api/
 COPY packages/ocpp/package.json packages/ocpp/
+COPY packages/v2g-exi/package.json packages/v2g-exi/
 COPY packages/ocpi/package.json packages/ocpi/
 COPY packages/csms/package.json packages/csms/
 COPY packages/portal/package.json packages/portal/
@@ -24,8 +25,9 @@ COPY tsconfig.base.json tsconfig.json ./
 COPY packages/lib/ packages/lib/
 COPY packages/database/ packages/database/
 COPY packages/payments/ packages/payments/
+COPY packages/v2g-exi/ packages/v2g-exi/
 COPY packages/ocpp/ packages/ocpp/
-RUN npx tsc -b --force packages/lib packages/database packages/payments
+RUN npx tsc -b --force packages/lib packages/database packages/payments packages/v2g-exi
 
 COPY scripts/generate-test-certs.sh scripts/generate-test-certs.sh
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/* \

@@ -1012,6 +1012,46 @@ describe('Station routes - handler logic', () => {
       );
     });
 
+    it('disables the paired simulator, which the CSMS would refuse forever', async () => {
+      const station = {
+        id: VALID_STATION_ID,
+        stationId: 'STATION-001',
+        siteId: null,
+        vendorId: null,
+        model: null,
+        serialNumber: null,
+        firmwareVersion: null,
+        availability: 'unavailable',
+        onboardingStatus: 'blocked',
+        isOnline: false,
+        isSimulator: true,
+        loadPriority: 0,
+        securityProfile: 1,
+        pendingSecurityProfile: null,
+        basicAuthPasswordHash: null,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      };
+      // 1: before SELECT, 2: UPDATE returning, 3: css_stations UPDATE
+      setupDbResults([station], [station], []);
+      const { db, cssStations } = await import('@evtivity/database');
+      const updateMock = vi.mocked(db.update);
+      updateMock.mockClear();
+
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(db.transaction).toHaveBeenCalled();
+      const cssUpdate = updateMock.mock.calls.findIndex((c) => c[0] === cssStations);
+      expect(cssUpdate).toBeGreaterThanOrEqual(0);
+      const chain = updateMock.mock.results[cssUpdate]?.value as { set: ReturnType<typeof vi.fn> };
+      expect(chain.set).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
+    });
+
     it('returns 404 when station not found', async () => {
       setupDbResults([]);
 

@@ -13,14 +13,27 @@ vi.mock('bullmq', () => ({
 }));
 
 const mockConnection = { host: 'mock-redis' };
+const mockLogBullMQErrors = vi.fn((target: unknown, _name: string) => target);
 vi.mock('@evtivity/lib', () => ({
   createBullMQConnection: vi.fn(() => mockConnection),
+  logBullMQErrors: (target: unknown, name: string) => mockLogBullMQErrors(target, name),
 }));
 
 describe('createQueues', () => {
   beforeEach(() => {
     queueCalls.length = 0;
     vi.clearAllMocks();
+  });
+
+  it('logs the errors of every queue (no raw BullMQ stack traces on a Redis outage)', async () => {
+    const { createQueues } = await import('../queues.js');
+    const queues = createQueues('redis://localhost:6379');
+
+    const entries = Object.entries(queues);
+    expect(mockLogBullMQErrors).toHaveBeenCalledTimes(entries.length);
+    for (const [name, queue] of entries) {
+      expect(mockLogBullMQErrors).toHaveBeenCalledWith(queue, name);
+    }
   });
 
   it('creates all ten queues with the expected names', async () => {

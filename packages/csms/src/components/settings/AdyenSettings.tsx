@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { PasswordInput } from '@/components/ui/password-input';
 import { Select } from '@/components/ui/select';
 import { Toggle } from '@/components/ui/toggle';
 import { useToast } from '@/components/ui/toast';
@@ -27,6 +26,8 @@ import {
   type WebhookEndpoint,
 } from './PaymentWebhookSetup';
 import { providerErrorMessage } from './payment-provider-errors';
+import { StoredSecretInput } from './StoredSecretInput';
+import { secretChange, type StoredSecret } from './stored-secret';
 
 export const ADYEN_WEBHOOK_PATH = '/v1/webhooks/payments/adyen';
 
@@ -35,7 +36,10 @@ type LiveRegion = (typeof LIVE_REGIONS)[number];
 const LIVE_URL_PREFIX = /^[a-z0-9]+-[A-Za-z0-9]+$/;
 const HEX = /^[0-9A-Fa-f]+$/;
 
-/** `GET /v1/settings/adyen`: secrets are returned decrypted, like the generic settings GET. */
+/**
+ * `GET /v1/settings/adyen`: secrets are returned decrypted only to users who
+ * also hold `settings.system:read`; everyone gets the `*Configured` flags.
+ */
 export interface AdyenSettingsResponse {
   merchantAccount: string | null;
   environment: 'test' | 'live';
@@ -45,9 +49,12 @@ export interface AdyenSettingsResponse {
   webhookUsername: string | null;
   authorisationAdjustment: boolean;
   apiKey: string | null;
+  apiKeyConfigured: boolean;
   hmacKey: string | null;
+  hmacKeyConfigured: boolean;
   hmacKeyPreviousConfigured: boolean;
   webhookPassword: string | null;
+  webhookPasswordConfigured: boolean;
   webhookUrlPath: string;
 }
 
@@ -93,8 +100,19 @@ interface AdyenForm {
   webhookPassword: string;
 }
 
-/** The secret fields of the form, sent only when changed (an emptied field clears). */
+/** The secret fields of the form, sent only when changed (see `secretChange`). */
 const SECRET_FIELDS = ['apiKey', 'hmacKey', 'webhookPassword'] as const;
+type SecretField = (typeof SECRET_FIELDS)[number];
+
+const NO_REMOVALS: Record<SecretField, boolean> = {
+  apiKey: false,
+  hmacKey: false,
+  webhookPassword: false,
+};
+
+function storedSecret(data: AdyenSettingsResponse, field: SecretField): StoredSecret {
+  return { value: data[field], configured: data[`${field}Configured`] };
+}
 
 function formFrom(data: AdyenSettingsResponse): AdyenForm {
   return {
@@ -227,12 +245,14 @@ export function AdyenSettings(): React.JSX.Element {
   });
 
   const [form, setForm] = useState<AdyenForm | null>(null);
+  const [removing, setRemoving] = useState(NO_REMOVALS);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   useEffect(() => {
     if (data == null) return;
     setForm(formFrom(data));
+    setRemoving(NO_REMOVALS);
     setHasSubmitted(false);
     setHasUnsavedChanges(false);
   }, [data]);
@@ -300,10 +320,13 @@ export function AdyenSettings(): React.JSX.Element {
     if (current.merchantAccount.trim() !== '')
       body.merchantAccount = current.merchantAccount.trim();
     // Send only the secrets that changed, so an unchanged secret is not
-    // re-encrypted and audited.
-    for (const key of SECRET_FIELDS) {
-      const value = current[key].trim();
-      if (value !== (data?.[key] ?? '')) body[key] = value;
+    // re-encrypted and audited. A shown secret emptied by the user clears; a
+    // hidden one clears only through its explicit remove (see secretChange).
+    if (data != null) {
+      for (const key of SECRET_FIELDS) {
+        const change = secretChange(current[key], storedSecret(data, key), removing[key]);
+        if (change !== undefined) body[key] = change;
+      }
     }
     saveMutation.mutate(body);
   }
@@ -419,36 +442,46 @@ export function AdyenSettings(): React.JSX.Element {
                 <Label htmlFor="adyen-api-key" className="leading-6">
                   {t('settings.adyenApiKey')}
                 </Label>
-                <PasswordInput
+                <StoredSecretInput
                   id="adyen-api-key"
                   value={current.apiKey}
-                  disabled={!canWrite}
-                  autoComplete="off"
-                  onChange={(e) => {
-                    update({ apiKey: e.target.value });
+                  onChange={(value) => {
+                    update({ apiKey: value });
                   }}
+                  secret={storedSecret(data, 'apiKey')}
+                  removing={removing.apiKey}
+                  onRemovingChange={(value) => {
+                    setRemoving((r) => ({ ...r, apiKey: value }));
+                    markChanged();
+                  }}
+                  canWrite={canWrite}
+                  hint={t('settings.adyenApiKeyHint')}
                 />
-                <p className="text-xs text-muted-foreground">{t('settings.adyenApiKeyHint')}</p>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="adyen-hmac-key" className="leading-6">
                   {t('settings.adyenHmacKey')}
                 </Label>
-                <PasswordInput
+                <StoredSecretInput
                   id="adyen-hmac-key"
                   value={current.hmacKey}
-                  disabled={!canWrite}
-                  autoComplete="off"
                   className={hasSubmitted && errors.hmacKey != null ? 'border-destructive' : ''}
-                  onChange={(e) => {
-                    update({ hmacKey: e.target.value });
+                  onChange={(value) => {
+                    update({ hmacKey: value });
                   }}
+                  secret={storedSecret(data, 'hmacKey')}
+                  removing={removing.hmacKey}
+                  onRemovingChange={(value) => {
+                    setRemoving((r) => ({ ...r, hmacKey: value }));
+                    markChanged();
+                  }}
+                  canWrite={canWrite}
+                  hint={t('settings.adyenHmacKeyHint')}
                 />
                 {hasSubmitted && errors.hmacKey != null && (
                   <p className="text-sm text-destructive">{errors.hmacKey}</p>
                 )}
-                <p className="text-xs text-muted-foreground">{t('settings.adyenHmacKeyHint')}</p>
               </div>
 
               <div className="space-y-2">
@@ -473,18 +506,21 @@ export function AdyenSettings(): React.JSX.Element {
                 <Label htmlFor="adyen-webhook-password" className="leading-6">
                   {t('settings.adyenWebhookPassword')}
                 </Label>
-                <PasswordInput
+                <StoredSecretInput
                   id="adyen-webhook-password"
                   value={current.webhookPassword}
-                  disabled={!canWrite}
-                  autoComplete="off"
-                  onChange={(e) => {
-                    update({ webhookPassword: e.target.value });
+                  onChange={(value) => {
+                    update({ webhookPassword: value });
                   }}
+                  secret={storedSecret(data, 'webhookPassword')}
+                  removing={removing.webhookPassword}
+                  onRemovingChange={(value) => {
+                    setRemoving((r) => ({ ...r, webhookPassword: value }));
+                    markChanged();
+                  }}
+                  canWrite={canWrite}
+                  hint={t('settings.adyenWebhookCredentialHint')}
                 />
-                <p className="text-xs text-muted-foreground">
-                  {t('settings.adyenWebhookCredentialHint')}
-                </p>
               </div>
 
               <div className="space-y-2 sm:col-span-2">

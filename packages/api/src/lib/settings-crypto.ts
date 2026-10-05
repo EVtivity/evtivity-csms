@@ -10,6 +10,13 @@ import { config as apiConfig } from './config.js';
  * centralize the rule so every settings route applies it identically.
  */
 
+/**
+ * The permission that reads stored secrets in plaintext: the generic settings
+ * GET requires it, and the payment provider settings GETs (`payments:read`)
+ * include their decrypted secrets only for callers that also hold it.
+ */
+export const SECRET_SETTINGS_READ_PERMISSION = 'settings.system:read';
+
 export function isEncryptedAtRest(key: string): boolean {
   return key.endsWith('Enc');
 }

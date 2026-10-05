@@ -46,6 +46,39 @@ export function invalidatePermissionCache(userId: string): void {
     });
 }
 
+/**
+ * The permissions a request acts with: the user's permissions, intersected
+ * with the API key's scope when the request uses an API key. Null for a
+ * token without a userId (driver tokens). Call after authentication.
+ */
+async function getEffectivePermissions(request: FastifyRequest): Promise<string[] | null> {
+  const user = request.user;
+  if (!('userId' in user)) return null;
+
+  const perms = await getUserPermissions(user.userId);
+
+  // If API key has scoped permissions, intersect with user permissions
+  const apiKeyPerms =
+    'apiKeyPermissions' in user
+      ? (user as { apiKeyPermissions?: string[] }).apiKeyPermissions
+      : undefined;
+  return apiKeyPerms != null ? perms.filter((p) => apiKeyPerms.includes(p)) : perms;
+}
+
+/**
+ * Whether an authenticated request holds a permission, with the same rules as
+ * `authorize()` (API key scoping, write implies read). For routes that answer
+ * every caller with the route permission but include some fields only for
+ * callers with a further permission.
+ */
+export async function requestHasPermission(
+  request: FastifyRequest,
+  permission: string,
+): Promise<boolean> {
+  const effectivePerms = await getEffectivePermissions(request);
+  return effectivePerms != null && hasPermission(effectivePerms, permission);
+}
+
 export function authorize(...requiredPermissions: string[]) {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const app = request.server;
@@ -54,23 +87,13 @@ export function authorize(...requiredPermissions: string[]) {
 
     if (requiredPermissions.length === 0) return;
 
-    const user = request.user;
-    if (!('userId' in user)) {
+    const effectivePerms = await getEffectivePermissions(request);
+    if (effectivePerms == null) {
       await reply
         .status(403)
         .send({ error: 'Insufficient permissions', code: 'INSUFFICIENT_PERMISSIONS' });
       return;
     }
-
-    const perms = await getUserPermissions(user.userId);
-
-    // If API key has scoped permissions, intersect with user permissions
-    const apiKeyPerms =
-      'apiKeyPermissions' in user
-        ? (user as { apiKeyPermissions?: string[] }).apiKeyPermissions
-        : undefined;
-    const effectivePerms =
-      apiKeyPerms != null ? perms.filter((p) => apiKeyPerms.includes(p)) : perms;
 
     for (const required of requiredPermissions) {
       if (!hasPermission(effectivePerms, required)) {

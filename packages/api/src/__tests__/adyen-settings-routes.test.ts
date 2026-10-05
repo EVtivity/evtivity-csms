@@ -10,10 +10,16 @@ const VALID_USER_ID = 'usr_000000000001';
 const VALID_ROLE_ID = 'rol_000000000001';
 const WEBHOOK_URL = 'https://csms.example.com/v1/webhooks/payments/adyen';
 
-const { mockSettingsRows, mockGetPaymentProvider, mockWritePaymentSettings } = vi.hoisted(() => ({
+const {
+  mockSettingsRows,
+  mockGetPaymentProvider,
+  mockWritePaymentSettings,
+  mockRequestHasPermission,
+} = vi.hoisted(() => ({
   mockSettingsRows: { rows: [] as Array<{ key: string; value: unknown }> },
   mockGetPaymentProvider: vi.fn(),
   mockWritePaymentSettings: vi.fn(),
+  mockRequestHasPermission: vi.fn(async (_request: unknown, _permission: string) => true),
 }));
 
 vi.mock('@evtivity/database', async (importOriginal) => {
@@ -39,6 +45,7 @@ vi.mock('../middleware/rbac.js', () => ({
       }
     },
   invalidatePermissionCache: vi.fn(),
+  requestHasPermission: mockRequestHasPermission,
 }));
 
 vi.mock('../lib/payments.js', () => ({
@@ -151,7 +158,7 @@ describe('Adyen settings routes', () => {
   });
 
   describe('GET /settings/adyen', () => {
-    it('returns plain settings and the secrets decrypted, like the generic settings GET', async () => {
+    it('returns plain settings and the secrets decrypted to a caller with settings.system:read', async () => {
       mockSettingsRows.rows = [
         { key: 'adyen.apiKeyEnc', value: encryptString('AQE_key', ENCRYPTION_KEY) },
         { key: 'adyen.merchantAccount', value: 'EVtivityECOM' },
@@ -176,11 +183,47 @@ describe('Adyen settings routes', () => {
         webhookUsername: 'evtivity-abc',
         authorisationAdjustment: true,
         apiKey: 'AQE_key',
+        apiKeyConfigured: true,
         hmacKey: 'ABCDEF0123',
+        hmacKeyConfigured: true,
         hmacKeyPreviousConfigured: false,
         webhookPassword: 'pw-1',
+        webhookPasswordConfigured: true,
         webhookUrlPath: '/v1/webhooks/payments/adyen',
       });
+      expect(mockRequestHasPermission).toHaveBeenCalledWith(
+        expect.anything(),
+        'settings.system:read',
+      );
+    });
+
+    it('returns only whether each secret is stored without settings.system:read', async () => {
+      // Also the answer for an API key whose scope leaves settings.system:read out:
+      // requestHasPermission applies the key scope like authorize().
+      mockRequestHasPermission.mockResolvedValueOnce(false);
+      const apiKeyCipher = encryptString('AQE_key', ENCRYPTION_KEY);
+      mockSettingsRows.rows = [
+        { key: 'adyen.apiKeyEnc', value: apiKeyCipher },
+        { key: 'adyen.merchantAccount', value: 'EVtivityECOM' },
+        { key: 'adyen.hmacKeyEnc', value: encryptString('ABCDEF0123', ENCRYPTION_KEY) },
+        { key: 'adyen.hmacKeyPreviousEnc', value: encryptString('0123', ENCRYPTION_KEY) },
+        { key: 'adyen.webhookPasswordEnc', value: '' },
+      ];
+      const response = await call('GET', '/settings/adyen');
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        merchantAccount: 'EVtivityECOM',
+        apiKey: null,
+        apiKeyConfigured: true,
+        hmacKey: null,
+        hmacKeyConfigured: true,
+        hmacKeyPreviousConfigured: true,
+        webhookPassword: null,
+        webhookPasswordConfigured: false,
+      });
+      expect(response.body).not.toContain('AQE_key');
+      expect(response.body).not.toContain('ABCDEF0123');
+      expect(response.body).not.toContain(apiKeyCipher);
     });
 
     it('returns the defaults when nothing is stored', async () => {
@@ -190,8 +233,11 @@ describe('Adyen settings routes', () => {
         environment: 'test',
         liveRegion: 'eu',
         apiKey: null,
+        apiKeyConfigured: false,
         hmacKey: null,
+        hmacKeyConfigured: false,
         webhookPassword: null,
+        webhookPasswordConfigured: false,
         authorisationAdjustment: false,
       });
     });

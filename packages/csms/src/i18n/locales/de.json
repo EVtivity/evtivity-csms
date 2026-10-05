@@ -2175,7 +2175,12 @@
     "adyenWebhookTestFailed": "Das Adyen-Testereignis ist fehlgeschlagen (HTTP {{code}}). Prüfen Sie, ob diese API unter der Webhook-URL erreichbar ist.",
     "adyenWebhookNoEndpoints": "Kein EVtivity-Webhook unter dieser URL in diesem Händlerkonto.",
     "adyenWebhookNotConfigured": "Speichern Sie API-Schlüssel und Händlerkonto, um den Webhook zu erstellen oder aufzulisten.",
-    "adyenWebhookLoadFailed": "Der Webhook konnte nicht von Adyen gelesen werden."
+    "adyenWebhookLoadFailed": "Der Webhook konnte nicht von Adyen gelesen werden.",
+    "secretStoredPlaceholder": "Gespeicherter Wert verborgen",
+    "secretStoredHint": "Ein Wert ist gespeichert. Zum Anzeigen ist die Leseberechtigung für „Settings - System“ erforderlich. Lassen Sie das Feld leer, um ihn zu behalten, oder geben Sie einen neuen Wert ein, um ihn zu ersetzen.",
+    "secretRemove": "Gespeicherten Wert entfernen",
+    "secretRemovePending": "Der gespeicherte Wert wird beim Speichern entfernt.",
+    "secretRemoveUndo": "Behalten"
   },
   "pnc": {
     "certificates": "Zertifikate",

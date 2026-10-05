@@ -615,7 +615,11 @@ export function registerProjections(
       SELECT id FROM evses WHERE station_id = ${stationUuid} AND evse_id = ${ocppEvseId}
     `;
     const uuid = (rows[0]?.id as string | null) ?? null;
-    evseUuidCache.set(cacheKey, uuid);
+    // Only a found EVSE is cached. The station lane creates an EVSE from its first
+    // StatusNotification, and a TransactionEvent or MeterValues on the transaction
+    // lane can be projected before that row exists. Caching the miss would leave
+    // every session started on that EVSE within the TTL without its EVSE.
+    if (uuid != null) evseUuidCache.set(cacheKey, uuid);
     return uuid;
   }
 
