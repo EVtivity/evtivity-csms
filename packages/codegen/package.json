@@ -1,6 +1,6 @@
 {
   "name": "@evtivity/codegen",
-  "version": "0.1.38",
+  "version": "0.1.39-alpha.1",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
