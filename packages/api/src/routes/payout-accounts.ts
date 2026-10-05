@@ -327,7 +327,7 @@ export function payoutAccountRoutes(app: FastifyInstance): void {
               entityIdSnapshot: id,
               action: 'payment_config_changed',
               ...getAuditActor(request),
-              after: { stripeConnectedAccountId: outcome.accountId },
+              after: { payoutAccountId: outcome.accountId },
               notes: 'Payout account created',
             },
             db,

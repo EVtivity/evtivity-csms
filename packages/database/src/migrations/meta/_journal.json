@@ -1030,6 +1030,41 @@
       "when": 1791000012035,
       "tag": "0146_pnc_local_contract_ca",
       "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1791000012036,
+      "tag": "0147_session_transaction_contract",
+      "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1791000012040,
+      "tag": "0148_payment_provider_contract_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "7",
+      "when": 1791000012041,
+      "tag": "0149_payment_provider_contract",
+      "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1791000012042,
+      "tag": "0150_payment_provider_check_validate",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1791000012050,
+      "tag": "0151_session_cost_ceiling",
+      "breakpoints": true
     }
   ]
 }

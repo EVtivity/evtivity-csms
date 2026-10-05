@@ -7,9 +7,11 @@ export { PgEventPersistence } from './event-persistence.js';
 export {
   pgErrorCode,
   pgConstraintName,
+  pgConnectionErrorKind,
   PG_UNIQUE_VIOLATION,
   PG_FOREIGN_KEY_VIOLATION,
 } from './lib/pg-errors.js';
+export type { PgConnectionErrorKind } from './lib/pg-errors.js';
 export { isRoamingEnabled, clearRoamingCache } from './lib/roaming-setting.js';
 export {
   isPncEnabled,

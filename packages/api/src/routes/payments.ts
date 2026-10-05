@@ -97,13 +97,6 @@ const sitePaymentConfigItem = z
       .describe(
         'Payout account of the site at the payment provider (a Stripe connected account ID), null when the site has none',
       ),
-    stripeConnectedAccountId: z
-      .string()
-      .max(255)
-      .nullable()
-      .describe(
-        'Stripe Connect account ID for the site, if using a connected account. Deprecated: use payoutAccountId; removed in v0.1.39.',
-      ),
     preAuthAmountCents: z.number().int().min(0).describe('Pre-authorization hold amount in cents'),
     platformFeePercent: z
       .string()
@@ -189,20 +182,6 @@ const driverPaymentMethodItem = z
       .max(255)
       .nullable()
       .describe('Payment method identifier at the payment provider'),
-    stripeCustomerId: z
-      .string()
-      .max(255)
-      .nullable()
-      .describe(
-        'Stripe Customer identifier for the driver; null for a card of another provider (Adyen). Deprecated: use providerCustomerId; removed in v0.1.39.',
-      ),
-    stripePaymentMethodId: z
-      .string()
-      .max(255)
-      .nullable()
-      .describe(
-        'Stripe PaymentMethod identifier used; null for a card of another provider (Adyen). Deprecated: use providerPaymentMethodId; removed in v0.1.39.',
-      ),
     cardBrand: z
       .string()
       .max(20)
@@ -262,20 +241,6 @@ const paymentRecordItem = z
       .max(255)
       .nullable()
       .describe('Payment method identifier at the payment provider used for this payment'),
-    stripePaymentIntentId: z
-      .string()
-      .max(255)
-      .nullable()
-      .describe(
-        'Stripe PaymentIntent identifier. Deprecated: use providerPaymentId; removed in v0.1.39.',
-      ),
-    stripeCustomerId: z
-      .string()
-      .max(255)
-      .nullable()
-      .describe(
-        'Stripe Customer identifier for the driver. Deprecated: use providerCustomerId; removed in v0.1.39.',
-      ),
     paymentSource: z
       .string()
       .max(50)
@@ -404,7 +369,7 @@ const reconciliationRunItem = z
       .array(z.unknown())
       .nullable()
       .describe(
-        'Detailed discrepancy entries from this reconciliation run. Each names the record (paymentRecordId), provider, providerPaymentId, field, localValue and providerValue; stripePaymentIntentId and stripeValue repeat providerPaymentId and providerValue (deprecated, removed in v0.1.39).',
+        'Detailed discrepancy entries from this reconciliation run. Each names the record (paymentRecordId), provider, providerPaymentId, field, localValue and providerValue.',
       ),
     errors: z
       .array(z.unknown())
@@ -425,7 +390,7 @@ const reconciliationResultItem = z
     discrepancies: z
       .array(z.unknown())
       .describe(
-        'Detailed discrepancy entries found during reconciliation. Each names the record (paymentRecordId), provider, providerPaymentId, field, localValue and providerValue; stripePaymentIntentId and stripeValue repeat providerPaymentId and providerValue (deprecated, removed in v0.1.39).',
+        'Detailed discrepancy entries found during reconciliation. Each names the record (paymentRecordId), provider, providerPaymentId, field, localValue and providerValue.',
       ),
     errors: z
       .array(z.unknown())
@@ -581,11 +546,10 @@ const upsertSitePaymentConfigBody = z.object({
       'Payout account of the site at the payment provider (a Stripe connected account acct_... onboarded outside EVtivity); null or empty clears it, omitted keeps the current account',
     ),
   stripeConnectedAccountId: z
-    .string()
-    .max(255)
+    .unknown()
     .optional()
     .describe(
-      'Stripe connected account (acct_...) onboarded outside EVtivity; empty clears it. Deprecated: use payoutAccountId; removed in v0.1.39. Used only when payoutAccountId is omitted; when both are sent they must match. With both omitted the current account is kept.',
+      'Removed in v0.1.39. A body that contains it is refused with 400 VALIDATION_ERROR; send the account in payoutAccountId',
     ),
   preAuthAmountCents: z
     .number()
@@ -821,7 +785,6 @@ export function paymentRoutes(app: FastifyInstance): void {
           id: sitePaymentConfigs.id,
           siteId: sitePaymentConfigs.siteId,
           payoutAccountId: sitePaymentConfigs.payoutAccountId,
-          stripeConnectedAccountId: sitePaymentConfigs.stripeConnectedAccountId,
           preAuthAmountCents: sitePaymentConfigs.preAuthAmountCents,
           platformFeePercent: sitePaymentConfigs.platformFeePercent,
           isEnabled: sitePaymentConfigs.isEnabled,
@@ -891,14 +854,14 @@ export function paymentRoutes(app: FastifyInstance): void {
         tags: ['Payments'],
         summary: 'Create or update payment configuration for a site',
         description:
-          'Saves the hold amount, platform fee override, enabled flag and connected account of the site (payoutAccountId, or the deprecated stripeConnectedAccountId; both sent with different values is 400 VALIDATION_ERROR). With neither field sent the account and its open onboarding link are kept; null or empty clears the account. A changed connected account ID is read from Stripe at once (payoutAccountStatus in the response) and revokes the open onboarding link. A config with a connected account that is not active still saves, but holds at the site are refused (409 PAYOUT_ACCOUNT_NOT_READY on the operator pre-auth) until the account is active.',
+          'Saves the hold amount, platform fee override, enabled flag and connected account of the site (payoutAccountId). A body with the removed stripeConnectedAccountId is refused with 400 VALIDATION_ERROR. With payoutAccountId omitted the account and its open onboarding link are kept; null or empty clears the account. A changed connected account ID is read from Stripe at once (payoutAccountStatus in the response) and revokes the open onboarding link. A config with a connected account that is not active still saves, but holds at the site are refused (409 PAYOUT_ACCOUNT_NOT_READY on the operator pre-auth) until the account is active.',
         operationId: 'upsertSitePaymentConfig',
         security: [{ bearerAuth: [] }],
         params: zodSchema(siteIdParams),
         body: zodSchema(upsertSitePaymentConfigBody),
         response: {
           200: itemResponse(sitePaymentConfigSaveItem),
-          400: errorWith('payoutAccountId and stripeConnectedAccountId differ', [
+          400: errorWith('The body contains the removed stripeConnectedAccountId', [
             ERROR_CODES.VALIDATION_ERROR,
           ]),
           404: errorWith('Site or payment config not found', [
@@ -912,31 +875,25 @@ export function paymentRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteIdParams>;
       const body = request.body as z.infer<typeof upsertSitePaymentConfigBody>;
 
-      // payoutAccountId wins; the deprecated stripeConnectedAccountId (D-P7,
-      // removed in P8) is used only when it is omitted. Both sent must name
-      // the same account (null and empty both clear it).
-      const normalizedAccountId = (value: string | null | undefined): string | null =>
-        value == null || value.trim() === '' ? null : value.trim();
-      if (
-        body.payoutAccountId !== undefined &&
-        body.stripeConnectedAccountId !== undefined &&
-        normalizedAccountId(body.payoutAccountId) !==
-          normalizedAccountId(body.stripeConnectedAccountId)
-      ) {
+      // stripeConnectedAccountId was removed in v0.1.39: refuse it rather than
+      // ignore it, so a client that still sends it learns its account was not saved.
+      if (body.stripeConnectedAccountId !== undefined) {
         await reply.status(400).send({
-          error: 'payoutAccountId and stripeConnectedAccountId differ',
-          code: 'VALIDATION_ERROR',
+          error:
+            'stripeConnectedAccountId was removed in v0.1.39. Send the account in payoutAccountId, or create or link it on the site payout account card',
+          code: ERROR_CODES.VALIDATION_ERROR,
           details: {
-            payoutAccountId:
-              'Send the account in payoutAccountId only; stripeConnectedAccountId is deprecated and must match it when sent',
+            stripeConnectedAccountId: 'Removed in v0.1.39. Use payoutAccountId instead',
           },
         });
         return;
       }
-      // Undefined (neither field sent, e.g. the enabled toggle) keeps the
-      // account and its open onboarding link; null or empty clears it.
-      const accountId =
-        body.payoutAccountId !== undefined ? body.payoutAccountId : body.stripeConnectedAccountId;
+      // Null and empty both clear the account.
+      const normalizedAccountId = (value: string | null | undefined): string | null =>
+        value == null || value.trim() === '' ? null : value.trim();
+      // Undefined (not sent, e.g. the enabled toggle) keeps the account and
+      // its open onboarding link; null or empty clears it.
+      const accountId = body.payoutAccountId;
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);

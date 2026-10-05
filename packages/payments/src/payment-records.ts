@@ -18,7 +18,6 @@ import type {
   ProviderRefundEntry,
 } from '@evtivity/database';
 import type { PaymentLogger } from './context.js';
-import { stripeColumnValue } from './legacy-columns.js';
 import { topUpCharges } from './top-ups.js';
 import type { TopUpCharge } from './top-ups.js';
 import type { PaymentProviderId, PaymentStatus, ProviderState } from './types.js';
@@ -46,10 +45,6 @@ import type { PaymentProviderId, PaymentStatus, ProviderState } from './types.js
  *
  * Each update returns whether it applied; a false means the record had
  * already moved on (or does not exist), and the caller logs it.
- *
- * Provider ids go into the `provider*` columns and, for Stripe and simulated
- * payments, into the matching `stripe_*` column too (P4 dual write, see
- * `legacy-columns.ts`). Reads use only the `provider*` columns.
  */
 
 export type PaymentRecord = typeof paymentRecords.$inferSelect;
@@ -64,31 +59,16 @@ const FAILABLE: PaymentStatus[] = ['pending', 'pre_authorized'];
 
 export type PaymentSource = 'web_portal' | 'guest' | 'prepaid' | 'ocpp_terminal';
 
-/** The provider columns of a record and their `stripe_*` copies. */
+/** The provider columns of a record. */
 function providerIds(
   provider: PaymentProviderId,
   ids: { paymentId?: string | null; customerId?: string | null; methodId?: string | null },
 ): Partial<typeof paymentRecords.$inferInsert> {
   return {
     provider,
-    ...(ids.paymentId !== undefined
-      ? {
-          providerPaymentId: ids.paymentId,
-          stripePaymentIntentId: stripeColumnValue(provider, ids.paymentId),
-        }
-      : {}),
-    ...(ids.customerId !== undefined
-      ? {
-          providerCustomerId: ids.customerId,
-          stripeCustomerId: stripeColumnValue(provider, ids.customerId),
-        }
-      : {}),
-    ...(ids.methodId !== undefined
-      ? {
-          providerPaymentMethodId: ids.methodId,
-          stripePaymentMethodId: stripeColumnValue(provider, ids.methodId),
-        }
-      : {}),
+    ...(ids.paymentId !== undefined ? { providerPaymentId: ids.paymentId } : {}),
+    ...(ids.customerId !== undefined ? { providerCustomerId: ids.customerId } : {}),
+    ...(ids.methodId !== undefined ? { providerPaymentMethodId: ids.methodId } : {}),
   };
 }
 

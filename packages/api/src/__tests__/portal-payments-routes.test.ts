@@ -62,8 +62,6 @@ function methodRow(overrides: Partial<DriverPaymentMethod> = {}): DriverPaymentM
   return {
     id: 1,
     driverId: DRIVER_ID,
-    stripeCustomerId: 'cus_123',
-    stripePaymentMethodId: 'pm_123',
     provider: 'stripe',
     providerCustomerId: 'cus_123',
     providerPaymentMethodId: 'pm_123',
@@ -392,7 +390,7 @@ describe('Portal payment routes - handler logic', () => {
     it('saves the method with the driver customer and never the client card details', async () => {
       mockSaveDriverMethod.mockResolvedValueOnce({
         status: 'saved',
-        method: methodRow({ id: 3, stripePaymentMethodId: 'pm_new' }),
+        method: methodRow({ id: 3, providerPaymentMethodId: 'pm_new' }),
       });
       const response = await app.inject({
         method: 'POST',

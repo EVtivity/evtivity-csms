@@ -241,12 +241,6 @@ const sessionDetail = z
           .max(255)
           .nullable()
           .describe('Payment identifier of the guest charge at the payment provider'),
-        stripePaymentIntentId: z
-          .string()
-          .nullable()
-          .describe(
-            'Stripe PaymentIntent ID for the guest charge. Deprecated: use providerPaymentId; removed in v0.1.39.',
-          ),
         expiresAt: z.coerce.date().describe('Timestamp when the guest session token expires'),
         createdAt: z.coerce.date().describe('Timestamp the guest session was created'),
       })
@@ -492,7 +486,6 @@ export function sessionRoutes(app: FastifyInstance): void {
           guestPreAuthAmountCents: guestSessions.preAuthAmountCents,
           guestProvider: guestSessions.provider,
           guestProviderPaymentId: guestSessions.providerPaymentId,
-          guestStripePaymentIntentId: guestSessions.stripePaymentIntentId,
           guestExpiresAt: guestSessions.expiresAt,
           guestCreatedAt: guestSessions.createdAt,
         })
@@ -535,7 +528,6 @@ export function sessionRoutes(app: FastifyInstance): void {
         guestPreAuthAmountCents,
         guestProvider,
         guestProviderPaymentId,
-        guestStripePaymentIntentId,
         guestExpiresAt,
         guestCreatedAt,
         tokenId,
@@ -582,7 +574,6 @@ export function sessionRoutes(app: FastifyInstance): void {
                 preAuthAmountCents: guestPreAuthAmountCents,
                 provider: guestProvider,
                 providerPaymentId: guestProviderPaymentId,
-                stripePaymentIntentId: guestStripePaymentIntentId,
                 expiresAt: guestExpiresAt as Date,
                 createdAt: guestCreatedAt as Date,
               }

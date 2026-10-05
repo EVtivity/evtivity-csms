@@ -157,7 +157,6 @@ describe('Portal sessions routes - handler logic', () => {
             endedAt: '2024-01-01T01:00:00Z',
             energyDeliveredWh: 10000,
             finalCostCents: 500,
-            tariffTaxRate: '0.19',
             taxCents: 80,
             currency: 'USD',
             stationName: 'CS-001',
@@ -182,7 +181,6 @@ describe('Portal sessions routes - handler logic', () => {
       expect(body.total).toBe(1);
       expect(body.data[0].id).toBe(VALID_SESSION_ID);
       expect(body.data[0].status).toBe('completed');
-      expect(body.data[0].tariffTaxRate).toBe('0.19');
       expect(body.data[0].taxCents).toBe(80);
     });
 
@@ -267,7 +265,6 @@ describe('Portal sessions routes - handler logic', () => {
           endedAt: '2024-01-01T01:00:00Z',
           energyDeliveredWh: 10000,
           currentCostCents: null,
-          tariffTaxRate: '0.19',
           finalCostCents: 500,
           currency: 'USD',
           meterStart: 0,
@@ -298,7 +295,6 @@ describe('Portal sessions routes - handler logic', () => {
             endedAt: '2024-01-01T01:00:00Z',
             energyDeliveredWh: 10000,
             currentCostCents: null,
-            tariffTaxRate: '0.19',
             finalCostCents: 500,
             // The split stored with the final cost (as read back from jsonb).
             costBreakdown: {
@@ -350,7 +346,6 @@ describe('Portal sessions routes - handler logic', () => {
       const body = response.json();
       expect(body.id).toBe(VALID_SESSION_ID);
       expect(body.status).toBe('completed');
-      expect(body.tariffTaxRate).toBe('0.19');
       expect(body.netCents).toBe(420);
       expect(body.taxCents).toBe(80);
       expect(body.taxRate).toBe('0.19');
@@ -371,7 +366,6 @@ describe('Portal sessions routes - handler logic', () => {
             endedAt: null,
             energyDeliveredWh: 10000,
             currentCostCents: 350,
-            tariffTaxRate: null,
             finalCostCents: null,
             // A breakdown stored for another amount is not used.
             costBreakdown: {
@@ -424,7 +418,6 @@ describe('Portal sessions routes - handler logic', () => {
             endedAt: '2024-01-01T01:00:00Z',
             energyDeliveredWh: 10000,
             currentCostCents: null,
-            tariffTaxRate: '0.19',
             finalCostCents: 0,
             currency: 'USD',
             meterStart: 0,

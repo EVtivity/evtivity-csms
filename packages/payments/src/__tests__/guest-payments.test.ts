@@ -412,6 +412,41 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
     );
   });
 
+  it('captures a cost billed at the hold without a shortfall and logs the tariff price above it', async () => {
+    m.findSessionRecord.mockResolvedValue(record({ preAuthAmountCents: 265 }));
+    m.selectQueue.push(
+      [finalizeGuest()],
+      [
+        {
+          ...chargedSession(265),
+          costBreakdown: {
+            basis: 'net',
+            netCents: 247,
+            taxCents: 18,
+            grossCents: 265,
+            taxLines: [{ taxRate: 0.0725, netCents: 247, taxCents: 18 }],
+            components: null,
+            pricedGrossCents: 266,
+          },
+        },
+      ],
+      [receiptSession()],
+    );
+
+    await end();
+
+    expect(provider.capture).toHaveBeenCalledWith(expect.objectContaining({ amountCents: 265 }));
+    expect(m.markCaptured).toHaveBeenCalledWith(11, {
+      capturedCents: 265,
+      failureReason: null,
+      pendingRef: null,
+    });
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ amountCents: 265, pricedCents: 266 }),
+      'Captured guest payment at the hold; the tariff price above it was not billed',
+    );
+  });
+
   it('captures the full cost when the record has no hold amount', async () => {
     m.findSessionRecord.mockResolvedValue(record({ preAuthAmountCents: null }));
     m.selectQueue.push([finalizeGuest()], [chargedSession(9000)], [receiptSession()]);
@@ -736,7 +771,6 @@ describe('authorizeGuestHold', () => {
       evseId: 1,
       provider: 'stripe',
       providerPaymentId: 'pi_new',
-      stripePaymentIntentId: 'pi_new',
       guestEmail: 'guest@example.com',
       preAuthAmountCents: 5000,
       status: 'payment_authorized',
@@ -1068,7 +1102,6 @@ describe('guest 3DS round trip (P10a)', () => {
     expect(m.inserts[0]?.values).toMatchObject({
       provider: 'stripe',
       providerPaymentId: null,
-      stripePaymentIntentId: null,
       status: 'pending_payment',
       startRequestedAt: null,
     });
@@ -1091,7 +1124,6 @@ describe('guest 3DS round trip (P10a)', () => {
     expect(call.idempotencyKey.length).toBeLessThanOrEqual(64);
     expect(m.updates.at(-1)?.values).toMatchObject({
       providerPaymentId: 'PSP1',
-      stripePaymentIntentId: null,
       status: 'payment_authorized',
     });
   });
@@ -1172,7 +1204,6 @@ describe('guest 3DS round trip (P10a)', () => {
       expect(await attachGuestAuthorisation(attach)).toBe('attached');
       expect(m.updates.at(-1)?.values).toMatchObject({
         providerPaymentId: 'PSP1',
-        stripePaymentIntentId: null,
         status: 'payment_authorized',
       });
     });

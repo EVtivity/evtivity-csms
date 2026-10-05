@@ -271,8 +271,6 @@ function paymentRecord(overrides: Record<string, unknown> = {}): Record<string, 
     providerPaymentId: 'pi_test_123',
     providerCustomerId: 'cus_test',
     providerPaymentMethodId: 'pm_test',
-    stripePaymentIntentId: 'pi_test_123',
-    stripeCustomerId: 'cus_test',
     paymentSource: null,
     currency: 'USD',
     preAuthAmountCents: 5000,
@@ -322,7 +320,6 @@ describe('Payment routes - handler logic', () => {
         id: 'pc-1',
         siteId: VALID_SITE_ID,
         payoutAccountId: 'acct_123',
-        stripeConnectedAccountId: 'acct_123',
         preAuthAmountCents: 5000,
         platformFeePercent: null,
         isEnabled: true,
@@ -342,7 +339,6 @@ describe('Payment routes - handler logic', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json().payoutAccountId).toBe('acct_123');
-      expect(response.json().stripeConnectedAccountId).toBe('acct_123');
       expect(response.json()).not.toHaveProperty('currency');
     });
 
@@ -376,7 +372,6 @@ describe('Payment routes - handler logic', () => {
         id: 'pc-1',
         siteId: VALID_SITE_ID,
         payoutAccountId: null,
-        stripeConnectedAccountId: null,
         preAuthAmountCents: 7500,
         platformFeePercent: null,
         isEnabled: true,
@@ -412,9 +407,9 @@ describe('Payment routes - handler logic', () => {
       expect(mockClearPaymentCaches).toHaveBeenCalledTimes(1);
       // The account field goes through the payout account service, never the update.
       expect(updateChain.set).toHaveBeenCalledWith(
-        expect.not.objectContaining({ stripeConnectedAccountId: expect.anything() }),
+        expect.not.objectContaining({ payoutAccountId: expect.anything() }),
       );
-      // Neither account field sent: the account and its open invite are kept.
+      // No account field sent: the account and its open invite are kept.
       expect(mockSetSitePayoutAccountId).not.toHaveBeenCalled();
       expect(mockRevokePayoutInvites).not.toHaveBeenCalled();
     });
@@ -424,7 +419,6 @@ describe('Payment routes - handler logic', () => {
         id: 'pc-1',
         siteId: VALID_SITE_ID,
         payoutAccountId: 'acct_new',
-        stripeConnectedAccountId: 'acct_new',
         preAuthAmountCents: 5000,
         platformFeePercent: null,
         isEnabled: true,
@@ -441,12 +435,11 @@ describe('Payment routes - handler logic', () => {
         method: 'PUT',
         url: `/sites/${VALID_SITE_ID}/payment-config`,
         headers: { authorization: 'Bearer ' + token },
-        payload: { stripeConnectedAccountId: 'acct_new', isEnabled: true },
+        payload: { payoutAccountId: 'acct_new', isEnabled: true },
       });
 
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({
-        stripeConnectedAccountId: 'acct_new',
         payoutAccountId: 'acct_new',
         payoutAccountStatus: 'onboarding',
       });
@@ -459,7 +452,6 @@ describe('Payment routes - handler logic', () => {
         id: 'pc-1',
         siteId: VALID_SITE_ID,
         payoutAccountId: accountId,
-        stripeConnectedAccountId: accountId,
         preAuthAmountCents: 5000,
         platformFeePercent: null,
         isEnabled: true,
@@ -487,10 +479,8 @@ describe('Payment routes - handler logic', () => {
       const response = await putConfig({ payoutAccountId: 'acct_payout' });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toMatchObject({
-        payoutAccountId: 'acct_payout',
-        stripeConnectedAccountId: 'acct_payout',
-      });
+      expect(response.json()).toMatchObject({ payoutAccountId: 'acct_payout' });
+      expect(response.json()).not.toHaveProperty('stripeConnectedAccountId');
       expect(mockSetSitePayoutAccountId).toHaveBeenCalledWith(VALID_SITE_ID, 'acct_payout', CTX);
     });
 
@@ -560,62 +550,39 @@ describe('Payment routes - handler logic', () => {
       expect(set).toMatchObject({ preAuthAmountCents: 2500 });
     });
 
-    it('clears the account when the deprecated field is sent empty', async () => {
+    it('clears the account when payoutAccountId is sent empty', async () => {
       setupDbResults([{ id: VALID_SITE_ID }], [{ id: 'pc-1' }], [], [configRow(null)]);
       mockSetSitePayoutAccountId.mockResolvedValue(true);
 
-      const response = await putConfig({ stripeConnectedAccountId: '' });
+      const response = await putConfig({ payoutAccountId: '' });
 
       expect(response.statusCode).toBe(200);
       expect(mockSetSitePayoutAccountId).toHaveBeenCalledWith(VALID_SITE_ID, null, CTX);
       expect(mockRevokePayoutInvites).toHaveBeenCalledWith(VALID_SITE_ID);
     });
 
-    it('accepts both account fields when they name the same account', async () => {
-      setupDbResults([{ id: VALID_SITE_ID }], [{ id: 'pc-1' }], [], [configRow('acct_same')]);
-      mockSetSitePayoutAccountId.mockResolvedValue(false);
+    it.each([['acct_other'], [''], [null]])(
+      'refuses the removed stripeConnectedAccountId (%j) without writing',
+      async (value) => {
+        const response = await putConfig({ stripeConnectedAccountId: value, isEnabled: true });
 
-      const response = await putConfig({
-        payoutAccountId: 'acct_same',
-        stripeConnectedAccountId: 'acct_same',
-      });
-
-      expect(response.statusCode).toBe(200);
-      expect(mockSetSitePayoutAccountId).toHaveBeenCalledWith(VALID_SITE_ID, 'acct_same', CTX);
-    });
-
-    it('treats null and empty as the same cleared account', async () => {
-      setupDbResults([{ id: VALID_SITE_ID }], [{ id: 'pc-1' }], [], [configRow(null)]);
-      mockSetSitePayoutAccountId.mockResolvedValue(false);
-
-      const response = await putConfig({ payoutAccountId: null, stripeConnectedAccountId: '' });
-
-      expect(response.statusCode).toBe(200);
-      expect(mockSetSitePayoutAccountId).toHaveBeenCalledWith(VALID_SITE_ID, null, CTX);
-    });
-
-    it('returns 400 VALIDATION_ERROR without writing when the two account fields differ', async () => {
-      const response = await putConfig({
-        payoutAccountId: 'acct_one',
-        stripeConnectedAccountId: 'acct_two',
-      });
-
-      expect(response.statusCode).toBe(400);
-      expect(response.json()).toMatchObject({
-        code: 'VALIDATION_ERROR',
-        details: { payoutAccountId: expect.any(String) },
-      });
-      expect(db.select).not.toHaveBeenCalled();
-      expect(mockSetSitePayoutAccountId).not.toHaveBeenCalled();
-      expect(mockClearPaymentCaches).not.toHaveBeenCalled();
-    });
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toMatchObject({
+          code: 'VALIDATION_ERROR',
+          error: expect.stringContaining('stripeConnectedAccountId') as unknown,
+          details: { stripeConnectedAccountId: expect.any(String) as unknown },
+        });
+        expect(db.select).not.toHaveBeenCalled();
+        expect(db.update).not.toHaveBeenCalled();
+        expect(mockSetSitePayoutAccountId).not.toHaveBeenCalled();
+      },
+    );
 
     it('creates new payment config when none exists', async () => {
       const created = {
         id: 'pc-new',
         siteId: VALID_SITE_ID,
         payoutAccountId: null,
-        stripeConnectedAccountId: null,
         preAuthAmountCents: 5000,
         platformFeePercent: null,
         isEnabled: true,
@@ -659,7 +626,6 @@ describe('Payment routes - handler logic', () => {
         id: 'pc-low',
         siteId: VALID_SITE_ID,
         payoutAccountId: null,
-        stripeConnectedAccountId: null,
         preAuthAmountCents: 50,
         platformFeePercent: null,
         isEnabled: true,
@@ -962,8 +928,6 @@ describe('Payment routes - handler logic', () => {
           provider: 'stripe',
           providerCustomerId: 'cus_test',
           providerPaymentMethodId: 'pm_test',
-          stripeCustomerId: 'cus_test',
-          stripePaymentMethodId: 'pm_test',
           cardBrand: 'visa',
           cardLast4: '4242',
           isDefault: true,
@@ -987,8 +951,6 @@ describe('Payment routes - handler logic', () => {
         provider: 'stripe',
         providerCustomerId: 'cus_test',
         providerPaymentMethodId: 'pm_test',
-        stripeCustomerId: 'cus_test',
-        stripePaymentMethodId: 'pm_test',
       });
     });
   });
@@ -1010,8 +972,6 @@ describe('Payment routes - handler logic', () => {
         provider: 'stripe',
         providerCustomerId: 'cus_test',
         providerPaymentMethodId: 'pm_test',
-        stripeCustomerId: 'cus_test',
-        stripePaymentMethodId: 'pm_test',
         cardBrand: 'visa',
         cardLast4: '4242',
         isDefault: true,
@@ -1029,7 +989,7 @@ describe('Payment routes - handler logic', () => {
 
       expect(response.statusCode).toBe(201);
       expect(response.json().isDefault).toBe(true);
-      expect(response.json().stripePaymentMethodId).toBe('pm_test');
+      expect(response.json().providerPaymentMethodId).toBe('pm_test');
       expect(mockSaveDriverMethod).toHaveBeenCalledWith(
         {
           driverId: VALID_DRIVER_ID,
@@ -1108,8 +1068,6 @@ describe('Payment routes - handler logic', () => {
         provider: 'stripe',
         providerCustomerId: 'cus_test',
         providerPaymentMethodId: 'pm_test',
-        stripeCustomerId: 'cus_test',
-        stripePaymentMethodId: 'pm_test',
         cardBrand: null,
         cardLast4: null,
         isDefault: true,
@@ -1156,8 +1114,6 @@ describe('Payment routes - handler logic', () => {
         providerPaymentId: null,
         providerCustomerId: null,
         providerPaymentMethodId: null,
-        stripePaymentIntentId: null,
-        stripeCustomerId: null,
         paymentSource: null,
         currency: 'USD',
         preAuthAmountCents: 0,
@@ -1209,8 +1165,6 @@ describe('Payment routes - handler logic', () => {
         providerPaymentId: null,
         providerCustomerId: null,
         providerPaymentMethodId: null,
-        stripePaymentIntentId: null,
-        stripeCustomerId: null,
         paymentSource: null,
         currency: 'USD',
         preAuthAmountCents: 0,
@@ -1280,7 +1234,6 @@ describe('Payment routes - handler logic', () => {
       expect(response.json()).toMatchObject({
         provider: 'stripe',
         providerPaymentId: 'pi_test_123',
-        stripePaymentIntentId: 'pi_test_123',
       });
       expect(mockAuthorizeSessionHold).toHaveBeenCalledWith(
         {
@@ -1321,7 +1274,7 @@ describe('Payment routes - handler logic', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json().id).toBe('1');
-      expect(response.json().stripePaymentIntentId).toBe('pi_test_123');
+      expect(response.json().providerPaymentId).toBe('pi_test_123');
     });
 
     it('returns 400 PRE_AUTH_FAILED when the session already has a non-hold record', async () => {
@@ -2056,8 +2009,6 @@ describe('Payment routes - handler logic', () => {
       provider: 'simulated',
       providerCustomerId: 'cus_sim_1',
       providerPaymentMethodId: 'pm_sim_approve_4242_x',
-      stripeCustomerId: 'cus_sim_1',
-      stripePaymentMethodId: 'pm_sim_approve_4242_x',
       cardBrand: 'visa',
       cardLast4: '4242',
       isDefault: true,
@@ -2666,7 +2617,6 @@ describe('Payment routes - handler logic', () => {
           id: 'pc-1',
           siteId: VALID_SITE_ID,
           payoutAccountId: 'acct_123',
-          stripeConnectedAccountId: 'acct_123',
           currency: 'USD',
           preAuthAmountCents: 5000,
           platformFeePercent: null,
@@ -2681,7 +2631,6 @@ describe('Payment routes - handler logic', () => {
           id: 'pc-2',
           siteId: VALID_DRIVER_ID,
           payoutAccountId: null,
-          stripeConnectedAccountId: null,
           currency: 'EUR',
           preAuthAmountCents: 3000,
           platformFeePercent: '5',

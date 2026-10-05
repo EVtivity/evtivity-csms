@@ -20,7 +20,6 @@ import {
   PaymentProviderNotConfiguredError,
   PaymentValidationError,
 } from './errors.js';
-import { stripeColumnValue, writesStripeColumns } from './legacy-columns.js';
 import { activeProvider, pinnedProvider } from './pinning.js';
 import type {
   BrowserContext,
@@ -35,8 +34,8 @@ import type {
 
 /**
  * Saved payment methods and the driver's customer at each provider. The only
- * writer of `driver_payment_methods`, `driver_payment_customers` and
- * `drivers.stripe_customer_id` (P3), for the portal, the operator dashboard
+ * writer of `driver_payment_methods` and `driver_payment_customers` (P3),
+ * for the portal, the operator dashboard
  * and the mobile app alike. A method is verified server side with the
  * provider it belongs to (never client asserted), and a method is removed
  * from the provider it was saved with (its `provider` column).
@@ -81,31 +80,19 @@ async function customerFor(
   return row?.customerId ?? null;
 }
 
-/**
- * Stores the driver's customer at the provider. A Stripe or simulated
- * customer is also written to `drivers.stripe_customer_id` (P4 dual write,
- * `legacy-columns.ts`).
- */
+/** Stores the driver's customer at the provider. */
 async function storeCustomer(
   driverId: string,
   providerId: PaymentProviderId,
   customerId: string,
 ): Promise<void> {
-  await db.transaction(async (tx) => {
-    await tx
-      .insert(driverPaymentCustomers)
-      .values({ driverId, provider: providerId, providerCustomerId: customerId })
-      .onConflictDoUpdate({
-        target: [driverPaymentCustomers.driverId, driverPaymentCustomers.provider],
-        set: { providerCustomerId: customerId, updatedAt: new Date() },
-      });
-    if (writesStripeColumns(providerId)) {
-      await tx
-        .update(drivers)
-        .set({ stripeCustomerId: customerId, updatedAt: new Date() })
-        .where(eq(drivers.id, driverId));
-    }
-  });
+  await db
+    .insert(driverPaymentCustomers)
+    .values({ driverId, provider: providerId, providerCustomerId: customerId })
+    .onConflictDoUpdate({
+      target: [driverPaymentCustomers.driverId, driverPaymentCustomers.provider],
+      set: { providerCustomerId: customerId, updatedAt: new Date() },
+    });
 }
 
 /** Whether another driver already holds this customer of the provider (customer row or saved method). */
@@ -222,8 +209,8 @@ export async function startDriverMethodSetup(
 }
 
 /**
- * Stores a verified method of the driver's customer at the provider (both
- * column forms, P4). The driver's first method is the default. A method the
+ * Stores a verified method of the driver's customer at the provider. The
+ * driver's first method is the default. A method the
  * driver already has returns the stored row (ON CONFLICT, P7).
  */
 async function insertMethod(
@@ -232,10 +219,6 @@ async function insertMethod(
   customerId: string,
   details: SavedMethodDetails,
 ): Promise<DriverPaymentMethod> {
-  // The stripe_* copies stay NULL for other providers (Adyen), so pods of the
-  // previous release never send their ids to Stripe (plan P10, layer 2).
-  const stripeCustomerId = stripeColumnValue(providerId, customerId);
-  const stripePaymentMethodId = stripeColumnValue(providerId, details.methodId);
   const existing = await db
     .select({ id: driverPaymentMethods.id })
     .from(driverPaymentMethods)
@@ -247,8 +230,6 @@ async function insertMethod(
       provider: providerId,
       providerCustomerId: customerId,
       providerPaymentMethodId: details.methodId,
-      stripeCustomerId,
-      stripePaymentMethodId,
       cardBrand: details.brand,
       cardLast4: details.last4,
       isDefault: existing.length === 0,
@@ -514,9 +495,6 @@ export async function listDriverMethods(
   await Promise.all(
     missing.map(async (row) => {
       try {
-        if (row.providerCustomerId == null || row.providerPaymentMethodId == null) {
-          throw new Error('Payment method has no provider ids');
-        }
         const provider = await pinnedProvider(ctx.registry, row.provider);
         const details = await provider.verifyMethod({
           methodId: row.providerPaymentMethodId,
@@ -583,9 +561,6 @@ export async function removeDriverMethod(
   }
 
   try {
-    if (method.providerCustomerId == null || method.providerPaymentMethodId == null) {
-      throw new Error('Payment method has no provider ids');
-    }
     const provider = await pinnedProvider(ctx.registry, method.provider);
     await provider.detachMethod({
       customerId: method.providerCustomerId,

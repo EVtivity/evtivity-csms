@@ -10,9 +10,6 @@ import type { PayoutAccountState, PayoutAccountStatus } from './types.js';
  * (`site_payment_configs.payout_account_id`, `payout_account_status`,
  * `payout_account_details`, `payout_account_checked_at`; plan P3.5 P3). The
  * service in `payout-accounts.ts` decides; this module reads and writes.
- * Payout accounts are Stripe Connect accounts, so every write of the account
- * id also sets `stripe_connected_account_id`, which pods of the previous
- * release read (P4 dual write until P8).
  */
 
 export interface SitePayoutAccountRow {
@@ -64,14 +61,6 @@ export async function ensureSitePaymentConfig(siteId: string): Promise<void> {
     .onConflictDoNothing({ target: sitePaymentConfigs.siteId });
 }
 
-/** The account id and its `stripe_connected_account_id` copy (P4 dual write). */
-function accountIdColumns(accountId: string | null): {
-  payoutAccountId: string | null;
-  stripeConnectedAccountId: string | null;
-} {
-  return { payoutAccountId: accountId, stripeConnectedAccountId: accountId };
-}
-
 const CLEARED_STATUS = {
   payoutAccountStatus: null,
   payoutAccountDetails: null,
@@ -88,7 +77,7 @@ export async function storeCreatedPayoutAccount(
 ): Promise<boolean> {
   const rows = await db
     .update(sitePaymentConfigs)
-    .set({ ...accountIdColumns(accountId), ...CLEARED_STATUS, updatedAt: new Date() })
+    .set({ payoutAccountId: accountId, ...CLEARED_STATUS, updatedAt: new Date() })
     .where(and(eq(sitePaymentConfigs.siteId, siteId), isNull(sitePaymentConfigs.payoutAccountId)))
     .returning({ id: sitePaymentConfigs.id });
   return rows.length > 0;
@@ -105,7 +94,7 @@ export async function setPayoutAccountId(
 ): Promise<boolean> {
   const rows = await db
     .update(sitePaymentConfigs)
-    .set({ ...accountIdColumns(accountId), ...CLEARED_STATUS, updatedAt: new Date() })
+    .set({ payoutAccountId: accountId, ...CLEARED_STATUS, updatedAt: new Date() })
     .where(
       and(
         eq(sitePaymentConfigs.siteId, siteId),

@@ -138,6 +138,8 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/tariff-resolution.js',
   )),
+  // The real Postgres error readers (the projection retry classifies errors).
+  ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/pg-errors.js')),
   getCompanyTaxBasis: vi.fn().mockResolvedValue('net'),
   priceSessionAt: (...args: unknown[]) => mockPriceSessionAt(...args) as unknown,
   storeRunningCost: (...args: unknown[]) => mockStoreRunningCost(...args) as unknown,
@@ -3011,6 +3013,90 @@ describe('Event projections - coverage expansion', () => {
           c[1].includes('RequestStopTransaction'),
       );
       expect(stopCmd).toBeUndefined();
+    });
+
+    it('stamps the guest hold as the cost ceiling of the session', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [], // eager OCPI roaming check (idToken present, no match)
+        [{ id: 'session-guest' }], // INSERT charging_sessions RETURNING id
+        [], // UPDATE stale sessions
+        [], // INSERT transaction_events
+        [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
+        [{ driver_id: null }], // SELECT driver_id (null)
+        [], // driver_tokens (empty)
+        [
+          {
+            status: 'payment_authorized',
+            guest_email: 'g@test.com',
+            pre_auth_amount_cents: 265,
+            provider_payment_id: 'pi_1',
+          },
+        ], // guest_sessions (authorized hold)
+        [], // UPDATE charging_sessions SET cost_ceiling_cents
+        [], // loadStationPricing: no pricing group applies
+        [{ site_id: null }], // resolveSiteId
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Started',
+          stationId: 'CS-001',
+          transactionId: 'tx-guest-hold',
+          seqNo: 0,
+          triggerReason: 'Authorized',
+          timestamp: '2024-01-01T00:00:00Z',
+          idToken: 'guest-token-abc',
+          tokenType: 'ISO14443',
+        }),
+      );
+
+      const stamp = findSql(/SET cost_ceiling_cents/);
+      expect(stamp?.values).toEqual([265, 'session-guest']);
+    });
+
+    it('stamps no cost ceiling for a guest session without a hold', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }],
+        [],
+        [{ id: 'session-guest' }],
+        [],
+        [],
+        [{ is_roaming: false }],
+        [{ driver_id: null }],
+        [],
+        [
+          {
+            status: 'payment_authorized',
+            guest_email: '',
+            pre_auth_amount_cents: null,
+            provider_payment_id: null,
+          },
+        ], // free guest session
+        [], // loadStationPricing
+        [{ site_id: null }],
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Started',
+          stationId: 'CS-001',
+          transactionId: 'tx-guest-free',
+          seqNo: 0,
+          triggerReason: 'Authorized',
+          timestamp: '2024-01-01T00:00:00Z',
+          idToken: 'guest-token-abc',
+          tokenType: 'ISO14443',
+        }),
+      );
+
+      expect(findSql(/SET cost_ceiling_cents/)).toBeUndefined();
     });
 
     it('stops a guest session whose payment was not authorized and emails the guest', async () => {

@@ -7,6 +7,8 @@ import { verify } from 'argon2';
 import type { Logger } from '@evtivity/lib';
 import { logConnectionEvent } from './connection-log.js';
 import { hasSimulatorMarker, reconcileSimulatorIdentity } from './simulator-identity.js';
+import { offeredSubprotocols, selectOcppSubprotocol } from '../subprotocol.js';
+import type { OcppSubprotocol } from '../subprotocol.js';
 
 export type AuthFailure =
   | 'unknown_station'
@@ -119,7 +121,7 @@ export async function authenticateConnection(
   // station needs no second lookup (see simulator-identity.ts).
   const rows = await sql`
     SELECT cs.id, cs.security_profile, cs.pending_security_profile, cs.basic_auth_password_hash,
-           cs.availability, cs.onboarding_status, cs.is_simulator,
+           cs.availability, cs.onboarding_status, cs.is_simulator, cs.ocpp_protocol,
            css.enabled AS css_enabled, css.marker_seen_at AS css_marker_seen_at
     FROM charging_stations cs
     LEFT JOIN css_stations css ON css.station_id = cs.station_id
@@ -134,6 +136,7 @@ export async function authenticateConnection(
         availability: string;
         onboarding_status: string;
         is_simulator?: boolean | null;
+        ocpp_protocol?: string | null;
         css_enabled?: boolean | null;
         css_marker_seen_at?: Date | null;
       }
@@ -211,7 +214,46 @@ export async function authenticateConnection(
       logger,
     );
   }
+
+  // Store the negotiated protocol before the upgrade completes, so it is in the
+  // database before the station can send a message and before any projection
+  // marks it online. The station.Connected projection also writes it, but it
+  // can run after a projection of the station's first messages has marked the
+  // station online (inbound message logs are not persisted to domain_events,
+  // so they reach the projection queue first), and an API call in that window
+  // read a missing or previous protocol (OCPP_VERSION_MISMATCH).
+  if (result.authenticated) {
+    const protocol = selectOcppSubprotocol(
+      offeredSubprotocols(req.headers['sec-websocket-protocol']),
+    );
+    if (protocol != null && protocol !== station.ocpp_protocol) {
+      await storeNegotiatedProtocol(sql, station.id, protocol, logger);
+    }
+  }
   return result;
+}
+
+async function storeNegotiatedProtocol(
+  sql: postgres.Sql,
+  stationDbId: string,
+  protocol: OcppSubprotocol,
+  logger: Logger,
+): Promise<void> {
+  // Fail open: the station authenticated, and the station.Connected projection
+  // writes the protocol too, so a failed write only reopens the short window
+  // above for this connection.
+  try {
+    await sql`
+      UPDATE charging_stations
+      SET ocpp_protocol = ${protocol}, updated_at = now()
+      WHERE id = ${stationDbId} AND ocpp_protocol IS DISTINCT FROM ${protocol}
+    `;
+  } catch (err) {
+    logger.warn(
+      { err, stationDbId, protocol },
+      'Failed to store the negotiated OCPP protocol at connection',
+    );
+  }
 }
 
 interface ProfileAuthContext {

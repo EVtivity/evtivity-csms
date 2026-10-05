@@ -259,15 +259,13 @@ describe('Payment settings routes', () => {
       expect(mockWritePaymentSettings).not.toHaveBeenCalled();
     });
 
-    it('writes the amounts to the payments.* keys and their stripe.* forms until P8', async () => {
+    it('writes the amounts to the payments.* keys only', async () => {
       const response = await call('PUT', { preAuthAmountCents: 2500, platformFeePercent: 7.5 });
       expect(response.statusCode).toBe(200);
       expect(mockDescribePaymentProviders).not.toHaveBeenCalled();
       expect(mockWritePaymentSettings).toHaveBeenCalledWith(expect.anything(), [
         { key: 'payments.preAuthAmountCents', value: 2500 },
-        { key: 'stripe.preAuthAmountCents', value: 2500 },
         { key: 'payments.platformFeePercent', value: 7.5 },
-        { key: 'stripe.platformFeePercent', value: 7.5 },
       ]);
     });
 

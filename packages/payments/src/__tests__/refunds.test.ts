@@ -41,9 +41,6 @@ function record(overrides: Partial<PaymentRecord> = {}): PaymentRecord {
     sessionId: 's1',
     driverId: 'd1',
     sitePaymentConfigId: null,
-    stripePaymentIntentId: 'pi_1',
-    stripeCustomerId: 'cus_1',
-    stripePaymentMethodId: 'pm_1',
     provider: 'stripe',
     providerPaymentId: 'pi_1',
     providerCustomerId: 'cus_1',
@@ -645,7 +642,6 @@ describe('refundPaymentRecord of a reservation fee', () => {
       taxRate: '0.19',
       preAuthAmountCents: null,
       capturedAmountCents: 595,
-      stripePaymentIntentId: 'pi_fee',
       providerPaymentId: 'pi_fee',
       ...overrides,
     });
@@ -785,7 +781,6 @@ describe('refundPaymentRecord of a reservation fee', () => {
         provider: 'adyen',
         chargeType: 'reservation_no_show',
         providerPaymentId: 'PSPFEE',
-        stripePaymentIntentId: null,
       }),
     );
     const outcome = await refundPaymentRecord(

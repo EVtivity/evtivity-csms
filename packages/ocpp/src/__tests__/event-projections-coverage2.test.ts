@@ -124,6 +124,8 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/tariff-resolution.js',
   )),
+  // The real Postgres error readers (the projection retry classifies errors).
+  ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/pg-errors.js')),
   getCompanyTaxBasis: vi.fn().mockResolvedValue('net'),
   priceSessionAt: (...args: unknown[]) => mockPriceSessionAt(...args) as unknown,
   storeRunningCost: (...args: unknown[]) => mockStoreRunningCost(...args) as unknown,
@@ -337,6 +339,152 @@ describe('Event projections - coverage round 2', () => {
       await emit('ocpp.BatterySwap', 'CS-1', { eventType: 'BatterySwapStarted' });
       expect(mockLoggerError).toHaveBeenCalledWith(
         expect.objectContaining({ eventType: 'ocpp.BatterySwap' }),
+        'Event projection failed',
+      );
+    });
+
+    // A foreign key violation as postgres.js reports it.
+    const fkViolation = (table: string) =>
+      Object.assign(
+        new Error(`insert or update on table "${table}" violates foreign key constraint`),
+        { code: '23503', constraint_name: `${table}_station_id_fkey` },
+      );
+
+    it('logs a message log whose station was deleted meanwhile at debug, not error', async () => {
+      await setup();
+      // The INSERT ... WHERE EXISTS saw the station, then its FK check waited for
+      // the DELETE and failed once it committed. The station lookup finds nothing.
+      setupSqlResults([], []);
+      sqlErrors.set(0, fkViolation('ocpp_message_logs'));
+
+      await emit('ocpp.MessageLog', 'CS-GONE', {
+        stationId: 'CS-GONE',
+        stationDbId: 'sta_gone',
+        direction: 'inbound',
+        messageType: 2,
+        messageId: 'm-1',
+        action: 'Heartbeat',
+        payload: {},
+      });
+
+      expect(sqlCalls).toHaveLength(2);
+      expect(sqlCalls[1]?.strings.join('?')).toContain(
+        'SELECT 1 FROM charging_stations WHERE station_id =',
+      );
+      expect(sqlCalls[1]?.values).toEqual(['CS-GONE']);
+      expect(mockLoggerError).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'Event projection failed',
+      );
+      expect(mockLoggerDebug).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'ocpp.MessageLog',
+          stationId: 'CS-GONE',
+          errorCode: '23503',
+          constraint: 'ocpp_message_logs_station_id_fkey',
+        }),
+        'Event projection skipped: the station no longer exists',
+      );
+    });
+
+    it('forgets the cached id of a deleted station', async () => {
+      await setup();
+      // BatterySwap resolves (and caches) the station, then its INSERT fails.
+      setupSqlResults(STA, [], []);
+      sqlErrors.set(1, fkViolation('battery_swap_events'));
+      await emit('ocpp.BatterySwap', 'CS-1', { eventType: 'BatterySwapStarted' });
+      expect(mockLoggerError).not.toHaveBeenCalled();
+
+      // The next event looks the station up again instead of using the cache.
+      sqlErrors = new Map();
+      setupSqlResults([]);
+      await emit('ocpp.BatterySwap', 'CS-1', { eventType: 'BatterySwapEnded' });
+      expect(sqlCalls[0]?.strings.join('?')).toContain(
+        'SELECT id FROM charging_stations WHERE station_id =',
+      );
+      expect(sqlCalls).toHaveLength(1);
+    });
+
+    it('still logs a foreign key violation at error when the station exists', async () => {
+      await setup();
+      setupSqlResults(STA, [], [{ '?column?': 1 }]);
+      sqlErrors.set(1, fkViolation('battery_swap_events'));
+
+      await emit('ocpp.BatterySwap', 'CS-1', { eventType: 'BatterySwapStarted' });
+
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'ocpp.BatterySwap', errorCode: '23503' }),
+        'Event projection failed',
+      );
+      expect(mockLoggerDebug).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'Event projection skipped: the station no longer exists',
+      );
+    });
+
+    it('logs the foreign key violation at error when the station lookup fails', async () => {
+      await setup();
+      setupSqlResults(STA);
+      sqlErrors.set(1, fkViolation('battery_swap_events'));
+      sqlErrors.set(2, new Error('lookup failed'));
+
+      await emit('ocpp.BatterySwap', 'CS-1', { eventType: 'BatterySwapStarted' });
+
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        expect.objectContaining({ stationId: 'CS-1' }),
+        'Station lookup after a failed projection failed',
+      );
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'ocpp.BatterySwap', errorCode: '23503' }),
+        'Event projection failed',
+      );
+    });
+
+    it('never treats another error as a deleted station', async () => {
+      await setup();
+      setupSqlResults(STA, [], []);
+      sqlErrors.set(1, Object.assign(new Error('not null violation'), { code: '23502' }));
+
+      await emit('ocpp.BatterySwap', 'CS-1', { eventType: 'BatterySwapStarted' });
+
+      // No station lookup ran: only the resolve and the failed INSERT.
+      expect(sqlCalls).toHaveLength(2);
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({ errorCode: '23502' }),
+        'Event projection failed',
+      );
+    });
+
+    it('logs each retry at warn and the given-up projection at error with its station', async () => {
+      await setup();
+      // Heartbeat with stationDbId: its UPDATE is the first statement of every attempt.
+      const timeout = () =>
+        Object.assign(new Error('write CONNECT_TIMEOUT localhost:5433'), {
+          code: 'CONNECT_TIMEOUT',
+        });
+      for (const idx of [0, 1, 2]) sqlErrors.set(idx, timeout());
+
+      const done = emit('ocpp.Heartbeat', 'CS-1', { stationDbId: 'sta_0001' });
+      await vi.advanceTimersByTimeAsync(10_000);
+      await done;
+
+      const retries = mockLoggerWarn.mock.calls.filter(
+        (c: unknown[]) => c[1] === 'Event projection lost its database connection; retrying',
+      );
+      expect(retries).toHaveLength(2);
+      expect(retries[0]?.[0]).toMatchObject({
+        eventType: 'ocpp.Heartbeat',
+        stationId: 'CS-1',
+        attempt: 1,
+        errorCode: 'CONNECT_TIMEOUT',
+      });
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'ocpp.Heartbeat',
+          stationId: 'CS-1',
+          attempts: 3,
+          errorCode: 'CONNECT_TIMEOUT',
+        }),
         'Event projection failed',
       );
     });
@@ -1504,6 +1652,144 @@ describe('Event projections - coverage round 2', () => {
         await emitReading();
 
         expect(findSql(/stopped_reason IS NULL/)).toBeUndefined();
+        expect(stopCommands()).toHaveLength(0);
+      });
+    });
+
+    describe('guest hold (cost ceiling)', () => {
+      const guestSession = (
+        ocppProtocol: string,
+        costCeilingCents: number | null,
+        currentCostCents: number,
+      ) => ({
+        id: 'ses_1',
+        transaction_id: '1001',
+        tariff_id: 'trf_1',
+        driver_id: null,
+        energy_delivered_wh: 950,
+        current_cost_cents: currentCostCents,
+        cost_ceiling_cents: costCeilingCents,
+        idle_started_at: null,
+        idle_minutes: 0,
+        ocpp_protocol: ocppProtocol,
+        prepaid_balance_cents: null,
+      });
+      // The cost assembly (mocked) bills the ceiling: 24 cents.
+      beforeEach(() => {
+        mockPriceSessionAt.mockResolvedValue({ ...costBreakdown(24), pricedGrossCents: 31 });
+      });
+      afterEach(() => {
+        mockPriceSessionAt.mockResolvedValue(costBreakdown(1500));
+      });
+      const base = [
+        STA, // resolveStationUuid
+        [{ id: 'ses_1' }], // resolveMeterValueSession
+        [], // INSERT meter_values
+        [{ energy_delivered_wh: 100, meter_start: '50' }], // prev energy/meter_start
+        [], // UPDATE meter_start
+        [], // UPDATE energy_delivered_wh
+        [], // UPDATE idle accrue
+      ];
+      const emitReading = () =>
+        emit('ocpp.MeterValues', 'CS-1', {
+          stationId: 'CS-1',
+          evseId: 0,
+          transactionId: '1001',
+          source: 'TransactionEvent',
+          meterValues: [
+            {
+              timestamp: '2026-01-01T01:00:00Z',
+              sampledValue: [{ measurand: 'Energy.Active.Import.Register', value: 1000 }],
+            },
+          ],
+        });
+      const stopCommands = () =>
+        (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
+          (c) => c[0] === 'ocpp_commands' && (c[1] as string).includes('RequestStopTransaction'),
+        );
+
+      it('stops an OCPP 1.6 transaction once the cost reaches the hold', async () => {
+        await setup();
+        setupSqlResults(
+          ...base,
+          [guestSession('ocpp1.6', 24, 20)], // active sessions
+          [{ id: 'ses_1' }], // claim the stop
+          [{ site_id: null }], // resolveSiteId
+        );
+
+        await emitReading();
+
+        const claim = findSql(/stopped_reason IS NULL/);
+        expect(claim?.values).toContain('GuestHoldExhausted');
+        const stops = stopCommands();
+        expect(stops).toHaveLength(1);
+        expect(JSON.parse(stops[0]?.[1] as string)).toMatchObject({
+          action: 'RequestStopTransaction',
+          payload: { transactionId: '1001' },
+        });
+        // The station ends the transaction, which settles the hold.
+        expect(findSql(/SET status = 'faulted'/)).toBeUndefined();
+        expect(findSql(/trigger_reason = 'CostLimitReached'/)).toBeUndefined();
+      });
+
+      it('keeps an OCPP 1.6 transaction charging below the hold', async () => {
+        await setup();
+        setupSqlResults(...base, [guestSession('ocpp1.6', 5000, 20)], [{ site_id: null }]);
+
+        await emitReading();
+
+        expect(findSql(/stopped_reason IS NULL/)).toBeUndefined();
+        expect(stopCommands()).toHaveLength(0);
+      });
+
+      it('leaves an OCPP 2.1 transaction to the station limit at the reading that reaches the hold', async () => {
+        await setup();
+        setupSqlResults(...base, [guestSession('ocpp2.1', 24, 20)], [{ site_id: null }]);
+
+        await emitReading();
+
+        expect(findSql(/trigger_reason = 'CostLimitReached'/)).toBeUndefined();
+        expect(stopCommands()).toHaveLength(0);
+      });
+
+      it('keeps an OCPP 2.1 transaction the station suspended at its cost limit open', async () => {
+        await setup();
+        setupSqlResults(
+          ...base,
+          [guestSession('ocpp2.1', 24, 24)], // the hold was reached at an earlier reading
+          [{ '?column?': 1 }], // the station reported CostLimitReached
+          [{ site_id: null }],
+        );
+
+        await emitReading();
+
+        expect(findSql(/trigger_reason = 'CostLimitReached'/)).toBeDefined();
+        expect(findSql(/stopped_reason IS NULL/)).toBeUndefined();
+        expect(stopCommands()).toHaveLength(0);
+      });
+
+      it('stops an OCPP 2.1 transaction still running past the hold without CostLimitReached', async () => {
+        await setup();
+        setupSqlResults(
+          ...base,
+          [guestSession('ocpp2.1', 24, 24)],
+          [], // no CostLimitReached from the station
+          [{ id: 'ses_1' }], // claim the stop
+          [{ site_id: null }],
+        );
+
+        await emitReading();
+
+        expect(findSql(/stopped_reason IS NULL/)?.values).toContain('GuestHoldExhausted');
+        expect(stopCommands()).toHaveLength(1);
+      });
+
+      it('does not stop a session without a ceiling', async () => {
+        await setup();
+        setupSqlResults(...base, [guestSession('ocpp1.6', null, 20)], [{ site_id: null }]);
+
+        await emitReading();
+
         expect(stopCommands()).toHaveLength(0);
       });
     });

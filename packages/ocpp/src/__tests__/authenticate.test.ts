@@ -846,3 +846,117 @@ describe('authenticateConnection with a pending security profile upgrade', () =>
     expect(result.failure).toBe('credentials');
   });
 });
+
+describe('authenticateConnection stores the negotiated OCPP protocol', () => {
+  // Records each query; the station lookup answers `station`, an UPDATE can fail.
+  function protocolSql(station: Record<string, unknown>, failUpdate = false) {
+    const queries: { text: string; values: unknown[] }[] = [];
+    const proxy = new Proxy(vi.fn(), {
+      apply(_t, _this, args: unknown[]) {
+        const [strings, ...values] = args as [TemplateStringsArray, ...unknown[]];
+        const text = strings.join('?');
+        queries.push({ text, values });
+        if (failUpdate && text.includes('UPDATE charging_stations')) {
+          return Promise.reject(new Error('write CONNECT_TIMEOUT')) as unknown;
+        }
+        return Promise.resolve(text.includes('FROM charging_stations') ? [station] : []) as unknown;
+      },
+      get(target, prop) {
+        if (prop === 'then') return undefined;
+        if (prop === 'json') return (v: unknown) => v;
+        return target[prop as keyof typeof target];
+      },
+    });
+    return { sql: proxy as unknown as Parameters<typeof authenticateConnection>[2], queries };
+  }
+
+  function protocolUpdates(queries: { text: string; values: unknown[] }[]) {
+    return queries.filter((q) => q.text.includes('SET ocpp_protocol'));
+  }
+
+  const sp0Station = (ocppProtocol: string | null) => ({
+    id: 'sta_proto',
+    security_profile: 0,
+    pending_security_profile: null,
+    basic_auth_password_hash: null,
+    onboarding_status: 'accepted',
+    ocpp_protocol: ocppProtocol,
+  });
+
+  function requestOffering(protocols: string): IncomingMessage {
+    const req = createMockRequest('/CS-PROTO');
+    req.headers['sec-websocket-protocol'] = protocols;
+    return req;
+  }
+
+  it('writes the protocol of a new station before the upgrade completes', async () => {
+    const { sql, queries } = protocolSql(sp0Station(null));
+    const result = await authenticateConnection(
+      requestOffering('ocpp2.1'),
+      createMockLogger(),
+      sql,
+    );
+
+    expect(result.authenticated).toBe(true);
+    const updates = protocolUpdates(queries);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]?.values).toEqual(['ocpp2.1', 'sta_proto', 'ocpp2.1']);
+  });
+
+  it('stores the protocol the upgrade selects: 2.1 over 1.6', async () => {
+    const { sql, queries } = protocolSql(sp0Station('ocpp1.6'));
+    await authenticateConnection(requestOffering('ocpp1.6, ocpp2.1'), createMockLogger(), sql);
+
+    expect(protocolUpdates(queries)[0]?.values[0]).toBe('ocpp2.1');
+  });
+
+  it('replaces the previous protocol of a station that reconnects with another one', async () => {
+    const { sql, queries } = protocolSql(sp0Station('ocpp2.1'));
+    await authenticateConnection(requestOffering('ocpp1.6'), createMockLogger(), sql);
+
+    expect(protocolUpdates(queries)[0]?.values[0]).toBe('ocpp1.6');
+  });
+
+  it('writes nothing when the stored protocol already matches', async () => {
+    const { sql, queries } = protocolSql(sp0Station('ocpp2.1'));
+    const result = await authenticateConnection(
+      requestOffering('ocpp2.1'),
+      createMockLogger(),
+      sql,
+    );
+
+    expect(result.authenticated).toBe(true);
+    expect(protocolUpdates(queries)).toHaveLength(0);
+  });
+
+  it('writes nothing when no supported subprotocol is offered', async () => {
+    const { sql, queries } = protocolSql(sp0Station(null));
+    await authenticateConnection(requestOffering('ocpp2.0.1'), createMockLogger(), sql);
+
+    expect(protocolUpdates(queries)).toHaveLength(0);
+  });
+
+  it('writes nothing for a rejected connection', async () => {
+    const { sql, queries } = protocolSql({ ...sp0Station(null), security_profile: 1 });
+    const result = await authenticateConnection(
+      requestOffering('ocpp2.1'),
+      createMockLogger(),
+      sql,
+    );
+
+    expect(result.authenticated).toBe(false);
+    expect(protocolUpdates(queries)).toHaveLength(0);
+  });
+
+  it('still accepts the station and warns when the write fails', async () => {
+    const { sql } = protocolSql(sp0Station(null), true);
+    const logger = createMockLogger();
+    const result = await authenticateConnection(requestOffering('ocpp2.1'), logger, sql);
+
+    expect(result.authenticated).toBe(true);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ stationDbId: 'sta_proto', protocol: 'ocpp2.1' }),
+      'Failed to store the negotiated OCPP protocol at connection',
+    );
+  });
+});

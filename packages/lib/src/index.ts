@@ -125,6 +125,7 @@ export {
   taxPerRate,
   chargedCostBreakdown,
   reconcileCostBreakdown,
+  capCostBreakdown,
   componentTaxLines,
   parseSessionCostBreakdown,
 } from './price-display.js';

@@ -51,9 +51,7 @@ export const sitePaymentConfigs = pgTable(
       .notNull()
       .unique()
       .references(() => sites.id, { onDelete: 'cascade' }),
-    stripeConnectedAccountId: varchar('stripe_connected_account_id', { length: 255 }),
-    // The site's payout account at the payment provider (P4). Same value as
-    // stripe_connected_account_id until P8 drops that column.
+    // The site's payout account at the payment provider (Stripe: acct_...).
     payoutAccountId: varchar('payout_account_id', { length: 255 }),
     preAuthAmountCents: integer('pre_auth_amount_cents').notNull().default(5000),
     platformFeePercent: numeric('platform_fee_percent'),
@@ -104,13 +102,6 @@ export const sitePayoutInvites = pgTable(
   ],
 );
 
-// Payments P4 (expand): the provider columns sit next to the stripe_* columns
-// until P8 drops those. Triggers from 0120_payment_provider_columns.sql
-// (payment_records_provider_sync, driver_payment_methods_provider_sync,
-// guest_sessions_provider_sync, site_payment_configs_payout_sync and
-// drivers_payment_customer_sync) copy the old columns written by pods of the
-// previous release into the new ones; P8 drops them with the old columns.
-
 export const driverPaymentMethods = pgTable(
   'driver_payment_methods',
   {
@@ -118,14 +109,9 @@ export const driverPaymentMethods = pgTable(
     driverId: text('driver_id')
       .notNull()
       .references(() => drivers.id, { onDelete: 'cascade' }),
-    // Null for providers other than Stripe and simulated (payments P10, 0126):
-    // pods of the previous release must never read an Adyen id as a Stripe id.
-    stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
-    stripePaymentMethodId: varchar('stripe_payment_method_id', { length: 255 }),
-    // Nullable until P8 (rows of the previous release get them by trigger).
-    provider: varchar('provider', { length: 32 }),
-    providerCustomerId: varchar('provider_customer_id', { length: 255 }),
-    providerPaymentMethodId: varchar('provider_payment_method_id', { length: 255 }),
+    provider: varchar('provider', { length: 32 }).notNull(),
+    providerCustomerId: varchar('provider_customer_id', { length: 255 }).notNull(),
+    providerPaymentMethodId: varchar('provider_payment_method_id', { length: 255 }).notNull(),
     cardBrand: varchar('card_brand', { length: 20 }),
     cardLast4: varchar('card_last4', { length: 4 }),
     isDefault: boolean('is_default').notNull().default(false),
@@ -134,7 +120,6 @@ export const driverPaymentMethods = pgTable(
   },
   (table) => [
     index('idx_driver_payment_methods_driver_id').on(table.driverId),
-    index('idx_driver_payment_methods_stripe_customer_id').on(table.stripeCustomerId),
     // Per driver, not global: before P2 operator saves did not verify methods,
     // so the same method id can sit on two drivers.
     uniqueIndex('uq_driver_payment_methods_driver_provider_method').on(
@@ -214,9 +199,6 @@ export const paymentRecords = pgTable(
       .references(() => chargingSessions.id, { onDelete: 'cascade' }),
     driverId: text('driver_id').references(() => drivers.id, { onDelete: 'set null' }),
     sitePaymentConfigId: integer('site_payment_config_id').references(() => sitePaymentConfigs.id),
-    stripePaymentIntentId: varchar('stripe_payment_intent_id', { length: 255 }).unique(),
-    stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
-    stripePaymentMethodId: varchar('stripe_payment_method_id', { length: 255 }),
     // Provider of the stored ids; null for prepaid and terminal payments.
     provider: varchar('provider', { length: 32 }),
     providerPaymentId: varchar('provider_payment_id', { length: 255 }),
@@ -278,12 +260,15 @@ export const paymentRecords = pgTable(
     ),
     index('idx_payment_records_driver_id').on(table.driverId),
     index('idx_payment_records_status').on(table.status),
-    index('idx_payment_records_stripe_payment_intent_id').on(table.stripePaymentIntentId),
     index('idx_payment_records_created_at').on(table.createdAt),
     index('idx_payment_records_site_payment_config_id').on(table.sitePaymentConfigId),
     uniqueIndex('payment_records_provider_payment_id_key').on(
       table.provider,
       table.providerPaymentId,
+    ),
+    check(
+      'payment_records_provider_payment_id_check',
+      sql`${table.providerPaymentId} IS NULL OR ${table.provider} IS NOT NULL`,
     ),
     // GIN index idx_payment_records_top_ups on (metadata -> 'topUps')
     // jsonb_path_ops is defined in 0123_payment_provider_indexes.sql (Drizzle

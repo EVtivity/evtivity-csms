@@ -179,7 +179,6 @@ describe('Portal monthly summary routes', () => {
             energyDeliveredWh: '30000',
             co2AvoidedKg: '5.2',
             finalCostCents: 1500,
-            tariffTaxRate: '0.19',
             taxCents: 160,
             currency: 'EUR',
             stationName: 'Station A',
@@ -193,7 +192,6 @@ describe('Portal monthly summary routes', () => {
             energyDeliveredWh: '10000',
             co2AvoidedKg: '1.8',
             finalCostCents: 500,
-            tariffTaxRate: null,
             taxCents: null,
             currency: 'EUR',
             stationName: 'Station A',
@@ -212,12 +210,7 @@ describe('Portal monthly summary routes', () => {
       expect(body.month).toBe('2026-02');
       expect(body.driverName).toBe('John Doe');
       expect(body.sessions).toHaveLength(2);
-      // Each session carries its tariff tax rate so clients label the cost.
-      expect(body.sessions.map((s: { tariffTaxRate: string | null }) => s.tariffTaxRate)).toEqual([
-        '0.19',
-        null,
-      ]);
-      // And the tax stored with it, which the portal labels from.
+      // Each session carries the tax stored with it, which clients label the cost from.
       expect(body.sessions.map((s: { taxCents: number | null }) => s.taxCents)).toEqual([
         160,
         null,
@@ -244,7 +237,6 @@ describe('Portal monthly summary routes', () => {
             endedAt: '2026-02-15T11:00:00Z',
             energyDeliveredWh: '20000',
             finalCostCents: 1000,
-            tariffTaxRate: null,
             taxCents: null,
             currency: 'EUR',
             stationName: 'Station B',

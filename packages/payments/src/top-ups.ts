@@ -16,8 +16,8 @@
  *
  * A webhook finds the record of a top-up payment through the GIN index
  * `idx_payment_records_top_ups` on `metadata -> 'topUps'`. Records of writers
- * before v0.1.37 held only `metadata.topUpIntentId`; migration 0121 and the
- * `payment_records_provider_sync` trigger rewrite it as `topUps`.
+ * before v0.1.37 held only `metadata.topUpIntentId`; migrations 0121 and 0148
+ * rewrote it as `topUps`.
  */
 
 export interface TopUpCharge {

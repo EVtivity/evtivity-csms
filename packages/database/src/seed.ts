@@ -1577,11 +1577,8 @@ async function seed(): Promise<void> {
 
   // ------ Driver Payment Methods (all drivers) ------
   const cardBrands = ['visa', 'mastercard', 'amex'];
-  // Both forms of the ids until P8 drops the stripe_* columns.
   const paymentMethodRows = createdDrivers.map((driver, i) => ({
     driverId: driver.id,
-    stripeCustomerId: `cus_sim_${padNum(i + 1, 6)}`,
-    stripePaymentMethodId: `pm_sim_${padNum(i + 1, 6)}`,
     provider: 'simulated',
     providerCustomerId: `cus_sim_${padNum(i + 1, 6)}`,
     providerPaymentMethodId: `pm_sim_${padNum(i + 1, 6)}`,
@@ -1902,8 +1899,6 @@ async function seed(): Promise<void> {
         return {
           sessionId: session.id,
           driverId,
-          stripePaymentIntentId: intentId,
-          stripeCustomerId: customerId,
           provider: 'simulated',
           providerPaymentId: intentId,
           providerCustomerId: customerId,
@@ -1921,8 +1916,6 @@ async function seed(): Promise<void> {
         return {
           sessionId: session.id,
           driverId,
-          stripePaymentIntentId: intentId,
-          stripeCustomerId: customerId,
           provider: 'simulated',
           providerPaymentId: intentId,
           providerCustomerId: customerId,
@@ -2585,8 +2578,6 @@ async function seed(): Promise<void> {
   const portalPaymentRows = portalCreatedSessions.map((session, i) => ({
     sessionId: session.id,
     driverId: portalDriverId,
-    stripePaymentIntentId: `pi_portal_${padNum(i + 1, 4)}`,
-    stripeCustomerId: 'cus_U443UCZOsb72EL',
     provider: 'stripe',
     providerPaymentId: `pi_portal_${padNum(i + 1, 4)}`,
     providerCustomerId: 'cus_U443UCZOsb72EL',
@@ -2602,8 +2593,6 @@ async function seed(): Promise<void> {
   // Portal driver payment method
   await db.insert(driverPaymentMethods).values({
     driverId: portalDriverId,
-    stripeCustomerId: 'cus_U443UCZOsb72EL',
-    stripePaymentMethodId: 'pm_portal_test',
     provider: 'stripe',
     providerCustomerId: 'cus_U443UCZOsb72EL',
     providerPaymentMethodId: 'pm_portal_test',

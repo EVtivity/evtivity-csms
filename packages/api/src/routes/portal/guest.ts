@@ -201,13 +201,6 @@ const guestStatusResponse = z
       .nullable()
       .optional()
       .describe('Final captured cost in cents (set when the session completes)'),
-    tariffTaxRate: z
-      .string()
-      .nullable()
-      .optional()
-      .describe(
-        'Tax rate of the session tariff as a decimal (e.g. 0.19), null without tax. Costs include it',
-      ),
     taxCents: z
       .number()
       .int()
@@ -1119,7 +1112,6 @@ export function portalGuestRoutes(app: FastifyInstance): void {
             energyDeliveredWh: chargingSessions.energyDeliveredWh,
             currentCostCents: chargingSessions.currentCostCents,
             finalCostCents: chargingSessions.finalCostCents,
-            tariffTaxRate: chargingSessions.tariffTaxRate,
             taxCents: chargingSessions.taxCents,
             currency: sessionCurrencySql(),
             startedAt: chargingSessions.startedAt,
@@ -1133,7 +1125,6 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           result['energyDeliveredWh'] = session.energyDeliveredWh;
           result['currentCostCents'] = session.currentCostCents;
           result['finalCostCents'] = session.finalCostCents;
-          result['tariffTaxRate'] = session.tariffTaxRate;
           result['taxCents'] = session.taxCents;
           result['currency'] = session.currency;
           result['startedAt'] = session.startedAt;

@@ -116,7 +116,7 @@ export type HoldOutcome =
 
 interface MethodRow {
   id: number;
-  provider: string | null;
+  provider: string;
   customerId: string;
   methodId: string;
 }
@@ -143,8 +143,7 @@ async function sessionMethod(input: SessionHoldInput): Promise<MethodRow | null>
     .from(driverPaymentMethods)
     .where(condition)
     .limit(1);
-  if (row?.customerId == null || row.methodId == null) return null;
-  return { ...row, customerId: row.customerId, methodId: row.methodId };
+  return row ?? null;
 }
 
 async function sessionCurrency(sessionId: string): Promise<string | null> {

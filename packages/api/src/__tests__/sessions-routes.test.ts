@@ -506,7 +506,6 @@ describe('Session routes', () => {
         guestPreAuthAmountCents: null,
         guestProvider: null,
         guestProviderPaymentId: null,
-        guestStripePaymentIntentId: null,
         guestExpiresAt: null,
         guestCreatedAt: null,
       };
@@ -574,7 +573,6 @@ describe('Session routes', () => {
         guestPreAuthAmountCents: null,
         guestProvider: null,
         guestProviderPaymentId: null,
-        guestStripePaymentIntentId: null,
         guestExpiresAt: null,
         guestCreatedAt: null,
       };
@@ -683,7 +681,6 @@ describe('Session routes', () => {
         guestPreAuthAmountCents: null,
         guestProvider: null,
         guestProviderPaymentId: null,
-        guestStripePaymentIntentId: null,
         guestExpiresAt: null,
         guestCreatedAt: null,
       };
@@ -752,7 +749,6 @@ describe('Session routes', () => {
         guestPreAuthAmountCents: 2000,
         guestProvider: 'stripe',
         guestProviderPaymentId: 'pi_guest',
-        guestStripePaymentIntentId: 'pi_guest',
         guestExpiresAt: '2024-06-02T10:00:00Z',
         guestCreatedAt: '2024-06-01T09:55:00Z',
       };
@@ -769,8 +765,8 @@ describe('Session routes', () => {
         sessionToken: 'tok_guest',
         provider: 'stripe',
         providerPaymentId: 'pi_guest',
-        stripePaymentIntentId: 'pi_guest',
       });
+      expect(response.json().guestSession).not.toHaveProperty('stripePaymentIntentId');
     });
   });
 

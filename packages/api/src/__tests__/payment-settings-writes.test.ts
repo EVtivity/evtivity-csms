@@ -115,21 +115,21 @@ describe('writePaymentSettings', () => {
 
   it('audits changed keys with before and after, and skips unchanged ones', async () => {
     mockSelectWhere.mockResolvedValueOnce([
-      { key: 'stripe.preAuthAmountCents', value: 5000 },
+      { key: 'payments.preAuthAmountCents', value: 5000 },
       { key: 'stripe.publishableKey', value: 'pk_old' },
     ]);
 
     await writePaymentSettings(request, [
-      { key: 'stripe.preAuthAmountCents', value: 5000 },
+      { key: 'payments.preAuthAmountCents', value: 5000 },
       { key: 'stripe.publishableKey', value: 'pk_new' },
-      { key: 'stripe.platformFeePercent', value: 2 },
+      { key: 'payments.platformFeePercent', value: 2 },
     ]);
 
     expect(mockWriteAudit).toHaveBeenCalledTimes(2);
     const audited = mockWriteAudit.mock.calls.map(
       (call) => (call[1] as { entityId: string }).entityId,
     );
-    expect(audited).toEqual(['stripe.publishableKey', 'stripe.platformFeePercent']);
+    expect(audited).toEqual(['stripe.publishableKey', 'payments.platformFeePercent']);
     expect(mockWriteAudit.mock.calls[0]?.[0]).toEqual({
       table: { name: 'setting_audit_log' },
       idColumn: 'setting_key',
@@ -144,8 +144,8 @@ describe('writePaymentSettings', () => {
       after: { key: 'stripe.publishableKey', value: 'pk_new' },
     });
     expect(mockWriteAudit.mock.calls[1]?.[1]).toMatchObject({
-      before: { key: 'stripe.platformFeePercent', value: undefined },
-      after: { key: 'stripe.platformFeePercent', value: 2 },
+      before: { key: 'payments.platformFeePercent', value: undefined },
+      after: { key: 'payments.platformFeePercent', value: 2 },
     });
   });
 

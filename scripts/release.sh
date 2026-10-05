@@ -225,11 +225,19 @@ if [ "$unpushed" -gt 0 ]; then
   fi
 fi
 
+# Commit messages never name a prerelease channel (owner rule): a prerelease
+# commit names its base version, the tag and the GitHub release carry the rest.
+if release_tag_is_prerelease "$next"; then
+  release_subject="release: prepare ${next_version%%-*}"
+else
+  release_subject="release: version $next_version"
+fi
+
 git add package.json packages/*/package.json packages/api/src/services/ai/tools.ts
 if git diff --cached --quiet; then
-  git commit --allow-empty -m "release: version $next_version"
+  git commit --allow-empty -m "$release_subject"
 else
-  git commit -m "release: version $next_version"
+  git commit -m "$release_subject"
 fi
 RELEASE_COMMITTED=true
 git tag "$next"

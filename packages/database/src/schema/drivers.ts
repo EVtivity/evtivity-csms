@@ -53,9 +53,6 @@ export const drivers = pgTable(
     isActive: boolean('is_active').notNull().default(true),
     emailVerified: boolean('email_verified').notNull().default(false),
     lastNotificationReadAt: timestamp('last_notification_read_at', { withTimezone: true }),
-    // Kept until P8; driver_payment_customers holds the customer per provider
-    // (drivers_payment_customer_sync copies writes of the previous release).
-    stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -94,10 +91,8 @@ export const guestSessions = pgTable(
     chargingSessionId: text('charging_session_id').references(() => chargingSessions.id, {
       onDelete: 'cascade',
     }),
-    stripePaymentIntentId: varchar('stripe_payment_intent_id', { length: 255 }),
-    // Payments P4: provider and payment id next to stripe_payment_intent_id
-    // until P8 (guest_sessions_provider_sync copies writes of the previous
-    // release). Null for a free guest session.
+    // Provider of the guest's hold and its payment id. Null for a free guest
+    // session.
     provider: varchar('provider', { length: 32 }),
     providerPaymentId: varchar('provider_payment_id', { length: 255 }),
     guestEmail: varchar('guest_email', { length: 255 }).notNull(),

@@ -136,7 +136,6 @@ function mockGets(
         id: 1,
         siteId: 'sit_1',
         payoutAccountId: 'acct_site_1',
-        stripeConnectedAccountId: 'acct_site_1',
         preAuthAmountCents: 5000,
         platformFeePercent: null,
         isEnabled: true,

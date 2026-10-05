@@ -49,12 +49,6 @@ const portalSessionListItem = z
       .min(0)
       .nullable()
       .describe('Final session cost in cents, including tax'),
-    tariffTaxRate: z
-      .string()
-      .nullable()
-      .describe(
-        'Tax rate of the session tariff as a decimal (e.g. 0.19), null without tax. Costs include it',
-      ),
     taxCents: z
       .number()
       .int()
@@ -248,12 +242,6 @@ const monthlyStatementSessionItem = z
       .min(0)
       .nullable()
       .describe('Final session cost in cents, including tax'),
-    tariffTaxRate: z
-      .string()
-      .nullable()
-      .describe(
-        'Tax rate of the session tariff as a decimal (e.g. 0.19), null without tax. Costs include it',
-      ),
     taxCents: z
       .number()
       .int()
@@ -339,7 +327,6 @@ export function portalSessionRoutes(app: FastifyInstance): void {
             energyDeliveredWh: chargingSessions.energyDeliveredWh,
             co2AvoidedKg: chargingSessions.co2AvoidedKg,
             finalCostCents: chargingSessions.finalCostCents,
-            tariffTaxRate: chargingSessions.tariffTaxRate,
             taxCents: chargingSessions.taxCents,
             currency: sessionCurrencySql(),
             stationName: chargingStations.stationId,
@@ -441,7 +428,6 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           energyDeliveredWh: chargingSessions.energyDeliveredWh,
           co2AvoidedKg: chargingSessions.co2AvoidedKg,
           finalCostCents: chargingSessions.finalCostCents,
-          tariffTaxRate: chargingSessions.tariffTaxRate,
           taxCents: chargingSessions.taxCents,
           currency: sessionCurrencySql(),
           siteName: sites.name,
@@ -511,7 +497,6 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           co2AvoidedKg: chargingSessions.co2AvoidedKg,
           currentCostCents: chargingSessions.currentCostCents,
           finalCostCents: chargingSessions.finalCostCents,
-          tariffTaxRate: chargingSessions.tariffTaxRate,
           costBreakdown: chargingSessions.costBreakdown,
           currency: sessionCurrencySql(),
           meterStart: chargingSessions.meterStart,
@@ -553,8 +538,8 @@ export function portalSessionRoutes(app: FastifyInstance): void {
       const [payment, latestPower, latestSoc, vehicleEfficiency] = await Promise.all([
         // Only return display-safe fields. The full payment_records row
         // contains the provider ids (provider_payment_id, provider_customer_id,
-        // provider_payment_method_id and their stripe_* copies until P8)
-        // which the portal does not need; surfacing them is the same
+        // provider_payment_method_id) which the portal does not need;
+        // surfacing them is the same
         // defense-in-depth issue the payment-methods list was just fixed for.
         db
           .select({

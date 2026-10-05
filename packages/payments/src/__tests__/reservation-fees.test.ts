@@ -301,20 +301,6 @@ describe('chargeReservationFee', () => {
     expect(result).toMatchObject({ status: 'charged', grossCents: 595 });
   });
 
-  it('skips a default method without a provider or provider ids', async () => {
-    m.methodRows.value = [{ provider: null, customerId: 'cus_1', methodId: 'pm_1' }];
-    await expect(chargeReservationFee(baseInput, ctx)).resolves.toEqual({
-      status: 'skipped',
-      reason: 'payments_not_configured',
-    });
-    m.methodRows.value = [{ provider: 'stripe', customerId: null, methodId: 'pm_1' }];
-    await expect(chargeReservationFee(baseInput, ctx)).resolves.toEqual({
-      status: 'skipped',
-      reason: 'no_payment_method',
-    });
-    expect(m.recordPendingCharge).not.toHaveBeenCalled();
-  });
-
   it('logs when the charged record had already moved on', async () => {
     m.markChargeCaptured.mockResolvedValue(false);
 

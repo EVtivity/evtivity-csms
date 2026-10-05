@@ -423,9 +423,7 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationId
         [], // UPDATE charging_stations
         [], // INSERT connection_logs
-        [{ evse_id: 1 }, { evse_id: 2 }], // SELECT evse_id FROM evses
-        [], // INSERT port_status_log #1
-        [], // INSERT port_status_log #2
+        [], // INSERT port_status_log ... SELECT FROM evses
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
       );
@@ -435,7 +433,12 @@ describe('Event projections', () => {
         makeDomainEvent('station.Connected', 'CS-001', { ocppProtocol: 'ocpp2.1' }),
       );
 
-      expect(sqlCalls.length).toBeGreaterThanOrEqual(6);
+      // One statement logs every EVSE of the station, so a retry cannot log a part twice.
+      const portLogs = sqlCalls.filter((c) => c.strings.join('?').includes('port_status_log'));
+      expect(portLogs).toHaveLength(1);
+      expect(portLogs[0]?.strings.join('?')).toMatch(
+        /SELECT \?, evse_id, 'unavailable', 'available', now\(\)\s+FROM evses WHERE station_id = \?/,
+      );
     });
   });
 
@@ -3676,6 +3679,254 @@ describe('Event projections', () => {
     });
   });
 
+  describe('retry on a lost database connection', () => {
+    // A postgres.js connection error (Errors.connection) or Node socket error.
+    function connectionError(code: string): Error {
+      return Object.assign(new Error(`write ${code} localhost:5433`), { code });
+    }
+
+    // Rejects the next `times` unrouted statements whose text includes `match`.
+    function failNext(match: string, code: string, times = 1): void {
+      let left = times;
+      sqlFailOn = (text) => {
+        if (left > 0 && text.includes(match)) {
+          left--;
+          return connectionError(code);
+        }
+        return null;
+      };
+    }
+
+    function countCalls(fragment: string): number {
+      return sqlCalls.filter((c) => c.strings.join('?').includes(fragment)).length;
+    }
+
+    async function emitAndSettle(eventType: string, event: DomainEvent): Promise<void> {
+      const done = eventBus.emit(eventType, event);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await done;
+    }
+
+    function messageLogEvent(messageId: string): DomainEvent {
+      return makeDomainEvent('ocpp.MessageLog', 'CS-001', {
+        stationId: 'CS-001',
+        stationDbId: 'sta_000000000001',
+        direction: 'inbound',
+        messageType: 2,
+        messageId,
+        action: 'Heartbeat',
+        payload: {},
+      });
+    }
+
+    it('writes a message log whose INSERT timed out connecting, once', async () => {
+      await setup();
+      sqlRoute = (text) => (text.includes('INSERT INTO ocpp_message_logs') ? undefined : []);
+      failNext('INSERT INTO ocpp_message_logs', 'CONNECT_TIMEOUT');
+
+      await emitAndSettle('ocpp.MessageLog', messageLogEvent('msg-1'));
+
+      // The failed attempt and the retry; the retry went on to the liveness bump.
+      expect(countCalls('INSERT INTO ocpp_message_logs')).toBe(2);
+      expect(countCalls('last_heartbeat = now(), is_online = true')).toBe(1);
+      expect(mockPubSub.publish).toHaveBeenCalledWith(
+        'csms_events',
+        expect.stringContaining('"eventType":"ocpp.message"'),
+      );
+    });
+
+    it('does not insert the message log again when a later statement failed', async () => {
+      await setup();
+      sqlRoute = (text) =>
+        text.includes('last_heartbeat = now(), is_online = true') ? undefined : [];
+      setupSqlResults([], [{ was_online: false }]);
+      failNext('last_heartbeat = now(), is_online = true', 'ECONNRESET');
+
+      await emitAndSettle('ocpp.MessageLog', messageLogEvent('msg-2'));
+
+      expect(countCalls('INSERT INTO ocpp_message_logs')).toBe(1);
+      expect(countCalls('last_heartbeat = now(), is_online = true')).toBe(2);
+      // The station came online: the retry kept the result of its liveness bump.
+      expect(mockPubSub.publish).toHaveBeenCalledWith(
+        'csms_events',
+        expect.stringContaining('"eventType":"station.status"'),
+      );
+    });
+
+    it('never retries an error that is not a lost connection', async () => {
+      await setup();
+      sqlRoute = (text) => (text.includes('INSERT INTO ocpp_message_logs') ? undefined : []);
+      sqlFailOn = (text) =>
+        text.includes('INSERT INTO ocpp_message_logs')
+          ? Object.assign(new Error('value too long'), { code: '22001' })
+          : null;
+
+      await emitAndSettle('ocpp.MessageLog', messageLogEvent('msg-3'));
+
+      expect(countCalls('INSERT INTO ocpp_message_logs')).toBe(1);
+      expect(countCalls('last_heartbeat')).toBe(0);
+    });
+
+    it('stops when a log INSERT lost its connection mid-statement (it may have committed)', async () => {
+      await setup();
+      sqlRoute = (text) => (text.includes('INSERT INTO connection_logs') ? undefined : []);
+      failNext('INSERT INTO connection_logs', 'CONNECTION_CLOSED', 3);
+
+      await emitAndSettle(
+        'station.Connected',
+        makeDomainEvent('station.Connected', 'CS-001', {
+          ocppProtocol: 'ocpp2.1',
+          stationDbId: 'sta_000000000001',
+        }),
+      );
+
+      expect(countCalls('INSERT INTO connection_logs')).toBe(1);
+      expect(countCalls('SET is_online = true')).toBe(1);
+    });
+
+    it('runs the idempotent steps again and the log INSERTs once', async () => {
+      await setup();
+      sqlRoute = (text) =>
+        text.includes('SELECT site_id FROM charging_stations') ? undefined : [];
+      setupSqlResults([], [{ site_id: null }]);
+      failNext('SELECT site_id FROM charging_stations', 'CONNECT_TIMEOUT');
+
+      await emitAndSettle(
+        'station.Connected',
+        makeDomainEvent('station.Connected', 'CS-001', {
+          ocppProtocol: 'ocpp2.1',
+          stationDbId: 'sta_000000000001',
+        }),
+      );
+
+      expect(countCalls('SET is_online = true')).toBe(2);
+      expect(countCalls('INSERT INTO connection_logs')).toBe(1);
+      expect(countCalls('INSERT INTO port_status_log')).toBe(1);
+      expect(countCalls('SELECT site_id FROM charging_stations')).toBe(2);
+      expect(mockPubSub.publish).toHaveBeenCalledWith(
+        'csms_events',
+        expect.stringContaining('"eventType":"station.status"'),
+      );
+    });
+
+    it('gives up after three attempts', async () => {
+      await setup();
+      sqlRoute = (text) =>
+        text.includes('SET last_heartbeat = now(), updated_at') ? undefined : [];
+      failNext('SET last_heartbeat = now(), updated_at', 'CONNECT_TIMEOUT', 10);
+
+      await emitAndSettle(
+        'ocpp.Heartbeat',
+        makeDomainEvent('ocpp.Heartbeat', 'CS-001', { stationDbId: 'sta_000000000001' }),
+      );
+
+      expect(countCalls('SET last_heartbeat = now(), updated_at')).toBe(3);
+    });
+
+    it('does not retry a projection that is not marked retryable', async () => {
+      await setup();
+      sqlRoute = (text) => (text.includes('display_messages') ? undefined : [{ id: 'sta_1' }]);
+      failNext('display_messages', 'CONNECT_TIMEOUT', 10);
+
+      await emitAndSettle(
+        'ocpp.NotifyDisplayMessages',
+        makeDomainEvent('ocpp.NotifyDisplayMessages', 'CS-001', {
+          requestId: 1,
+          messageInfo: [
+            {
+              id: 1,
+              priority: 'AlwaysFront',
+              message: { content: 'Hello', format: 'UTF8', language: 'en' },
+            },
+          ],
+        }),
+      );
+
+      expect(countCalls('display_messages')).toBe(1);
+    });
+
+    describe('ocpp.StatusNotification', () => {
+      const CONNECTOR_WRITE = 'SELECT id, status FROM connectors';
+
+      function routeStatusNotification(): void {
+        sqlRoute = (text) => {
+          if (text.includes(CONNECTOR_WRITE)) return undefined;
+          if (text.includes('SELECT site_id FROM charging_stations')) return undefined;
+          if (text.includes('SELECT id FROM charging_stations WHERE station_id')) {
+            return [{ id: 'sta_000000000001' }];
+          }
+          if (text.includes('SELECT id FROM evses')) return [{ id: 'evs_1' }];
+          if (text.includes('SELECT ocpp_protocol')) return [{ ocpp_protocol: 'ocpp2.1' }];
+          return [];
+        };
+      }
+
+      function statusEvent(connectorStatus: string, timestamp: string): DomainEvent {
+        return makeDomainEvent('ocpp.StatusNotification', 'CS-001', {
+          evseId: 1,
+          connectorId: 1,
+          connectorStatus,
+          timestamp,
+        });
+      }
+
+      // The statuses each connector write set, in the order they ran.
+      function connectorWrites(): unknown[] {
+        return sqlCalls
+          .filter((c) => c.strings.join('?').includes(CONNECTOR_WRITE))
+          .map((c) => c.values[2]);
+      }
+
+      it('keeps the order of a station lane: a retried report is written before the next one', async () => {
+        await setup();
+        routeStatusNotification();
+        // Unrouted, in order: connector write (fails), site id, connector write
+        // (retry), site id, then the second report's connector write and site id.
+        setupSqlResults(
+          [],
+          [{ previous_status: 'available', applied: true }],
+          [{ site_id: null }],
+          [{ previous_status: 'occupied', applied: true }],
+          [{ site_id: null }],
+        );
+        failNext(CONNECTOR_WRITE, 'CONNECT_TIMEOUT');
+
+        const first = eventBus.emit(
+          'ocpp.StatusNotification',
+          statusEvent('Occupied', '2026-10-05T10:00:00Z'),
+        );
+        const second = eventBus.emit(
+          'ocpp.StatusNotification',
+          statusEvent('Available', '2026-10-05T10:00:01Z'),
+        );
+        await vi.advanceTimersByTimeAsync(10_000);
+        await Promise.all([first, second]);
+
+        expect(connectorWrites()).toEqual(['occupied', 'occupied', 'available']);
+      });
+
+      it('keeps the first status write and its transition when a later step failed', async () => {
+        await setup();
+        routeStatusNotification();
+        // Connector write, site id (fails), site id (retry).
+        setupSqlResults([{ previous_status: 'available', applied: true }], [], [{ site_id: null }]);
+        failNext('SELECT site_id FROM charging_stations', 'CONNECT_TIMEOUT');
+
+        await emitAndSettle(
+          'ocpp.StatusNotification',
+          statusEvent('Occupied', '2026-10-05T10:00:00Z'),
+        );
+
+        expect(connectorWrites()).toEqual(['occupied']);
+        // The station screen refresh follows the real transition, once.
+        const refreshes = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
+          (c: unknown[]) => c[0] === 'station_message_refresh',
+        );
+        expect(refreshes).toHaveLength(1);
+      });
+    });
+  });
+
   describe('ocpp.NotifyDisplayMessages', () => {
     it('upserts display messages', async () => {
       await setup();
@@ -3892,7 +4143,7 @@ describe('Event projections', () => {
     });
   });
 
-  describe('transactionId used by another station (N4 step 1)', () => {
+  describe('transactionId another station already used (N4)', () => {
     function uniqueViolation(constraint: string): Error {
       return Object.assign(new Error('duplicate key value violates unique constraint'), {
         code: '23505',
@@ -3911,60 +4162,101 @@ describe('Event projections', () => {
       });
     }
 
-    it('stops the Started projection when the global unique index holds the id', async () => {
+    it('records the Started session keyed by station and transactionId', async () => {
       await setup();
-      sqlFailOn = (text) =>
-        text.includes('INSERT INTO charging_sessions')
-          ? uniqueViolation('charging_sessions_transaction_id_unique')
-          : null;
       setupSqlResults(
         [{ id: 'sta_000000000002' }], // resolveStationUuid
-        [], // INSERT (rejected)
-        [{ station_id: 'CS-001' }], // the station that holds the id
+        [{ id: 'ses_000000000002' }], // INSERT ... RETURNING id
       );
 
       await eventBus.emit('ocpp.TransactionEvent', startedFrom('CS-002'));
 
       const texts = sqlCalls.map((c) => c.strings.join(''));
-      expect(texts).toHaveLength(3);
-      expect(texts[1]).toContain('INSERT INTO charging_sessions');
-      expect(texts[2]).toContain('cs.station_id !=');
-      expect(sqlCalls[2]!.values).toEqual(['tx-shared', 'sta_000000000002']);
-      // Nothing touches another session: no stale-session fault, no event row.
-      expect(texts.some((t) => t.includes("stopped_reason = 'StaleSession'"))).toBe(false);
-      expect(texts.some((t) => t.includes('INSERT INTO transaction_events'))).toBe(false);
+      const insertIdx = texts.findIndex((t) => t.includes('INSERT INTO charging_sessions'));
+      expect(insertIdx).toBe(1);
+      expect(texts[insertIdx]).toContain('ON CONFLICT (station_id, transaction_id)');
+      expect(sqlCalls[insertIdx]!.values).toContain('sta_000000000002');
+      expect(sqlCalls[insertIdx]!.values).toContain('tx-shared');
+      // The projection goes on with the new session: the stale-session check
+      // on its EVSE runs, and nothing looks for another station's session.
+      expect(texts.some((t) => t.includes('AND id != '))).toBe(true);
+      expect(texts.some((t) => t.includes('cs.station_id !='))).toBe(false);
     });
 
-    it('stops a remote-start link that would take the id of another station', async () => {
+    it('links a remote start only within its own station', async () => {
       await setup();
-      sqlFailOn = (text) =>
-        text.includes('UPDATE charging_sessions cs')
-          ? uniqueViolation('charging_sessions_transaction_id_unique')
-          : null;
       setupSqlResults(
         [{ id: 'sta_000000000002' }], // resolveStationUuid
-        [], // remote-start link (rejected)
-        [{ station_id: 'CS-001' }], // the station that holds the id
+        [{ id: 'ses_000000000002' }], // remote-start link
       );
 
       await eventBus.emit('ocpp.TransactionEvent', startedFrom('CS-002', 'RemoteStart'));
 
       const texts = sqlCalls.map((c) => c.strings.join(''));
-      expect(texts).toHaveLength(3);
+      expect(texts[1]).toContain('UPDATE charging_sessions cs');
+      expect(texts[1]).toContain('WHERE pending.station_id = ');
+      expect(sqlCalls[1]!.values[0]).toBe('sta_000000000002');
       expect(texts.some((t) => t.includes('INSERT INTO charging_sessions'))).toBe(false);
     });
 
-    it('does not treat another unique violation as a foreign transactionId', async () => {
+    it('links only a waiting remote start, and only for a transactionId new on the station', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000002' }], // resolveStationUuid
+        [{ id: 'ses_000000000002' }], // remote-start link
+      );
+
+      await eventBus.emit('ocpp.TransactionEvent', startedFrom('CS-002', 'RemoteStart'));
+
+      const link = sqlCalls[1]!;
+      const text = link.strings.join('?');
+      // A session that already has its transaction (a transaction_events row) is never moved.
+      expect(text).toContain(
+        'NOT EXISTS (\n                SELECT 1 FROM transaction_events te WHERE te.session_id = pending.id',
+      );
+      // A transactionId the station already holds links nothing.
+      expect(text).toContain('holder.station_id = ?');
+      expect(text).toContain('holder.transaction_id = ?');
+      expect(link.values.slice(0, 3)).toEqual([
+        'sta_000000000002',
+        'sta_000000000002',
+        'tx-shared',
+      ]);
+    });
+
+    it('records a repeated remote-start Started on the session holding its transactionId', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000002' }], // resolveStationUuid
+        [], // remote-start link: the station already holds tx-shared
+        [{ id: 'ses_000000000002' }], // INSERT ... ON CONFLICT returns the holder
+      );
+
+      await eventBus.emit('ocpp.TransactionEvent', startedFrom('CS-002', 'RemoteStart'));
+
+      const texts = sqlCalls.map((c) => c.strings.join(''));
+      expect(texts[1]).toContain('UPDATE charging_sessions cs');
+      expect(texts[2]).toContain('INSERT INTO charging_sessions');
+      expect(texts[2]).toContain('ON CONFLICT (station_id, transaction_id)');
+      // No other statement writes a transactionId: no other pending session is claimed.
+      expect(texts.filter((t) => t.includes('SET transaction_id'))).toHaveLength(1);
+      // The projection goes on with the holder.
+      const staleIdx = texts.findIndex((t) => t.includes('AND id != '));
+      expect(staleIdx).toBeGreaterThan(2);
+      expect(sqlCalls[staleIdx]!.values).toContain('ses_000000000002');
+    });
+
+    it('lets a unique violation on the Started insert reach safeSubscribe', async () => {
       await setup();
       sqlFailOn = (text) =>
         text.includes('INSERT INTO charging_sessions')
-          ? uniqueViolation('some_other_unique')
+          ? uniqueViolation('uq_charging_sessions_station_transaction')
           : null;
       setupSqlResults([{ id: 'sta_000000000002' }]);
 
       await eventBus.emit('ocpp.TransactionEvent', startedFrom('CS-002'));
 
-      // The error propagates to safeSubscribe: no holder lookup.
+      // No holder lookup and no further statement after the failed insert.
       const texts = sqlCalls.map((c) => c.strings.join(''));
       expect(texts).toHaveLength(2);
     });

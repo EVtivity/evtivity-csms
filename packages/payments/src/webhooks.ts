@@ -71,9 +71,9 @@ export type PaymentWebhookNotice =
 /**
  * The inbound webhook pipeline: verify the provider's signature, deduplicate
  * each event on its provider and id (`webhook_events`, insert-or-skip, P7),
- * then apply it with status guards (P5). The conflict target stays the
- * `event_id` primary key until P8 makes `(provider, event_id)` the key. Throws WebhookNotConfiguredError when the provider
- * has no signing secret or credentials in this process, and
+ * then apply it with status guards (P5); `(provider, event_id)` is the
+ * primary key. Throws WebhookNotConfiguredError when the provider has no
+ * signing secret or credentials in this process, and
  * WebhookSignatureError for a missing or wrong signature.
  */
 export async function ingestPaymentWebhook(

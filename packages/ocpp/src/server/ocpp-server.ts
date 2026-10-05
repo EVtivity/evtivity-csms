@@ -12,6 +12,7 @@ import { getHeartbeatIntervalSeconds } from '@evtivity/database';
 import type { Logger, EventBus, EventPersistence } from '@evtivity/lib';
 import { ConnectionManager } from './connection-manager.js';
 import { createSessionState } from './session-state.js';
+import { selectOcppSubprotocol } from './subprotocol.js';
 import type { SessionState } from './session-state.js';
 import { MessageCorrelator } from './message-correlator.js';
 import { MessageRouter } from './message-router.js';
@@ -218,11 +219,7 @@ export class OcppServer {
       verifyClient: (info, callback) => {
         this.verifyClient(info.req, callback);
       },
-      handleProtocols: (protocols) => {
-        if (protocols.has('ocpp2.1')) return 'ocpp2.1';
-        if (protocols.has('ocpp1.6')) return 'ocpp1.6';
-        return false;
-      },
+      handleProtocols: (protocols) => selectOcppSubprotocol(protocols) ?? false,
     });
 
     // Wait for the WebSocket server to bind the port
@@ -267,11 +264,7 @@ export class OcppServer {
         verifyClient: (info, callback) => {
           this.verifyClient(info.req, callback);
         },
-        handleProtocols: (protocols) => {
-          if (protocols.has('ocpp2.1')) return 'ocpp2.1';
-          if (protocols.has('ocpp1.6')) return 'ocpp1.6';
-          return false;
-        },
+        handleProtocols: (protocols) => selectOcppSubprotocol(protocols) ?? false,
       });
 
       this.wssSecure.on('connection', (ws: WebSocket, req: IncomingMessage) => {

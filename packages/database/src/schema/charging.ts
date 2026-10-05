@@ -50,11 +50,8 @@ export const chargingSessions = pgTable(
     driverId: text('driver_id').references(() => drivers.id),
     tokenId: text('token_id').references(() => driverTokens.id, { onDelete: 'set null' }),
     vehicleId: text('vehicle_id').references(() => vehicles.id, { onDelete: 'set null' }),
-    // OCPP 2.1 transactionIds are unique per station only (E01.FR.08): new code
-    // keys by uq_charging_sessions_station_transaction. The global unique
-    // (charging_sessions_transaction_id_unique) stays until the N4 contract,
-    // because pods before v0.1.38 insert with ON CONFLICT (transaction_id).
-    transactionId: varchar('transaction_id', { length: 36 }).notNull().unique(),
+    // Unique per station only (OCPP 2.1 E01.FR.08): uq_charging_sessions_station_transaction.
+    transactionId: varchar('transaction_id', { length: 36 }).notNull(),
     status: sessionStatusEnum('status').notNull().default('active'),
     startedAt: timestamp('started_at', { withTimezone: true }),
     endedAt: timestamp('ended_at', { withTimezone: true }),
@@ -86,6 +83,11 @@ export const chargingSessions = pgTable(
     netCents: integer('net_cents'),
     taxCents: integer('tax_cents'),
     costBreakdown: jsonb('cost_breakdown'),
+    // The most the session can be billed, tax included: the authorized
+    // amount of a guest's card hold, stamped when the session starts (OCPP
+    // 2.1 C25: the authorization is the ceiling for the cost). The cost
+    // assembly bills at most this amount. Null: no ceiling.
+    costCeilingCents: integer('cost_ceiling_cents'),
     idleStartedAt: timestamp('idle_started_at', { withTimezone: true }),
     idleMinutes: numeric('idle_minutes').notNull().default('0'),
     // The idle_started_at the idle notification was sent for (one per idle period).
@@ -109,7 +111,6 @@ export const chargingSessions = pgTable(
   (table) => [
     index('idx_sessions_station_id').on(table.stationId),
     index('idx_sessions_status').on(table.status),
-    index('idx_sessions_transaction_id').on(table.transactionId),
     uniqueIndex('uq_charging_sessions_station_transaction').on(
       table.stationId,
       table.transactionId,

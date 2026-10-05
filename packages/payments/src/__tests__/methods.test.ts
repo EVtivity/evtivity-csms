@@ -101,7 +101,6 @@ vi.mock('@evtivity/database', () => ({
     email: 'd.email',
     firstName: 'd.first_name',
     lastName: 'd.last_name',
-    stripeCustomerId: 'd.stripe_customer_id',
   },
   driverPaymentMethods: {
     id: 'm.id',
@@ -218,8 +217,6 @@ function method(overrides: Partial<DriverPaymentMethod> = {}): DriverPaymentMeth
   return {
     id: 1,
     driverId: 'd1',
-    stripeCustomerId: 'cus_1',
-    stripePaymentMethodId: 'pm_1',
     provider: 'stripe',
     providerCustomerId: 'cus_1',
     providerPaymentMethodId: 'pm_1',
@@ -351,8 +348,7 @@ describe('startDriverMethodSetup', () => {
         set: { providerCustomerId: 'cus_new', updatedAt: expect.any(Date) as unknown },
       },
     });
-    expect(callsOf('update')[0]?.set).toMatchObject({ stripeCustomerId: 'cus_new' });
-    expect(h.transaction).toHaveBeenCalledOnce();
+    expect(callsOf('update')).toHaveLength(0);
   });
 
   it('creates a customer at the active provider when the driver has one only at another', async () => {
@@ -517,14 +513,12 @@ describe('saveDriverMethod', () => {
       provider: 'simulated',
       providerCustomerId: 'cus_sim_9',
     });
-    expect(callsOf('update')[0]?.set).toMatchObject({ stripeCustomerId: 'cus_sim_9' });
+    expect(callsOf('update')).toHaveLength(0);
     expect(inserted?.values).toEqual({
       driverId: 'd1',
       provider: 'simulated',
       providerCustomerId: 'cus_sim_9',
       providerPaymentMethodId: 'pm_sim_9',
-      stripeCustomerId: 'cus_sim_9',
-      stripePaymentMethodId: 'pm_sim_9',
       cardBrand: 'mastercard',
       cardLast4: '4444',
       isDefault: true,
@@ -559,15 +553,13 @@ describe('saveDriverMethod', () => {
       provider: 'stripe',
       providerCustomerId: 'cus_1',
       providerPaymentMethodId: 'pm_1',
-      stripeCustomerId: 'cus_1',
-      stripePaymentMethodId: 'pm_1',
       isDefault: false,
       cardLast4: '4242',
     });
     expect(h.execute).not.toHaveBeenCalled();
   });
 
-  it('saves an Adyen card with both stripe_* columns NULL (guard layer 2)', async () => {
+  it('saves an Adyen card with its provider ids', async () => {
     const adyen = fakeProvider('adyen');
     getActivePaymentProvider.mockResolvedValue(adyen);
     h.results.select.push([DRIVER], [{ customerId: 'evt_shopper' }], []);
@@ -581,8 +573,6 @@ describe('saveDriverMethod', () => {
       provider: 'adyen',
       providerCustomerId: 'evt_shopper',
       providerPaymentMethodId: 'M5N7TQ4TG5PFWR50',
-      stripeCustomerId: null,
-      stripePaymentMethodId: null,
     });
   });
 
@@ -646,15 +636,11 @@ describe('submitDriverMethodSetup and continueDriverMethodSetup', () => {
       driverId: 'd1',
       provider: 'simulated',
       providerCustomerId: 'cus_sim_1',
-      stripeCustomerId: 'cus_sim_1',
       cardBrand: 'visa',
       cardLast4: '4242',
       isDefault: true,
     });
     expect(String(insert?.values?.['providerPaymentMethodId'])).toMatch(/^pm_sim_approve_4242_/);
-    expect(insert?.values?.['stripePaymentMethodId']).toBe(
-      insert?.values?.['providerPaymentMethodId'],
-    );
     expect(insert?.conflict?.kind).toBe('nothing');
   });
 
@@ -891,7 +877,7 @@ describe('listDriverMethods', () => {
       method({ id: 3, cardLast4: null, cardBrand: null, providerCustomerId: 'cus_3' }),
       method({ id: 4, cardLast4: null, cardBrand: null, providerCustomerId: 'cus_4' }),
       method({ id: 5, cardLast4: null, cardBrand: null, providerCustomerId: 'cus_5' }),
-      method({ id: 6, cardLast4: null, cardBrand: null, provider: null }),
+      method({ id: 6, cardLast4: null, cardBrand: null, provider: 'adyen' }),
     ];
     h.results.select.push(rows);
     const err = new Error('gone');

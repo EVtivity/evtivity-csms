@@ -227,11 +227,8 @@ describe('inserts', () => {
       sitePaymentConfigId: 3,
       provider: 'stripe',
       providerPaymentId: 'pi_1',
-      stripePaymentIntentId: 'pi_1',
       providerCustomerId: 'cus_1',
-      stripeCustomerId: 'cus_1',
       providerPaymentMethodId: 'pm_1',
-      stripePaymentMethodId: 'pm_1',
       paymentSource: 'web_portal',
       currency: 'EUR',
       preAuthAmountCents: 5000,
@@ -239,26 +236,6 @@ describe('inserts', () => {
     });
     expect(call.conflict).toEqual({ target: 'pr.session_id' });
     expect(call.returning).toEqual({ id: 'pr.id' });
-  });
-
-  it('recordHold never writes an id of another provider to the stripe_* columns', async () => {
-    h.results.push([{ id: 7 }]);
-    await recordHold({
-      ...hold,
-      provider: 'adyen',
-      paymentId: 'PSP1',
-      customerId: 'SH1',
-      methodId: 'T1',
-    });
-    expect(last().values).toMatchObject({
-      provider: 'adyen',
-      providerPaymentId: 'PSP1',
-      stripePaymentIntentId: null,
-      providerCustomerId: 'SH1',
-      stripeCustomerId: null,
-      providerPaymentMethodId: 'T1',
-      stripePaymentMethodId: null,
-    });
   });
 
   it('recordHold returns null on conflict', async () => {
@@ -284,12 +261,10 @@ describe('inserts', () => {
     const call = last();
     expect(call.values?.['status']).toBe('failed');
     expect(call.values?.['failureReason']).toBe('x'.repeat(500));
-    expect(call.values).not.toHaveProperty('stripePaymentIntentId');
     expect(call.values).not.toHaveProperty('providerPaymentId');
     expect(call.values).toMatchObject({
       provider: 'stripe',
       providerCustomerId: null,
-      stripeCustomerId: null,
     });
     expect(call.conflict).toEqual({ target: 'pr.session_id' });
   });
@@ -331,7 +306,6 @@ describe('inserts', () => {
       sitePaymentConfigId: 1,
       provider: 'stripe',
       providerPaymentId: 'pi_g',
-      stripePaymentIntentId: 'pi_g',
       paymentSource: 'guest',
       currency: 'USD',
       preAuthAmountCents: 2000,
@@ -374,9 +348,7 @@ describe('inserts', () => {
       sitePaymentConfigId: null,
       provider: 'simulated',
       providerCustomerId: 'cus_sim_1',
-      stripeCustomerId: 'cus_sim_1',
       providerPaymentMethodId: 'pm_sim_1',
-      stripePaymentMethodId: 'pm_sim_1',
       paymentSource: 'web_portal',
       currency: 'USD',
       taxRate: '0.19',
@@ -587,7 +559,6 @@ describe('status updates are guarded by their from-states', () => {
       status: 'captured',
       provider: 'stripe',
       providerPaymentId: 'pi_4',
-      stripePaymentIntentId: 'pi_4',
       capturedAmountCents: 900,
     });
     expect(last().where).toEqual(guard(4, ['pending']));
@@ -1186,6 +1157,44 @@ describe('async operations (P10a)', () => {
     expect(metadata.values).toContain(
       JSON.stringify([{ paymentId: 'TOP1', amountCents: 500, refundedCents: 500 }]),
     );
+  });
+
+  it('settleRefund of one of two pending refunds settles only its entry', async () => {
+    const both = [entry('RF1', 'pending', 'PSP1', 60), entry('RF2', 'pending', 'PSP1', 1940)];
+    h.results.push([locked({ providerRefunds: both })], [{ id: 9 }]);
+    await settleRefund(9, {
+      refundId: 'RF2',
+      paymentId: 'PSP1',
+      amountCents: 1940,
+      outcome: 'succeeded',
+    });
+    expect(last().set).toMatchObject({ status: 'partially_refunded', refundedAmountCents: 1940 });
+    expect(last().set?.['providerRefunds']).toEqual([
+      expect.objectContaining({ refundId: 'RF1', state: 'pending' }),
+      expect.objectContaining({ refundId: 'RF2', state: 'succeeded' }),
+    ]);
+
+    h.results.push(
+      [
+        locked({
+          status: 'partially_refunded',
+          refundedAmountCents: 1940,
+          providerRefunds: [both[0], { ...both[1], state: 'succeeded' }],
+        }),
+      ],
+      [{ id: 9 }],
+    );
+    await settleRefund(9, {
+      refundId: 'RF1',
+      paymentId: 'PSP1',
+      amountCents: 60,
+      outcome: 'succeeded',
+    });
+    expect(last().set).toMatchObject({ status: 'refunded', refundedAmountCents: 2000 });
+    expect(last().set?.['providerRefunds']).toEqual([
+      expect.objectContaining({ refundId: 'RF1', state: 'succeeded' }),
+      expect.objectContaining({ refundId: 'RF2', state: 'succeeded' }),
+    ]);
   });
 
   it('settleRefund applies a duplicate once', async () => {

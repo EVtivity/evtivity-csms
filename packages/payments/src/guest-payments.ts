@@ -17,13 +17,13 @@ import {
   costIncludesTax,
   dispatchSystemNotification,
   notificationMoney,
+  parseSessionCostBreakdown,
   sessionChargeTax,
 } from '@evtivity/lib';
 import type { PaymentContext } from './context.js';
 import { errorMessage, pendingRef } from './context.js';
 import { PaymentDeclinedError, PaymentProviderNotConfiguredError } from './errors.js';
 import { cancelKey, captureKey } from './idempotency-keys.js';
-import { stripeColumnValue } from './legacy-columns.js';
 import { activeProvider, pinnedProvider } from './pinning.js';
 import {
   findSessionRecord,
@@ -201,7 +201,6 @@ export async function authorizeGuestHold(
       evseId: input.evseId,
       provider: provider.id,
       providerPaymentId: paymentId,
-      stripePaymentIntentId: stripeColumnValue(provider.id, paymentId),
       guestEmail: input.guestEmail,
       preAuthAmountCents: terms.preAuthAmountCents,
       status: hold.status === 'authorized' ? 'payment_authorized' : 'pending_payment',
@@ -308,7 +307,6 @@ export async function continueGuestHold(
         .update(guestSessions)
         .set({
           providerPaymentId: hold.paymentId,
-          stripePaymentIntentId: stripeColumnValue(provider.id, hold.paymentId),
           updatedAt: new Date(),
         })
         .where(and(eq(guestSessions.id, guest.id), eq(guestSessions.status, 'pending_payment')));
@@ -321,7 +319,6 @@ export async function continueGuestHold(
     .update(guestSessions)
     .set({
       providerPaymentId: paymentId,
-      stripePaymentIntentId: stripeColumnValue(provider.id, paymentId),
       status: 'payment_authorized',
       updatedAt: new Date(),
     })
@@ -384,7 +381,6 @@ export async function attachGuestAuthorisation(input: {
     .update(guestSessions)
     .set({
       providerPaymentId: input.paymentId,
-      stripePaymentIntentId: stripeColumnValue(input.provider, input.paymentId),
       status: 'payment_authorized',
       updatedAt: new Date(),
     })
@@ -580,12 +576,16 @@ async function completeGuestSession(guestSessionId: number): Promise<void> {
 }
 
 /**
- * Captures the guest's hold at the session's final cost, at most the hold:
- * a guest has no saved card, so a cost above it cannot be topped up and the
- * uncollected rest is recorded as `Guest shortfall:` (not picked up by the
- * daily top-up retry). A cost of 0 cancels the hold. Idempotent: a record
- * already captured, cancelled or failed is left alone. A failed capture marks
- * the record failed and rethrows, so the worker retries the job.
+ * Captures the guest's hold at the session's final cost. The hold is the
+ * session's cost ceiling (stamped at Started), so the cost assembly bills at
+ * most the hold and keeps a tariff price above it in the cost breakdown
+ * (pricedGrossCents). A session without a ceiling (started before it was
+ * stamped) can still end above the hold: the capture stays at the hold, as a
+ * guest has no saved card for a top-up, and the uncollected rest is recorded
+ * as `Guest shortfall:` (not picked up by the daily top-up retry). A cost of
+ * 0 cancels the hold. Idempotent: a record already captured, cancelled or
+ * failed is left alone. A failed capture marks the record failed and
+ * rethrows, so the worker retries the job.
  */
 async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Promise<void> {
   const [guest] = await db
@@ -663,10 +663,16 @@ async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Pr
         shortfallCents > 0
           ? `Guest shortfall: hold ${String(holdCents)}c captured, ${String(shortfallCents)}c uncollected (no saved card for a top-up)`
           : null;
+      const pricedCents = parseSessionCostBreakdown(session.costBreakdown)?.pricedGrossCents;
       if (shortfallCents > 0) {
         deps.logger.warn(
           { guestSessionId: guest.id, finalCost, holdCents, shortfallCents },
           'Guest session cost exceeds the hold; captured the hold, shortfall uncollected',
+        );
+      } else if (pricedCents != null) {
+        deps.logger.info(
+          { guestSessionId: guest.id, amountCents: captureCents, pricedCents },
+          'Captured guest payment at the hold; the tariff price above it was not billed',
         );
       } else {
         deps.logger.info(

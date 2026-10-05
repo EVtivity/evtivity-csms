@@ -62,8 +62,6 @@ describe('paymentReconciliationHandler', () => {
         field: 'status',
         localValue: 'pre_authorized',
         providerValue: 'captured',
-        stripePaymentIntentId: 'pi_1',
-        stripeValue: 'captured',
       },
       {
         paymentRecordId: 2,
@@ -72,8 +70,6 @@ describe('paymentReconciliationHandler', () => {
         field: 'capturedAmountCents',
         localValue: '500',
         providerValue: '800',
-        stripePaymentIntentId: 'pi_2',
-        stripeValue: '800',
       },
     ];
     mockRunPaymentReconciliation.mockResolvedValue({

@@ -135,8 +135,6 @@ describe('reconcilePayments', () => {
         field: 'status',
         localValue: 'pre_authorized',
         providerValue: 'succeeded (acceptable local: captured|partially_refunded|refunded)',
-        stripePaymentIntentId: 'pi_2',
-        stripeValue: 'succeeded (acceptable local: captured|partially_refunded|refunded)',
       },
     ]);
   });
@@ -166,8 +164,6 @@ describe('reconcilePayments', () => {
           field: 'capturedAmountCents',
           localValue: '500',
           providerValue: '800',
-          stripePaymentIntentId: 'pi_4',
-          stripeValue: '800',
         },
       ]);
       expect(result.matched).toBe(0);
@@ -333,8 +329,6 @@ describe('reconcilePayments', () => {
           field: 'capturedAmountCents',
           localValue: '600',
           providerValue: '500',
-          stripePaymentIntentId: 'pi_top',
-          stripeValue: '500',
         },
       ]);
     });

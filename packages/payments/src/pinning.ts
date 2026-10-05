@@ -10,12 +10,6 @@ import type { PaymentProvider } from './types.js';
  * payment records store the provider that minted their ids in a `provider`
  * column (P4), so a stored payment is always finished, refunded or detached
  * by that provider, whatever provider is active now.
- *
- * Pods of the previous release (v0.1.37) read the `stripe_*` columns and pin
- * by id prefix, so they would send a payment of another provider to Stripe.
- * Two layers keep them away from Adyen instead of a refusal here: Adyen ids
- * never go into `stripe_*` columns (legacy-columns.ts), and Adyen can only be
- * selected once no such pod runs (provider-switch-guard.ts).
  */
 
 /**

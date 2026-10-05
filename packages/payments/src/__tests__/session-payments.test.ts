@@ -195,9 +195,6 @@ function record(overrides: Partial<PaymentRecord> = {}): PaymentRecord {
     sessionId: 's1',
     driverId: 'd1',
     sitePaymentConfigId: null,
-    stripePaymentIntentId: 'pi_1',
-    stripeCustomerId: 'cus_1',
-    stripePaymentMethodId: 'pm_1',
     provider: 'stripe',
     providerPaymentId: 'pi_1',
     providerCustomerId: 'cus_1',
@@ -388,11 +385,6 @@ describe('authorizeSessionHold', () => {
       providerId: 'unknown',
     });
     expect(getPaymentProvider).not.toHaveBeenCalled();
-  });
-
-  it('returns no_method for a method row without provider ids', async () => {
-    h.results.push([{ ...METHOD, customerId: null }]);
-    expect(await authorizeSessionHold(input, ctx)).toEqual({ outcome: 'no_method' });
   });
 
   it('rethrows other pinning errors', async () => {

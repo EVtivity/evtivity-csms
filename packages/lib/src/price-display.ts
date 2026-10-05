@@ -563,6 +563,13 @@ export interface SessionCostBreakdown {
    * a charged amount that differs from the calculation.
    */
   components: CostComponentGroup[] | null;
+  /**
+   * The tariff price, tax included, when it was above the session's cost
+   * ceiling (the guest's card authorization, which OCPP 2.1 C25 makes the
+   * ceiling for the cost): grossCents is then the ceiling, and the rest was
+   * not billed (capCostBreakdown). Absent when the cost was not capped.
+   */
+  pricedGrossCents?: number;
 }
 
 /**
@@ -610,6 +617,24 @@ export function reconcileCostBreakdown(
     grossCents,
     taxLines,
     components: null,
+  };
+}
+
+/**
+ * A breakdown limited to the session's cost ceiling. Unchanged when it is at
+ * or below the ceiling (or there is none); otherwise reconciled to the
+ * ceiling (reconcileCostBreakdown, components dropped) with the tariff price
+ * kept in pricedGrossCents, so the amount not billed stays on record.
+ */
+export function capCostBreakdown(
+  breakdown: SessionCostBreakdown,
+  ceilingCents: number | null,
+  fallbackRate: number,
+): SessionCostBreakdown {
+  if (ceilingCents == null || breakdown.grossCents <= ceilingCents) return breakdown;
+  return {
+    ...reconcileCostBreakdown(breakdown, Math.max(0, ceilingCents), fallbackRate),
+    pricedGrossCents: breakdown.pricedGrossCents ?? breakdown.grossCents,
   };
 }
 
@@ -683,5 +708,10 @@ export function parseSessionCostBreakdown(value: unknown): SessionCostBreakdown 
   }
   const components = parseComponents(b['components']);
   if (components === undefined) return null;
-  return { basis, netCents, taxCents, grossCents, taxLines: lines, components };
+  const pricedGrossCents = b['pricedGrossCents'];
+  if (pricedGrossCents === undefined) {
+    return { basis, netCents, taxCents, grossCents, taxLines: lines, components };
+  }
+  if (!isFiniteNumber(pricedGrossCents) || pricedGrossCents <= grossCents) return null;
+  return { basis, netCents, taxCents, grossCents, taxLines: lines, components, pricedGrossCents };
 }

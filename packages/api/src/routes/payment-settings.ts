@@ -216,19 +216,11 @@ export function paymentSettingsRoutes(app: FastifyInstance): void {
         }
         pairs.push({ key: 'payments.provider', value: body.provider });
       }
-      // The stripe.* forms are written too until P8, so pods of the previous
-      // release read the operator's value during a rolling upgrade.
       if (body.preAuthAmountCents !== undefined) {
-        pairs.push(
-          { key: 'payments.preAuthAmountCents', value: body.preAuthAmountCents },
-          { key: 'stripe.preAuthAmountCents', value: body.preAuthAmountCents },
-        );
+        pairs.push({ key: 'payments.preAuthAmountCents', value: body.preAuthAmountCents });
       }
       if (body.platformFeePercent !== undefined) {
-        pairs.push(
-          { key: 'payments.platformFeePercent', value: body.platformFeePercent },
-          { key: 'stripe.platformFeePercent', value: body.platformFeePercent },
-        );
+        pairs.push({ key: 'payments.platformFeePercent', value: body.platformFeePercent });
       }
       const simulated = body.simulated ?? {};
       if (simulated.resultMode !== undefined) {

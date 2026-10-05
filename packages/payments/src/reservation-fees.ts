@@ -101,7 +101,7 @@ export async function chargeReservationFee(
       ),
     )
     .limit(1);
-  if (method?.customerId == null || method.methodId == null) {
+  if (method == null) {
     return { status: 'skipped', reason: 'no_payment_method' };
   }
   const customerId = method.customerId;

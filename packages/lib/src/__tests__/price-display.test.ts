@@ -33,6 +33,7 @@ import {
   dimensionAmounts,
   taxLineForAmount,
   reconcileCostBreakdown,
+  capCostBreakdown,
   componentTaxLines,
   parseSessionCostBreakdown,
 } from '../price-display.js';
@@ -649,6 +650,42 @@ describe('chargedCostBreakdown and reconcileCostBreakdown', () => {
   });
 });
 
+describe('capCostBreakdown', () => {
+  const tariff: TariffInput = {
+    pricePerKwh: '0.30',
+    pricePerMinute: null,
+    pricePerSession: null,
+    idleFeePricePerMinute: null,
+    reservationFeePerMinute: null,
+    taxRate: '0.19',
+  };
+  const breakdown = toSessionCostBreakdown(calculateSessionCost(tariff, 10_000, 30));
+
+  it('keeps a cost at or below the ceiling, or without one', () => {
+    expect(breakdown.grossCents).toBe(357);
+    expect(capCostBreakdown(breakdown, null, 0.19)).toBe(breakdown);
+    expect(capCostBreakdown(breakdown, 357, 0.19)).toBe(breakdown);
+    expect(capCostBreakdown(breakdown, 500, 0.19)).toBe(breakdown);
+  });
+
+  it('bills the ceiling above it and keeps the tariff price on record', () => {
+    expect(capCostBreakdown(breakdown, 300, 0.19)).toEqual({
+      basis: 'net',
+      netCents: 252,
+      taxCents: 48,
+      grossCents: 300,
+      taxLines: [{ taxRate: 0.19, netCents: 252, taxCents: 48 }],
+      components: null,
+      pricedGrossCents: 357,
+    });
+  });
+
+  it('keeps the first tariff price when a capped cost is capped again', () => {
+    const capped = capCostBreakdown(breakdown, 300, 0.19);
+    expect(capCostBreakdown(capped, 250, 0.19).pricedGrossCents).toBe(357);
+  });
+});
+
 describe('componentTaxLines', () => {
   it('merges the component lines of every segment per rate', () => {
     const tariff: TariffInput = {
@@ -726,6 +763,13 @@ describe('parseSessionCostBreakdown', () => {
       ),
     );
     expect(parseSessionCostBreakdown(JSON.parse(JSON.stringify(calculated)))).toEqual(calculated);
+  });
+
+  it('keeps the tariff price of a capped cost', () => {
+    const capped = { ...chargedCostBreakdown(300, 0.19, 'net'), pricedGrossCents: 357 };
+    expect(parseSessionCostBreakdown(JSON.parse(JSON.stringify(capped)))).toEqual(capped);
+    expect(parseSessionCostBreakdown({ ...capped, pricedGrossCents: 300 })).toBeNull();
+    expect(parseSessionCostBreakdown({ ...capped, pricedGrossCents: '357' })).toBeNull();
   });
 
   it('rejects values that are not a consistent breakdown', () => {

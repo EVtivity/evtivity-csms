@@ -74,11 +74,8 @@ describe('Sessions', () => {
     expect(screen.queryByText(/common\.amountInclTax/)).toBeNull();
   });
 
-  it('reads the stored tax, not the tariff rate: no label when no tax was charged', async () => {
-    getMock.mockResolvedValue({
-      data: [{ ...session('4', 1000, 0), tariffTaxRate: '0.19' }],
-      total: 1,
-    });
+  it('shows no label when the stored tax is 0', async () => {
+    getMock.mockResolvedValue({ data: [session('4', 1000, 0)], total: 1 });
     renderPage();
     expect(await screen.findByText('€10.00')).toBeDefined();
     expect(screen.queryByText(/common\.amountInclTax/)).toBeNull();

@@ -102,6 +102,7 @@ describe('loadSessionPricing', () => {
       idleStartedAt: new Date('2026-06-04T00:40:00Z'),
       idleMinutes: 3.5,
       reservationReferenceAt: new Date('2026-06-03T23:50:00Z'),
+      costCeilingCents: null,
     });
     // A snapshot from before 0108 (tax_basis null) reads its tariff's reservation fee.
     expect(calls[0]?.text).toContain(
@@ -150,6 +151,7 @@ describe('sessionIdleMinutesAt and reservationHoldingMinutes', () => {
       idleStartedAt: null,
       idleMinutes: 0,
       reservationReferenceAt: new Date('2026-06-03T23:50:30Z'),
+      costCeilingCents: null,
     };
     expect(reservationHoldingMinutes(session)).toBe(10);
     expect(reservationHoldingMinutes({ ...session, reservationReferenceAt: null })).toBe(0);
@@ -313,6 +315,34 @@ describe('priceSessionAt', () => {
       netCents: 400,
       taxCents: 76,
     });
+  });
+
+  it('bills at most the cost ceiling and keeps the tariff price on record', async () => {
+    const { sql, calls } = makeSql([
+      ['FROM charging_sessions s', [{ ...sessionRow, cost_ceiling_cents: 400 }]],
+    ]);
+    // 10 kWh at 0.30 plus the 1.00 session fee: 400 net, 76 tax, 476 gross.
+    const breakdown = await priceSessionAt(sql, 'ses_1', end, 10_000);
+    expect(calls[0]?.text).toContain('s.cost_ceiling_cents');
+    expect(breakdown).toEqual({
+      basis: 'net',
+      netCents: 336,
+      taxCents: 64,
+      grossCents: 400,
+      taxLines: [{ taxRate: 0.19, netCents: 336, taxCents: 64 }],
+      components: null,
+      pricedGrossCents: 476,
+    });
+  });
+
+  it('bills the tariff price at or below the cost ceiling', async () => {
+    const { sql } = makeSql([
+      ['FROM charging_sessions s', [{ ...sessionRow, cost_ceiling_cents: 476 }]],
+    ]);
+    const breakdown = await priceSessionAt(sql, 'ses_1', end, 10_000);
+    expect(breakdown?.grossCents).toBe(476);
+    expect(breakdown?.components).not.toBeNull();
+    expect(breakdown).not.toHaveProperty('pricedGrossCents');
   });
 });
 

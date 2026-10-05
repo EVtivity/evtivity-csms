@@ -32,10 +32,6 @@ export interface ReconciliationDiscrepancy {
    * state differs from the record.
    */
   kind?: 'pending_confirmation';
-  /** Deprecated: same as providerPaymentId; removed in P8. */
-  stripePaymentIntentId: string;
-  /** Deprecated: same as providerValue; removed in P8. */
-  stripeValue: string;
 }
 
 export interface ReconciliationResult {
@@ -69,8 +65,6 @@ function discrepancy(
     field,
     localValue,
     providerValue,
-    stripePaymentIntentId: paymentId,
-    stripeValue: providerValue,
   };
 }
 

@@ -215,7 +215,7 @@ describe('payout account routes', () => {
         expect.objectContaining({
           entityId: SITE_ID,
           action: 'payment_config_changed',
-          after: { stripeConnectedAccountId: 'acct_1' },
+          after: { payoutAccountId: 'acct_1' },
           notes: 'Payout account created',
         }),
         expect.anything(),

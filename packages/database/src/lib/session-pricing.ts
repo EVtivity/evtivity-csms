@@ -12,6 +12,7 @@
 import type postgres from 'postgres';
 import {
   calculateSessionCostAt,
+  capCostBreakdown,
   chargedCostBreakdown,
   resolveTaxBasis,
   toSessionCostBreakdown,
@@ -47,6 +48,8 @@ export interface SessionPricingRow {
   idleMinutes: number;
   /** The reservation's start (or creation) when the session fulfilled one. */
   reservationReferenceAt: Date | null;
+  /** The most the session can be billed (a guest's card authorization), or null. */
+  costCeilingCents: number | null;
 }
 
 function toDate(value: unknown): Date | null {
@@ -76,7 +79,7 @@ export async function loadSessionPricing(
            s.tariff_idle_fee_price_per_minute, s.tariff_tax_rate,
            CASE WHEN s.tax_basis IS NULL THEN t.reservation_fee_per_minute
                 ELSE s.tariff_reservation_fee_per_minute END AS reservation_fee_per_minute,
-           s.idle_started_at, s.idle_minutes,
+           s.idle_started_at, s.idle_minutes, s.cost_ceiling_cents,
            COALESCE(r.starts_at, r.created_at) AS reservation_reference_at
     FROM charging_sessions s
     LEFT JOIN tariffs t ON t.id = s.tariff_id
@@ -102,6 +105,7 @@ export async function loadSessionPricing(
     idleStartedAt: toDate(row.idle_started_at),
     idleMinutes: Number(row.idle_minutes ?? 0),
     reservationReferenceAt: toDate(row.reservation_reference_at),
+    costCeilingCents: row.cost_ceiling_cents != null ? Number(row.cost_ceiling_cents) : null,
   };
 }
 
@@ -162,8 +166,10 @@ async function loadSegments(sql: postgres.Sql, sessionId: string): Promise<Sessi
  * The cost of a session at `at` with `energyWh` delivered: its tariff
  * segments when split billing is on and the tariff changed during the
  * session, else its tariff snapshot, with the idle grace period and the
- * reservation holding fee. Null for a session without a tariff snapshot (not
- * billed, such as free vend or no pricing).
+ * reservation holding fee, at most the session's cost ceiling (a guest's card
+ * authorization: the tariff price above it is kept in pricedGrossCents and
+ * not billed). Null for a session without a tariff snapshot (not billed, such
+ * as free vend or no pricing).
  */
 export async function priceSession(
   sql: postgres.Sql,
@@ -177,7 +183,7 @@ export async function priceSession(
     isSplitBillingEnabled(),
   ]);
   const segments = splitEnabled ? await loadSegments(sql, session.id) : [];
-  return toSessionCostBreakdown(
+  const priced = toSessionCostBreakdown(
     calculateSessionCostAt({
       basis: session.basis,
       tariff: session.tariff,
@@ -190,6 +196,7 @@ export async function priceSession(
       segments,
     }),
   );
+  return capCostBreakdown(priced, session.costCeilingCents, Number(session.tariff.taxRate ?? 0));
 }
 
 /** loadSessionPricing then priceSession. Null for an unknown, unstarted, or unpriced session. */

@@ -1061,6 +1061,9 @@ describe('Portal guest routes - handler logic', () => {
             energyDeliveredWh: 5000,
             currentCostCents: 250,
             finalCostCents: null,
+            taxCents: 40,
+            // A column the route no longer returns, even when a row carries it.
+            tariffTaxRate: '0.19',
             startedAt: '2024-01-01T00:00:00Z',
             endedAt: null,
           },
@@ -1075,6 +1078,8 @@ describe('Portal guest routes - handler logic', () => {
       expect(body.status).toBe('charging');
       expect(Number(body.energyDeliveredWh)).toBe(5000);
       expect(Number(body.currentCostCents)).toBe(250);
+      expect(body.taxCents).toBe(40);
+      expect(body).not.toHaveProperty('tariffTaxRate');
     });
   });
 

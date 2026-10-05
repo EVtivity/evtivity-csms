@@ -48,7 +48,6 @@ vi.mock('@evtivity/database', () => ({
     id: 'c.id',
     siteId: 'c.site_id',
     payoutAccountId: 'c.payout_account_id',
-    stripeConnectedAccountId: 'c.stripe_connected_account_id',
     payoutAccountStatus: 'c.payout_account_status',
     payoutAccountDetails: 'c.payout_account_details',
     payoutAccountCheckedAt: 'c.payout_account_checked_at',
@@ -101,13 +100,12 @@ describe('payout account records (P4: payout_account_id plus its stripe_* copy)'
     expect(h.calls[0]?.fields).toMatchObject({ accountId: 'c.payout_account_id' });
   });
 
-  it('stores a created account in both columns only when the site has none', async () => {
+  it('stores a created account only when the site has none', async () => {
     h.results.push([{ id: 1 }]);
     expect(await storeCreatedPayoutAccount('s1', 'acct_1')).toBe(true);
     const [update] = h.calls;
     expect(update?.set).toMatchObject({
       payoutAccountId: 'acct_1',
-      stripeConnectedAccountId: 'acct_1',
       payoutAccountStatus: null,
     });
     expect(update?.where).toEqual({
@@ -120,22 +118,16 @@ describe('payout account records (P4: payout_account_id plus its stripe_* copy)'
     expect(await storeCreatedPayoutAccount('s1', 'acct_2')).toBe(false);
   });
 
-  it('sets and clears the account id in both columns when it changed', async () => {
+  it('sets and clears the account id when it changed', async () => {
     h.results.push([{ id: 1 }]);
     expect(await setPayoutAccountId('s1', 'acct_9')).toBe(true);
-    expect(h.calls[0]?.set).toMatchObject({
-      payoutAccountId: 'acct_9',
-      stripeConnectedAccountId: 'acct_9',
-    });
+    expect(h.calls[0]?.set).toMatchObject({ payoutAccountId: 'acct_9' });
     const where = h.calls[0]?.where as { args: Array<{ values?: unknown[] }> };
     expect(where.args[1]?.values).toEqual(['c.payout_account_id', 'acct_9']);
 
     h.results.push([{ id: 1 }]);
     expect(await setPayoutAccountId('s1', null)).toBe(true);
-    expect(h.calls[1]?.set).toMatchObject({
-      payoutAccountId: null,
-      stripeConnectedAccountId: null,
-    });
+    expect(h.calls[1]?.set).toMatchObject({ payoutAccountId: null });
   });
 
   it('matches status writes, counts and the account list on payout_account_id', async () => {
