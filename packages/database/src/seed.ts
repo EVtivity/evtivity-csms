@@ -771,6 +771,24 @@ async function seed(): Promise<void> {
       '  seed.config.json and env values only filled missing settings; pass --apply-config to overwrite existing ones.',
     );
   }
+  if (applyConfig) {
+    // Migrations insert some connection settings as blank placeholders
+    // (smtp.host, smtp.port, smtp.from, ftp.*). On the freshly wiped database
+    // the built-in defaults fill those, so a checkout without seed.config.json
+    // still sends mail to Mailpit and uploads logs to the compose FTP server.
+    // A non-blank value (migration or operator) is never replaced here.
+    let filled = 0;
+    for (const row of settingsRows) {
+      if (row.key in explicitSettings || row.value === '' || row.value == null) continue;
+      const updated = await db
+        .update(settings)
+        .set({ value: row.value, updatedAt: new Date() })
+        .where(and(eq(settings.key, row.key), sql`${settings.value} = '""'::jsonb`))
+        .returning({ key: settings.key });
+      filled += updated.length;
+    }
+    console.log(`  ${String(filled)} blank settings filled with built-in defaults.`);
+  }
   // Demo money uses the operator's currency, whatever the config set it to.
   clearSystemSettingsCache();
   const companyCurrency = await getCompanyCurrency();
