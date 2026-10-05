@@ -528,10 +528,21 @@ describe('station formatters', () => {
     expect(formatStationElapsed(start, 'en', minutes(65))).toBe('1h 5m');
     expect(formatStationElapsed(start, 'en', minutes(120))).toBe('2h 0m');
     expect(formatStationElapsed(start, 'en', 0)).toBe('0m');
-    expect(formatStationElapsed(start, 'de', minutes(65))).toBe('1 Std., 5 Min.');
-    expect(formatStationElapsed(start, 'ko', minutes(65))).toBe('1시간 5분');
-    expect(formatStationElapsed(start, 'zh', minutes(65))).toBe('1小时5分钟');
-    expect(formatStationElapsed(start.toISOString(), 'es', minutes(12))).toBe('12min');
+    // Other languages use the narrow unit names of the runtime's CLDR data, which
+    // change between Node releases (German narrow hours: "1 Std." in CLDR 47,
+    // "1h" in CLDR 48). Compare with Intl itself, not a fixed string.
+    const narrow = (locale: string, duration: { hours?: number; minutes: number }): string =>
+      new Intl.DurationFormat(locale, { style: 'narrow', minutesDisplay: 'always' }).format(
+        duration,
+      );
+    for (const language of ['de', 'es', 'ko', 'zh', 'zh-TW'] as const) {
+      const elapsed = formatStationElapsed(start, language, minutes(65));
+      expect(elapsed).toBe(narrow(language, { hours: 1, minutes: 5 }));
+      expect(elapsed).not.toBe('1h 5m');
+    }
+    expect(formatStationElapsed(start.toISOString(), 'es', minutes(12))).toBe(
+      narrow('es', { minutes: 12 }),
+    );
   });
 
   it('formats no elapsed time without a start or for a future start', () => {

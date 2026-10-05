@@ -166,6 +166,13 @@ export default defineConfig({
               find: '@evtivity/css/ocpp-client',
               replacement: path.resolve(import.meta.dirname, 'packages/css/src/ocpp-client.ts'),
             },
+            {
+              find: '@evtivity/css/station-simulator',
+              replacement: path.resolve(
+                import.meta.dirname,
+                'packages/css/src/station-simulator.ts',
+              ),
+            },
           ],
         },
         test: {

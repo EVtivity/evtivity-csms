@@ -189,8 +189,10 @@ export function formatStationTime(date: Date, language: StationMessageLanguage):
 
 /**
  * Time since a session started, in the display language through
- * Intl.DurationFormat narrow style: "12m", "1h 5m" (en), "1 Std., 5 Min."
- * (de), "1시간 5분" (ko). Empty for a missing or future start.
+ * Intl.DurationFormat narrow style: "12m", "1h 5m" (en), "1시간 5분" (ko).
+ * Unit names come from the runtime's CLDR data and can change between Node
+ * releases (German: "1 Std., 5 Min." in CLDR 47, "1h, 5 Min." in CLDR 48).
+ * Empty for a missing or future start.
  */
 export function formatStationElapsed(
   startedAt: Date | string | null,

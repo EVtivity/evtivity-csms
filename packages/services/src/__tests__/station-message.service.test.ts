@@ -184,6 +184,7 @@ import {
   STATION_MESSAGE_SLOT_UNAVAILABLE,
   type TransactionSessionRow,
 } from '../station-message.service.js';
+import { formatStationElapsed } from '@evtivity/lib';
 
 const mockLogger = {
   info: vi.fn(),
@@ -965,9 +966,13 @@ describe('station-message.service', () => {
         mockLogger,
       );
 
+      // The German unit names come from the runtime's CLDR data and change between
+      // Node releases, so compare with the formatter rather than a fixed string.
+      const germanElapsed = formatStationElapsed(new Date(0), 'de', 95 * 60_000);
+      expect(germanElapsed).not.toBe('1h 35m');
       expect(mockRenderStationMessage).toHaveBeenCalledWith(
         'charging',
-        expect.objectContaining({ elapsedFormatted: '1 Std., 35 Min.', powerKw: '7,0' }),
+        expect.objectContaining({ elapsedFormatted: germanElapsed, powerKw: '7,0' }),
         'de',
       );
     });
