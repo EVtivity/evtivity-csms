@@ -24,13 +24,13 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dompurify": "^3.4.16",
-    "i18next": "^25.2.1",
+    "i18next": "^25.10.9",
     "lucide-react": "^0.468.0",
     "qr-scanner": "^1.4.2",
     "react": "^19.2.7",
     "react-apexcharts": "^1.9.0",
     "react-dom": "^19.2.7",
-    "react-i18next": "^15.4.1",
+    "react-i18next": "^16.6.6",
     "react-router": "^8.4.0",
     "tailwind-merge": "^3.4.0",
     "zustand": "^5.0.0"
@@ -44,7 +44,7 @@
     "@vitejs/plugin-react": "^6.0.0",
     "jsdom": "^30.1.2",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.7.0",
+    "typescript": "^6.0.3",
     "vite": "^8.0.0",
     "vitest": "^5.0.2"
   }
