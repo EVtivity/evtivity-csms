@@ -1,4 +1,6 @@
-FROM node:24-slim AS build
+# The build output is static files, so build once on the native platform instead of
+# again under emulation for each target architecture.
+FROM --platform=$BUILDPLATFORM node:24-slim AS build
 
 WORKDIR /app
 
