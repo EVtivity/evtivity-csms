@@ -394,6 +394,8 @@ function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)] as T;
 }
 
+const DEMO_ACTIVE_SESSION_COUNT = 20;
+
 function at<T>(arr: T[], index: number): T {
   return arr[index % arr.length] as T;
 }
@@ -1746,8 +1748,8 @@ async function seed(): Promise<void> {
   });
   console.log('  VIP pricing group assigned to driver@evtivity.local.');
 
-  // ------ Charging Sessions (10000) ------
-  const sessionStatuses: Array<'active' | 'completed' | 'faulted'> = [
+  // ------ Charging Sessions (10000 ended, plus a few active) ------
+  const sessionStatuses: Array<'completed' | 'faulted'> = [
     'completed',
     'completed',
     'completed',
@@ -1756,8 +1758,29 @@ async function seed(): Promise<void> {
     'completed',
     'completed',
     'completed',
-    'active',
+    'completed',
     'faulted',
+  ];
+  // Active sessions go only on security profile 3 stations: their simulators are disabled,
+  // so a seeded session never holds an EVSE that a simulator or a portal driver starts on.
+  const activeSessionStationIdxs = stationRows
+    .flatMap((s, idx) => (s.securityProfile === 3 ? [idx] : []))
+    .slice(0, DEMO_ACTIVE_SESSION_COUNT);
+  const sessionPlans: Array<{
+    status: 'active' | 'completed' | 'faulted';
+    stationIdx: number;
+    startedAt: Date;
+  }> = [
+    ...Array.from({ length: 10000 }, (_, i) => ({
+      status: pick(sessionStatuses),
+      stationIdx: i % createdStations.length,
+      startedAt: randomDate(90),
+    })),
+    ...activeSessionStationIdxs.map((stationIdx) => ({
+      status: 'active' as const,
+      stationIdx,
+      startedAt: new Date(Date.now() - randomInt(5, 60) * 60 * 1000),
+    })),
   ];
   const stopReasons = [
     'EVDisconnected',
@@ -1790,15 +1813,13 @@ async function seed(): Promise<void> {
     electricityCostCents: number | null;
   }> = [];
 
-  for (let i = 0; i < 10000; i++) {
-    const status = pick(sessionStatuses);
-    const stationIdx = i % createdStations.length;
+  for (let i = 0; i < sessionPlans.length; i++) {
+    const { status, stationIdx, startedAt } = at(sessionPlans, i);
     const stationEvses = createdEvses.filter(
       (e) => e.stationId === at(createdStations, stationIdx).id,
     );
     const evse = stationEvses.length > 0 ? pick(stationEvses) : at(createdEvses, i);
     const driver = pick(createdDrivers);
-    const startedAt = randomDate(90);
     const durationMinutes = randomInt(5, 240);
     const endedAt =
       status !== 'active' ? new Date(startedAt.getTime() + durationMinutes * 60 * 1000) : null;

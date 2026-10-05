@@ -2155,7 +2155,7 @@
     "adyenWebhookUsername": "Webhook Username",
     "adyenWebhookPassword": "Webhook Password",
     "adyenWebhookCredentialHint": "Basic auth credentials of the webhook. Filled in for you by Create webhook.",
-    "adyenAuthorisationAdjustment": "Authorisation Adjustment",
+    "adyenAuthorisationAdjustment": "Authorization Adjustment",
     "adyenAuthorisationAdjustmentHint": "Raises the hold instead of charging a second payment. Turn it on only after Adyen enables it for your merchant category.",
     "adyenSaved": "Adyen settings saved.",
     "adyenSaveFailed": "Failed to save Adyen settings.",

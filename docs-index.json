@@ -82,7 +82,7 @@
   {
     "path": "/docs/csms/firmware-updates",
     "title": "Firmware Updates",
-    "description": "Create firmware update campaigns to roll out new firmware versions to groups of charging stations."
+    "description": "Create firmware update campaigns to roll out new firmware versions to groups of charging stations, and send signed firmware updates."
   },
   {
     "path": "/docs/csms/fleets",

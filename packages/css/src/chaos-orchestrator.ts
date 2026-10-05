@@ -4,6 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
 import type { PubSubClient } from '@evtivity/lib';
+import { ChaosJourneys } from './chaos-journey.js';
 
 interface DriverToken {
   idToken: string;
@@ -463,6 +464,9 @@ const OCPP16_ACTIONS: Array<{
 
 const REFRESH_INTERVAL_MS = 30_000;
 
+// Share of ticks that take a due session step instead of a random action.
+const JOURNEY_TICK_SHARE = 0.5;
+
 export class ChaosOrchestrator {
   private readonly sql: postgres.Sql;
   private readonly pubsub: PubSubClient;
@@ -475,7 +479,8 @@ export class ChaosOrchestrator {
   private stationProtocols: Map<string, 'ocpp1.6' | 'ocpp2.1'> = new Map();
   private offlineStations: Set<string> = new Set();
   private chargingStations: Set<string> = new Set();
-  private chargingTokens: Set<string> = new Set();
+  private chargingTokenByStation: Map<string, string> = new Map();
+  private readonly journeys = new ChaosJourneys();
 
   constructor(
     sql: postgres.Sql,
@@ -543,6 +548,10 @@ export class ChaosOrchestrator {
     for (const id of [...this.chargingStations]) {
       if (!liveIds.has(id)) this.chargingStations.delete(id);
     }
+    for (const id of [...this.chargingTokenByStation.keys()]) {
+      if (!liveIds.has(id)) this.chargingTokenByStation.delete(id);
+    }
+    this.journeys.retain(liveIds);
 
     this.tokens = tokens;
   }
@@ -601,12 +610,15 @@ export class ChaosOrchestrator {
     this.stationProtocols.delete(stationId);
     this.offlineStations.delete(stationId);
     this.chargingStations.delete(stationId);
+    this.chargingTokenByStation.delete(stationId);
+    this.journeys.drop(stationId);
   }
 
   private async dispatchRandomAction(): Promise<void> {
     if (this.stationIds.length === 0) return;
 
-    const stationId = pick(this.stationIds);
+    const due = Math.random() < JOURNEY_TICK_SHARE ? this.journeys.nextDue(Date.now()) : null;
+    const stationId = due?.stationId ?? pick(this.stationIds);
     const protocol = this.stationProtocols.get(stationId) ?? 'ocpp1.6';
 
     // If station is offline, bring it back online
@@ -625,8 +637,9 @@ export class ChaosOrchestrator {
     }
 
     // ~2% chance of power outage simulation
-    if (Math.random() < 0.02) {
+    if (due == null && Math.random() < 0.02) {
       this.offlineStations.add(stationId);
+      this.journeys.drop(stationId);
       console.log(`[chaos] ${stationId} -> goOffline (power outage simulation)`);
       try {
         await this.pubsub.publish(
@@ -702,33 +715,39 @@ export class ChaosOrchestrator {
       actions = actions.filter((a) => a.name !== 'authorize' && a.name !== 'startCharging');
     }
 
-    if (actions.length === 0) {
-      // No valid action for this state this tick.
-      return;
+    let action: (typeof actions)[number] | undefined;
+    if (due != null) {
+      action = actions.find((a) => a.name === due.action);
+      if (action == null) {
+        // The station left the session path (fault, unplug, stop by an operator).
+        this.journeys.drop(stationId);
+        return;
+      }
+    } else {
+      if (actions.length === 0) {
+        // No valid action for this state this tick.
+        return;
+      }
+      action = pick(actions);
     }
-
-    const action = pick(actions);
     let params: Record<string, unknown>;
 
     if (action.name === 'startCharging') {
       // Pick a token that does not already have an active session
-      const available = this.tokens.filter((t) => !this.chargingTokens.has(t.idToken));
+      const busy = new Set(this.chargingTokenByStation.values());
+      const available = this.tokens.filter((t) => !busy.has(t.idToken));
       if (available.length === 0) {
         return; // All drivers are charging, skip
       }
       const t = pick(available);
       params = { evseId: 1, idToken: t.idToken, tokenType: t.tokenType };
       this.chargingStations.add(stationId);
-      this.chargingTokens.add(t.idToken);
+      this.chargingTokenByStation.set(stationId, t.idToken);
     } else {
       params = action.params(this.tokens);
       if (action.name === 'stopCharging' || action.name === 'unplug') {
         this.chargingStations.delete(stationId);
-        // Remove token from charging set (find by station's last used token)
-        const idToken = params['idToken'] as string | undefined;
-        if (idToken != null) {
-          this.chargingTokens.delete(idToken);
-        }
+        this.chargingTokenByStation.delete(stationId);
       }
     }
 
@@ -745,6 +764,7 @@ export class ChaosOrchestrator {
           params,
         }),
       );
+      this.journeys.record(stationId, action.name, Date.now());
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.log(`[chaos] ${stationId} -> ${action.name} failed: ${message}`);
