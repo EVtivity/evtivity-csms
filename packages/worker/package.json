@@ -1,6 +1,6 @@
 {
   "name": "@evtivity/worker",
-  "version": "0.1.38-nightly.6",
+  "version": "0.1.38-nightly.7",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
