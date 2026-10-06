@@ -252,11 +252,21 @@ Helm 차트를 사용하면 각 서비스는 Gateway API를 통해 자체 하위
 
 [EVtivity Agent Skills](https://github.com/EVtivity/evtivity-skills)는 AI 코딩 에이전트가 EVtivity를 다룰 수 있게 해 줍니다. 공개 표준 [Agent Skills](https://agentskills.io)를 따르므로 같은 스킬이 Claude Code, Codex, GitHub Copilot, Gemini CLI, Cursor 등 여러 에이전트에서 동작합니다.
 
-| 스킬                    | 도움                                                          |
-| ----------------------- | ------------------------------------------------------------- |
-| `evtivity-setup`        | Docker Compose로 EVtivity를 구성하고, 스택을 점검하고, 로그인 |
-| `evtivity-troubleshoot` | 장애가 난 서비스, 충전소 연결, 로그인 문제를 찾아 해결        |
-| `evtivity-report-issue` | 버전과 민감 정보를 지운 로그를 모아 GitHub 이슈 초안 작성     |
+| 스킬                       | 도움                                                      |
+| -------------------------- | --------------------------------------------------------- |
+| `evtivity-getting-started` | Docker로 EVtivity를 로컬에 설치하고 실행한 뒤 로그인      |
+| `evtivity-deployment`      | Docker Compose, Helm 또는 AWS CDK로 배포하고 업그레이드   |
+| `evtivity-configuration`   | 환경 변수, 시크릿, 인증, 데이터베이스, 충전소 보안 설정   |
+| `evtivity-csms`            | 대시보드 운영: 사이트, 충전소, 세션, 운전자, 요금, 보고서 |
+| `evtivity-portal`          | 운전자 포털 사용: 충전소 찾기, 충전, 결제, 카드 관리      |
+| `evtivity-mobile-app`      | 운전자 모바일 앱 빌드, 브랜딩, 출시                       |
+| `evtivity-guides`          | 충전소 등록, 멈춘 세션 같은 단계별 가이드 따르기          |
+| `evtivity-integrations`    | Stripe, Adyen, 테스트 결제 제공자, 정산 설정              |
+| `evtivity-api`             | REST API 호출: API 키, 오류 코드, OCPP 명령 경로          |
+| `evtivity-simulator`       | 시뮬레이션 OCPP 1.6 및 2.1 충전소와 충전 세션 실행        |
+| `evtivity-conformance`     | OCPP 명령 전송, 메시지 로그 확인, OCTT 적합성 테스트 실행 |
+| `evtivity-troubleshoot`    | 장애가 난 서비스, 충전소 연결, 로그인 문제를 찾아 해결    |
+| `evtivity-report-issue`    | 버전과 민감 정보를 지운 로그를 모아 GitHub 이슈 초안 작성 |
 
 모든 에이전트에 설치:
 

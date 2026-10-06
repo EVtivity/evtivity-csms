@@ -252,11 +252,21 @@ Todos los hostnames comparten una sola IP de load balancer. Los registros DNS de
 
 [EVtivity Agent Skills](https://github.com/EVtivity/evtivity-skills) enseñan a tu agente de programación con IA a trabajar con EVtivity. Siguen el estándar abierto [Agent Skills](https://agentskills.io), así que los mismos skills funcionan en Claude Code, Codex, GitHub Copilot, Gemini CLI, Cursor y otros agentes.
 
-| Skill                   | Te ayuda a                                                                                     |
-| ----------------------- | ---------------------------------------------------------------------------------------------- |
-| `evtivity-setup`        | Levantar EVtivity con Docker Compose, comprobar el stack e iniciar sesión                      |
-| `evtivity-troubleshoot` | Encontrar y corregir un servicio con fallos, la conexión de una estación o el inicio de sesión |
-| `evtivity-report-issue` | Reunir la versión y logs sin datos sensibles y redactar un issue de GitHub                     |
+| Skill                      | Te ayuda a                                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------- |
+| `evtivity-getting-started` | Instalar y ejecutar EVtivity en local con Docker e iniciar sesión                                 |
+| `evtivity-deployment`      | Desplegar y actualizar con Docker Compose, Helm o AWS CDK                                         |
+| `evtivity-configuration`   | Configurar variables de entorno, secretos, autenticación, base de datos y seguridad de estaciones |
+| `evtivity-csms`            | Usar el panel: sitios, estaciones, sesiones, conductores, precios, informes                       |
+| `evtivity-portal`          | Usar el portal del conductor: buscar una estación, cargar, pagar, gestionar tarjetas              |
+| `evtivity-mobile-app`      | Compilar, personalizar y publicar la app móvil del conductor                                      |
+| `evtivity-guides`          | Seguir guías paso a paso como el alta de estaciones y las sesiones bloqueadas                     |
+| `evtivity-integrations`    | Configurar Stripe, Adyen, el proveedor de pagos de prueba y los pagos a sitios                    |
+| `evtivity-api`             | Usar la API REST: claves de API, códigos de error, rutas de comandos OCPP                         |
+| `evtivity-simulator`       | Ejecutar estaciones OCPP 1.6 y 2.1 simuladas y sesiones de carga                                  |
+| `evtivity-conformance`     | Enviar comandos OCPP, leer logs de mensajes y ejecutar pruebas de conformidad OCTT                |
+| `evtivity-troubleshoot`    | Encontrar y corregir un servicio con fallos, la conexión de una estación o el inicio de sesión    |
+| `evtivity-report-issue`    | Reunir la versión y logs sin datos sensibles y redactar un issue de GitHub                        |
 
 Instálalos para cualquier agente:
 

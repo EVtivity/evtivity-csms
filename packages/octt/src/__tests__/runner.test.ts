@@ -64,6 +64,7 @@ vi.mock('drizzle-orm', () => ({
   asc: vi.fn(),
   eq: vi.fn(),
   like: vi.fn(),
+  notLike: vi.fn(),
   inArray: vi.fn(),
   // The query text with its parameters, so db.execute can answer per query.
   sql: Object.assign(
@@ -147,7 +148,7 @@ vi.mock('../api-client.js', () => ({
   })),
 }));
 
-import { eq } from 'drizzle-orm';
+import { eq, notLike } from 'drizzle-orm';
 import { db, PNC_SETTINGS_CACHE_TTL_MS } from '@evtivity/database';
 import { runTests } from '../runner.js';
 import { executeTest } from '../executor.js';
@@ -301,6 +302,30 @@ describe('runTests', () => {
       await vi.advanceTimersByTimeAsync(1_000);
       await run;
       expect(vi.mocked(executeTest)).toHaveBeenCalledTimes(3);
+    });
+
+    it('leaves the stations of a running CS conformance run when it clears OCTT stations', async () => {
+      vi.useFakeTimers();
+      settingsSelect([
+        { key: 'pnc.enabled', value: true },
+        { key: 'pnc.provider', value: 'local' },
+        { key: 'pnc.local.emaidCountry', value: 'DE' },
+        { key: 'pnc.local.emaidProviderId', value: 'EVT' },
+      ]);
+
+      const run = runTests({ ...config, provisionStations: true }, vi.fn());
+      await vi.advanceTimersByTimeAsync(0);
+      await run;
+
+      const wipes = vi
+        .mocked(db.execute)
+        .mock.calls.map((call) => (call[0] as unknown as Query).text)
+        .filter((text) => text.includes("LIKE 'OCTT-%'"));
+      // Run start and run end each clear tariff segments, CSRs, authorize attempts and events.
+      expect(wipes).toHaveLength(8);
+      for (const text of wipes) expect(text).toContain("NOT LIKE 'OCTT-CS-%'");
+      expect(vi.mocked(notLike)).toHaveBeenCalledWith('station_id', 'OCTT-CS-%');
+      expect(vi.mocked(notLike)).toHaveBeenCalledTimes(2);
     });
 
     it('does not wait when the settings already have the run values', async () => {

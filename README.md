@@ -252,11 +252,21 @@ All hostnames share a single load balancer IP. DNS records for each hostname mus
 
 [EVtivity Agent Skills](https://github.com/EVtivity/evtivity-skills) teach your AI coding agent to work with EVtivity. They follow the open [Agent Skills](https://agentskills.io) standard, so the same skills work in Claude Code, Codex, GitHub Copilot, Gemini CLI, Cursor and other agents.
 
-| Skill                   | Helps you                                                           |
-| ----------------------- | ------------------------------------------------------------------- |
-| `evtivity-setup`        | Stand up EVtivity with Docker Compose, check the stack, and sign in |
-| `evtivity-troubleshoot` | Find and fix a failing service, station connection or sign-in       |
-| `evtivity-report-issue` | Collect the version and redacted logs and draft a GitHub issue      |
+| Skill                      | Helps you                                                                   |
+| -------------------------- | --------------------------------------------------------------------------- |
+| `evtivity-getting-started` | Install and run EVtivity locally with Docker and sign in                    |
+| `evtivity-deployment`      | Deploy and upgrade with Docker Compose, Helm or AWS CDK                     |
+| `evtivity-configuration`   | Set environment variables, secrets, auth, database and station security     |
+| `evtivity-csms`            | Operate the dashboard: sites, stations, sessions, drivers, pricing, reports |
+| `evtivity-portal`          | Use the driver portal: find a station, charge, pay, manage cards            |
+| `evtivity-mobile-app`      | Build, brand and release the driver mobile app                              |
+| `evtivity-guides`          | Follow step-by-step guides such as station onboarding and stuck sessions    |
+| `evtivity-integrations`    | Set up Stripe, Adyen, the test payment provider and payouts                 |
+| `evtivity-api`             | Call the REST API: API keys, error codes, OCPP command routes               |
+| `evtivity-simulator`       | Run simulated OCPP 1.6 and 2.1 stations and charging sessions               |
+| `evtivity-conformance`     | Send OCPP commands, read message logs and run OCTT conformance tests        |
+| `evtivity-troubleshoot`    | Find and fix a failing service, station connection or sign-in               |
+| `evtivity-report-issue`    | Collect the version and redacted logs and draft a GitHub issue              |
 
 Install them for any agent:
 

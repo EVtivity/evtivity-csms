@@ -13,7 +13,7 @@ import {
 } from '@evtivity/database';
 import { createId } from '@evtivity/database/src/lib/id.js';
 import { OCTT_TEST_DRIVER_EMAIL } from '@evtivity/lib';
-import { and, asc, like, eq, sql } from 'drizzle-orm';
+import { and, asc, like, notLike, eq, sql } from 'drizzle-orm';
 
 import type {
   RunConfig,
@@ -333,6 +333,8 @@ async function installMoRoot(
   return null;
 }
 
+// CS conformance stations (OCTT-CS-*) belong to a CS run that may still be going;
+// that runner removes its own stations.
 async function deleteOcttStationsAndArtifacts(): Promise<void> {
   // Rows that do not cascade from the station must be removed first, while the
   // station and session rows still exist to identify them: session_tariff_segments
@@ -342,19 +344,33 @@ async function deleteOcttStationsAndArtifacts(): Promise<void> {
     WHERE session_id IN (
       SELECT cs.id FROM charging_sessions cs
       JOIN charging_stations st ON st.id = cs.station_id
-      WHERE st.station_id LIKE 'OCTT-%'
+      WHERE st.station_id LIKE 'OCTT-%' AND st.station_id NOT LIKE 'OCTT-CS-%'
     )
   `);
   await db.execute(sql`
     DELETE FROM pki_csr_requests
-    WHERE station_id IN (SELECT id FROM charging_stations WHERE station_id LIKE 'OCTT-%')
+    WHERE station_id IN (
+      SELECT id FROM charging_stations
+      WHERE station_id LIKE 'OCTT-%' AND station_id NOT LIKE 'OCTT-CS-%'
+    )
   `);
   // Keyed by the OCPP station id string / aggregate id (no FK), removable directly.
-  await db.execute(sql`DELETE FROM authorize_attempts WHERE station_id LIKE 'OCTT-%'`);
-  await db.execute(sql`DELETE FROM domain_events WHERE aggregate_id LIKE 'OCTT-%'`);
+  await db.execute(
+    sql`DELETE FROM authorize_attempts WHERE station_id LIKE 'OCTT-%' AND station_id NOT LIKE 'OCTT-CS-%'`,
+  );
+  await db.execute(
+    sql`DELETE FROM domain_events WHERE aggregate_id LIKE 'OCTT-%' AND aggregate_id NOT LIKE 'OCTT-CS-%'`,
+  );
   // Cascade clears evses, connectors, sessions, projection rows, station certs, and
   // queued offline commands.
-  await db.delete(chargingStations).where(like(chargingStations.stationId, 'OCTT-%'));
+  await db
+    .delete(chargingStations)
+    .where(
+      and(
+        like(chargingStations.stationId, 'OCTT-%'),
+        notLike(chargingStations.stationId, 'OCTT-CS-%'),
+      ),
+    );
 }
 
 const OCTT_EMAID_COUNTRY = 'US';

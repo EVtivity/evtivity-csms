@@ -4,6 +4,7 @@
 import type { Logger } from 'pino';
 import postgres from 'postgres';
 import { connectionName } from '@evtivity/lib';
+import { createId } from '@evtivity/database/src/lib/id.js';
 import { StationSimulator, type StationConfig } from '@evtivity/css/station-simulator';
 import type { RunConfig } from './types.js';
 import type { CsTestCase, CsTestCaseResult, CsTlsMaterial } from './cs-types.js';
@@ -210,8 +211,9 @@ export async function executeCsTest(
     // Station identity (vendor, model, serial, firmware, ocppProtocol, securityProfile)
     // lives on charging_stations after the css_stations decouple. The id column
     // has no DB-level default (Drizzle applies $defaultFn at the ORM layer),
-    // so raw SQL must supply one. nanoid suffix avoids per-test collisions.
-    const chargingStationDbId = 'sta_' + Math.random().toString(36).slice(2, 14);
+    // so raw SQL must supply one, in the shape the API validates (createId, as
+    // the CSMS executor does): a shorter id made every station route answer 400.
+    const chargingStationDbId = createId('station');
     await sql`
       INSERT INTO charging_stations (
         id, station_id, model, serial_number, firmware_version,

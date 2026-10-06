@@ -7,15 +7,17 @@ import WebSocket from 'ws';
 import type { CsTestCase, CsTestContext } from '../cs-types.js';
 import type { RunConfig, TestResult } from '../types.js';
 
-const { sqlCalls, sqlEnd, stations } = vi.hoisted(() => ({
+const { sqlCalls, sqlValues, sqlEnd, stations } = vi.hoisted(() => ({
   sqlCalls: [] as string[],
+  sqlValues: [] as unknown[][],
   sqlEnd: { fn: null as null | (() => Promise<void>) },
   stations: [] as Array<{ config: Record<string, unknown>; stopped: boolean }>,
 }));
 
 vi.mock('postgres', () => {
-  const sql = (strings: TemplateStringsArray): Promise<unknown[]> => {
+  const sql = (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> => {
     sqlCalls.push(strings.join('?').replace(/\s+/g, ' ').trim());
+    sqlValues.push(values);
     return Promise.resolve([]);
   };
   const end = vi.fn(() => Promise.resolve());
@@ -92,6 +94,7 @@ type FakeStation = { send(frame: unknown[]): Promise<unknown[]> };
 
 beforeEach(() => {
   sqlCalls.length = 0;
+  sqlValues.length = 0;
   stations.length = 0;
 });
 
@@ -146,6 +149,10 @@ describe('executeCsTest', () => {
     expect(evses.every((e) => e['fixedCable'] === true)).toBe(true);
 
     expect(sqlCalls.filter((q) => q.startsWith('INSERT INTO charging_stations'))).toHaveLength(1);
+    // The station row id has the shape every API route validates (sta_ plus 12
+    // characters); a shorter one made the CSMS station page answer 400.
+    const insertIndex = sqlCalls.findIndex((q) => q.startsWith('INSERT INTO charging_stations'));
+    expect(sqlValues[insertIndex]?.[0]).toMatch(/^sta_[a-z0-9]{12}$/);
     expect(sqlCalls.filter((q) => q.startsWith('INSERT INTO css_stations'))).toHaveLength(1);
     expect(sqlCalls.filter((q) => q.startsWith('INSERT INTO css_evses'))).toHaveLength(2);
     const deletes = sqlCalls.filter((q) => q.startsWith('DELETE'));

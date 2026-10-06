@@ -252,11 +252,21 @@ Helm Chart 与 AWS CDK 应用只跟随 stable 版本。每个 stable 版本会�
 
 [EVtivity Agent Skills](https://github.com/EVtivity/evtivity-skills) 让你的 AI 编程助手学会使用 EVtivity。它们遵循开放标准 [Agent Skills](https://agentskills.io)，因此同一套技能可用于 Claude Code、Codex、GitHub Copilot、Gemini CLI、Cursor 等助手。
 
-| 技能                    | 用途                                            |
-| ----------------------- | ----------------------------------------------- |
-| `evtivity-setup`        | 用 Docker Compose 部署 EVtivity，检查服务并登录 |
-| `evtivity-troubleshoot` | 定位并修复故障服务、充电桩连接或登录问题        |
-| `evtivity-report-issue` | 收集版本和已脱敏的日志，起草 GitHub issue       |
+| 技能                       | 用途                                                 |
+| -------------------------- | ---------------------------------------------------- |
+| `evtivity-getting-started` | 用 Docker 在本地安装并运行 EVtivity，然后登录        |
+| `evtivity-deployment`      | 用 Docker Compose、Helm 或 AWS CDK 部署和升级        |
+| `evtivity-configuration`   | 配置环境变量、密钥、认证、数据库和充电桩安全         |
+| `evtivity-csms`            | 使用运营后台：站点、充电桩、会话、驾驶员、定价、报表 |
+| `evtivity-portal`          | 使用驾驶员门户：查找充电桩、充电、支付、管理卡片     |
+| `evtivity-mobile-app`      | 构建、定制品牌并发布驾驶员移动应用                   |
+| `evtivity-guides`          | 按步骤操作，例如充电桩接入和卡住的会话               |
+| `evtivity-integrations`    | 配置 Stripe、Adyen、测试支付服务商和结算             |
+| `evtivity-api`             | 调用 REST API：API 密钥、错误码、OCPP 命令接口       |
+| `evtivity-simulator`       | 运行模拟的 OCPP 1.6 和 2.1 充电桩及充电会话          |
+| `evtivity-conformance`     | 发送 OCPP 命令、查看消息日志并运行 OCTT 一致性测试   |
+| `evtivity-troubleshoot`    | 定位并修复故障服务、充电桩连接或登录问题             |
+| `evtivity-report-issue`    | 收集版本和已脱敏的日志，起草 GitHub issue            |
 
 为任意助手安装：
 

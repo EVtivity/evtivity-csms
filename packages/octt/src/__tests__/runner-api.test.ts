@@ -91,6 +91,7 @@ vi.mock('drizzle-orm', () => ({
   asc: vi.fn(),
   eq: vi.fn((col: unknown, val: unknown) => ({ col, val })),
   like: vi.fn(),
+  notLike: vi.fn(),
   sql: Object.assign(
     vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
       text: strings.join('?'),

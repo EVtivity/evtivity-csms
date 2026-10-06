@@ -252,11 +252,21 @@ Alle Hostnamen teilen sich eine einzige Load-Balancer-IP. DNS-Einträge für jed
 
 [EVtivity Agent Skills](https://github.com/EVtivity/evtivity-skills) bringen Ihrem KI-Coding-Agenten bei, mit EVtivity zu arbeiten. Sie folgen dem offenen Standard [Agent Skills](https://agentskills.io), daher funktionieren dieselben Skills in Claude Code, Codex, GitHub Copilot, Gemini CLI, Cursor und weiteren Agenten.
 
-| Skill                   | Hilft Ihnen                                                                               |
-| ----------------------- | ----------------------------------------------------------------------------------------- |
-| `evtivity-setup`        | EVtivity mit Docker Compose aufsetzen, den Stack prüfen und sich anmelden                 |
-| `evtivity-troubleshoot` | Einen fehlerhaften Dienst, eine Stationsverbindung oder eine Anmeldung finden und beheben |
-| `evtivity-report-issue` | Version und bereinigte Logs sammeln und ein GitHub-Issue entwerfen                        |
+| Skill                      | Hilft Ihnen                                                                               |
+| -------------------------- | ----------------------------------------------------------------------------------------- |
+| `evtivity-getting-started` | EVtivity lokal mit Docker installieren, starten und sich anmelden                         |
+| `evtivity-deployment`      | Mit Docker Compose, Helm oder AWS CDK bereitstellen und aktualisieren                     |
+| `evtivity-configuration`   | Umgebungsvariablen, Secrets, Anmeldung, Datenbank und Stationssicherheit einstellen       |
+| `evtivity-csms`            | Das Dashboard bedienen: Standorte, Stationen, Sitzungen, Fahrer, Preise, Berichte         |
+| `evtivity-portal`          | Das Fahrerportal nutzen: Station finden, laden, bezahlen, Karten verwalten                |
+| `evtivity-mobile-app`      | Die mobile Fahrer-App bauen, mit eigener Marke versehen und veröffentlichen               |
+| `evtivity-guides`          | Schritt-für-Schritt-Anleitungen wie Stationseinrichtung und hängende Sitzungen            |
+| `evtivity-integrations`    | Stripe, Adyen, den Test-Zahlungsanbieter und Auszahlungen einrichten                      |
+| `evtivity-api`             | Die REST-API aufrufen: API-Schlüssel, Fehlercodes, OCPP-Befehlsrouten                     |
+| `evtivity-simulator`       | Simulierte OCPP-1.6- und 2.1-Stationen und Ladevorgänge ausführen                         |
+| `evtivity-conformance`     | OCPP-Befehle senden, Nachrichtenlogs lesen und OCTT-Konformitätstests ausführen           |
+| `evtivity-troubleshoot`    | Einen fehlerhaften Dienst, eine Stationsverbindung oder eine Anmeldung finden und beheben |
+| `evtivity-report-issue`    | Version und bereinigte Logs sammeln und ein GitHub-Issue entwerfen                        |
 
 Für jeden Agenten installieren:
 
