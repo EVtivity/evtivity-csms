@@ -10,8 +10,12 @@ services:
     # connections use a few MB each, so 200 fits the 1g limit with the default
     # shared_buffers (128MB).
     command: ['postgres', '-c', 'max_connections=200']
+    # Infrastructure and tool ports (postgres, pgadmin, mailpit, ftp,
+    # prometheus, grafana, loki) bind to 127.0.0.1 so the default logins are
+    # not reachable from the network. INFRA_BIND_IP widens them. Redis and the
+    # Node inspector (9229) stay on 127.0.0.1. User-facing ports use BIND_IP.
     ports:
-      - '5433:5432'
+      - '${INFRA_BIND_IP:-127.0.0.1}:5433:5432'
     environment:
       POSTGRES_USER: evtivity
       POSTGRES_PASSWORD: evtivity
@@ -134,7 +138,7 @@ services:
     ports:
       - '${BIND_IP:-0.0.0.0}:${OCPP_PORT:-7103}:${OCPP_PORT:-7103}'
       - '${BIND_IP:-0.0.0.0}:8443:8443'
-      - '${BIND_IP:-0.0.0.0}:9229:9229'
+      - '127.0.0.1:9229:9229'
     mem_limit: 4g
     cpus: 2.0
     environment:
@@ -363,7 +367,7 @@ services:
     image: dpage/pgadmin4:latest
     restart: unless-stopped
     ports:
-      - '${BIND_IP:-0.0.0.0}:${PGADMIN_PORT:-7109}:80'
+      - '${INFRA_BIND_IP:-127.0.0.1}:${PGADMIN_PORT:-7109}:80'
     mem_limit: 1g
     cpus: 0.5
     environment:
@@ -383,8 +387,8 @@ services:
     image: axllent/mailpit:latest
     restart: unless-stopped
     ports:
-      - '${BIND_IP:-0.0.0.0}:${MAILPIT_PORT:-7108}:8025'
-      - '1025:1025'
+      - '${INFRA_BIND_IP:-127.0.0.1}:${MAILPIT_PORT:-7108}:8025'
+      - '${INFRA_BIND_IP:-127.0.0.1}:1025:1025'
     mem_limit: 1g
     cpus: 0.25
     profiles:
@@ -397,8 +401,8 @@ services:
     mem_limit: 1g
     cpus: 0.25
     ports:
-      - '21:21'
-      - '30000-30009:30000-30009'
+      - '${INFRA_BIND_IP:-127.0.0.1}:21:21'
+      - '${INFRA_BIND_IP:-127.0.0.1}:30000-30009:30000-30009'
     environment:
       PUBLICHOST: localhost
       FTP_USER_NAME: evtivity
@@ -414,7 +418,7 @@ services:
     image: prom/prometheus:v3.2.1
     restart: unless-stopped
     ports:
-      - '${BIND_IP:-0.0.0.0}:9090:9090'
+      - '${INFRA_BIND_IP:-127.0.0.1}:9090:9090'
     mem_limit: 1g
     cpus: 0.5
     volumes:
@@ -427,7 +431,7 @@ services:
     image: grafana/grafana:11.5.2
     restart: unless-stopped
     ports:
-      - '${BIND_IP:-0.0.0.0}:${GRAFANA_PORT:-7107}:3000'
+      - '${INFRA_BIND_IP:-127.0.0.1}:${GRAFANA_PORT:-7107}:3000'
     mem_limit: 1g
     cpus: 0.5
     environment:
@@ -452,7 +456,7 @@ services:
     image: grafana/loki:3.4.2
     restart: unless-stopped
     ports:
-      - '${BIND_IP:-0.0.0.0}:3100:3100'
+      - '${INFRA_BIND_IP:-127.0.0.1}:3100:3100'
     mem_limit: 1g
     cpus: 0.5
     command: -config.file=/etc/loki/local-config.yaml

@@ -84,6 +84,7 @@ fi
 echo ""
 if [ "$BIND_IP" != "127.0.0.1" ]; then
   echo "Bind IP: $BIND_IP (LAN)"
+  echo "Infrastructure ports (postgres, tools, monitoring): ${INFRA_BIND_IP:-127.0.0.1}"
 fi
 echo "Profiles: ${PROFILES[*]:-none}"
 echo "Restart data services: $RESTART_DATA"

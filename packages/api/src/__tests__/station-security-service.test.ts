@@ -43,6 +43,7 @@ vi.mock('@evtivity/database', () => {
 
 import {
   changeStationPassword,
+  initialStationPassword,
   rotateStationPassword,
   changeSecurityProfile,
 } from '../services/station-security.service.js';
@@ -152,6 +153,36 @@ describe('changeStationPassword', () => {
     await expect(changeStationPassword('sta_1', PW, ctx)).resolves.toEqual({ appliedTo: 'stored' });
     expect(sendMock).not.toHaveBeenCalled();
     expect(hashUpdates()).toEqual([`hash(${PW})`]);
+  });
+});
+
+describe('initialStationPassword', () => {
+  it('hashes a given password after validating it for the protocol', async () => {
+    await expect(
+      initialStationPassword({ ocppProtocol: 'ocpp2.1', securityProfile: 2, password: PW }),
+    ).resolves.toEqual({ password: PW, passwordHash: `hash(${PW})` });
+  });
+
+  it.each([1, 2])('generates a 20-character password for profile %i', async (securityProfile) => {
+    const result = await initialStationPassword({ ocppProtocol: 'ocpp1.6', securityProfile });
+    expect(result.password).toMatch(/^[A-Za-z0-9]{20}$/);
+    expect(result.passwordHash).toBe(`hash(${String(result.password)})`);
+  });
+
+  it.each([0, 3])('sets no password for profile %i without one', async (securityProfile) => {
+    await expect(
+      initialStationPassword({ ocppProtocol: 'ocpp2.1', securityProfile }),
+    ).resolves.toEqual({ password: null, passwordHash: null });
+  });
+
+  it('rejects a password longer than OCPP 1.6 allows', async () => {
+    await expect(
+      initialStationPassword({
+        ocppProtocol: 'ocpp1.6',
+        securityProfile: 1,
+        password: 'a'.repeat(21),
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
   });
 });
 

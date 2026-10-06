@@ -43,8 +43,8 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
           },
         },
         {
-          url: 'http://localhost:3001',
-          description: 'Local development (docker compose default)',
+          url: 'http://localhost:7102',
+          description: 'Local Docker Compose stack (API_PORT default 7102)',
         },
       ],
       tags: [

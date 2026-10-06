@@ -76,9 +76,13 @@ function protocolOf(station: StationRow): StationOcppProtocol {
 }
 
 function assertValidPassword(password: string, station: StationRow): void {
-  const error = validateStationPassword(password, protocolOf(station));
+  assertValidPasswordFor(password, protocolOf(station));
+}
+
+function assertValidPasswordFor(password: string, protocol: StationOcppProtocol): void {
+  const error = validateStationPassword(password, protocol);
   if (error != null) {
-    const max = protocolOf(station) === 'ocpp1.6' ? 20 : 40;
+    const max = protocol === 'ocpp1.6' ? 20 : 40;
     throw new ValidationError(
       `${PASSWORD_ERRORS[error] ?? 'Invalid password'} (16-${String(max)} characters, letters, digits and * - _ = : + | @ .)`,
     );
@@ -217,6 +221,32 @@ export async function rotateStationPassword(
   await storePasswordHash(station, password);
   await logConnectionEvent(station, 'credentials_rotated', { rotatedBy: 'operator' }, ctx);
   await audit(station, 'Station credentials rotated', ctx);
+}
+
+export interface InitialStationPassword {
+  // Plaintext for the paired simulator row (css_stations.password), null when
+  // the station uses no password.
+  password: string | null;
+  // Value for charging_stations.basic_auth_password_hash on insert.
+  passwordHash: string | null;
+}
+
+/**
+ * Credentials for a station row that does not exist yet. A given password is
+ * validated for the protocol; profiles 1 and 2 (Basic Auth) without one get a
+ * generated password, so a simulator created with it can connect at once.
+ * Profiles 0 and 3 use no password unless one is given.
+ */
+export async function initialStationPassword(opts: {
+  ocppProtocol: StationOcppProtocol;
+  securityProfile: number;
+  password?: string | undefined;
+}): Promise<InitialStationPassword> {
+  const usesPassword = opts.securityProfile === 1 || opts.securityProfile === 2;
+  const password = opts.password ?? (usesPassword ? generateStationPassword() : null);
+  if (password == null) return { password: null, passwordHash: null };
+  assertValidPasswordFor(password, opts.ocppProtocol);
+  return { password, passwordHash: await hash(password) };
 }
 
 export interface ProfileChangeResult {

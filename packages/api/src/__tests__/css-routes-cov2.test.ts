@@ -180,11 +180,29 @@ vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn(async () => null),
 }));
 
+vi.mock('../services/station-security.service.js', () => ({
+  initialStationPassword: vi.fn(),
+  changeStationPassword: vi.fn(),
+  changeSecurityProfile: vi.fn(),
+}));
+
 import { registerAuth } from '../plugins/auth.js';
 import { cssRoutes } from '../routes/css.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { db } from '@evtivity/database';
 import { inArray } from 'drizzle-orm';
+import {
+  changeSecurityProfile,
+  changeStationPassword,
+} from '../services/station-security.service.js';
+
+// GET /css/stations selects presence flags, never the secrets (STATION_ROW has none).
+function listRow(): Record<string, unknown> {
+  const rest = Object.fromEntries(
+    Object.entries(STATION_ROW).filter(([key]) => key !== 'password' && key !== 'clientKey'),
+  );
+  return { ...rest, hasPassword: false, hasClientKey: false };
+}
 
 const STATION_ROW = {
   id: 'css_1',
@@ -321,14 +339,20 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
 
   describe('GET /css/stations', () => {
     it('returns rows and total for full access', async () => {
-      setupDbResults([STATION_ROW], [{ count: 1 }]);
+      setupDbResults([listRow()], [{ count: 1 }]);
       const res = await app.inject({
         method: 'GET',
         url: '/css/stations?page=2&limit=5',
         headers: headers(),
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toMatchObject({ data: [{ stationId: 'SIM-1' }], total: 1 });
+      expect(res.json()).toMatchObject({
+        data: [{ stationId: 'SIM-1', hasPassword: false, hasClientKey: false }],
+        total: 1,
+      });
+      const [item] = res.json<{ data: Record<string, unknown>[] }>().data;
+      expect(item).not.toHaveProperty('password');
+      expect(item).not.toHaveProperty('clientKey');
       const chain = vi.mocked(db.select).mock.results[0]?.value as {
         offset: ReturnType<typeof vi.fn>;
         limit: ReturnType<typeof vi.fn>;
@@ -371,9 +395,15 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
       expect(res.json()).toEqual({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
     });
 
-    it('routes protocol fields to charging_stations and the rest to css_stations', async () => {
-      // existing lookup, charging_stations update, css_stations update returning
-      setupDbResults([{ id: 'css_1' }], [], [{ ...STATION_ROW, enabled: false }]);
+    it('routes protocol fields to charging_stations, credentials to the security service and the rest to css_stations', async () => {
+      // existing lookup, paired charging_stations lookup, charging_stations update,
+      // css_stations update returning
+      setupDbResults(
+        [{ id: 'css_1' }],
+        [{ id: 'cs_1' }],
+        [],
+        [{ ...STATION_ROW, password: 'pw-1234567890abcd', enabled: false }],
+      );
       const res = await app.inject({
         method: 'PATCH',
         url: '/css/stations/SIM-1',
@@ -393,19 +423,27 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
         },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toMatchObject({ enabled: false });
+      expect(res.json()).toMatchObject({ enabled: false, hasPassword: true });
+      expect(res.json()).not.toHaveProperty('password');
+      expect(vi.mocked(changeSecurityProfile)).toHaveBeenCalledWith(
+        'cs_1',
+        2,
+        'pw-1234567890abcd',
+        expect.objectContaining({ log: expect.anything() }),
+      );
+      expect(vi.mocked(changeStationPassword)).not.toHaveBeenCalled();
       const [csSet, cssSet] = setCalls() as Record<string, unknown>[];
+      expect(csSet).not.toHaveProperty('securityProfile');
       expect(csSet).toMatchObject({
         ocppProtocol: 'ocpp2.1',
-        securityProfile: 2,
         model: 'M2',
         serialNumber: null,
         firmwareVersion: '2.0',
       });
       expect(csSet?.['updatedAt']).toBeInstanceOf(Date);
+      expect(cssSet).not.toHaveProperty('password');
       expect(cssSet).toMatchObject({
         targetUrl: 'wss://csms.example.com/ocpp',
-        password: 'pw-1234567890abcd',
         clientCert: null,
         clientKey: null,
         caCert: null,
@@ -415,7 +453,8 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
     });
 
     it('updates only css_stations when no charging_stations field changes', async () => {
-      setupDbResults([{ id: 'css_1' }], [{ ...STATION_ROW, targetUrl: 'ws://other:3003' }]);
+      // existing lookup, no paired charging_stations row, css_stations update returning
+      setupDbResults([{ id: 'css_1' }], [], [{ ...STATION_ROW, targetUrl: 'ws://other:3003' }]);
       const res = await app.inject({
         method: 'PATCH',
         url: '/css/stations/SIM-1',
@@ -426,6 +465,37 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
       expect(res.json()).toMatchObject({ targetUrl: 'ws://other:3003' });
       expect(db.update).toHaveBeenCalledTimes(1);
       expect(setCalls()[0]).toMatchObject({ targetUrl: 'ws://other:3003' });
+    });
+
+    it('changes only the password through the security service for a paired station', async () => {
+      setupDbResults([{ id: 'css_1' }], [{ id: 'cs_1' }], [STATION_ROW]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/css/stations/SIM-1',
+        headers: headers(),
+        payload: { password: 'pw-1234567890abcd' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(vi.mocked(changeStationPassword)).toHaveBeenCalledWith(
+        'cs_1',
+        'pw-1234567890abcd',
+        expect.objectContaining({ log: expect.anything() }),
+      );
+      expect(vi.mocked(changeSecurityProfile)).not.toHaveBeenCalled();
+      expect(setCalls()[0]).not.toHaveProperty('password');
+    });
+
+    it('stores the password on the simulator row only when no charging_stations row exists', async () => {
+      setupDbResults([{ id: 'css_1' }], [], [STATION_ROW]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/css/stations/SIM-1',
+        headers: headers(),
+        payload: { password: 'pw-1234567890abcd' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(vi.mocked(changeStationPassword)).not.toHaveBeenCalled();
+      expect(setCalls()[0]).toMatchObject({ password: 'pw-1234567890abcd' });
     });
   });
 
