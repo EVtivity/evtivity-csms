@@ -712,7 +712,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   PROVIDER_TEST_FAILED: 'Provider returned ...',
   PUSH_NOT_FOUND: 'Push not found',
   PUSH_REJECTED: 'Station rejected push: ...',
-  RATE_LIMITED: 'Too many status checks for this station',
+  RATE_LIMITED: 'Too many requests. Wait a moment and try again.',
   RECAPTCHA_FAILED: 'reCAPTCHA verification failed',
   RECAPTCHA_REQUIRED: 'reCAPTCHA token is required',
   REFUND_EXCEEDS_REMAINING: 'Refund amount exceeds remaining ...',

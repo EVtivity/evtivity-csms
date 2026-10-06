@@ -723,24 +723,32 @@ async function buildCapitalCostsTab(sheet: ExcelJS.Worksheet): Promise<void> {
 
 // ── Main export ────────────────────────────────────────────────────────────────
 
+export const NEVI_FILTERS_ERROR = 'Filters must include a valid quarter (1-4) and year';
+
+export function neviFiltersValid(filters: Record<string, unknown>): boolean {
+  const quarter = Number(filters['quarter']);
+  const year = Number(filters['year']);
+  return (
+    Number.isInteger(quarter) &&
+    quarter >= 1 &&
+    quarter <= 4 &&
+    Number.isInteger(year) &&
+    year >= 2000 &&
+    year <= 9999
+  );
+}
+
 export async function generateNeviReport(
   filters: Record<string, unknown>,
   format: string,
 ): Promise<{ data: Buffer; fileName: string }> {
   // NEVI reports are always XLSX (EV-ChART format); format parameter is part of the generator interface
   void format;
+  if (!neviFiltersValid(filters)) {
+    throw new Error(NEVI_FILTERS_ERROR);
+  }
   const quarter = Number(filters['quarter']);
   const year = Number(filters['year']);
-
-  if (
-    !Number.isInteger(quarter) ||
-    quarter < 1 ||
-    quarter > 4 ||
-    !Number.isInteger(year) ||
-    year < 2000
-  ) {
-    throw new Error('Filters must include a valid quarter (1-4) and year');
-  }
 
   const dates = getQuarterDates(quarter, year);
   // The quarter spans the operator's local calendar quarter, not UTC's. NEVI

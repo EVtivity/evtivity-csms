@@ -85,11 +85,12 @@ vi.mock('drizzle-orm', () => ({
   desc: vi.fn(),
   count: vi.fn(),
   lte: vi.fn(),
+  lt: vi.fn(),
   ne: vi.fn(),
   gte: vi.fn(),
 }));
 
-const { generatorMocks, mockLogError } = vi.hoisted(() => ({
+const { generatorMocks, mockLogError, mockLogWarn } = vi.hoisted(() => ({
   generatorMocks: {
     nevi: vi.fn(),
     revenue: vi.fn(),
@@ -101,12 +102,14 @@ const { generatorMocks, mockLogError } = vi.hoisted(() => ({
     driverActivity: vi.fn(),
   },
   mockLogError: vi.fn(),
+  mockLogWarn: vi.fn(),
 }));
 
 vi.mock('@evtivity/lib', () => ({
-  createLogger: () => ({ error: mockLogError, warn: vi.fn(), info: vi.fn(), debug: vi.fn() }),
+  createLogger: () => ({ error: mockLogError, warn: mockLogWarn, info: vi.fn(), debug: vi.fn() }),
 }));
-vi.mock('../report-generators/nevi-report.js', () => ({
+vi.mock('../report-generators/nevi-report.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../report-generators/nevi-report.js')>()),
   generateNeviReport: generatorMocks.nevi,
 }));
 vi.mock('../report-generators/revenue-report.js', () => ({
@@ -137,8 +140,41 @@ import {
   computeNextRunAtInTz,
   operatorReportLanguage,
   renderReport,
+  reportFiltersError,
+  reportJobId,
+  sweepStaleReports,
+  REPORT_GENERATING_TIMEOUT_MS,
+  REPORT_PENDING_RETRY_MS,
+  REPORT_TIMED_OUT_ERROR,
   REPORT_TYPES,
 } from '../report.service.js';
+
+describe('reportFiltersError', () => {
+  it('refuses a NEVI report without a valid quarter and year', () => {
+    const message = 'Filters must include a valid quarter (1-4) and year';
+    expect(reportFiltersError('nevi', {})).toBe(message);
+    expect(reportFiltersError('nevi', { quarter: 1 })).toBe(message);
+    expect(reportFiltersError('nevi', { year: 2026 })).toBe(message);
+    expect(reportFiltersError('nevi', { quarter: 0, year: 2026 })).toBe(message);
+    expect(reportFiltersError('nevi', { quarter: 5, year: 2026 })).toBe(message);
+    expect(reportFiltersError('nevi', { quarter: 1.5, year: 2026 })).toBe(message);
+    expect(reportFiltersError('nevi', { quarter: 1, year: 1999 })).toBe(message);
+    expect(reportFiltersError('nevi', { quarter: 1, year: 10000 })).toBe(message);
+    expect(reportFiltersError('nevi', { quarter: 'x', year: 2026 })).toBe(message);
+  });
+
+  it('accepts a NEVI report with quarter 1-4 and a four-digit year, as numbers or strings', () => {
+    expect(reportFiltersError('nevi', { quarter: 1, year: 2026 })).toBeNull();
+    expect(reportFiltersError('nevi', { quarter: 4, year: 2000 })).toBeNull();
+    expect(reportFiltersError('nevi', { quarter: '3', year: '2026' })).toBeNull();
+  });
+
+  it('has no required filters for the other report types', () => {
+    for (const type of REPORT_TYPES.filter((t) => t !== 'nevi')) {
+      expect(reportFiltersError(type, {})).toBeNull();
+    }
+  });
+});
 
 beforeEach(() => {
   dbResults = [];
@@ -148,55 +184,81 @@ beforeEach(() => {
 });
 
 describe('queueReport', () => {
-  it('inserts into reports table and returns an ID', async () => {
-    setupDbResults([{ id: 'report-123' }]);
+  const params = {
+    name: 'Monthly Usage',
+    reportType: 'sessions',
+    format: 'csv',
+    filters: { month: 1 },
+    userId: 'user-1',
+  };
 
-    const result = await queueReport({
-      name: 'Monthly Usage',
-      reportType: 'usage',
-      format: 'csv',
-      filters: { month: 1 },
-      userId: 'user-1',
-    });
+  it('stores the report, hands its id to dispatch and returns it', async () => {
+    setupDbResults([{ id: 'report-123' }]);
+    const dispatch = vi.fn().mockResolvedValue(undefined);
+
+    const result = await queueReport(params, dispatch);
 
     expect(result).toBe('report-123');
+    expect(dispatch).toHaveBeenCalledWith('report-123');
+    for (const generator of Object.values(generatorMocks)) {
+      expect(generator).not.toHaveBeenCalled();
+    }
   });
 
-  it('returns empty string when insert returns no row', async () => {
-    setupDbResults([]);
+  it('keeps the report pending and logs when dispatch fails', async () => {
+    setupDbResults([{ id: 'report-lost' }]);
+    const dispatch = vi.fn().mockRejectedValue(new Error('redis down'));
 
-    const result = await queueReport({
-      name: 'Missing Report',
-      reportType: 'usage',
-      format: 'csv',
-      filters: {},
-      userId: 'user-1',
-    });
+    const result = await queueReport(params, dispatch);
+
+    expect(result).toBe('report-lost');
+    expect(mockLogWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ reportId: 'report-lost' }),
+      'Failed to queue report generation; the report sweep retries it',
+    );
+  });
+
+  it('returns an empty string and dispatches nothing when insert returns no row', async () => {
+    setupDbResults([]);
+    const dispatch = vi.fn();
+
+    const result = await queueReport(params, dispatch);
 
     expect(result).toBe('');
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+});
+
+describe('reportJobId', () => {
+  it('gives one job id per report', () => {
+    expect(reportJobId('rpt_1')).toBe('report-rpt_1');
+  });
+});
+
+describe('sweepStaleReports', () => {
+  it('returns the stale pending ids and counts the timed-out reports', async () => {
+    setupDbResults([{ id: 'rpt_a' }, { id: 'rpt_b' }], [{ id: 'rpt_c' }]);
+
+    const result = await sweepStaleReports();
+
+    expect(result).toEqual({ pending: ['rpt_a', 'rpt_b'], timedOut: 1 });
   });
 
-  it('schedules background generation via setImmediate after a successful insert', async () => {
-    vi.useFakeTimers();
-    try {
-      // queueReport insert returns the new id, then the deferred generateReport
-      // runs its own UPDATE -> SELECT(report not found) -> early return.
-      setupDbResults([{ id: 'report-bg' }], [], []);
+  it('marks timed-out reports failed with the timeout error', async () => {
+    setupDbResults([], []);
+    const { db } = await import('@evtivity/database');
 
-      const result = await queueReport({
-        name: 'Background',
-        reportType: 'usage',
-        format: 'csv',
-        filters: {},
-        userId: 'user-1',
-      });
+    await sweepStaleReports();
 
-      expect(result).toBe('report-bg');
-      // Flush the queued setImmediate callback.
-      await vi.runAllTimersAsync();
-    } finally {
-      vi.useRealTimers();
-    }
+    const chain = vi.mocked(db.update).mock.results[0]?.value as { set: ReturnType<typeof vi.fn> };
+    expect(chain.set).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed', error: REPORT_TIMED_OUT_ERROR }),
+    );
+  });
+
+  it('uses a short pending retry and a long generating timeout', () => {
+    expect(REPORT_PENDING_RETRY_MS).toBe(2 * 60_000);
+    expect(REPORT_GENERATING_TIMEOUT_MS).toBe(30 * 60_000);
   });
 });
 
@@ -239,7 +301,7 @@ describe('computeNextRunAtInTz', () => {
 });
 
 describe('generateReport', () => {
-  it('sets status to generating then dispatches to the generator of the report type', async () => {
+  it('claims the pending report then dispatches to the generator of the report type', async () => {
     generatorMocks.revenue.mockResolvedValue({
       data: Buffer.from('report-data'),
       fileName: 'report.csv',
@@ -250,17 +312,26 @@ describe('generateReport', () => {
       format: 'csv',
       filters: { month: 1 },
     };
-    setupDbResults([], [report], []);
+    setupDbResults([report], []);
 
     await generateReport('report-123');
 
     expect(generatorMocks.revenue).toHaveBeenCalledWith({ month: 1 }, 'csv', 'en');
   });
 
+  it('does nothing when the report is no longer pending (a job delivered twice)', async () => {
+    setupDbResults([]);
+
+    await generateReport('report-taken');
+
+    for (const generator of Object.values(generatorMocks)) {
+      expect(generator).not.toHaveBeenCalled();
+    }
+  });
+
   it("generates the file in the requesting operator's language", async () => {
     generatorMocks.sessions.mockResolvedValue({ data: Buffer.from('x'), fileName: 's.pdf' });
     setupDbResults(
-      [],
       [{ reportType: 'sessions', format: 'pdf', filters: {}, generatedById: 'usr_1' }],
       [{ language: 'ko' }],
       [],
@@ -274,7 +345,6 @@ describe('generateReport', () => {
   it('falls back to English for a user language that is not a UI language', async () => {
     generatorMocks.sessions.mockResolvedValue({ data: Buffer.from('x'), fileName: 's.csv' });
     setupDbResults(
-      [],
       [{ reportType: 'sessions', format: 'csv', filters: {}, generatedById: 'usr_1' }],
       [{ language: 'fr' }],
       [],
@@ -286,14 +356,14 @@ describe('generateReport', () => {
   });
 
   it('has a generator for every report type without startup registration', async () => {
-    // The worker queues scheduled reports and generates them in-process, so no
-    // report type may depend on a process registering its generator first.
+    // The worker generates every report, so no report type may depend on a
+    // process registering its generator first.
     for (const reportType of REPORT_TYPES) {
       generatorMocks[reportType].mockResolvedValue({
         data: Buffer.from('x'),
         fileName: `${reportType}.csv`,
       });
-      setupDbResults([], [{ reportType, format: 'csv', filters: {} }], []);
+      setupDbResults([{ reportType, format: 'csv', filters: {} }], []);
 
       await generateReport(`report-${reportType}`);
 
@@ -308,7 +378,7 @@ describe('generateReport', () => {
       format: 'csv',
       filters: {},
     };
-    setupDbResults([], [report], []);
+    setupDbResults([report], []);
 
     await generateReport('report-456');
 
@@ -321,7 +391,7 @@ describe('generateReport', () => {
     generatorMocks.energy.mockRejectedValue(new Error('boom'));
 
     const report = { reportType: 'energy', format: 'pdf', filters: {} };
-    setupDbResults([], [report], []);
+    setupDbResults([report], []);
 
     await generateReport('report-logged');
 
@@ -336,21 +406,11 @@ describe('generateReport', () => {
     generatorMocks.sessions.mockRejectedValue('a string failure');
 
     const report = { reportType: 'sessions', format: 'pdf', filters: {} };
-    setupDbResults([], [report], []);
+    setupDbResults([report], []);
 
     await generateReport('report-string-fail');
 
     expect(generatorMocks.sessions).toHaveBeenCalled();
-  });
-
-  it('returns early when report not found', async () => {
-    setupDbResults([], []);
-
-    await generateReport('nonexistent');
-
-    for (const generator of Object.values(generatorMocks)) {
-      expect(generator).not.toHaveBeenCalled();
-    }
   });
 });
 

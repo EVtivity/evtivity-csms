@@ -2598,7 +2598,7 @@
     "PROVIDER_TEST_FAILED": "El proveedor devolvió ...",
     "PUSH_NOT_FOUND": "Push no encontrado",
     "PUSH_REJECTED": "La estación rechazó el push: ...",
-    "RATE_LIMITED": "Demasiadas verificaciones de estado para esta estación",
+    "RATE_LIMITED": "Demasiadas solicitudes. Espere un momento y vuelva a intentarlo.",
     "RECAPTCHA_FAILED": "Verificación de reCAPTCHA fallida",
     "RECAPTCHA_REQUIRED": "Se requiere token de reCAPTCHA",
     "REFUND_EXCEEDS_REMAINING": "El importe del reembolso excede el restante ...",

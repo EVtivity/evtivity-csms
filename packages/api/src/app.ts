@@ -163,7 +163,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       }
       const body: Record<string, unknown> = {
         error: fastifyError.message,
-        code: 'VALIDATION_ERROR',
+        code: fastifyError.statusCode === 429 ? 'RATE_LIMITED' : 'VALIDATION_ERROR',
       };
       if (Object.keys(details).length > 0) {
         body['details'] = details;

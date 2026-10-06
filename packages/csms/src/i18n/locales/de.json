@@ -2598,7 +2598,7 @@
     "PROVIDER_TEST_FAILED": "Anbieter hat zurückgegeben: ...",
     "PUSH_NOT_FOUND": "Push nicht gefunden",
     "PUSH_REJECTED": "Station hat Push abgelehnt: ...",
-    "RATE_LIMITED": "Zu viele Statusprüfungen für diese Station",
+    "RATE_LIMITED": "Zu viele Anfragen. Warten Sie einen Moment und versuchen Sie es erneut.",
     "RECAPTCHA_FAILED": "reCAPTCHA-Verifizierung fehlgeschlagen",
     "RECAPTCHA_REQUIRED": "reCAPTCHA-Token ist erforderlich",
     "REFUND_EXCEEDS_REMAINING": "Erstattungsbetrag überschreitet den verbleibenden Betrag ...",

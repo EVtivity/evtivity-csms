@@ -91,6 +91,12 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('@evtivity/services/report.service', () => ({
   queueReport: vi.fn(() => Promise.resolve('report-123')),
   computeNextRunAtInTz: vi.fn(() => Promise.resolve(new Date('2026-01-02T06:00:00Z'))),
+  REPORT_GENERATE_CHANNEL: 'report_generate',
+  reportFiltersError: vi.fn((reportType: string, filters: Record<string, unknown>) =>
+    reportType === 'nevi' && (filters['quarter'] == null || filters['year'] == null)
+      ? 'Filters must include a valid quarter (1-4) and year'
+      : null,
+  ),
   REPORT_TYPES: [
     'nevi',
     'revenue',
@@ -101,6 +107,11 @@ vi.mock('@evtivity/services/report.service', () => ({
     'sustainability',
     'driverActivity',
   ],
+}));
+
+const mockPublish = vi.hoisted(() => vi.fn());
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
+  getPubSub: () => ({ publish: mockPublish }),
 }));
 
 vi.mock('../middleware/rbac.js', () => ({
@@ -127,6 +138,7 @@ vi.mock('../lib/site-access.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { reportRoutes } from '../routes/reports.js';
+import { queueReport } from '@evtivity/services/report.service';
 
 const VALID_REPORT_ID = 'rpt_000000000001';
 const VALID_USER_ID = 'usr_000000000001';
@@ -283,6 +295,53 @@ describe('Report routes', () => {
     expect(body.status).toBe('pending');
   });
 
+  it('POST /v1/reports/generate announces the report to the worker instead of generating it', async () => {
+    vi.mocked(queueReport).mockClear();
+    mockPublish.mockResolvedValue(undefined);
+    await app.inject({
+      method: 'POST',
+      url: '/reports/generate',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: 'Test Report', reportType: 'revenue', format: 'csv' },
+    });
+
+    const dispatch = vi.mocked(queueReport).mock.calls[0]?.[1];
+    expect(dispatch).toBeTypeOf('function');
+    await dispatch?.('rpt_9');
+    expect(mockPublish).toHaveBeenCalledWith(
+      'report_generate',
+      JSON.stringify({ reportId: 'rpt_9' }),
+    );
+  });
+
+  it('POST /v1/reports/generate refuses a NEVI report without quarter and year', async () => {
+    vi.mocked(queueReport).mockClear();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/reports/generate',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: 'NEVI', reportType: 'nevi', format: 'xlsx' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).code).toBe('VALIDATION_ERROR');
+    expect(queueReport).not.toHaveBeenCalled();
+  });
+
+  it('POST /v1/reports/generate queues a NEVI report with quarter and year', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/reports/generate',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        name: 'NEVI',
+        reportType: 'nevi',
+        format: 'xlsx',
+        filters: { quarter: 2, year: 2026 },
+      },
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
   it('DELETE /v1/reports/:id returns 404 when not found', async () => {
     setupDbResults([]);
     const response = await app.inject({
@@ -385,6 +444,29 @@ describe('Report schedule routes', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.name).toBe('Weekly Revenue');
+  });
+
+  it('POST /v1/report-schedules refuses a NEVI schedule without quarter and year', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/report-schedules',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: 'NEVI', reportType: 'nevi', format: 'xlsx', frequency: 'monthly' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).code).toBe('VALIDATION_ERROR');
+  });
+
+  it('PATCH /v1/report-schedules/:id refuses switching to NEVI without quarter and year', async () => {
+    setupDbResults([{ id: 1, reportType: 'revenue', filters: null }]);
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/report-schedules/1`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { reportType: 'nevi' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).code).toBe('VALIDATION_ERROR');
   });
 
   it('PATCH /v1/report-schedules/:id returns 404 when not found', async () => {

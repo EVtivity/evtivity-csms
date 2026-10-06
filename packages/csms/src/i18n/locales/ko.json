@@ -2598,7 +2598,7 @@
     "PROVIDER_TEST_FAILED": "공급자가 ...을(를) 반환했습니다",
     "PUSH_NOT_FOUND": "푸시를 찾을 수 없습니다",
     "PUSH_REJECTED": "충전소가 푸시를 거부했습니다: ...",
-    "RATE_LIMITED": "이 충전소에 대한 상태 확인이 너무 많습니다",
+    "RATE_LIMITED": "요청이 너무 많습니다. 잠시 후 다시 시도하세요.",
     "RECAPTCHA_FAILED": "reCAPTCHA 인증에 실패했습니다",
     "RECAPTCHA_REQUIRED": "reCAPTCHA 토큰이 필요합니다",
     "REFUND_EXCEEDS_REMAINING": "환불 금액이 남은 ...을(를) 초과합니다",

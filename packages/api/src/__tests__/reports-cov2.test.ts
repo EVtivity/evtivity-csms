@@ -67,6 +67,7 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('@evtivity/services/report.service', () => ({
   queueReport,
   computeNextRunAtInTz,
+  reportFiltersError: () => null,
   REPORT_TYPES: ['revenue', 'energy', 'sessions'],
 }));
 
@@ -172,13 +173,16 @@ describe('report routes - filters, site guards, schedule updates', () => {
       expect(first.statusCode).toBe(200);
       expect(first.json()).toEqual({ id: 'rpt_new', status: 'pending' });
       expect(first.headers['x-ratelimit-limit']).toBe('10');
-      expect(queueReport).toHaveBeenCalledWith({
-        name: 'R',
-        reportType: 'revenue',
-        format: 'csv',
-        filters: { siteId: 'sit_a' },
-        userId: 'usr_1',
-      });
+      expect(queueReport).toHaveBeenCalledWith(
+        {
+          name: 'R',
+          reportType: 'revenue',
+          format: 'csv',
+          filters: { siteId: 'sit_a' },
+          userId: 'usr_1',
+        },
+        expect.any(Function),
+      );
       let last = 0;
       for (let i = 0; i < 10; i++) {
         const res = await app.inject({
@@ -314,13 +318,16 @@ describe('report routes - filters, site guards, schedule updates', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ id: 'rpt_new', status: 'pending' });
-      expect(queueReport).toHaveBeenCalledWith({
-        name: 'Weekly revenue',
-        reportType: 'revenue',
-        format: 'csv',
-        filters: {},
-        userId: 'usr_1',
-      });
+      expect(queueReport).toHaveBeenCalledWith(
+        {
+          name: 'Weekly revenue',
+          reportType: 'revenue',
+          format: 'csv',
+          filters: {},
+          userId: 'usr_1',
+        },
+        expect.any(Function),
+      );
     });
   });
 });

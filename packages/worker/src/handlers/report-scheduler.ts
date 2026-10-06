@@ -9,13 +9,17 @@ import {
   computeNextRunAtInTz,
   operatorReportLanguage,
   renderReport,
+  sweepStaleReports,
 } from '@evtivity/services/report.service';
 import { getNotificationSettings, sendEmail, renderTemplate, wrapEmailHtml } from '@evtivity/lib';
 import type { EmailAttachment, RenderedTemplate } from '@evtivity/lib';
 import { isUiLanguage } from '@evtivity/lib/languages';
 import { API_TEMPLATES_DIR } from '@evtivity/services/template-dirs';
+import { enqueueReport } from '../report-worker.js';
 
 export async function reportSchedulerHandler(log: Logger): Promise<void> {
+  await sweepReports(log);
+
   const now = new Date();
   const dueSchedules = await db
     .select()
@@ -35,13 +39,16 @@ async function runOneSchedule(
 ): Promise<void> {
   try {
     const filters = schedule.filters != null ? (schedule.filters as Record<string, unknown>) : {};
-    const reportId = await queueReport({
-      name: schedule.name,
-      reportType: schedule.reportType,
-      format: schedule.format,
-      filters,
-      userId: schedule.createdById ?? '',
-    });
+    const reportId = await queueReport(
+      {
+        name: schedule.name,
+        reportType: schedule.reportType,
+        format: schedule.format,
+        filters,
+        userId: schedule.createdById,
+      },
+      enqueueReport,
+    );
 
     log.info(
       { scheduleId: schedule.id, reportId, reportType: schedule.reportType },
@@ -208,4 +215,23 @@ async function waitForReport(
 
   log.warn({ reportId }, 'Scheduled report did not complete within timeout');
   return null;
+}
+
+/**
+ * Queues again the reports whose queue message was lost and fails the ones a
+ * stopped worker left generating. Fail-open: a sweep error never stops the
+ * scheduled reports.
+ */
+async function sweepReports(log: Logger): Promise<void> {
+  try {
+    const { pending, timedOut } = await sweepStaleReports();
+    for (const reportId of pending) {
+      await enqueueReport(reportId);
+    }
+    if (pending.length > 0 || timedOut > 0) {
+      log.info({ requeued: pending.length, timedOut }, 'Stale reports swept');
+    }
+  } catch (err: unknown) {
+    log.warn({ err }, 'Report sweep failed');
+  }
 }

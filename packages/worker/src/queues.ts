@@ -15,6 +15,7 @@ export const QUEUE_NAMES = {
   PAYMENT_WEBHOOKS: 'payment-webhooks',
   REMOTE_START_TIMEOUTS: 'remote-start-timeouts',
   STATION_MESSAGES: 'station-messages',
+  REPORTS: 'reports',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -30,6 +31,7 @@ export interface WorkerQueues {
   paymentWebhookQueue: Queue;
   remoteStartTimeoutQueue: Queue;
   stationMessageQueue: Queue;
+  reportQueue: Queue;
 }
 
 /**
@@ -137,6 +139,16 @@ export function createQueues(redisUrl: string): WorkerQueues {
         removeOnFail: { count: 100 },
         attempts: 2,
         backoff: { type: 'exponential', delay: 5000 },
+      },
+    }),
+    // Report generation. attempts: 1 because generateReport records a failure on
+    // the report itself; a job that stalls is left to the report sweep.
+    reportQueue: new Queue(QUEUE_NAMES.REPORTS, {
+      connection: createBullMQConnection(redisUrl),
+      defaultJobOptions: {
+        removeOnComplete: 100,
+        removeOnFail: { count: 200 },
+        attempts: 1,
       },
     }),
   };

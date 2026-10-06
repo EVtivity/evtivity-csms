@@ -40,6 +40,7 @@ import {
   startRemoteStartTimeoutBridge,
 } from './remote-start-timeout-worker.js';
 import { createStationMessageWorker, startStationMessageBridge } from './station-message-worker.js';
+import { createReportWorker, setReportQueue, startReportBridge } from './report-worker.js';
 import { octtRunnerHandler } from './handlers/octt-runner.js';
 import type { OcttJobData } from './handlers/octt-runner.js';
 
@@ -65,8 +66,10 @@ async function start(): Promise<void> {
     paymentWebhookQueue,
     remoteStartTimeoutQueue,
     stationMessageQueue,
+    reportQueue,
   } = createQueues(REDIS_URL);
   setSimulatedEventSink(queueSimulatedSink(paymentWebhookQueue));
+  setReportQueue(reportQueue);
 
   // Schedule cron jobs from database
   await scheduleCronJobs(cronQueue);
@@ -112,6 +115,8 @@ async function start(): Promise<void> {
     createBullMQConnection(REDIS_URL),
   );
 
+  const reportWorker = createReportWorker(createBullMQConnection(REDIS_URL));
+
   // OCTT conformance test worker
   const octtWorker = new Worker<OcttJobData>(
     QUEUE_NAMES.OCTT,
@@ -134,6 +139,7 @@ async function start(): Promise<void> {
     paymentWebhookWorker,
     remoteStartTimeoutWorker,
     stationMessageWorker,
+    reportWorker,
     octtWorker,
   })) {
     // BullMQ re-emits Redis errors on every Worker; unheard, it prints each one
@@ -155,6 +161,7 @@ async function start(): Promise<void> {
     remoteStartTimeoutQueue,
   );
   const stopStationMessageBridge = await startStationMessageBridge(pubsub, stationMessageQueue);
+  const stopReportBridge = await startReportBridge(pubsub);
 
   // Listen for credential-rotation invalidations from the API so the next
   // dispatchDriverNotification / scheduled report email reads fresh SMTP and
@@ -204,6 +211,7 @@ async function start(): Promise<void> {
     await stopPaymentWebhookBridge();
     await stopRemoteStartTimeoutBridge();
     await stopStationMessageBridge();
+    await stopReportBridge();
     await octtSubscription.unsubscribe();
     await cacheInvalidateSubscription.unsubscribe();
     await cronWorker.close();
@@ -215,6 +223,7 @@ async function start(): Promise<void> {
     await paymentWebhookWorker.close();
     await remoteStartTimeoutWorker.close();
     await stationMessageWorker.close();
+    await reportWorker.close();
     await octtWorker.close();
     await cronQueue.close();
     await loadQueue.close();
@@ -227,6 +236,7 @@ async function start(): Promise<void> {
     await paymentWebhookQueue.close();
     await remoteStartTimeoutQueue.close();
     await stationMessageQueue.close();
+    await reportQueue.close();
     await pubsub.close();
     log.info('Worker shutdown complete');
     process.exit(0);

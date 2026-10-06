@@ -2598,7 +2598,7 @@
     "PROVIDER_TEST_FAILED": "提供方返回 ...",
     "PUSH_NOT_FOUND": "未找到推送",
     "PUSH_REJECTED": "充电站拒绝推送：...",
-    "RATE_LIMITED": "该充电站状态检查次数过多",
+    "RATE_LIMITED": "请求过多。请稍候再试。",
     "RECAPTCHA_FAILED": "reCAPTCHA 验证失败",
     "RECAPTCHA_REQUIRED": "需要 reCAPTCHA 令牌",
     "REFUND_EXCEEDS_REMAINING": "退款金额超过剩余 ...",

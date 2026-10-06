@@ -89,11 +89,18 @@ const mockQueueReport = vi.fn().mockResolvedValue('report-id-123');
 const mockComputeNextRunAt = vi.fn().mockResolvedValue(new Date('2026-01-02T06:00:00Z'));
 const mockOperatorReportLanguage = vi.fn().mockResolvedValue('en');
 const mockRenderReport = vi.fn();
+const mockSweepStaleReports = vi.fn().mockResolvedValue({ pending: [], timedOut: 0 });
 vi.mock('@evtivity/services/report.service', () => ({
   queueReport: (...args: unknown[]) => mockQueueReport(...args),
+  sweepStaleReports: () => mockSweepStaleReports(),
   computeNextRunAtInTz: (...args: unknown[]) => mockComputeNextRunAt(...args),
   operatorReportLanguage: (...args: unknown[]) => mockOperatorReportLanguage(...args),
   renderReport: (...args: unknown[]) => mockRenderReport(...args),
+}));
+
+const mockEnqueueReport = vi.fn().mockResolvedValue(undefined);
+vi.mock('../../report-worker.js', () => ({
+  enqueueReport: (...args: unknown[]) => mockEnqueueReport(...args),
 }));
 
 const mockGetNotificationSettings = vi.fn();
@@ -152,6 +159,8 @@ describe('reportSchedulerHandler', () => {
     clientCalls.length = 0;
     clientCallIndex = 0;
     mockQueueReport.mockResolvedValue('report-id-123');
+    mockSweepStaleReports.mockResolvedValue({ pending: [], timedOut: 0 });
+    mockEnqueueReport.mockResolvedValue(undefined);
     mockComputeNextRunAt.mockResolvedValue(new Date('2026-01-02T06:00:00Z'));
     mockOperatorReportLanguage.mockResolvedValue('en');
     mockClient.json.mockImplementation((v: unknown) => v);
@@ -291,6 +300,43 @@ describe('reportSchedulerHandler', () => {
     expect(log.info).not.toHaveBeenCalled();
   });
 
+  it('queues stale pending reports again and logs the sweep', async () => {
+    setupDbResults([]);
+    mockSweepStaleReports.mockResolvedValue({ pending: ['rpt_a', 'rpt_b'], timedOut: 1 });
+    const log = makeLog();
+
+    await reportSchedulerModule.reportSchedulerHandler(log);
+
+    expect(mockEnqueueReport).toHaveBeenCalledWith('rpt_a');
+    expect(mockEnqueueReport).toHaveBeenCalledWith('rpt_b');
+    expect(log.info).toHaveBeenCalledWith({ requeued: 2, timedOut: 1 }, 'Stale reports swept');
+  });
+
+  it('stays quiet when the sweep finds nothing', async () => {
+    setupDbResults([]);
+    const log = makeLog();
+
+    await reportSchedulerModule.reportSchedulerHandler(log);
+
+    expect(mockSweepStaleReports).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueReport).not.toHaveBeenCalled();
+    expect(log.info).not.toHaveBeenCalled();
+  });
+
+  it('logs a sweep failure and still runs the due schedules', async () => {
+    setupDbResults([makeSchedule({ recipientEmails: [] })]);
+    mockSweepStaleReports.mockRejectedValue(new Error('db down'));
+    const log = makeLog();
+
+    await reportSchedulerModule.reportSchedulerHandler(log);
+
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error) }),
+      'Report sweep failed',
+    );
+    expect(mockQueueReport).toHaveBeenCalledTimes(1);
+  });
+
   it('can be imported and the function is exported', async () => {
     const mod = reportSchedulerModule;
     expect(typeof mod.reportSchedulerHandler).toBe('function');
@@ -325,14 +371,21 @@ describe('reportSchedulerHandler', () => {
     const log = makeLog();
     await reportSchedulerHandler(log);
 
-    // queueReport receives the schedule's identity and filters verbatim.
-    expect(mockQueueReport).toHaveBeenCalledWith({
-      name: 'Daily Sessions',
-      reportType: 'sessions',
-      format: 'csv',
-      filters: { siteId: 'site_1' },
-      userId: 'usr_1',
-    });
+    // queueReport receives the schedule's identity and filters verbatim and
+    // queues the generation on the worker's report queue.
+    expect(mockQueueReport).toHaveBeenCalledWith(
+      {
+        name: 'Daily Sessions',
+        reportType: 'sessions',
+        format: 'csv',
+        filters: { siteId: 'site_1' },
+        userId: 'usr_1',
+      },
+      expect.any(Function),
+    );
+    const dispatch = mockQueueReport.mock.calls[0]?.[1] as (id: string) => Promise<void>;
+    await dispatch('report-id-123');
+    expect(mockEnqueueReport).toHaveBeenCalledWith('report-id-123');
     // Schedule advancement computed from the schedule cadence.
     expect(mockComputeNextRunAt).toHaveBeenCalledWith('daily', null, null);
     expect(log.info).toHaveBeenCalledWith(
@@ -460,16 +513,22 @@ describe('reportSchedulerHandler', () => {
     const { reportSchedulerHandler } = reportSchedulerModule;
     await reportSchedulerHandler(makeLog());
 
-    expect(mockQueueReport).toHaveBeenCalledWith(expect.objectContaining({ filters: {} }));
+    expect(mockQueueReport).toHaveBeenCalledWith(
+      expect.objectContaining({ filters: {} }),
+      expect.any(Function),
+    );
   });
 
-  it('falls back to empty userId when createdById is null', async () => {
+  it('stores no user when the schedule has no creator', async () => {
     setupDbResults([makeSchedule({ createdById: null, recipientEmails: null })]);
 
     const { reportSchedulerHandler } = reportSchedulerModule;
     await reportSchedulerHandler(makeLog());
 
-    expect(mockQueueReport).toHaveBeenCalledWith(expect.objectContaining({ userId: '' }));
+    expect(mockQueueReport).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: null }),
+      expect.any(Function),
+    );
   });
 
   it('returns before emailing when the schedule has no recipients', async () => {

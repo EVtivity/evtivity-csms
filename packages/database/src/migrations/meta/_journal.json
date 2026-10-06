@@ -1072,6 +1072,13 @@
       "when": 1791000012058,
       "tag": "0152_payment_pending_operation_check_validate",
       "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1791000012066,
+      "tag": "0153_payment_provider_drop_stripe_columns",
+      "breakpoints": true
     }
   ]
 }

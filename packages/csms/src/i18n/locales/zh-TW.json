@@ -2598,7 +2598,7 @@
     "PROVIDER_TEST_FAILED": "服務供應商回應：...",
     "PUSH_NOT_FOUND": "找不到推送設定",
     "PUSH_REJECTED": "充電站拒絕推送：...",
-    "RATE_LIMITED": "此充電站的狀態查詢次數過多",
+    "RATE_LIMITED": "請求過多。請稍候再試。",
     "RECAPTCHA_FAILED": "reCAPTCHA 驗證失敗",
     "RECAPTCHA_REQUIRED": "需要 reCAPTCHA 權杖",
     "REFUND_EXCEEDS_REMAINING": "退款金額超過剩餘可退款金額 ...",
