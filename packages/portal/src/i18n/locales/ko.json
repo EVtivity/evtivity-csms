@@ -52,6 +52,7 @@
     "registrationFailed": "가입에 실패했습니다",
     "mfaTitle": "인증 필요",
     "mfaSubtitle": "{{method}}에서 받은 6자리 코드를 입력하세요",
+    "mfaCodeLabel": "인증 코드",
     "mfaVerify": "인증",
     "mfaResend": "코드 재전송",
     "mfaResending": "전송 중...",

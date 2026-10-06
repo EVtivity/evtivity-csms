@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { lazy, Suspense, useEffect } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router';
+import { BrowserRouter, Outlet, Routes, Route, useSearchParams } from 'react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from '@/lib/query';
 import { useAuth } from '@/lib/auth';
@@ -114,6 +114,19 @@ function GtagLoader(): null {
   return null;
 }
 
+// The emailed link (?token=) verifies without a session, so it works on any device and
+// after the session expired. Without a token the page asks a signed-in driver to check
+// their inbox, inside the app layout.
+function VerifyEmailGate(): React.JSX.Element {
+  const [searchParams] = useSearchParams();
+  if (searchParams.has('token')) return <Outlet />;
+  return (
+    <ProtectedRoute>
+      <Layout />
+    </ProtectedRoute>
+  );
+}
+
 export function App(): React.JSX.Element {
   const hydrate = useAuth((s) => s.hydrate);
   const apiDown = useAuth((s) => s.apiDown);
@@ -135,6 +148,9 @@ export function App(): React.JSX.Element {
             <Suspense fallback={SuspenseFallback}>
               <Routes>
                 {/* Public routes */}
+                <Route path="/verify-email" element={<VerifyEmailGate />}>
+                  <Route index element={<VerifyEmail />} />
+                </Route>
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -160,9 +176,6 @@ export function App(): React.JSX.Element {
                     </ProtectedRoute>
                   }
                 >
-                  {/* Accessible without verified email */}
-                  <Route path="verify-email" element={<VerifyEmail />} />
-
                   {/* Requires verified email */}
                   <Route element={<VerifiedRoute />}>
                     <Route index element={<Home />} />

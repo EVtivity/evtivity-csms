@@ -363,6 +363,27 @@ describe('api', () => {
       expect(window.location.href).toBe('/guest-session/xyz');
     });
 
+    it('does not redirect to /login on 401 from the emailed verify link', async () => {
+      window.location.pathname = '/verify-email';
+      window.location.href = '/verify-email?token=abc';
+      Object.assign(window.location, { search: '?token=abc' });
+      fetchMock.mockResolvedValue(createMockResponse({ ok: false, status: 401, jsonData: null }));
+
+      await expect(api.get('/v1/portal/me')).rejects.toThrow(DynApiError);
+      expect(window.location.href).toBe('/verify-email?token=abc');
+      Object.assign(window.location, { search: '' });
+    });
+
+    it('redirects to /login on 401 from /verify-email without a token', async () => {
+      window.location.pathname = '/verify-email';
+      window.location.href = '/verify-email';
+      Object.assign(window.location, { search: '' });
+      fetchMock.mockResolvedValue(createMockResponse({ ok: false, status: 401, jsonData: null }));
+
+      await expect(api.get('/v1/portal/me')).rejects.toThrow(DynApiError);
+      expect(window.location.href).toBe('/login?reason=session_expired');
+    });
+
     it('does not redirect on non-401 errors', async () => {
       window.location.pathname = '/dashboard';
       window.location.href = '/dashboard';

@@ -6,6 +6,7 @@ import i18next from 'i18next';
 import {
   cn,
   formatCents,
+  formatClockTime,
   formatDate,
   formatDistance,
   formatDuration,
@@ -178,6 +179,13 @@ describe('formatting in the UI language', () => {
     expect(formatMonthYear(new Date(2026, 9, 1))).toBe('OKTOBER 2026');
     await i18next.changeLanguage('en');
     expect(formatDate('2026-03-05T08:04:09Z', 'Europe/Berlin')).toMatch(/^Mar 5, 2026, 9:04\sAM$/);
+  });
+
+  it('formats a chart clock time in the selected language and time zone', async () => {
+    await i18next.changeLanguage('de');
+    expect(formatClockTime(Date.UTC(2026, 9, 6, 19, 5), 'America/New_York')).toBe('15:05');
+    await i18next.changeLanguage('en');
+    expect(formatClockTime(Date.UTC(2026, 9, 6, 19, 5), 'America/New_York')).toMatch(/^3:05\sPM$/);
   });
 
   it('keeps English formatting for English', async () => {

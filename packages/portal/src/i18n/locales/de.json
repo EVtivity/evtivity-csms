@@ -52,6 +52,7 @@
     "registrationFailed": "Registrierung fehlgeschlagen",
     "mfaTitle": "Bestätigung erforderlich",
     "mfaSubtitle": "Gib den 6-stelligen Code aus deiner {{method}} ein",
+    "mfaCodeLabel": "Bestätigungscode",
     "mfaVerify": "Bestätigen",
     "mfaResend": "Code erneut senden",
     "mfaResending": "Wird gesendet...",

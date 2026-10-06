@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
-import { formatNumber } from '@/lib/utils';
+import { formatClockTime, formatNumber } from '@/lib/utils';
+import { useDriverTimezone } from '@/lib/timezone';
 
 interface EnergyDataPoint {
   timestamp: string;
@@ -16,6 +17,7 @@ interface EnergyChartProps {
 
 export function EnergyChart({ data, height = 160 }: EnergyChartProps): React.JSX.Element {
   const { t } = useTranslation();
+  const timezone = useDriverTimezone();
   if (data.length < 2) {
     return (
       <div
@@ -74,12 +76,7 @@ export function EnergyChart({ data, height = 160 }: EnergyChartProps): React.JSX
   }
 
   function formatTime(ms: number): string {
-    const d = new Date(ms);
-    const h = d.getHours();
-    const m = d.getMinutes();
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    const h12 = h % 12 || 12;
-    return `${String(h12)}:${String(m).padStart(2, '0')} ${ampm}`;
+    return formatClockTime(ms, timezone);
   }
 
   function formatEnergy(kwh: number): string {

@@ -54,7 +54,7 @@ interface SiteOption {
 }
 
 export function SustainabilityTab(): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isDark = useAuth((s) => s.theme) === 'dark';
 
   const today = new Date();
@@ -120,9 +120,12 @@ export function SustainabilityTab(): React.JSX.Element {
           formatter: (val: number) => `${formatNumber(val, 1)} kg`,
         },
       },
+      dataLabels: {
+        formatter: (val: number) => formatNumber(val, 1),
+      },
       colors: [CHART_COLORS.success],
     }),
-    [isDark, report?.monthlySummary],
+    [isDark, report?.monthlySummary, i18n.language],
   );
 
   const chartSeries = useMemo(

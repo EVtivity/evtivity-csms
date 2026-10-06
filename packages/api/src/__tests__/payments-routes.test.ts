@@ -830,6 +830,30 @@ describe('Payment routes - handler logic', () => {
       expect(mockClearPaymentCaches).toHaveBeenCalledTimes(1);
     });
 
+    it('clears the publishable key with an empty string', async () => {
+      setupDbResults([], [], []);
+      vi.mocked(db.insert).mockClear();
+
+      const response = await app.inject({
+        method: 'PUT',
+        url: '/settings/stripe',
+        headers: { authorization: 'Bearer ' + token },
+        payload: { publishableKey: '' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const rows = vi
+        .mocked(db.insert)
+        .mock.results.flatMap(
+          (res) =>
+            (res.value as { values: ReturnType<typeof vi.fn> }).values.mock.calls as unknown[][],
+        )
+        .map(([row]) => row as { key?: string; value?: unknown });
+      expect(rows).toContainEqual(
+        expect.objectContaining({ key: 'stripe.publishableKey', value: '' }),
+      );
+    });
+
     it('stores the webhook signing secret encrypted under stripe.webhookSecretEnc', async () => {
       setupDbResults([], [], []);
       vi.mocked(db.insert).mockClear();

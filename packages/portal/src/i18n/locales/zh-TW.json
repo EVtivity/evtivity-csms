@@ -52,6 +52,7 @@
     "registrationFailed": "註冊失敗",
     "mfaTitle": "需要驗證",
     "mfaSubtitle": "請輸入來自{{method}}的6位驗證碼",
+    "mfaCodeLabel": "驗證碼",
     "mfaVerify": "驗證",
     "mfaResend": "重新傳送驗證碼",
     "mfaResending": "傳送中...",

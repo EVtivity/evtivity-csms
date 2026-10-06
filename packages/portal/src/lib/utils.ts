@@ -74,6 +74,16 @@ export function formatDate(date: string | Date | null | undefined, timezone?: st
   );
 }
 
+/** Format a clock time in the UI language and time zone, e.g. "3:05 PM" (en) or "15:05" (de). */
+export function formatClockTime(date: string | Date | number, timezone: string): string {
+  return formatDateTime(
+    typeof date === 'number' ? new Date(date) : date,
+    timezone,
+    { timeStyle: 'short' },
+    uiLocale(),
+  );
+}
+
 export function formatDuration(
   startedAt: string | Date | null | undefined,
   endedAt: string | Date | null | undefined,

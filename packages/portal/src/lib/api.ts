@@ -81,7 +81,9 @@ function isPublicPage(): boolean {
     p.startsWith('/charge') ||
     p.startsWith('/qr/') ||
     p.startsWith('/guest-session') ||
-    p.startsWith('/location')
+    p.startsWith('/location') ||
+    // The emailed verify link; without a token the page needs a session.
+    (p === '/verify-email' && new URLSearchParams(window.location.search).has('token'))
   );
 }
 

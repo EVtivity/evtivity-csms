@@ -636,7 +636,10 @@ const updateStripeSettingsBody = z.object({
     .string()
     .optional()
     .describe('Stripe secret API key (stored encrypted). An empty string clears it.'),
-  publishableKey: z.string().min(1).optional().describe('Stripe publishable API key'),
+  publishableKey: z
+    .string()
+    .optional()
+    .describe('Stripe publishable API key. An empty string clears it.'),
   webhookSecret: z
     .string()
     .optional()

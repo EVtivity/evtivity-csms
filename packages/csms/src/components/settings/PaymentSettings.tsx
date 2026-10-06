@@ -255,7 +255,12 @@ export function PaymentSettings(): React.JSX.Element {
       const change = secretChange(value, stripeSecret(stripeSettings, key), stripeRemoving[key]);
       if (change !== undefined) vals[key] = change;
     }
-    if (stripePublishableKey.trim() !== '') vals.publishableKey = stripePublishableKey.trim();
+    // Send the publishable key when it changed; emptying a stored key clears it.
+    const storedPublishableKey =
+      typeof stripeSettings?.publishableKey === 'string' ? stripeSettings.publishableKey : '';
+    if (stripePublishableKey.trim() !== storedPublishableKey) {
+      vals.publishableKey = stripePublishableKey.trim();
+    }
     stripeSaveMutation.mutate(vals);
   }
 

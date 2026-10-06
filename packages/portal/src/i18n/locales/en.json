@@ -52,6 +52,7 @@
     "registrationFailed": "Registration failed",
     "mfaTitle": "Verification Required",
     "mfaSubtitle": "Enter the 6-digit code from your {{method}}",
+    "mfaCodeLabel": "Verification code",
     "mfaVerify": "Verify",
     "mfaResend": "Resend code",
     "mfaResending": "Sending...",

@@ -105,6 +105,8 @@ export function MfaChallenge(): React.JSX.Element {
             className="space-y-4"
           >
             <Input
+              id="mfaCode"
+              aria-label={t('auth.mfaCodeLabel')}
               value={code}
               onChange={(e) => {
                 setCode(e.target.value);
